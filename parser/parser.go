@@ -237,6 +237,57 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			Expr: expr,
 		}
 
+	case TOKEN_AT:
+		// Parse splice operator: @expr
+		pos := p.current.Position
+		p.nextToken()
+		operand, err := p.ParseExpression(PREC_SPLICE)
+		if err != nil {
+			return nil, err
+		}
+		left = &SpliceExpr{
+			Pos:  pos,
+			Expr: operand,
+		}
+
+	case TOKEN_BACKTICK:
+		// Parse catch expression: `expr ! codes => default`
+		pos := p.current.Position
+		p.nextToken()
+		expr, err := p.ParseExpression(PREC_CATCH)
+		if err != nil {
+			return nil, err
+		}
+
+		// Expect '!' after expression
+		if p.current.Type != TOKEN_NOT {
+			return nil, fmt.Errorf("expected '!' in catch expression, got %s", p.current.Type)
+		}
+		p.nextToken()
+
+		// Parse error codes
+		codes, err := p.parseCatchCodes()
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for optional default (=> expr)
+		var defaultExpr Expr
+		if p.current.Type == TOKEN_FATARROW {
+			p.nextToken()
+			defaultExpr, err = p.ParseExpression(PREC_CATCH)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		left = &CatchExpr{
+			Pos:     pos,
+			Expr:    expr,
+			Codes:   codes,
+			Default: defaultExpr,
+		}
+
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
 	}
@@ -483,4 +534,98 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 	}
 
 	return left, err
+}
+
+// parseCatchCodes parses error codes in a catch expression
+// Supports: ANY, single error (E_TYPE), or comma-separated list (E_TYPE, E_RANGE)
+func (p *Parser) parseCatchCodes() ([]types.ErrorCode, error) {
+	// Check for ANY keyword
+	if p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY" {
+		p.nextToken()
+		// Return all error codes
+		return []types.ErrorCode{
+			types.E_NONE, types.E_TYPE, types.E_DIV, types.E_PERM,
+			types.E_PROPNF, types.E_VERBNF, types.E_VARNF, types.E_INVIND,
+			types.E_RECMOVE, types.E_MAXREC, types.E_RANGE, types.E_ARGS,
+			types.E_NACC, types.E_INVARG, types.E_QUOTA, types.E_FLOAT,
+			types.E_FILE, types.E_EXEC,
+		}, nil
+	}
+
+	// Parse comma-separated list of error codes
+	var codes []types.ErrorCode
+
+	for {
+		if p.current.Type != TOKEN_ERROR_LIT {
+			return nil, fmt.Errorf("expected error code, got %s", p.current.Type)
+		}
+
+		// Parse the error literal
+		code, err := p.parseErrorCode()
+		if err != nil {
+			return nil, err
+		}
+		codes = append(codes, code)
+
+		// Check for comma (more codes)
+		if p.current.Type != TOKEN_COMMA {
+			break
+		}
+		p.nextToken() // skip comma
+	}
+
+	return codes, nil
+}
+
+// parseErrorCode parses a single error code literal (E_TYPE, E_RANGE, etc.)
+func (p *Parser) parseErrorCode() (types.ErrorCode, error) {
+	if p.current.Type != TOKEN_ERROR_LIT {
+		return 0, fmt.Errorf("expected error code, got %s", p.current.Type)
+	}
+
+	// Convert error name to code
+	var code types.ErrorCode
+	switch p.current.Value {
+	case "E_NONE":
+		code = types.E_NONE
+	case "E_TYPE":
+		code = types.E_TYPE
+	case "E_DIV":
+		code = types.E_DIV
+	case "E_PERM":
+		code = types.E_PERM
+	case "E_PROPNF":
+		code = types.E_PROPNF
+	case "E_VERBNF":
+		code = types.E_VERBNF
+	case "E_VARNF":
+		code = types.E_VARNF
+	case "E_INVIND":
+		code = types.E_INVIND
+	case "E_RECMOVE":
+		code = types.E_RECMOVE
+	case "E_MAXREC":
+		code = types.E_MAXREC
+	case "E_RANGE":
+		code = types.E_RANGE
+	case "E_ARGS":
+		code = types.E_ARGS
+	case "E_NACC":
+		code = types.E_NACC
+	case "E_INVARG":
+		code = types.E_INVARG
+	case "E_QUOTA":
+		code = types.E_QUOTA
+	case "E_FLOAT":
+		code = types.E_FLOAT
+	case "E_FILE":
+		code = types.E_FILE
+	case "E_EXEC":
+		code = types.E_EXEC
+	default:
+		return 0, fmt.Errorf("unknown error code: %s", p.current.Value)
+	}
+
+	p.nextToken()
+	return code, nil
 }
