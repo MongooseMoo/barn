@@ -192,21 +192,32 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 		return types.Ok(value)
 	}
 
-	// Check if property exists
+	// Check if property exists directly on this object
 	prop, ok := obj.Properties[node.Property]
-	if !ok {
-		// Property not found (Layer 8.6 will add add_property)
+	if ok {
+		// Property exists locally - update it
+		prop.Clear = false
+		prop.Value = value
+		return types.Ok(value)
+	}
+
+	// Property not on this object - check if inherited
+	inheritedProp, errCode := e.findProperty(obj, node.Property, ctx)
+	if errCode != types.E_NONE {
+		// Property not found anywhere
 		return types.Err(types.E_PROPNF)
 	}
 
-	// Check write permission (Layer 8.5 will add full permission checks)
-	// For now, allow all writes
-	_ = ctx // Will use for permission checks later
-
-	// If property is clear, writing to it un-clears it (per spec)
-	// This sets a local value instead of inheriting
-	prop.Clear = false
-	prop.Value = value
+	// Property is inherited - create a local copy with the new value
+	// This "overrides" the inherited value on this object
+	newProp := &db.Property{
+		Name:  node.Property,
+		Value: value,
+		Owner: inheritedProp.Owner,
+		Perms: inheritedProp.Perms,
+		Clear: false, // Has local value now
+	}
+	obj.Properties[node.Property] = newProp
 
 	// Assignment returns the assigned value
 	return types.Ok(value)

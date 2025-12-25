@@ -130,7 +130,10 @@ func (e *Evaluator) evalWhileStmt(stmt *parser.WhileStmt, ctx *types.TaskContext
 		case types.FlowBreak:
 			// Check if break targets this loop (or any loop if no label)
 			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
-				// Break this loop - return normal
+				// Break value becomes loop value, or 0 if no value
+				if bodyResult.Val != nil {
+					return types.Ok(bodyResult.Val)
+				}
 				return types.Ok(types.NewInt(0))
 			}
 			// Break targets outer loop - propagate
@@ -197,6 +200,10 @@ func (e *Evaluator) evalForRange(stmt *parser.ForStmt, ctx *types.TaskContext) t
 			return bodyResult
 		case types.FlowBreak:
 			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+				// Break value becomes loop value, or 0 if no value
+				if bodyResult.Val != nil {
+					return types.Ok(bodyResult.Val)
+				}
 				return types.Ok(types.NewInt(0))
 			}
 			return bodyResult
@@ -263,6 +270,10 @@ func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx
 			return bodyResult
 		case types.FlowBreak:
 			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+				// Break value becomes loop value, or 0 if no value
+				if bodyResult.Val != nil {
+					return types.Ok(bodyResult.Val)
+				}
 				return types.Ok(types.NewInt(0))
 			}
 			return bodyResult
@@ -303,6 +314,10 @@ func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx
 			return bodyResult
 		case types.FlowBreak:
 			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+				// Break value becomes loop value, or 0 if no value
+				if bodyResult.Val != nil {
+					return types.Ok(bodyResult.Val)
+				}
 				return types.Ok(types.NewInt(0))
 			}
 			return bodyResult
@@ -341,6 +356,10 @@ func (e *Evaluator) evalForString(stmt *parser.ForStmt, strVal *types.StrValue, 
 			return bodyResult
 		case types.FlowBreak:
 			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+				// Break value becomes loop value, or 0 if no value
+				if bodyResult.Val != nil {
+					return types.Ok(bodyResult.Val)
+				}
 				return types.Ok(types.NewInt(0))
 			}
 			return bodyResult
@@ -376,7 +395,16 @@ func (e *Evaluator) evalReturnStmt(stmt *parser.ReturnStmt, ctx *types.TaskConte
 
 // evalBreakStmt evaluates break statements
 func (e *Evaluator) evalBreakStmt(stmt *parser.BreakStmt, ctx *types.TaskContext) types.Result {
-	return types.Break(stmt.Label)
+	// If there's a value expression, evaluate it
+	var val types.Value
+	if stmt.Value != nil {
+		result := e.Eval(stmt.Value, ctx)
+		if !result.IsNormal() {
+			return result
+		}
+		val = result.Val
+	}
+	return types.Break(stmt.Label, val)
 }
 
 // evalContinueStmt evaluates continue statements

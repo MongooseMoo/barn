@@ -275,7 +275,7 @@ func (r *Runner) checkExpectation(test TestCase, result types.Result) (bool, err
 			return false, fmt.Errorf("expected %v, got nil", expectedVal)
 		}
 
-		if !result.Val.Equal(expectedVal) {
+		if !valuesEquivalent(result.Val, expectedVal) {
 			return false, fmt.Errorf("expected %v, got %v", expectedVal, result.Val)
 		}
 
@@ -298,6 +298,97 @@ func (r *Runner) checkExpectation(test TestCase, result types.Result) (bool, err
 
 	// No expectation specified
 	return false, fmt.Errorf("no expectation specified")
+}
+
+// valuesEquivalent checks if two values are equivalent for test purposes
+// This handles YAML ambiguity where:
+// - -1 could mean either integer or object #-1
+// - "#0" could mean either string or object reference
+func valuesEquivalent(actual, expected types.Value) bool {
+	// Direct equality
+	if actual.Equal(expected) {
+		return true
+	}
+
+	// Handle integer <-> object comparison for YAML ambiguity
+	// If expected is int and actual is object with that ID, consider equal
+	if expectedInt, ok := expected.(types.IntValue); ok {
+		if actualObj, ok := actual.(types.ObjValue); ok {
+			return int64(actualObj.ID()) == expectedInt.Val
+		}
+	}
+	// If expected is object and actual is int with that ID, consider equal
+	if expectedObj, ok := expected.(types.ObjValue); ok {
+		if actualInt, ok := actual.(types.IntValue); ok {
+			return actualInt.Val == int64(expectedObj.ID())
+		}
+	}
+
+	// Handle string <-> object comparison for YAML ambiguity
+	// If expected is object and actual is string "#N", consider equal
+	if expectedObj, ok := expected.(types.ObjValue); ok {
+		if actualStr, ok := actual.(types.StrValue); ok {
+			expectedStr := fmt.Sprintf("#%d", expectedObj.ID())
+			return actualStr.Value() == expectedStr
+		}
+	}
+	// If expected is string "#N" and actual is object, consider equal
+	if expectedStr, ok := expected.(types.StrValue); ok {
+		if actualObj, ok := actual.(types.ObjValue); ok {
+			s := expectedStr.Value()
+			if len(s) > 0 && s[0] == '#' {
+				var id int64
+				if _, err := fmt.Sscanf(s, "#%d", &id); err == nil {
+					return int64(actualObj.ID()) == id
+				}
+			}
+		}
+	}
+
+	// Recursively compare lists
+	if expectedList, ok := expected.(types.ListValue); ok {
+		if actualList, ok := actual.(types.ListValue); ok {
+			if expectedList.Len() != actualList.Len() {
+				return false
+			}
+			for i := 1; i <= expectedList.Len(); i++ {
+				if !valuesEquivalent(actualList.Get(i), expectedList.Get(i)) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+
+	// Recursively compare maps (order-independent)
+	if expectedMap, ok := expected.(types.MapValue); ok {
+		if actualMap, ok := actual.(types.MapValue); ok {
+			if expectedMap.Len() != actualMap.Len() {
+				return false
+			}
+			// Check each expected key exists in actual with equivalent value
+			for _, pair := range expectedMap.Pairs() {
+				key := pair[0]
+				expectedVal := pair[1]
+				// Find this key in actual (using equivalence)
+				found := false
+				for _, actualPair := range actualMap.Pairs() {
+					if valuesEquivalent(actualPair[0], key) {
+						if valuesEquivalent(actualPair[1], expectedVal) {
+							found = true
+							break
+						}
+					}
+				}
+				if !found {
+					return false
+				}
+			}
+			return true
+		}
+	}
+
+	return false
 }
 
 // convertYAMLValue converts a YAML value to a MOO Value

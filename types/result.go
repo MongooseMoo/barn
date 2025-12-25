@@ -41,8 +41,9 @@ func Err(e ErrorCode) Result {
 }
 
 // Break creates a Result for a break statement
-func Break(label string) Result {
-	return Result{Flow: FlowBreak, Label: label}
+// The value, if non-nil, becomes the value of the enclosing loop
+func Break(label string, val Value) Result {
+	return Result{Flow: FlowBreak, Label: label, Val: val}
 }
 
 // Continue creates a Result for a continue statement

@@ -50,6 +50,19 @@ type Expectation struct {
 
 // IsSkipped returns true if this test should be skipped
 func (tc *TestCase) IsSkipped() (bool, string) {
+	// Check skip_if first - barn is a 64-bit implementation
+	if tc.SkipIf != "" {
+		// Skip tests that require 32-bit behavior
+		if tc.SkipIf == "feature.64bit" || tc.SkipIf == "64bit" {
+			return true, "skipped (64-bit implementation)"
+		}
+		// Run tests that require 64-bit behavior ("not feature.64bit" means skip on 32-bit only)
+		// These tests should NOT be skipped on our 64-bit implementation
+		if tc.SkipIf == "not feature.64bit" {
+			// Don't skip - we are 64-bit
+		}
+	}
+
 	if tc.Skip == nil {
 		return false, ""
 	}

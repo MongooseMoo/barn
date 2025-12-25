@@ -161,17 +161,17 @@ func evalListIndex(list types.ListValue, index types.Value) types.Result {
 func evalListRange(list types.ListValue, start, end int64) types.Result {
 	length := int64(list.Len())
 
+	// If start > end, return empty list (before bounds checking per MOO semantics)
+	if start > end {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+
 	// Check bounds
 	if start < 1 || start > length {
 		return types.Err(types.E_RANGE)
 	}
 	if end < 1 || end > length {
 		return types.Err(types.E_RANGE)
-	}
-
-	// If start > end, return empty list
-	if start > end {
-		return types.Ok(types.NewList([]types.Value{}))
 	}
 
 	// Extract slice (1-based to 0-based conversion)
@@ -215,17 +215,17 @@ func evalStrRange(str types.StrValue, start, end int64) types.Result {
 	s := str.Value()
 	length := int64(len(s))
 
+	// If start > end, return empty string (before bounds checking per MOO semantics)
+	if start > end {
+		return types.Ok(types.NewStr(""))
+	}
+
 	// Check bounds
 	if start < 1 || start > length {
 		return types.Err(types.E_RANGE)
 	}
 	if end < 1 || end > length {
 		return types.Err(types.E_RANGE)
-	}
-
-	// If start > end, return empty string
-	if start > end {
-		return types.Ok(types.NewStr(""))
 	}
 
 	// Extract substring (1-based to 0-based conversion, Go slice is [start:end+1])
@@ -238,17 +238,17 @@ func evalStrRange(str types.StrValue, start, end int64) types.Result {
 func evalMapRange(m types.MapValue, start, end int64) types.Result {
 	length := int64(m.Len())
 
+	// If start > end, return empty map (before bounds checking per MOO semantics)
+	if start > end {
+		return types.Ok(types.NewEmptyMap())
+	}
+
 	// Check bounds
 	if start < 1 || start > length {
 		return types.Err(types.E_RANGE)
 	}
 	if end < 1 || end > length {
 		return types.Err(types.E_RANGE)
-	}
-
-	// If start > end, return empty map
-	if start > end {
-		return types.Ok(types.NewEmptyMap())
 	}
 
 	// Extract pairs in range (1-based indexing)

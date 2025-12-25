@@ -95,8 +95,13 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 			key := pair[0]
 			value := pair[1]
 
-			// Convert key to string
-			keyStr := key.String()
+			// Convert key to string - use raw value for strings, String() for others
+			var keyStr string
+			if strKey, ok := key.(types.StrValue); ok {
+				keyStr = strKey.Value() // Raw string without quotes
+			} else {
+				keyStr = key.String() // For numbers, objects, etc.
+			}
 
 			// Convert value
 			jsonValue, err := mooToJSON(value)

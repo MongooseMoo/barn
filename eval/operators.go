@@ -390,6 +390,7 @@ func evalBitwiseXor(left, right types.Value) types.Result {
 }
 
 // evalLeftShift implements left shift: left << right
+// Uses 64-bit integer semantics (barn is a 64-bit implementation)
 func evalLeftShift(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
@@ -405,11 +406,16 @@ func evalLeftShift(left, right types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// Shift by >= 64 returns 0 (all bits shifted out)
+	if rightInt.Val >= 64 {
+		return types.Ok(types.IntValue{Val: 0})
+	}
+
 	return types.Ok(types.IntValue{Val: leftInt.Val << uint(rightInt.Val)})
 }
 
 // evalRightShift implements right shift: left >> right
-// MOO uses LOGICAL right shift (zero-filling), not arithmetic shift
+// Uses ARITHMETIC right shift (sign-extending) with 64-bit semantics
 func evalRightShift(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
@@ -425,9 +431,16 @@ func evalRightShift(left, right types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Use unsigned right shift (logical, zero-filling)
-	result := int64(uint64(leftInt.Val) >> uint(rightInt.Val))
-	return types.Ok(types.IntValue{Val: result})
+	// Shift by >= 64 returns 0 for positive, -1 for negative (sign extension)
+	if rightInt.Val >= 64 {
+		if leftInt.Val < 0 {
+			return types.Ok(types.IntValue{Val: -1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+	}
+
+	// Go's >> on signed integers is arithmetic (sign-extending)
+	return types.Ok(types.IntValue{Val: leftInt.Val >> uint(rightInt.Val)})
 }
 
 // ============================================================================
