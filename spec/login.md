@@ -39,7 +39,8 @@ All input from unlogged connections goes to:
 **Return value:**
 - Player object (`#N`): Login successful, associate connection with this player
 - `0` or negative: Login failed, connection remains unlogged
-- String: Send this message to connection (optional in some servers)
+
+**Note:** Some servers also support returning a string to send to the connection, but this is not required. Barn treats non-player, non-zero returns as login failure.
 
 ### 2.2 Example Login Verb
 

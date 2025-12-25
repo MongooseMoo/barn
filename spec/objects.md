@@ -497,8 +497,8 @@ The system object is accessed via `$` in MOO code. It is the root of the object 
 | Property | Type | Description |
 |----------|------|-------------|
 | `server_options` | MAP | Server configuration (see §12.4) |
-| `maxint` | INT | Maximum integer value (2^63-1 for 64-bit) |
-| `minint` | INT | Minimum integer value (-2^63 for 64-bit) |
+| `maxint` | INT | Maximum integer value: 9223372036854775807 (2^63-1, 64-bit signed) |
+| `minint` | INT | Minimum integer value: -9223372036854775808 (-2^63, 64-bit signed) |
 | `nothing` | OBJ | "Nothing" sentinel (typically #-1) |
 | `failed_match` | OBJ | Failed match sentinel (typically #-2) |
 | `ambiguous_match` | OBJ | Ambiguous match sentinel (typically #-3) |
@@ -559,7 +559,7 @@ The login object (often `$login` or pointed to by `#0.login`) handles authentica
 | `name_lookup_timeout` | INT | 5 | DNS lookup timeout |
 | `protect_*` | INT | 0/1 | Builtin function protection flags |
 
-**Note:** `dump_interval` and `checkpoint_interval` are aliases for the same setting. Implementations should accept both names.
+**Note:** `dump_interval` and `checkpoint_interval` are aliases for the same setting. Implementations should accept both names. If both are set, `checkpoint_interval` takes precedence.
 
 ### 12.5 Minimal Core Database
 
