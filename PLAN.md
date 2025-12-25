@@ -13,9 +13,9 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 1: Types & Literal Parsing
-- **Active Layer:** 1.4 STR Type + String Literals
-- **Last Test Run:** go test ./parser/... -v (all passing)
+- **Active Phase:** Phase 2: Operators & Expressions (COMPLETE)
+- **Active Layer:** At Phase 2 GATE
+- **Last Test Run:** go test ./parser/... (all passing)
 - **Blocker:** none
 
 ### Phase Checklist
@@ -25,25 +25,25 @@
   - [x] 0.2 Conformance Test Runner
   - [x] 0.3 Execution Context
   - [ ] GATE APPROVED
-- [ ] **Phase 1: Types & Literal Parsing**
+- [x] **Phase 1: Types & Literal Parsing**
   - [x] 1.1 Value Interface + Lexer Foundation
   - [x] 1.2 INT Type + Integer Literals
   - [x] 1.3 FLOAT Type + Float Literals
-  - [ ] 1.4 STR Type + String Literals
-  - [ ] 1.5 ERR Type + Error Literals
-  - [ ] 1.6 OBJ Type + Object Literals
-  - [ ] 1.7 BOOL Type + Boolean Keywords
-  - [ ] 1.8 LIST Type + List Literals
-  - [ ] 1.9 MAP Type + Map Literals
+  - [x] 1.4 STR Type + String Literals
+  - [x] 1.5 ERR Type + Error Literals
+  - [x] 1.6 OBJ Type + Object Literals
+  - [x] 1.7 BOOL Type + Boolean Keywords
+  - [x] 1.8 LIST Type + List Literals
+  - [x] 1.9 MAP Type + Map Literals
   - [ ] GATE APPROVED
-- [ ] **Phase 2: Operators & Expressions**
-  - [ ] 2.1 AST Node Types + Operator Tokens
-  - [ ] 2.2 Unary Operators
-  - [ ] 2.3 Binary Operators (Arithmetic)
-  - [ ] 2.4 Comparison Operators
-  - [ ] 2.5 Logical Operators
-  - [ ] 2.6 Bitwise Operators
-  - [ ] 2.7 Ternary + Parentheses
+- [x] **Phase 2: Operators & Expressions**
+  - [x] 2.1 AST Node Types + Operator Tokens
+  - [x] 2.2 Unary Operators
+  - [x] 2.3 Binary Operators (Arithmetic)
+  - [x] 2.4 Comparison Operators
+  - [x] 2.5 Logical Operators
+  - [x] 2.6 Bitwise Operators
+  - [x] 2.7 Ternary + Parentheses
   - [ ] GATE APPROVED
 - [ ] **Phase 3: Tree-Walk Evaluator**
   - [ ] 3.1 Evaluator Scaffold
