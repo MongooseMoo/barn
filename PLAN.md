@@ -13,17 +13,17 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** _[fill in]_
-- **Active Layer:** _[fill in]_
-- **Last Test Run:** _[fill in result]_
-- **Blocker:** _[none | describe]_
+- **Active Phase:** Phase 0: Foundation
+- **Active Layer:** Phase 0 GATE
+- **Last Test Run:** go test ./types/... -v (all passing), conformance: 0 passed/ 1025 skipped
+- **Blocker:** none
 
 ### Phase Checklist
 
-- [ ] **Phase 0: Foundation**
-  - [ ] 0.1 Project Setup
-  - [ ] 0.2 Conformance Test Runner
-  - [ ] 0.3 Execution Context
+- [x] **Phase 0: Foundation**
+  - [x] 0.1 Project Setup
+  - [x] 0.2 Conformance Test Runner
+  - [x] 0.3 Execution Context
   - [ ] GATE APPROVED
 - [ ] **Phase 1: Types & Literal Parsing**
   - [ ] 1.1 Value Interface + Lexer Foundation
