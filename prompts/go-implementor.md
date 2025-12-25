@@ -87,11 +87,15 @@ GATE: Phase N Complete
 ## Starting Point
 
 Begin with:
-1. Read PLAN.md "Progress Tracking" section
-2. Find the first unchecked layer
+1. **Get acquainted with current state:**
+   - Run `git log --oneline -10` to see recent work
+   - Run `go test ./... 2>&1 | tail -5` to verify build
+   - Read PLAN.md "Progress Tracking" section
+   - Skim key files in your assigned phase's domain
+2. Find the first unchecked layer for your phase
 3. Start there
 
-If this is attempt 1, start at Layer 0.1.
+If resuming mid-phase, check which layers are already committed.
 
 ## CRITICAL: File Modified Error Workaround
 
