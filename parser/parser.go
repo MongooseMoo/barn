@@ -233,6 +233,29 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				Right:    right,
 			}
 
+		case TOKEN_QUESTION:
+			// Ternary operator: cond ? then | else
+			pos := p.current.Position
+			p.nextToken()
+			thenExpr, err := p.ParseExpression(PREC_LOWEST)
+			if err != nil {
+				return nil, err
+			}
+			if p.current.Type != TOKEN_PIPE {
+				return nil, fmt.Errorf("expected '|' in ternary, got %s", p.current.Type)
+			}
+			p.nextToken()
+			elseExpr, err := p.ParseExpression(PREC_TERNARY) // Right-associative
+			if err != nil {
+				return nil, err
+			}
+			left = &TernaryExpr{
+				Pos:       pos,
+				Condition: left,
+				ThenExpr:  thenExpr,
+				ElseExpr:  elseExpr,
+			}
+
 		default:
 			return left, nil
 		}
