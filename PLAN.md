@@ -247,6 +247,7 @@ This phase builds types AND their literal syntax together. Each layer adds a typ
 **Spec Refs:**
 - `spec/types.md` (lines 1-30: type code table)
 - `spec/grammar.md` (lines 1-50: token types)
+- `notes/go_interpreter_patterns.md` (parser approach: hand-written Pratt parser for expressions)
 
 #### Tasks
 1. Create `types/value.go`:
@@ -291,7 +292,11 @@ This phase builds types AND their literal syntax together. Each layer adds a typ
 
 #### Tasks
 1. Create `types/float.go` - FloatValue as float64
-2. Add lexer rule for floats: `-?[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?`
+2. Add lexer rule for floats (all valid forms):
+   - With decimal: `3.14`, `-0.5`, `.5`
+   - With exponent: `1e10`, `1E-5`, `3.14e+2`
+   - Combined: `1.5e-3`
+   - Regex: `-?([0-9]+\.?[0-9]*|[0-9]*\.[0-9]+)([eE][+-]?[0-9]+)?`
 3. Extend parser to handle float literals
 4. Handle NaN/Infinity: these raise E_FLOAT per spec
 
@@ -734,7 +739,7 @@ Next: Phase 4 - Collections & Indexing
 #### Tasks
 1. Implement string[index] returning single character
 2. Implement string[start..end] returning substring
-3. Handle Unicode correctly
+3. Strings are byte sequences per spec (not Unicode codepoints) - index by byte position
 
 #### Done Criteria
 - [ ] "hello"[1] == "h"
