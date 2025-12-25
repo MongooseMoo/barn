@@ -16,19 +16,27 @@ You manage implementor trials. Your job is to launch implementors, collect block
 
 ## Launching an Implementor
 
+**CRITICAL: Do NOT read PLAN.md or spec files into your context. Pass file paths to the agent.**
+
 Use Task tool with:
 - `subagent_type: general-purpose`
-- Prompt: Contents of `prompts/go-implementor.md` + specific phase assignment
+- Prompt: Short assignment + file paths for agent to read
 
-Example launch:
+Example launch prompt (keep it SHORT):
 ```
-Implement Phase 0 (Foundation) of the Go MOO server.
+Implement Phase 4 (Collections & Indexing) of the Go MOO server.
 
-[paste go-implementor.md contents]
+Read these files first:
+- barn/prompts/go-implementor.md (your instructions)
+- barn/PLAN.md (find Phase 4 tasks)
+- barn/spec/operators.md (indexing semantics)
+- barn/spec/types.md (collection types)
 
-Your assignment: Complete Layers 0.1, 0.2, 0.3.
-Stop at the Phase 0 GATE and report status.
+Your assignment: Complete Layers 4.1 through 4.5.
+Stop at the Phase 4 GATE and report status.
 ```
+
+The agent reads the files. You do NOT paste contents into the prompt.
 
 ## Handling Blockers
 
