@@ -16,27 +16,35 @@ type Evaluator struct {
 
 // NewEvaluator creates a new evaluator with a fresh environment
 func NewEvaluator() *Evaluator {
+	store := db.NewStore()
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
 	return &Evaluator{
 		env:      NewEnvironment(),
-		builtins: builtins.NewRegistry(),
-		store:    db.NewStore(),
+		builtins: registry,
+		store:    store,
 	}
 }
 
 // NewEvaluatorWithEnv creates a new evaluator with a given environment
 func NewEvaluatorWithEnv(env *Environment) *Evaluator {
+	store := db.NewStore()
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
 	return &Evaluator{
 		env:      env,
-		builtins: builtins.NewRegistry(),
-		store:    db.NewStore(),
+		builtins: registry,
+		store:    store,
 	}
 }
 
 // NewEvaluatorWithStore creates a new evaluator with a given store
 func NewEvaluatorWithStore(store *db.Store) *Evaluator {
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
 	return &Evaluator{
 		env:      NewEnvironment(),
-		builtins: builtins.NewRegistry(),
+		builtins: registry,
 		store:    store,
 	}
 }
