@@ -24,8 +24,24 @@ func (e *Evaluator) evalIndex(node *parser.IndexExpr, ctx *types.TaskContext) ty
 
 	// Set IndexContext so ^ and $ can be resolved in sub-expressions
 	oldContext := ctx.IndexContext
+	oldFirstKey := ctx.MapFirstKey
+	oldLastKey := ctx.MapLastKey
 	ctx.IndexContext = length
-	defer func() { ctx.IndexContext = oldContext }()
+	ctx.MapFirstKey = nil
+	ctx.MapLastKey = nil
+
+	// For maps, also store first/last keys for ^ and $ resolution
+	if mapVal, isMap := expr.(types.MapValue); isMap && length > 0 {
+		pairs := mapVal.Pairs()
+		ctx.MapFirstKey = pairs[0][0]
+		ctx.MapLastKey = pairs[length-1][0]
+	}
+
+	defer func() {
+		ctx.IndexContext = oldContext
+		ctx.MapFirstKey = oldFirstKey
+		ctx.MapLastKey = oldLastKey
+	}()
 
 	// Evaluate the index expression
 	indexResult := e.Eval(node.Index, ctx)
@@ -391,10 +407,26 @@ func (e *Evaluator) evalSimpleIndexAssign(varName string, collVal types.Value, i
 
 	// Set IndexContext for index resolution
 	oldContext := ctx.IndexContext
+	oldFirstKey := ctx.MapFirstKey
+	oldLastKey := ctx.MapLastKey
 	ctx.IndexContext = length
-	defer func() { ctx.IndexContext = oldContext }()
+	ctx.MapFirstKey = nil
+	ctx.MapLastKey = nil
 
-	// Evaluate the index expression
+	// For maps, also store first/last keys for ^ and $ resolution
+	if mapVal, isMap := collVal.(types.MapValue); isMap && length > 0 {
+		pairs := mapVal.Pairs()
+		ctx.MapFirstKey = pairs[0][0]
+		ctx.MapLastKey = pairs[length-1][0]
+	}
+
+	defer func() {
+		ctx.IndexContext = oldContext
+		ctx.MapFirstKey = oldFirstKey
+		ctx.MapLastKey = oldLastKey
+	}()
+
+	// Evaluate the index expression (for maps, ^ and $ will resolve to actual keys)
 	indexResult := e.Eval(indexExpr, ctx)
 	if !indexResult.IsNormal() {
 		return indexResult

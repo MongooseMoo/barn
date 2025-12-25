@@ -17,6 +17,11 @@ type TaskContext struct {
 	// -1 means no indexing context
 	IndexContext int
 
+	// MapFirstKey and MapLastKey hold the first/last keys when indexing a map
+	// These are used so ^ and $ can resolve to actual keys instead of integers
+	MapFirstKey Value
+	MapLastKey  Value
+
 	// TaskLocal stores task-local data (set via set_task_local, read via task_local)
 	TaskLocal Value
 

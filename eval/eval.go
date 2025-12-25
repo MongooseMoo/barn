@@ -339,6 +339,7 @@ func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.Tas
 
 // evalIndexMarker evaluates an index marker (^ or $)
 // These resolve to 1 (^) or collection length ($) when inside an indexing context
+// For maps, they resolve to the actual first/last KEY
 func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.TaskContext) types.Result {
 	// Check if we have an indexing context
 	// IndexContext = -1 means "not in an indexing context"
@@ -348,10 +349,16 @@ func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.Tas
 		return types.Err(types.E_TYPE)
 	}
 
-	// Resolve the marker
+	// For maps, ^ and $ resolve to actual keys (if available)
 	if node.Marker == parser.TOKEN_CARET {
+		if ctx.MapFirstKey != nil {
+			return types.Ok(ctx.MapFirstKey)
+		}
 		return types.Ok(types.NewInt(1))
 	} else if node.Marker == parser.TOKEN_DOLLAR {
+		if ctx.MapLastKey != nil {
+			return types.Ok(ctx.MapLastKey)
+		}
 		return types.Ok(types.NewInt(int64(ctx.IndexContext)))
 	}
 	return types.Err(types.E_TYPE)
