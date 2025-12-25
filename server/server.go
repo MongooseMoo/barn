@@ -18,7 +18,9 @@ type Server struct {
 	store          *db.Store
 	database       *db.Database
 	scheduler      *Scheduler
+	connManager    *ConnectionManager
 	dbPath         string
+	port           int
 	running        bool
 	mu             sync.Mutex
 	shutdownChan   chan struct{}
@@ -28,11 +30,12 @@ type Server struct {
 }
 
 // NewServer creates a new MOO server
-func NewServer(dbPath string) (*Server, error) {
+func NewServer(dbPath string, port int) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
 		dbPath:         dbPath,
+		port:           port,
 		shutdownChan:   make(chan struct{}),
 		checkpointChan: make(chan struct{}),
 		ctx:            ctx,
@@ -42,16 +45,17 @@ func NewServer(dbPath string) (*Server, error) {
 
 // LoadDatabase loads the database from disk
 func (s *Server) LoadDatabase() error {
-	db, err := db.LoadDatabase(s.dbPath)
+	database, err := db.LoadDatabase(s.dbPath)
 	if err != nil {
 		return fmt.Errorf("load database: %w", err)
 	}
 
-	s.database = db
-	s.store = db.NewStoreFromDatabase()
+	s.database = database
+	s.store = database.NewStoreFromDatabase()
 	s.scheduler = NewScheduler(s.store)
+	s.connManager = NewConnectionManager(s, s.port)
 
-	log.Printf("Loaded database version %d with %d objects", db.Version, len(db.Objects))
+	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	return nil
 }
 
@@ -71,6 +75,11 @@ func (s *Server) Start() error {
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
 		log.Printf("Warning: #0:server_started() failed: %v", err)
+	}
+
+	// Start listening for connections
+	if err := s.connManager.Listen(); err != nil {
+		return fmt.Errorf("listen failed: %w", err)
 	}
 
 	// Set up signal handling
