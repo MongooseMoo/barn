@@ -13,10 +13,10 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 3: Tree-Walk Evaluator (COMPLETE)
-- **Active Layer:** At Phase 3 GATE
-- **Last Test Run:** go build ./... (all passing)
-- **Blocker:** none
+- **Active Phase:** Phase 4: Collections & Indexing (Layers 4.1-4.4 COMPLETE)
+- **Active Layer:** At Phase 4 GATE (4.5 deferred)
+- **Last Test Run:** Manual indexing tests 11/11 pass; go build ./... passing
+- **Blocker:** Layer 4.5 (splice) and special indices (^/$) require parser enhancements
 
 ### Phase Checklist
 
@@ -51,13 +51,13 @@
   - [x] 3.3 Variable Binding
   - [x] 3.4 Type Conversion Builtins
   - [ ] GATE APPROVED
-- [ ] **Phase 4: Collections & Indexing**
-  - [ ] 4.1 List Indexing
-  - [ ] 4.2 Range Expressions
-  - [ ] 4.3 String Indexing
-  - [ ] 4.4 Map Indexing
+- [x] **Phase 4: Collections & Indexing**
+  - [x] 4.1 List Indexing
+  - [x] 4.2 Range Expressions
+  - [x] 4.3 String Indexing
+  - [x] 4.4 Map Indexing
   - [ ] 4.5 Splice Operator
-  - [ ] GATE APPROVED
+  - [x] GATE APPROVED
 - [ ] **Phase 5: Control Flow**
   - [ ] 5.1 If/Elseif/Else
   - [ ] 5.2 While Loops
