@@ -459,8 +459,16 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_INVARG)
 	}
 
+	// Check for cycles - can't make an object its own parent or ancestor
+	if objVal.ID() == newParentVal.ID() {
+		return types.Err(types.E_RECMOVE)
+	}
+	// Check if new parent is a descendant of object (would create cycle)
+	if isChildOf(store, newParentVal.ID(), objVal.ID()) {
+		return types.Err(types.E_RECMOVE)
+	}
+
 	// TODO: Check permissions and fertile flag (Layer 8.5)
-	// TODO: Check for cycles
 
 	// Remove from old parents' children lists
 	for _, oldParentID := range obj.Parents {
@@ -501,7 +509,7 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		return types.Err(types.E_INVIND)
 	}
 
-	// Convert list to ObjIDs
+	// Convert list to ObjIDs and validate
 	elements := parentsList.Elements()
 	newParents := make([]types.ObjID, len(elements))
 	for i, elem := range elements {
@@ -510,16 +518,25 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 			return types.Err(types.E_TYPE)
 		}
 
-		parent := store.Get(parentVal.ID())
+		parentID := parentVal.ID()
+		parent := store.Get(parentID)
 		if parent == nil {
 			return types.Err(types.E_INVARG)
 		}
 
-		newParents[i] = parentVal.ID()
+		// Check for cycles - can't make an object its own parent or ancestor
+		if parentID == objVal.ID() {
+			return types.Err(types.E_RECMOVE)
+		}
+		// Check if parent is a descendant of object (would create cycle)
+		if isChildOf(store, parentID, objVal.ID()) {
+			return types.Err(types.E_RECMOVE)
+		}
+
+		newParents[i] = parentID
 	}
 
 	// TODO: Check permissions and fertile flags (Layer 8.5)
-	// TODO: Check for cycles
 
 	// Remove from old parents' children lists
 	for _, oldParentID := range obj.Parents {
@@ -778,6 +795,28 @@ func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
 		}
 	}
 	return result
+}
+
+// isChildOf checks if descendant is in the children tree of ancestor
+// Used for cycle detection in parent relationships
+func isChildOf(store *db.Store, descendant, ancestor types.ObjID) bool {
+	obj := store.Get(ancestor)
+	if obj == nil {
+		return false
+	}
+
+	// Check direct children
+	for _, childID := range obj.Children {
+		if childID == descendant {
+			return true
+		}
+		// Recursively check children's children
+		if isChildOf(store, descendant, childID) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // builtinIsPlayer implements is_player(object)
