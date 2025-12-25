@@ -16,30 +16,23 @@ func (e *Evaluator) evalIndex(node *parser.IndexExpr, ctx *types.TaskContext) ty
 
 	expr := exprResult.Val
 
-	// Resolve index - handle special markers ^ (first) and $ (last)
-	var index types.Value
-	if marker, ok := node.Index.(*parser.IndexMarkerExpr); ok {
-		// Get collection length for $ resolution
-		length := getCollectionLength(expr)
-		if length < 0 {
-			return types.Err(types.E_TYPE) // Not a collection
-		}
-
-		if marker.Marker == parser.TOKEN_CARET {
-			index = types.NewInt(1) // ^ means first (index 1)
-		} else if marker.Marker == parser.TOKEN_DOLLAR {
-			index = types.NewInt(int64(length)) // $ means last
-		} else {
-			return types.Err(types.E_TYPE)
-		}
-	} else {
-		// Normal index - evaluate it
-		indexResult := e.Eval(node.Index, ctx)
-		if !indexResult.IsNormal() {
-			return indexResult
-		}
-		index = indexResult.Val
+	// Get collection length for $ and ^ resolution in sub-expressions
+	length := getCollectionLength(expr)
+	if length < 0 {
+		return types.Err(types.E_TYPE) // Not a collection
 	}
+
+	// Set IndexContext so ^ and $ can be resolved in sub-expressions
+	oldContext := ctx.IndexContext
+	ctx.IndexContext = length
+	defer func() { ctx.IndexContext = oldContext }()
+
+	// Evaluate the index expression
+	indexResult := e.Eval(node.Index, ctx)
+	if !indexResult.IsNormal() {
+		return indexResult
+	}
+	index := indexResult.Val
 
 	// Dispatch based on collection type
 	switch coll := expr.(type) {
@@ -85,49 +78,32 @@ func (e *Evaluator) evalRange(node *parser.RangeExpr, ctx *types.TaskContext) ty
 		return types.Err(types.E_TYPE) // Not a collection
 	}
 
-	// Resolve start index - handle special markers ^ (first) and $ (last)
-	var startIdx int64
-	if marker, ok := node.Start.(*parser.IndexMarkerExpr); ok {
-		if marker.Marker == parser.TOKEN_CARET {
-			startIdx = 1 // ^ means first (index 1)
-		} else if marker.Marker == parser.TOKEN_DOLLAR {
-			startIdx = int64(length) // $ means last
-		} else {
-			return types.Err(types.E_TYPE)
-		}
-	} else {
-		startResult := e.Eval(node.Start, ctx)
-		if !startResult.IsNormal() {
-			return startResult
-		}
-		startInt, ok := startResult.Val.(types.IntValue)
-		if !ok {
-			return types.Err(types.E_TYPE)
-		}
-		startIdx = startInt.Val
-	}
+	// Set IndexContext so ^ and $ can be resolved in sub-expressions
+	oldContext := ctx.IndexContext
+	ctx.IndexContext = length
+	defer func() { ctx.IndexContext = oldContext }()
 
-	// Resolve end index - handle special markers ^ (first) and $ (last)
-	var endIdx int64
-	if marker, ok := node.End.(*parser.IndexMarkerExpr); ok {
-		if marker.Marker == parser.TOKEN_CARET {
-			endIdx = 1 // ^ means first (index 1)
-		} else if marker.Marker == parser.TOKEN_DOLLAR {
-			endIdx = int64(length) // $ means last
-		} else {
-			return types.Err(types.E_TYPE)
-		}
-	} else {
-		endResult := e.Eval(node.End, ctx)
-		if !endResult.IsNormal() {
-			return endResult
-		}
-		endInt, ok := endResult.Val.(types.IntValue)
-		if !ok {
-			return types.Err(types.E_TYPE)
-		}
-		endIdx = endInt.Val
+	// Evaluate start expression
+	startResult := e.Eval(node.Start, ctx)
+	if !startResult.IsNormal() {
+		return startResult
 	}
+	startInt, ok := startResult.Val.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	startIdx := startInt.Val
+
+	// Evaluate end expression
+	endResult := e.Eval(node.End, ctx)
+	if !endResult.IsNormal() {
+		return endResult
+	}
+	endInt, ok := endResult.Val.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	endIdx := endInt.Val
 
 	// Dispatch based on collection type
 	switch coll := expr.(type) {

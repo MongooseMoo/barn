@@ -145,6 +145,64 @@ func builtinTofloat(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 }
 
+// builtinToliteral converts a value to its MOO literal string representation
+// toliteral(value) -> str
+func builtinToliteral(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	return types.Ok(types.NewStr(args[0].String()))
+}
+
+// builtinToobj converts a value to an object reference
+// toobj(int) -> obj (object with that ID)
+// toobj(str) -> obj (parse "#123" format)
+// toobj(obj) -> obj (identity)
+func builtinToobj(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	val := args[0]
+
+	switch v := val.(type) {
+	case types.ObjValue:
+		return types.Ok(v)
+
+	case types.IntValue:
+		return types.Ok(types.NewObj(types.ObjID(v.Val)))
+
+	case types.StrValue:
+		str := strings.TrimSpace(v.Value())
+		// Parse "#123" format
+		if len(str) > 0 && str[0] == '#' {
+			str = str[1:]
+		}
+		i, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Ok(types.NewObj(types.ObjID(i)))
+
+	default:
+		return types.Err(types.E_TYPE)
+	}
+}
+
+// builtinEqual tests deep equality of two values
+// equal(val1, val2) -> bool
+func builtinEqual(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	if args[0].Equal(args[1]) {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================

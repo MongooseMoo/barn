@@ -362,7 +362,10 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(types.E_PROPNF)
 	}
 
-	return types.Ok(types.NewBool(prop.Clear))
+	if prop.Clear {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
 }
 
 // Helper functions

@@ -41,9 +41,9 @@ func (w WaifValue) Equal(other Value) bool {
 }
 
 // Truthy returns whether the waif is truthy
-// WAIFs are always truthy
+// In MOO, waifs are never truthy (only non-zero ints and non-empty strings)
 func (w WaifValue) Truthy() bool {
-	return true
+	return false
 }
 
 // Class returns the waif's class object ID

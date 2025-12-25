@@ -338,11 +338,20 @@ func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.Tas
 }
 
 // evalIndexMarker evaluates an index marker (^ or $)
-// These can only be meaningful in an indexing context, so we return E_TYPE here
-// The actual resolution happens in evalIndex and evalRange
+// These resolve to 1 (^) or collection length ($) when inside an indexing context
 func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.TaskContext) types.Result {
-	// Index markers should only appear inside [] expressions
-	// If we're evaluating one directly, it's an error
+	// Check if we have an indexing context
+	if ctx.IndexContext <= 0 {
+		// No indexing context - error
+		return types.Err(types.E_TYPE)
+	}
+
+	// Resolve the marker
+	if node.Marker == parser.TOKEN_CARET {
+		return types.Ok(types.NewInt(1))
+	} else if node.Marker == parser.TOKEN_DOLLAR {
+		return types.Ok(types.NewInt(int64(ctx.IndexContext)))
+	}
 	return types.Err(types.E_TYPE)
 }
 

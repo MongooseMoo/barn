@@ -2,8 +2,18 @@ package builtins
 
 import (
 	"barn/types"
+	"crypto/hmac"
+	"crypto/md5"
+	"crypto/rand"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
+	"hash"
 	"strings"
+
+	"golang.org/x/crypto/ripemd160"
 )
 
 // ============================================================================
@@ -297,4 +307,515 @@ func simpleHash(s string) string {
 		hash /= 64
 	}
 	return string(result)
+}
+
+// ============================================================================
+// HASHING BUILTINS
+// ============================================================================
+
+// getHasher returns a hash.Hash for the given algorithm name
+func getHasher(algo string) (hash.Hash, bool) {
+	switch strings.ToLower(algo) {
+	case "md5":
+		return md5.New(), true
+	case "sha1":
+		return sha1.New(), true
+	case "sha224":
+		return sha256.New224(), true
+	case "sha256", "":
+		return sha256.New(), true
+	case "sha384":
+		return sha512.New384(), true
+	case "sha512":
+		return sha512.New(), true
+	case "ripemd160":
+		return ripemd160.New(), true
+	default:
+		return nil, false
+	}
+}
+
+// builtinStringHash hashes a string with specified algorithm
+// string_hash(str [, algo [, binary]]) -> str
+func builtinStringHash(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+
+	str, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	algo := "sha256"
+	if len(args) >= 2 {
+		algoVal, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		algo = algoVal.Value()
+	}
+
+	binaryOutput := false
+	if len(args) >= 3 {
+		binaryOutput = args[2].Truthy()
+	}
+
+	hasher, ok := getHasher(algo)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	hasher.Write([]byte(str.Value()))
+	hashBytes := hasher.Sum(nil)
+
+	if binaryOutput {
+		return types.Ok(types.NewStr(encodeBinaryStr(hashBytes)))
+	}
+	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
+}
+
+// builtinBinaryHash hashes a binary string with specified algorithm
+// binary_hash(str [, algo [, binary]]) -> str
+func builtinBinaryHash(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+
+	str, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	algo := "sha256"
+	if len(args) >= 2 {
+		algoVal, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		algo = algoVal.Value()
+	}
+
+	binaryOutput := false
+	if len(args) >= 3 {
+		binaryOutput = args[2].Truthy()
+	}
+
+	// Decode binary string
+	bytes, hasErr := decodeBinaryString(str.Value())
+	if hasErr {
+		return types.Err(types.E_INVARG)
+	}
+
+	hasher, ok := getHasher(algo)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	hasher.Write(bytes)
+	hashBytes := hasher.Sum(nil)
+
+	if binaryOutput {
+		return types.Ok(types.NewStr(encodeBinaryStr(hashBytes)))
+	}
+	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
+}
+
+// builtinValueHash hashes any MOO value with specified algorithm
+// value_hash(val [, algo [, binary]]) -> str
+func builtinValueHash(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+
+	algo := "sha256"
+	if len(args) >= 2 {
+		algoVal, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		algo = algoVal.Value()
+	}
+
+	binaryOutput := false
+	if len(args) >= 3 {
+		binaryOutput = args[2].Truthy()
+	}
+
+	hasher, ok := getHasher(algo)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Hash the literal representation of the value
+	hasher.Write([]byte(args[0].String()))
+	hashBytes := hasher.Sum(nil)
+
+	if binaryOutput {
+		return types.Ok(types.NewStr(encodeBinaryStr(hashBytes)))
+	}
+	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
+}
+
+// ============================================================================
+// HMAC BUILTINS
+// ============================================================================
+
+// builtinStringHmac computes HMAC for a string
+// string_hmac(str, key [, algo [, binary]]) -> str
+func builtinStringHmac(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 2 || len(args) > 4 {
+		return types.Err(types.E_ARGS)
+	}
+
+	str, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	keyVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Decode key as binary string
+	key, hasErr := decodeBinaryString(keyVal.Value())
+	if hasErr {
+		return types.Err(types.E_INVARG)
+	}
+
+	algo := "sha256"
+	if len(args) >= 3 {
+		algoVal, ok := args[2].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		algo = algoVal.Value()
+	}
+
+	binaryOutput := false
+	if len(args) >= 4 {
+		binaryOutput = args[3].Truthy()
+	}
+
+	h, ok := getHmacFunc(algo)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	mac := hmac.New(h, key)
+	mac.Write([]byte(str.Value()))
+	hashBytes := mac.Sum(nil)
+
+	if binaryOutput {
+		return types.Ok(types.NewStr(encodeBinaryStr(hashBytes)))
+	}
+	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
+}
+
+// builtinBinaryHmac computes HMAC for a binary string
+// binary_hmac(str, key [, algo [, binary]]) -> str
+func builtinBinaryHmac(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 2 || len(args) > 4 {
+		return types.Err(types.E_ARGS)
+	}
+
+	str, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	keyVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Decode both as binary strings
+	data, hasErr := decodeBinaryString(str.Value())
+	if hasErr {
+		return types.Err(types.E_INVARG)
+	}
+
+	key, hasErr := decodeBinaryString(keyVal.Value())
+	if hasErr {
+		return types.Err(types.E_INVARG)
+	}
+
+	algo := "sha256"
+	if len(args) >= 3 {
+		algoVal, ok := args[2].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		algo = algoVal.Value()
+	}
+
+	binaryOutput := false
+	if len(args) >= 4 {
+		binaryOutput = args[3].Truthy()
+	}
+
+	h, ok := getHmacFunc(algo)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	mac := hmac.New(h, key)
+	mac.Write(data)
+	hashBytes := mac.Sum(nil)
+
+	if binaryOutput {
+		return types.Ok(types.NewStr(encodeBinaryStr(hashBytes)))
+	}
+	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
+}
+
+// builtinValueHmac computes HMAC for any MOO value
+// value_hmac(val, key [, algo [, binary]]) -> str
+func builtinValueHmac(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 2 || len(args) > 4 {
+		return types.Err(types.E_ARGS)
+	}
+
+	keyVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	key, hasErr := decodeBinaryString(keyVal.Value())
+	if hasErr {
+		return types.Err(types.E_INVARG)
+	}
+
+	algo := "sha256"
+	if len(args) >= 3 {
+		algoVal, ok := args[2].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		algo = algoVal.Value()
+	}
+
+	binaryOutput := false
+	if len(args) >= 4 {
+		binaryOutput = args[3].Truthy()
+	}
+
+	h, ok := getHmacFunc(algo)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	mac := hmac.New(h, key)
+	mac.Write([]byte(args[0].String()))
+	hashBytes := mac.Sum(nil)
+
+	if binaryOutput {
+		return types.Ok(types.NewStr(encodeBinaryStr(hashBytes)))
+	}
+	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
+}
+
+// getHmacFunc returns a hash constructor for HMAC
+func getHmacFunc(algo string) (func() hash.Hash, bool) {
+	switch strings.ToLower(algo) {
+	case "md5":
+		return md5.New, true
+	case "sha1":
+		return sha1.New, true
+	case "sha224":
+		return sha256.New224, true
+	case "sha256", "":
+		return sha256.New, true
+	case "sha384":
+		return sha512.New384, true
+	case "sha512":
+		return sha512.New, true
+	case "ripemd160":
+		return ripemd160.New, true
+	default:
+		return nil, false
+	}
+}
+
+// ============================================================================
+// SALT AND RANDOM BUILTINS
+// ============================================================================
+
+// builtinSalt generates a salt string for crypt
+// salt(prefix, random_data) -> str
+func builtinSalt(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	prefix, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	randomVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Decode the random data as binary string
+	randomBytes, hasErr := decodeBinaryString(randomVal.Value())
+	if hasErr {
+		return types.Err(types.E_INVARG)
+	}
+
+	prefixStr := prefix.Value()
+	var result string
+
+	// Base64-like encoding for salt characters
+	const saltChars = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+	switch {
+	case prefixStr == "":
+		// Traditional DES crypt - needs 2 bytes
+		if len(randomBytes) < 2 {
+			return types.Err(types.E_INVARG)
+		}
+		result = string([]byte{saltChars[randomBytes[0]%64], saltChars[randomBytes[1]%64]})
+
+	case strings.HasPrefix(prefixStr, "$1$"):
+		// MD5 crypt - needs at least 3 bytes for 6 chars
+		if len(randomBytes) < 6 {
+			return types.Err(types.E_INVARG)
+		}
+		salt := make([]byte, 8)
+		for i := 0; i < 8; i++ {
+			if i < len(randomBytes) {
+				salt[i] = saltChars[randomBytes[i]%64]
+			} else {
+				salt[i] = '.'
+			}
+		}
+		result = "$1$" + string(salt)
+
+	case strings.HasPrefix(prefixStr, "$5$") || strings.HasPrefix(prefixStr, "$6$"):
+		// SHA256/SHA512 - needs at least 3 bytes
+		if len(randomBytes) < 3 {
+			return types.Err(types.E_INVARG)
+		}
+		// Check for rounds specification
+		roundsPrefix := ""
+		if strings.Contains(prefixStr, "rounds=") {
+			// Parse and validate rounds
+			parts := strings.SplitN(prefixStr, "$", 4)
+			if len(parts) >= 3 {
+				var rounds int
+				_, err := strings.CutPrefix(parts[2], "rounds=")
+				if err {
+					roundsStr := parts[2][7:]
+					roundsStr = strings.TrimSuffix(roundsStr, "$")
+					n := 0
+					for _, c := range roundsStr {
+						if c >= '0' && c <= '9' {
+							n = n*10 + int(c-'0')
+						}
+					}
+					rounds = n
+					if rounds < 1000 || rounds > 999999999 {
+						return types.Err(types.E_INVARG)
+					}
+					roundsPrefix = "rounds=" + roundsStr + "$"
+				}
+			}
+		}
+		salt := make([]byte, 16)
+		for i := 0; i < 16; i++ {
+			if i < len(randomBytes) {
+				salt[i] = saltChars[randomBytes[i]%64]
+			} else {
+				salt[i] = '.'
+			}
+		}
+		if strings.HasPrefix(prefixStr, "$5$") {
+			result = "$5$" + roundsPrefix + string(salt)
+		} else {
+			result = "$6$" + roundsPrefix + string(salt)
+		}
+
+	case strings.HasPrefix(prefixStr, "$2a$") || strings.HasPrefix(prefixStr, "$2b$"):
+		// bcrypt - needs 16 bytes
+		if len(randomBytes) < 16 {
+			return types.Err(types.E_INVARG)
+		}
+		// Get cost factor
+		costStr := "05"
+		if len(prefixStr) > 4 {
+			parts := strings.SplitN(prefixStr, "$", 4)
+			if len(parts) >= 3 && len(parts[2]) == 2 {
+				costStr = parts[2]
+				cost := 0
+				for _, c := range costStr {
+					if c >= '0' && c <= '9' {
+						cost = cost*10 + int(c-'0')
+					}
+				}
+				if cost < 4 || cost > 31 {
+					return types.Err(types.E_INVARG)
+				}
+			}
+		}
+		// bcrypt uses a different base64 alphabet
+		const bcryptChars = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+		salt := make([]byte, 22)
+		for i := 0; i < 22; i++ {
+			if i < len(randomBytes) {
+				salt[i] = bcryptChars[randomBytes[i]%64]
+			} else {
+				salt[i] = '.'
+			}
+		}
+		result = "$2a$" + costStr + "$" + string(salt)
+
+	default:
+		return types.Err(types.E_INVARG)
+	}
+
+	return types.Ok(types.NewStr(result))
+}
+
+// builtinRandomBytes generates random bytes
+// random_bytes(count) -> str (binary encoded)
+func builtinRandomBytes(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	countVal, ok := args[0].(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	count := int(countVal.Val)
+	if count < 0 || count > 10000 {
+		return types.Err(types.E_INVARG)
+	}
+
+	bytes := make([]byte, count)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	return types.Ok(types.NewStr(encodeBinaryStr(bytes)))
+}
+
+// encodeBinaryStr encodes bytes as MOO binary string (~XX)
+func encodeBinaryStr(data []byte) string {
+	var result strings.Builder
+	for _, b := range data {
+		if b == '~' {
+			result.WriteString("~7E")
+		} else if b < 32 || b > 126 {
+			result.WriteString(encodeByteHex(b))
+		} else {
+			result.WriteByte(b)
+		}
+	}
+	return result.String()
 }

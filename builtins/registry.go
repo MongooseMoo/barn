@@ -30,6 +30,9 @@ func NewRegistry() *Registry {
 	r.Register("tostr", builtinTostr)
 	r.Register("toint", builtinToint)
 	r.Register("tofloat", builtinTofloat)
+	r.Register("toliteral", builtinToliteral)
+	r.Register("toobj", builtinToobj)
+	r.Register("equal", builtinEqual)
 
 	// Register string builtins (Layer 7.1)
 	r.Register("length", builtinLength)
@@ -106,6 +109,20 @@ func NewRegistry() *Registry {
 	r.Register("encode_binary", builtinEncodeBinary)
 	r.Register("decode_binary", builtinDecodeBinary)
 	r.Register("crypt", builtinCrypt)
+
+	// Register hash builtins
+	r.Register("string_hash", builtinStringHash)
+	r.Register("binary_hash", builtinBinaryHash)
+	r.Register("value_hash", builtinValueHash)
+
+	// Register HMAC builtins
+	r.Register("string_hmac", builtinStringHmac)
+	r.Register("binary_hmac", builtinBinaryHmac)
+	r.Register("value_hmac", builtinValueHmac)
+
+	// Register salt and random builtins
+	r.Register("salt", builtinSalt)
+	r.Register("random_bytes", builtinRandomBytes)
 
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)

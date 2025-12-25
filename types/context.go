@@ -11,6 +11,11 @@ type TaskContext struct {
 	Programmer     ObjID  // Effective permissions
 	ThisObj        ObjID  // Current 'this'
 	Verb           string // Current verb name
+
+	// IndexContext is the length of the collection currently being indexed
+	// Used to resolve ^ and $ markers in sub-expressions like list[^..^+1]
+	// -1 means no indexing context
+	IndexContext int
 }
 
 // NewTaskContext creates a new task context with default values

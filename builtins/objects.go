@@ -107,24 +107,38 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 	}
 	parents = validParents
 
-	// Get owner (default: caller)
+	// Get owner and anonymous flag
+	// create(parent [, owner [, anonymous]])
+	// If 2nd arg is an object, it's the owner
+	// If 2nd arg is not an object but truthy, it's the anonymous flag
 	owner := ctx.Programmer
+	anonymous := false
+
 	if len(args) >= 2 {
-		ownerVal, ok := args[1].(types.ObjValue)
-		if !ok {
-			return types.Err(types.E_TYPE)
+		switch v := args[1].(type) {
+		case types.ObjValue:
+			owner = v.ID()
+		case types.IntValue:
+			// If it's an int and no 3rd arg, it's the anonymous flag
+			if len(args) == 2 {
+				anonymous = v.Val != 0
+			} else {
+				// Try to convert int to object ID for owner
+				owner = types.ObjID(v.Val)
+			}
+		default:
+			// Any truthy value as 2nd arg alone means anonymous
+			if len(args) == 2 {
+				anonymous = args[1].Truthy()
+			} else {
+				return types.Err(types.E_TYPE)
+			}
 		}
-		owner = ownerVal.ID()
 	}
 
-	// Get anonymous flag (default: false)
-	anonymous := false
+	// Get explicit anonymous flag if 3 args
 	if len(args) >= 3 {
-		anonVal, ok := args[2].(types.IntValue)
-		if !ok {
-			return types.Err(types.E_TYPE)
-		}
-		anonymous = anonVal.Val != 0
+		anonymous = args[2].Truthy()
 	}
 
 	// Allocate new object ID
@@ -264,7 +278,10 @@ func builtinValid(ctx *types.TaskContext, args []types.Value, store *db.Store) t
 	}
 
 	isValid := store.Valid(objVal.ID())
-	return types.Ok(types.NewBool(isValid))
+	if isValid {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
 }
 
 // builtinMaxObject implements max_object()
@@ -659,7 +676,7 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) typ
 
 	// Object is always its own ancestor
 	if objVal.ID() == ancestorVal.ID() {
-		return types.Ok(types.NewBool(true))
+		return types.Ok(types.NewInt(1))
 	}
 
 	// BFS through ancestry chain
@@ -676,7 +693,7 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) typ
 		seen[currentID] = true
 
 		if currentID == ancestorVal.ID() {
-			return types.Ok(types.NewBool(true))
+			return types.Ok(types.NewInt(1))
 		}
 
 		current := store.Get(currentID)
@@ -685,7 +702,7 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) typ
 		}
 	}
 
-	return types.Ok(types.NewBool(false))
+	return types.Ok(types.NewInt(0))
 }
 
 // Helper functions

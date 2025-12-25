@@ -49,6 +49,15 @@ func (l *Lexer) peekChar() byte {
 	return l.input[l.readPosition]
 }
 
+// peekCharN returns the character n positions ahead (1 = peekChar)
+func (l *Lexer) peekCharN(n int) byte {
+	pos := l.readPosition + n - 1
+	if pos >= len(l.input) {
+		return 0
+	}
+	return l.input[pos]
+}
+
 // skipWhitespace skips over whitespace characters
 func (l *Lexer) skipWhitespace() {
 	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
@@ -165,8 +174,9 @@ func (l *Lexer) NextToken() Token {
 		tok.Value = string(l.ch)
 		l.readChar()
 	case '^':
-		// Check for ^. (bitwise XOR)
-		if l.peekChar() == '.' {
+		// Check for ^. (bitwise XOR) - but NOT if followed by another dot
+		// ^.. should be tokenized as ^ (caret) + .. (range), not ^. + .
+		if l.peekChar() == '.' && l.peekCharN(2) != '.' {
 			tok.Type = TOKEN_BITXOR
 			tok.Value = "^."
 			l.readChar()

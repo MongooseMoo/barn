@@ -30,9 +30,9 @@ func (o ObjValue) Type() TypeCode {
 }
 
 // Truthy returns whether the value is truthy
-// Object references are truthy except for #-1 (NOTHING)
+// In MOO, objects are never truthy (only non-zero ints and non-empty strings are truthy)
 func (o ObjValue) Truthy() bool {
-	return o.id != NOTHING
+	return false
 }
 
 // Equal compares two values for equality
