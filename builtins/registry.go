@@ -25,6 +25,21 @@ func NewRegistry() *Registry {
 	r.Register("toint", builtinToint)
 	r.Register("tofloat", builtinTofloat)
 
+	// Register string builtins (Layer 7.1)
+	r.Register("length", builtinLength)
+	r.Register("strsub", builtinStrsub)
+	r.Register("index", builtinIndex)
+	r.Register("rindex", builtinRindex)
+	r.Register("strcmp", builtinStrcmp)
+	r.Register("upcase", builtinUpcase)
+	r.Register("downcase", builtinDowncase)
+	r.Register("capitalize", builtinCapitalize)
+	r.Register("explode", builtinExplode)
+	r.Register("implode", builtinImplode)
+	r.Register("trim", builtinTrim)
+	r.Register("ltrim", builtinLtrim)
+	r.Register("rtrim", builtinRtrim)
+
 	return r
 }
 
