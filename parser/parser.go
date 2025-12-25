@@ -134,6 +134,8 @@ func precedence(t TokenType) int {
 		return PREC_MULTIPLICATIVE
 	case TOKEN_CARET:
 		return PREC_POWER
+	case TOKEN_LPAREN:
+		return PREC_POSTFIX // Function calls have high precedence
 	default:
 		return PREC_LOWEST
 	}
@@ -231,6 +233,45 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				Left:     left,
 				Operator: op,
 				Right:    right,
+			}
+
+		case TOKEN_LPAREN:
+			// Function call: identifier(args)
+			// Only parse as function call if left is an identifier
+			ident, ok := left.(*IdentifierExpr)
+			if !ok {
+				return nil, fmt.Errorf("cannot call non-identifier")
+			}
+			pos := p.current.Position
+			p.nextToken() // consume '('
+
+			// Parse arguments
+			args := []Expr{}
+			if p.current.Type != TOKEN_RPAREN {
+				for {
+					arg, err := p.ParseExpression(PREC_LOWEST)
+					if err != nil {
+						return nil, err
+					}
+					args = append(args, arg)
+
+					if p.current.Type == TOKEN_COMMA {
+						p.nextToken()
+					} else {
+						break
+					}
+				}
+			}
+
+			if p.current.Type != TOKEN_RPAREN {
+				return nil, fmt.Errorf("expected ')' after function args, got %s", p.current.Type)
+			}
+			p.nextToken() // consume ')'
+
+			left = &BuiltinCallExpr{
+				Pos:  pos,
+				Name: ident.Name,
+				Args: args,
 			}
 
 		case TOKEN_QUESTION:
