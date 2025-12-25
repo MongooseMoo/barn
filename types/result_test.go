@@ -34,14 +34,14 @@ func TestResultConstructors(t *testing.T) {
 	})
 
 	t.Run("Break", func(t *testing.T) {
-		r := Break()
+		r := Break("")
 		if !r.IsBreak() {
 			t.Error("Break() should create break result")
 		}
 	})
 
 	t.Run("Continue", func(t *testing.T) {
-		r := Continue()
+		r := Continue("")
 		if !r.IsContinue() {
 			t.Error("Continue() should create continue result")
 		}
@@ -61,8 +61,8 @@ func TestResultPredicates(t *testing.T) {
 		{"normal", Ok(NewInt(42)), true, false, false, false, false},
 		{"error", Err(E_TYPE), false, true, false, false, false},
 		{"return", Ret(NewInt(42)), false, false, true, false, false},
-		{"break", Break(), false, false, false, true, false},
-		{"continue", Continue(), false, false, false, false, true},
+		{"break", Break(""), false, false, false, true, false},
+		{"continue", Continue(""), false, false, false, false, true},
 	}
 
 	for _, tt := range tests {
