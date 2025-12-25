@@ -41,6 +41,12 @@ func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Res
 		return e.evalBreakStmt(s, ctx)
 	case *parser.ContinueStmt:
 		return e.evalContinueStmt(s, ctx)
+	case *parser.TryExceptStmt:
+		return e.evalTryExceptStmt(s, ctx)
+	case *parser.TryFinallyStmt:
+		return e.evalTryFinallyStmt(s, ctx)
+	case *parser.TryExceptFinallyStmt:
+		return e.evalTryExceptFinallyStmt(s, ctx)
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -359,4 +365,94 @@ func (e *Evaluator) EvalProgram(source string) (types.Value, error) {
 	}
 
 	return result.Val, nil
+}
+
+// evalTryExceptStmt evaluates try/except statements
+func (e *Evaluator) evalTryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.TaskContext) types.Result {
+	// Execute try body
+	result := e.EvalStatements(stmt.Body, ctx)
+
+	// If no error, return normally
+	if !result.IsError() {
+		return result
+	}
+
+	// Error occurred - check except clauses
+	errorCode := result.Error
+	for _, except := range stmt.Excepts {
+		// Check if this except clause handles this error
+		if except.IsAny || e.matchesErrorCode(errorCode, except.Codes) {
+			// Bind error to variable if specified
+			if except.Variable != "" {
+				e.env.Set(except.Variable, types.NewErr(errorCode))
+			}
+
+			// Execute except body
+			return e.EvalStatements(except.Body, ctx)
+		}
+	}
+
+	// No matching except clause - propagate error
+	return result
+}
+
+// evalTryFinallyStmt evaluates try/finally statements
+func (e *Evaluator) evalTryFinallyStmt(stmt *parser.TryFinallyStmt, ctx *types.TaskContext) types.Result {
+	// Execute try body
+	result := e.EvalStatements(stmt.Body, ctx)
+
+	// Always execute finally block
+	finallyResult := e.EvalStatements(stmt.Finally, ctx)
+
+	// If finally returned/broke/continued/errored, that takes precedence
+	if !finallyResult.IsNormal() {
+		return finallyResult
+	}
+
+	// Otherwise return the try result (error or normal)
+	return result
+}
+
+// evalTryExceptFinallyStmt evaluates try/except/finally statements
+func (e *Evaluator) evalTryExceptFinallyStmt(stmt *parser.TryExceptFinallyStmt, ctx *types.TaskContext) types.Result {
+	// Execute try body
+	result := e.EvalStatements(stmt.Body, ctx)
+
+	// If error occurred, try to catch it
+	if result.IsError() {
+		errorCode := result.Error
+		for _, except := range stmt.Excepts {
+			if except.IsAny || e.matchesErrorCode(errorCode, except.Codes) {
+				// Bind error to variable if specified
+				if except.Variable != "" {
+					e.env.Set(except.Variable, types.NewErr(errorCode))
+				}
+
+				// Execute except body
+				result = e.EvalStatements(except.Body, ctx)
+				break
+			}
+		}
+	}
+
+	// Always execute finally block
+	finallyResult := e.EvalStatements(stmt.Finally, ctx)
+
+	// If finally returned/broke/continued/errored, that takes precedence
+	if !finallyResult.IsNormal() {
+		return finallyResult
+	}
+
+	// Otherwise return the result (from try or except)
+	return result
+}
+
+// matchesErrorCode checks if an error code is in the list of codes
+func (e *Evaluator) matchesErrorCode(code types.ErrorCode, codes []types.ErrorCode) bool {
+	for _, c := range codes {
+		if c == code {
+			return true
+		}
+	}
+	return false
 }

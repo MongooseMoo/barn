@@ -1,6 +1,9 @@
 package parser
 
-import "fmt"
+import (
+	"barn/types"
+	"fmt"
+)
 
 // ParseProgram parses a complete MOO program (sequence of statements)
 func (p *Parser) ParseProgram() ([]Stmt, error) {
@@ -26,6 +29,8 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseWhileStatement()
 	case TOKEN_FOR:
 		return p.parseForStatement()
+	case TOKEN_TRY:
+		return p.parseTryStatement()
 	case TOKEN_RETURN:
 		return p.parseReturnStatement()
 	case TOKEN_BREAK:
@@ -403,4 +408,176 @@ func (p *Parser) parseBody(terminators ...TokenType) ([]Stmt, error) {
 	}
 
 	return body, nil
+}
+
+// parseTryStatement parses try/except/finally/endtry statements
+// Handles three forms:
+// - try ... except ... endtry
+// - try ... finally ... endtry
+// - try ... except ... finally ... endtry
+func (p *Parser) parseTryStatement() (Stmt, error) {
+	pos := p.current.Position
+	p.nextToken() // consume 'try'
+
+	// Parse try body
+	body, err := p.parseBody(TOKEN_EXCEPT, TOKEN_FINALLY, TOKEN_ENDTRY)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check what follows: except, finally, or endtry
+	var excepts []*ExceptClause
+	var finally []Stmt
+	hasExcept := false
+	hasFinally := false
+
+	// Parse except clauses (zero or more)
+	for p.current.Type == TOKEN_EXCEPT {
+		hasExcept = true
+		exceptPos := p.current.Position
+		p.nextToken() // consume 'except'
+
+		// Optional variable to bind the error
+		var variable string
+		if p.current.Type == TOKEN_IDENTIFIER {
+			variable = p.current.Value
+			p.nextToken()
+		}
+
+		// Parse error codes in parentheses
+		if p.current.Type != TOKEN_LPAREN {
+			return nil, fmt.Errorf("expected '(' after 'except'")
+		}
+		p.nextToken() // consume '('
+
+		// Parse exception codes
+		var codes []types.ErrorCode
+		isAny := false
+
+		if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
+			isAny = true
+			p.nextToken()
+		} else {
+			// Parse list of error codes
+			for {
+				if p.current.Type != TOKEN_ERROR_LIT {
+					return nil, fmt.Errorf("expected error code, got %v", p.current.Type)
+				}
+				// Convert error name to code
+				code := p.errorNameToCode(p.current.Value)
+				codes = append(codes, code)
+				p.nextToken()
+
+				if p.current.Type == TOKEN_COMMA {
+					p.nextToken() // consume ','
+				} else {
+					break
+				}
+			}
+		}
+
+		if p.current.Type != TOKEN_RPAREN {
+			return nil, fmt.Errorf("expected ')' after error codes")
+		}
+		p.nextToken() // consume ')'
+
+		// Parse except body
+		exceptBody, err := p.parseBody(TOKEN_EXCEPT, TOKEN_FINALLY, TOKEN_ENDTRY)
+		if err != nil {
+			return nil, err
+		}
+
+		excepts = append(excepts, &ExceptClause{
+			Pos:      exceptPos,
+			Variable: variable,
+			Codes:    codes,
+			IsAny:    isAny,
+			Body:     exceptBody,
+		})
+	}
+
+	// Parse finally clause (optional)
+	if p.current.Type == TOKEN_FINALLY {
+		hasFinally = true
+		p.nextToken() // consume 'finally'
+
+		finally, err = p.parseBody(TOKEN_ENDTRY)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Consume 'endtry'
+	if p.current.Type != TOKEN_ENDTRY {
+		return nil, fmt.Errorf("expected 'endtry'")
+	}
+	p.nextToken() // consume 'endtry'
+
+	// Construct the appropriate statement based on what we found
+	if hasExcept && hasFinally {
+		return &TryExceptFinallyStmt{
+			Pos:     pos,
+			Body:    body,
+			Excepts: excepts,
+			Finally: finally,
+		}, nil
+	} else if hasExcept {
+		return &TryExceptStmt{
+			Pos:     pos,
+			Body:    body,
+			Excepts: excepts,
+		}, nil
+	} else if hasFinally {
+		return &TryFinallyStmt{
+			Pos:     pos,
+			Body:    body,
+			Finally: finally,
+		}, nil
+	} else {
+		return nil, fmt.Errorf("try statement must have except or finally clause")
+	}
+}
+
+// errorNameToCode converts an error name string to an ErrorCode
+func (p *Parser) errorNameToCode(name string) types.ErrorCode {
+	switch name {
+	case "E_NONE":
+		return types.E_NONE
+	case "E_TYPE":
+		return types.E_TYPE
+	case "E_DIV":
+		return types.E_DIV
+	case "E_PERM":
+		return types.E_PERM
+	case "E_PROPNF":
+		return types.E_PROPNF
+	case "E_VERBNF":
+		return types.E_VERBNF
+	case "E_VARNF":
+		return types.E_VARNF
+	case "E_INVIND":
+		return types.E_INVIND
+	case "E_RECMOVE":
+		return types.E_RECMOVE
+	case "E_MAXREC":
+		return types.E_MAXREC
+	case "E_RANGE":
+		return types.E_RANGE
+	case "E_ARGS":
+		return types.E_ARGS
+	case "E_NACC":
+		return types.E_NACC
+	case "E_INVARG":
+		return types.E_INVARG
+	case "E_QUOTA":
+		return types.E_QUOTA
+	case "E_FLOAT":
+		return types.E_FLOAT
+	case "E_FILE":
+		return types.E_FILE
+	case "E_EXEC":
+		return types.E_EXEC
+	default:
+		return types.E_NONE // Unknown error code
+	}
 }

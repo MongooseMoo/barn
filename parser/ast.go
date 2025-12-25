@@ -250,3 +250,60 @@ type ReturnStmt struct {
 
 func (s *ReturnStmt) Position() Position { return s.Pos }
 func (s *ReturnStmt) stmtNode()          {}
+
+// TryExceptStmt represents try/except/endtry
+type TryExceptStmt struct {
+	Pos     Position
+	Body    []Stmt
+	Excepts []*ExceptClause
+}
+
+type ExceptClause struct {
+	Pos      Position
+	Variable string           // Optional: binds the caught error
+	Codes    []types.ErrorCode // Error codes to catch (empty means ANY)
+	IsAny    bool             // True if catching ANY
+	Body     []Stmt
+}
+
+func (s *TryExceptStmt) Position() Position { return s.Pos }
+func (s *TryExceptStmt) stmtNode()          {}
+
+// TryFinallyStmt represents try/finally/endtry
+type TryFinallyStmt struct {
+	Pos     Position
+	Body    []Stmt
+	Finally []Stmt
+}
+
+func (s *TryFinallyStmt) Position() Position { return s.Pos }
+func (s *TryFinallyStmt) stmtNode()          {}
+
+// TryExceptFinallyStmt represents try/except/finally/endtry
+type TryExceptFinallyStmt struct {
+	Pos     Position
+	Body    []Stmt
+	Excepts []*ExceptClause
+	Finally []Stmt
+}
+
+func (s *TryExceptFinallyStmt) Position() Position { return s.Pos }
+func (s *TryExceptFinallyStmt) stmtNode()          {}
+
+// ScatterStmt represents scatter assignment: {a, ?b, @rest} = list
+type ScatterStmt struct {
+	Pos     Position
+	Targets []ScatterTarget
+	Value   Expr
+}
+
+type ScatterTarget struct {
+	Pos      Position
+	Name     string
+	Optional bool // ?var
+	Rest     bool // @var
+	Default  Expr // ?var = expr (can be nil)
+}
+
+func (s *ScatterStmt) Position() Position { return s.Pos }
+func (s *ScatterStmt) stmtNode()          {}
