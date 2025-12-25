@@ -2,6 +2,7 @@ package eval
 
 import (
 	"barn/builtins"
+	"barn/db"
 	"barn/parser"
 	"barn/types"
 )
@@ -10,6 +11,7 @@ import (
 type Evaluator struct {
 	env      *Environment
 	builtins *builtins.Registry
+	store    *db.Store
 }
 
 // NewEvaluator creates a new evaluator with a fresh environment
@@ -17,6 +19,7 @@ func NewEvaluator() *Evaluator {
 	return &Evaluator{
 		env:      NewEnvironment(),
 		builtins: builtins.NewRegistry(),
+		store:    db.NewStore(),
 	}
 }
 
@@ -25,6 +28,16 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	return &Evaluator{
 		env:      env,
 		builtins: builtins.NewRegistry(),
+		store:    db.NewStore(),
+	}
+}
+
+// NewEvaluatorWithStore creates a new evaluator with a given store
+func NewEvaluatorWithStore(store *db.Store) *Evaluator {
+	return &Evaluator{
+		env:      NewEnvironment(),
+		builtins: builtins.NewRegistry(),
+		store:    store,
 	}
 }
 
@@ -63,6 +76,8 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 		return e.evalRange(n, ctx)
 	case *parser.IndexMarkerExpr:
 		return e.evalIndexMarker(n, ctx)
+	case *parser.PropertyExpr:
+		return e.evalProperty(n, ctx)
 	default:
 		// Unknown node type - this should never happen if parser is correct
 		return types.Err(types.E_TYPE)
@@ -244,19 +259,26 @@ func (e *Evaluator) evalAssign(node *parser.AssignExpr, ctx *types.TaskContext) 
 
 	value := valueResult.Val
 
-	// Only support identifier assignment for now (Layer 3.3)
-	// Indexed assignment and property assignment are in later phases
-	target, ok := node.Target.(*parser.IdentifierExpr)
-	if !ok {
-		// Non-identifier assignment (list[i] = x, obj.prop = x) not yet supported
+	// Handle different assignment targets
+	switch target := node.Target.(type) {
+	case *parser.IdentifierExpr:
+		// Variable assignment
+		e.env.Set(target.Name, value)
+		return types.Ok(value)
+
+	case *parser.PropertyExpr:
+		// Property assignment: obj.property = value
+		return e.evalAssignProperty(target, value, ctx)
+
+	case *parser.IndexExpr:
+		// Index assignment: list[i] = value (Phase 4)
+		// Not yet implemented - will add in indexing phase
+		return types.Err(types.E_TYPE)
+
+	default:
+		// Other assignment targets not supported
 		return types.Err(types.E_TYPE)
 	}
-
-	// Assign to variable
-	e.env.Set(target.Name, value)
-
-	// Assignment returns the assigned value
-	return types.Ok(value)
 }
 
 // evalBuiltinCall evaluates a builtin function call
