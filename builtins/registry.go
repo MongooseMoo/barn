@@ -52,6 +52,29 @@ func NewRegistry() *Registry {
 	r.Register("reverse", builtinReverse)
 	r.Register("unique", builtinUnique)
 
+	// Register math builtins (Layer 7.3)
+	r.Register("abs", builtinAbs)
+	r.Register("min", builtinMin)
+	r.Register("max", builtinMax)
+	r.Register("random", builtinRandom)
+	r.Register("sqrt", builtinSqrt)
+	r.Register("sin", builtinSin)
+	r.Register("cos", builtinCos)
+	r.Register("tan", builtinTan)
+	r.Register("asin", builtinAsin)
+	r.Register("acos", builtinAcos)
+	r.Register("atan", builtinAtan)
+	r.Register("sinh", builtinSinh)
+	r.Register("cosh", builtinCosh)
+	r.Register("tanh", builtinTanh)
+	r.Register("exp", builtinExp)
+	r.Register("log", builtinLog)
+	r.Register("log10", builtinLog10)
+	r.Register("ceil", builtinCeil)
+	r.Register("floor", builtinFloor)
+	r.Register("trunc", builtinTrunc)
+	r.Register("floatstr", builtinFloatstr)
+
 	return r
 }
 
