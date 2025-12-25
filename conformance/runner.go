@@ -251,6 +251,21 @@ func convertYAMLValue(v interface{}) (types.Value, error) {
 			pairs = append(pairs, [2]types.Value{keyVal, valVal})
 		}
 		return types.NewMap(pairs), nil
+	case map[interface{}]interface{}:
+		// Handle YAML's default map type (interface{} keys)
+		pairs := make([][2]types.Value, 0, len(val))
+		for k, v := range val {
+			keyVal, err := convertYAMLValue(k)
+			if err != nil {
+				return nil, err
+			}
+			valVal, err := convertYAMLValue(v)
+			if err != nil {
+				return nil, err
+			}
+			pairs = append(pairs, [2]types.Value{keyVal, valVal})
+		}
+		return types.NewMap(pairs), nil
 	default:
 		return nil, fmt.Errorf("unsupported YAML type: %T", v)
 	}

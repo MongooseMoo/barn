@@ -188,19 +188,27 @@ func builtinIsMember(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	value := args[0]
 
-	list, ok := args[1].(types.ListValue)
-	if !ok {
+	switch collection := args[1].(type) {
+	case types.ListValue:
+		// Find value in list
+		for i := 1; i <= collection.Len(); i++ {
+			if collection.Get(i).Equal(value) {
+				return types.Ok(types.IntValue{Val: int64(i)})
+			}
+		}
+		return types.Ok(types.IntValue{Val: 0})
+
+	case types.MapValue:
+		// For maps, check if key exists
+		_, ok := collection.Get(value)
+		if ok {
+			return types.Ok(types.IntValue{Val: 1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+
+	default:
 		return types.Err(types.E_TYPE)
 	}
-
-	// Find value in list
-	for i := 1; i <= list.Len(); i++ {
-		if list.Get(i).Equal(value) {
-			return types.Ok(types.IntValue{Val: int64(i)})
-		}
-	}
-
-	return types.Ok(types.IntValue{Val: 0})
 }
 
 // builtinSort sorts a list

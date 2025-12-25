@@ -10,11 +10,31 @@ type Environment struct {
 }
 
 // NewEnvironment creates a new environment with no parent (global scope)
+// Pre-populates with MOO's built-in type constants
 func NewEnvironment() *Environment {
-	return &Environment{
+	env := &Environment{
 		vars:   make(map[string]types.Value),
 		parent: nil,
 	}
+
+	// Define MOO type constants
+	// These match the values from typeof() returns
+	env.vars["INT"] = types.NewInt(int64(types.TYPE_INT))
+	env.vars["OBJ"] = types.NewInt(int64(types.TYPE_OBJ))
+	env.vars["STR"] = types.NewInt(int64(types.TYPE_STR))
+	env.vars["ERR"] = types.NewInt(int64(types.TYPE_ERR))
+	env.vars["LIST"] = types.NewInt(int64(types.TYPE_LIST))
+	env.vars["FLOAT"] = types.NewInt(int64(types.TYPE_FLOAT))
+	env.vars["MAP"] = types.NewInt(int64(types.TYPE_MAP))
+	env.vars["WAIF"] = types.NewInt(int64(types.TYPE_WAIF))
+	env.vars["BOOL"] = types.NewInt(int64(types.TYPE_BOOL))
+
+	// Define special object constants
+	env.vars["$nothing"] = types.NewObj(types.ObjNothing)
+	env.vars["$ambiguous_match"] = types.NewObj(types.ObjAmbiguous)
+	env.vars["$failed_match"] = types.NewObj(types.ObjFailedMatch)
+
+	return env
 }
 
 // NewNestedEnvironment creates a new environment with a parent scope

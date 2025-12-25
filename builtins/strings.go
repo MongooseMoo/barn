@@ -10,9 +10,10 @@ import (
 // LAYER 7.1: STRING BUILTINS
 // ============================================================================
 
-// builtinLength returns the length of a string or list
+// builtinLength returns the length of a string, list, or map
 // length(str) -> int
 // length(list) -> int
+// length(map) -> int
 func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -23,6 +24,8 @@ func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 		// Return number of characters (runes)
 		return types.Ok(types.IntValue{Val: int64(len([]rune(v.Value())))})
 	case types.ListValue:
+		return types.Ok(types.IntValue{Val: int64(v.Len())})
+	case types.MapValue:
 		return types.Ok(types.IntValue{Val: int64(v.Len())})
 	default:
 		return types.Err(types.E_TYPE)
