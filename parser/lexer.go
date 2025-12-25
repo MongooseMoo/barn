@@ -132,6 +132,10 @@ func (l *Lexer) NextToken() Token {
 		tok.Type = TOKEN_DOLLAR
 		tok.Value = string(l.ch)
 		l.readChar()
+	case '+':
+		tok.Type = TOKEN_PLUS
+		tok.Value = string(l.ch)
+		l.readChar()
 	case '-':
 		// Check for -> arrow operator
 		if l.peekChar() == '>' {
@@ -145,6 +149,142 @@ func (l *Lexer) NextToken() Token {
 		} else {
 			// Minus operator
 			tok.Type = TOKEN_MINUS
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '*':
+		tok.Type = TOKEN_STAR
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '/':
+		tok.Type = TOKEN_SLASH
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '%':
+		tok.Type = TOKEN_PERCENT
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '^':
+		// Check for ^. (bitwise XOR)
+		if l.peekChar() == '.' {
+			tok.Type = TOKEN_BITXOR
+			tok.Value = "^."
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_CARET
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '=':
+		// Check for ==
+		if l.peekChar() == '=' {
+			tok.Type = TOKEN_EQ
+			tok.Value = "=="
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_ASSIGN
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '!':
+		// Check for !=
+		if l.peekChar() == '=' {
+			tok.Type = TOKEN_NE
+			tok.Value = "!="
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_NOT
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '<':
+		// Check for << or <=
+		if l.peekChar() == '<' {
+			tok.Type = TOKEN_LSHIFT
+			tok.Value = "<<"
+			l.readChar()
+			l.readChar()
+		} else if l.peekChar() == '=' {
+			tok.Type = TOKEN_LE
+			tok.Value = "<="
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_LT
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '>':
+		// Check for >> or >=
+		if l.peekChar() == '>' {
+			tok.Type = TOKEN_RSHIFT
+			tok.Value = ">>"
+			l.readChar()
+			l.readChar()
+		} else if l.peekChar() == '=' {
+			tok.Type = TOKEN_GE
+			tok.Value = ">="
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_GT
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '&':
+		// Check for && or &.
+		if l.peekChar() == '&' {
+			tok.Type = TOKEN_AND
+			tok.Value = "&&"
+			l.readChar()
+			l.readChar()
+		} else if l.peekChar() == '.' {
+			tok.Type = TOKEN_BITAND
+			tok.Value = "&."
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_ILLEGAL
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '|':
+		// Check for || or |.
+		if l.peekChar() == '|' {
+			tok.Type = TOKEN_OR
+			tok.Value = "||"
+			l.readChar()
+			l.readChar()
+		} else if l.peekChar() == '.' {
+			tok.Type = TOKEN_BITOR
+			tok.Value = "|."
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_PIPE
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '~':
+		tok.Type = TOKEN_BITNOT
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '?':
+		tok.Type = TOKEN_QUESTION
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '.':
+		// Check for .. (range operator)
+		if l.peekChar() == '.' {
+			tok.Type = TOKEN_RANGE
+			tok.Value = ".."
+			l.readChar()
+			l.readChar()
+		} else {
+			tok.Type = TOKEN_DOT
 			tok.Value = string(l.ch)
 			l.readChar()
 		}
