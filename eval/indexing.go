@@ -240,28 +240,23 @@ func (e *Evaluator) evalAssignIndex(target *parser.IndexExpr, value types.Value,
 		return types.Err(types.E_VARNF)
 	}
 
-	// Resolve the index - handle special markers ^ and $
-	var indexVal types.Value
-	if marker, ok := target.Index.(*parser.IndexMarkerExpr); ok {
-		length := getCollectionLength(collVal)
-		if length < 0 {
-			return types.Err(types.E_TYPE)
-		}
-
-		if marker.Marker == parser.TOKEN_CARET {
-			indexVal = types.NewInt(1)
-		} else if marker.Marker == parser.TOKEN_DOLLAR {
-			indexVal = types.NewInt(int64(length))
-		} else {
-			return types.Err(types.E_TYPE)
-		}
-	} else {
-		indexResult := e.Eval(target.Index, ctx)
-		if !indexResult.IsNormal() {
-			return indexResult
-		}
-		indexVal = indexResult.Val
+	// Get collection length for ^ and $ resolution in index expressions
+	length := getCollectionLength(collVal)
+	if length < 0 {
+		return types.Err(types.E_TYPE)
 	}
+
+	// Set IndexContext so ^ and $ can be resolved in sub-expressions
+	oldContext := ctx.IndexContext
+	ctx.IndexContext = length
+	defer func() { ctx.IndexContext = oldContext }()
+
+	// Evaluate the index expression
+	indexResult := e.Eval(target.Index, ctx)
+	if !indexResult.IsNormal() {
+		return indexResult
+	}
+	indexVal := indexResult.Val
 
 	// Perform the assignment based on collection type
 	var newColl types.Value
