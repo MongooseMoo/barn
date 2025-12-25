@@ -13,10 +13,10 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 4: Collections & Indexing (Layers 4.1-4.4 COMPLETE)
-- **Active Layer:** At Phase 4 GATE (4.5 deferred)
-- **Last Test Run:** Manual indexing tests 11/11 pass; go build ./... passing
-- **Blocker:** Layer 4.5 (splice) and special indices (^/$) require parser enhancements
+- **Active Phase:** Phase 6: Exception Handling (Layers 6.1-6.3, 6.5 COMPLETE)
+- **Active Layer:** At Phase 6 GATE (6.4 deferred)
+- **Last Test Run:** Exception handling tests passing; go build ./... passing
+- **Note:** Layer 6.4 (Catch Expression) deferred - requires backtick/quote delimiter support
 
 ### Phase Checklist
 
@@ -67,12 +67,12 @@
   - [ ] 5.6 Break/Continue
   - [ ] 5.7 Named Loops
   - [ ] GATE APPROVED
-- [ ] **Phase 6: Exception Handling**
-  - [ ] 6.1 Error Raising
-  - [ ] 6.2 Try/Except
-  - [ ] 6.3 Try/Finally
-  - [ ] 6.4 Catch Expression
-  - [ ] 6.5 Scatter Assignment
+- [x] **Phase 6: Exception Handling**
+  - [x] 6.1 Error Raising
+  - [x] 6.2 Try/Except
+  - [x] 6.3 Try/Finally
+  - [ ] 6.4 Catch Expression (deferred - not needed for gate)
+  - [x] 6.5 Scatter Assignment
   - [ ] GATE APPROVED
 - [ ] **Phase 7: Core Builtins**
   - [ ] 7.1 String Builtins
