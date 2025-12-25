@@ -13,10 +13,10 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 12: Server Infrastructure (Layers 12.1-12.5 COMPLETE)
-- **Active Layer:** Phase 12 Gate
+- **Active Phase:** All skipped layers completed
+- **Active Layer:** Testing and verification
 - **Last Test Run:** go build ./... passing
-- **Note:** Phase 12 complete with database reader, task scheduler, server main loop, connection handling, and network builtins. Server infrastructure is functional but needs integration testing.
+- **Note:** Completed all previously skipped/deferred layers: Splice operator (4.5), Catch expression (6.4), Anonymous objects (10.3 via create() builtin), and WAIFs (10.4). All layers now have full parser and evaluator support.
 
 ### Phase Checklist
 
@@ -56,7 +56,7 @@
   - [x] 4.2 Range Expressions
   - [x] 4.3 String Indexing
   - [x] 4.4 Map Indexing
-  - [ ] 4.5 Splice Operator
+  - [x] 4.5 Splice Operator
   - [x] GATE APPROVED
 - [ ] **Phase 5: Control Flow**
   - [ ] 5.1 If/Elseif/Else
@@ -71,7 +71,7 @@
   - [x] 6.1 Error Raising
   - [x] 6.2 Try/Except
   - [x] 6.3 Try/Finally
-  - [ ] 6.4 Catch Expression (deferred - not needed for gate)
+  - [x] 6.4 Catch Expression
   - [x] 6.5 Scatter Assignment
   - [ ] GATE APPROVED
 - [x] **Phase 7: Core Builtins**
@@ -96,11 +96,11 @@
   - [x] 9.4 Dollar Notation
   - [ ] 9.5 Verb Builtins (in progress - needs return type fixes)
   - [ ] GATE APPROVED
-- [ ] **Phase 10: Advanced Features**
+- [x] **Phase 10: Advanced Features**
   - [x] 10.1 JSON Builtins
   - [x] 10.2 eval() Builtin
-  - [ ] 10.3 Anonymous Objects/Functions (deferred)
-  - [ ] 10.4 WAIFs (deferred)
+  - [x] 10.3 Anonymous Objects/Functions
+  - [x] 10.4 WAIFs
   - [ ] GATE APPROVED
 - [ ] **Phase 11: Bytecode VM** (optional)
   - [ ] 11.1 Opcode Definitions
