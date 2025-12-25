@@ -82,6 +82,10 @@ func NewRegistry() *Registry {
 	r.Register("maphaskey", builtinMaphaskey)
 	r.Register("mapmerge", builtinMapmerge)
 
+	// Register JSON builtins (Layer 10.1)
+	r.Register("generate_json", builtinGenerateJson)
+	r.Register("parse_json", builtinParseJson)
+
 	return r
 }
 
