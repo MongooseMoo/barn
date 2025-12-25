@@ -23,6 +23,7 @@
 - [ ] **Phase 0: Foundation**
   - [ ] 0.1 Project Setup
   - [ ] 0.2 Conformance Test Runner
+  - [ ] 0.3 Execution Context
   - [ ] GATE APPROVED
 - [ ] **Phase 1: Types & Literal Parsing**
   - [ ] 1.1 Value Interface + Lexer Foundation
@@ -233,6 +234,57 @@ type Expectation struct {
 ```
 Files Created: go.mod, cmd/barn/main.go, conformance/*.go, types/, parser/, eval/, builtins/, db/
 Test Status: 0/1110 passing, 1110 skipped (framework only, no interpreter)
+Next: Layer 0.3 - Execution Context
+```
+
+### Layer 0.3: Execution Context
+
+**Rationale:** Pass context through the evaluator from day 1. Avoids rewriting every Eval() signature when adding tick limits (Phase 5) and permissions (Phase 9).
+
+#### Tasks
+1. Create `types/context.go`:
+   ```go
+   type TaskContext struct {
+       TicksRemaining int64       // Infinite loop protection
+       Player         ObjID       // Current player
+       Programmer     ObjID       // Effective permissions
+       ThisObj        ObjID       // Current `this`
+       Verb           string      // Current verb name
+   }
+
+   func NewTaskContext() *TaskContext {
+       return &TaskContext{TicksRemaining: 30000} // Default tick limit
+   }
+   ```
+2. Create `types/result.go` - Unified control flow:
+   ```go
+   type ControlFlow int
+   const (
+       FlowNormal ControlFlow = iota
+       FlowReturn
+       FlowBreak
+       FlowContinue
+       FlowException  // MOO error being raised
+   )
+
+   type Result struct {
+       Value Value
+       Flow  ControlFlow
+       Error ErrorCode  // Only set when Flow == FlowException
+   }
+
+   func Ok(v Value) Result { return Result{Value: v, Flow: FlowNormal} }
+   func Err(e ErrorCode) Result { return Result{Flow: FlowException, Error: e} }
+   ```
+
+#### Done Criteria
+- [ ] TaskContext can be instantiated
+- [ ] Result type compiles with Ok/Err helpers
+- [ ] Unit tests verify default tick limit
+
+#### Handoff State
+```
+Files Created: types/context.go, types/result.go
 Next: Phase 1 - Types & Literal Parsing
 ```
 
@@ -417,11 +469,26 @@ This phase builds types AND their literal syntax together. Each layer adds a typ
 - `spec/types.md` (lines 116-145: LIST section)
 - `spec/grammar.md` (list literals)
 
-#### Design Decision: Copy-on-Write
+#### Design Decision: Copy-on-Write with Interface Abstraction
 Use **immutable slices** for COW semantics. When modifying, create a new slice. This is simpler than refcounting and idiomatic Go.
 
+**Critical:** Wrap collections in interfaces to allow optimization later (e.g., persistent data structures for large lists). All access goes through methods, not direct slice indexing.
+
 #### Tasks
-1. Create `types/list.go` - ListValue wrapping []Value
+1. Create `types/list.go`:
+   ```go
+   // MooList abstracts list storage - allows swapping implementation later
+   type MooList interface {
+       Len() int
+       Get(index int) Value        // 1-based MOO index
+       Set(index int, v Value) MooList  // Returns new list (COW)
+       Append(v Value) MooList
+       Slice(start, end int) MooList
+       Elements() []Value          // For iteration
+   }
+
+   type ListValue struct { data MooList }
+   ```
 2. Add lexer tokens: `{`, `}`, `,`
 3. Parse list literals: `{expr, expr, ...}` (recursive for nested lists)
 4. Implement 1-based indexing methods
@@ -445,7 +512,20 @@ Valid key types: INT, FLOAT, STR, OBJ, ERR
 Invalid key types: LIST, MAP (raise E_TYPE)
 
 #### Tasks
-1. Create `types/map.go` - MapValue (Go map with Value keys)
+1. Create `types/map.go`:
+   ```go
+   // MooMap abstracts map storage - allows swapping implementation later
+   type MooMap interface {
+       Len() int
+       Get(key Value) (Value, bool)
+       Set(key, val Value) MooMap  // Returns new map (COW)
+       Delete(key Value) MooMap
+       Keys() []Value
+       Pairs() [][2]Value  // For iteration
+   }
+
+   type MapValue struct { data MooMap }
+   ```
 2. Add lexer tokens: `[`, `]`, `->`
 3. Parse map literals: `["key" -> value, ...]`
 4. Validate key types (no LIST/MAP keys)
@@ -633,14 +713,31 @@ Next: Phase 3 - Tree-Walk Evaluator
 
 **Spec Refs:** `notes/go_interpreter_patterns.md` (Tree-Walk section)
 
+**Critical:** Use Result type and TaskContext from Layer 0.3. All Eval methods return Result (not Value), accept *TaskContext. This unifies error propagation, control flow (break/continue/return), and tick limits into one mechanism.
+
 #### Tasks
-1. Create `eval/eval.go` - Evaluator struct with Eval(Expr) method
+1. Create `eval/eval.go`:
+   ```go
+   type Evaluator struct { env *Environment }
+
+   // Every Eval method takes context, returns Result (not Value)
+   func (e *Evaluator) Eval(node ast.Node, ctx *TaskContext) Result {
+       ctx.TicksRemaining--
+       if ctx.TicksRemaining <= 0 {
+           return Err(E_MAXREC)  // Or E_TICKS if defined
+       }
+       // dispatch to specific node type...
+   }
+   ```
 2. Create `eval/environment.go` - Variable scoping/lookup
 3. Implement visitor pattern over AST nodes
+4. Propagate Result.Flow through expression trees (if child returns non-Normal, bubble up)
 
 #### Done Criteria
 - [ ] Evaluator can walk AST nodes
 - [ ] Environment handles variable get/set
+- [ ] All Eval methods use Result, not raw Value
+- [ ] Tick counting works (returns error after N evals)
 
 ### Layer 3.2: Expression Evaluation
 
@@ -1069,13 +1166,30 @@ Next: Phase 8 - Object System
 
 **GATE: REQUIRES HUMAN APPROVAL BEFORE PHASE 9**
 
+**Design Decision: ObjID Discipline**
+Objects reference each other by ObjID (integer), NOT Go pointers. This matches the LambdaMOO database format (Phase 12) and avoids painful serialization issues later.
+
+```go
+type ObjID int64  // -1 = nothing, -2 = ambiguous, 0+ = valid object
+
+type Object struct {
+    ID       ObjID
+    Parent   ObjID        // NOT *Object
+    Owner    ObjID        // NOT *Object
+    Children []ObjID      // NOT []*Object
+    // ...
+}
+```
+
+All cross-object references use ObjID + store.Get(id) lookup. This is slightly slower but makes persistence trivial.
+
 ### Layer 8.1: In-Memory Object Store
 
 **Spec Refs:** `spec/objects.md` (Object structure)
 
 #### Tasks
-1. Create `db/object.go` - Object struct with properties, verbs
-2. Create `db/store.go` - In-memory object storage
+1. Create `db/object.go` - Object struct with ObjID references (not pointers)
+2. Create `db/store.go` - In-memory object storage (map[ObjID]*Object)
 3. Implement object lookup by ID
 
 #### Done Criteria
