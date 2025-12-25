@@ -184,3 +184,54 @@ func (s *Store) Players() []types.ObjID {
 	}
 	return result
 }
+
+// FindVerb looks up a verb on an object, following inheritance chain
+// Uses breadth-first search per spec
+// Returns the verb and the object it's defined on, or error
+func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Track visited objects to prevent infinite loops
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		// Pop from front (FIFO for breadth-first)
+		current := queue[0]
+		queue = queue[1:]
+
+		// Skip if already visited (cycle detection)
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		// Get object (skip if invalid)
+		obj := s.objects[current]
+		if obj == nil || obj.Recycled {
+			continue
+		}
+
+		// Check if verb exists on this object
+		// Try exact name match first
+		if verb, ok := obj.Verbs[verbName]; ok {
+			return verb, current, nil
+		}
+
+		// Also check verb aliases (names field)
+		for _, verb := range obj.Verbs {
+			for _, alias := range verb.Names {
+				if alias == verbName {
+					return verb, current, nil
+				}
+			}
+		}
+
+		// Not found on this object, add parents to queue
+		queue = append(queue, obj.Parents...)
+	}
+
+	// Verb not found in entire inheritance chain
+	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+}

@@ -1,6 +1,9 @@
 package db
 
-import "barn/types"
+import (
+	"barn/parser"
+	"barn/types"
+)
 
 // Object represents a MOO object
 // CRITICAL: All cross-object references use ObjID, not Go pointers
@@ -36,11 +39,17 @@ type Property struct {
 // Verb represents a verb on an object
 type Verb struct {
 	Name    string
+	Names   []string        // All verb names (aliases) - first is primary
 	Owner   types.ObjID
 	Perms   VerbPerms
 	ArgSpec VerbArgs
-	Code    []string // Source lines
-	// Compiled AST will be added in Phase 9
+	Code    []string        // Source lines
+	Program *VerbProgram    // Compiled AST (added in Layer 9.2)
+}
+
+// VerbProgram holds compiled verb code
+type VerbProgram struct {
+	Statements []parser.Stmt // Compiled AST statements
 }
 
 // ObjectFlags represents object permission flags
@@ -111,6 +120,29 @@ const (
 	VerbExecute VerbPerms = 1 << 2 // x - Verb can be called
 	VerbDebug   VerbPerms = 1 << 3 // d - Debug info available
 )
+
+// Has checks if a permission is set
+func (p VerbPerms) Has(perm VerbPerms) bool {
+	return p&perm != 0
+}
+
+// String returns permission string like "rx", "rwx", "rxd", etc.
+func (p VerbPerms) String() string {
+	s := ""
+	if p.Has(VerbRead) {
+		s += "r"
+	}
+	if p.Has(VerbWrite) {
+		s += "w"
+	}
+	if p.Has(VerbExecute) {
+		s += "x"
+	}
+	if p.Has(VerbDebug) {
+		s += "d"
+	}
+	return s
+}
 
 // VerbArgs represents verb argument specifiers
 type VerbArgs struct {

@@ -169,13 +169,41 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		}
 		p.nextToken()
 
-	case TOKEN_CARET, TOKEN_DOLLAR:
-		// Parse index marker (^ = first, $ = last)
+	case TOKEN_CARET:
+		// Parse ^ index marker (first)
 		left = &IndexMarkerExpr{
 			Pos:    p.current.Position,
 			Marker: p.current.Type,
 		}
 		p.nextToken()
+
+	case TOKEN_DOLLAR:
+		// Could be:
+		// 1. $ as index marker (last) - when used in indexing: list[$]
+		// 2. $identifier as system object property: $name => #0.name
+		pos := p.current.Position
+		p.nextToken()
+
+		// Check if followed by identifier (dollar notation)
+		if p.current.Type == TOKEN_IDENTIFIER {
+			propName := p.current.Value
+			p.nextToken()
+			// $name => #0.name
+			left = &PropertyExpr{
+				Pos: pos,
+				Expr: &LiteralExpr{
+					Pos:   pos,
+					Value: types.NewObj(0), // #0 (system object)
+				},
+				Property: propName,
+			}
+		} else {
+			// Just $ alone - index marker (last)
+			left = &IndexMarkerExpr{
+				Pos:    pos,
+				Marker: TOKEN_DOLLAR,
+			}
+		}
 
 	case TOKEN_MINUS, TOKEN_NOT, TOKEN_BITNOT:
 		// Parse unary operator
@@ -357,6 +385,58 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				Pos:      pos,
 				Expr:     left,
 				Property: propName,
+			}
+
+		case TOKEN_COLON:
+			// Verb call: expr:verb(args)
+			pos := p.current.Position
+			p.nextToken()
+
+			// Verb name can be static or dynamic
+			var verbName string
+			if p.current.Type == TOKEN_IDENTIFIER {
+				verbName = p.current.Value
+				p.nextToken()
+			} else if p.current.Type == TOKEN_LPAREN {
+				// Dynamic verb name: expr:(expr)(args)
+				// Not implemented yet
+				return nil, fmt.Errorf("dynamic verb names not yet implemented")
+			} else {
+				return nil, fmt.Errorf("expected verb name after ':', got %s", p.current.Type)
+			}
+
+			// Expect '(' for arguments
+			if p.current.Type != TOKEN_LPAREN {
+				return nil, fmt.Errorf("expected '(' after verb name, got %s", p.current.Type)
+			}
+			p.nextToken()
+
+			// Parse arguments
+			args := []Expr{}
+			for p.current.Type != TOKEN_RPAREN && p.current.Type != TOKEN_EOF {
+				arg, err := p.ParseExpression(PREC_LOWEST)
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, arg)
+
+				if p.current.Type == TOKEN_COMMA {
+					p.nextToken()
+				} else if p.current.Type != TOKEN_RPAREN {
+					return nil, fmt.Errorf("expected ',' or ')' in verb arguments, got %s", p.current.Type)
+				}
+			}
+
+			if p.current.Type != TOKEN_RPAREN {
+				return nil, fmt.Errorf("expected ')' after verb arguments, got %s", p.current.Type)
+			}
+			p.nextToken()
+
+			left = &VerbCallExpr{
+				Pos:  pos,
+				Expr: left,
+				Verb: verbName,
+				Args: args,
 			}
 
 		case TOKEN_QUESTION:

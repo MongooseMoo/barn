@@ -89,6 +89,8 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 		return e.evalIndexMarker(n, ctx)
 	case *parser.PropertyExpr:
 		return e.evalProperty(n, ctx)
+	case *parser.VerbCallExpr:
+		return e.evalVerbCall(n, ctx)
 	default:
 		// Unknown node type - this should never happen if parser is correct
 		return types.Err(types.E_TYPE)
