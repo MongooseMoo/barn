@@ -119,9 +119,11 @@
 
 - Go 1.21+
 - Access to `barn/spec/` (language specification)
-- Access to `cow_py/tests/conformance/` (test suite)
+- Access to `cow_py/tests/conformance/` (test suite - see note below)
 - Reference: `notes/architecture_synthesis.md` for directory structure
 - Reference: `notes/go_interpreter_patterns.md` for parser/evaluator patterns
+
+**Note on test files:** Conformance tests live in `cow_py/tests/conformance/`, NOT in barn/. This is intentional - tests are shared between the Python (cow_py) and Go (barn) implementations. The Go test runner (Phase 0.2) loads these external YAML files. Do not copy tests into barn/; both implementations validate against the same test suite.
 
 ## Test Verification
 
