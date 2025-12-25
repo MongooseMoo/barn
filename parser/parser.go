@@ -347,6 +347,21 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				ElseExpr:  elseExpr,
 			}
 
+		case TOKEN_ASSIGN:
+			// Assignment: target = value
+			// Assignment is right-associative with lowest precedence
+			pos := p.current.Position
+			p.nextToken()
+			value, err := p.ParseExpression(PREC_ASSIGNMENT) // Right-associative
+			if err != nil {
+				return nil, err
+			}
+			left = &AssignExpr{
+				Pos:    pos,
+				Target: left,
+				Value:  value,
+			}
+
 		default:
 			return left, nil
 		}
