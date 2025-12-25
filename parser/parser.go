@@ -149,8 +149,8 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 	switch p.current.Type {
 	case TOKEN_INT, TOKEN_FLOAT, TOKEN_STRING, TOKEN_OBJECT, TOKEN_ERROR_LIT,
-		TOKEN_TRUE, TOKEN_FALSE, TOKEN_LBRACE, TOKEN_LBRACKET:
-		// Parse literal
+		TOKEN_TRUE, TOKEN_FALSE:
+		// Parse literal (simple values only)
 		pos := p.current.Position
 		val, err := p.ParseLiteral()
 		if err != nil {
@@ -159,6 +159,22 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		left = &LiteralExpr{
 			Pos:   pos,
 			Value: val,
+		}
+
+	case TOKEN_LBRACE:
+		// Parse list expression: {expr, expr, ...}
+		// Uses ListExpr to support sub-expressions including splice (@)
+		left, err = p.parseListExpr()
+		if err != nil {
+			return nil, err
+		}
+
+	case TOKEN_LBRACKET:
+		// Parse map expression: [key -> value, ...]
+		// Uses MapExpr to support sub-expressions
+		left, err = p.parseMapExpr()
+		if err != nil {
+			return nil, err
 		}
 
 	case TOKEN_IDENTIFIER:
@@ -628,4 +644,116 @@ func (p *Parser) parseErrorCode() (types.ErrorCode, error) {
 
 	p.nextToken()
 	return code, nil
+}
+
+// parseListExpr parses a list expression: {expr, expr, ...}
+// Unlike parseListLiteral, this allows full expressions including splice (@)
+func (p *Parser) parseListExpr() (*ListExpr, error) {
+	pos := p.current.Position
+	p.nextToken() // skip '{'
+
+	var elements []Expr
+
+	// Check for empty list
+	if p.current.Type == TOKEN_RBRACE {
+		p.nextToken() // skip '}'
+		return &ListExpr{Pos: pos, Elements: elements}, nil
+	}
+
+	// Parse first element
+	elem, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse list element: %w", err)
+	}
+	elements = append(elements, elem)
+
+	// Parse remaining elements
+	for p.current.Type == TOKEN_COMMA {
+		p.nextToken() // skip ','
+
+		// Check for trailing comma
+		if p.current.Type == TOKEN_RBRACE {
+			break
+		}
+
+		elem, err := p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse list element: %w", err)
+		}
+		elements = append(elements, elem)
+	}
+
+	// Expect closing '}'
+	if p.current.Type != TOKEN_RBRACE {
+		return nil, fmt.Errorf("expected '}' in list expression, got %s", p.current.Type)
+	}
+	p.nextToken() // skip '}'
+
+	return &ListExpr{Pos: pos, Elements: elements}, nil
+}
+
+// parseMapExpr parses a map expression: [key -> value, ...]
+// Unlike parseMapLiteral, this allows full expressions
+func (p *Parser) parseMapExpr() (*MapExpr, error) {
+	pos := p.current.Position
+	p.nextToken() // skip '['
+
+	var pairs []MapPair
+
+	// Check for empty map
+	if p.current.Type == TOKEN_RBRACKET {
+		p.nextToken() // skip ']'
+		return &MapExpr{Pos: pos, Pairs: pairs}, nil
+	}
+
+	// Parse first pair
+	key, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse map key: %w", err)
+	}
+
+	if p.current.Type != TOKEN_ARROW {
+		return nil, fmt.Errorf("expected '->' in map expression, got %s", p.current.Type)
+	}
+	p.nextToken() // skip '->'
+
+	value, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse map value: %w", err)
+	}
+	pairs = append(pairs, MapPair{Key: key, Value: value})
+
+	// Parse remaining pairs
+	for p.current.Type == TOKEN_COMMA {
+		p.nextToken() // skip ','
+
+		// Check for trailing comma
+		if p.current.Type == TOKEN_RBRACKET {
+			break
+		}
+
+		key, err := p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse map key: %w", err)
+		}
+
+		if p.current.Type != TOKEN_ARROW {
+			return nil, fmt.Errorf("expected '->' in map expression, got %s", p.current.Type)
+		}
+		p.nextToken() // skip '->'
+
+		value, err := p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse map value: %w", err)
+		}
+		pairs = append(pairs, MapPair{Key: key, Value: value})
+	}
+
+	// Expect closing ']'
+	if p.current.Type != TOKEN_RBRACKET {
+		return nil, fmt.Errorf("expected ']' in map expression, got %s", p.current.Type)
+	}
+	p.nextToken() // skip ']'
+
+	return &MapExpr{Pos: pos, Pairs: pairs}, nil
 }

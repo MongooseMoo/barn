@@ -40,12 +40,40 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 		}
 	}
 
-	// Determine what code to execute
-	var code string
-	if test.Test.Code != "" {
-		code = test.Test.Code
-	} else if test.Test.Statement != "" {
-		code = test.Test.Statement
+	// Create task context
+	ctx := types.NewTaskContext()
+
+	// Determine what code to execute and how to parse it
+	var result types.Result
+
+	if test.Test.Statement != "" {
+		// Statement-based test: parse as full program with statements
+		p := parser.NewParser(test.Test.Statement)
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			return TestResult{
+				Test:   test,
+				Passed: false,
+				Error:  fmt.Errorf("parse error: %w", err),
+			}
+		}
+		result = r.evaluator.EvalStatements(stmts, ctx)
+		// Handle FlowReturn - extract the value
+		if result.Flow == types.FlowReturn {
+			result = types.Ok(result.Val)
+		}
+	} else if test.Test.Code != "" {
+		// Expression-based test: parse as expression
+		p := parser.NewParser(test.Test.Code)
+		expr, err := p.ParseExpression(0)
+		if err != nil {
+			return TestResult{
+				Test:   test,
+				Passed: false,
+				Error:  fmt.Errorf("parse error: %w", err),
+			}
+		}
+		result = r.evaluator.Eval(expr, ctx)
 	} else {
 		// No code to execute
 		return TestResult{
@@ -54,21 +82,6 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 			SkipReason: "no code/statement",
 		}
 	}
-
-	// Parse the code
-	p := parser.NewParser(code)
-	expr, err := p.ParseExpression(0)
-	if err != nil {
-		return TestResult{
-			Test:   test,
-			Passed: false,
-			Error:  fmt.Errorf("parse error: %w", err),
-		}
-	}
-
-	// Evaluate the expression
-	ctx := types.NewTaskContext()
-	result := r.evaluator.Eval(expr, ctx)
 
 	// Check expectation
 	passed, err := r.checkExpectation(test.Test, result)
@@ -150,6 +163,11 @@ func (r *Runner) checkExpectation(test TestCase, result types.Result) (bool, err
 		expectedVal, err := convertYAMLValue(expect.Value)
 		if err != nil {
 			return false, fmt.Errorf("failed to convert expected value: %w", err)
+		}
+
+		// Handle nil result value
+		if result.Val == nil {
+			return false, fmt.Errorf("expected %v, got nil", expectedVal)
 		}
 
 		if !result.Val.Equal(expectedVal) {

@@ -104,6 +104,10 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 		return e.evalSplice(n, ctx)
 	case *parser.CatchExpr:
 		return e.evalCatch(n, ctx)
+	case *parser.ListExpr:
+		return e.evalListExpr(n, ctx)
+	case *parser.MapExpr:
+		return e.evalMapExpr(n, ctx)
 	default:
 		// Unknown node type - this should never happen if parser is correct
 		return types.Err(types.E_TYPE)
@@ -418,6 +422,66 @@ func (e *Evaluator) evalCatch(node *parser.CatchExpr, ctx *types.TaskContext) ty
 
 	// Error doesn't match, propagate it
 	return result
+}
+
+// evalListExpr evaluates a list expression: {expr, expr, ...}
+// Handles splice (@expr) by expanding its elements into the list
+func (e *Evaluator) evalListExpr(node *parser.ListExpr, ctx *types.TaskContext) types.Result {
+	var elements []types.Value
+
+	for _, elem := range node.Elements {
+		// Check if this is a splice expression
+		if splice, ok := elem.(*parser.SpliceExpr); ok {
+			// Evaluate the splice operand
+			result := e.Eval(splice.Expr, ctx)
+			if !result.IsNormal() {
+				return result
+			}
+
+			// Splice requires a LIST operand
+			if result.Val.Type() != types.TYPE_LIST {
+				return types.Err(types.E_TYPE)
+			}
+
+			// Append all elements from the spliced list
+			list := result.Val.(types.ListValue)
+			for i := 1; i <= list.Len(); i++ {
+				elements = append(elements, list.Get(i))
+			}
+		} else {
+			// Regular expression - evaluate and append
+			result := e.Eval(elem, ctx)
+			if !result.IsNormal() {
+				return result
+			}
+			elements = append(elements, result.Val)
+		}
+	}
+
+	return types.Ok(types.NewList(elements))
+}
+
+// evalMapExpr evaluates a map expression: [key -> value, ...]
+func (e *Evaluator) evalMapExpr(node *parser.MapExpr, ctx *types.TaskContext) types.Result {
+	pairs := make([][2]types.Value, 0, len(node.Pairs))
+
+	for _, pair := range node.Pairs {
+		// Evaluate key
+		keyResult := e.Eval(pair.Key, ctx)
+		if !keyResult.IsNormal() {
+			return keyResult
+		}
+
+		// Evaluate value
+		valueResult := e.Eval(pair.Value, ctx)
+		if !valueResult.IsNormal() {
+			return valueResult
+		}
+
+		pairs = append(pairs, [2]types.Value{keyResult.Val, valueResult.Val})
+	}
+
+	return types.Ok(types.NewMap(pairs))
 }
 
 // Note: Operator implementation functions (evalAdd, evalSubtract, etc.)

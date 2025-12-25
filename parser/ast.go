@@ -169,6 +169,33 @@ type AssignExpr struct {
 func (e *AssignExpr) Position() Position { return e.Pos }
 func (e *AssignExpr) exprNode()          {}
 
+// ListExpr represents a list expression: {expr, expr, ...}
+// Unlike LiteralExpr with a list value, ListExpr can contain
+// sub-expressions including splice (@expr) that must be evaluated.
+type ListExpr struct {
+	Pos      Position
+	Elements []Expr
+}
+
+func (e *ListExpr) Position() Position { return e.Pos }
+func (e *ListExpr) exprNode()          {}
+
+// MapExpr represents a map expression: [key -> value, ...]
+// Unlike LiteralExpr with a map value, MapExpr can contain
+// sub-expressions that must be evaluated.
+type MapExpr struct {
+	Pos   Position
+	Pairs []MapPair
+}
+
+type MapPair struct {
+	Key   Expr
+	Value Expr
+}
+
+func (e *MapExpr) Position() Position { return e.Pos }
+func (e *MapExpr) exprNode()          {}
+
 // Statement AST nodes
 
 // ExprStmt represents an expression used as a statement

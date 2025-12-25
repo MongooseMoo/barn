@@ -21,6 +21,8 @@ func TestASTNodes(t *testing.T) {
 	var _ Expr = &SpliceExpr{}
 	var _ Expr = &CatchExpr{}
 	var _ Expr = &AssignExpr{}
+	var _ Expr = &ListExpr{}
+	var _ Expr = &MapExpr{}
 }
 
 func TestLiteralExprPosition(t *testing.T) {
