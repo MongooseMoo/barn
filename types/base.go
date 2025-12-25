@@ -80,5 +80,9 @@ func (e ErrorCode) String() string {
 }
 
 // Value is the interface all MOO values implement
-// Stub here - Layer 1.1 adds full methods
-type Value interface{}
+type Value interface {
+	Type() TypeCode
+	String() string   // MOO literal representation
+	Equal(Value) bool // Deep equality
+	Truthy() bool     // MOO truthiness rules
+}

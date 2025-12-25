@@ -13,9 +13,9 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 0: Foundation
-- **Active Layer:** Phase 0 GATE
-- **Last Test Run:** go test ./types/... -v (all passing), conformance: 0 passed/ 1025 skipped
+- **Active Phase:** Phase 1: Types & Literal Parsing
+- **Active Layer:** 1.2 INT Type + Integer Literals
+- **Last Test Run:** go test ./types/... -v (all passing)
 - **Blocker:** none
 
 ### Phase Checklist
@@ -26,7 +26,7 @@
   - [x] 0.3 Execution Context
   - [ ] GATE APPROVED
 - [ ] **Phase 1: Types & Literal Parsing**
-  - [ ] 1.1 Value Interface + Lexer Foundation
+  - [x] 1.1 Value Interface + Lexer Foundation
   - [ ] 1.2 INT Type + Integer Literals
   - [ ] 1.3 FLOAT Type + Float Literals
   - [ ] 1.4 STR Type + String Literals

@@ -4,11 +4,11 @@ import "testing"
 
 func TestResultConstructors(t *testing.T) {
 	t.Run("Ok", func(t *testing.T) {
-		r := Ok(42)
+		r := Ok(NewInt(42))
 		if !r.IsNormal() {
 			t.Error("Ok() should create normal result")
 		}
-		if r.Val != 42 {
+		if !r.Val.Equal(NewInt(42)) {
 			t.Errorf("Expected value 42, got %v", r.Val)
 		}
 	})
@@ -24,11 +24,11 @@ func TestResultConstructors(t *testing.T) {
 	})
 
 	t.Run("Ret", func(t *testing.T) {
-		r := Ret(42)
+		r := Ret(NewInt(42))
 		if !r.IsReturn() {
 			t.Error("Ret() should create return result")
 		}
-		if r.Val != 42 {
+		if !r.Val.Equal(NewInt(42)) {
 			t.Errorf("Expected value 42, got %v", r.Val)
 		}
 	})
@@ -58,9 +58,9 @@ func TestResultPredicates(t *testing.T) {
 		isBreak    bool
 		isContinue bool
 	}{
-		{"normal", Ok(42), true, false, false, false, false},
+		{"normal", Ok(NewInt(42)), true, false, false, false, false},
 		{"error", Err(E_TYPE), false, true, false, false, false},
-		{"return", Ret(42), false, false, true, false, false},
+		{"return", Ret(NewInt(42)), false, false, true, false, false},
 		{"break", Break(), false, false, false, true, false},
 		{"continue", Continue(), false, false, false, false, true},
 	}
