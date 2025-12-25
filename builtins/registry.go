@@ -10,13 +10,19 @@ type BuiltinFunc func(ctx *types.TaskContext, args []types.Value) types.Result
 
 // Registry holds all registered builtin functions
 type Registry struct {
-	funcs map[string]BuiltinFunc
+	funcs    map[string]BuiltinFunc
+	byID     map[int]BuiltinFunc
+	nameToID map[string]int
+	nextID   int
 }
 
 // NewRegistry creates a new builtin function registry
 func NewRegistry() *Registry {
 	r := &Registry{
-		funcs: make(map[string]BuiltinFunc),
+		funcs:    make(map[string]BuiltinFunc),
+		byID:     make(map[int]BuiltinFunc),
+		nameToID: make(map[string]int),
+		nextID:   0,
 	}
 
 	// Register type conversion builtins
@@ -103,6 +109,25 @@ func NewRegistry() *Registry {
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
 	r.funcs[name] = fn
+	id := r.nextID
+	r.byID[id] = fn
+	r.nameToID[name] = id
+	r.nextID++
+}
+
+// GetID returns the ID for a builtin function name
+func (r *Registry) GetID(name string) (int, bool) {
+	id, ok := r.nameToID[name]
+	return id, ok
+}
+
+// CallByID calls a builtin function by its ID
+func (r *Registry) CallByID(id int, ctx *types.TaskContext, args []types.Value) types.Result {
+	fn, ok := r.byID[id]
+	if !ok {
+		return types.Err(types.E_VERBNF)
+	}
+	return fn(ctx, args)
 }
 
 // Get retrieves a builtin function by name

@@ -203,3 +203,8 @@ func (l ListValue) DeleteAt(index int) ListValue {
 
 	return ListValue{data: &sliceList{elements: newElems}}
 }
+
+// Slice returns a new list containing elements from start to end (1-based, inclusive)
+func (l ListValue) Slice(start, end int) ListValue {
+	return ListValue{data: l.data.Slice(start, end)}
+}
