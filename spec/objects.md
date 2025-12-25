@@ -486,30 +486,105 @@ Wizards can:
 
 ---
 
-## 12. Special Objects
+## 12. System Objects
 
 ### 12.1 System Object (#0)
 
-- Accessed via `$`
-- Contains system properties and verbs
-- `$nothing`, `$room`, `$thing`, etc.
+The system object is accessed via `$` in MOO code. It is the root of the object hierarchy and contains server hooks.
+
+**Required Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `server_options` | MAP | Server configuration (see §12.4) |
+| `maxint` | INT | Maximum integer value (2^63-1 for 64-bit) |
+| `minint` | INT | Minimum integer value (-2^63 for 64-bit) |
+| `nothing` | OBJ | "Nothing" sentinel (typically #-1) |
+| `failed_match` | OBJ | Failed match sentinel (typically #-2) |
+| `ambiguous_match` | OBJ | Ambiguous match sentinel (typically #-3) |
+
+**Required Verbs:**
+
+| Verb | Signature | When Called |
+|------|-----------|-------------|
+| `server_started` | `()` | After database load, before connections |
+| `checkpoint_started` | `()` | Before database checkpoint |
+| `checkpoint_finished` | `(success)` | After checkpoint (1=ok, 0=fail) |
+| `user_connected` | `(player)` | Player successfully logged in |
+| `user_disconnected` | `(player)` | Player connection closed |
+| `user_reconnected` | `(player)` | Player reconnected (replaced connection) |
+| `do_login_command` | `(conn, line)` | Command from unlogged connection |
 
 ### 12.2 Root Objects
 
+Common base objects (conventional, not required):
+
 ```moo
-$nothing      // Parent for orphan objects
+$nothing      // #-1, parent for orphan objects
 $room         // Base for locations
 $thing        // Base for portable objects
 $player       // Base for player objects
+$exit         // Base for exit objects
+$container    // Base for containers
 ```
 
-### 12.3 System Properties
+### 12.3 Login Object
 
-```moo
-$server_options  // Server configuration
-$login           // Login handler object
-$dump_interval   // Checkpoint interval
-```
+The login object (often `$login` or pointed to by `#0.login`) handles authentication.
+
+**Typical Verbs:**
+
+| Verb | Purpose |
+|------|---------|
+| `authenticate` | Verify username/password |
+| `create_player` | Create new player object |
+| `welcome_message` | Return welcome text |
+| `connect_message` | Return "use connect or create" text |
+
+### 12.4 Server Options
+
+`#0.server_options` is a MAP controlling server behavior:
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `bg_ticks` | INT | 30000 | Background task tick limit |
+| `bg_seconds` | INT | 3 | Background task time limit |
+| `fg_ticks` | INT | 60000 | Foreground task tick limit |
+| `fg_seconds` | INT | 5 | Foreground task time limit |
+| `max_stack_depth` | INT | 50 | Maximum call stack depth |
+| `connect_timeout` | INT | 300 | Seconds before unlogged connection times out |
+| `dump_interval` | INT | 3600 | Seconds between automatic checkpoints |
+| `max_queued_output` | INT | 65536 | Max bytes buffered per connection |
+| `name_lookup_timeout` | INT | 5 | DNS lookup timeout |
+| `protect_*` | INT | 0/1 | Builtin function protection flags |
+
+### 12.5 Minimal Core Database
+
+A minimal MOO database requires:
+
+1. **#0** (system object) with:
+   - `server_options` property (empty map is valid)
+   - `do_login_command` verb (can just return 0)
+   - `server_started` verb (can be empty)
+
+2. **At least one player object** with:
+   - USER flag set
+   - WIZARD flag set (for bootstrapping)
+
+3. **Optional but conventional:**
+   - `$nothing` (#-1) for sentinel
+   - `$room` as location base
+   - `$player` as player base
+
+### 12.6 Bootstrap Sequence
+
+When starting with an empty database:
+
+1. Create #0 (system object)
+2. Add minimal required properties
+3. Add stub verbs for hooks
+4. Create wizard player object
+5. Save database
 
 ---
 

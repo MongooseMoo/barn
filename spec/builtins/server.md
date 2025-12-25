@@ -1,0 +1,403 @@
+# MOO Server Administration Built-ins
+
+## Overview
+
+Functions for server administration, monitoring, and control.
+
+---
+
+## 1. Server Information
+
+### 1.1 server_version
+
+**Signature:** `server_version() → STR`
+
+**Description:** Returns server version string.
+
+**Returns:** Version identifier (e.g., `"Barn 1.0.0"`).
+
+**Examples:**
+```moo
+server_version()  => "Barn 1.0.0"
+```
+
+---
+
+### 1.2 memory_usage
+
+**Signature:** `memory_usage() → LIST`
+
+**Description:** Returns memory statistics.
+
+**Returns:** List of memory metrics (format implementation-defined).
+
+**Examples:**
+```moo
+memory_usage()  => {heap_size, used, free, ...}
+```
+
+---
+
+## 2. Server Control
+
+### 2.1 shutdown
+
+**Signature:** `shutdown([message [, panic]]) → none`
+
+**Description:** Initiates server shutdown.
+
+**Parameters:**
+- `message` (STR, optional): Shutdown message (logged, sent to players)
+- `panic` (BOOL, optional): If true, panic shutdown (emergency dump)
+
+**Permissions:** Wizard only.
+
+**Behavior:**
+- Graceful (default): Checkpoint, notify players, clean shutdown
+- Panic: Emergency dump, immediate exit
+
+**Examples:**
+```moo
+shutdown();                           // Graceful shutdown
+shutdown("Maintenance");              // With message
+shutdown("Emergency!", 1);            // Panic shutdown
+```
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+
+---
+
+### 2.2 dump_database
+
+**Signature:** `dump_database() → none`
+
+**Description:** Forces immediate database checkpoint.
+
+**Permissions:** Wizard only.
+
+**Behavior:**
+- Triggers checkpoint sequence
+- Calls `#0:checkpoint_started()` and `#0:checkpoint_finished()`
+- Does not block (checkpoint may be asynchronous)
+
+**Examples:**
+```moo
+dump_database();
+```
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+
+---
+
+### 2.3 load_server_options
+
+**Signature:** `load_server_options() → none`
+
+**Description:** Reloads server options from `#0.server_options`.
+
+**Permissions:** Wizard only.
+
+**Behavior:**
+- Re-reads `#0.server_options` map
+- Updates running configuration
+- Takes effect immediately
+
+**Examples:**
+```moo
+#0.server_options["bg_ticks"] = 50000;
+load_server_options();  // Apply new limit
+```
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+
+---
+
+## 3. Logging
+
+### 3.1 server_log
+
+**Signature:** `server_log(message [, level]) → none`
+
+**Description:** Writes message to server log.
+
+**Parameters:**
+- `message` (STR): Message to log
+- `level` (INT, optional): Log level (0=info, 1=warning, 2=error)
+
+**Permissions:** Wizard only (or configurable).
+
+**Examples:**
+```moo
+server_log("Player count: " + tostr(length(connected_players())));
+server_log("Quota exceeded for #123", 1);  // Warning
+```
+
+**Errors:**
+- E_PERM: Caller not authorized to log
+
+---
+
+## 4. Object Management
+
+### 4.1 reset_max_object
+
+**Signature:** `reset_max_object() → INT`
+
+**Description:** Resets the maximum object ID counter.
+
+**Permissions:** Wizard only.
+
+**Returns:** New maximum object ID.
+
+**Behavior:**
+- Scans all objects to find highest valid ID
+- Sets counter to that value
+- Next `create()` uses ID + 1
+
+**Use case:** Reclaim IDs after mass object recycling.
+
+**Examples:**
+```moo
+reset_max_object()  => 1523
+```
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+
+---
+
+### 4.2 renumber
+
+**Signature:** `renumber(object) → OBJ`
+
+**Description:** Changes an object's ID to the lowest available.
+
+**Parameters:**
+- `object` (OBJ): Object to renumber
+
+**Permissions:** Wizard only.
+
+**Returns:** New object ID.
+
+**Behavior:**
+- Finds lowest unused object ID
+- Moves object to that ID
+- Updates all references (expensive operation)
+
+**Examples:**
+```moo
+renumber(#9999)  => #42
+```
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+- E_INVARG: Invalid object
+
+---
+
+## 5. Connection Management
+
+### 5.1 connected_players
+
+**Signature:** `connected_players([include_all]) → LIST`
+
+**Description:** Returns list of connected player objects.
+
+**Parameters:**
+- `include_all` (BOOL, optional): Include unlogged connections (as negative IDs)
+
+**Returns:** List of player object IDs.
+
+**Examples:**
+```moo
+connected_players()     => {#5, #23, #107}
+connected_players(1)    => {#5, #23, #107, -1, -2}  // -1, -2 are unlogged
+```
+
+---
+
+### 5.2 connection_name
+
+**Signature:** `connection_name(player) → STR`
+
+**Description:** Returns connection identifier (usually IP/hostname).
+
+**Parameters:**
+- `player` (OBJ): Connected player
+
+**Returns:** Connection identifier string.
+
+**Examples:**
+```moo
+connection_name(#5)  => "192.168.1.100"
+```
+
+**Errors:**
+- E_INVARG: Player not connected
+
+---
+
+### 5.3 boot_player
+
+**Signature:** `boot_player(player) → none`
+
+**Description:** Forcibly disconnects a player.
+
+**Parameters:**
+- `player` (OBJ): Player to disconnect
+
+**Permissions:** Wizard, or disconnecting self.
+
+**Behavior:**
+- Calls `#0:user_disconnected(player)`
+- Closes connection
+- Sends boot message
+
+**Examples:**
+```moo
+boot_player(#troublemaker);
+```
+
+**Errors:**
+- E_PERM: Not authorized to boot this player
+- E_INVARG: Player not connected
+
+---
+
+### 5.4 notify
+
+**Signature:** `notify(player, message [, no_flush]) → none`
+
+**Description:** Sends message to player's connection.
+
+**Parameters:**
+- `player` (OBJ): Target player
+- `message` (STR): Message to send
+- `no_flush` (BOOL, optional): Don't flush buffer immediately
+
+**Examples:**
+```moo
+notify(player, "Hello, world!");
+```
+
+**Errors:**
+- E_INVARG: Player not connected
+
+---
+
+### 5.5 buffered_output_length
+
+**Signature:** `buffered_output_length(player) → INT`
+
+**Description:** Returns bytes pending in output buffer.
+
+**Parameters:**
+- `player` (OBJ): Connected player
+
+**Returns:** Number of bytes buffered.
+
+**Examples:**
+```moo
+buffered_output_length(#5)  => 1234
+```
+
+---
+
+## 6. Network
+
+### 6.1 open_network_connection
+
+**Signature:** `open_network_connection(host, port) → OBJ`
+
+**Description:** Opens outbound network connection.
+
+**Parameters:**
+- `host` (STR): Hostname or IP address
+- `port` (INT): Port number
+
+**Permissions:** Wizard only.
+
+**Returns:** Connection object (for use with `read()`, `notify()`).
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+- E_INVARG: Invalid host or port
+- E_QUOTA: Connection limit reached
+
+---
+
+### 6.2 listen
+
+**Signature:** `listen(object, point [, print_messages]) → none`
+
+**Description:** Creates a network listener.
+
+**Parameters:**
+- `object` (OBJ): Object to receive connections
+- `point` (ANY): Port number or descriptor
+- `print_messages` (BOOL, optional): Send system messages to connections
+
+**Permissions:** Wizard only.
+
+**Errors:**
+- E_PERM: Caller is not a wizard
+- E_INVARG: Invalid parameters
+
+---
+
+### 6.3 unlisten
+
+**Signature:** `unlisten(point) → none`
+
+**Description:** Removes a network listener.
+
+**Parameters:**
+- `point` (ANY): Port or descriptor to stop listening on
+
+**Permissions:** Wizard only.
+
+---
+
+### 6.4 listeners
+
+**Signature:** `listeners() → LIST`
+
+**Description:** Returns list of active listeners.
+
+**Returns:** List of `{object, point, print_messages}` tuples.
+
+---
+
+## 7. Error Summary
+
+| Error | Conditions |
+|-------|------------|
+| E_PERM | Non-wizard calling privileged function |
+| E_INVARG | Invalid object, player not connected |
+| E_QUOTA | Resource limit exceeded |
+
+---
+
+## 8. Go Implementation Notes
+
+### 8.1 Permissions
+
+```go
+func requireWizard(caller Objid) error {
+    if !isWizard(caller) {
+        return E_PERM
+    }
+    return nil
+}
+```
+
+### 8.2 Shutdown
+
+Use `context.Context` cancellation to signal shutdown across goroutines.
+
+### 8.3 Logging
+
+Use Go's `log` package or structured logging (e.g., `slog`).
