@@ -84,3 +84,159 @@ func (p *Parser) parseStringLiteral() (types.Value, error) {
 	p.nextToken()
 	return types.NewStr(val), nil
 }
+
+// Precedence levels for operators (lower number = lower precedence)
+const (
+	PREC_LOWEST = iota
+	PREC_ASSIGNMENT   // =
+	PREC_TERNARY      // ? |
+	PREC_CATCH        // ` ! =>
+	PREC_SPLICE       // @
+	PREC_SCATTER      // { } =
+	PREC_OR           // ||
+	PREC_AND          // &&
+	PREC_BIT_OR       // |.
+	PREC_BIT_XOR      // ^.
+	PREC_BIT_AND      // &.
+	PREC_COMPARISON   // == != < <= > >= in
+	PREC_SHIFT        // << >>
+	PREC_ADDITIVE     // + -
+	PREC_MULTIPLICATIVE // * / %
+	PREC_POWER        // ^
+	PREC_UNARY        // ! ~ -
+	PREC_POSTFIX      // . : [ ]
+)
+
+// precedence returns the precedence of the given token type
+func precedence(t TokenType) int {
+	switch t {
+	case TOKEN_ASSIGN:
+		return PREC_ASSIGNMENT
+	case TOKEN_QUESTION:
+		return PREC_TERNARY
+	case TOKEN_OR:
+		return PREC_OR
+	case TOKEN_AND:
+		return PREC_AND
+	case TOKEN_BITOR:
+		return PREC_BIT_OR
+	case TOKEN_BITXOR:
+		return PREC_BIT_XOR
+	case TOKEN_BITAND:
+		return PREC_BIT_AND
+	case TOKEN_EQ, TOKEN_NE, TOKEN_LT, TOKEN_LE, TOKEN_GT, TOKEN_GE, TOKEN_IN:
+		return PREC_COMPARISON
+	case TOKEN_LSHIFT, TOKEN_RSHIFT:
+		return PREC_SHIFT
+	case TOKEN_PLUS, TOKEN_MINUS:
+		return PREC_ADDITIVE
+	case TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT:
+		return PREC_MULTIPLICATIVE
+	case TOKEN_CARET:
+		return PREC_POWER
+	default:
+		return PREC_LOWEST
+	}
+}
+
+// ParseExpression parses an expression
+func (p *Parser) ParseExpression(prec int) (Expr, error) {
+	// Parse prefix expression
+	var left Expr
+	var err error
+
+	switch p.current.Type {
+	case TOKEN_INT, TOKEN_FLOAT, TOKEN_STRING, TOKEN_OBJECT, TOKEN_ERROR_LIT,
+		TOKEN_TRUE, TOKEN_FALSE, TOKEN_LBRACE, TOKEN_LBRACKET:
+		// Parse literal
+		pos := p.current.Position
+		val, err := p.ParseLiteral()
+		if err != nil {
+			return nil, err
+		}
+		left = &LiteralExpr{
+			Pos:   pos,
+			Value: val,
+		}
+
+	case TOKEN_IDENTIFIER:
+		// Parse identifier
+		left = &IdentifierExpr{
+			Pos:  p.current.Position,
+			Name: p.current.Value,
+		}
+		p.nextToken()
+
+	case TOKEN_MINUS, TOKEN_NOT, TOKEN_BITNOT:
+		// Parse unary operator
+		op := p.current.Type
+		pos := p.current.Position
+		p.nextToken()
+		operand, err := p.ParseExpression(PREC_UNARY)
+		if err != nil {
+			return nil, err
+		}
+		left = &UnaryExpr{
+			Pos:      pos,
+			Operator: op,
+			Operand:  operand,
+		}
+
+	case TOKEN_LPAREN:
+		// Parse parenthesized expression
+		pos := p.current.Position
+		p.nextToken()
+		expr, err := p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, err
+		}
+		if p.current.Type != TOKEN_RPAREN {
+			return nil, fmt.Errorf("expected ')', got %s", p.current.Type)
+		}
+		p.nextToken()
+		left = &ParenExpr{
+			Pos:  pos,
+			Expr: expr,
+		}
+
+	default:
+		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
+	}
+
+	// Parse infix expressions
+	for precedence(p.current.Type) > prec {
+		switch p.current.Type {
+		case TOKEN_PLUS, TOKEN_MINUS, TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT,
+			TOKEN_CARET, TOKEN_EQ, TOKEN_NE, TOKEN_LT, TOKEN_LE, TOKEN_GT, TOKEN_GE,
+			TOKEN_AND, TOKEN_OR, TOKEN_BITAND, TOKEN_BITOR, TOKEN_BITXOR,
+			TOKEN_LSHIFT, TOKEN_RSHIFT, TOKEN_IN:
+			// Binary operator
+			op := p.current.Type
+			pos := p.current.Position
+			opPrec := precedence(op)
+			p.nextToken()
+
+			// Handle right-associativity for power operator
+			var right Expr
+			if op == TOKEN_CARET {
+				right, err = p.ParseExpression(opPrec) // Don't increment for right-assoc
+			} else {
+				right, err = p.ParseExpression(opPrec + 1)
+			}
+			if err != nil {
+				return nil, err
+			}
+			left = &BinaryExpr{
+				Pos:      pos,
+				Left:     left,
+				Operator: op,
+				Right:    right,
+			}
+
+		default:
+			return left, nil
+		}
+	}
+
+	return left, err
+}
