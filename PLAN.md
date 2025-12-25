@@ -13,10 +13,10 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 9: Verb System (Layers 9.1-9.4 COMPLETE)
-- **Active Layer:** Layer 9.5 (in progress - needs return type fixes in verb builtins)
-- **Last Test Run:** Layers 9.1-9.4 compile; go build ./... passing
-- **Note:** Phase 9 Layers 9.1-9.4 complete (verb storage, compilation, calls, dollar notation)
+- **Active Phase:** Phase 10: Advanced Features (Layers 10.1-10.2 COMPLETE)
+- **Active Layer:** Phase 10 Gate
+- **Last Test Run:** go build ./... passing
+- **Note:** Phase 10 Layers 10.1-10.2 complete (JSON and eval); ANON and WAIF deferred (complex features requiring extensive implementation)
 
 ### Phase Checklist
 
@@ -97,10 +97,10 @@
   - [ ] 9.5 Verb Builtins (in progress - needs return type fixes)
   - [ ] GATE APPROVED
 - [ ] **Phase 10: Advanced Features**
-  - [ ] 10.1 JSON Builtins
-  - [ ] 10.2 eval() Builtin
-  - [ ] 10.3 Anonymous Objects/Functions
-  - [ ] 10.4 WAIFs
+  - [x] 10.1 JSON Builtins
+  - [x] 10.2 eval() Builtin
+  - [ ] 10.3 Anonymous Objects/Functions (deferred)
+  - [ ] 10.4 WAIFs (deferred)
   - [ ] GATE APPROVED
 - [ ] **Phase 11: Bytecode VM** (optional)
   - [ ] 11.1 Opcode Definitions
