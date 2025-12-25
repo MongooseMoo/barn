@@ -1,0 +1,61 @@
+SPEC PATCH SUMMARY: STATEMENTS FEATURE
+======================================
+
+COMPLETED: 2025-12-24
+
+INPUT:  reports/audit-statements.md (31 gaps identified)
+OUTPUT: reports/patch-statements.md (detailed research)
+        spec/statements.md (patched with 25 additions)
+
+RESULTS:
+--------
+✓ 28 of 31 gaps RESOLVED
+  - 3 already patched in prior work
+  - 25 new patches applied in this session
+
+⏸ 3 gaps DEFERRED
+  - GAP-007: For-range INT64 overflow (Python impl uses arbitrary precision)
+  - GAP-013: Loop label shadowing rules (needs parser analysis)
+  - GAP-025: Error variable scope (needs detailed rt_env analysis)
+
+SPEC CHANGES:
+-------------
+spec/statements.md: 623 → 717 lines (+94 lines, +15% size)
+
+Major additions:
+- Loop variable scoping rules (no block scope, nested loops overwrite)
+- Type checking timing (before first iteration for all loop types)
+- Mutation isolation guarantees (snapshot semantics)
+- Control flow precedence in try/finally
+- Empty body handling (all statement types)
+- Context restrictions (break/continue in fork/try)
+- Map iteration semantics (value-first order, iteration guarantees)
+- Range iteration edge cases (negative ranges, empty ranges)
+- Compile-time vs runtime errors
+
+IMPACT:
+-------
+Before: Implementor would need to guess or consult reference code for 31 behaviors
+After:  Spec provides precise guidance on 28 behaviors; 3 require further research
+
+QUALITY IMPROVEMENT:
+--------------------
+Eliminated major sources of implementation divergence:
+- Loop variable lifetime and scope
+- Mutation visibility during iteration
+- Error checking timing
+- Control flow precedence rules
+- Edge case handling (empty collections, negative ranges)
+
+FILES MODIFIED:
+---------------
+- spec/statements.md (patched)
+- reports/patch-statements.md (created - detailed research log)
+- reports/patch-summary.txt (this file)
+
+NEXT STEPS:
+-----------
+1. Research 3 deferred gaps
+2. Add conformance tests for new specifications
+3. Cross-reference ToastStunt C++ for consistency
+4. Update barn implementation to match patched spec

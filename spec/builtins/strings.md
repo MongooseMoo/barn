@@ -1,0 +1,565 @@
+# MOO String Built-ins
+
+## Overview
+
+String manipulation functions. All string indices are 1-based.
+
+---
+
+## 1. Basic Operations
+
+### 1.1 length
+
+**Signature:** `length(string) → INT`
+
+**Description:** Returns number of characters.
+
+**Examples:**
+```moo
+length("")        => 0
+length("hello")   => 5
+length("日本語")  => 3  (characters, not bytes)
+```
+
+**Errors:**
+- E_TYPE: Not a string
+
+---
+
+### 1.2 strsub
+
+**Signature:** `strsub(subject, old, new [, case_matters]) → STR`
+
+**Description:** Replaces all occurrences of `old` with `new`.
+
+**Parameters:**
+- `subject`: String to search in
+- `old`: Pattern to find
+- `new`: Replacement text
+- `case_matters`: If false (default), case-insensitive
+
+**Examples:**
+```moo
+strsub("hello world", "o", "0")      => "hell0 w0rld"
+strsub("Hello World", "o", "0", 0)   => "Hell0 W0rld"
+strsub("Hello World", "O", "0", 1)   => "Hello World"
+strsub("aaa", "a", "bb")             => "bbbbbb"
+```
+
+**Errors:**
+- E_TYPE: Non-string arguments
+- E_INVARG: Empty `old` string
+
+---
+
+### 1.3 index
+
+**Signature:** `index(haystack, needle [, case_matters [, start]]) → INT`
+
+**Description:** Returns 1-based position of first occurrence.
+
+**Parameters:**
+- `haystack`: String to search in
+- `needle`: String to find
+- `case_matters`: If false (default), case-insensitive
+- `start`: Starting position (1-based)
+
+**Returns:** Position (1-based) or 0 if not found.
+
+**Examples:**
+```moo
+index("hello", "l")           => 3
+index("hello", "L")           => 3  (case-insensitive)
+index("hello", "L", 1)        => 0  (case-sensitive)
+index("hello", "l", 0, 4)     => 4  (start at position 4)
+index("hello", "x")           => 0
+```
+
+**Errors:**
+- E_TYPE: Non-string arguments
+
+---
+
+### 1.4 rindex
+
+**Signature:** `rindex(haystack, needle [, case_matters [, start]]) → INT`
+
+**Description:** Returns 1-based position of last occurrence.
+
+**Examples:**
+```moo
+rindex("hello", "l")   => 4
+rindex("abcabc", "b")  => 5
+```
+
+---
+
+### 1.5 strcmp
+
+**Signature:** `strcmp(str1, str2) → INT`
+
+**Description:** Case-sensitive string comparison.
+
+**Returns:**
+- Negative if str1 < str2
+- Zero if str1 == str2
+- Positive if str1 > str2
+
+**Examples:**
+```moo
+strcmp("abc", "abc")   => 0
+strcmp("abc", "abd")   => -1  (or any negative)
+strcmp("abd", "abc")   => 1   (or any positive)
+strcmp("ABC", "abc")   => -1  (uppercase < lowercase)
+```
+
+**Errors:**
+- E_TYPE: Non-string arguments
+
+---
+
+### 1.6 strtr (ToastStunt)
+
+**Signature:** `strtr(subject, from, to) → STR`
+
+**Description:** Translates characters. Each character in `from` is replaced by corresponding character in `to`.
+
+**Examples:**
+```moo
+strtr("hello", "aeiou", "12345")   => "h2ll4"
+strtr("hello", "helo", "1234")    => "12334"
+```
+
+**Errors:**
+- E_TYPE: Non-string arguments
+- E_INVARG: `from` and `to` different lengths
+
+---
+
+## 2. Case Conversion
+
+### 2.1 upcase (ToastStunt)
+
+**Signature:** `upcase(string) → STR`
+
+**Description:** Converts to uppercase.
+
+**Examples:**
+```moo
+upcase("Hello World")   => "HELLO WORLD"
+upcase("123abc")        => "123ABC"
+```
+
+---
+
+### 2.2 downcase (ToastStunt)
+
+**Signature:** `downcase(string) → STR`
+
+**Description:** Converts to lowercase.
+
+**Examples:**
+```moo
+downcase("Hello World")   => "hello world"
+```
+
+---
+
+### 2.3 capitalize (ToastStunt)
+
+**Signature:** `capitalize(string) → STR`
+
+**Description:** Capitalizes first character of each word.
+
+**Examples:**
+```moo
+capitalize("hello world")   => "Hello World"
+capitalize("HELLO WORLD")   => "Hello World"
+```
+
+---
+
+## 3. Substrings
+
+### 3.1 substr (implicit via indexing)
+
+MOO uses indexing syntax for substrings:
+
+```moo
+str[start..end]   // 1-based, inclusive
+str[start..$]     // To end of string
+```
+
+**Examples:**
+```moo
+"hello"[1..3]     => "hel"
+"hello"[2..4]     => "ell"
+"hello"[3..$]     => "llo"
+```
+
+---
+
+### 3.2 explode (ToastStunt)
+
+**Signature:** `explode(string [, delimiter]) → LIST`
+
+**Description:** Splits string into list of substrings.
+
+**Parameters:**
+- `string`: String to split
+- `delimiter`: Separator (default: any whitespace)
+
+**Examples:**
+```moo
+explode("hello world")       => {"hello", "world"}
+explode("a,b,c", ",")        => {"a", "b", "c"}
+explode("a,,b", ",")         => {"a", "", "b"}
+explode("  hello  world  ")  => {"hello", "world"}
+```
+
+**Errors:**
+- E_TYPE: Non-string arguments
+
+---
+
+### 3.3 implode (ToastStunt)
+
+**Signature:** `implode(list [, delimiter]) → STR`
+
+**Description:** Joins list elements into string.
+
+**Examples:**
+```moo
+implode({"a", "b", "c"})       => "abc"
+implode({"a", "b", "c"}, ",")  => "a,b,c"
+implode({"a", "b", "c"}, " ")  => "a b c"
+```
+
+**Errors:**
+- E_TYPE: Not a list or list contains non-strings
+
+---
+
+## 4. Trimming
+
+### 4.1 ltrim (ToastStunt)
+
+**Signature:** `ltrim(string [, chars]) → STR`
+
+**Description:** Removes leading characters.
+
+**Examples:**
+```moo
+ltrim("  hello  ")        => "hello  "
+ltrim("xxhelloxx", "x")   => "helloxx"
+```
+
+---
+
+### 4.2 rtrim (ToastStunt)
+
+**Signature:** `rtrim(string [, chars]) → STR`
+
+**Description:** Removes trailing characters.
+
+**Examples:**
+```moo
+rtrim("  hello  ")        => "  hello"
+rtrim("xxhelloxx", "x")   => "xxhello"
+```
+
+---
+
+### 4.3 trim (ToastStunt)
+
+**Signature:** `trim(string [, chars]) → STR`
+
+**Description:** Removes leading and trailing characters.
+
+**Examples:**
+```moo
+trim("  hello  ")         => "hello"
+trim("xxhelloxx", "x")    => "hello"
+```
+
+---
+
+## 5. Formatting
+
+### 5.1 tostr
+
+See [types.md](types.md) - converts values to strings.
+
+---
+
+### 5.2 crypt
+
+**Signature:** `crypt(plaintext [, salt]) → STR`
+
+**Description:** One-way hash using Unix crypt().
+
+**Examples:**
+```moo
+crypt("password")           => "xxxxxxxxxxxx"  (varies)
+crypt("password", "ab")     => "abXXXXXXXXXX"  (varies)
+```
+
+---
+
+### 5.3 string_hash
+
+**Signature:** `string_hash(string [, algorithm]) → STR`
+
+**Description:** Cryptographic hash of string.
+
+**Algorithms:** "MD5", "SHA1", "SHA256", "SHA512"
+
+**Examples:**
+```moo
+string_hash("hello")              => "5d41402abc..."  (MD5)
+string_hash("hello", "SHA256")    => "2cf24dba5f..."
+```
+
+---
+
+### 5.4 binary_hash
+
+**Signature:** `binary_hash(string [, algorithm]) → STR`
+
+**Description:** Hash returning raw binary.
+
+---
+
+## 6. Character Operations
+
+### 6.1 chr (ToastStunt)
+
+**Signature:** `chr(code) → STR`
+
+**Description:** Returns character for Unicode code point.
+
+**Examples:**
+```moo
+chr(65)      => "A"
+chr(8364)    => "€"
+```
+
+**Errors:**
+- E_INVARG: Invalid code point
+
+---
+
+### 6.2 ord (ToastStunt)
+
+**Signature:** `ord(string [, index]) → INT`
+
+**Description:** Returns Unicode code point of character.
+
+**Examples:**
+```moo
+ord("A")       => 65
+ord("€")       => 8364
+ord("hello")   => 104
+ord("hello", 2) => 101  (second character)
+```
+
+**Errors:**
+- E_RANGE: Index out of bounds
+
+---
+
+## 7. Encoding
+
+### 7.1 encode_binary
+
+**Signature:** `encode_binary(args...) → STR`
+
+**Description:** Creates binary string from integers.
+
+**Examples:**
+```moo
+encode_binary(65, 66, 67)   => "ABC"
+encode_binary(0, 255)       => binary string with bytes 0, 255
+```
+
+---
+
+### 7.2 decode_binary
+
+**Signature:** `decode_binary(string [, fully]) → LIST`
+
+**Description:** Converts binary string to list of integers.
+
+**Examples:**
+```moo
+decode_binary("ABC")        => {65, 66, 67}
+decode_binary("AB\x00C")    => {65, 66, 0, 67}
+```
+
+---
+
+### 7.3 encode_base64 (ToastStunt)
+
+**Signature:** `encode_base64(string) → STR`
+
+**Description:** Encodes string as base64.
+
+**Examples:**
+```moo
+encode_base64("hello")   => "aGVsbG8="
+```
+
+---
+
+### 7.4 decode_base64 (ToastStunt)
+
+**Signature:** `decode_base64(string) → STR`
+
+**Description:** Decodes base64 string.
+
+**Examples:**
+```moo
+decode_base64("aGVsbG8=")   => "hello"
+```
+
+**Errors:**
+- E_INVARG: Invalid base64
+
+---
+
+## 8. Pattern Matching
+
+### 8.1 match
+
+**Signature:** `match(subject, pattern [, case_matters]) → LIST`
+
+**Description:** Matches MOO pattern against string.
+
+**MOO pattern syntax:**
+
+| Pattern | Matches |
+|---------|---------|
+| `%w` | Word character |
+| `%W` | Non-word character |
+| `%s` | Space |
+| `%S` | Non-space |
+| `%d` | Digit |
+| `%D` | Non-digit |
+| `%.` | Any character |
+| `%^` | Start of string |
+| `%$` | End of string |
+| `%(` `)%` | Capture group |
+| `%*` | Zero or more |
+| `%+` | One or more |
+| `%?` | Zero or one |
+| `%[abc]` | Character class |
+| `%[^abc]` | Negated class |
+| `%%` | Literal % |
+
+**Returns:** `{start, end, replacements, subject}` or `{}`
+
+**Examples:**
+```moo
+match("hello world", "%w+")            => {1, 5, {}, "hello world"}
+match("hello world", "%(w%)%w")        => {1, 2, {"h"}, "hello world"}
+match("hello", "goodbye")              => {}
+```
+
+---
+
+### 8.2 rmatch
+
+**Signature:** `rmatch(subject, pattern [, case_matters]) → LIST`
+
+**Description:** Like match but finds last occurrence.
+
+---
+
+### 8.3 substitute
+
+**Signature:** `substitute(template, subs) → STR`
+
+**Description:** Substitutes captured groups into template.
+
+**Template syntax:**
+- `%1`, `%2`, etc. - Captured groups
+- `%%` - Literal %
+
+**Examples:**
+```moo
+subs = match("hello world", "%(hello%) %(world%)");
+substitute("%2 %1", subs)   => "world hello"
+```
+
+---
+
+## 9. Unicode (ToastStunt)
+
+### 9.1 is_valid_unicode
+
+**Signature:** `is_valid_unicode(string) → BOOL`
+
+**Description:** Tests if string is valid UTF-8.
+
+---
+
+### 9.2 normalize_unicode
+
+**Signature:** `normalize_unicode(string [, form]) → STR`
+
+**Description:** Normalizes Unicode string.
+
+**Forms:** "NFC", "NFD", "NFKC", "NFKD"
+
+---
+
+## 10. Error Handling
+
+All string functions raise:
+- E_TYPE for non-string arguments
+- E_RANGE for index out of bounds
+- E_INVARG for invalid arguments
+
+---
+
+## Go Implementation Notes
+
+```go
+func builtinIndex(args []Value) (Value, error) {
+    haystack, ok := args[0].(StringValue)
+    if !ok {
+        return nil, E_TYPE
+    }
+    needle, ok := args[1].(StringValue)
+    if !ok {
+        return nil, E_TYPE
+    }
+
+    caseSensitive := false
+    if len(args) > 2 {
+        caseSensitive = isTruthy(args[2])
+    }
+
+    h, n := string(haystack), string(needle)
+    if !caseSensitive {
+        h = strings.ToLower(h)
+        n = strings.ToLower(n)
+    }
+
+    start := 0
+    if len(args) > 3 {
+        s, _ := toInt(args[3])
+        start = int(s) - 1  // Convert to 0-based
+    }
+
+    if start >= len(h) {
+        return IntValue(0), nil
+    }
+
+    pos := strings.Index(h[start:], n)
+    if pos < 0 {
+        return IntValue(0), nil
+    }
+    return IntValue(start + pos + 1), nil  // Convert to 1-based
+}
+```

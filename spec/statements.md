@@ -64,6 +64,10 @@ endif
 4. If an `elseif` is truthy, execute its body and skip to `endif`
 5. If no conditions matched and `else` present, execute `else` body
 
+**Empty bodies:**
+- If, elseif, and else bodies may be empty (contain zero statements)
+- Empty bodies are no-ops
+
 ### 3.3 Examples
 
 ```moo
@@ -355,6 +359,12 @@ break loop_name;
 - Without name: exits innermost loop
 - With name: exits the named loop
 - Invalid outside loop
+- Referencing a non-existent loop label is a compile-time error
+
+**Context restrictions:**
+- Break is valid inside try/except/finally blocks when enclosed by a loop
+- Break executes any finally block before exiting the loop
+- Break inside fork blocks is a compile-time error (fork creates a separate task context)
 
 ### 6.2 Continue
 
@@ -367,6 +377,12 @@ continue loop_name;
 - Without name: skips to next iteration of innermost loop
 - With name: skips to next iteration of named loop
 - Invalid outside loop
+- Referencing a non-existent loop label is a compile-time error
+
+**Context restrictions:**
+- Continue is valid inside try/except/finally blocks when enclosed by a loop
+- Continue executes any finally block before proceeding to next iteration
+- Continue inside fork blocks is a compile-time error (fork creates a separate task context)
 
 **Example:**
 ```moo
@@ -483,6 +499,10 @@ endtry
 2. If error raised and matches `error_codes`, execute handler
 3. If error doesn't match, propagate to outer handler
 
+**Empty bodies:**
+- Try, except, and finally blocks may be empty (contain zero statements)
+- An empty try block is a no-op
+
 ### 9.2 Multiple Except Clauses
 
 ```moo
@@ -553,6 +573,11 @@ endtry
   - After return
   - After break/continue
 - If error occurred, re-raised after finally
+
+**Control flow precedence:**
+- If both try and finally blocks execute return statements, the finally block's return value is used
+- If try executes break/continue and finally also executes break/continue, the finally block's control flow takes precedence
+- If both try and finally blocks raise errors, the finally block's error is propagated (try block's error is discarded)
 
 **Example:**
 ```moo
