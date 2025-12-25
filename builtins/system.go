@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/task"
 	"barn/types"
 	"os"
 )
@@ -52,7 +53,14 @@ func builtinTaskLocal(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Return task local or empty list if not set
+	// Get task-local from task if available
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			return types.Ok(t.GetTaskLocal())
+		}
+	}
+
+	// Fallback to context for backward compatibility
 	if ctx.TaskLocal == nil {
 		return types.Ok(types.NewEmptyList())
 	}
@@ -73,7 +81,15 @@ func builtinSetTaskLocal(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	// Set the task local storage
+	// Set task-local in task if available
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			t.SetTaskLocal(args[0])
+			return types.Ok(types.NewInt(0))
+		}
+	}
+
+	// Fallback to context for backward compatibility
 	ctx.TaskLocal = args[0]
 
 	return types.Ok(types.NewInt(0))
@@ -96,5 +112,31 @@ func builtinTicksLeft(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
+	// Get from task if available (more accurate)
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			return types.Ok(types.NewInt(t.TicksLeft()))
+		}
+	}
+
+	// Fallback to context
 	return types.Ok(types.NewInt(ctx.TicksRemaining))
+}
+
+// builtinSecondsLeft implements seconds_left()
+// Returns the number of seconds remaining for the current task
+func builtinSecondsLeft(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Get from task if available
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			return types.Ok(types.NewFloat(t.SecondsLeft()))
+		}
+	}
+
+	// Default fallback (assume infinite time if no task)
+	return types.Ok(types.NewFloat(1000.0))
 }

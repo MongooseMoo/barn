@@ -131,6 +131,14 @@ func NewRegistry() *Registry {
 	r.Register("set_task_local", builtinSetTaskLocal)
 	r.Register("task_id", builtinTaskID)
 	r.Register("ticks_left", builtinTicksLeft)
+	r.Register("seconds_left", builtinSecondsLeft)
+
+	// Task management builtins
+	r.Register("queued_tasks", builtinQueuedTasks)
+	r.Register("kill_task", builtinKillTask)
+	r.Register("suspend", builtinSuspend)
+	r.Register("resume", builtinResume)
+	r.Register("callers", builtinCallers)
 
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)

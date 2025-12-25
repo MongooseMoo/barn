@@ -30,6 +30,11 @@ type TaskContext struct {
 
 	// IsWizard indicates if the current programmer has wizard permissions
 	IsWizard bool
+
+	// Task is a reference to the actual Task object (if this context is part of a task)
+	// This allows builtins to access the call stack, suspend/resume, etc.
+	// Import cycle prevention: This is stored as interface{} and cast to *task.Task when needed
+	Task interface{}
 }
 
 // NewTaskContext creates a new task context with default values

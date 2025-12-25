@@ -3,6 +3,7 @@ package eval
 import (
 	"barn/db"
 	"barn/parser"
+	"barn/task"
 	"barn/types"
 )
 
@@ -59,13 +60,31 @@ func (e *Evaluator) evalVerbCall(expr *parser.VerbCallExpr, ctx *types.TaskConte
 		verb.Program = program
 	}
 
+	// Push activation frame onto call stack (if we have a task)
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			frame := task.ActivationFrame{
+				This:       defObjID,
+				Player:     ctx.Player,
+				Programmer: ctx.Programmer,
+				Caller:     ctx.ThisObj, // The object that called this verb
+				Verb:       expr.Verb,
+				VerbLoc:    defObjID,
+				Args:       args,
+				LineNumber: 0, // TODO: Track line numbers during execution
+			}
+			t.PushFrame(frame)
+			defer t.PopFrame()
+		}
+	}
+
 	// Set up verb call context
 	oldThis := ctx.ThisObj
 	oldVerb := ctx.Verb
 	ctx.ThisObj = defObjID // this = object where verb is defined
 	ctx.Verb = expr.Verb
 
-	// TODO: Set up caller, args, dobj, etc.
+	// TODO: Set up dobj, iobj, etc.
 
 	// Execute the verb
 	result := e.evalStatements(verb.Program.Statements, ctx)
