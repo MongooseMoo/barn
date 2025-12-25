@@ -347,10 +347,10 @@ This phase builds types AND their literal syntax together. Each layer adds a typ
 - `spec/grammar.md` (lines 1-50: token types)
 - `notes/go_interpreter_patterns.md` (parser approach: hand-written Pratt parser for expressions)
 
-**Note:** Layer 0.3 defined `type Value interface{}` as a stub. This layer replaces it with the full interface.
+**Note:** Layer 0.3 defined `type Value interface{}` as a stub in `types/base.go`. This layer replaces it with the full interface (keep in same file or move to `types/value.go`).
 
 #### Tasks
-1. Update `types/value.go` (replaces stub from Layer 0.3):
+1. Update `types/base.go` (or create `types/value.go`) - replace Value stub:
    ```go
    type Value interface {
        Type() TypeCode
@@ -533,7 +533,24 @@ Use **immutable slices** for COW semantics. When modifying, create a new slice. 
        Elements() []Value          // For iteration
    }
 
+   // sliceList is the concrete implementation (private)
+   type sliceList struct { elements []Value }
+
+   func (s *sliceList) Len() int { return len(s.elements) }
+   func (s *sliceList) Get(i int) Value { return s.elements[i-1] } // 1-based
+   func (s *sliceList) Set(i int, v Value) MooList {
+       newElems := make([]Value, len(s.elements))
+       copy(newElems, s.elements)
+       newElems[i-1] = v
+       return &sliceList{newElems}
+   }
+   // ... etc
+
    type ListValue struct { data MooList }
+
+   func NewList(elements []Value) ListValue {
+       return ListValue{data: &sliceList{elements: elements}}
+   }
    ```
 2. Add lexer tokens: `{`, `}`, `,`
 3. Parse list literals: `{expr, expr, ...}` (recursive for nested lists)
@@ -570,12 +587,40 @@ Invalid key types: LIST, MAP (raise E_TYPE)
        Pairs() [][2]Value  // For iteration
    }
 
+   // goMap is the concrete implementation using Go's map (private)
+   // Key is stringified Value (since Go maps need comparable keys)
+   type goMap struct {
+       pairs map[string]mapEntry  // key hash -> entry
+   }
+   type mapEntry struct { key, val Value }
+
+   func (m *goMap) Len() int { return len(m.pairs) }
+   func (m *goMap) Get(k Value) (Value, bool) {
+       if e, ok := m.pairs[keyHash(k)]; ok { return e.val, true }
+       return nil, false
+   }
+   func (m *goMap) Set(k, v Value) MooMap {
+       newPairs := make(map[string]mapEntry, len(m.pairs)+1)
+       for h, e := range m.pairs { newPairs[h] = e }
+       newPairs[keyHash(k)] = mapEntry{k, v}
+       return &goMap{newPairs}
+   }
+   // ... etc
+
    type MapValue struct { data MooMap }
+
+   func NewMap(pairs [][2]Value) MapValue {
+       m := &goMap{pairs: make(map[string]mapEntry)}
+       for _, p := range pairs {
+           m.pairs[keyHash(p[0])] = mapEntry{p[0], p[1]}
+       }
+       return MapValue{data: m}
+   }
    ```
 2. Add lexer tokens: `[`, `]`, `->`
 3. Parse map literals: `["key" -> value, ...]`
 4. Validate key types (no LIST/MAP keys)
-5. Use immutable maps for COW (copy on modification)
+5. Implement keyHash() for comparable key lookup
 
 #### Done Criteria
 - [ ] Lexer tokenizes: `[`, `]`, `->`
