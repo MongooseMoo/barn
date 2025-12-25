@@ -8,6 +8,48 @@
 - Read **spec refs** BEFORE implementing
 - Implementation details come from specs, not this plan
 
+## FOREMAN VERIFICATION PROTOCOL
+
+**A layer is NOT complete until the foreman personally verifies it.**
+
+### Before Marking Any Layer Complete
+
+1. **RUN TESTS YOURSELF** (not the agent):
+   ```bash
+   go test ./conformance/... -v 2>&1 | tee test_output.log
+   ```
+
+2. **CHECK PASS RATE** against this plan's expected rate for that layer
+
+3. **GREP FOR TODOs** in changed files:
+   ```bash
+   git diff --name-only HEAD~1 | xargs grep -l "TODO\|FIXME"
+   ```
+   TODOs in critical paths = NOT COMPLETE
+
+4. **DOCUMENT IN COMMIT**:
+   ```
+   VERIFIED: X/Y tests passing (expected: A/B), no TODOs in critical path
+   ```
+
+### Foreman Checklist (MANDATORY for each layer)
+
+```
+[ ] I ran tests MYSELF - not trusted agent output
+[ ] Pass rate: ___/___ Expected: ___/___
+[ ] Pass rate meets expected: YES/NO
+[ ] No TODOs in critical paths: YES/NO
+[ ] IF ANY NO: STOP. DO NOT PROCEED.
+```
+
+### Red Flags = REJECT
+
+- "scaffolded" = NOT DONE
+- "structure in place" = NOT DONE
+- "TODO for future" = NOT DONE
+- "compiles successfully" without test results = VERIFY
+- Agent claims without foreman verification = REJECT
+
 ## Progress Tracking
 
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
