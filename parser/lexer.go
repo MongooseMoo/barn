@@ -133,10 +133,17 @@ func (l *Lexer) NextToken() Token {
 		tok.Value = string(l.ch)
 		l.readChar()
 	case '-':
-		// Check if next char is a digit (negative number) or not (minus operator)
-		if isDigit(l.peekChar()) {
+		// Check for -> arrow operator
+		if l.peekChar() == '>' {
+			tok.Type = TOKEN_ARROW
+			tok.Value = "->"
+			l.readChar() // skip '-'
+			l.readChar() // skip '>'
+		} else if isDigit(l.peekChar()) {
+			// Negative number
 			tok = l.readNumber()
 		} else {
+			// Minus operator
 			tok.Type = TOKEN_MINUS
 			tok.Value = string(l.ch)
 			l.readChar()

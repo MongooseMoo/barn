@@ -51,6 +51,8 @@ func (p *Parser) ParseLiteral() (types.Value, error) {
 		return p.parseObjectLiteral()
 	case TOKEN_LBRACE:
 		return p.parseListLiteral()
+	case TOKEN_LBRACKET:
+		return p.parseMapLiteral()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
 	}
