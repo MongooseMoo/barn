@@ -43,6 +43,8 @@ func (p *Parser) ParseLiteral() (types.Value, error) {
 	case TOKEN_FALSE:
 		p.nextToken()
 		return types.NewBool(false), nil
+	case TOKEN_STRING:
+		return p.parseStringLiteral()
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
 	}
@@ -66,4 +68,11 @@ func (p *Parser) parseFloatLiteral() (types.Value, error) {
 	}
 	p.nextToken()
 	return types.NewFloat(val), nil
+}
+
+// parseStringLiteral parses a string literal
+func (p *Parser) parseStringLiteral() (types.Value, error) {
+	val := p.current.Literal // Use decoded value
+	p.nextToken()
+	return types.NewStr(val), nil
 }

@@ -143,6 +143,8 @@ func (l *Lexer) NextToken() Token {
 		}
 	case '#':
 		tok = l.readObjectLiteral()
+	case '"':
+		tok = l.readString()
 	default:
 		if isDigit(l.ch) {
 			tok = l.readNumber()
@@ -275,3 +277,4 @@ func isLetter(ch byte) bool {
 func isDigit(ch byte) bool {
 	return '0' <= ch && ch <= '9'
 }
+

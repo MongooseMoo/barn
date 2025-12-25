@@ -101,6 +101,7 @@ type Position struct {
 type Token struct {
 	Type     TokenType
 	Value    string
+	Literal  string // Decoded string value (for TOKEN_STRING)
 	Position Position
 }
 
