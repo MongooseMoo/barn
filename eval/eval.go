@@ -301,9 +301,12 @@ func (e *Evaluator) evalAssign(node *parser.AssignExpr, ctx *types.TaskContext) 
 		return e.evalAssignProperty(target, value, ctx)
 
 	case *parser.IndexExpr:
-		// Index assignment: list[i] = value (Phase 4)
-		// Not yet implemented - will add in indexing phase
-		return types.Err(types.E_TYPE)
+		// Index assignment: list[i] = value, str[i] = char, map[key] = value
+		return e.evalAssignIndex(target, value, ctx)
+
+	case *parser.RangeExpr:
+		// Range assignment: list[1..3] = vals, str[1..3] = substr
+		return e.evalAssignRange(target, value, ctx)
 
 	default:
 		// Other assignment targets not supported
