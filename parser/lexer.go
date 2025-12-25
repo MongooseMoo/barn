@@ -255,6 +255,11 @@ func (l *Lexer) readIdentifier() Token {
 		},
 	}
 
+	// Check for error literal (E_XXX)
+	if l.ch == 'E' && l.peekChar() == '_' {
+		return l.readErrorLiteral()
+	}
+
 	start := l.position
 
 	// Read identifier characters
