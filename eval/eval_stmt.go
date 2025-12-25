@@ -47,6 +47,8 @@ func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Res
 		return e.evalTryFinallyStmt(s, ctx)
 	case *parser.TryExceptFinallyStmt:
 		return e.evalTryExceptFinallyStmt(s, ctx)
+	case *parser.ScatterStmt:
+		return e.evalScatterStmt(s, ctx)
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -455,4 +457,75 @@ func (e *Evaluator) matchesErrorCode(code types.ErrorCode, codes []types.ErrorCo
 		}
 	}
 	return false
+}
+
+// evalScatterStmt evaluates scatter assignment: {a, ?b, @rest} = list
+func (e *Evaluator) evalScatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext) types.Result {
+	// Evaluate the value expression
+	valueResult := e.Eval(stmt.Value, ctx)
+	if !valueResult.IsNormal() {
+		return valueResult
+	}
+
+	// Must be a list
+	listVal, ok := valueResult.Val.(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Get list elements
+	elements := listVal.Elements()
+	elemIdx := 0
+
+	// Track if we've seen @rest
+	var restTarget *parser.ScatterTarget
+	
+	// Process targets
+	for i := range stmt.Targets {
+		target := &stmt.Targets[i]
+		
+		if target.Rest {
+			restTarget = target
+			continue // Process rest at the end
+		}
+
+		// Check if we have an element for this target
+		if elemIdx >= len(elements) {
+			if target.Optional {
+				// Use default value or 0
+				var val types.Value
+				if target.Default != nil {
+					defaultResult := e.Eval(target.Default, ctx)
+					if !defaultResult.IsNormal() {
+						return defaultResult
+					}
+					val = defaultResult.Val
+				} else {
+					val = types.NewInt(0)
+				}
+				e.env.Set(target.Name, val)
+			} else {
+				// Required target with no value
+				return types.Err(types.E_ARGS)
+			}
+		} else {
+			// Bind element to variable
+			e.env.Set(target.Name, elements[elemIdx])
+			elemIdx++
+		}
+	}
+
+	// Handle @rest if present
+	if restTarget != nil {
+		// Collect remaining elements
+		remaining := elements[elemIdx:]
+		e.env.Set(restTarget.Name, types.NewList(remaining))
+	} else {
+		// If no @rest and extra elements, that's an error
+		if elemIdx < len(elements) {
+			return types.Err(types.E_ARGS)
+		}
+	}
+
+	return types.Ok(types.NewInt(0))
 }

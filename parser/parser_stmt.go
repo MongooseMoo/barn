@@ -37,6 +37,9 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseBreakStatement()
 	case TOKEN_CONTINUE:
 		return p.parseContinueStatement()
+	case TOKEN_LBRACE:
+		// Could be scatter assignment or list expression
+		return p.parseScatterOrExprStatement()
 	case TOKEN_SEMICOLON:
 		// Empty statement
 		pos := p.current.Position
@@ -580,4 +583,107 @@ func (p *Parser) errorNameToCode(name string) types.ErrorCode {
 	default:
 		return types.E_NONE // Unknown error code
 	}
+}
+
+// parseScatterOrExprStatement decides if {... is scatter assignment or expression
+func (p *Parser) parseScatterOrExprStatement() (Stmt, error) {
+	// Simple heuristic: if we see { followed by identifier/? /@, likely scatter
+	// Otherwise, parse as expression
+	if p.looksLikeScatter() {
+		return p.parseScatterStatement()
+	}
+	return p.parseExpressionStatement()
+}
+
+// looksLikeScatter checks if the current position looks like scatter assignment
+func (p *Parser) looksLikeScatter() bool {
+	// { identifier or { ? or { @
+	return p.peek.Type == TOKEN_IDENTIFIER || p.peek.Type == TOKEN_QUESTION || p.peek.Type == TOKEN_AT
+}
+
+// parseScatterStatement parses a scatter assignment
+func (p *Parser) parseScatterStatement() (Stmt, error) {
+	pos := p.current.Position
+	p.nextToken() // consume '{'
+	
+	// Parse scatter targets
+	var targets []ScatterTarget
+	
+	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
+		target, err := p.parseScatterTarget()
+		if err != nil {
+			return nil, err
+		}
+		targets = append(targets, target)
+		
+		if p.current.Type == TOKEN_COMMA {
+			p.nextToken() // consume ','
+		} else if p.current.Type != TOKEN_RBRACE {
+			return nil, fmt.Errorf("expected ',' or '}' in scatter")
+		}
+	}
+	
+	if p.current.Type != TOKEN_RBRACE {
+		return nil, fmt.Errorf("expected '}' after scatter targets")
+	}
+	p.nextToken() // consume '}'
+	
+	// Must be followed by =
+	if p.current.Type != TOKEN_ASSIGN {
+		return nil, fmt.Errorf("scatter must be followed by '='")
+	}
+	p.nextToken() // consume '='
+	
+	// Parse value expression
+	value, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Consume semicolon
+	if p.current.Type != TOKEN_SEMICOLON {
+		return nil, fmt.Errorf("expected ';' after scatter assignment")
+	}
+	p.nextToken() // consume ';'
+	
+	return &ScatterStmt{
+		Pos:     pos,
+		Targets: targets,
+		Value:   value,
+	}, nil
+}
+
+// parseScatterTarget parses a single scatter target: var, ?var, ?var = default, @var
+func (p *Parser) parseScatterTarget() (ScatterTarget, error) {
+	target := ScatterTarget{
+		Pos: p.current.Position,
+	}
+	
+	// Check for optional (?) or rest (@)
+	if p.current.Type == TOKEN_QUESTION {
+		target.Optional = true
+		p.nextToken() // consume '?'
+	} else if p.current.Type == TOKEN_AT {
+		target.Rest = true
+		p.nextToken() // consume '@'
+	}
+	
+	// Parse identifier
+	if p.current.Type != TOKEN_IDENTIFIER {
+		return target, fmt.Errorf("expected identifier in scatter target")
+	}
+	target.Name = p.current.Value
+	p.nextToken()
+	
+	// Check for default value (only for optional)
+	if target.Optional && p.current.Type == TOKEN_ASSIGN {
+		p.nextToken() // consume '='
+		defaultExpr, err := p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return target, err
+		}
+		target.Default = defaultExpr
+	}
+	
+	return target, nil
 }

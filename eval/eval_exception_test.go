@@ -280,3 +280,163 @@ func TestTryFinally(t *testing.T) {
 		})
 	}
 }
+
+// TestScatterAssignment verifies scatter assignment works correctly
+func TestScatterAssignment(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     string
+		checkVar string
+		expected types.Value
+	}{
+		{
+			name: "basic scatter",
+			code: `
+				{a, b, c} = {1, 2, 3};
+				return a;
+			`,
+			checkVar: "a",
+			expected: types.NewInt(1),
+		},
+		{
+			name: "optional with value",
+			code: `
+				{a, ?b} = {1, 2};
+				return b;
+			`,
+			checkVar: "b",
+			expected: types.NewInt(2),
+		},
+		{
+			name: "optional without value - uses 0",
+			code: `
+				{a, ?b} = {1};
+				return b;
+			`,
+			checkVar: "b",
+			expected: types.NewInt(0),
+		},
+		{
+			name: "optional with default",
+			code: `
+				{a, ?b = 99} = {1};
+				return b;
+			`,
+			checkVar: "b",
+			expected: types.NewInt(99),
+		},
+		{
+			name: "rest collects remaining",
+			code: `
+				{a, @rest} = {1, 2, 3, 4};
+				return rest;
+			`,
+			checkVar: "rest",
+			expected: types.NewList([]types.Value{
+				types.NewInt(2),
+				types.NewInt(3),
+				types.NewInt(4),
+			}),
+		},
+		{
+			name: "rest with no remaining",
+			code: `
+				{a, @rest} = {1};
+				return rest;
+			`,
+			checkVar: "rest",
+			expected: types.NewList([]types.Value{}),
+		},
+		{
+			name: "mixed optional and rest",
+			code: `
+				{a, ?b, @rest} = {1};
+				return rest;
+			`,
+			checkVar: "rest",
+			expected: types.NewList([]types.Value{}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := parser.NewParser(tt.code)
+			program, err := p.ParseProgram()
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+
+			ev := NewEvaluator()
+			ctx := types.NewTaskContext()
+			result := ev.EvalStatements(program, ctx)
+
+			if result.IsError() {
+				t.Errorf("unexpected error: %s", result.Error)
+				return
+			}
+
+			if !result.IsReturn() {
+				t.Errorf("expected return, got %v", result.Flow)
+				return
+			}
+
+			if !result.Val.Equal(tt.expected) {
+				t.Errorf("expected %v, got %v", tt.expected, result.Val)
+			}
+		})
+	}
+}
+
+// TestScatterErrors verifies scatter assignment error cases
+func TestScatterErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		code          string
+		expectedError types.ErrorCode
+	}{
+		{
+			name: "too few values for required",
+			code: `
+				{a, b, c} = {1, 2};
+			`,
+			expectedError: types.E_ARGS,
+		},
+		{
+			name: "too many values without rest",
+			code: `
+				{a, b} = {1, 2, 3};
+			`,
+			expectedError: types.E_ARGS,
+		},
+		{
+			name: "non-list value",
+			code: `
+				{a, b} = 42;
+			`,
+			expectedError: types.E_TYPE,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := parser.NewParser(tt.code)
+			program, err := p.ParseProgram()
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+
+			ev := NewEvaluator()
+			ctx := types.NewTaskContext()
+			result := ev.EvalStatements(program, ctx)
+
+			if !result.IsError() {
+				t.Errorf("expected error, got value")
+				return
+			}
+
+			if result.Error != tt.expectedError {
+				t.Errorf("expected error %s, got %s", tt.expectedError, result.Error)
+			}
+		})
+	}
+}

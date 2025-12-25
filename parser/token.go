@@ -71,8 +71,11 @@ const (
 	TOKEN_ASSIGN   // =
 	TOKEN_QUESTION // ?
 	TOKEN_PIPE     // |
-	TOKEN_ARROW    // ->
-	TOKEN_RANGE    // ..
+	TOKEN_ARROW      // ->
+	TOKEN_RANGE      // ..
+	TOKEN_FATARROW   // =>
+	TOKEN_BACKTICK   // `
+	TOKEN_SQUOTE     // '
 
 	// Delimiters
 	TOKEN_LPAREN   // (
