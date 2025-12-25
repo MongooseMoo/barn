@@ -45,23 +45,47 @@ func (e *Evaluator) evalProperty(node *parser.PropertyExpr, ctx *types.TaskConte
 	return types.Ok(prop.Value)
 }
 
-// findProperty finds a property on an object
-// For Layer 8.2, only looks at the object itself
-// Layer 8.3 will add inheritance traversal
+// findProperty finds a property on an object with inheritance
+// Implements breadth-first search as per spec/objects.md
+// Search order: obj → parents → grandparents (breadth-first, left-to-right)
 func (e *Evaluator) findProperty(obj *db.Object, name string, ctx *types.TaskContext) (*db.Property, types.ErrorCode) {
-	// Check if property exists on this object
-	prop, ok := obj.Properties[name]
-	if !ok {
-		return nil, types.E_PROPNF
+	// Use breadth-first search for inheritance
+	// Queue starts with the object itself
+	queue := []types.ObjID{obj.ID}
+	visited := make(map[types.ObjID]bool)
+
+	for len(queue) > 0 {
+		// Pop from front (FIFO for breadth-first)
+		currentID := queue[0]
+		queue = queue[1:]
+
+		// Skip if already visited (cycle detection)
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		// Get current object
+		current := e.store.Get(currentID)
+		if current == nil {
+			// Invalid parent - skip
+			continue
+		}
+
+		// Check if property exists on this object
+		prop, ok := current.Properties[name]
+		if ok && !prop.Clear {
+			// Found a non-clear property - this is the value
+			return prop, types.E_NONE
+		}
+
+		// If property is clear or not found, continue to parents
+		// Add parents to end of queue (breadth-first)
+		queue = append(queue, current.Parents...)
 	}
 
-	// If property is clear, it inherits from parent
-	// Layer 8.3 will handle this
-	if prop.Clear {
-		return nil, types.E_PROPNF // For now, treat clear as not found
-	}
-
-	return prop, types.E_NONE
+	// Property not found anywhere in inheritance chain
+	return nil, types.E_PROPNF
 }
 
 // evalAssignProperty handles property assignment: obj.property = value
