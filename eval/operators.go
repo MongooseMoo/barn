@@ -151,22 +151,36 @@ func evalDivide(left, right types.Value) types.Result {
 }
 
 // evalModulo implements modulo: left % right
-// Requires INT operands
+// Supports INT and FLOAT operands
 func evalModulo(left, right types.Value) types.Result {
-	leftInt, ok := left.(types.IntValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-	rightInt, ok := right.(types.IntValue)
-	if !ok {
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+
+	if leftNum == nil || rightNum == nil {
 		return types.Err(types.E_TYPE)
 	}
 
-	if rightInt.Val == 0 {
-		return types.Err(types.E_DIV)
+	// Check for division by zero
+	if rightIsFloat {
+		if rightNum.(float64) == 0 {
+			return types.Err(types.E_DIV)
+		}
+	} else {
+		if rightNum.(int64) == 0 {
+			return types.Err(types.E_DIV)
+		}
 	}
 
-	return types.Ok(types.IntValue{Val: leftInt.Val % rightInt.Val})
+	// If either is float, result is float
+	if leftIsFloat || rightIsFloat {
+		leftFloat := toFloat64(leftNum)
+		rightFloat := toFloat64(rightNum)
+		// Use math.Mod for float modulo
+		return types.Ok(types.FloatValue{Val: math.Mod(leftFloat, rightFloat)})
+	}
+
+	// Both are ints
+	return types.Ok(types.IntValue{Val: leftNum.(int64) % rightNum.(int64)})
 }
 
 // evalPower implements exponentiation: left ^ right
@@ -416,6 +430,18 @@ func toNumeric(v types.Value) (interface{}, bool) {
 		return val.Val, true
 	default:
 		return nil, false
+	}
+}
+
+// toFloat64 converts a numeric interface value to float64
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case int64:
+		return float64(val)
+	case float64:
+		return val
+	default:
+		return 0
 	}
 }
 

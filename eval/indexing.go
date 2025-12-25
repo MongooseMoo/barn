@@ -111,6 +111,8 @@ func (e *Evaluator) evalRange(node *parser.RangeExpr, ctx *types.TaskContext) ty
 		return evalListRange(coll, startIdx, endIdx)
 	case types.StrValue:
 		return evalStrRange(coll, startIdx, endIdx)
+	case types.MapValue:
+		return evalMapRange(coll, startIdx, endIdx)
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -212,6 +214,34 @@ func evalStrRange(str types.StrValue, start, end int64) types.Result {
 	// Extract substring (1-based to 0-based conversion, Go slice is [start:end+1])
 	substr := s[start-1 : end]
 	return types.Ok(types.NewStr(substr))
+}
+
+// evalMapRange evaluates map range indexing (returns submap)
+// Maps are indexed by position, not key, for range operations
+func evalMapRange(m types.MapValue, start, end int64) types.Result {
+	length := int64(m.Len())
+
+	// Check bounds
+	if start < 1 || start > length {
+		return types.Err(types.E_RANGE)
+	}
+	if end < 1 || end > length {
+		return types.Err(types.E_RANGE)
+	}
+
+	// If start > end, return empty map
+	if start > end {
+		return types.Ok(types.NewEmptyMap())
+	}
+
+	// Extract pairs in range (1-based indexing)
+	pairs := m.Pairs()
+	result := make([][2]types.Value, 0, int(end-start+1))
+	for i := start; i <= end; i++ {
+		result = append(result, pairs[i-1])
+	}
+
+	return types.Ok(types.NewMap(result))
 }
 
 // evalMapIndex evaluates map indexing
