@@ -373,21 +373,14 @@ func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	// Evaluate each statement
-	var result types.Result
-	for _, stmt := range stmts {
-		result = e.Eval(stmt, ctx)
+	// Evaluate all statements using EvalStatements
+	result := e.EvalStatements(stmts, ctx)
 
-		// Check for errors or control flow
-		if result.Flow != types.FlowNormal {
-			return result
-		}
+	// Handle FlowReturn - extract the value
+	if result.Flow == types.FlowReturn {
+		return types.Ok(result.Val)
 	}
 
-	// Return the last result (or 0 if no statements)
-	if result.Val == nil {
-		return types.Ok(types.NewInt(0))
-	}
 	return result
 }
 

@@ -20,6 +20,22 @@ func (e *Evaluator) RegisterEvalBuiltin() {
 		code := strVal.Value()
 
 		// Use the evaluator's EvalString method
-		return e.EvalString(code, ctx)
+		result := e.EvalString(code, ctx)
+
+		// eval() returns {success, result}
+		// success = 1 if evaluation succeeded, 0 if error
+		if result.Flow == types.FlowException {
+			// Return {0, error_value}
+			return types.Ok(types.NewList([]types.Value{
+				types.NewInt(0),
+				types.NewErr(result.Error),
+			}))
+		}
+
+		// Return {1, result_value}
+		return types.Ok(types.NewList([]types.Value{
+			types.NewInt(1),
+			result.Val,
+		}))
 	})
 }
