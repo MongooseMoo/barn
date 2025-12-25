@@ -1,0 +1,188 @@
+package eval
+
+import (
+	"barn/parser"
+	"barn/types"
+)
+
+// evalIndex evaluates indexing: expr[index]
+// Supports: lists, strings, and maps
+func (e *Evaluator) evalIndex(node *parser.IndexExpr, ctx *types.TaskContext) types.Result {
+	// Evaluate the expression being indexed
+	exprResult := e.Eval(node.Expr, ctx)
+	if !exprResult.IsNormal() {
+		return exprResult
+	}
+
+	// Evaluate the index
+	indexResult := e.Eval(node.Index, ctx)
+	if !indexResult.IsNormal() {
+		return indexResult
+	}
+
+	expr := exprResult.Val
+	index := indexResult.Val
+
+	// Dispatch based on collection type
+	switch coll := expr.(type) {
+	case types.ListValue:
+		return evalListIndex(coll, index)
+	case types.StrValue:
+		return evalStrIndex(coll, index)
+	case types.MapValue:
+		return evalMapIndex(coll, index)
+	default:
+		return types.Err(types.E_TYPE)
+	}
+}
+
+// evalRange evaluates range indexing: expr[start..end]
+// Supports: lists and strings
+func (e *Evaluator) evalRange(node *parser.RangeExpr, ctx *types.TaskContext) types.Result {
+	// Evaluate the expression being indexed
+	exprResult := e.Eval(node.Expr, ctx)
+	if !exprResult.IsNormal() {
+		return exprResult
+	}
+
+	// Evaluate start and end indices
+	startResult := e.Eval(node.Start, ctx)
+	if !startResult.IsNormal() {
+		return startResult
+	}
+
+	endResult := e.Eval(node.End, ctx)
+	if !endResult.IsNormal() {
+		return endResult
+	}
+
+	expr := exprResult.Val
+	start := startResult.Val
+	end := endResult.Val
+
+	// Both indices must be integers
+	startInt, ok1 := start.(types.IntValue)
+	endInt, ok2 := end.(types.IntValue)
+	if !ok1 || !ok2 {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Dispatch based on collection type
+	switch coll := expr.(type) {
+	case types.ListValue:
+		return evalListRange(coll, startInt.Val, endInt.Val)
+	case types.StrValue:
+		return evalStrRange(coll, startInt.Val, endInt.Val)
+	default:
+		return types.Err(types.E_TYPE)
+	}
+}
+
+// evalListIndex evaluates list indexing
+func evalListIndex(list types.ListValue, index types.Value) types.Result {
+	// Index must be an integer
+	indexInt, ok := index.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Convert to 1-based index
+	idx := indexInt.Val
+
+	// Check bounds (1-based indexing)
+	length := list.Len()
+	if idx < 1 || idx > int64(length) {
+		return types.Err(types.E_RANGE)
+	}
+
+	// Get element (list.Get expects 1-based index)
+	val := list.Get(int(idx))
+	return types.Ok(val)
+}
+
+// evalListRange evaluates list range indexing
+func evalListRange(list types.ListValue, start, end int64) types.Result {
+	length := int64(list.Len())
+
+	// Check bounds
+	if start < 1 || start > length {
+		return types.Err(types.E_RANGE)
+	}
+	if end < 1 || end > length {
+		return types.Err(types.E_RANGE)
+	}
+
+	// If start > end, return empty list
+	if start > end {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+
+	// Extract slice (1-based to 0-based conversion)
+	result := []types.Value{}
+	for i := start; i <= end; i++ {
+		val := list.Get(int(i))
+		result = append(result, val)
+	}
+
+	return types.Ok(types.NewList(result))
+}
+
+// evalStrIndex evaluates string indexing (returns single character)
+func evalStrIndex(str types.StrValue, index types.Value) types.Result {
+	// Index must be an integer
+	indexInt, ok := index.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Convert to 1-based index
+	idx := indexInt.Val
+
+	// Get underlying string
+	s := str.Value()
+	length := int64(len(s))
+
+	// Check bounds (1-based indexing)
+	if idx < 1 || idx > length {
+		return types.Err(types.E_RANGE)
+	}
+
+	// Get character (0-based in Go)
+	char := s[idx-1 : idx]
+	return types.Ok(types.NewStr(char))
+}
+
+// evalStrRange evaluates string range indexing (returns substring)
+func evalStrRange(str types.StrValue, start, end int64) types.Result {
+	// Get underlying string
+	s := str.Value()
+	length := int64(len(s))
+
+	// Check bounds
+	if start < 1 || start > length {
+		return types.Err(types.E_RANGE)
+	}
+	if end < 1 || end > length {
+		return types.Err(types.E_RANGE)
+	}
+
+	// If start > end, return empty string
+	if start > end {
+		return types.Ok(types.NewStr(""))
+	}
+
+	// Extract substring (1-based to 0-based conversion, Go slice is [start:end+1])
+	substr := s[start-1 : end]
+	return types.Ok(types.NewStr(substr))
+}
+
+// evalMapIndex evaluates map indexing
+func evalMapIndex(m types.MapValue, key types.Value) types.Result {
+	// Look up key in map
+	val, ok := m.Get(key)
+	if !ok {
+		return types.Err(types.E_RANGE)
+	}
+
+	return types.Ok(val)
+}

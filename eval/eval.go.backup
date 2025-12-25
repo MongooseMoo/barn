@@ -282,15 +282,6 @@ func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.Tas
 	return fn(ctx, args)
 }
 
-// evalIndexMarker evaluates an index marker (^ or $)
-// These can only be meaningful in an indexing context, so we return E_TYPE here
-// The actual resolution happens in evalIndex and evalRange
-func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.TaskContext) types.Result {
-	// Index markers should only appear inside [] expressions
-	// If we're evaluating one directly, it's an error
-	return types.Err(types.E_TYPE)
-}
-
 // GetEnvironment returns the evaluator's environment (for testing)
 func (e *Evaluator) GetEnvironment() *Environment {
 	return e.env

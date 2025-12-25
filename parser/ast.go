@@ -78,6 +78,15 @@ type ParenExpr struct {
 func (e *ParenExpr) Position() Position { return e.Pos }
 func (e *ParenExpr) exprNode()          {}
 
+// IndexMarkerExpr represents special index markers: ^ (first) or $ (last)
+type IndexMarkerExpr struct {
+	Pos    Position
+	Marker TokenType // TOKEN_CARET or TOKEN_DOLLAR
+}
+
+func (e *IndexMarkerExpr) Position() Position { return e.Pos }
+func (e *IndexMarkerExpr) exprNode()          {}
+
 // IndexExpr represents indexing: expr[index]
 type IndexExpr struct {
 	Pos   Position

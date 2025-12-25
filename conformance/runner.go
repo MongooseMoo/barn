@@ -1,27 +1,32 @@
 package conformance
 
 import (
+	"barn/eval"
+	"barn/parser"
+	"barn/types"
 	"fmt"
+	"strings"
 )
 
 // TestResult represents the outcome of running a single test
 type TestResult struct {
-	Test   LoadedTest
-	Passed bool
-	Skipped bool
+	Test       LoadedTest
+	Passed     bool
+	Skipped    bool
 	SkipReason string
-	Error  error
+	Error      error
 }
 
 // Runner executes conformance tests
 type Runner struct {
-	// In Phase 0, we have no interpreter yet
-	// This will be populated in later phases
+	evaluator *eval.Evaluator
 }
 
 // NewRunner creates a new test runner
 func NewRunner() *Runner {
-	return &Runner{}
+	return &Runner{
+		evaluator: eval.NewEvaluator(),
+	}
 }
 
 // Run executes a single test case
@@ -35,11 +40,42 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 		}
 	}
 
-	// For Phase 0, we skip all tests (no interpreter yet)
+	// Determine what code to execute
+	var code string
+	if test.Test.Code != "" {
+		code = test.Test.Code
+	} else if test.Test.Statement != "" {
+		code = test.Test.Statement
+	} else {
+		// No code to execute
+		return TestResult{
+			Test:       test,
+			Skipped:    true,
+			SkipReason: "no code/statement",
+		}
+	}
+
+	// Parse the code
+	p := parser.NewParser(code)
+	expr, err := p.ParseExpression(0)
+	if err != nil {
+		return TestResult{
+			Test:   test,
+			Passed: false,
+			Error:  fmt.Errorf("parse error: %w", err),
+		}
+	}
+
+	// Evaluate the expression
+	ctx := types.NewTaskContext()
+	result := r.evaluator.Eval(expr, ctx)
+
+	// Check expectation
+	passed, err := r.checkExpectation(test.Test, result)
 	return TestResult{
-		Test:       test,
-		Skipped:    true,
-		SkipReason: "no interpreter (Phase 0)",
+		Test:   test,
+		Passed: passed,
+		Error:  err,
 	}
 }
 
@@ -79,4 +115,244 @@ func ComputeStats(results []TestResult) SummaryStats {
 func FormatStats(stats SummaryStats) string {
 	return fmt.Sprintf("%d passed, %d failed, %d skipped (%d total)",
 		stats.Passed, stats.Failed, stats.Skipped, stats.Total)
+}
+
+// checkExpectation checks if the result matches the expected outcome
+func (r *Runner) checkExpectation(test TestCase, result types.Result) (bool, error) {
+	expect := test.Expect
+
+	// Check for expected error
+	if expect.Error != "" {
+		// Convert error name to ErrorCode
+		expectedErr, ok := errorNameToCode(expect.Error)
+		if !ok {
+			return false, fmt.Errorf("unknown error code: %s", expect.Error)
+		}
+
+		if result.Flow != types.FlowException {
+			return false, fmt.Errorf("expected error %s, got value: %v", expect.Error, result.Val)
+		}
+
+		if result.Error != expectedErr {
+			return false, fmt.Errorf("expected error %s, got %s", expect.Error, errorCodeToName(result.Error))
+		}
+
+		return true, nil
+	}
+
+	// Check for normal result
+	if result.Flow == types.FlowException {
+		return false, fmt.Errorf("unexpected error: %s", errorCodeToName(result.Error))
+	}
+
+	// Check expected value
+	if expect.Value != nil {
+		expectedVal, err := convertYAMLValue(expect.Value)
+		if err != nil {
+			return false, fmt.Errorf("failed to convert expected value: %w", err)
+		}
+
+		if !result.Val.Equal(expectedVal) {
+			return false, fmt.Errorf("expected %v, got %v", expectedVal, result.Val)
+		}
+
+		return true, nil
+	}
+
+	// Check expected type
+	if expect.Type != "" {
+		expectedType, ok := typeNameToCode(expect.Type)
+		if !ok {
+			return false, fmt.Errorf("unknown type: %s", expect.Type)
+		}
+
+		if result.Val.Type() != expectedType {
+			return false, fmt.Errorf("expected type %s, got %s", expect.Type, typeCodeToName(result.Val.Type()))
+		}
+
+		return true, nil
+	}
+
+	// No expectation specified
+	return false, fmt.Errorf("no expectation specified")
+}
+
+// convertYAMLValue converts a YAML value to a MOO Value
+func convertYAMLValue(v interface{}) (types.Value, error) {
+	switch val := v.(type) {
+	case int:
+		return types.NewInt(int64(val)), nil
+	case int64:
+		return types.NewInt(val), nil
+	case float64:
+		return types.NewFloat(val), nil
+	case string:
+		return types.NewStr(val), nil
+	case bool:
+		return types.NewBool(val), nil
+	case []interface{}:
+		elements := make([]types.Value, len(val))
+		for i, elem := range val {
+			v, err := convertYAMLValue(elem)
+			if err != nil {
+				return nil, err
+			}
+			elements[i] = v
+		}
+		return types.NewList(elements), nil
+	case map[string]interface{}:
+		// Convert string-keyed map to MOO map
+		pairs := make([][2]types.Value, 0, len(val))
+		for k, v := range val {
+			keyVal := types.NewStr(k)
+			valVal, err := convertYAMLValue(v)
+			if err != nil {
+				return nil, err
+			}
+			pairs = append(pairs, [2]types.Value{keyVal, valVal})
+		}
+		return types.NewMap(pairs), nil
+	default:
+		return nil, fmt.Errorf("unsupported YAML type: %T", v)
+	}
+}
+
+// errorNameToCode converts error name to ErrorCode
+func errorNameToCode(name string) (types.ErrorCode, bool) {
+	switch strings.ToUpper(name) {
+	case "E_NONE":
+		return types.E_NONE, true
+	case "E_TYPE":
+		return types.E_TYPE, true
+	case "E_DIV":
+		return types.E_DIV, true
+	case "E_PERM":
+		return types.E_PERM, true
+	case "E_PROPNF":
+		return types.E_PROPNF, true
+	case "E_VERBNF":
+		return types.E_VERBNF, true
+	case "E_VARNF":
+		return types.E_VARNF, true
+	case "E_INVIND":
+		return types.E_INVIND, true
+	case "E_RECMOVE":
+		return types.E_RECMOVE, true
+	case "E_MAXREC":
+		return types.E_MAXREC, true
+	case "E_RANGE":
+		return types.E_RANGE, true
+	case "E_ARGS":
+		return types.E_ARGS, true
+	case "E_NACC":
+		return types.E_NACC, true
+	case "E_INVARG":
+		return types.E_INVARG, true
+	case "E_QUOTA":
+		return types.E_QUOTA, true
+	case "E_FLOAT":
+		return types.E_FLOAT, true
+	case "E_FILE":
+		return types.E_FILE, true
+	case "E_EXEC":
+		return types.E_EXEC, true
+	default:
+		return 0, false
+	}
+}
+
+// errorCodeToName converts ErrorCode to name
+func errorCodeToName(code types.ErrorCode) string {
+	switch code {
+	case types.E_NONE:
+		return "E_NONE"
+	case types.E_TYPE:
+		return "E_TYPE"
+	case types.E_DIV:
+		return "E_DIV"
+	case types.E_PERM:
+		return "E_PERM"
+	case types.E_PROPNF:
+		return "E_PROPNF"
+	case types.E_VERBNF:
+		return "E_VERBNF"
+	case types.E_VARNF:
+		return "E_VARNF"
+	case types.E_INVIND:
+		return "E_INVIND"
+	case types.E_RECMOVE:
+		return "E_RECMOVE"
+	case types.E_MAXREC:
+		return "E_MAXREC"
+	case types.E_RANGE:
+		return "E_RANGE"
+	case types.E_ARGS:
+		return "E_ARGS"
+	case types.E_NACC:
+		return "E_NACC"
+	case types.E_INVARG:
+		return "E_INVARG"
+	case types.E_QUOTA:
+		return "E_QUOTA"
+	case types.E_FLOAT:
+		return "E_FLOAT"
+	case types.E_FILE:
+		return "E_FILE"
+	case types.E_EXEC:
+		return "E_EXEC"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", code)
+	}
+}
+
+// typeNameToCode converts type name to TypeCode
+func typeNameToCode(name string) (types.TypeCode, bool) {
+	switch strings.ToLower(name) {
+	case "int":
+		return types.TYPE_INT, true
+	case "obj":
+		return types.TYPE_OBJ, true
+	case "str":
+		return types.TYPE_STR, true
+	case "err":
+		return types.TYPE_ERR, true
+	case "list":
+		return types.TYPE_LIST, true
+	case "float":
+		return types.TYPE_FLOAT, true
+	case "map":
+		return types.TYPE_MAP, true
+	case "waif":
+		return types.TYPE_WAIF, true
+	case "bool":
+		return types.TYPE_BOOL, true
+	default:
+		return 0, false
+	}
+}
+
+// typeCodeToName converts TypeCode to name
+func typeCodeToName(code types.TypeCode) string {
+	switch code {
+	case types.TYPE_INT:
+		return "int"
+	case types.TYPE_OBJ:
+		return "obj"
+	case types.TYPE_STR:
+		return "str"
+	case types.TYPE_ERR:
+		return "err"
+	case types.TYPE_LIST:
+		return "list"
+	case types.TYPE_FLOAT:
+		return "float"
+	case types.TYPE_MAP:
+		return "map"
+	case types.TYPE_WAIF:
+		return "waif"
+	case types.TYPE_BOOL:
+		return "bool"
+	default:
+		return fmt.Sprintf("unknown(%d)", code)
+	}
 }

@@ -134,8 +134,8 @@ func precedence(t TokenType) int {
 		return PREC_MULTIPLICATIVE
 	case TOKEN_CARET:
 		return PREC_POWER
-	case TOKEN_LPAREN:
-		return PREC_POSTFIX // Function calls have high precedence
+	case TOKEN_LPAREN, TOKEN_LBRACKET:
+		return PREC_POSTFIX // Function calls and indexing have high precedence
 	default:
 		return PREC_LOWEST
 	}
@@ -166,6 +166,14 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		left = &IdentifierExpr{
 			Pos:  p.current.Position,
 			Name: p.current.Value,
+		}
+		p.nextToken()
+
+	case TOKEN_CARET, TOKEN_DOLLAR:
+		// Parse index marker (^ = first, $ = last)
+		left = &IndexMarkerExpr{
+			Pos:    p.current.Position,
+			Marker: p.current.Type,
 		}
 		p.nextToken()
 
@@ -272,6 +280,48 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				Pos:  pos,
 				Name: ident.Name,
 				Args: args,
+			}
+
+		case TOKEN_LBRACKET:
+			// Indexing or range: expr[index] or expr[start..end]
+			pos := p.current.Position
+			p.nextToken() // consume '['
+
+			// Parse first expression (index or start)
+			first, err := p.ParseExpression(PREC_LOWEST)
+			if err != nil {
+				return nil, err
+			}
+
+			// Check for range operator
+			if p.current.Type == TOKEN_RANGE {
+				// Range expression
+				p.nextToken() // consume '..'
+				end, err := p.ParseExpression(PREC_LOWEST)
+				if err != nil {
+					return nil, err
+				}
+				if p.current.Type != TOKEN_RBRACKET {
+					return nil, fmt.Errorf("expected ']' after range, got %s", p.current.Type)
+				}
+				p.nextToken() // consume ']'
+				left = &RangeExpr{
+					Pos:   pos,
+					Expr:  left,
+					Start: first,
+					End:   end,
+				}
+			} else {
+				// Simple index
+				if p.current.Type != TOKEN_RBRACKET {
+					return nil, fmt.Errorf("expected ']' after index, got %s", p.current.Type)
+				}
+				p.nextToken() // consume ']'
+				left = &IndexExpr{
+					Pos:   pos,
+					Expr:  left,
+					Index: first,
+				}
 			}
 
 		case TOKEN_QUESTION:
