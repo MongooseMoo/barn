@@ -14,8 +14,8 @@
 
 ### Current State
 - **Active Phase:** Phase 1: Types & Literal Parsing
-- **Active Layer:** 1.2 INT Type + Integer Literals
-- **Last Test Run:** go test ./types/... -v (all passing)
+- **Active Layer:** 1.3 FLOAT Type + Float Literals
+- **Last Test Run:** go test ./parser/... -v (all passing)
 - **Blocker:** none
 
 ### Phase Checklist
@@ -27,7 +27,7 @@
   - [ ] GATE APPROVED
 - [ ] **Phase 1: Types & Literal Parsing**
   - [x] 1.1 Value Interface + Lexer Foundation
-  - [ ] 1.2 INT Type + Integer Literals
+  - [x] 1.2 INT Type + Integer Literals
   - [ ] 1.3 FLOAT Type + Float Literals
   - [ ] 1.4 STR Type + String Literals
   - [ ] 1.5 ERR Type + Error Literals

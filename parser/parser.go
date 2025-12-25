@@ -2,6 +2,8 @@ package parser
 
 import (
 	"barn/types"
+	"fmt"
+	"strconv"
 )
 
 // Parser parses MOO source code into values/expressions
@@ -28,8 +30,28 @@ func (p *Parser) nextToken() {
 	p.peek = p.lexer.NextToken()
 }
 
-// ParseLiteral parses a literal value (will be expanded in later layers)
+// ParseLiteral parses a literal value
 func (p *Parser) ParseLiteral() (types.Value, error) {
-	// Stub - will be implemented in layers 1.2-1.9
-	return nil, nil
+	switch p.current.Type {
+	case TOKEN_INT:
+		return p.parseIntLiteral()
+	case TOKEN_TRUE:
+		p.nextToken()
+		return types.NewBool(true), nil
+	case TOKEN_FALSE:
+		p.nextToken()
+		return types.NewBool(false), nil
+	default:
+		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
+	}
+}
+
+// parseIntLiteral parses an integer literal
+func (p *Parser) parseIntLiteral() (types.Value, error) {
+	val, err := strconv.ParseInt(p.current.Value, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse integer: %w", err)
+	}
+	p.nextToken()
+	return types.NewInt(val), nil
 }

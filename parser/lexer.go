@@ -132,11 +132,136 @@ func (l *Lexer) NextToken() Token {
 		tok.Type = TOKEN_DOLLAR
 		tok.Value = string(l.ch)
 		l.readChar()
+	case '-':
+		// Check if next char is a digit (negative number) or not (minus operator)
+		if isDigit(l.peekChar()) {
+			tok = l.readNumber()
+		} else {
+			tok.Type = TOKEN_MINUS
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	case '#':
+		tok = l.readObjectLiteral()
 	default:
-		tok.Type = TOKEN_ILLEGAL
-		tok.Value = string(l.ch)
+		if isDigit(l.ch) {
+			tok = l.readNumber()
+		} else if isLetter(l.ch) {
+			tok = l.readIdentifier()
+		} else {
+			tok.Type = TOKEN_ILLEGAL
+			tok.Value = string(l.ch)
+			l.readChar()
+		}
+	}
+
+	return tok
+}
+
+// readNumber reads an integer or float literal
+func (l *Lexer) readNumber() Token {
+	tok := Token{
+		Position: Position{
+			Line:   l.line,
+			Column: l.column,
+			Offset: l.position,
+		},
+	}
+
+	start := l.position
+
+	// Handle negative sign
+	if l.ch == '-' {
 		l.readChar()
 	}
+
+	// Read digits
+	for isDigit(l.ch) {
+		l.readChar()
+	}
+
+	// Check for decimal point (float)
+	if l.ch == '.' && isDigit(l.peekChar()) {
+		tok.Type = TOKEN_FLOAT
+		l.readChar() // skip '.'
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+		// Check for exponent
+		if l.ch == 'e' || l.ch == 'E' {
+			l.readChar()
+			if l.ch == '+' || l.ch == '-' {
+				l.readChar()
+			}
+			for isDigit(l.ch) {
+				l.readChar()
+			}
+		}
+	} else if l.ch == 'e' || l.ch == 'E' {
+		// Float with exponent but no decimal point
+		tok.Type = TOKEN_FLOAT
+		l.readChar()
+		if l.ch == '+' || l.ch == '-' {
+			l.readChar()
+		}
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+	} else {
+		tok.Type = TOKEN_INT
+	}
+
+	tok.Value = l.input[start:l.position]
+	return tok
+}
+
+// readObjectLiteral reads an object literal (#123)
+func (l *Lexer) readObjectLiteral() Token {
+	tok := Token{
+		Type: TOKEN_OBJECT,
+		Position: Position{
+			Line:   l.line,
+			Column: l.column,
+			Offset: l.position,
+		},
+	}
+
+	start := l.position
+	l.readChar() // skip '#'
+
+	// Handle negative object IDs
+	if l.ch == '-' {
+		l.readChar()
+	}
+
+	// Read digits
+	for isDigit(l.ch) {
+		l.readChar()
+	}
+
+	tok.Value = l.input[start:l.position]
+	return tok
+}
+
+// readIdentifier reads an identifier or keyword
+func (l *Lexer) readIdentifier() Token {
+	tok := Token{
+		Position: Position{
+			Line:   l.line,
+			Column: l.column,
+			Offset: l.position,
+		},
+	}
+
+	start := l.position
+
+	// Read identifier characters
+	for isLetter(l.ch) || isDigit(l.ch) {
+		l.readChar()
+	}
+
+	tok.Value = l.input[start:l.position]
+	tok.Type = LookupKeyword(tok.Value)
 
 	return tok
 }
