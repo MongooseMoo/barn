@@ -180,8 +180,17 @@ func evalPower(left, right types.Value) types.Result {
 	}
 
 	// Convert to float64 for math.Pow
-	leftFloat := leftNum.(float64)
-	rightFloat := rightNum.(float64)
+	var leftFloat, rightFloat float64
+	if leftIsFloat {
+		leftFloat = leftNum.(float64)
+	} else {
+		leftFloat = float64(leftNum.(int64))
+	}
+	if rightIsFloat {
+		rightFloat = rightNum.(float64)
+	} else {
+		rightFloat = float64(rightNum.(int64))
+	}
 
 	result := math.Pow(leftFloat, rightFloat)
 
@@ -415,13 +424,23 @@ func toNumeric(v types.Value) (interface{}, bool) {
 // Returns error code if comparison is not valid for the types
 func compare(left, right types.Value) (int, types.ErrorCode) {
 	// Numeric comparison
-	leftNum, _ := toNumeric(left)
-	rightNum, _ := toNumeric(right)
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
 
 	if leftNum != nil && rightNum != nil {
 		// Both are numeric - convert to float64 for comparison
-		leftFloat := leftNum.(float64)
-		rightFloat := rightNum.(float64)
+		var leftFloat, rightFloat float64
+		if leftIsFloat {
+			leftFloat = leftNum.(float64)
+		} else {
+			leftFloat = float64(leftNum.(int64))
+		}
+		if rightIsFloat {
+			rightFloat = rightNum.(float64)
+		} else {
+			rightFloat = float64(rightNum.(int64))
+		}
+
 		if leftFloat < rightFloat {
 			return -1, types.E_NONE
 		} else if leftFloat > rightFloat {
