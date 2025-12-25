@@ -86,6 +86,9 @@ func NewRegistry() *Registry {
 	r.Register("generate_json", builtinGenerateJson)
 	r.Register("parse_json", builtinParseJson)
 
+	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
+	// to avoid circular dependencies (eval needs parser which needs eval)
+
 	return r
 }
 

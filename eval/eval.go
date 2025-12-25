@@ -21,11 +21,13 @@ func NewEvaluator() *Evaluator {
 	registry.RegisterObjectBuiltins(store)
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
-	return &Evaluator{
+	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
 		store:    store,
 	}
+	e.RegisterEvalBuiltin()
+	return e
 }
 
 // NewEvaluatorWithEnv creates a new evaluator with a given environment
@@ -35,11 +37,13 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	registry.RegisterObjectBuiltins(store)
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
-	return &Evaluator{
+	e := &Evaluator{
 		env:      env,
 		builtins: registry,
 		store:    store,
 	}
+	e.RegisterEvalBuiltin()
+	return e
 }
 
 // NewEvaluatorWithStore creates a new evaluator with a given store
@@ -48,11 +52,13 @@ func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 	registry.RegisterObjectBuiltins(store)
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
-	return &Evaluator{
+	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
 		store:    store,
 	}
+	e.RegisterEvalBuiltin()
+	return e
 }
 
 // Eval evaluates an AST node and returns a Result
@@ -332,6 +338,35 @@ func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.Tas
 // GetEnvironment returns the evaluator's environment (for testing)
 func (e *Evaluator) GetEnvironment() *Environment {
 	return e.env
+}
+
+// EvalString parses and evaluates a string of MOO code
+// This is used by the eval() builtin
+func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result {
+	// Parse the code
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		// Parse error -> E_INVARG
+		return types.Err(types.E_INVARG)
+	}
+
+	// Evaluate each statement
+	var result types.Result
+	for _, stmt := range stmts {
+		result = e.Eval(stmt, ctx)
+
+		// Check for errors or control flow
+		if result.Flow != types.FlowNormal {
+			return result
+		}
+	}
+
+	// Return the last result (or 0 if no statements)
+	if result.Val == nil {
+		return types.Ok(types.NewInt(0))
+	}
+	return result
 }
 
 // Note: Operator implementation functions (evalAdd, evalSubtract, etc.)
