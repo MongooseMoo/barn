@@ -114,15 +114,24 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 }
 
 // builtinParseJson parses JSON string to MOO value
-// Signature: parse_json(string) → VALUE
+// Signature: parse_json(string [, mode]) → VALUE
+// Modes: "common-subset", "embedded", or default (no mode)
 func builtinParseJson(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 
 	strVal, ok := args[0].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+
+	// Parse optional mode argument (currently ignored - same behavior for all modes)
+	if len(args) == 2 {
+		_, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
 	}
 
 	jsonStr := strVal.Value()

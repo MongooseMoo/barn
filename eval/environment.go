@@ -34,6 +34,20 @@ func NewEnvironment() *Environment {
 	env.vars["$ambiguous_match"] = types.NewObj(types.ObjAmbiguous)
 	env.vars["$failed_match"] = types.NewObj(types.ObjFailedMatch)
 
+	// Define built-in context variables with defaults
+	// These are set by the verb dispatch system in real execution
+	env.vars["player"] = types.NewObj(1)            // Default player #1
+	env.vars["this"] = types.NewObj(types.ObjNothing) // Current object
+	env.vars["caller"] = types.NewObj(types.ObjNothing) // Calling object
+	env.vars["args"] = types.NewList([]types.Value{}) // Verb arguments
+	env.vars["argstr"] = types.NewStr("")            // Raw argument string
+	env.vars["verb"] = types.NewStr("")              // Current verb name
+	env.vars["dobj"] = types.NewObj(types.ObjNothing) // Direct object
+	env.vars["dobjstr"] = types.NewStr("")           // Direct object string
+	env.vars["prepstr"] = types.NewStr("")           // Preposition string
+	env.vars["iobj"] = types.NewObj(types.ObjNothing) // Indirect object
+	env.vars["iobjstr"] = types.NewStr("")           // Indirect object string
+
 	return env
 }
 
