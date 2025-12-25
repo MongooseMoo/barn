@@ -13,9 +13,9 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 2: Operators & Expressions (COMPLETE)
-- **Active Layer:** At Phase 2 GATE
-- **Last Test Run:** go test ./parser/... (all passing)
+- **Active Phase:** Phase 3: Tree-Walk Evaluator (COMPLETE)
+- **Active Layer:** At Phase 3 GATE
+- **Last Test Run:** go build ./... (all passing)
 - **Blocker:** none
 
 ### Phase Checklist
@@ -45,11 +45,11 @@
   - [x] 2.6 Bitwise Operators
   - [x] 2.7 Ternary + Parentheses
   - [ ] GATE APPROVED
-- [ ] **Phase 3: Tree-Walk Evaluator**
-  - [ ] 3.1 Evaluator Scaffold
-  - [ ] 3.2 Expression Evaluation
-  - [ ] 3.3 Variable Binding
-  - [ ] 3.4 Type Conversion Builtins
+- [x] **Phase 3: Tree-Walk Evaluator**
+  - [x] 3.1 Evaluator Scaffold
+  - [x] 3.2 Expression Evaluation
+  - [x] 3.3 Variable Binding
+  - [x] 3.4 Type Conversion Builtins
   - [ ] GATE APPROVED
 - [ ] **Phase 4: Collections & Indexing**
   - [ ] 4.1 List Indexing
