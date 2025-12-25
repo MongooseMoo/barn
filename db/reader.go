@@ -12,12 +12,21 @@ import (
 
 // Database represents a loaded MOO database
 type Database struct {
-	Version       int
-	Objects       map[types.ObjID]*Object
-	Players       []types.ObjID
-	RecycledObjs  []types.ObjID
-	QueuedTasks   []*QueuedTask
+	Version        int
+	Objects        map[types.ObjID]*Object
+	Players        []types.ObjID
+	RecycledObjs   []types.ObjID
+	QueuedTasks    []*QueuedTask
 	SuspendedTasks []*SuspendedTask
+}
+
+// NewStoreFromDatabase creates a Store from a loaded database
+func (db *Database) NewStoreFromDatabase() *Store {
+	store := NewStore()
+	for id, obj := range db.Objects {
+		store.objects[id] = obj
+	}
+	return store
 }
 
 // QueuedTask represents a task waiting to run
