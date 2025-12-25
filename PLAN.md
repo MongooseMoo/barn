@@ -13,10 +13,10 @@
 **CRITICAL:** Update this section as you work. Check boxes when complete. This is your resume point if interrupted.
 
 ### Current State
-- **Active Phase:** Phase 8: Object System (Layers 8.1-8.6 COMPLETE)
-- **Active Layer:** At Phase 8 GATE
-- **Last Test Run:** All layers compile; go build ./... passing; all unit tests passing
-- **Note:** Phases 6-7 complete (Layer 6.4 deferred); Phase 8 implementation complete
+- **Active Phase:** Phase 9: Verb System (Layers 9.1-9.4 COMPLETE)
+- **Active Layer:** Layer 9.5 (in progress - needs return type fixes in verb builtins)
+- **Last Test Run:** Layers 9.1-9.4 compile; go build ./... passing
+- **Note:** Phase 9 Layers 9.1-9.4 complete (verb storage, compilation, calls, dollar notation)
 
 ### Phase Checklist
 
@@ -90,11 +90,11 @@
   - [x] 8.6 Property Builtins
   - [ ] GATE APPROVED
 - [ ] **Phase 9: Verb System**
-  - [ ] 9.1 Verb Storage and Lookup
-  - [ ] 9.2 Verb Compilation
-  - [ ] 9.3 Verb Calls
-  - [ ] 9.4 Dollar Notation
-  - [ ] 9.5 Verb Builtins
+  - [x] 9.1 Verb Storage and Lookup
+  - [x] 9.2 Verb Compilation
+  - [x] 9.3 Verb Calls
+  - [x] 9.4 Dollar Notation
+  - [ ] 9.5 Verb Builtins (in progress - needs return type fixes)
   - [ ] GATE APPROVED
 - [ ] **Phase 10: Advanced Features**
   - [ ] 10.1 JSON Builtins
