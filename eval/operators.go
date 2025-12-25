@@ -1,0 +1,463 @@
+package eval
+
+import (
+	"barn/types"
+	"math"
+	"strings"
+)
+
+// ============================================================================
+// UNARY OPERATORS
+// ============================================================================
+
+// evalUnaryMinus implements unary negation: -x
+// Supports INT and FLOAT types
+func evalUnaryMinus(operand types.Value) types.Result {
+	switch v := operand.(type) {
+	case types.IntValue:
+		return types.Ok(types.IntValue{Val: -v.Val})
+	case types.FloatValue:
+		return types.Ok(types.FloatValue{Val: -v.Val})
+	default:
+		return types.Err(types.E_TYPE)
+	}
+}
+
+// evalUnaryNot implements logical NOT: !x
+// Returns 1 if falsy, 0 if truthy
+func evalUnaryNot(operand types.Value) types.Result {
+	if operand.Truthy() {
+		return types.Ok(types.IntValue{Val: 0})
+	}
+	return types.Ok(types.IntValue{Val: 1})
+}
+
+// evalBitwiseNot implements bitwise NOT: ~x
+// Requires INT operand
+func evalBitwiseNot(operand types.Value) types.Result {
+	intVal, ok := operand.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.IntValue{Val: ^intVal.Val})
+}
+
+// ============================================================================
+// ARITHMETIC OPERATORS
+// ============================================================================
+
+// evalAdd implements addition: left + right
+// Supports INT + INT, FLOAT + FLOAT, INT + FLOAT (promotes to FLOAT)
+// Also supports string concatenation: STR + STR
+func evalAdd(left, right types.Value) types.Result {
+	// String concatenation
+	if leftStr, ok := left.(types.StrValue); ok {
+		if rightStr, ok := right.(types.StrValue); ok {
+			return types.Ok(types.NewStr(leftStr.Value() + rightStr.Value()))
+		}
+		return types.Err(types.E_TYPE)
+	}
+
+	// Numeric addition
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+
+	if leftNum == nil || rightNum == nil {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat || rightIsFloat {
+		// Float addition
+		result := leftNum.(float64) + rightNum.(float64)
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return types.Err(types.E_FLOAT)
+		}
+		return types.Ok(types.FloatValue{Val: result})
+	}
+
+	// Integer addition
+	return types.Ok(types.IntValue{Val: leftNum.(int64) + rightNum.(int64)})
+}
+
+// evalSubtract implements subtraction: left - right
+func evalSubtract(left, right types.Value) types.Result {
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+
+	if leftNum == nil || rightNum == nil {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat || rightIsFloat {
+		result := leftNum.(float64) - rightNum.(float64)
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return types.Err(types.E_FLOAT)
+		}
+		return types.Ok(types.FloatValue{Val: result})
+	}
+
+	return types.Ok(types.IntValue{Val: leftNum.(int64) - rightNum.(int64)})
+}
+
+// evalMultiply implements multiplication: left * right
+func evalMultiply(left, right types.Value) types.Result {
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+
+	if leftNum == nil || rightNum == nil {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat || rightIsFloat {
+		result := leftNum.(float64) * rightNum.(float64)
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return types.Err(types.E_FLOAT)
+		}
+		return types.Ok(types.FloatValue{Val: result})
+	}
+
+	return types.Ok(types.IntValue{Val: leftNum.(int64) * rightNum.(int64)})
+}
+
+// evalDivide implements division: left / right
+// Integer division truncates toward zero
+// Raises E_DIV for division by zero
+func evalDivide(left, right types.Value) types.Result {
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+
+	if leftNum == nil || rightNum == nil {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat || rightIsFloat {
+		rightFloat := rightNum.(float64)
+		if rightFloat == 0.0 {
+			return types.Err(types.E_DIV)
+		}
+		result := leftNum.(float64) / rightFloat
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return types.Err(types.E_FLOAT)
+		}
+		return types.Ok(types.FloatValue{Val: result})
+	}
+
+	// Integer division
+	rightInt := rightNum.(int64)
+	if rightInt == 0 {
+		return types.Err(types.E_DIV)
+	}
+	return types.Ok(types.IntValue{Val: leftNum.(int64) / rightInt})
+}
+
+// evalModulo implements modulo: left % right
+// Requires INT operands
+func evalModulo(left, right types.Value) types.Result {
+	leftInt, ok := left.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	rightInt, ok := right.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	if rightInt.Val == 0 {
+		return types.Err(types.E_DIV)
+	}
+
+	return types.Ok(types.IntValue{Val: leftInt.Val % rightInt.Val})
+}
+
+// evalPower implements exponentiation: left ^ right
+// Supports INT and FLOAT operands
+func evalPower(left, right types.Value) types.Result {
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+
+	if leftNum == nil || rightNum == nil {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Convert to float64 for math.Pow
+	leftFloat := leftNum.(float64)
+	rightFloat := rightNum.(float64)
+
+	result := math.Pow(leftFloat, rightFloat)
+
+	// Check for NaN/Inf
+	if math.IsNaN(result) || math.IsInf(result, 0) {
+		return types.Err(types.E_FLOAT)
+	}
+
+	// Return as float if either operand was float, otherwise try to return as int
+	if leftIsFloat || rightIsFloat {
+		return types.Ok(types.FloatValue{Val: result})
+	}
+
+	// For integer inputs, return int if result is whole number
+	if result == math.Floor(result) && result >= float64(math.MinInt64) && result <= float64(math.MaxInt64) {
+		return types.Ok(types.IntValue{Val: int64(result)})
+	}
+
+	// Result doesn't fit in int64 or is not whole, return as float
+	return types.Ok(types.FloatValue{Val: result})
+}
+
+// ============================================================================
+// COMPARISON OPERATORS
+// ============================================================================
+
+// evalEqual implements equality: left == right
+// Deep equality for all types
+func evalEqual(left, right types.Value) types.Result {
+	if left.Equal(right) {
+		return types.Ok(types.IntValue{Val: 1})
+	}
+	return types.Ok(types.IntValue{Val: 0})
+}
+
+// evalNotEqual implements inequality: left != right
+func evalNotEqual(left, right types.Value) types.Result {
+	if left.Equal(right) {
+		return types.Ok(types.IntValue{Val: 0})
+	}
+	return types.Ok(types.IntValue{Val: 1})
+}
+
+// evalLessThan implements less than: left < right
+// Supports INT, FLOAT, and STR comparisons
+func evalLessThan(left, right types.Value) types.Result {
+	cmp, err := compare(left, right)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if cmp < 0 {
+		return types.Ok(types.IntValue{Val: 1})
+	}
+	return types.Ok(types.IntValue{Val: 0})
+}
+
+// evalLessThanEqual implements less than or equal: left <= right
+func evalLessThanEqual(left, right types.Value) types.Result {
+	cmp, err := compare(left, right)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if cmp <= 0 {
+		return types.Ok(types.IntValue{Val: 1})
+	}
+	return types.Ok(types.IntValue{Val: 0})
+}
+
+// evalGreaterThan implements greater than: left > right
+func evalGreaterThan(left, right types.Value) types.Result {
+	cmp, err := compare(left, right)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if cmp > 0 {
+		return types.Ok(types.IntValue{Val: 1})
+	}
+	return types.Ok(types.IntValue{Val: 0})
+}
+
+// evalGreaterThanEqual implements greater than or equal: left >= right
+func evalGreaterThanEqual(left, right types.Value) types.Result {
+	cmp, err := compare(left, right)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if cmp >= 0 {
+		return types.Ok(types.IntValue{Val: 1})
+	}
+	return types.Ok(types.IntValue{Val: 0})
+}
+
+// evalIn implements the 'in' operator: left in right
+// Checks if left is contained in right (list membership, string substring, map key)
+func evalIn(left, right types.Value) types.Result {
+	switch container := right.(type) {
+	case types.ListValue:
+		// Check if left is an element of the list
+		for i := 1; i <= container.Len(); i++ {
+			if elem := container.Get(i); elem.Equal(left) {
+				return types.Ok(types.IntValue{Val: 1})
+			}
+		}
+		return types.Ok(types.IntValue{Val: 0})
+
+	case types.StrValue:
+		// Check if left is a substring
+		leftStr, ok := left.(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		if strings.Contains(container.Value(), leftStr.Value()) {
+			return types.Ok(types.IntValue{Val: 1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+
+	case types.MapValue:
+		// Check if left is a key in the map
+		_, found := container.Get(left)
+		if found {
+			return types.Ok(types.IntValue{Val: 1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+
+	default:
+		return types.Err(types.E_TYPE)
+	}
+}
+
+// ============================================================================
+// BITWISE OPERATORS
+// ============================================================================
+
+// evalBitwiseAnd implements bitwise AND: left &. right
+func evalBitwiseAnd(left, right types.Value) types.Result {
+	leftInt, ok := left.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	rightInt, ok := right.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.IntValue{Val: leftInt.Val & rightInt.Val})
+}
+
+// evalBitwiseOr implements bitwise OR: left |. right
+func evalBitwiseOr(left, right types.Value) types.Result {
+	leftInt, ok := left.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	rightInt, ok := right.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.IntValue{Val: leftInt.Val | rightInt.Val})
+}
+
+// evalBitwiseXor implements bitwise XOR: left ^. right
+func evalBitwiseXor(left, right types.Value) types.Result {
+	leftInt, ok := left.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	rightInt, ok := right.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.IntValue{Val: leftInt.Val ^ rightInt.Val})
+}
+
+// evalLeftShift implements left shift: left << right
+func evalLeftShift(left, right types.Value) types.Result {
+	leftInt, ok := left.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	rightInt, ok := right.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Negative shift is an error
+	if rightInt.Val < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
+	return types.Ok(types.IntValue{Val: leftInt.Val << uint(rightInt.Val)})
+}
+
+// evalRightShift implements right shift: left >> right
+func evalRightShift(left, right types.Value) types.Result {
+	leftInt, ok := left.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	rightInt, ok := right.(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Negative shift is an error
+	if rightInt.Val < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
+	return types.Ok(types.IntValue{Val: leftInt.Val >> uint(rightInt.Val)})
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+// toNumeric converts a Value to a numeric type (int64 or float64)
+// Returns (value, isFloat) where value is either int64 or float64
+// Returns (nil, false) if the value is not numeric
+func toNumeric(v types.Value) (interface{}, bool) {
+	switch val := v.(type) {
+	case types.IntValue:
+		return val.Val, false
+	case types.FloatValue:
+		return val.Val, true
+	default:
+		return nil, false
+	}
+}
+
+// compare compares two values for ordering
+// Returns: -1 if left < right, 0 if equal, 1 if left > right
+// Returns error code if comparison is not valid for the types
+func compare(left, right types.Value) (int, types.ErrorCode) {
+	// Numeric comparison
+	leftNum, _ := toNumeric(left)
+	rightNum, _ := toNumeric(right)
+
+	if leftNum != nil && rightNum != nil {
+		// Both are numeric - convert to float64 for comparison
+		leftFloat := leftNum.(float64)
+		rightFloat := rightNum.(float64)
+		if leftFloat < rightFloat {
+			return -1, types.E_NONE
+		} else if leftFloat > rightFloat {
+			return 1, types.E_NONE
+		}
+		return 0, types.E_NONE
+	}
+
+	// String comparison
+	leftStr, leftIsStr := left.(types.StrValue)
+	rightStr, rightIsStr := right.(types.StrValue)
+
+	if leftIsStr && rightIsStr {
+		leftVal := leftStr.Value()
+		rightVal := rightStr.Value()
+		if leftVal < rightVal {
+			return -1, types.E_NONE
+		} else if leftVal > rightVal {
+			return 1, types.E_NONE
+		}
+		return 0, types.E_NONE
+	}
+
+	// OBJ comparison (by ID)
+	leftObj, leftIsObj := left.(types.ObjValue)
+	rightObj, rightIsObj := right.(types.ObjValue)
+
+	if leftIsObj && rightIsObj {
+		if leftObj.ID() < rightObj.ID() {
+			return -1, types.E_NONE
+		} else if leftObj.ID() > rightObj.ID() {
+			return 1, types.E_NONE
+		}
+		return 0, types.E_NONE
+	}
+
+	// Type mismatch
+	return 0, types.E_TYPE
+}
