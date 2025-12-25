@@ -11,9 +11,9 @@ A MOO server manages object persistence, player connections, and task execution.
 ### 1.1 Initialization Order
 
 1. Load database from disk
-2. Initialize network listeners
+2. Initialize network listeners (create sockets, bind ports, but do not accept yet)
 3. Call `#0:server_started()` (no arguments)
-4. Begin accepting connections
+4. Begin accepting connections on initialized listeners
 5. Enter main loop
 
 ### 1.2 Server Started Hook
@@ -46,8 +46,9 @@ The server continuously:
 
 Tasks run cooperatively:
 - One task runs until it suspends, completes, or exceeds limits
-- Scheduler picks next ready task
+- Scheduler picks next ready task (implementation-defined: FIFO, priority, or other)
 - Forked tasks run after their delay expires
+- Tasks with identical expiry times are scheduled in creation order
 
 ---
 
@@ -79,6 +80,7 @@ Tasks run cooperatively:
 - Checkpoints persist all objects, properties, verbs, and queued tasks
 - Checkpoint must be atomic (write to temp file, rename)
 - Server continues running during checkpoint
+- Database consistency during checkpoint is implementation-defined (may use copy-on-write, fork, or snapshot)
 - If checkpoint fails, server continues (does not abort)
 
 ---
@@ -92,9 +94,9 @@ Triggered by:
 - OS termination signal (SIGTERM, SIGINT equivalent)
 
 **Sequence:**
-1. Stop accepting new connections
-2. Notify connected players (implementation-defined message)
-3. Run `#0:shutdown_started(message)` if defined
+1. Run `#0:shutdown_started(message)` if defined
+2. Stop accepting new connections
+3. Notify connected players (message parameter from shutdown(), or default implementation-defined message)
 4. Flush final checkpoint
 5. Close all connections
 6. Exit cleanly
@@ -107,7 +109,7 @@ Triggered by:
 
 **Sequence:**
 1. Log error with stack trace if available
-2. Attempt emergency database dump (best-effort)
+2. Attempt emergency database dump (best-effort: try to write current state, may be partial or incomplete)
 3. Exit immediately (non-zero status)
 
 **No hooks called during panic.**
@@ -179,7 +181,8 @@ After successful login:
 When connection closes:
 - `#0:user_disconnected(player)` called
 - Pending output discarded
-- Associated tasks may continue or be killed (implementation choice)
+- Associated foreground tasks are killed
+- Associated background tasks continue running (implementation may allow configuration via server_options)
 
 ---
 
@@ -188,8 +191,8 @@ When connection closes:
 ### 7.1 Task Errors
 
 Unhandled errors in tasks:
-- Foreground: Error message sent to player
-- Background: Error logged, task aborts silently
+- Foreground: Error message sent to player via notify()
+- Background: Error logged to server log (implementation-defined: file, stderr, logging system), task aborts silently
 
 ### 7.2 Hook Errors
 

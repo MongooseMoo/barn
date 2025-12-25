@@ -14,7 +14,7 @@ Functions for server administration, monitoring, and control.
 
 **Description:** Returns server version string.
 
-**Returns:** Version identifier (e.g., `"Barn 1.0.0"`).
+**Returns:** Version identifier string (format implementation-defined, conventionally "Name Major.Minor.Patch").
 
 **Examples:**
 ```moo
@@ -29,11 +29,12 @@ server_version()  => "Barn 1.0.0"
 
 **Description:** Returns memory statistics.
 
-**Returns:** List of memory metrics (format implementation-defined).
+**Returns:** List of memory metrics. Format is implementation-defined. Common implementations return `{total_bytes, used_bytes, free_bytes}` or a map of metric names to values.
 
 **Examples:**
 ```moo
-memory_usage()  => {heap_size, used, free, ...}
+memory_usage()  => {10485760, 6291456, 4194304}  // Total, used, free
+memory_usage()  => [["total" -> 10485760], ["used" -> 6291456]]  // Map format
 ```
 
 ---
@@ -53,8 +54,9 @@ memory_usage()  => {heap_size, used, free, ...}
 **Permissions:** Wizard only.
 
 **Behavior:**
-- Graceful (default): Checkpoint, notify players, clean shutdown
+- Graceful (default): Calls `#0:shutdown_started(message)`, stops accepting connections, checkpoints, notifies players, clean shutdown
 - Panic: Emergency dump, immediate exit
+- Hook calling order: `#0:shutdown_started()` is called before stopping connections
 
 **Examples:**
 ```moo
@@ -77,9 +79,9 @@ shutdown("Emergency!", 1);            // Panic shutdown
 **Permissions:** Wizard only.
 
 **Behavior:**
-- Triggers checkpoint sequence
-- Calls `#0:checkpoint_started()` and `#0:checkpoint_finished()`
-- Does not block (checkpoint may be asynchronous)
+- Returns immediately (does not block)
+- Triggers asynchronous checkpoint sequence
+- Hooks `#0:checkpoint_started()` and `#0:checkpoint_finished()` are called during checkpoint execution (may occur after function returns)
 
 **Examples:**
 ```moo
@@ -101,8 +103,14 @@ dump_database();
 
 **Behavior:**
 - Re-reads `#0.server_options` map
+- Validates option values (type checks, range checks)
 - Updates running configuration
 - Takes effect immediately
+
+**Validation:**
+- Type mismatch (e.g., string for integer option): raises E_INVARG
+- Out-of-range values (e.g., negative timeout): raises E_INVARG
+- Unknown option keys: silently ignored
 
 **Examples:**
 ```moo
@@ -112,6 +120,7 @@ load_server_options();  // Apply new limit
 
 **Errors:**
 - E_PERM: Caller is not a wizard
+- E_INVARG: Invalid option type or value
 
 ---
 
@@ -127,7 +136,7 @@ load_server_options();  // Apply new limit
 - `message` (STR): Message to log
 - `level` (INT, optional): Log level (0=info, 1=warning, 2=error)
 
-**Permissions:** Wizard only (or configurable).
+**Permissions:** Wizard only by default. May be configured via `server_options["protect_server_log"]` (0=wizard-only, 1=all).
 
 **Examples:**
 ```moo
@@ -226,17 +235,18 @@ connected_players(1)    => {#5, #23, #107, -1, -2}  // -1, -2 are unlogged
 **Description:** Returns connection identifier (usually IP/hostname).
 
 **Parameters:**
-- `player` (OBJ): Connected player
+- `player` (OBJ or connection identifier): Connected player or unlogged connection
 
-**Returns:** Connection identifier string.
+**Returns:** Connection identifier string (typically IP address or hostname).
 
 **Examples:**
 ```moo
 connection_name(#5)  => "192.168.1.100"
+connection_name(-1)  => "192.168.1.200"  // Unlogged connection
 ```
 
 **Errors:**
-- E_INVARG: Player not connected
+- E_INVARG: Player/connection not connected
 
 ---
 

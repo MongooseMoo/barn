@@ -553,23 +553,28 @@ The login object (often `$login` or pointed to by `#0.login`) handles authentica
 | `fg_seconds` | INT | 5 | Foreground task time limit |
 | `max_stack_depth` | INT | 50 | Maximum call stack depth |
 | `connect_timeout` | INT | 300 | Seconds before unlogged connection times out |
-| `dump_interval` | INT | 3600 | Seconds between automatic checkpoints |
+| `dump_interval` | INT | 3600 | Seconds between automatic checkpoints (alias: `checkpoint_interval`) |
+| `checkpoint_interval` | INT | 3600 | Seconds between automatic checkpoints (alias: `dump_interval`) |
 | `max_queued_output` | INT | 65536 | Max bytes buffered per connection |
 | `name_lookup_timeout` | INT | 5 | DNS lookup timeout |
 | `protect_*` | INT | 0/1 | Builtin function protection flags |
+
+**Note:** `dump_interval` and `checkpoint_interval` are aliases for the same setting. Implementations should accept both names.
 
 ### 12.5 Minimal Core Database
 
 A minimal MOO database requires:
 
 1. **#0** (system object) with:
-   - `server_options` property (empty map is valid)
-   - `do_login_command` verb (can just return 0)
+   - `server_options` property (empty map is valid, server uses defaults)
+   - `do_login_command` verb (can just return 0 to deny all logins)
    - `server_started` verb (can be empty)
 
-2. **At least one player object** with:
-   - USER flag set
+2. **At least one wizard object** (recommended but not strictly required):
    - WIZARD flag set (for bootstrapping)
+   - Allows use of wizard-only builtins to build the database
+
+**Type validation:** Setting `server_options` to invalid values (wrong types, out-of-range) will cause `load_server_options()` to raise E_INVARG.
 
 3. **Optional but conventional:**
    - `$nothing` (#-1) for sentinel
@@ -578,13 +583,22 @@ A minimal MOO database requires:
 
 ### 12.6 Bootstrap Sequence
 
-When starting with an empty database:
+**No builtin bootstrap mechanism is required.** Creating a minimal database from scratch requires manual database file creation or external tooling.
 
-1. Create #0 (system object)
-2. Add minimal required properties
-3. Add stub verbs for hooks
-4. Create wizard player object
+**Recommended bootstrap approach:**
+
+1. Create empty database file with #0 (system object)
+2. Add minimal required properties (`server_options` as empty map)
+3. Add stub verbs for hooks (`do_login_command`, `server_started`)
+4. Create wizard object for administration
 5. Save database
+
+**Implementations may provide:**
+- Command-line tool to create minimal database
+- Database generation utility
+- Example minimal database file
+
+**MOO code cannot bootstrap itself** - the server must load a database before executing MOO code.
 
 ---
 

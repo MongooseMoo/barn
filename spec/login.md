@@ -33,7 +33,7 @@ All input from unlogged connections goes to:
 ```
 
 **Parameters:**
-- `connection`: Object representing the connection (implementation-defined)
+- `connection`: Connection identifier (implementation-defined type: may be negative INT, OBJ, or other unique identifier)
 - `line`: Raw input string from user
 
 **Return value:**
@@ -65,9 +65,9 @@ return 0;  // Stay unlogged
 Unlogged connections timeout after `connect_timeout` seconds (default: 300).
 
 On timeout:
-1. `#0:user_disconnected(connection)` called (if connection had any state)
+1. `#0:user_disconnected(connection)` called if `do_login_command` was ever invoked for this connection
 2. Connection closed
-3. Timeout message sent (configurable)
+3. Timeout message sent (implementation-defined)
 
 ---
 
@@ -85,7 +85,7 @@ When `do_login_command` returns a valid player object:
 
 If player is already connected elsewhere:
 
-1. Boot existing connection (implementation choice: immediate or graceful)
+1. Boot existing connection (send disconnect message, close socket)
 2. Associate new connection with player
 3. Call `#0:user_reconnected(player)`
 4. Enter command loop
@@ -136,7 +136,7 @@ All hooks are verbs on `#0` (system object).
 
 ### 4.4 Hook Errors
 
-Errors in lifecycle hooks are logged but do not abort the operation. The connection proceeds normally.
+Errors in lifecycle hooks are logged to server log (implementation-defined format: may include traceback, error message, hook name) but do not abort the operation. The connection proceeds normally. MOO code cannot check hook execution status - errors are visible only in server log.
 
 ---
 
@@ -191,7 +191,7 @@ Sends message to player's connection.
 
 Output is buffered and flushed:
 - At end of task
-- When buffer exceeds limit
+- When buffer exceeds `max_queued_output` limit from server_options (default: 65536 bytes)
 - On explicit flush (if supported)
 
 ---
@@ -213,10 +213,9 @@ Forcibly disconnects a player.
 **Permissions:** Wizard, or player disconnecting self.
 
 **Sequence:**
-1. Mark connection for disconnection
+1. Send disconnect message to player (implementation-defined default, may be overridden by MOO code)
 2. Call `#0:user_disconnected(player)`
 3. Close connection
-4. Send disconnect message
 
 ### 7.3 Connection Lost
 
@@ -238,7 +237,7 @@ Most servers allow only one connection per player. On reconnection:
 
 ### 8.2 Connection Switching
 
-Some servers support `switch_player(old, new)` to change which player a connection represents.
+Some servers support a `switch_player(old, new)` builtin to change which player object a connection represents (implementation-optional).
 
 ---
 
