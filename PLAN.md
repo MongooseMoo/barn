@@ -237,12 +237,55 @@ Test Status: 0/1110 passing, 1110 skipped (framework only, no interpreter)
 Next: Layer 0.3 - Execution Context
 ```
 
-### Layer 0.3: Execution Context
+### Layer 0.3: Execution Context + Foundational Types
 
 **Rationale:** Pass context through the evaluator from day 1. Avoids rewriting every Eval() signature when adding tick limits (Phase 5) and permissions (Phase 9).
 
+**Note:** This layer defines foundational types (ObjID, ErrorCode, Value) that later layers build upon. These are minimal stubs that get fleshed out in Phase 1.
+
 #### Tasks
-1. Create `types/context.go`:
+1. Create `types/base.go` - Foundational type definitions:
+   ```go
+   // ObjID represents a MOO object reference
+   // -1 = nothing, -2 = ambiguous, 0+ = valid object
+   type ObjID int64
+
+   const (
+       ObjNothing   ObjID = -1
+       ObjAmbiguous ObjID = -2
+   )
+
+   // ErrorCode represents a MOO error type (E_TYPE, E_DIV, etc.)
+   type ErrorCode int
+
+   // Error codes - values from spec/errors.md
+   const (
+       E_NONE    ErrorCode = 0
+       E_TYPE    ErrorCode = 1
+       E_DIV     ErrorCode = 2
+       E_PERM    ErrorCode = 3
+       E_PROPNF  ErrorCode = 4
+       E_VERBNF  ErrorCode = 5
+       E_VARNF   ErrorCode = 6
+       E_INVIND  ErrorCode = 7
+       E_RECMOVE ErrorCode = 8
+       E_MAXREC  ErrorCode = 9
+       E_RANGE   ErrorCode = 10
+       E_ARGS    ErrorCode = 11
+       E_NACC    ErrorCode = 12
+       E_INVARG  ErrorCode = 13
+       E_QUOTA   ErrorCode = 14
+       E_FLOAT   ErrorCode = 15
+       E_FILE    ErrorCode = 16
+       E_EXEC    ErrorCode = 17
+   )
+
+   // Value is the interface all MOO values implement
+   // Stub here - Layer 1.1 adds full methods
+   type Value interface{}
+   ```
+
+2. Create `types/context.go`:
    ```go
    type TaskContext struct {
        TicksRemaining int64       // Infinite loop protection
@@ -256,7 +299,8 @@ Next: Layer 0.3 - Execution Context
        return &TaskContext{TicksRemaining: 30000} // Default tick limit
    }
    ```
-2. Create `types/result.go` - Unified control flow:
+
+3. Create `types/result.go` - Unified control flow:
    ```go
    type ControlFlow int
    const (
@@ -268,23 +312,23 @@ Next: Layer 0.3 - Execution Context
    )
 
    type Result struct {
-       Value Value
+       Val   Value
        Flow  ControlFlow
        Error ErrorCode  // Only set when Flow == FlowException
    }
 
-   func Ok(v Value) Result { return Result{Value: v, Flow: FlowNormal} }
+   func Ok(v Value) Result { return Result{Val: v, Flow: FlowNormal} }
    func Err(e ErrorCode) Result { return Result{Flow: FlowException, Error: e} }
    ```
 
 #### Done Criteria
-- [ ] TaskContext can be instantiated
-- [ ] Result type compiles with Ok/Err helpers
+- [ ] All types compile: ObjID, ErrorCode, Value, TaskContext, Result
+- [ ] Error code constants match spec/errors.md
 - [ ] Unit tests verify default tick limit
 
 #### Handoff State
 ```
-Files Created: types/context.go, types/result.go
+Files Created: types/base.go, types/context.go, types/result.go
 Next: Phase 1 - Types & Literal Parsing
 ```
 
@@ -303,8 +347,10 @@ This phase builds types AND their literal syntax together. Each layer adds a typ
 - `spec/grammar.md` (lines 1-50: token types)
 - `notes/go_interpreter_patterns.md` (parser approach: hand-written Pratt parser for expressions)
 
+**Note:** Layer 0.3 defined `type Value interface{}` as a stub. This layer replaces it with the full interface.
+
 #### Tasks
-1. Create `types/value.go`:
+1. Update `types/value.go` (replaces stub from Layer 0.3):
    ```go
    type Value interface {
        Type() TypeCode
@@ -1169,8 +1215,10 @@ Next: Phase 8 - Object System
 **Design Decision: ObjID Discipline**
 Objects reference each other by ObjID (integer), NOT Go pointers. This matches the LambdaMOO database format (Phase 12) and avoids painful serialization issues later.
 
+**Note:** ObjID was already defined in Layer 0.3 (`types/base.go`). Use it here.
+
 ```go
-type ObjID int64  // -1 = nothing, -2 = ambiguous, 0+ = valid object
+// ObjID already defined in types/base.go
 
 type Object struct {
     ID       ObjID
