@@ -97,3 +97,56 @@ func TestIntValueEqual(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFloatLiterals(t *testing.T) {
+	tests := []struct {
+		input string
+		want  float64
+	}{
+		{"3.14", 3.14},
+		{"-0.5", -0.5},
+		{"1e10", 1e10},
+		{"1E-5", 1e-5},
+		{"3.14e+2", 3.14e+2},
+		{"1.5e-3", 1.5e-3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			p := NewParser(tt.input)
+			val, err := p.ParseLiteral()
+			if err != nil {
+				t.Fatalf("ParseLiteral() error = %v", err)
+			}
+
+			floatVal, ok := val.(types.FloatValue)
+			if !ok {
+				t.Fatalf("ParseLiteral() returned %T, want FloatValue", val)
+			}
+
+			if floatVal.Val != tt.want {
+				t.Errorf("ParseLiteral() = %f, want %f", floatVal.Val, tt.want)
+			}
+		})
+	}
+}
+
+func TestFloatValueTruthiness(t *testing.T) {
+	tests := []struct {
+		val    float64
+		truthy bool
+	}{
+		{0.0, false},
+		{1.0, true},
+		{-1.0, true},
+		{3.14, true},
+		{-0.5, true},
+	}
+
+	for _, tt := range tests {
+		floatVal := types.NewFloat(tt.val)
+		if floatVal.Truthy() != tt.truthy {
+			t.Errorf("FloatValue(%f).Truthy() = %v, want %v", tt.val, floatVal.Truthy(), tt.truthy)
+		}
+	}
+}

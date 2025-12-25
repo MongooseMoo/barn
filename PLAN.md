@@ -14,7 +14,7 @@
 
 ### Current State
 - **Active Phase:** Phase 1: Types & Literal Parsing
-- **Active Layer:** 1.3 FLOAT Type + Float Literals
+- **Active Layer:** 1.4 STR Type + String Literals
 - **Last Test Run:** go test ./parser/... -v (all passing)
 - **Blocker:** none
 
@@ -28,7 +28,7 @@
 - [ ] **Phase 1: Types & Literal Parsing**
   - [x] 1.1 Value Interface + Lexer Foundation
   - [x] 1.2 INT Type + Integer Literals
-  - [ ] 1.3 FLOAT Type + Float Literals
+  - [x] 1.3 FLOAT Type + Float Literals
   - [ ] 1.4 STR Type + String Literals
   - [ ] 1.5 ERR Type + Error Literals
   - [ ] 1.6 OBJ Type + Object Literals

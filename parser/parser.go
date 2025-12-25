@@ -35,6 +35,8 @@ func (p *Parser) ParseLiteral() (types.Value, error) {
 	switch p.current.Type {
 	case TOKEN_INT:
 		return p.parseIntLiteral()
+	case TOKEN_FLOAT:
+		return p.parseFloatLiteral()
 	case TOKEN_TRUE:
 		p.nextToken()
 		return types.NewBool(true), nil
@@ -54,4 +56,14 @@ func (p *Parser) parseIntLiteral() (types.Value, error) {
 	}
 	p.nextToken()
 	return types.NewInt(val), nil
+}
+
+// parseFloatLiteral parses a float literal
+func (p *Parser) parseFloatLiteral() (types.Value, error) {
+	val, err := strconv.ParseFloat(p.current.Value, 64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse float: %w", err)
+	}
+	p.nextToken()
+	return types.NewFloat(val), nil
 }
