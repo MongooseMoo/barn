@@ -1,25 +1,31 @@
 package eval
 
 import (
+	"barn/builtins"
 	"barn/parser"
 	"barn/types"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
 type Evaluator struct {
-	env *Environment
+	env      *Environment
+	builtins *builtins.Registry
 }
 
 // NewEvaluator creates a new evaluator with a fresh environment
 func NewEvaluator() *Evaluator {
 	return &Evaluator{
-		env: NewEnvironment(),
+		env:      NewEnvironment(),
+		builtins: builtins.NewRegistry(),
 	}
 }
 
 // NewEvaluatorWithEnv creates a new evaluator with a given environment
 func NewEvaluatorWithEnv(env *Environment) *Evaluator {
-	return &Evaluator{env: env}
+	return &Evaluator{
+		env:      env,
+		builtins: builtins.NewRegistry(),
+	}
 }
 
 // Eval evaluates an AST node and returns a Result
@@ -49,6 +55,8 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 		return e.evalAssign(n, ctx)
 	case *parser.ParenExpr:
 		return e.Eval(n.Expr, ctx)
+	case *parser.BuiltinCallExpr:
+		return e.evalBuiltinCall(n, ctx)
 	default:
 		// Unknown node type - this should never happen if parser is correct
 		return types.Err(types.E_TYPE)
@@ -243,6 +251,29 @@ func (e *Evaluator) evalAssign(node *parser.AssignExpr, ctx *types.TaskContext) 
 
 	// Assignment returns the assigned value
 	return types.Ok(value)
+}
+
+// evalBuiltinCall evaluates a builtin function call
+func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.TaskContext) types.Result {
+	// Look up the builtin function
+	fn, ok := e.builtins.Get(node.Name)
+	if !ok {
+		// Builtin not found
+		return types.Err(types.E_VERBNF)
+	}
+
+	// Evaluate all arguments
+	args := make([]types.Value, len(node.Args))
+	for i, argExpr := range node.Args {
+		argResult := e.Eval(argExpr, ctx)
+		if !argResult.IsNormal() {
+			return argResult // Propagate error/control flow
+		}
+		args[i] = argResult.Val
+	}
+
+	// Call the builtin function
+	return fn(ctx, args)
 }
 
 // GetEnvironment returns the evaluator's environment (for testing)
