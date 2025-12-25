@@ -211,7 +211,7 @@ func (e *Evaluator) evalForRange(stmt *parser.ForStmt, ctx *types.TaskContext) t
 	return types.Ok(types.NewInt(0))
 }
 
-// evalForContainer evaluates for loops over lists and maps
+// evalForContainer evaluates for loops over lists, maps, and strings
 func (e *Evaluator) evalForContainer(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
 	// Evaluate container expression
 	containerResult := e.Eval(stmt.Container, ctx)
@@ -231,7 +231,12 @@ func (e *Evaluator) evalForContainer(stmt *parser.ForStmt, ctx *types.TaskContex
 		return e.evalForMap(stmt, &mapVal, ctx)
 	}
 
-	// Not a list or map - type error
+	// Check if it's a string
+	if strVal, ok := container.(types.StrValue); ok {
+		return e.evalForString(stmt, &strVal, ctx)
+	}
+
+	// Not a list, map, or string - type error
 	return types.Err(types.E_TYPE)
 }
 
@@ -287,6 +292,44 @@ func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx
 		// Bind key if requested (second variable receives key)
 		if stmt.Index != "" {
 			e.env.Set(stmt.Index, key)
+		}
+
+		// Execute body
+		bodyResult := e.EvalStatements(stmt.Body, ctx)
+
+		// Handle control flow
+		switch bodyResult.Flow {
+		case types.FlowReturn, types.FlowException:
+			return bodyResult
+		case types.FlowBreak:
+			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+				return types.Ok(types.NewInt(0))
+			}
+			return bodyResult
+		case types.FlowContinue:
+			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+				continue
+			}
+			return bodyResult
+		}
+	}
+
+	return types.Ok(types.NewInt(0))
+}
+
+// evalForString evaluates for loops over strings (iterating characters)
+func (e *Evaluator) evalForString(stmt *parser.ForStmt, strVal *types.StrValue, ctx *types.TaskContext) types.Result {
+	// Get characters as runes for proper Unicode handling
+	s := strVal.Value()
+	runes := []rune(s)
+
+	for i, r := range runes {
+		// Bind value (character as string)
+		e.env.Set(stmt.Value, types.NewStr(string(r)))
+
+		// Bind index if requested (1-based)
+		if stmt.Index != "" {
+			e.env.Set(stmt.Index, types.NewInt(int64(i+1)))
 		}
 
 		// Execute body
