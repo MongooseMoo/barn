@@ -450,6 +450,35 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		result := s[:startIdx-1] + newStr.Value() + s[endIdx:]
 		newColl = types.NewStr(result)
 
+	case types.MapValue:
+		// Value must be a map
+		newMap, ok := value.(types.MapValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+
+		// Bounds check
+		if startIdx < 1 || startIdx > int64(length)+1 {
+			return types.Err(types.E_RANGE)
+		}
+		if endIdx < 0 || endIdx > int64(length) {
+			return types.Err(types.E_RANGE)
+		}
+
+		// Build new map: pairs[1..start-1] + newMap + pairs[end+1..$]
+		pairs := coll.Pairs()
+		result := make([][2]types.Value, 0)
+		for i := 0; i < int(startIdx)-1; i++ {
+			result = append(result, pairs[i])
+		}
+		for _, pair := range newMap.Pairs() {
+			result = append(result, pair)
+		}
+		for i := int(endIdx); i < length; i++ {
+			result = append(result, pairs[i])
+		}
+		newColl = types.NewMap(result)
+
 	default:
 		return types.Err(types.E_TYPE)
 	}
