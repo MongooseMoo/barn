@@ -32,6 +32,11 @@ func (e *Evaluator) evalProperty(node *parser.PropertyExpr, ctx *types.TaskConte
 		return types.Err(types.E_INVIND)
 	}
 
+	// Check for built-in properties first
+	if val, ok := e.getBuiltinProperty(obj, node.Property); ok {
+		return types.Ok(val)
+	}
+
 	// Look up property (will handle inheritance in Layer 8.3)
 	prop, errCode := e.findProperty(obj, node.Property, ctx)
 	if errCode != types.E_NONE {
@@ -43,6 +48,74 @@ func (e *Evaluator) evalProperty(node *parser.PropertyExpr, ctx *types.TaskConte
 	_ = ctx // Will use for permission checks later
 
 	return types.Ok(prop.Value)
+}
+
+// getBuiltinProperty returns built-in object properties (name, owner, location, etc.)
+func (e *Evaluator) getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
+	switch name {
+	case "name":
+		return types.NewStr(obj.Name), true
+	case "owner":
+		return types.NewObj(obj.Owner), true
+	case "location":
+		return types.NewObj(obj.Location), true
+	case "contents":
+		vals := make([]types.Value, len(obj.Contents))
+		for i, id := range obj.Contents {
+			vals[i] = types.NewObj(id)
+		}
+		return types.NewList(vals), true
+	case "parents":
+		vals := make([]types.Value, len(obj.Parents))
+		for i, id := range obj.Parents {
+			vals[i] = types.NewObj(id)
+		}
+		return types.NewList(vals), true
+	case "parent":
+		// .parent returns first parent or #-1 if none
+		if len(obj.Parents) > 0 {
+			return types.NewObj(obj.Parents[0]), true
+		}
+		return types.NewObj(types.ObjNothing), true
+	case "children":
+		vals := make([]types.Value, len(obj.Children))
+		for i, id := range obj.Children {
+			vals[i] = types.NewObj(id)
+		}
+		return types.NewList(vals), true
+	case "programmer":
+		if obj.Flags.Has(db.FlagProgrammer) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	case "wizard":
+		if obj.Flags.Has(db.FlagWizard) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	case "player":
+		if obj.Flags.Has(db.FlagUser) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	case "r":
+		if obj.Flags.Has(db.FlagRead) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	case "w":
+		if obj.Flags.Has(db.FlagWrite) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	case "f":
+		if obj.Flags.Has(db.FlagFertile) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	default:
+		return nil, false
+	}
 }
 
 // findProperty finds a property on an object with inheritance
@@ -114,6 +187,11 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 		return types.Err(types.E_INVIND)
 	}
 
+	// Check for built-in property assignment
+	if e.setBuiltinProperty(obj, node.Property, value) {
+		return types.Ok(value)
+	}
+
 	// Check if property exists
 	prop, ok := obj.Properties[node.Property]
 	if !ok {
@@ -132,4 +210,92 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 
 	// Assignment returns the assigned value
 	return types.Ok(value)
+}
+
+// setBuiltinProperty sets a built-in object property
+// Returns true if the property was a built-in, false otherwise
+func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.Value) bool {
+	switch name {
+	case "name":
+		if str, ok := value.(types.StrValue); ok {
+			obj.Name = str.Value()
+			return true
+		}
+		return false
+	case "owner":
+		if objVal, ok := value.(types.ObjValue); ok {
+			obj.Owner = objVal.ID()
+			return true
+		}
+		return false
+	case "location":
+		if objVal, ok := value.(types.ObjValue); ok {
+			// TODO: Update contents of old/new locations
+			obj.Location = objVal.ID()
+			return true
+		}
+		return false
+	case "programmer":
+		if intVal, ok := value.(types.IntValue); ok {
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagProgrammer)
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagProgrammer)
+			}
+			return true
+		}
+		return false
+	case "wizard":
+		if intVal, ok := value.(types.IntValue); ok {
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagWizard)
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagWizard)
+			}
+			return true
+		}
+		return false
+	case "player":
+		if intVal, ok := value.(types.IntValue); ok {
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagUser)
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagUser)
+			}
+			return true
+		}
+		return false
+	case "r":
+		if intVal, ok := value.(types.IntValue); ok {
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagRead)
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagRead)
+			}
+			return true
+		}
+		return false
+	case "w":
+		if intVal, ok := value.(types.IntValue); ok {
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagWrite)
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagWrite)
+			}
+			return true
+		}
+		return false
+	case "f":
+		if intVal, ok := value.(types.IntValue); ok {
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagFertile)
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagFertile)
+			}
+			return true
+		}
+		return false
+	default:
+		return false
+	}
 }
