@@ -40,6 +40,18 @@ func NewRegistry() *Registry {
 	r.Register("ltrim", builtinLtrim)
 	r.Register("rtrim", builtinRtrim)
 
+	// Register list builtins (Layer 7.2)
+	r.Register("listappend", builtinListappend)
+	r.Register("listinsert", builtinListinsert)
+	r.Register("listdelete", builtinListdelete)
+	r.Register("listset", builtinListset)
+	r.Register("setadd", builtinSetadd)
+	r.Register("setremove", builtinSetremove)
+	r.Register("is_member", builtinIsMember)
+	r.Register("sort", builtinSort)
+	r.Register("reverse", builtinReverse)
+	r.Register("unique", builtinUnique)
+
 	return r
 }
 

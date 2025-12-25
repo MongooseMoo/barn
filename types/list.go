@@ -149,3 +149,57 @@ func (l ListValue) Append(value Value) ListValue {
 func (l ListValue) Elements() []Value {
 	return l.data.Elements()
 }
+
+// InsertAt returns a new list with value inserted at index (1-based, COW)
+func (l ListValue) InsertAt(index int, value Value) ListValue {
+	elements := l.data.Elements()
+
+	// Clamp index to valid range [1, len+1]
+	if index < 1 {
+		index = 1
+	}
+	if index > len(elements)+1 {
+		index = len(elements) + 1
+	}
+
+	// Create new slice with space for inserted element
+	newElems := make([]Value, len(elements)+1)
+
+	// Convert to 0-based
+	idx0 := index - 1
+
+	// Copy elements before insertion point
+	copy(newElems[:idx0], elements[:idx0])
+
+	// Insert new value
+	newElems[idx0] = value
+
+	// Copy elements after insertion point
+	copy(newElems[idx0+1:], elements[idx0:])
+
+	return ListValue{data: &sliceList{elements: newElems}}
+}
+
+// DeleteAt returns a new list with element at index removed (1-based, COW)
+func (l ListValue) DeleteAt(index int) ListValue {
+	elements := l.data.Elements()
+
+	// Check bounds
+	if index < 1 || index > len(elements) {
+		return l // Out of bounds - return unchanged
+	}
+
+	// Create new slice without the element
+	newElems := make([]Value, len(elements)-1)
+
+	// Convert to 0-based
+	idx0 := index - 1
+
+	// Copy elements before deletion point
+	copy(newElems[:idx0], elements[:idx0])
+
+	// Copy elements after deletion point
+	copy(newElems[idx0:], elements[idx0+1:])
+
+	return ListValue{data: &sliceList{elements: newElems}}
+}
