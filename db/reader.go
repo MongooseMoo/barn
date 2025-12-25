@@ -25,6 +25,10 @@ func (db *Database) NewStoreFromDatabase() *Store {
 	store := NewStore()
 	for id, obj := range db.Objects {
 		store.objects[id] = obj
+		// Track max object ID
+		if id > store.maxObjID {
+			store.maxObjID = id
+		}
 	}
 	return store
 }

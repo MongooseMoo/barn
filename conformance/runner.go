@@ -1,12 +1,16 @@
 package conformance
 
 import (
+	"barn/db"
 	"barn/eval"
 	"barn/parser"
 	"barn/types"
 	"fmt"
 	"strings"
 )
+
+// Default database path
+const DefaultDBPath = "C:/Users/Q/code/cow_py/toastcore.db"
 
 // TestResult represents the outcome of running a single test
 type TestResult struct {
@@ -22,10 +26,27 @@ type Runner struct {
 	evaluator *eval.Evaluator
 }
 
-// NewRunner creates a new test runner
+// NewRunner creates a new test runner with the default database
 func NewRunner() *Runner {
+	return NewRunnerWithDB(DefaultDBPath)
+}
+
+// NewRunnerWithDB creates a test runner with a specific database file
+func NewRunnerWithDB(dbPath string) *Runner {
+	// Load the database
+	database, err := db.LoadDatabase(dbPath)
+	if err != nil {
+		// Fall back to empty store if database can't be loaded
+		return &Runner{
+			evaluator: eval.NewEvaluator(),
+		}
+	}
+
+	// Create store from loaded database
+	store := database.NewStoreFromDatabase()
+
 	return &Runner{
-		evaluator: eval.NewEvaluator(),
+		evaluator: eval.NewEvaluatorWithStore(store),
 	}
 }
 

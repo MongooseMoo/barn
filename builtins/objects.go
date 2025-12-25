@@ -37,6 +37,18 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 		return builtinChildren(ctx, args, store)
 	})
 
+	r.Register("ancestors", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinAncestors(ctx, args, store)
+	})
+
+	r.Register("descendants", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinDescendants(ctx, args, store)
+	})
+
+	r.Register("isa", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinIsa(ctx, args, store)
+	})
+
 	r.Register("chparent", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinChparent(ctx, args, store)
 	})
@@ -79,13 +91,21 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 	}
 
 	// Check that all parents exist and are fertile
+	// Filter out $nothing (-1) which means "no parent"
+	validParents := []types.ObjID{}
 	for _, parentID := range parents {
+		if parentID == types.ObjNothing {
+			// $nothing is a valid "no parent" value - skip it
+			continue
+		}
 		parent := store.Get(parentID)
 		if parent == nil {
 			return types.Err(types.E_INVARG)
 		}
 		// TODO: Check fertile flag and permissions (Layer 8.5)
+		validParents = append(validParents, parentID)
 	}
+	parents = validParents
 
 	// Get owner (default: caller)
 	owner := ctx.Programmer
@@ -494,6 +514,178 @@ func builtinMove(ctx *types.TaskContext, args []types.Value, store *db.Store) ty
 	// TODO: Call exitfunc and enterfunc verbs (Phase 9)
 
 	return types.Ok(types.NewInt(0))
+}
+
+// builtinAncestors implements ancestors(object [, include_self])
+// Returns list of all ancestors in inheritance order
+func builtinAncestors(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) < 1 || len(args) > 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	obj := store.Get(objVal.ID())
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	includeSelf := false
+	if len(args) == 2 {
+		includeSelf = args[1].Truthy()
+	}
+
+	// Collect ancestors in BFS order, maintaining insertion order
+	var result []types.Value
+	seen := make(map[types.ObjID]bool)
+	queue := make([]types.ObjID, 0)
+
+	// Optionally include self first
+	if includeSelf {
+		result = append(result, types.NewObj(objVal.ID()))
+		seen[objVal.ID()] = true
+	}
+
+	// Start with direct parents
+	queue = append(queue, obj.Parents...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+
+		result = append(result, types.NewObj(currentID))
+
+		// Add this ancestor's parents
+		current := store.Get(currentID)
+		if current != nil {
+			queue = append(queue, current.Parents...)
+		}
+	}
+
+	return types.Ok(types.NewList(result))
+}
+
+// builtinDescendants implements descendants(object [, include_self])
+// Returns list of all descendants in inheritance order
+func builtinDescendants(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) < 1 || len(args) > 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	obj := store.Get(objVal.ID())
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	includeSelf := false
+	if len(args) == 2 {
+		includeSelf = args[1].Truthy()
+	}
+
+	// Collect descendants in BFS order
+	var result []types.Value
+	seen := make(map[types.ObjID]bool)
+	queue := make([]types.ObjID, 0)
+
+	// Optionally include self first
+	if includeSelf {
+		result = append(result, types.NewObj(objVal.ID()))
+		seen[objVal.ID()] = true
+	}
+
+	// Start with direct children
+	queue = append(queue, obj.Children...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+
+		result = append(result, types.NewObj(currentID))
+
+		// Add this descendant's children
+		current := store.Get(currentID)
+		if current != nil {
+			queue = append(queue, current.Children...)
+		}
+	}
+
+	return types.Ok(types.NewList(result))
+}
+
+// builtinIsa implements isa(object, ancestor)
+// Returns true if object inherits from ancestor
+func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	ancestorVal, ok := args[1].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	obj := store.Get(objVal.ID())
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Check if ancestor is valid
+	if !store.Valid(ancestorVal.ID()) {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Object is always its own ancestor
+	if objVal.ID() == ancestorVal.ID() {
+		return types.Ok(types.NewBool(true))
+	}
+
+	// BFS through ancestry chain
+	seen := make(map[types.ObjID]bool)
+	queue := obj.Parents[:]
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+
+		if currentID == ancestorVal.ID() {
+			return types.Ok(types.NewBool(true))
+		}
+
+		current := store.Get(currentID)
+		if current != nil {
+			queue = append(queue, current.Parents...)
+		}
+	}
+
+	return types.Ok(types.NewBool(false))
 }
 
 // Helper functions

@@ -100,6 +100,13 @@ func NewRegistry() *Registry {
 	r.Register("idle_seconds", builtinIdleSeconds)
 	r.Register("connected_seconds", builtinConnectedSeconds)
 
+	// Register crypto/encoding builtins
+	r.Register("encode_base64", builtinEncodeBase64)
+	r.Register("decode_base64", builtinDecodeBase64)
+	r.Register("encode_binary", builtinEncodeBinary)
+	r.Register("decode_binary", builtinDecodeBinary)
+	r.Register("crypt", builtinCrypt)
+
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)
 
