@@ -1,5 +1,25 @@
 # Barn - Go MOO Server
 
+## CRITICAL: Subagent File Writing Failures
+
+**If Edit/Write fails with "file unexpectedly modified", follow this procedure:**
+
+1. Try `./relative/path.py` (relative with dot)
+2. Try `C:/Users/Q/absolute/path.py` (forward slashes)
+3. Try `C:\Users\Q\absolute\path.py` (backslashes)
+4. Try `relative/path.py` (bare relative)
+
+**If ALL FOUR fail:**
+- STOP IMMEDIATELY
+- Report "I cannot continue - all path formats failed for [filename]"
+- DO NOT use cat, echo, sed, or any bash workaround
+- TERMINATE
+
+Using bash commands to write files when Edit/Write fail DESTROYS FILES.
+The path format workaround works. Bash workarounds do not. Try paths first, then stop.
+
+---
+
 ## Project Overview
 
 Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in **spec-first phase** - no Go code until spec + tests are complete.
