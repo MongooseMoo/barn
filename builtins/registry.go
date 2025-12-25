@@ -75,6 +75,13 @@ func NewRegistry() *Registry {
 	r.Register("trunc", builtinTrunc)
 	r.Register("floatstr", builtinFloatstr)
 
+	// Register map builtins (Layer 7.5)
+	r.Register("mapkeys", builtinMapkeys)
+	r.Register("mapvalues", builtinMapvalues)
+	r.Register("mapdelete", builtinMapdelete)
+	r.Register("maphaskey", builtinMaphaskey)
+	r.Register("mapmerge", builtinMapmerge)
+
 	return r
 }
 
