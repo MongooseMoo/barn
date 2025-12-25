@@ -93,12 +93,22 @@ Begin with:
 
 If this is attempt 1, start at Layer 0.1.
 
-## File Modified Error Workaround
+## CRITICAL: File Modified Error Workaround
 
-If you see "File has been unexpectedly modified":
-1. Read the file again with the Read tool
-2. Retry the Edit
-3. If still fails, try different path formats (forward/back slashes)
+**If Edit/Write fails with "file unexpectedly modified", follow this procedure:**
+
+1. Try `./relative/path.go` (relative with dot)
+2. Try `C:/Users/Q/code/barn/path.go` (forward slashes)
+3. Try `C:\Users\Q\code\barn\path.go` (backslashes)
+4. Try `relative/path.go` (bare relative)
+
+**If ALL FOUR fail:**
+- STOP IMMEDIATELY
+- Report "I cannot continue - all path formats failed for [filename]"
+- DO NOT use cat, echo, sed, or any bash workaround
+- TERMINATE
+
+Using bash commands to write files when Edit/Write fail DESTROYS FILES.
 
 ## Success Criteria
 
