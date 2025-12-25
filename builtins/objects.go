@@ -79,21 +79,27 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		return types.Err(types.E_ARGS)
 	}
 
-	// Get parent(s) - can be single object or list
+	// Get parent(s) - can be single object, int, or list
 	var parents []types.ObjID
 	switch p := args[0].(type) {
 	case types.ObjValue:
 		parents = []types.ObjID{p.ID()}
+	case types.IntValue:
+		// Integers can be used as object IDs
+		parents = []types.ObjID{types.ObjID(p.Val)}
 	case types.ListValue:
 		// Multiple parents
 		elements := p.Elements()
 		parents = make([]types.ObjID, len(elements))
 		for i, elem := range elements {
-			objVal, ok := elem.(types.ObjValue)
-			if !ok {
+			switch e := elem.(type) {
+			case types.ObjValue:
+				parents[i] = e.ID()
+			case types.IntValue:
+				parents[i] = types.ObjID(e.Val)
+			default:
 				return types.Err(types.E_TYPE)
 			}
-			parents[i] = objVal.ID()
 		}
 	default:
 		return types.Err(types.E_TYPE)
@@ -101,11 +107,16 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 
 	// Check that all parents exist and are fertile
 	// Filter out $nothing (-1) which means "no parent"
+	// Reject other invalid object IDs (like $ambiguous, $failed_match)
 	validParents := []types.ObjID{}
 	for _, parentID := range parents {
 		if parentID == types.ObjNothing {
 			// $nothing is a valid "no parent" value - skip it
 			continue
+		}
+		// Reject other negative IDs ($ambiguous=-2, $failed_match=-3, etc.)
+		if parentID < 0 {
+			return types.Err(types.E_INVARG)
 		}
 		parent := store.Get(parentID)
 		if parent == nil {
@@ -181,6 +192,10 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 
 	// TODO: Call :initialize verb if it exists (Phase 9)
 
+	// Return AnonValue for anonymous objects, ObjValue for regular
+	if anonymous {
+		return types.Ok(types.NewAnon(newID))
+	}
 	return types.Ok(types.NewObj(newID))
 }
 
@@ -316,8 +331,17 @@ func builtinParent(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		return types.Err(types.E_TYPE)
 	}
 
+	// Check for invalid object references (E_INVARG for $nothing, etc.)
+	if objVal.ID() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
 	obj := store.Get(objVal.ID())
 	if obj == nil {
+		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
+		if store.IsRecycled(objVal.ID()) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -340,8 +364,17 @@ func builtinParents(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		return types.Err(types.E_TYPE)
 	}
 
+	// Check for invalid object references
+	if objVal.ID() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
 	obj := store.Get(objVal.ID())
 	if obj == nil {
+		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
+		if store.IsRecycled(objVal.ID()) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -366,8 +399,17 @@ func builtinChildren(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_TYPE)
 	}
 
+	// Check for invalid object references
+	if objVal.ID() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
 	obj := store.Get(objVal.ID())
 	if obj == nil {
+		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
+		if store.IsRecycled(objVal.ID()) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -397,9 +439,19 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_TYPE)
 	}
 
+	// Check for invalid object references
+	if objVal.ID() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
 	obj := store.Get(objVal.ID())
 	if obj == nil {
 		return types.Err(types.E_INVIND)
+	}
+
+	// Check for invalid new parent
+	if newParentVal.ID() < 0 {
+		return types.Err(types.E_INVARG)
 	}
 
 	newParent := store.Get(newParentVal.ID())
@@ -675,12 +727,13 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) typ
 
 	obj := store.Get(objVal.ID())
 	if obj == nil {
-		return types.Err(types.E_INVIND)
+		// Invalid child - return 0 (false)
+		return types.Ok(types.NewInt(0))
 	}
 
-	// Check if ancestor is valid
+	// If ancestor is invalid, return 0 (false) not an error
 	if !store.Valid(ancestorVal.ID()) {
-		return types.Err(types.E_INVARG)
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Object is always its own ancestor

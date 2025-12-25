@@ -83,7 +83,7 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.S
 	}
 
 	// Find property (with inheritance)
-	prop, err := findPropertyInChain(objVal.ID(), nameVal.String()[1:len(nameVal.String())-1], store)
+	prop, err := findPropertyInChain(objVal.ID(), nameVal.Value(), store)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -101,7 +101,7 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.S
 }
 
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
-// info can be {owner, perms} or just perms string
+// info can be {owner, perms}, just perms string, or just owner ObjValue
 func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
@@ -122,7 +122,7 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(types.E_INVIND)
 	}
 
-	propName := nameVal.String()[1 : len(nameVal.String())-1] // Strip quotes
+	propName := nameVal.Value()
 	prop, ok := obj.Properties[propName]
 	if !ok {
 		return types.Err(types.E_PROPNF)
@@ -134,8 +134,12 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 	switch info := args[2].(type) {
 	case types.StrValue:
 		// Just permissions string
-		perms := parsePerms(info.String()[1 : len(info.String())-1])
+		perms := parsePerms(info.Value())
 		prop.Perms = perms
+
+	case types.ObjValue:
+		// Just owner (leave perms unchanged)
+		prop.Owner = info.ID()
 
 	case types.ListValue:
 		// {owner, perms}
@@ -155,7 +159,7 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 		}
 
 		prop.Owner = ownerVal.ID()
-		prop.Perms = parsePerms(permsVal.String()[1 : len(permsVal.String())-1])
+		prop.Perms = parsePerms(permsVal.Value())
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -188,7 +192,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_INVIND)
 	}
 
-	propName := nameVal.String()[1 : len(nameVal.String())-1] // Strip quotes
+	propName := nameVal.Value()
 
 	// Check if property already exists
 	if _, exists := obj.Properties[propName]; exists {
@@ -205,7 +209,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 	case types.StrValue:
 		// Just permissions string
 		owner = ctx.Programmer // Default to caller
-		perms = parsePerms(info.String()[1 : len(info.String())-1])
+		perms = parsePerms(info.Value())
 
 	case types.ListValue:
 		// {owner, perms}
@@ -225,7 +229,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		}
 
 		owner = ownerVal.ID()
-		perms = parsePerms(permsVal.String()[1 : len(permsVal.String())-1])
+		perms = parsePerms(permsVal.Value())
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -265,7 +269,7 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 		return types.Err(types.E_INVIND)
 	}
 
-	propName := nameVal.String()[1 : len(nameVal.String())-1] // Strip quotes
+	propName := nameVal.Value()
 
 	// Check if property exists on this object
 	if _, exists := obj.Properties[propName]; !exists {
@@ -302,7 +306,7 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 		return types.Err(types.E_INVIND)
 	}
 
-	propName := nameVal.String()[1 : len(nameVal.String())-1] // Strip quotes
+	propName := nameVal.Value()
 
 	// Check if property exists (anywhere in chain)
 	_, err := findPropertyInChain(objVal.ID(), propName, store)
@@ -334,6 +338,7 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 
 // builtinIsClearProperty implements is_clear_property(object, name)
 // Tests if property is cleared (inheriting)
+// Returns 1 if property is clear or only inherited, 0 if has local value
 func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -354,18 +359,26 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(types.E_INVIND)
 	}
 
-	propName := nameVal.String()[1 : len(nameVal.String())-1] // Strip quotes
+	propName := nameVal.Value()
 
-	// Check if property exists
+	// Check if property exists directly on this object
 	prop, exists := obj.Properties[propName]
-	if !exists {
+	if exists {
+		// Property exists on this object - check if clear
+		if prop.Clear {
+			return types.Ok(types.NewInt(1))
+		}
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Property not on this object - check if inherited
+	_, err := findPropertyInChain(objVal.ID(), propName, store)
+	if err != types.E_NONE {
 		return types.Err(types.E_PROPNF)
 	}
 
-	if prop.Clear {
-		return types.Ok(types.NewInt(1))
-	}
-	return types.Ok(types.NewInt(0))
+	// Property is inherited (not defined locally) - this counts as "clear"
+	return types.Ok(types.NewInt(1))
 }
 
 // Helper functions

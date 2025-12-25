@@ -3,7 +3,11 @@ package builtins
 import (
 	"barn/task"
 	"barn/types"
+	"bytes"
+	"context"
 	"os"
+	"os/exec"
+	"time"
 )
 
 // ============================================================================
@@ -139,4 +143,106 @@ func builtinSecondsLeft(ctx *types.TaskContext, args []types.Value) types.Result
 
 	// Default fallback (assume infinite time if no task)
 	return types.Ok(types.NewFloat(1000.0))
+}
+
+// builtinExec implements exec(command [, input]) → LIST
+// Executes external command and returns {exit_code, stdout, stderr}
+// Requires wizard permissions
+func builtinExec(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Check wizard permissions
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
+	// Parse command
+	var program string
+	var cmdArgs []string
+
+	switch cmd := args[0].(type) {
+	case types.ListValue:
+		// List form: {"program", "arg1", "arg2"}
+		if cmd.Len() == 0 {
+			return types.Err(types.E_INVARG)
+		}
+		progVal, ok := cmd.Get(1).(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		program = progVal.Value()
+		cmdArgs = make([]string, cmd.Len()-1)
+		for i := 2; i <= cmd.Len(); i++ {
+			argVal, ok := cmd.Get(i).(types.StrValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			cmdArgs[i-2] = argVal.Value()
+		}
+	case types.StrValue:
+		// String form: "command with args" - use shell
+		program = "sh"
+		cmdArgs = []string{"-c", cmd.Value()}
+	default:
+		return types.Err(types.E_TYPE)
+	}
+
+	// Get input if provided
+	var input string
+	if len(args) == 2 {
+		inputVal, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		input = inputVal.Value()
+	}
+
+	// Execute command
+	result := execCommand(program, cmdArgs, input)
+	return result
+}
+
+// execCommand runs a command and returns {exit_code, stdout, stderr}
+func execCommand(program string, args []string, input string) types.Result {
+	cmd := exec.Command(program, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdin = bytes.NewBufferString(input)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Recreate command with context
+	cmd = exec.CommandContext(ctx, program, args...)
+	cmd.Stdin = bytes.NewBufferString(input)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else if ctx.Err() == context.DeadlineExceeded {
+			// Timeout - return E_EXEC
+			return types.Err(types.E_EXEC)
+		} else {
+			// Command not found or other error - return E_INVARG per spec
+			return types.Err(types.E_INVARG)
+		}
+	}
+
+	// Return {exit_code, stdout, stderr}
+	result := []types.Value{
+		types.NewInt(int64(exitCode)),
+		types.NewStr(stdout.String()),
+		types.NewStr(stderr.String()),
+	}
+	return types.Ok(types.NewList(result))
 }

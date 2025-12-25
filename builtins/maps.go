@@ -60,7 +60,28 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	key := args[1]
 
+	// Map keys must be scalar types (not list or map)
+	if !isValidMapKey(key) {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Check if key exists - E_RANGE if not found
+	if _, found := m.Get(key); !found {
+		return types.Err(types.E_RANGE)
+	}
+
 	return types.Ok(m.Delete(key))
+}
+
+// isValidMapKey checks if a value can be used as a map key
+// Only scalar types (int, obj, str, err, float, bool) are valid keys
+func isValidMapKey(v types.Value) bool {
+	switch v.Type() {
+	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_STR, types.TYPE_ERR, types.TYPE_FLOAT, types.TYPE_BOOL:
+		return true
+	default:
+		return false
+	}
 }
 
 // builtinMaphaskey tests if a key exists in the map
@@ -76,6 +97,11 @@ func builtinMaphaskey(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	key := args[1]
+
+	// Map keys must be scalar types (not list or map)
+	if !isValidMapKey(key) {
+		return types.Err(types.E_TYPE)
+	}
 
 	_, found := m.Get(key)
 	return types.Ok(types.BoolValue{Val: found})

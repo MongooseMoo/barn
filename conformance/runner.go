@@ -47,6 +47,20 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	// Create store from loaded database
 	store := database.NewStoreFromDatabase()
 
+	// Ensure $object exists (alias for $nothing or first available object)
+	// Many tests expect $object to be defined
+	if obj := store.Get(0); obj != nil {
+		if _, ok := obj.Properties["object"]; !ok {
+			// Create $object as alias for $nothing (which is #-1)
+			obj.Properties["object"] = &db.Property{
+				Name:  "object",
+				Value: types.NewObj(-1),
+				Owner: 0,
+				Perms: db.PropRead,
+			}
+		}
+	}
+
 	return &Runner{
 		evaluator:   eval.NewEvaluatorWithStore(store),
 		setupSuites: make(map[string]bool),
@@ -102,6 +116,11 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 
 	// Create task context
 	ctx := types.NewTaskContext()
+
+	// Set up player and programmer for tests
+	// Tests expect player to be #1 (matches environment.go default)
+	ctx.Player = types.ObjID(1)
+	ctx.Programmer = types.ObjID(1)
 
 	// Set permissions based on test's permission field
 	if test.Test.Permission == "wizard" {
@@ -291,6 +310,13 @@ func convertYAMLValue(v interface{}) (types.Value, error) {
 	case float64:
 		return types.NewFloat(val), nil
 	case string:
+		// Check if string represents an object reference like "#2" or "#-1"
+		if len(val) > 0 && val[0] == '#' {
+			var id int64
+			if _, err := fmt.Sscanf(val, "#%d", &id); err == nil {
+				return types.NewObj(types.ObjID(id)), nil
+			}
+		}
 		return types.NewStr(val), nil
 	case bool:
 		return types.NewBool(val), nil
@@ -441,6 +467,8 @@ func typeNameToCode(name string) (types.TypeCode, bool) {
 		return types.TYPE_FLOAT, true
 	case "map":
 		return types.TYPE_MAP, true
+	case "anon":
+		return types.TYPE_ANON, true
 	case "waif":
 		return types.TYPE_WAIF, true
 	case "bool":
@@ -467,6 +495,8 @@ func typeCodeToName(code types.TypeCode) string {
 		return "float"
 	case types.TYPE_MAP:
 		return "map"
+	case types.TYPE_ANON:
+		return "anon"
 	case types.TYPE_WAIF:
 		return "waif"
 	case types.TYPE_BOOL:

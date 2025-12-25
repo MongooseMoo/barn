@@ -11,6 +11,7 @@ const (
 	TYPE_LIST  TypeCode = 4
 	TYPE_FLOAT TypeCode = 9
 	TYPE_MAP   TypeCode = 10
+	TYPE_ANON  TypeCode = 12
 	TYPE_WAIF  TypeCode = 13
 	TYPE_BOOL  TypeCode = 14
 )
@@ -32,6 +33,8 @@ func (t TypeCode) String() string {
 		return "FLOAT"
 	case TYPE_MAP:
 		return "MAP"
+	case TYPE_ANON:
+		return "ANON"
 	case TYPE_WAIF:
 		return "WAIF"
 	case TYPE_BOOL:

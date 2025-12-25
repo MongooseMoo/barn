@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"barn/db"
 	"barn/parser"
 	"barn/types"
 )
@@ -262,6 +263,13 @@ func evalMapRange(m types.MapValue, start, end int64) types.Result {
 
 // evalMapIndex evaluates map indexing
 func evalMapIndex(m types.MapValue, key types.Value) types.Result {
+	// Map keys must be scalar types (not list or map)
+	// But we need to check specifically for list and map types that could be used as keys
+	switch key.(type) {
+	case types.ListValue, types.MapValue:
+		return types.Err(types.E_TYPE)
+	}
+
 	// Look up key in map
 	val, ok := m.Get(key)
 	if !ok {
@@ -273,12 +281,13 @@ func evalMapIndex(m types.MapValue, key types.Value) types.Result {
 
 // evalAssignIndex handles index assignment: coll[idx] = value
 // Also handles nested assignment: coll[i][j][k] = value (copy-on-write)
+// Also handles property-indexed assignment: obj.prop[idx] = value
 func (e *Evaluator) evalAssignIndex(target *parser.IndexExpr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Build path of indices from the target expression
 	var path []parser.Expr // Index expressions, innermost first
 	var current parser.Expr = target
 
-	// Walk up the chain to find the base variable
+	// Walk up the chain to find the base variable or property
 	for {
 		switch expr := current.(type) {
 		case *parser.IndexExpr:
@@ -290,6 +299,13 @@ func (e *Evaluator) evalAssignIndex(target *parser.IndexExpr, value types.Value,
 				path[i], path[j] = path[j], path[i]
 			}
 			return e.evalNestedAssign(expr.Name, path, value, ctx)
+		case *parser.PropertyExpr:
+			// Property-indexed assignment: obj.prop[idx] = value
+			// Reverse path for processing
+			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+				path[i], path[j] = path[j], path[i]
+			}
+			return e.evalPropertyIndexedAssign(expr, path, value, ctx)
 		default:
 			return types.Err(types.E_TYPE) // Not assignable
 		}
@@ -636,6 +652,173 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 	// Store the new collection back to the variable
 	e.env.Set(varName, newColl)
 	return types.Ok(value)
+}
+
+// evalPropertyIndexedAssign handles property-indexed assignment: obj.prop[idx] = value
+// Also handles nested: obj.prop[i][j] = value
+func (e *Evaluator) evalPropertyIndexedAssign(propExpr *parser.PropertyExpr, indices []parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
+	// Evaluate the object expression
+	objResult := e.Eval(propExpr.Expr, ctx)
+	if objResult.Flow != types.FlowNormal {
+		return objResult
+	}
+
+	// Check that result is an object
+	objVal, ok := objResult.Val.(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	objID := objVal.ID()
+
+	// Get object from store
+	obj := e.store.Get(objID)
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Read the current property value
+	propVal, errCode := e.getPropertyValue(obj, propExpr.Property, ctx)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
+	// Apply the index assignment(s) to the property value
+	var newPropVal types.Value
+	if len(indices) == 1 {
+		// Single-level assignment
+		length := getCollectionLength(propVal)
+		if length < 0 {
+			return types.Err(types.E_TYPE)
+		}
+
+		oldContext := ctx.IndexContext
+		oldFirstKey := ctx.MapFirstKey
+		oldLastKey := ctx.MapLastKey
+		ctx.IndexContext = length
+		ctx.MapFirstKey = nil
+		ctx.MapLastKey = nil
+
+		if mapVal, isMap := propVal.(types.MapValue); isMap && length > 0 {
+			pairs := mapVal.Pairs()
+			ctx.MapFirstKey = pairs[0][0]
+			ctx.MapLastKey = pairs[length-1][0]
+		}
+
+		indexResult := e.Eval(indices[0], ctx)
+		ctx.IndexContext = oldContext
+		ctx.MapFirstKey = oldFirstKey
+		ctx.MapLastKey = oldLastKey
+
+		if !indexResult.IsNormal() {
+			return indexResult
+		}
+
+		var err types.ErrorCode
+		newPropVal, err = setAtIndex(propVal, indexResult.Val, value)
+		if err != types.E_NONE {
+			return types.Err(err)
+		}
+	} else {
+		// Multi-level nested assignment
+		collections := make([]types.Value, len(indices))
+		resolvedIndices := make([]types.Value, len(indices))
+		collections[0] = propVal
+
+		// Traverse down, collecting intermediate values
+		for i := 0; i < len(indices)-1; i++ {
+			coll := collections[i]
+			length := getCollectionLength(coll)
+			if length < 0 {
+				return types.Err(types.E_TYPE)
+			}
+			oldContext := ctx.IndexContext
+			ctx.IndexContext = length
+
+			indexResult := e.Eval(indices[i], ctx)
+			ctx.IndexContext = oldContext
+			if !indexResult.IsNormal() {
+				return indexResult
+			}
+			resolvedIndices[i] = indexResult.Val
+
+			// Get the nested collection
+			var nextVal types.Value
+			switch c := coll.(type) {
+			case types.ListValue:
+				idx, ok := indexResult.Val.(types.IntValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				if idx.Val < 1 || idx.Val > int64(c.Len()) {
+					return types.Err(types.E_RANGE)
+				}
+				nextVal = c.Get(int(idx.Val))
+			case types.MapValue:
+				val, exists := c.Get(indexResult.Val)
+				if !exists {
+					return types.Err(types.E_RANGE)
+				}
+				nextVal = val
+			default:
+				return types.Err(types.E_TYPE)
+			}
+			collections[i+1] = nextVal
+		}
+
+		// Resolve the final index
+		lastColl := collections[len(indices)-1]
+		length := getCollectionLength(lastColl)
+		if length < 0 {
+			return types.Err(types.E_TYPE)
+		}
+		oldContext := ctx.IndexContext
+		ctx.IndexContext = length
+
+		lastIndexResult := e.Eval(indices[len(indices)-1], ctx)
+		ctx.IndexContext = oldContext
+		if !lastIndexResult.IsNormal() {
+			return lastIndexResult
+		}
+		resolvedIndices[len(indices)-1] = lastIndexResult.Val
+
+		// Set the value at the deepest level
+		var err types.ErrorCode
+		collections[len(indices)-1], err = setAtIndex(lastColl, lastIndexResult.Val, value)
+		if err != types.E_NONE {
+			return types.Err(err)
+		}
+
+		// Rebuild going back up (copy-on-write)
+		for i := len(indices) - 2; i >= 0; i-- {
+			collections[i], err = setAtIndex(collections[i], resolvedIndices[i], collections[i+1])
+			if err != types.E_NONE {
+				return types.Err(err)
+			}
+		}
+
+		newPropVal = collections[0]
+	}
+
+	// Write the new value back to the property
+	return e.evalAssignProperty(propExpr, newPropVal, ctx)
+}
+
+// getPropertyValue retrieves a property value from an object
+// Returns the value and E_NONE on success, or nil and an error code on failure
+func (e *Evaluator) getPropertyValue(obj *db.Object, name string, ctx *types.TaskContext) (types.Value, types.ErrorCode) {
+	// Check for built-in properties first
+	if val, ok := e.getBuiltinProperty(obj, name); ok {
+		return val, types.E_NONE
+	}
+
+	// Look up property with inheritance
+	prop, errCode := e.findProperty(obj, name, ctx)
+	if errCode != types.E_NONE {
+		return nil, errCode
+	}
+
+	return prop.Value, types.E_NONE
 }
 
 // getBaseVariable extracts the variable name from an IndexExpr chain

@@ -132,6 +132,7 @@ func NewRegistry() *Registry {
 	r.Register("task_id", builtinTaskID)
 	r.Register("ticks_left", builtinTicksLeft)
 	r.Register("seconds_left", builtinSecondsLeft)
+	r.Register("exec", builtinExec)
 
 	// Task management builtins
 	r.Register("queued_tasks", builtinQueuedTasks)

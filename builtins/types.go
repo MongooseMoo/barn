@@ -181,7 +181,8 @@ func builtinToobj(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err != nil {
-			return types.Err(types.E_INVARG)
+			// Invalid string - return #0 per MOO semantics
+			return types.Ok(types.NewObj(0))
 		}
 		return types.Ok(types.NewObj(types.ObjID(i)))
 

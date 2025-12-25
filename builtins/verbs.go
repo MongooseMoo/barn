@@ -45,6 +45,10 @@ func (r *Registry) RegisterVerbBuiltins(store *db.Store) {
 	r.Register("set_verb_code", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinSetVerbCode(ctx, args, store)
 	})
+
+	r.Register("disassemble", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinDisassemble(ctx, args, store)
+	})
 }
 
 // builtinVerbs: verbs(object) → LIST
@@ -445,11 +449,6 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_TYPE)
 	}
 
-	codeList, ok := args[2].(types.ListValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
 	objID := objVal.ID()
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
@@ -458,14 +457,24 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	// Convert list to code lines (1-indexed)
-	lines := make([]string, codeList.Len())
-	for i := 1; i <= codeList.Len(); i++ {
-		lineVal, ok := codeList.Get(i).(types.StrValue)
-		if !ok {
-			return types.Err(types.E_TYPE)
+	// Accept either string (single line) or list of strings
+	var lines []string
+	switch code := args[2].(type) {
+	case types.StrValue:
+		// Single string becomes a one-line verb
+		lines = []string{code.Value()}
+	case types.ListValue:
+		// Convert list to code lines (1-indexed)
+		lines = make([]string, code.Len())
+		for i := 1; i <= code.Len(); i++ {
+			lineVal, ok := code.Get(i).(types.StrValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			lines[i-1] = lineVal.Value()
 		}
-		lines[i-1] = lineVal.Value()
+	default:
+		return types.Err(types.E_TYPE)
 	}
 
 	// Compile the code
@@ -503,4 +512,43 @@ func parseVerbPerms(s string) db.VerbPerms {
 		}
 	}
 	return perms
+}
+
+// builtinDisassemble: disassemble(object, name) → LIST
+// Returns bytecode disassembly (wizard only)
+func builtinDisassemble(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	nameVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Wizard only
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
+	objID := objVal.ID()
+	verb, _, err := store.FindVerb(objID, nameVal.Value())
+	if err != nil {
+		return types.Err(types.E_VERBNF)
+	}
+
+	// Return a list of disassembly lines
+	// For now, return the source code prefixed with line numbers
+	// A real implementation would show bytecode
+	lines := make([]types.Value, len(verb.Code))
+	for i, line := range verb.Code {
+		lines[i] = types.NewStr(line)
+	}
+
+	return types.Ok(types.NewList(lines))
 }

@@ -108,6 +108,24 @@ func (s *Store) Valid(id types.ObjID) bool {
 	return !obj.Recycled
 }
 
+// IsRecycled checks if an object ID was recycled (vs never existed)
+// Returns true only if the object existed and was recycled
+func (s *Store) IsRecycled(id types.ObjID) bool {
+	if id < 0 {
+		return false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj, ok := s.objects[id]
+	if !ok {
+		return false
+	}
+
+	return obj.Recycled
+}
+
 // Recycle marks an object as recycled
 // Returns error if object doesn't exist or is already recycled
 func (s *Store) Recycle(id types.ObjID) error {
