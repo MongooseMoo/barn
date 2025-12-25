@@ -86,6 +86,14 @@ func NewRegistry() *Registry {
 	r.Register("generate_json", builtinGenerateJson)
 	r.Register("parse_json", builtinParseJson)
 
+	// Register network builtins (Layer 12.5)
+	r.Register("notify", builtinNotify)
+	r.Register("connected_players", builtinConnectedPlayers)
+	r.Register("connection_name", builtinConnectionName)
+	r.Register("boot_player", builtinBootPlayer)
+	r.Register("idle_seconds", builtinIdleSeconds)
+	r.Register("connected_seconds", builtinConnectedSeconds)
+
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)
 
