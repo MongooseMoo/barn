@@ -17,9 +17,10 @@ type Requirements struct {
 
 // SetupBlock contains setup or teardown code
 type SetupBlock struct {
-	Code      string `yaml:"code,omitempty"`
-	Statement string `yaml:"statement,omitempty"`
-	Verb      string `yaml:"verb,omitempty"`
+	Permission string `yaml:"permission,omitempty"` // programmer|wizard
+	Code       string `yaml:"code,omitempty"`
+	Statement  string `yaml:"statement,omitempty"`
+	Verb       string `yaml:"verb,omitempty"`
 }
 
 // TestCase represents a single test within a suite

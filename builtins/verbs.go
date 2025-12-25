@@ -163,9 +163,8 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_VERBNF)
 	}
 
-	// Check read permission
-	if !verb.Perms.Has(db.VerbRead) {
-		// TODO: Check if caller is owner or wizard
+	// Check read permission (wizards can always read)
+	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 
@@ -210,34 +209,34 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	// Parse info list
-	owner, ok := infoList.Get(0).(types.ObjValue)
+	// Parse info list (1-indexed)
+	owner, ok := infoList.Get(1).(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	permsStr, ok := infoList.Get(1).(types.StrValue)
+	permsStr, ok := infoList.Get(2).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	namesStr, ok := infoList.Get(2).(types.StrValue)
+	namesStr, ok := infoList.Get(3).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Parse args list
-	dobjStr, ok := argsList.Get(0).(types.StrValue)
+	// Parse args list (1-indexed)
+	dobjStr, ok := argsList.Get(1).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	prepStr, ok := argsList.Get(1).(types.StrValue)
+	prepStr, ok := argsList.Get(2).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	iobjStr, ok := argsList.Get(2).(types.StrValue)
+	iobjStr, ok := argsList.Get(3).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -344,18 +343,18 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	// Parse info list
-	owner, ok := infoList.Get(0).(types.ObjValue)
+	// Parse info list (1-indexed)
+	owner, ok := infoList.Get(1).(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	permsStr, ok := infoList.Get(1).(types.StrValue)
+	permsStr, ok := infoList.Get(2).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	namesStr, ok := infoList.Get(2).(types.StrValue)
+	namesStr, ok := infoList.Get(3).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -402,18 +401,18 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	// Parse args list
-	dobjStr, ok := argsList.Get(0).(types.StrValue)
+	// Parse args list (1-indexed)
+	dobjStr, ok := argsList.Get(1).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	prepStr, ok := argsList.Get(1).(types.StrValue)
+	prepStr, ok := argsList.Get(2).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	iobjStr, ok := argsList.Get(2).(types.StrValue)
+	iobjStr, ok := argsList.Get(3).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -459,14 +458,14 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	// Convert list to code lines
+	// Convert list to code lines (1-indexed)
 	lines := make([]string, codeList.Len())
-	for i := 0; i < codeList.Len(); i++ {
+	for i := 1; i <= codeList.Len(); i++ {
 		lineVal, ok := codeList.Get(i).(types.StrValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		lines[i] = lineVal.Value()
+		lines[i-1] = lineVal.Value()
 	}
 
 	// Compile the code

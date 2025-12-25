@@ -23,7 +23,8 @@ type TestResult struct {
 
 // Runner executes conformance tests
 type Runner struct {
-	evaluator *eval.Evaluator
+	evaluator    *eval.Evaluator
+	setupSuites  map[string]bool // Track which suites have had setup run
 }
 
 // NewRunner creates a new test runner with the default database
@@ -38,7 +39,8 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	if err != nil {
 		// Fall back to empty store if database can't be loaded
 		return &Runner{
-			evaluator: eval.NewEvaluator(),
+			evaluator:   eval.NewEvaluator(),
+			setupSuites: make(map[string]bool),
 		}
 	}
 
@@ -46,8 +48,45 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	store := database.NewStoreFromDatabase()
 
 	return &Runner{
-		evaluator: eval.NewEvaluatorWithStore(store),
+		evaluator:   eval.NewEvaluatorWithStore(store),
+		setupSuites: make(map[string]bool),
 	}
+}
+
+// runSetupBlock executes a setup or teardown block
+func (r *Runner) runSetupBlock(block *SetupBlock, ctx *types.TaskContext) error {
+	if block == nil {
+		return nil
+	}
+
+	// Save original wizard state and apply setup's permissions
+	origWizard := ctx.IsWizard
+	if block.Permission == "wizard" {
+		ctx.IsWizard = true
+	}
+	defer func() { ctx.IsWizard = origWizard }()
+
+	var code string
+	if block.Statement != "" {
+		code = block.Statement
+	} else if block.Code != "" {
+		code = block.Code
+	} else {
+		return nil
+	}
+
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		return fmt.Errorf("setup parse error: %w", err)
+	}
+
+	result := r.evaluator.EvalStatements(stmts, ctx)
+	if result.Flow == types.FlowException {
+		return fmt.Errorf("setup error: %s", errorCodeToName(result.Error))
+	}
+
+	return nil
 }
 
 // Run executes a single test case
@@ -63,6 +102,32 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 
 	// Create task context
 	ctx := types.NewTaskContext()
+
+	// Set permissions based on test's permission field
+	if test.Test.Permission == "wizard" {
+		ctx.IsWizard = true
+	}
+
+	// Run suite setup if not already done
+	if test.Suite.Setup != nil && !r.setupSuites[test.File] {
+		if err := r.runSetupBlock(test.Suite.Setup, ctx); err != nil {
+			return TestResult{
+				Test:   test,
+				Passed: false,
+				Error:  fmt.Errorf("suite setup failed: %w", err),
+			}
+		}
+		r.setupSuites[test.File] = true
+	}
+
+	// Run test-specific setup
+	if err := r.runSetupBlock(test.Test.Setup, ctx); err != nil {
+		return TestResult{
+			Test:   test,
+			Passed: false,
+			Error:  fmt.Errorf("test setup failed: %w", err),
+		}
+	}
 
 	// Determine what code to execute and how to parse it
 	var result types.Result
