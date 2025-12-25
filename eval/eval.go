@@ -100,6 +100,10 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 		return e.evalProperty(n, ctx)
 	case *parser.VerbCallExpr:
 		return e.evalVerbCall(n, ctx)
+	case *parser.SpliceExpr:
+		return e.evalSplice(n, ctx)
+	case *parser.CatchExpr:
+		return e.evalCatch(n, ctx)
 	default:
 		// Unknown node type - this should never happen if parser is correct
 		return types.Err(types.E_TYPE)
@@ -366,6 +370,53 @@ func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result
 	if result.Val == nil {
 		return types.Ok(types.NewInt(0))
 	}
+	return result
+}
+
+// evalSplice evaluates a splice expression: @expr
+// Splice is only valid in specific contexts (list literals, function args, scatter)
+// When evaluated standalone, it simply returns E_TYPE as per spec
+func (e *Evaluator) evalSplice(node *parser.SpliceExpr, ctx *types.TaskContext) types.Result {
+	// Evaluate the expression
+	result := e.Eval(node.Expr, ctx)
+	if !result.IsNormal() {
+		return result
+	}
+
+	// Splice requires a LIST operand
+	if result.Val.Type() != types.TYPE_LIST {
+		return types.Err(types.E_TYPE)
+	}
+
+	// In standalone context, splice just returns the list
+	// The actual splicing happens in list construction and function calls
+	return result
+}
+
+// evalCatch evaluates a catch expression: `expr ! codes => default`
+// Catches errors matching codes and returns default (or the error if no default)
+func (e *Evaluator) evalCatch(node *parser.CatchExpr, ctx *types.TaskContext) types.Result {
+	// Evaluate the main expression
+	result := e.Eval(node.Expr, ctx)
+
+	// If no error, return the result
+	if result.Flow != types.FlowException {
+		return result
+	}
+
+	// Check if the error matches any of the catch codes
+	for _, code := range node.Codes {
+		if result.Error == code {
+			// Error matches, return default if provided
+			if node.Default != nil {
+				return e.Eval(node.Default, ctx)
+			}
+			// No default, return the error value
+			return types.Ok(types.NewErr(result.Error))
+		}
+	}
+
+	// Error doesn't match, propagate it
 	return result
 }
 
