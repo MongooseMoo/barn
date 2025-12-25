@@ -168,3 +168,85 @@ type AssignExpr struct {
 
 func (e *AssignExpr) Position() Position { return e.Pos }
 func (e *AssignExpr) exprNode()          {}
+
+// Statement AST nodes
+
+// ExprStmt represents an expression used as a statement
+type ExprStmt struct {
+	Pos  Position
+	Expr Expr
+}
+
+func (s *ExprStmt) Position() Position { return s.Pos }
+func (s *ExprStmt) stmtNode()          {}
+
+// IfStmt represents if/elseif/else/endif
+type IfStmt struct {
+	Pos       Position
+	Condition Expr
+	Body      []Stmt
+	ElseIfs   []*ElseIfClause
+	Else      []Stmt // Can be nil
+}
+
+type ElseIfClause struct {
+	Pos       Position
+	Condition Expr
+	Body      []Stmt
+}
+
+func (s *IfStmt) Position() Position { return s.Pos }
+func (s *IfStmt) stmtNode()          {}
+
+// WhileStmt represents while loops
+type WhileStmt struct {
+	Pos       Position
+	Label     string // Optional loop label for break/continue
+	Condition Expr
+	Body      []Stmt
+}
+
+func (s *WhileStmt) Position() Position { return s.Pos }
+func (s *WhileStmt) stmtNode()          {}
+
+// ForStmt represents for loops (list, range, or map iteration)
+type ForStmt struct {
+	Pos       Position
+	Label     string // Optional loop label
+	Value     string // Variable name for value
+	Index     string // Variable name for index/key (optional)
+	Container Expr   // List/map expression or nil for range
+	RangeStart Expr  // For range loops: start expression
+	RangeEnd   Expr  // For range loops: end expression
+	Body      []Stmt
+}
+
+func (s *ForStmt) Position() Position { return s.Pos }
+func (s *ForStmt) stmtNode()          {}
+
+// BreakStmt represents break statement
+type BreakStmt struct {
+	Pos   Position
+	Label string // Optional loop label to break
+}
+
+func (s *BreakStmt) Position() Position { return s.Pos }
+func (s *BreakStmt) stmtNode()          {}
+
+// ContinueStmt represents continue statement
+type ContinueStmt struct {
+	Pos   Position
+	Label string // Optional loop label to continue
+}
+
+func (s *ContinueStmt) Position() Position { return s.Pos }
+func (s *ContinueStmt) stmtNode()          {}
+
+// ReturnStmt represents return statement
+type ReturnStmt struct {
+	Pos   Position
+	Value Expr // Can be nil (returns 0)
+}
+
+func (s *ReturnStmt) Position() Position { return s.Pos }
+func (s *ReturnStmt) stmtNode()          {}

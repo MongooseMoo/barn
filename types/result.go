@@ -17,6 +17,7 @@ type Result struct {
 	Val   Value       // The value (if Flow == FlowNormal or FlowReturn)
 	Flow  ControlFlow // Control flow state
 	Error ErrorCode   // Only set when Flow == FlowException
+	Label string      // Loop label for break/continue (empty = innermost loop)
 }
 
 // Ok creates a Result for normal execution with a value
@@ -24,9 +25,14 @@ func Ok(v Value) Result {
 	return Result{Val: v, Flow: FlowNormal}
 }
 
-// Ret creates a Result for a return statement
-func Ret(v Value) Result {
+// Return creates a Result for a return statement
+func Return(v Value) Result {
 	return Result{Val: v, Flow: FlowReturn}
+}
+
+// Ret creates a Result for a return statement (alias for backward compatibility)
+func Ret(v Value) Result {
+	return Return(v)
 }
 
 // Err creates a Result for an error/exception
@@ -35,13 +41,13 @@ func Err(e ErrorCode) Result {
 }
 
 // Break creates a Result for a break statement
-func Break() Result {
-	return Result{Flow: FlowBreak}
+func Break(label string) Result {
+	return Result{Flow: FlowBreak, Label: label}
 }
 
 // Continue creates a Result for a continue statement
-func Continue() Result {
-	return Result{Flow: FlowContinue}
+func Continue(label string) Result {
+	return Result{Flow: FlowContinue, Label: label}
 }
 
 // IsNormal returns true if this is normal execution
