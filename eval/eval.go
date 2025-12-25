@@ -19,6 +19,7 @@ func NewEvaluator() *Evaluator {
 	store := db.NewStore()
 	registry := builtins.NewRegistry()
 	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
 	return &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
@@ -31,6 +32,7 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	store := db.NewStore()
 	registry := builtins.NewRegistry()
 	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
 	return &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -42,6 +44,7 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 	registry := builtins.NewRegistry()
 	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
 	return &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
