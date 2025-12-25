@@ -419,6 +419,85 @@ func builtinRtrim(ctx *types.TaskContext, args []types.Value) types.Result {
 // HELPER FUNCTIONS
 // ============================================================================
 
+// builtinStrtr translates characters in a string
+// strtr(str, from, to [, case_matters]) -> str
+func builtinStrtr(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 3 || len(args) > 4 {
+		return types.Err(types.E_ARGS)
+	}
+
+	str, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	from, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	to, ok := args[2].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	caseSensitive := false
+	if len(args) == 4 {
+		caseSensitive = args[3].Truthy()
+	}
+
+	s := str.Value()
+	fromRunes := []rune(from.Value())
+	toRunes := []rune(to.Value())
+
+	// Empty from string - return unchanged
+	if len(fromRunes) == 0 {
+		return types.Ok(str)
+	}
+
+	// Build translation map
+	// If to is shorter than from, extra chars in from are DELETED
+	// If to is longer than from, ignore extra chars in to
+	// If duplicate chars in from, LAST occurrence wins
+	var result []rune
+	for _, ch := range s {
+		// Find the LAST matching character in from (duplicates: last wins)
+		matchIdx := -1
+		for i, fc := range fromRunes {
+			var match bool
+			if caseSensitive {
+				match = ch == fc
+			} else {
+				match = unicode.ToLower(ch) == unicode.ToLower(fc)
+			}
+			if match {
+				matchIdx = i // Keep updating to get the last match
+			}
+		}
+
+		if matchIdx >= 0 {
+			// Get replacement character
+			if matchIdx < len(toRunes) {
+				replacement := toRunes[matchIdx]
+
+				// Case-insensitive: preserve original case
+				if !caseSensitive {
+					if unicode.IsUpper(ch) {
+						replacement = unicode.ToUpper(replacement)
+					} else if unicode.IsLower(ch) {
+						replacement = unicode.ToLower(replacement)
+					}
+				}
+
+				result = append(result, replacement)
+			}
+			// If matchIdx >= len(toRunes), the character is deleted
+		} else {
+			result = append(result, ch)
+		}
+	}
+
+	return types.Ok(types.NewStr(string(result)))
+}
+
 // replaceAllCaseInsensitive performs case-insensitive string replacement
 func replaceAllCaseInsensitive(s, old, new string) string {
 	// Convert to runes for proper character handling

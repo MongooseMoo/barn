@@ -37,6 +37,7 @@ func NewRegistry() *Registry {
 	// Register string builtins (Layer 7.1)
 	r.Register("length", builtinLength)
 	r.Register("strsub", builtinStrsub)
+	r.Register("strtr", builtinStrtr)
 	r.Register("index", builtinIndex)
 	r.Register("rindex", builtinRindex)
 	r.Register("strcmp", builtinStrcmp)
@@ -123,6 +124,13 @@ func NewRegistry() *Registry {
 	// Register salt and random builtins
 	r.Register("salt", builtinSalt)
 	r.Register("random_bytes", builtinRandomBytes)
+
+	// Register system builtins
+	r.Register("getenv", builtinGetenv)
+	r.Register("task_local", builtinTaskLocal)
+	r.Register("set_task_local", builtinSetTaskLocal)
+	r.Register("task_id", builtinTaskID)
+	r.Register("ticks_left", builtinTicksLeft)
 
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)

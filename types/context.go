@@ -16,6 +16,15 @@ type TaskContext struct {
 	// Used to resolve ^ and $ markers in sub-expressions like list[^..^+1]
 	// -1 means no indexing context
 	IndexContext int
+
+	// TaskLocal stores task-local data (set via set_task_local, read via task_local)
+	TaskLocal Value
+
+	// TaskID is the unique identifier for this task
+	TaskID int64
+
+	// IsWizard indicates if the current programmer has wizard permissions
+	IsWizard bool
 }
 
 // NewTaskContext creates a new task context with default values

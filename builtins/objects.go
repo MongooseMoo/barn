@@ -61,6 +61,15 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 	r.Register("move", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinMove(ctx, args, store)
 	})
+
+	// Player management
+	r.Register("is_player", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinIsPlayer(ctx, args, store)
+	})
+
+	r.Register("set_player_flag", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinSetPlayerFlag(ctx, args, store)
+	})
 }
 
 // builtinCreate implements create(parent [, owner [, anonymous]])
@@ -716,6 +725,68 @@ func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
 		}
 	}
 	return result
+}
+
+// builtinIsPlayer implements is_player(object)
+// Returns 1 if object is a player, 0 otherwise
+func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	obj := store.Get(objVal.ID())
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Anonymous objects cannot be players
+	if obj.Anonymous {
+		return types.Err(types.E_INVARG)
+	}
+
+	if obj.Flags.Has(db.FlagUser) {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
+}
+
+// builtinSetPlayerFlag implements set_player_flag(object, value)
+// Sets or clears the player flag on an object
+func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	obj := store.Get(objVal.ID())
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Anonymous objects cannot have player flag set
+	if obj.Anonymous {
+		return types.Err(types.E_INVARG)
+	}
+
+	// TODO: Check wizard permissions (Layer 8.5)
+
+	// Set or clear the player flag
+	if args[1].Truthy() {
+		obj.Flags = obj.Flags.Set(db.FlagUser)
+	} else {
+		obj.Flags = obj.Flags.Clear(db.FlagUser)
+	}
+
+	return types.Ok(types.NewInt(0))
 }
 
 // isDescendant checks if target is a descendant of ancestor
