@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Default database path
-const DefaultDBPath = "C:/Users/Q/code/cow_py/toastcore.db"
+// Default database path (local copy)
+const DefaultDBPath = "C:/Users/Q/code/barn/toastcore.db"
 
 // TestResult represents the outcome of running a single test
 type TestResult struct {
