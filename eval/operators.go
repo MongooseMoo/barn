@@ -397,6 +397,7 @@ func evalLeftShift(left, right types.Value) types.Result {
 }
 
 // evalRightShift implements right shift: left >> right
+// MOO uses LOGICAL right shift (zero-filling), not arithmetic shift
 func evalRightShift(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
@@ -412,7 +413,9 @@ func evalRightShift(left, right types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.IntValue{Val: leftInt.Val >> uint(rightInt.Val)})
+	// Use unsigned right shift (logical, zero-filling)
+	result := int64(uint64(leftInt.Val) >> uint(rightInt.Val))
+	return types.Ok(types.IntValue{Val: result})
 }
 
 // ============================================================================
