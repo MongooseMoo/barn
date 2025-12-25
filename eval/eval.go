@@ -341,7 +341,9 @@ func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.Tas
 // These resolve to 1 (^) or collection length ($) when inside an indexing context
 func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.TaskContext) types.Result {
 	// Check if we have an indexing context
-	if ctx.IndexContext <= 0 {
+	// IndexContext = -1 means "not in an indexing context"
+	// IndexContext >= 0 means we're indexing a collection of that length (0 for empty)
+	if ctx.IndexContext < 0 {
 		// No indexing context - error
 		return types.Err(types.E_TYPE)
 	}

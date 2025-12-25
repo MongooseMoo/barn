@@ -35,6 +35,7 @@ func NewTaskContext() *TaskContext {
 		Programmer:     ObjNothing,
 		ThisObj:        ObjNothing,
 		Verb:           "",
+		IndexContext:   -1, // -1 means not in an indexing context
 	}
 }
 
