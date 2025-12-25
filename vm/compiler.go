@@ -1,0 +1,727 @@
+package vm
+
+import (
+	"barn/parser"
+	"barn/types"
+	"fmt"
+)
+
+// Compiler compiles AST nodes to bytecode
+type Compiler struct {
+	program   *Program
+	constants map[string]int // Constant deduplication (Value.String() -> index)
+	variables map[string]int // Variable name -> index mapping
+	loops     []LoopContext  // Loop context stack for break/continue
+	scopes    []Scope        // Variable scope stack
+}
+
+// LoopContext tracks loop compilation state
+type LoopContext struct {
+	Label     string
+	BreakIP   int // Patch location for break jumps
+	ContinueIP int // Patch location for continue jumps
+	StartIP   int // Loop body start
+}
+
+// Scope tracks variables in a lexical scope
+type Scope struct {
+	Variables map[string]int
+	Parent    *Scope
+}
+
+// NewCompiler creates a new compiler
+func NewCompiler() *Compiler {
+	return &Compiler{
+		program: &Program{
+			Code:      make([]byte, 0, 256),
+			Constants: make([]types.Value, 0, 32),
+			VarNames:  make([]string, 0, 16),
+			LineInfo:  make([]LineEntry, 0, 32),
+		},
+		constants: make(map[string]int),
+		variables: make(map[string]int),
+		loops:     make([]LoopContext, 0, 8),
+		scopes:    make([]Scope, 0, 8),
+	}
+}
+
+// Compile compiles a node to a Program
+func (c *Compiler) Compile(node parser.Node) (*Program, error) {
+	// Initialize global scope
+	c.beginScope()
+
+	// Compile the node
+	if err := c.compileNode(node); err != nil {
+		return nil, err
+	}
+
+	// Implicit return 0 if no explicit return
+	c.emit(OP_RETURN_NONE)
+
+	// End global scope
+	c.endScope()
+
+	return c.program, nil
+}
+
+// emit adds an opcode to the bytecode
+func (c *Compiler) emit(op OpCode) int {
+	pos := len(c.program.Code)
+	c.program.Code = append(c.program.Code, byte(op))
+	return pos
+}
+
+// emitByte adds a byte to the bytecode
+func (c *Compiler) emitByte(b byte) {
+	c.program.Code = append(c.program.Code, b)
+}
+
+// emitShort adds a 2-byte short to the bytecode (big-endian)
+func (c *Compiler) emitShort(s uint16) {
+	c.program.Code = append(c.program.Code, byte(s>>8), byte(s))
+}
+
+// emitConstant adds a constant and emits OP_PUSH
+func (c *Compiler) emitConstant(v types.Value) {
+	idx := c.addConstant(v)
+	c.emit(OP_PUSH)
+	c.emitByte(byte(idx))
+}
+
+// addConstant adds a value to the constant pool (with deduplication)
+func (c *Compiler) addConstant(v types.Value) int {
+	// Check if constant already exists
+	key := v.String()
+	if idx, ok := c.constants[key]; ok {
+		return idx
+	}
+
+	// Add new constant
+	idx := len(c.program.Constants)
+	c.program.Constants = append(c.program.Constants, v)
+	c.constants[key] = idx
+	return idx
+}
+
+// emitJump emits a jump instruction and returns the offset to patch
+func (c *Compiler) emitJump(op OpCode) int {
+	c.emit(op)
+	c.emitShort(0xFFFF) // Placeholder offset
+	return len(c.program.Code) - 2
+}
+
+// patchJump patches a jump instruction to jump to current location
+func (c *Compiler) patchJump(offset int) {
+	jump := len(c.program.Code) - offset - 2
+	if jump > 0xFFFF {
+		panic("jump too large")
+	}
+	c.program.Code[offset] = byte(jump >> 8)
+	c.program.Code[offset+1] = byte(jump)
+}
+
+// currentOffset returns the current bytecode offset
+func (c *Compiler) currentOffset() int {
+	return len(c.program.Code)
+}
+
+// beginScope starts a new variable scope
+func (c *Compiler) beginScope() {
+	scope := Scope{
+		Variables: make(map[string]int),
+	}
+	if len(c.scopes) > 0 {
+		scope.Parent = &c.scopes[len(c.scopes)-1]
+	}
+	c.scopes = append(c.scopes, scope)
+}
+
+// endScope ends the current variable scope
+func (c *Compiler) endScope() {
+	if len(c.scopes) > 0 {
+		c.scopes = c.scopes[:len(c.scopes)-1]
+	}
+}
+
+// declareVariable declares a variable in current scope
+func (c *Compiler) declareVariable(name string) int {
+	// Check if already exists in global variable table
+	if idx, ok := c.variables[name]; ok {
+		return idx
+	}
+
+	// Add to global variable table
+	idx := len(c.program.VarNames)
+	c.program.VarNames = append(c.program.VarNames, name)
+	c.variables[name] = idx
+
+	// Track max locals
+	if idx+1 > c.program.NumLocals {
+		c.program.NumLocals = idx + 1
+	}
+
+	// Add to current scope
+	if len(c.scopes) > 0 {
+		c.scopes[len(c.scopes)-1].Variables[name] = idx
+	}
+
+	return idx
+}
+
+// resolveVariable resolves a variable name to its index
+func (c *Compiler) resolveVariable(name string) (int, bool) {
+	idx, ok := c.variables[name]
+	return idx, ok
+}
+
+// beginLoop starts a new loop context
+func (c *Compiler) beginLoop(label string) {
+	c.loops = append(c.loops, LoopContext{
+		Label:   label,
+		StartIP: c.currentOffset(),
+	})
+}
+
+// endLoop ends the current loop context
+func (c *Compiler) endLoop() {
+	if len(c.loops) > 0 {
+		c.loops = c.loops[:len(c.loops)-1]
+	}
+}
+
+// currentLoop returns the current loop context
+func (c *Compiler) currentLoop() *LoopContext {
+	if len(c.loops) == 0 {
+		return nil
+	}
+	return &c.loops[len(c.loops)-1]
+}
+
+// findLoop finds a loop by label (or innermost if label is empty)
+func (c *Compiler) findLoop(label string) *LoopContext {
+	if label == "" {
+		return c.currentLoop()
+	}
+
+	for i := len(c.loops) - 1; i >= 0; i-- {
+		if c.loops[i].Label == label {
+			return &c.loops[i]
+		}
+	}
+	return nil
+}
+
+// compileNode dispatches compilation based on node type
+func (c *Compiler) compileNode(node parser.Node) error {
+	switch n := node.(type) {
+	// Expressions
+	case *parser.LiteralExpr:
+		return c.compileLiteral(n)
+	case *parser.IdentifierExpr:
+		return c.compileIdentifier(n)
+	case *parser.UnaryExpr:
+		return c.compileUnary(n)
+	case *parser.BinaryExpr:
+		return c.compileBinary(n)
+	case *parser.TernaryExpr:
+		return c.compileTernary(n)
+	case *parser.ParenExpr:
+		return c.compileNode(n.Expr)
+	case *parser.AssignExpr:
+		return c.compileAssign(n)
+	case *parser.BuiltinCallExpr:
+		return c.compileBuiltinCall(n)
+	case *parser.IndexExpr:
+		return c.compileIndex(n)
+	case *parser.RangeExpr:
+		return c.compileRange(n)
+	case *parser.IndexMarkerExpr:
+		return c.compileIndexMarker(n)
+	case *parser.PropertyExpr:
+		return c.compileProperty(n)
+	case *parser.VerbCallExpr:
+		return c.compileVerbCall(n)
+	case *parser.SpliceExpr:
+		return c.compileSplice(n)
+	case *parser.CatchExpr:
+		return c.compileCatch(n)
+
+	// Statements
+	case *parser.ExprStmt:
+		return c.compileExprStmt(n)
+	case *parser.IfStmt:
+		return c.compileIf(n)
+	case *parser.WhileStmt:
+		return c.compileWhile(n)
+	case *parser.ForStmt:
+		return c.compileFor(n)
+	case *parser.BreakStmt:
+		return c.compileBreak(n)
+	case *parser.ContinueStmt:
+		return c.compileContinue(n)
+	case *parser.ReturnStmt:
+		return c.compileReturn(n)
+	case *parser.TryExceptStmt:
+		return c.compileTryExcept(n)
+	case *parser.TryFinallyStmt:
+		return c.compileTryFinally(n)
+	case *parser.TryExceptFinallyStmt:
+		return c.compileTryExceptFinally(n)
+	case *parser.ScatterStmt:
+		return c.compileScatter(n)
+
+	default:
+		return fmt.Errorf("unknown node type: %T", node)
+	}
+}
+
+// compileLiteral compiles a literal value
+func (c *Compiler) compileLiteral(n *parser.LiteralExpr) error {
+	// Check if it's a small integer that can use immediate opcode
+	if intVal, ok := n.Value.(types.IntValue); ok {
+		val := int(intVal.Val)
+		if op, ok := MakeImmediateOpcode(val); ok {
+			c.emit(op)
+			return nil
+		}
+	}
+
+	// Otherwise push from constant pool
+	c.emitConstant(n.Value)
+	return nil
+}
+
+// compileIdentifier compiles a variable reference
+func (c *Compiler) compileIdentifier(n *parser.IdentifierExpr) error {
+	idx, ok := c.resolveVariable(n.Name)
+	if !ok {
+		// Variable not found - this will be a runtime error (E_VARNF)
+		// For now, declare it (MOO has dynamic scoping)
+		idx = c.declareVariable(n.Name)
+	}
+
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(idx))
+	return nil
+}
+
+// compileUnary compiles a unary expression
+func (c *Compiler) compileUnary(n *parser.UnaryExpr) error {
+	// Compile operand
+	if err := c.compileNode(n.Operand); err != nil {
+		return err
+	}
+
+	// Emit operator
+	switch n.Operator {
+	case parser.TOKEN_MINUS:
+		c.emit(OP_NEG)
+	case parser.TOKEN_NOT:
+		c.emit(OP_NOT)
+	case parser.TOKEN_BITNOT:
+		c.emit(OP_BITNOT)
+	default:
+		return fmt.Errorf("unknown unary operator: %v", n.Operator)
+	}
+
+	return nil
+}
+
+// compileBinary compiles a binary expression
+func (c *Compiler) compileBinary(n *parser.BinaryExpr) error {
+	// Short-circuit for && and ||
+	if n.Operator == parser.TOKEN_AND {
+		return c.compileShortCircuitAnd(n)
+	}
+	if n.Operator == parser.TOKEN_OR {
+		return c.compileShortCircuitOr(n)
+	}
+
+	// Compile left operand
+	if err := c.compileNode(n.Left); err != nil {
+		return err
+	}
+
+	// Compile right operand
+	if err := c.compileNode(n.Right); err != nil {
+		return err
+	}
+
+	// Emit operator
+	switch n.Operator {
+	case parser.TOKEN_PLUS:
+		c.emit(OP_ADD)
+	case parser.TOKEN_MINUS:
+		c.emit(OP_SUB)
+	case parser.TOKEN_STAR:
+		c.emit(OP_MUL)
+	case parser.TOKEN_SLASH:
+		c.emit(OP_DIV)
+	case parser.TOKEN_PERCENT:
+		c.emit(OP_MOD)
+	case parser.TOKEN_CARET:
+		c.emit(OP_POW)
+	case parser.TOKEN_EQ:
+		c.emit(OP_EQ)
+	case parser.TOKEN_NE:
+		c.emit(OP_NE)
+	case parser.TOKEN_LT:
+		c.emit(OP_LT)
+	case parser.TOKEN_LE:
+		c.emit(OP_LE)
+	case parser.TOKEN_GT:
+		c.emit(OP_GT)
+	case parser.TOKEN_GE:
+		c.emit(OP_GE)
+	case parser.TOKEN_IN:
+		c.emit(OP_IN)
+	case parser.TOKEN_BITAND:
+		c.emit(OP_BITAND)
+	case parser.TOKEN_BITOR:
+		c.emit(OP_BITOR)
+	case parser.TOKEN_BITXOR:
+		c.emit(OP_BITXOR)
+	case parser.TOKEN_LSHIFT:
+		c.emit(OP_SHL)
+	case parser.TOKEN_RSHIFT:
+		c.emit(OP_SHR)
+	default:
+		return fmt.Errorf("unknown binary operator: %v", n.Operator)
+	}
+
+	return nil
+}
+
+// compileShortCircuitAnd compiles && with short-circuit evaluation
+func (c *Compiler) compileShortCircuitAnd(n *parser.BinaryExpr) error {
+	// Compile left
+	if err := c.compileNode(n.Left); err != nil {
+		return err
+	}
+
+	// If false, skip right and leave false on stack
+	skipJump := c.emitJump(OP_AND)
+
+	// Compile right
+	if err := c.compileNode(n.Right); err != nil {
+		return err
+	}
+
+	// Patch jump
+	c.patchJump(skipJump)
+	return nil
+}
+
+// compileShortCircuitOr compiles || with short-circuit evaluation
+func (c *Compiler) compileShortCircuitOr(n *parser.BinaryExpr) error {
+	// Compile left
+	if err := c.compileNode(n.Left); err != nil {
+		return err
+	}
+
+	// If true, skip right and leave true on stack
+	skipJump := c.emitJump(OP_OR)
+
+	// Compile right
+	if err := c.compileNode(n.Right); err != nil {
+		return err
+	}
+
+	// Patch jump
+	c.patchJump(skipJump)
+	return nil
+}
+
+// compileTernary compiles a ternary expression
+func (c *Compiler) compileTernary(n *parser.TernaryExpr) error {
+	// Compile condition
+	if err := c.compileNode(n.Condition); err != nil {
+		return err
+	}
+
+	// Jump to else if false
+	elseJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+	// Compile then branch
+	if err := c.compileNode(n.ThenExpr); err != nil {
+		return err
+	}
+
+	// Jump over else
+	endJump := c.emitJump(OP_JUMP)
+
+	// Compile else branch
+	c.patchJump(elseJump)
+	if err := c.compileNode(n.ElseExpr); err != nil {
+		return err
+	}
+
+	// Patch end jump
+	c.patchJump(endJump)
+	return nil
+}
+
+// compileAssign compiles an assignment expression
+func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
+	// Compile value
+	if err := c.compileNode(n.Value); err != nil {
+		return err
+	}
+
+	// Duplicate value (assignment returns the value)
+	c.emit(OP_DUP)
+
+	// Handle different target types
+	switch target := n.Target.(type) {
+	case *parser.IdentifierExpr:
+		// Simple variable assignment
+		idx := c.declareVariable(target.Name)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(idx))
+	case *parser.IndexExpr:
+		// Index assignment: coll[idx] = value
+		return fmt.Errorf("index assignment not yet implemented")
+	case *parser.PropertyExpr:
+		// Property assignment: obj.prop = value
+		return fmt.Errorf("property assignment not yet implemented")
+	default:
+		return fmt.Errorf("invalid assignment target: %T", target)
+	}
+
+	return nil
+}
+
+// Stub implementations for other compile methods
+// These will be completed based on the actual requirements
+
+func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
+	// TODO: Implement builtin call compilation
+	return fmt.Errorf("builtin call compilation not yet implemented")
+}
+
+func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
+	// Compile collection
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	// Compile index
+	if err := c.compileNode(n.Index); err != nil {
+		return err
+	}
+
+	// Emit index operation
+	c.emit(OP_INDEX)
+	return nil
+}
+
+func (c *Compiler) compileRange(n *parser.RangeExpr) error {
+	// Compile collection
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	// Compile start
+	if err := c.compileNode(n.Start); err != nil {
+		return err
+	}
+
+	// Compile end
+	if err := c.compileNode(n.End); err != nil {
+		return err
+	}
+
+	// Emit range operation
+	c.emit(OP_RANGE)
+	return nil
+}
+
+func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
+	// Index markers (^ and $) are special constants
+	// ^ = 1, $ = -1 (or length when evaluated)
+	if n.Marker == parser.TOKEN_CARET {
+		c.emitConstant(types.IntValue{Val: 1})
+	} else {
+		c.emitConstant(types.IntValue{Val: -1})
+	}
+	return nil
+}
+
+func (c *Compiler) compileProperty(n *parser.PropertyExpr) error {
+	// TODO: Implement property access compilation
+	return fmt.Errorf("property access compilation not yet implemented")
+}
+
+func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
+	// TODO: Implement verb call compilation
+	return fmt.Errorf("verb call compilation not yet implemented")
+}
+
+func (c *Compiler) compileSplice(n *parser.SpliceExpr) error {
+	// Compile the expression to splice
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	// Emit splice operation
+	c.emit(OP_SPLICE)
+	return nil
+}
+
+func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
+	// TODO: Implement catch expression compilation
+	return fmt.Errorf("catch expression compilation not yet implemented")
+}
+
+func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
+	// Compile expression
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	// Pop result (expression statement doesn't use result)
+	c.emit(OP_POP)
+	return nil
+}
+
+func (c *Compiler) compileIf(n *parser.IfStmt) error {
+	// Compile condition
+	if err := c.compileNode(n.Condition); err != nil {
+		return err
+	}
+
+	// Jump to next clause if false
+	elseJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+	// Compile then branch
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// Jump over else branches
+	endJumps := []int{c.emitJump(OP_JUMP)}
+
+	// Compile elseif chains
+	c.patchJump(elseJump)
+	for _, elseif := range n.ElseIfs {
+		// Compile elseif condition
+		if err := c.compileNode(elseif.Condition); err != nil {
+			return err
+		}
+
+		// Jump to next clause if false
+		nextJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+		// Compile elseif body
+		if err := c.compileBlock(elseif.Body); err != nil {
+			return err
+		}
+
+		// Jump to end
+		endJumps = append(endJumps, c.emitJump(OP_JUMP))
+		c.patchJump(nextJump)
+	}
+
+	// Compile else branch
+	if n.Else != nil {
+		if err := c.compileBlock(n.Else); err != nil {
+			return err
+		}
+	}
+
+	// Patch all end jumps
+	for _, jump := range endJumps {
+		c.patchJump(jump)
+	}
+
+	return nil
+}
+
+func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
+	// Start loop
+	c.beginLoop(n.Label)
+	loopStart := c.currentOffset()
+
+	// Compile condition
+	if err := c.compileNode(n.Condition); err != nil {
+		return err
+	}
+
+	// Exit loop if false
+	exitJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+	// Compile body
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// Jump back to start
+	c.emit(OP_JUMP)
+	offset := c.currentOffset() - loopStart
+	c.emitShort(uint16(offset))
+
+	// Patch exit jump
+	c.patchJump(exitJump)
+
+	// End loop
+	c.endLoop()
+	return nil
+}
+
+func (c *Compiler) compileFor(n *parser.ForStmt) error {
+	// TODO: Implement for loop compilation (range, list, map variants)
+	return fmt.Errorf("for loop compilation not yet implemented")
+}
+
+func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
+	c.emit(OP_BREAK)
+	return nil
+}
+
+func (c *Compiler) compileContinue(n *parser.ContinueStmt) error {
+	c.emit(OP_CONTINUE)
+	return nil
+}
+
+func (c *Compiler) compileReturn(n *parser.ReturnStmt) error {
+	if n.Value != nil {
+		// Compile return value
+		if err := c.compileNode(n.Value); err != nil {
+			return err
+		}
+		c.emit(OP_RETURN)
+	} else {
+		// Return 0
+		c.emit(OP_RETURN_NONE)
+	}
+	return nil
+}
+
+func (c *Compiler) compileTryExcept(n *parser.TryExceptStmt) error {
+	// TODO: Implement try/except compilation
+	return fmt.Errorf("try/except compilation not yet implemented")
+}
+
+func (c *Compiler) compileTryFinally(n *parser.TryFinallyStmt) error {
+	// TODO: Implement try/finally compilation
+	return fmt.Errorf("try/finally compilation not yet implemented")
+}
+
+func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error {
+	// TODO: Implement try/except/finally compilation
+	return fmt.Errorf("try/except/finally compilation not yet implemented")
+}
+
+func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
+	// TODO: Implement scatter assignment compilation
+	return fmt.Errorf("scatter assignment compilation not yet implemented")
+}
+
+func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
