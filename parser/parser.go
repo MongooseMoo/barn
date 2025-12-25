@@ -85,26 +85,26 @@ func (p *Parser) parseStringLiteral() (types.Value, error) {
 	return types.NewStr(val), nil
 }
 
-// Precedence levels for operators (lower number = lower precedence)
+// Precedence levels for operators (higher number = higher precedence)
 const (
-	PREC_LOWEST = iota
-	PREC_ASSIGNMENT   // =
-	PREC_TERNARY      // ? |
-	PREC_CATCH        // ` ! =>
-	PREC_SPLICE       // @
-	PREC_SCATTER      // { } =
-	PREC_OR           // ||
-	PREC_AND          // &&
-	PREC_BIT_OR       // |.
-	PREC_BIT_XOR      // ^.
-	PREC_BIT_AND      // &.
-	PREC_COMPARISON   // == != < <= > >= in
-	PREC_SHIFT        // << >>
-	PREC_ADDITIVE     // + -
-	PREC_MULTIPLICATIVE // * / %
-	PREC_POWER        // ^
-	PREC_UNARY        // ! ~ -
-	PREC_POSTFIX      // . : [ ]
+	PREC_LOWEST         = 0
+	PREC_ASSIGNMENT     = 1  // =
+	PREC_TERNARY        = 2  // ? |
+	PREC_CATCH          = 3  // ` ! =>
+	PREC_SPLICE         = 4  // @
+	PREC_SCATTER        = 5  // { } =
+	PREC_OR             = 6  // ||
+	PREC_AND            = 7  // &&
+	PREC_BIT_OR         = 8  // |.
+	PREC_BIT_XOR        = 9  // ^.
+	PREC_BIT_AND        = 10 // &.
+	PREC_COMPARISON     = 11 // == != < <= > >= in
+	PREC_SHIFT          = 12 // << >>
+	PREC_ADDITIVE       = 13 // + -
+	PREC_MULTIPLICATIVE = 14 // * / %
+	PREC_POWER          = 15 // ^
+	PREC_UNARY          = 16 // ! ~ -
+	PREC_POSTFIX        = 17 // . : [ ]
 )
 
 // precedence returns the precedence of the given token type
@@ -204,7 +204,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 	}
 
 	// Parse infix expressions
-	for precedence(p.current.Type) > prec {
+	for precedence(p.current.Type) >= prec {
 		switch p.current.Type {
 		case TOKEN_PLUS, TOKEN_MINUS, TOKEN_STAR, TOKEN_SLASH, TOKEN_PERCENT,
 			TOKEN_CARET, TOKEN_EQ, TOKEN_NE, TOKEN_LT, TOKEN_LE, TOKEN_GT, TOKEN_GE,
