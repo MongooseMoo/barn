@@ -322,10 +322,22 @@ func evalIn(left, right types.Value) types.Result {
 		return types.Ok(types.IntValue{Val: 0})
 
 	case types.MapValue:
-		// Check if left is a key in the map
-		_, found := container.Get(left)
-		if found {
-			return types.Ok(types.IntValue{Val: 1})
+		// Check if left is a VALUE in the map (case-insensitive for strings)
+		for _, pair := range container.Pairs() {
+			value := pair[1]
+			// Case-insensitive comparison for strings
+			if leftStr, leftIsStr := left.(types.StrValue); leftIsStr {
+				if valStr, valIsStr := value.(types.StrValue); valIsStr {
+					if strings.EqualFold(leftStr.Value(), valStr.Value()) {
+						return types.Ok(types.IntValue{Val: 1})
+					}
+					continue
+				}
+			}
+			// Exact match for other types
+			if value.Equal(left) {
+				return types.Ok(types.IntValue{Val: 1})
+			}
 		}
 		return types.Ok(types.IntValue{Val: 0})
 
