@@ -214,8 +214,9 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 
 	case float64:
 		// JSON numbers are always float64
-		// Check if it's really an integer
-		if val == float64(int64(val)) && val >= float64(math.MinInt64) && val <= float64(math.MaxInt64) {
+		// Check if it's really an integer and fits in 32-bit range
+		// MOO treats numbers larger than 32-bit signed int as floats
+		if val == float64(int64(val)) && val >= float64(math.MinInt32) && val <= float64(math.MaxInt32) {
 			return types.NewInt(int64(val))
 		}
 		return types.NewFloat(val)
