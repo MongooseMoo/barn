@@ -338,6 +338,38 @@ func valuesEquivalent(actual, expected types.Value) bool {
 		}
 	}
 
+	// Handle integer <-> object comparison for YAML ambiguity
+	// If expected is int and actual is obj with that ID, consider equal
+	if expectedInt, ok := expected.(types.IntValue); ok {
+		if actualObj, ok := actual.(types.ObjValue); ok {
+			return expectedInt.Val == int64(actualObj.ID())
+		}
+	}
+	// If expected is obj and actual is int with that ID, consider equal
+	if expectedObj, ok := expected.(types.ObjValue); ok {
+		if actualInt, ok := actual.(types.IntValue); ok {
+			return int64(expectedObj.ID()) == actualInt.Val
+		}
+	}
+
+	// Handle string <-> error comparison for YAML ambiguity (e.g., "E_ARGS")
+	// If expected is string "E_*" and actual is error, consider equal
+	if expectedStr, ok := expected.(types.StrValue); ok {
+		if actualErr, ok := actual.(types.ErrValue); ok {
+			if errCode, found := errorNameToCode(expectedStr.Value()); found {
+				return errCode == actualErr.Code()
+			}
+		}
+	}
+	// If expected is error and actual is string "E_*", consider equal
+	if expectedErr, ok := expected.(types.ErrValue); ok {
+		if actualStr, ok := actual.(types.StrValue); ok {
+			if errCode, found := errorNameToCode(actualStr.Value()); found {
+				return errCode == expectedErr.Code()
+			}
+		}
+	}
+
 	// Handle string <-> object comparison for YAML ambiguity
 	// If expected is object and actual is string "#N", consider equal
 	if expectedObj, ok := expected.(types.ObjValue); ok {
