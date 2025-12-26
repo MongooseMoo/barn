@@ -72,7 +72,11 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 		return json.Number(s), types.E_NONE
 
 	case types.StrValue:
-		return val.Value(), types.E_NONE
+		// Convert MOO binary escapes (~XX) to actual bytes
+		// JSON marshaler will then produce proper \n, \r, \t, \uXXXX escapes
+		s := val.Value()
+		result := decodeBinaryEscapes(s)
+		return result, types.E_NONE
 
 	case types.BoolValue:
 		return val.Val, types.E_NONE
@@ -199,5 +203,42 @@ func jsonToMOO(v interface{}) types.Value {
 	default:
 		// Unknown type - return 0
 		return types.NewInt(0)
+	}
+}
+
+// decodeBinaryEscapes converts MOO binary escapes (~XX) to actual bytes
+// This allows JSON marshaler to produce proper escape sequences
+func decodeBinaryEscapes(s string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		if i+2 < len(s) && s[i] == '~' {
+			// Check for hex escape ~XX
+			hex1, ok1 := hexDigit(s[i+1])
+			hex2, ok2 := hexDigit(s[i+2])
+			if ok1 && ok2 {
+				b := byte(hex1<<4 | hex2)
+				result.WriteByte(b)
+				i += 3
+				continue
+			}
+		}
+		result.WriteByte(s[i])
+		i++
+	}
+	return result.String()
+}
+
+// hexDigit returns the value of a hex digit and whether it's valid
+func hexDigit(c byte) (int, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0'), true
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10, true
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10, true
+	default:
+		return 0, false
 	}
 }
