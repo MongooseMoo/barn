@@ -3,6 +3,7 @@ package eval
 import (
 	"barn/types"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -333,21 +334,13 @@ func evalIn(left, right types.Value) types.Result {
 		return types.Ok(types.IntValue{Val: 0})
 
 	case types.MapValue:
-		// Check if left is a VALUE in the map (case-insensitive for strings)
-		for _, pair := range container.Pairs() {
-			value := pair[1]
-			// Case-insensitive comparison for strings
-			if leftStr, leftIsStr := left.(types.StrValue); leftIsStr {
-				if valStr, valIsStr := value.(types.StrValue); valIsStr {
-					if strings.EqualFold(leftStr.Value(), valStr.Value()) {
-						return types.Ok(types.IntValue{Val: 1})
-					}
-					continue
-				}
-			}
-			// Exact match for other types
-			if value.Equal(left) {
-				return types.Ok(types.IntValue{Val: 1})
+		// For maps, `in` checks if left is a KEY and returns its position
+		// in the sorted key list (1-based), or 0 if not found
+		keys := container.Keys()
+		sortMapKeysForIn(keys)
+		for i, key := range keys {
+			if key.Equal(left) {
+				return types.Ok(types.IntValue{Val: int64(i + 1)})
 			}
 		}
 		return types.Ok(types.IntValue{Val: 0})
@@ -542,4 +535,81 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 
 	// Type mismatch
 	return 0, types.E_TYPE
+}
+
+// sortMapKeysForIn sorts map keys in MOO canonical order:
+// integers < floats < objects < errors < strings
+// Within each type, sorted by value
+func sortMapKeysForIn(keys []types.Value) {
+	sort.Slice(keys, func(i, j int) bool {
+		return compareMapKeysForIn(keys[i], keys[j]) < 0
+	})
+}
+
+// compareMapKeysForIn returns negative if a < b, 0 if equal, positive if a > b
+func compareMapKeysForIn(a, b types.Value) int {
+	// Type ordering: INT=0, FLOAT=1, OBJ=2, ERR=3, STR=4
+	typeOrder := func(v types.Value) int {
+		switch v.Type() {
+		case types.TYPE_INT:
+			return 0
+		case types.TYPE_FLOAT:
+			return 1
+		case types.TYPE_OBJ:
+			return 2
+		case types.TYPE_ERR:
+			return 3
+		case types.TYPE_STR:
+			return 4
+		default:
+			return 5
+		}
+	}
+
+	aOrder := typeOrder(a)
+	bOrder := typeOrder(b)
+	if aOrder != bOrder {
+		return aOrder - bOrder
+	}
+
+	// Same type, compare values
+	switch av := a.(type) {
+	case types.IntValue:
+		bv := b.(types.IntValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.FloatValue:
+		bv := b.(types.FloatValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.ObjValue:
+		bv := b.(types.ObjValue)
+		if av.ID() < bv.ID() {
+			return -1
+		} else if av.ID() > bv.ID() {
+			return 1
+		}
+		return 0
+	case types.ErrValue:
+		bv := b.(types.ErrValue)
+		if av.Code() < bv.Code() {
+			return -1
+		} else if av.Code() > bv.Code() {
+			return 1
+		}
+		return 0
+	case types.StrValue:
+		bv := b.(types.StrValue)
+		// Case-insensitive comparison for strings
+		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
+	}
+	return 0
 }

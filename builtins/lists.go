@@ -199,13 +199,14 @@ func builtinIsMember(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.IntValue{Val: 0})
 
 	case types.MapValue:
-		// For maps, check if key exists and return 1 if found
-		// Note: This is a simplified implementation - full MOO semantics
-		// would search values and return position, but that requires
-		// ordered maps which we don't have yet
-		_, ok := collection.Get(value)
-		if ok {
-			return types.Ok(types.IntValue{Val: 1})
+		// For maps, is_member searches for a key and returns its position
+		// in the sorted key list (1-based), or 0 if not found
+		keys := collection.Keys()
+		sortMapKeys(keys)
+		for i, key := range keys {
+			if key.Equal(value) {
+				return types.Ok(types.IntValue{Val: int64(i + 1)})
+			}
 		}
 		return types.Ok(types.IntValue{Val: 0})
 

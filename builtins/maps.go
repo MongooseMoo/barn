@@ -2,14 +2,18 @@ package builtins
 
 import (
 	"barn/types"
+	"sort"
+	"strings"
 )
 
 // ============================================================================
 // LAYER 7.5: MAP BUILTINS
 // ============================================================================
 
-// builtinMapkeys returns a list of all keys in the map
+// builtinMapkeys returns a list of all keys in the map, sorted
 // mapkeys(map) -> list
+// Sorting order: integers (by value), floats (by value), objects (by ID),
+// errors (by code), strings (case-insensitive alphabetical)
 func builtinMapkeys(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -21,10 +25,88 @@ func builtinMapkeys(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	keys := m.Keys()
+	sortMapKeys(keys)
 	return types.Ok(types.NewList(keys))
 }
 
-// builtinMapvalues returns a list of all values in the map
+// sortMapKeys sorts map keys in MOO canonical order:
+// integers < floats < objects < errors < strings
+// Within each type, sorted by value
+func sortMapKeys(keys []types.Value) {
+	sort.Slice(keys, func(i, j int) bool {
+		return compareMapKeys(keys[i], keys[j]) < 0
+	})
+}
+
+// compareMapKeys returns negative if a < b, 0 if equal, positive if a > b
+func compareMapKeys(a, b types.Value) int {
+	// Type ordering: INT=0, FLOAT=2, OBJ=1, ERR=5, STR=4
+	typeOrder := func(v types.Value) int {
+		switch v.Type() {
+		case types.TYPE_INT:
+			return 0
+		case types.TYPE_FLOAT:
+			return 1
+		case types.TYPE_OBJ:
+			return 2
+		case types.TYPE_ERR:
+			return 3
+		case types.TYPE_STR:
+			return 4
+		default:
+			return 5
+		}
+	}
+
+	aOrder := typeOrder(a)
+	bOrder := typeOrder(b)
+	if aOrder != bOrder {
+		return aOrder - bOrder
+	}
+
+	// Same type, compare values
+	switch av := a.(type) {
+	case types.IntValue:
+		bv := b.(types.IntValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.FloatValue:
+		bv := b.(types.FloatValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.ObjValue:
+		bv := b.(types.ObjValue)
+		if av.ID() < bv.ID() {
+			return -1
+		} else if av.ID() > bv.ID() {
+			return 1
+		}
+		return 0
+	case types.ErrValue:
+		bv := b.(types.ErrValue)
+		if av.Code() < bv.Code() {
+			return -1
+		} else if av.Code() > bv.Code() {
+			return 1
+		}
+		return 0
+	case types.StrValue:
+		bv := b.(types.StrValue)
+		// Case-insensitive comparison for strings
+		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
+	}
+	return 0
+}
+
+// builtinMapvalues returns a list of all values in the map, sorted by key order
 // mapvalues(map) -> list
 func builtinMapvalues(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
@@ -36,11 +118,15 @@ func builtinMapvalues(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Get all pairs and extract values
-	pairs := m.Pairs()
-	values := make([]types.Value, len(pairs))
-	for i, pair := range pairs {
-		values[i] = pair[1]
+	// Get sorted keys first
+	keys := m.Keys()
+	sortMapKeys(keys)
+
+	// Extract values in sorted key order
+	values := make([]types.Value, len(keys))
+	for i, key := range keys {
+		val, _ := m.Get(key)
+		values[i] = val
 	}
 
 	return types.Ok(types.NewList(values))

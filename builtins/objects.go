@@ -72,12 +72,16 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 	})
 }
 
-// builtinCreate implements create(parent [, owner [, anonymous]])
+// builtinCreate implements create(parent [, owner] [, anonymous] [, args])
 // Creates a new object with the given parent(s)
 // Per cow_py semantics:
 // - First arg: OBJ, negative INT (as object reference), or list of same
-// - Second arg: OBJ or negative INT for owner, non-negative INT for anonymous flag
-// - Owner values < -1 (like -2, -3, -4) are E_INVARG (invalid object references)
+// - Optional args (in order):
+//   - OBJ or negative INT → owner (must come before anonymous flag)
+//   - Non-negative INT → anonymous flag (0 or 1)
+//   - LIST → init args for :initialize verb (must come last)
+// - Float or Map is always E_TYPE
+// - Owner values < -1 (like -2, -3, -4) are E_INVARG
 func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
@@ -125,6 +129,7 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 	// -2, -3, -4 (special invalid object numbers) are always E_INVARG
 	// Other negative IDs and non-existent objects are E_INVARG
 	validParents := []types.ObjID{}
+	seenParents := make(map[types.ObjID]bool)
 	for _, parentID := range parents {
 		if parentID < -1 {
 			// Special invalid object numbers: -2, -3, -4
@@ -138,6 +143,11 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 			// $nothing as solo parent means "no parent" - skip it
 			continue
 		}
+		// Check for duplicate parents
+		if seenParents[parentID] {
+			return types.Err(types.E_INVARG)
+		}
+		seenParents[parentID] = true
 		parent := store.Get(parentID)
 		if parent == nil {
 			return types.Err(types.E_INVARG)
@@ -149,35 +159,70 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 
 	// Parse optional arguments
 	// Per cow_py semantics:
-	// - OBJ or negative INT → owner
-	// - Non-negative INT → anonymous flag
-	// Owner values < -1 (like -2, -3, -4) are E_INVARG
+	// - OBJ or negative INT → owner (must come before anonymous flag, only once)
+	// - Non-negative INT → anonymous flag (0 or 1, only once)
+	// - LIST → init args (only once, must be last)
+	// - Float or Map is always E_TYPE
 	owner := ctx.Programmer
 	ownerSpecified := false
 	anonymous := false
+	anonymousSeen := false
+	var initArgs []types.Value
 
-	if len(args) >= 2 {
-		switch v := args[1].(type) {
+	initArgsSeen := false
+	for i := 1; i < len(args); i++ {
+		switch v := args[i].(type) {
 		case types.ObjValue:
+			// ObjNum is owner - only valid before anonymous flag and initArgs
+			if anonymousSeen {
+				return types.Err(types.E_TYPE)
+			}
+			if ownerSpecified {
+				return types.Err(types.E_TYPE)
+			}
+			if initArgsSeen {
+				return types.Err(types.E_TYPE)
+			}
 			owner = v.ID()
 			ownerSpecified = true
 		case types.IntValue:
 			if v.Val < 0 {
 				// Negative int is owner (object reference)
+				if anonymousSeen {
+					return types.Err(types.E_TYPE)
+				}
+				if ownerSpecified {
+					return types.Err(types.E_TYPE)
+				}
+				if initArgsSeen {
+					return types.Err(types.E_TYPE)
+				}
 				owner = types.ObjID(v.Val)
 				ownerSpecified = true
 			} else {
-				// Non-negative int is anonymous flag
+				// Non-negative int is anonymous flag (0 or 1)
+				if anonymousSeen {
+					return types.Err(types.E_TYPE)
+				}
 				anonymous = v.Val != 0
+				anonymousSeen = true
 			}
+		case types.ListValue:
+			// LIST is initialization arguments (only once)
+			if initArgsSeen {
+				return types.Err(types.E_TYPE)
+			}
+			initArgs = v.Elements()
+			initArgsSeen = true
+		case types.FloatValue:
+			// Float is always an error
+			return types.Err(types.E_TYPE)
+		case types.MapValue:
+			// Map is always an error
+			return types.Err(types.E_TYPE)
 		default:
 			return types.Err(types.E_TYPE)
 		}
-	}
-
-	// Get explicit anonymous flag if 3 args
-	if len(args) >= 3 {
-		anonymous = args[2].Truthy()
 	}
 
 	// Validate owner if explicitly specified
@@ -226,15 +271,20 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		return types.Err(types.E_QUOTA)
 	}
 
-	// Add to parents' children lists
-	for _, parentID := range parents {
-		parent := store.Get(parentID)
-		if parent != nil {
-			parent.Children = append(parent.Children, newID)
+	// Add to parents' children lists (only for non-anonymous objects)
+	// Anonymous objects do not appear in children() results
+	if !anonymous {
+		for _, parentID := range parents {
+			parent := store.Get(parentID)
+			if parent != nil {
+				parent.Children = append(parent.Children, newID)
+			}
 		}
 	}
 
 	// TODO: Call :initialize verb if it exists (Phase 9)
+	// initArgs is captured for future use when :initialize is implemented
+	_ = initArgs
 
 	// Return AnonValue for anonymous objects, ObjValue for regular
 	if anonymous {
