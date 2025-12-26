@@ -66,7 +66,7 @@ func builtinTaskLocal(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	// Fallback to context for backward compatibility
 	if ctx.TaskLocal == nil {
-		return types.Ok(types.NewEmptyList())
+		return types.Ok(types.NewEmptyMap())
 	}
 
 	return types.Ok(ctx.TaskLocal)
