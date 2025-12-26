@@ -547,15 +547,16 @@ func sortMapKeysForIn(keys []types.Value) {
 }
 
 // compareMapKeysForIn returns negative if a < b, 0 if equal, positive if a > b
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
+// This matches MOO/ToastStunt map key ordering
 func compareMapKeysForIn(a, b types.Value) int {
-	// Type ordering: INT=0, FLOAT=1, OBJ=2, ERR=3, STR=4
 	typeOrder := func(v types.Value) int {
 		switch v.Type() {
 		case types.TYPE_INT:
 			return 0
-		case types.TYPE_FLOAT:
-			return 1
 		case types.TYPE_OBJ:
+			return 1
+		case types.TYPE_FLOAT:
 			return 2
 		case types.TYPE_ERR:
 			return 3

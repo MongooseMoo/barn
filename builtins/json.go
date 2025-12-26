@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -121,9 +122,15 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		return arr, types.E_NONE
 
 	case types.MapValue:
-		obj := make(map[string]interface{})
+		// Use orderedMap to preserve MOO key ordering
 		pairs := val.Pairs()
-		for _, pair := range pairs {
+		// Sort pairs by MOO key order (int < float < obj < err < str)
+		sortedPairs := make([][2]types.Value, len(pairs))
+		copy(sortedPairs, pairs)
+		sortMapPairsForJSON(sortedPairs)
+
+		om := &orderedMap{entries: make([]orderedMapEntry, len(sortedPairs))}
+		for i, pair := range sortedPairs {
 			key := pair[0]
 			value := pair[1]
 
@@ -150,9 +157,9 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 			if err != types.E_NONE {
 				return nil, err
 			}
-			obj[keyStr] = jsonValue
+			om.entries[i] = orderedMapEntry{key: keyStr, value: jsonValue}
 		}
-		return obj, types.E_NONE
+		return om, types.E_NONE
 
 	default:
 		// Unsupported types (WAIF, ANON)
@@ -326,4 +333,117 @@ func hexDigit(c byte) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// orderedMap preserves key order when marshaled to JSON
+type orderedMapEntry struct {
+	key   string
+	value interface{}
+}
+
+type orderedMap struct {
+	entries []orderedMapEntry
+}
+
+// MarshalJSON implements json.Marshaler for orderedMap
+func (om *orderedMap) MarshalJSON() ([]byte, error) {
+	var buf strings.Builder
+	buf.WriteByte('{')
+	for i, entry := range om.entries {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		// Marshal key
+		keyJSON, err := json.Marshal(entry.key)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(keyJSON)
+		buf.WriteByte(':')
+		// Marshal value
+		valJSON, err := json.Marshal(entry.value)
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(valJSON)
+	}
+	buf.WriteByte('}')
+	return []byte(buf.String()), nil
+}
+
+// sortMapPairsForJSON sorts map pairs by MOO key order for JSON output
+// Order: INT < FLOAT < OBJ < ERR < STR
+func sortMapPairsForJSON(pairs [][2]types.Value) {
+	sort.Slice(pairs, func(i, j int) bool {
+		return compareJSONKeys(pairs[i][0], pairs[j][0]) < 0
+	})
+}
+
+// compareJSONKeys compares two MOO values for JSON key ordering
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
+// This matches MOO/ToastStunt map key ordering
+func compareJSONKeys(a, b types.Value) int {
+	typeOrder := func(v types.Value) int {
+		switch v.(type) {
+		case types.IntValue:
+			return 0
+		case types.ObjValue:
+			return 1
+		case types.FloatValue:
+			return 2
+		case types.ErrValue:
+			return 3
+		case types.StrValue:
+			return 4
+		default:
+			return 5
+		}
+	}
+
+	aOrder := typeOrder(a)
+	bOrder := typeOrder(b)
+	if aOrder != bOrder {
+		return aOrder - bOrder
+	}
+
+	// Same type, compare values
+	switch av := a.(type) {
+	case types.IntValue:
+		bv := b.(types.IntValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.FloatValue:
+		bv := b.(types.FloatValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.ObjValue:
+		bv := b.(types.ObjValue)
+		if av.ID() < bv.ID() {
+			return -1
+		} else if av.ID() > bv.ID() {
+			return 1
+		}
+		return 0
+	case types.ErrValue:
+		bv := b.(types.ErrValue)
+		if av.Code() < bv.Code() {
+			return -1
+		} else if av.Code() > bv.Code() {
+			return 1
+		}
+		return 0
+	case types.StrValue:
+		bv := b.(types.StrValue)
+		// Case-insensitive comparison for strings
+		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
+	}
+	return 0
 }

@@ -269,15 +269,16 @@ func sortPairs(pairs [][2]types.Value) {
 }
 
 // comparePairKeys compares two keys for sorting
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
+// This matches MOO/ToastStunt map key ordering
 func comparePairKeys(a, b types.Value) int {
-	// Type ordering: INT < FLOAT < OBJ < ERR < STR
 	typeOrder := func(v types.Value) int {
 		switch v.Type() {
 		case types.TYPE_INT:
 			return 0
-		case types.TYPE_FLOAT:
-			return 1
 		case types.TYPE_OBJ:
+			return 1
+		case types.TYPE_FLOAT:
 			return 2
 		case types.TYPE_ERR:
 			return 3
