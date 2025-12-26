@@ -38,6 +38,13 @@ func sortMapKeys(keys []types.Value) {
 	})
 }
 
+// sortMapPairs sorts map pairs by their keys in MOO canonical order
+func sortMapPairs(pairs [][2]types.Value) {
+	sort.Slice(pairs, func(i, j int) bool {
+		return compareMapKeys(pairs[i][0], pairs[j][0]) < 0
+	})
+}
+
 // compareMapKeys returns negative if a < b, 0 if equal, positive if a > b
 // Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
 // This matches MOO/ToastStunt map key ordering

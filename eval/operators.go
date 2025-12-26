@@ -334,12 +334,13 @@ func evalIn(left, right types.Value) types.Result {
 		return types.Ok(types.IntValue{Val: 0})
 
 	case types.MapValue:
-		// For maps, `in` checks if left is a KEY and returns its position
-		// in the sorted key list (1-based), or 0 if not found
-		keys := container.Keys()
-		sortMapKeysForIn(keys)
-		for i, key := range keys {
-			if key.Equal(left) {
+		// For maps, `in` checks if left is a VALUE and returns the position
+		// of its key in the sorted key list (1-based), or 0 if not found
+		// This is case-insensitive for string values (uses Equal)
+		pairs := container.Pairs()
+		sortMapPairsForIn(pairs)
+		for i, pair := range pairs {
+			if pair[1].Equal(left) {
 				return types.Ok(types.IntValue{Val: int64(i + 1)})
 			}
 		}
@@ -543,6 +544,13 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 func sortMapKeysForIn(keys []types.Value) {
 	sort.Slice(keys, func(i, j int) bool {
 		return compareMapKeysForIn(keys[i], keys[j]) < 0
+	})
+}
+
+// sortMapPairsForIn sorts map pairs by their keys in MOO canonical order
+func sortMapPairsForIn(pairs [][2]types.Value) {
+	sort.Slice(pairs, func(i, j int) bool {
+		return compareMapKeysForIn(pairs[i][0], pairs[j][0]) < 0
 	})
 }
 
