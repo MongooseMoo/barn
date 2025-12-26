@@ -183,11 +183,22 @@ func builtinDecodeBinary(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
+	// Second arg controls output format:
+	// - 0 or omitted: group printable as strings, non-printable as ints
+	// - 1 (truthy): return all bytes as individual ints
+	// - "as_str": return raw bytes as string
+	fullyNumeric := false
 	asStr := false
 	if len(args) == 2 {
-		flag, ok := args[1].(types.StrValue)
-		if ok && flag.Value() == "as_str" {
-			asStr = true
+		switch flag := args[1].(type) {
+		case types.StrValue:
+			if flag.Value() == "as_str" {
+				asStr = true
+			}
+		case types.IntValue:
+			if flag.Val != 0 {
+				fullyNumeric = true
+			}
 		}
 	}
 
@@ -199,6 +210,15 @@ func builtinDecodeBinary(ctx *types.TaskContext, args []types.Value) types.Resul
 
 	if asStr {
 		return types.Ok(types.NewStr(string(bytes)))
+	}
+
+	if fullyNumeric {
+		// Return all bytes as individual integers
+		var elements []types.Value
+		for _, b := range bytes {
+			elements = append(elements, types.NewInt(int64(b)))
+		}
+		return types.Ok(types.NewList(elements))
 	}
 
 	// Group printable ASCII (32-126, excluding ~) as strings, non-printable as ints
