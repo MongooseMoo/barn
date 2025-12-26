@@ -359,6 +359,47 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	// TODO: Check permissions (Layer 8.5)
 	// TODO: Call :recycle verb if it exists (Phase 9)
 
+	// Reparent children to this object's parent(s)
+	// Per MOO semantics: when an object is recycled, its children
+	// are reparented to the recycled object's parent
+	newParents := obj.Parents
+	for _, childID := range obj.Children {
+		child := store.Get(childID)
+		if child == nil {
+			continue
+		}
+
+		// Replace this object with its parents in the child's parent list
+		newChildParents := []types.ObjID{}
+		for _, pid := range child.Parents {
+			if pid == objID {
+				// Replace with recycled object's parents
+				newChildParents = append(newChildParents, newParents...)
+			} else {
+				newChildParents = append(newChildParents, pid)
+			}
+		}
+		child.Parents = newChildParents
+
+		// Add child to new parents' children lists
+		for _, newParentID := range newParents {
+			newParent := store.Get(newParentID)
+			if newParent != nil {
+				// Avoid duplicates
+				hasChild := false
+				for _, cid := range newParent.Children {
+					if cid == childID {
+						hasChild = true
+						break
+					}
+				}
+				if !hasChild {
+					newParent.Children = append(newParent.Children, childID)
+				}
+			}
+		}
+	}
+
 	// Move to $nothing (clear location)
 	obj.Location = types.ObjNothing
 	obj.Contents = []types.ObjID{}
