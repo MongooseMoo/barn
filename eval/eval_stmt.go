@@ -4,6 +4,8 @@ import (
 	"barn/parser"
 	"barn/types"
 	"fmt"
+	"sort"
+	"strings"
 )
 
 // EvalStatements evaluates a sequence of statements
@@ -310,6 +312,8 @@ func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx
 func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx *types.TaskContext) types.Result {
 	// Take a snapshot - mutations during iteration don't affect us
 	pairs := mapVal.Pairs()
+	// Sort pairs by key in MOO canonical order
+	sortForMapPairs(pairs)
 
 	for _, pair := range pairs {
 		key := pair[0]
@@ -617,4 +621,81 @@ func (e *Evaluator) evalScatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskCon
 	}
 
 	return types.Ok(types.NewInt(0))
+}
+
+// sortForMapPairs sorts map pairs by key in MOO canonical order:
+// INT < OBJ < FLOAT < ERR < STR
+// Within each type, sorted by value
+func sortForMapPairs(pairs [][2]types.Value) {
+	sort.Slice(pairs, func(i, j int) bool {
+		return compareForMapKeys(pairs[i][0], pairs[j][0]) < 0
+	})
+}
+
+// compareForMapKeys returns negative if a < b, 0 if equal, positive if a > b
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
+func compareForMapKeys(a, b types.Value) int {
+	typeOrder := func(v types.Value) int {
+		switch v.Type() {
+		case types.TYPE_INT:
+			return 0
+		case types.TYPE_OBJ:
+			return 1
+		case types.TYPE_FLOAT:
+			return 2
+		case types.TYPE_ERR:
+			return 3
+		case types.TYPE_STR:
+			return 4
+		default:
+			return 5
+		}
+	}
+
+	aOrder := typeOrder(a)
+	bOrder := typeOrder(b)
+	if aOrder != bOrder {
+		return aOrder - bOrder
+	}
+
+	// Same type, compare values
+	switch av := a.(type) {
+	case types.IntValue:
+		bv := b.(types.IntValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.FloatValue:
+		bv := b.(types.FloatValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.ObjValue:
+		bv := b.(types.ObjValue)
+		if av.ID() < bv.ID() {
+			return -1
+		} else if av.ID() > bv.ID() {
+			return 1
+		}
+		return 0
+	case types.ErrValue:
+		bv := b.(types.ErrValue)
+		if av.Code() < bv.Code() {
+			return -1
+		} else if av.Code() > bv.Code() {
+			return 1
+		}
+		return 0
+	case types.StrValue:
+		bv := b.(types.StrValue)
+		// Case-insensitive comparison for strings
+		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
+	}
+	return 0
 }
