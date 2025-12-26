@@ -411,9 +411,14 @@ func evalLeftShift(left, right types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Shift by >= 64 returns 0 (all bits shifted out)
-	if rightInt.Val >= 64 {
+	// Shift by exactly 64 returns 0 (all bits shifted out)
+	if rightInt.Val == 64 {
 		return types.Ok(types.IntValue{Val: 0})
+	}
+
+	// Shift by > 64 is an error (invalid argument)
+	if rightInt.Val > 64 {
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.IntValue{Val: leftInt.Val << uint(rightInt.Val)})
@@ -436,9 +441,14 @@ func evalRightShift(left, right types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Shift by >= 64 returns 0 (all bits shifted out)
-	if rightInt.Val >= 64 {
+	// Shift by exactly 64 returns 0 (all bits shifted out)
+	if rightInt.Val == 64 {
 		return types.Ok(types.IntValue{Val: 0})
+	}
+
+	// Shift by > 64 is an error (invalid argument)
+	if rightInt.Val > 64 {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Use unsigned cast for logical right shift (zero-fill, not sign-extending)
