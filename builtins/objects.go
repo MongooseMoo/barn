@@ -74,21 +74,31 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 
 // builtinCreate implements create(parent [, owner [, anonymous]])
 // Creates a new object with the given parent(s)
+// Per cow_py semantics:
+// - First arg: OBJ, negative INT (as object reference), or list of same
+// - Second arg: OBJ or negative INT for owner, non-negative INT for anonymous flag
+// - Owner values < -1 (like -2, -3, -4) are E_INVARG (invalid object references)
 func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
 
-	// Get parent(s) - can be single object, int, or list
+	// Get parent(s) - OBJ or negative INT, or list of same
+	// Positive integers are NOT valid as parent references (E_TYPE)
 	var parents []types.ObjID
+	parentsFromList := false
 	switch p := args[0].(type) {
 	case types.ObjValue:
 		parents = []types.ObjID{p.ID()}
 	case types.IntValue:
-		// Integers can be used as object IDs
+		// Only negative integers are valid as object references
+		if p.Val >= 0 {
+			return types.Err(types.E_TYPE)
+		}
 		parents = []types.ObjID{types.ObjID(p.Val)}
 	case types.ListValue:
 		// Multiple parents
+		parentsFromList = true
 		elements := p.Elements()
 		parents = make([]types.ObjID, len(elements))
 		for i, elem := range elements {
@@ -96,6 +106,10 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 			case types.ObjValue:
 				parents[i] = e.ID()
 			case types.IntValue:
+				// Only negative integers are valid as object references
+				if e.Val >= 0 {
+					return types.Err(types.E_TYPE)
+				}
 				parents[i] = types.ObjID(e.Val)
 			default:
 				return types.Err(types.E_TYPE)
@@ -105,18 +119,24 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		return types.Err(types.E_TYPE)
 	}
 
-	// Check that all parents exist and are fertile
-	// Filter out $nothing (-1) which means "no parent"
-	// Reject other invalid object IDs (like $ambiguous, $failed_match)
+	// Validate parents
+	// -1 ($nothing) is valid as a solo parent (means no parent)
+	// -1 ($nothing) in a list is E_INVARG
+	// -2, -3, -4 (special invalid object numbers) are always E_INVARG
+	// Other negative IDs and non-existent objects are E_INVARG
 	validParents := []types.ObjID{}
 	for _, parentID := range parents {
-		if parentID == types.ObjNothing {
-			// $nothing is a valid "no parent" value - skip it
-			continue
-		}
-		// Reject other negative IDs ($ambiguous=-2, $failed_match=-3, etc.)
-		if parentID < 0 {
+		if parentID < -1 {
+			// Special invalid object numbers: -2, -3, -4
 			return types.Err(types.E_INVARG)
+		}
+		if parentID == types.ObjNothing {
+			if parentsFromList {
+				// $nothing in a parent list is invalid
+				return types.Err(types.E_INVARG)
+			}
+			// $nothing as solo parent means "no parent" - skip it
+			continue
 		}
 		parent := store.Get(parentID)
 		if parent == nil {
@@ -127,32 +147,31 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 	}
 	parents = validParents
 
-	// Get owner and anonymous flag
-	// create(parent [, owner [, anonymous]])
-	// If 2nd arg is an object, it's the owner
-	// If 2nd arg is not an object but truthy, it's the anonymous flag
+	// Parse optional arguments
+	// Per cow_py semantics:
+	// - OBJ or negative INT → owner
+	// - Non-negative INT → anonymous flag
+	// Owner values < -1 (like -2, -3, -4) are E_INVARG
 	owner := ctx.Programmer
+	ownerSpecified := false
 	anonymous := false
 
 	if len(args) >= 2 {
 		switch v := args[1].(type) {
 		case types.ObjValue:
 			owner = v.ID()
+			ownerSpecified = true
 		case types.IntValue:
-			// If it's an int and no 3rd arg, it's the anonymous flag
-			if len(args) == 2 {
-				anonymous = v.Val != 0
-			} else {
-				// Try to convert int to object ID for owner
+			if v.Val < 0 {
+				// Negative int is owner (object reference)
 				owner = types.ObjID(v.Val)
+				ownerSpecified = true
+			} else {
+				// Non-negative int is anonymous flag
+				anonymous = v.Val != 0
 			}
 		default:
-			// Any truthy value as 2nd arg alone means anonymous
-			if len(args) == 2 {
-				anonymous = args[1].Truthy()
-			} else {
-				return types.Err(types.E_TYPE)
-			}
+			return types.Err(types.E_TYPE)
 		}
 	}
 
@@ -161,8 +180,33 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		anonymous = args[2].Truthy()
 	}
 
+	// Validate owner if explicitly specified
+	if ownerSpecified {
+		if owner < -1 {
+			// Special invalid object numbers: -2, -3, -4
+			return types.Err(types.E_INVARG)
+		}
+		if owner != types.ObjNothing && store.Get(owner) == nil {
+			return types.Err(types.E_INVARG)
+		}
+		// Only wizards can specify $nothing as owner (makes object own itself)
+		if owner == types.ObjNothing && !ctx.IsWizard {
+			return types.Err(types.E_PERM)
+		}
+	}
+
+	// Anonymous objects cannot have $nothing as owner
+	if anonymous && owner == types.ObjNothing {
+		return types.Err(types.E_INVARG)
+	}
+
 	// Allocate new object ID
 	newID := store.NextID()
+
+	// If owner is $nothing, the new object owns itself (only for regular objects)
+	if owner == types.ObjNothing {
+		owner = newID
+	}
 
 	// Create object
 	obj := db.NewObject(newID, owner)
