@@ -23,8 +23,10 @@ type mapEntry struct {
 
 // goMap is the concrete implementation using Go's map (private)
 // Key is stringified Value (since Go maps need comparable keys)
+// Maintains insertion order via the 'order' slice
 type goMap struct {
-	pairs map[string]mapEntry // key hash -> entry
+	order []string             // Key hashes in insertion order
+	pairs map[string]mapEntry  // key hash -> entry
 }
 
 // keyHash converts a value to a string key for Go map lookup
@@ -50,12 +52,28 @@ func (m *goMap) Get(k Value) (Value, bool) {
 }
 
 func (m *goMap) Set(k, v Value) MooMap {
+	hash := keyHash(k)
 	newPairs := make(map[string]mapEntry, len(m.pairs)+1)
 	for h, e := range m.pairs {
 		newPairs[h] = e
 	}
-	newPairs[keyHash(k)] = mapEntry{key: k, val: v}
-	return &goMap{pairs: newPairs}
+	newPairs[hash] = mapEntry{key: k, val: v}
+
+	// Copy order, adding new key if needed
+	var newOrder []string
+	_, exists := m.pairs[hash]
+	if exists {
+		// Key already exists, keep same order
+		newOrder = make([]string, len(m.order))
+		copy(newOrder, m.order)
+	} else {
+		// New key, append to order
+		newOrder = make([]string, len(m.order)+1)
+		copy(newOrder, m.order)
+		newOrder[len(m.order)] = hash
+	}
+
+	return &goMap{order: newOrder, pairs: newPairs}
 }
 
 func (m *goMap) Delete(k Value) MooMap {
@@ -70,20 +88,30 @@ func (m *goMap) Delete(k Value) MooMap {
 			newPairs[h] = e
 		}
 	}
-	return &goMap{pairs: newPairs}
+
+	// Remove from order
+	newOrder := make([]string, 0, len(m.order)-1)
+	for _, h := range m.order {
+		if h != hash {
+			newOrder = append(newOrder, h)
+		}
+	}
+
+	return &goMap{order: newOrder, pairs: newPairs}
 }
 
 func (m *goMap) Keys() []Value {
-	keys := make([]Value, 0, len(m.pairs))
-	for _, e := range m.pairs {
-		keys = append(keys, e.key)
+	keys := make([]Value, 0, len(m.order))
+	for _, h := range m.order {
+		keys = append(keys, m.pairs[h].key)
 	}
 	return keys
 }
 
 func (m *goMap) Pairs() [][2]Value {
-	pairs := make([][2]Value, 0, len(m.pairs))
-	for _, e := range m.pairs {
+	pairs := make([][2]Value, 0, len(m.order))
+	for _, h := range m.order {
+		e := m.pairs[h]
 		pairs = append(pairs, [2]Value{e.key, e.val})
 	}
 	return pairs
@@ -96,16 +124,23 @@ type MapValue struct {
 
 // NewMap creates a new map value
 func NewMap(pairs [][2]Value) MapValue {
-	m := &goMap{pairs: make(map[string]mapEntry)}
+	m := &goMap{
+		order: make([]string, 0, len(pairs)),
+		pairs: make(map[string]mapEntry),
+	}
 	for _, p := range pairs {
-		m.pairs[keyHash(p[0])] = mapEntry{key: p[0], val: p[1]}
+		hash := keyHash(p[0])
+		if _, exists := m.pairs[hash]; !exists {
+			m.order = append(m.order, hash)
+		}
+		m.pairs[hash] = mapEntry{key: p[0], val: p[1]}
 	}
 	return MapValue{data: m}
 }
 
 // NewEmptyMap creates an empty map
 func NewEmptyMap() MapValue {
-	return MapValue{data: &goMap{pairs: make(map[string]mapEntry)}}
+	return MapValue{data: &goMap{order: nil, pairs: make(map[string]mapEntry)}}
 }
 
 // String returns the MOO string representation
