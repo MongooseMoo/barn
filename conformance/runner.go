@@ -324,6 +324,20 @@ func valuesEquivalent(actual, expected types.Value) bool {
 		}
 	}
 
+	// Handle integer <-> error comparison for YAML ambiguity
+	// If expected is int and actual is error with that code, consider equal
+	if expectedInt, ok := expected.(types.IntValue); ok {
+		if actualErr, ok := actual.(types.ErrValue); ok {
+			return int64(actualErr.Code()) == expectedInt.Val
+		}
+	}
+	// If expected is error and actual is int with that code, consider equal
+	if expectedErr, ok := expected.(types.ErrValue); ok {
+		if actualInt, ok := actual.(types.IntValue); ok {
+			return actualInt.Val == int64(expectedErr.Code())
+		}
+	}
+
 	// Handle string <-> object comparison for YAML ambiguity
 	// If expected is object and actual is string "#N", consider equal
 	if expectedObj, ok := expected.(types.ObjValue); ok {
