@@ -21,8 +21,8 @@ func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	switch v := args[0].(type) {
 	case types.StrValue:
-		// Return number of characters (runes)
-		return types.Ok(types.IntValue{Val: int64(len([]rune(v.Value())))})
+		// Return number of bytes (MOO strings are byte-oriented, not Unicode)
+		return types.Ok(types.IntValue{Val: int64(len(v.Value()))})
 	case types.ListValue:
 		return types.Ok(types.IntValue{Val: int64(v.Len())})
 	case types.MapValue:
