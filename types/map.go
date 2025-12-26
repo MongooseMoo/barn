@@ -301,6 +301,18 @@ func (m MapValue) Pairs() [][2]Value {
 	return m.data.Pairs()
 }
 
+// KeyPosition returns the 1-based position of a key in the map
+// Returns 0 if the key is not found
+func (m MapValue) KeyPosition(key Value) int64 {
+	pairs := m.data.Pairs()
+	for i, p := range pairs {
+		if p[0].Equal(key) {
+			return int64(i + 1) // 1-based index
+		}
+	}
+	return 0 // Not found
+}
+
 // IsValidMapKey checks if a value type is valid as a map key
 func IsValidMapKey(v Value) bool {
 	t := v.Type()

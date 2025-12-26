@@ -1,4 +1,4 @@
-package eval
+package vm
 
 import (
 	"barn/db"
@@ -110,6 +110,11 @@ func (e *Evaluator) getBuiltinProperty(obj *db.Object, name string) (types.Value
 		return types.NewInt(0), true
 	case "f":
 		if obj.Flags.Has(db.FlagFertile) {
+			return types.NewInt(1), true
+		}
+		return types.NewInt(0), true
+	case "a":
+		if obj.Flags.Has(db.FlagAnonymous) || obj.Anonymous {
 			return types.NewInt(1), true
 		}
 		return types.NewInt(0), true
@@ -329,6 +334,26 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 				obj.Flags = obj.Flags.Set(db.FlagFertile)
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagFertile)
+			}
+			return true, types.E_NONE
+		}
+		return false, types.E_NONE
+	case "a":
+		if intVal, ok := value.(types.IntValue); ok {
+			// Wizards can modify any object's anonymous flag
+			// Owners can modify their own object's anonymous flag
+			// Players can modify their own player object's anonymous flag
+			isOwner := obj.Owner == ctx.Programmer
+			isPlayerObject := obj.ID == ctx.Player
+			if !ctx.IsWizard && !isOwner && !isPlayerObject {
+				return true, types.E_PERM
+			}
+			if intVal.Val != 0 {
+				obj.Flags = obj.Flags.Set(db.FlagAnonymous)
+				obj.Anonymous = true
+			} else {
+				obj.Flags = obj.Flags.Clear(db.FlagAnonymous)
+				obj.Anonymous = false
 			}
 			return true, types.E_NONE
 		}

@@ -180,6 +180,17 @@ type ListExpr struct {
 func (e *ListExpr) Position() Position { return e.Pos }
 func (e *ListExpr) exprNode()          {}
 
+// ListRangeExpr represents a range list expression: {start..end}
+// This generates a list of integers from start to end (inclusive)
+type ListRangeExpr struct {
+	Pos   Position
+	Start Expr
+	End   Expr
+}
+
+func (e *ListRangeExpr) Position() Position { return e.Pos }
+func (e *ListRangeExpr) exprNode()          {}
+
 // MapExpr represents a map expression: [key -> value, ...]
 // Unlike LiteralExpr with a map value, MapExpr can contain
 // sub-expressions that must be evaluated.

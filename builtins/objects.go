@@ -9,7 +9,7 @@ import (
 func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 	// Object creation and lifecycle
 	r.Register("create", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinCreate(ctx, args, store)
+		return builtinCreate(ctx, args, store, r)
 	})
 
 	r.Register("recycle", func(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -70,6 +70,10 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 	r.Register("set_player_flag", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinSetPlayerFlag(ctx, args, store)
 	})
+
+	r.Register("renumber", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinRenumber(ctx, args, store)
+	})
 }
 
 // builtinCreate implements create(parent [, owner] [, anonymous] [, args])
@@ -82,7 +86,7 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 //   - LIST → init args for :initialize verb (must come last)
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
-func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, registry *Registry) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -152,10 +156,38 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		if parent == nil {
 			return types.Err(types.E_INVARG)
 		}
-		// TODO: Check fertile flag and permissions (Layer 8.5)
+		// Check fertile flag and permissions:
+		// - Wizards can create from any object
+		// - Non-wizards can only create from objects they own OR that have the fertile flag
+		if !ctx.IsWizard {
+			isOwner := parent.Owner == ctx.Programmer
+			hasFertile := parent.Flags.Has(db.FlagFertile)
+			if !isOwner && !hasFertile {
+				return types.Err(types.E_PERM)
+			}
+		}
 		validParents = append(validParents, parentID)
 	}
 	parents = validParents
+
+	// Check for duplicate property definitions among parents
+	// Each parent's defined properties must not conflict with any other parent
+	allPropNames := make(map[string]bool)
+	for _, parentID := range parents {
+		parent := store.Get(parentID)
+		if parent == nil {
+			continue
+		}
+		// Get properties DEFINED on this parent (Defined=true)
+		for name, prop := range parent.Properties {
+			if prop.Defined {
+				if allPropNames[name] {
+					return types.Err(types.E_INVARG)
+				}
+				allPropNames[name] = true
+			}
+		}
+	}
 
 	// Parse optional arguments
 	// Per cow_py semantics:
@@ -282,9 +314,18 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 		}
 	}
 
-	// TODO: Call :initialize verb if it exists (Phase 9)
-	// initArgs is captured for future use when :initialize is implemented
-	_ = initArgs
+	// Call :initialize verb if it exists
+	// The :initialize verb receives the init args and can set up the new object
+	// If verb not found (E_VERBNF), that's fine - just means no initialize
+	// Other errors should be propagated
+	result := registry.CallVerb(newID, "initialize", initArgs, ctx)
+	if result.Flow == types.FlowException {
+		if result.Error != types.E_VERBNF {
+			// Real error - propagate it
+			return result
+		}
+		// E_VERBNF is fine - no initialize verb
+	}
 
 	// Return AnonValue for anonymous objects, ObjValue for regular
 	if anonymous {
@@ -362,7 +403,7 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	// Reparent children to this object's parent(s)
 	// Per MOO semantics: when an object is recycled, its children
 	// are reparented to the recycled object's parent
-	newParents := obj.Parents
+	objParents := obj.Parents
 	for _, childID := range obj.Children {
 		child := store.Get(childID)
 		if child == nil {
@@ -370,19 +411,29 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		}
 
 		// Replace this object with its parents in the child's parent list
+		// Avoid duplicates when merging parents
 		newChildParents := []types.ObjID{}
+		seen := make(map[types.ObjID]bool)
 		for _, pid := range child.Parents {
 			if pid == objID {
-				// Replace with recycled object's parents
-				newChildParents = append(newChildParents, newParents...)
+				// Replace with recycled object's parents (avoiding duplicates)
+				for _, op := range objParents {
+					if !seen[op] {
+						seen[op] = true
+						newChildParents = append(newChildParents, op)
+					}
+				}
 			} else {
-				newChildParents = append(newChildParents, pid)
+				if !seen[pid] {
+					seen[pid] = true
+					newChildParents = append(newChildParents, pid)
+				}
 			}
 		}
 		child.Parents = newChildParents
 
 		// Add child to new parents' children lists
-		for _, newParentID := range newParents {
+		for _, newParentID := range objParents {
 			newParent := store.Get(newParentID)
 			if newParent != nil {
 				// Avoid duplicates
@@ -400,9 +451,25 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		}
 	}
 
-	// Move to $nothing (clear location)
-	obj.Location = types.ObjNothing
+	// Move contents to $nothing (update their location)
+	for _, contentID := range obj.Contents {
+		content := store.Get(contentID)
+		if content != nil {
+			content.Location = types.ObjNothing
+		}
+	}
 	obj.Contents = []types.ObjID{}
+
+	// Remove from old location's contents
+	if obj.Location != types.ObjNothing {
+		oldLoc := store.Get(obj.Location)
+		if oldLoc != nil {
+			oldLoc.Contents = removeObjID(oldLoc.Contents, objID)
+		}
+	}
+
+	// Move to $nothing
+	obj.Location = types.ObjNothing
 
 	// Clear properties and verbs
 	obj.Properties = make(map[string]*db.Property)
@@ -426,17 +493,23 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 
 // builtinValid implements valid(object)
 // Tests if an object exists and is not recycled
+// Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 func builtinValid(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	var objID types.ObjID
+	switch v := args[0].(type) {
+	case types.ObjValue:
+		objID = v.ID()
+	case types.IntValue:
+		objID = types.ObjID(v.Val)
+	default:
 		return types.Err(types.E_TYPE)
 	}
 
-	isValid := store.Valid(objVal.ID())
+	isValid := store.Valid(objID)
 	if isValid {
 		return types.Ok(types.NewInt(1))
 	}
@@ -584,42 +657,75 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_INVIND)
 	}
 
-	// Check for invalid new parent
-	if newParentVal.ID() < 0 {
-		return types.Err(types.E_INVARG)
-	}
-
-	newParent := store.Get(newParentVal.ID())
-	if newParent == nil {
-		return types.Err(types.E_INVARG)
-	}
-
-	// Check for cycles - can't make an object its own parent or ancestor
+	// Check for cycles BEFORE validating new parent existence
+	// This ensures self-parenting returns E_RECMOVE, not E_INVARG
 	if objVal.ID() == newParentVal.ID() {
 		return types.Err(types.E_RECMOVE)
 	}
+
+	// Check for invalid new parent
+	// $nothing (-1) is valid and means no parent
+	if newParentVal.ID() < -1 {
+		return types.Err(types.E_INVARG)
+	}
+
+	var newParent *db.Object
+	if newParentVal.ID() != types.ObjNothing {
+		newParent = store.Get(newParentVal.ID())
+		if newParent == nil {
+			return types.Err(types.E_INVARG)
+		}
+	}
+
 	// Check if new parent is a descendant of object (would create cycle)
-	if isChildOf(store, newParentVal.ID(), objVal.ID()) {
+	if newParentVal.ID() != types.ObjNothing && isChildOf(store, newParentVal.ID(), objVal.ID()) {
 		return types.Err(types.E_RECMOVE)
+	}
+
+	// Check for property conflicts: only chparent-added descendants of obj
+	// cannot define properties that are also defined on new_parent or its ancestors.
+	// The object being reparented itself is NOT checked - it can shadow parent properties.
+	if newParentVal.ID() != types.ObjNothing {
+		newParentProps := collectAncestorProperties(store, newParentVal.ID())
+		if hasChparentDescendantConflict(store, obj, newParentProps) {
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	// TODO: Check permissions and fertile flag (Layer 8.5)
 
-	// Remove from old parents' children lists
+	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
 		oldParent := store.Get(oldParentID)
 		if oldParent != nil {
 			oldParent.Children = removeObjID(oldParent.Children, objVal.ID())
+			// Remove from ChparentChildren tracking
+			if oldParent.ChparentChildren != nil {
+				delete(oldParent.ChparentChildren, objVal.ID())
+			}
 		}
 	}
 
-	// Set new parent
-	obj.Parents = []types.ObjID{newParentVal.ID()}
+	// Set new parent(s)
+	if newParentVal.ID() == types.ObjNothing {
+		obj.Parents = []types.ObjID{}
+	} else {
+		obj.Parents = []types.ObjID{newParentVal.ID()}
+		// Add to new parent's children
+		newParent.Children = append(newParent.Children, objVal.ID())
+		// Track that this child was added via chparent (not create)
+		if newParent.ChparentChildren == nil {
+			newParent.ChparentChildren = make(map[types.ObjID]bool)
+		}
+		newParent.ChparentChildren[objVal.ID()] = true
+	}
 
-	// Add to new parent's children
-	newParent.Children = append(newParent.Children, objVal.ID())
+	// Reset inherited property overrides when parent changes
+	// Properties that are propdefs (Defined=true) are kept
+	// Properties that are local overrides (Defined=false) are cleared
+	resetInheritedProperties(obj)
 
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewInt(1))
 }
 
 // builtinChparents implements chparents(object, parents_list)
@@ -644,9 +750,11 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		return types.Err(types.E_INVIND)
 	}
 
-	// Convert list to ObjIDs and validate
+	// Convert list to ObjIDs - check cycles and duplicates BEFORE validation
 	elements := parentsList.Elements()
 	newParents := make([]types.ObjID, len(elements))
+	seenParents := make(map[types.ObjID]bool)
+
 	for i, elem := range elements {
 		parentVal, ok := elem.(types.ObjValue)
 		if !ok {
@@ -654,15 +762,24 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		}
 
 		parentID := parentVal.ID()
+
+		// Check for self-parenting FIRST (before validating parent exists)
+		if parentID == objVal.ID() {
+			return types.Err(types.E_RECMOVE)
+		}
+
+		// Check for duplicate parents in list
+		if seenParents[parentID] {
+			return types.Err(types.E_INVARG)
+		}
+		seenParents[parentID] = true
+
+		// Now validate parent exists
 		parent := store.Get(parentID)
 		if parent == nil {
 			return types.Err(types.E_INVARG)
 		}
 
-		// Check for cycles - can't make an object its own parent or ancestor
-		if parentID == objVal.ID() {
-			return types.Err(types.E_RECMOVE)
-		}
 		// Check if parent is a descendant of object (would create cycle)
 		if isChildOf(store, parentID, objVal.ID()) {
 			return types.Err(types.E_RECMOVE)
@@ -671,24 +788,66 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		newParents[i] = parentID
 	}
 
+	// Check for duplicate property definitions among new parents
+	// Each parent's defined properties must not conflict with any other parent
+	allPropNames := make(map[string]bool)
+	for _, parentID := range newParents {
+		parent := store.Get(parentID)
+		if parent == nil {
+			continue
+		}
+		// Get properties DEFINED on this parent (Defined=true)
+		for name, prop := range parent.Properties {
+			if prop.Defined {
+				if allPropNames[name] {
+					return types.Err(types.E_INVARG)
+				}
+				allPropNames[name] = true
+			}
+		}
+	}
+
+	// Check for property conflicts: only chparent-added descendants of obj
+	// cannot define properties that are also defined on new parents or their ancestors.
+	// The object being reparented itself is NOT checked - it can shadow parent properties.
+	allNewParentProps := make(map[string]bool)
+	for _, parentID := range newParents {
+		props := collectAncestorProperties(store, parentID)
+		for name := range props {
+			allNewParentProps[name] = true
+		}
+	}
+	if hasChparentDescendantConflict(store, obj, allNewParentProps) {
+		return types.Err(types.E_INVARG)
+	}
+
 	// TODO: Check permissions and fertile flags (Layer 8.5)
 
-	// Remove from old parents' children lists
+	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
 		oldParent := store.Get(oldParentID)
 		if oldParent != nil {
 			oldParent.Children = removeObjID(oldParent.Children, objVal.ID())
+			// Remove from ChparentChildren tracking
+			if oldParent.ChparentChildren != nil {
+				delete(oldParent.ChparentChildren, objVal.ID())
+			}
 		}
 	}
 
 	// Set new parents
 	obj.Parents = newParents
 
-	// Add to new parents' children lists
+	// Add to new parents' children lists and track as chparent-added
 	for _, newParentID := range newParents {
 		newParent := store.Get(newParentID)
 		if newParent != nil {
 			newParent.Children = append(newParent.Children, objVal.ID())
+			// Track that this child was added via chparent (not create)
+			if newParent.ChparentChildren == nil {
+				newParent.ChparentChildren = make(map[types.ObjID]bool)
+			}
+			newParent.ChparentChildren[objVal.ID()] = true
 		}
 	}
 
@@ -1016,6 +1175,100 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.
 	return types.Ok(types.NewInt(0))
 }
 
+// collectAncestorProperties collects all defined property names from an object
+// and its entire ancestor chain (BFS traversal)
+func collectAncestorProperties(store *db.Store, objID types.ObjID) map[string]bool {
+	props := make(map[string]bool)
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] || currentID == types.ObjNothing {
+			continue
+		}
+		visited[currentID] = true
+
+		current := store.Get(currentID)
+		if current == nil {
+			continue
+		}
+
+		// Collect defined properties
+		for name, prop := range current.Properties {
+			if prop.Defined {
+				props[name] = true
+			}
+		}
+
+		// Add parents to queue
+		queue = append(queue, current.Parents...)
+	}
+
+	return props
+}
+
+// hasChparentDescendantConflict checks if any chparent-added descendant has
+// a defined property that conflicts with the given property set.
+// ONLY checks descendants that were added via chparent(), not via create().
+// The object being reparented itself is NOT checked - it can shadow parent properties.
+func hasChparentDescendantConflict(store *db.Store, obj *db.Object, ancestorProps map[string]bool) bool {
+	visited := make(map[types.ObjID]bool)
+
+	var checkChparentDescendants func(o *db.Object) bool
+	checkChparentDescendants = func(o *db.Object) bool {
+		if o == nil || visited[o.ID] {
+			return false
+		}
+		visited[o.ID] = true
+
+		// Check only chparent-added children of this object
+		if o.ChparentChildren == nil {
+			return false
+		}
+
+		for childID := range o.ChparentChildren {
+			child := store.Get(childID)
+			if child == nil {
+				continue
+			}
+
+			// Check this chparent-added child's defined properties for conflicts
+			for name, prop := range child.Properties {
+				if prop.Defined && ancestorProps[name] {
+					return true // Conflict found
+				}
+			}
+
+			// Recursively check this child's chparent-added descendants
+			if checkChparentDescendants(child) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	return checkChparentDescendants(obj)
+}
+
+// resetInheritedProperties clears non-defined properties when parent changes
+// Properties added via add_property (Defined=true) are kept
+// Properties that are local overrides (Defined=false) are cleared
+func resetInheritedProperties(obj *db.Object) {
+	toDelete := []string{}
+	for name, prop := range obj.Properties {
+		if !prop.Defined {
+			toDelete = append(toDelete, name)
+		}
+	}
+	for _, name := range toDelete {
+		delete(obj.Properties, name)
+	}
+}
+
 // isDescendant checks if target is a descendant of ancestor
 func isDescendant(ancestor, target types.ObjID, store *db.Store) bool {
 	if ancestor == target {
@@ -1047,4 +1300,47 @@ func isDescendant(ancestor, target types.ObjID, store *db.Store) bool {
 	}
 
 	return false
+}
+
+// builtinRenumber implements renumber(obj) - wizard only
+// Reassigns object to lowest available object ID
+// Returns the new object ID
+func builtinRenumber(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// TODO: Check caller is wizard
+	// if !isWizard(ctx.Programmer) {
+	// 	return types.Err(types.E_PERM)
+	// }
+
+	// Get object to renumber
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	oldID := objVal.ID()
+
+	// Check object is valid
+	if !store.Valid(oldID) {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Find lowest available ID
+	newID := store.LowestFreeID()
+
+	// If lowest free ID is same or higher, nothing to do
+	if newID >= oldID {
+		return types.Ok(types.NewObj(oldID))
+	}
+
+	// Renumber the object
+	err := store.Renumber(oldID, newID)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	return types.Ok(types.NewObj(newID))
 }

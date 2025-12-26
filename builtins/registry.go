@@ -8,12 +8,17 @@ import (
 // Takes a task context and list of arguments, returns a Result
 type BuiltinFunc func(ctx *types.TaskContext, args []types.Value) types.Result
 
+// VerbCallerFunc is a callback for calling verbs on objects
+// Returns the result of calling the verb, or E_VERBNF if verb not found
+type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result
+
 // Registry holds all registered builtin functions
 type Registry struct {
-	funcs    map[string]BuiltinFunc
-	byID     map[int]BuiltinFunc
-	nameToID map[string]int
-	nextID   int
+	funcs      map[string]BuiltinFunc
+	byID       map[int]BuiltinFunc
+	nameToID   map[string]int
+	nextID     int
+	verbCaller VerbCallerFunc // Callback for calling verbs (set by evaluator)
 }
 
 // NewRegistry creates a new builtin function registry
@@ -182,4 +187,18 @@ func (r *Registry) Get(name string) (BuiltinFunc, bool) {
 func (r *Registry) Has(name string) bool {
 	_, ok := r.funcs[name]
 	return ok
+}
+
+// SetVerbCaller sets the callback for calling verbs
+func (r *Registry) SetVerbCaller(caller VerbCallerFunc) {
+	r.verbCaller = caller
+}
+
+// CallVerb calls a verb on an object using the registered verb caller
+// Returns E_VERBNF if no verb caller is set or if the verb is not found
+func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
+	if r.verbCaller == nil {
+		return types.Err(types.E_VERBNF)
+	}
+	return r.verbCaller(objID, verbName, args, ctx)
 }

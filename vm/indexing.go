@@ -1,4 +1,4 @@
-package eval
+package vm
 
 import (
 	"barn/db"
@@ -509,7 +509,13 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 }
 
 // evalAssignRange handles range assignment: coll[start..end] = value
+// Also handles nested cases like: list[i][start..end] = value
 func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value, ctx *types.TaskContext) types.Result {
+	// Check if this is a nested range assignment (e.g., l[3][2..$] = "u")
+	if indexExpr, ok := target.Expr.(*parser.IndexExpr); ok {
+		return e.evalNestedRangeAssign(indexExpr, target.Start, target.End, value, ctx)
+	}
+
 	// Get the collection (must be a variable reference)
 	varName, ok := getBaseVariableFromRange(target)
 	if !ok {
@@ -528,6 +534,11 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		return types.Err(types.E_TYPE)
 	}
 
+	// For maps, we may need to handle string keys for ranges
+	// This is converted to position-based indices
+	isMapWithKeyRange := false
+	mapVal, isMap := collVal.(types.MapValue)
+
 	// Resolve start index
 	var startIdx int64
 	if marker, ok := target.Start.(*parser.IndexMarkerExpr); ok {
@@ -543,11 +554,18 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		if !startResult.IsNormal() {
 			return startResult
 		}
-		startInt, ok := startResult.Val.(types.IntValue)
-		if !ok {
+		if startInt, ok := startResult.Val.(types.IntValue); ok {
+			startIdx = startInt.Val
+		} else if isMap {
+			// For maps, non-integer start means key-based range
+			isMapWithKeyRange = true
+			startIdx = mapVal.KeyPosition(startResult.Val)
+			if startIdx == 0 {
+				return types.Err(types.E_RANGE) // Key not found
+			}
+		} else {
 			return types.Err(types.E_TYPE)
 		}
-		startIdx = startInt.Val
 	}
 
 	// Resolve end index
@@ -565,11 +583,17 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		if !endResult.IsNormal() {
 			return endResult
 		}
-		endInt, ok := endResult.Val.(types.IntValue)
-		if !ok {
+		if endInt, ok := endResult.Val.(types.IntValue); ok {
+			endIdx = endInt.Val
+		} else if isMap || isMapWithKeyRange {
+			// For maps, non-integer end means key-based range
+			endIdx = mapVal.KeyPosition(endResult.Val)
+			if endIdx == 0 {
+				return types.Err(types.E_RANGE) // Key not found
+			}
+		} else {
 			return types.Err(types.E_TYPE)
 		}
-		endIdx = endInt.Val
 	}
 
 	// Perform the assignment based on collection type
@@ -582,19 +606,31 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 			return types.Err(types.E_TYPE)
 		}
 
-		// Bounds check
-		if startIdx < 1 || startIdx > int64(length)+1 {
-			return types.Err(types.E_RANGE)
-		}
-		if endIdx < 0 || endIdx > int64(length) {
-			return types.Err(types.E_RANGE)
-		}
-		// Check for inverted range
-		if startIdx > endIdx+1 {
-			return types.Err(types.E_RANGE)
+		// For inverted ranges (startIdx > endIdx), MOO has special semantics:
+		// t[7..1] = x means: t[1..6] + x + t[2..7]
+		// i.e., keep elements before startIdx, insert new values, keep elements after endIdx
+		isInverted := startIdx > endIdx+1
+
+		// Bounds check for normal ranges
+		if !isInverted {
+			if startIdx < 1 || startIdx > int64(length)+1 {
+				return types.Err(types.E_RANGE)
+			}
+			if endIdx < 0 || endIdx > int64(length) {
+				return types.Err(types.E_RANGE)
+			}
+		} else {
+			// Bounds check for inverted ranges
+			if startIdx < 1 || startIdx > int64(length)+1 {
+				return types.Err(types.E_RANGE)
+			}
+			if endIdx < 0 || endIdx > int64(length) {
+				return types.Err(types.E_RANGE)
+			}
 		}
 
 		// Build new list: [1..start-1] + newVals + [end+1..$]
+		// For inverted ranges, this naturally duplicates elements
 		result := make([]types.Value, 0)
 		for i := 1; i < int(startIdx); i++ {
 			result = append(result, coll.Get(i))
@@ -615,21 +651,42 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		}
 
 		s := coll.Value()
+		strLen := int64(len(s))
 
-		// Bounds check
-		if startIdx < 1 || startIdx > int64(len(s))+1 {
-			return types.Err(types.E_RANGE)
+		// For inverted ranges (startIdx > endIdx), MOO has special semantics:
+		// s[7..1] = x means: s[1..6] + x + s[2..7]
+		isInverted := startIdx > endIdx+1
+
+		// Bounds check for normal ranges
+		// MOO allows startIdx up to strLen+1 for appending
+		// And endIdx can be beyond strLen for appending (we just use strLen as the effective end)
+		if !isInverted {
+			if startIdx < 1 || startIdx > strLen+1 {
+				return types.Err(types.E_RANGE)
+			}
+			// endIdx can be beyond strLen for append operations
+			if endIdx < 0 {
+				return types.Err(types.E_RANGE)
+			}
+		} else {
+			// Bounds check for inverted ranges
+			if startIdx < 1 || startIdx > strLen+1 {
+				return types.Err(types.E_RANGE)
+			}
+			if endIdx < 0 {
+				return types.Err(types.E_RANGE)
+			}
 		}
-		if endIdx < 0 || endIdx > int64(len(s)) {
-			return types.Err(types.E_RANGE)
-		}
-		// Check for inverted range
-		if startIdx > endIdx+1 {
-			return types.Err(types.E_RANGE)
+
+		// Clamp endIdx to actual string length for slicing
+		effectiveEnd := endIdx
+		if effectiveEnd > strLen {
+			effectiveEnd = strLen
 		}
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
-		result := s[:startIdx-1] + newStr.Value() + s[endIdx:]
+		// For inverted ranges, this naturally duplicates characters
+		result := s[:startIdx-1] + newStr.Value() + s[effectiveEnd:]
 		newColl = types.NewStr(result)
 
 	case types.MapValue:
@@ -639,19 +696,30 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 			return types.Err(types.E_TYPE)
 		}
 
-		// Bounds check
-		if startIdx < 1 || startIdx > int64(length)+1 {
-			return types.Err(types.E_RANGE)
-		}
-		if endIdx < 0 || endIdx > int64(length) {
-			return types.Err(types.E_RANGE)
-		}
-		// Check for inverted range
-		if startIdx > endIdx+1 {
-			return types.Err(types.E_RANGE)
+		// For inverted ranges (startIdx > endIdx), MOO has special semantics:
+		// m[7..1] = x means: m[1..6] + x + m[2..7]
+		isInverted := startIdx > endIdx+1
+
+		// Bounds check for normal ranges
+		if !isInverted {
+			if startIdx < 1 || startIdx > int64(length)+1 {
+				return types.Err(types.E_RANGE)
+			}
+			if endIdx < 0 || endIdx > int64(length) {
+				return types.Err(types.E_RANGE)
+			}
+		} else {
+			// Bounds check for inverted ranges
+			if startIdx < 1 || startIdx > int64(length)+1 {
+				return types.Err(types.E_RANGE)
+			}
+			if endIdx < 0 || endIdx > int64(length) {
+				return types.Err(types.E_RANGE)
+			}
 		}
 
 		// Build new map: pairs[1..start-1] + newMap + pairs[end+1..$]
+		// For inverted ranges, this naturally duplicates pairs
 		pairs := coll.Pairs()
 		result := make([][2]types.Value, 0)
 		for i := 0; i < int(startIdx)-1; i++ {
@@ -863,4 +931,216 @@ func getBaseVariableFromRange(expr *parser.RangeExpr) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// evalNestedRangeAssign handles nested range assignment like: l[3][2..$] = "u"
+// This replaces part of a nested collection element
+func (e *Evaluator) evalNestedRangeAssign(indexExpr *parser.IndexExpr, start, end parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
+	// Build path of indices from the IndexExpr chain
+	var indices []parser.Expr
+	var baseVarName string
+	current := indexExpr
+
+	for {
+		indices = append([]parser.Expr{current.Index}, indices...) // Prepend to reverse order
+		switch base := current.Expr.(type) {
+		case *parser.IndexExpr:
+			current = base
+		case *parser.IdentifierExpr:
+			baseVarName = base.Name
+			goto foundBase
+		default:
+			return types.Err(types.E_TYPE)
+		}
+	}
+foundBase:
+
+	// Get the root collection
+	rootVal, exists := e.env.Get(baseVarName)
+	if !exists {
+		return types.Err(types.E_VARNF)
+	}
+
+	// Traverse down to get the innermost element that will have the range applied
+	collections := make([]types.Value, len(indices)+1)
+	resolvedIndices := make([]types.Value, len(indices))
+	collections[0] = rootVal
+
+	for i := 0; i < len(indices); i++ {
+		coll := collections[i]
+
+		// Set IndexContext for index resolution
+		length := getCollectionLength(coll)
+		if length < 0 {
+			return types.Err(types.E_TYPE)
+		}
+		oldContext := ctx.IndexContext
+		ctx.IndexContext = length
+
+		// Evaluate index
+		indexResult := e.Eval(indices[i], ctx)
+		ctx.IndexContext = oldContext
+		if !indexResult.IsNormal() {
+			return indexResult
+		}
+		resolvedIndices[i] = indexResult.Val
+
+		// Get the nested element
+		var nextVal types.Value
+		switch c := coll.(type) {
+		case types.ListValue:
+			idx, ok := indexResult.Val.(types.IntValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			if idx.Val < 1 || idx.Val > int64(c.Len()) {
+				return types.Err(types.E_RANGE)
+			}
+			nextVal = c.Get(int(idx.Val))
+		case types.MapValue:
+			val, ok := c.Get(indexResult.Val)
+			if !ok {
+				return types.Err(types.E_RANGE)
+			}
+			nextVal = val
+		default:
+			return types.Err(types.E_TYPE)
+		}
+		collections[i+1] = nextVal
+	}
+
+	// Now apply the range assignment to the innermost element
+	innerVal := collections[len(indices)]
+
+	// Get length for range marker resolution
+	length := getCollectionLength(innerVal)
+	if length < 0 {
+		// It might be a string which isn't a "collection" in the strict sense
+		if _, ok := innerVal.(types.StrValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
+		length = len(innerVal.(types.StrValue).Value())
+	}
+
+	// Resolve start index
+	oldContext := ctx.IndexContext
+	ctx.IndexContext = length
+
+	var startIdx int64
+	if marker, ok := start.(*parser.IndexMarkerExpr); ok {
+		if marker.Marker == parser.TOKEN_CARET {
+			startIdx = 1
+		} else if marker.Marker == parser.TOKEN_DOLLAR {
+			startIdx = int64(length)
+		}
+	} else {
+		startResult := e.Eval(start, ctx)
+		if !startResult.IsNormal() {
+			ctx.IndexContext = oldContext
+			return startResult
+		}
+		startInt, ok := startResult.Val.(types.IntValue)
+		if !ok {
+			ctx.IndexContext = oldContext
+			return types.Err(types.E_TYPE)
+		}
+		startIdx = startInt.Val
+	}
+
+	// Resolve end index
+	var endIdx int64
+	if marker, ok := end.(*parser.IndexMarkerExpr); ok {
+		if marker.Marker == parser.TOKEN_CARET {
+			endIdx = 1
+		} else if marker.Marker == parser.TOKEN_DOLLAR {
+			endIdx = int64(length)
+		}
+	} else {
+		endResult := e.Eval(end, ctx)
+		if !endResult.IsNormal() {
+			ctx.IndexContext = oldContext
+			return endResult
+		}
+		endInt, ok := endResult.Val.(types.IntValue)
+		if !ok {
+			ctx.IndexContext = oldContext
+			return types.Err(types.E_TYPE)
+		}
+		endIdx = endInt.Val
+	}
+	ctx.IndexContext = oldContext
+
+	// Apply range assignment based on type
+	var newInnerVal types.Value
+	switch inner := innerVal.(type) {
+	case types.StrValue:
+		// Value must be a string
+		newStr, ok := value.(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		s := inner.Value()
+		strLen := int64(len(s))
+
+		// Bounds check
+		if startIdx < 1 || startIdx > strLen+1 {
+			return types.Err(types.E_RANGE)
+		}
+		if endIdx < 0 {
+			return types.Err(types.E_RANGE)
+		}
+
+		// Clamp endIdx
+		effectiveEnd := endIdx
+		if effectiveEnd > strLen {
+			effectiveEnd = strLen
+		}
+
+		result := s[:startIdx-1] + newStr.Value() + s[effectiveEnd:]
+		newInnerVal = types.NewStr(result)
+
+	case types.ListValue:
+		// Value must be a list
+		newList, ok := value.(types.ListValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		listLen := int64(inner.Len())
+
+		// Bounds check
+		if startIdx < 1 || startIdx > listLen+1 {
+			return types.Err(types.E_RANGE)
+		}
+		if endIdx < 0 || endIdx > listLen {
+			return types.Err(types.E_RANGE)
+		}
+
+		result := make([]types.Value, 0)
+		for i := 1; i < int(startIdx); i++ {
+			result = append(result, inner.Get(i))
+		}
+		for i := 1; i <= newList.Len(); i++ {
+			result = append(result, newList.Get(i))
+		}
+		for i := int(endIdx) + 1; i <= int(listLen); i++ {
+			result = append(result, inner.Get(i))
+		}
+		newInnerVal = types.NewList(result)
+
+	default:
+		return types.Err(types.E_TYPE)
+	}
+
+	// Rebuild going back up (copy-on-write)
+	for i := len(indices) - 1; i >= 0; i-- {
+		var err types.ErrorCode
+		newInnerVal, err = setAtIndex(collections[i], resolvedIndices[i], newInnerVal)
+		if err != types.E_NONE {
+			return types.Err(err)
+		}
+	}
+
+	// Store back to variable
+	e.env.Set(baseVarName, newInnerVal)
+	return types.Ok(value)
 }

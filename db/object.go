@@ -21,10 +21,15 @@ type Object struct {
 	// Properties and verbs
 	Properties map[string]*Property
 	Verbs      map[string]*Verb
+	VerbList   []*Verb // Ordered list for verb code indexing
 
 	// Object lifecycle
 	Recycled  bool
 	Anonymous bool
+
+	// ChparentChildren tracks children that were added via chparent() rather than create()
+	// This is used for property conflict checking - only chparent-added children are checked
+	ChparentChildren map[types.ObjID]bool
 }
 
 // Property represents a property on an object
@@ -155,14 +160,15 @@ type VerbArgs struct {
 // NewObject creates a new object with defaults
 func NewObject(id types.ObjID, owner types.ObjID) *Object {
 	return &Object{
-		ID:         id,
-		Owner:      owner,
-		Parents:    []types.ObjID{},
-		Children:   []types.ObjID{},
-		Contents:   []types.ObjID{},
-		Location:   types.ObjNothing,
-		Properties: make(map[string]*Property),
-		Verbs:      make(map[string]*Verb),
-		Flags:      0, // Default: not readable or writable (MOO semantics)
+		ID:               id,
+		Owner:            owner,
+		Parents:          []types.ObjID{},
+		Children:         []types.ObjID{},
+		Contents:         []types.ObjID{},
+		Location:         types.ObjNothing,
+		Properties:       make(map[string]*Property),
+		Verbs:            make(map[string]*Verb),
+		Flags:            0, // Default: not readable or writable (MOO semantics)
+		ChparentChildren: make(map[types.ObjID]bool),
 	}
 }

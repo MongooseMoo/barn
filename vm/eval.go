@@ -1,4 +1,4 @@
-package eval
+package vm
 
 import (
 	"barn/builtins"
@@ -27,6 +27,8 @@ func NewEvaluator() *Evaluator {
 		store:    store,
 	}
 	e.RegisterEvalBuiltin()
+	e.RegisterPassBuiltin()
+	e.registerVerbCaller()
 	return e
 }
 
@@ -43,6 +45,8 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 		store:    store,
 	}
 	e.RegisterEvalBuiltin()
+	e.RegisterPassBuiltin()
+	e.registerVerbCaller()
 	return e
 }
 
@@ -58,7 +62,16 @@ func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 		store:    store,
 	}
 	e.RegisterEvalBuiltin()
+	e.RegisterPassBuiltin()
+	e.registerVerbCaller()
 	return e
+}
+
+// registerVerbCaller registers the verb caller callback on the builtin registry
+func (e *Evaluator) registerVerbCaller() {
+	e.builtins.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
+		return e.CallVerb(objID, verbName, args, ctx)
+	})
 }
 
 // Eval evaluates an AST node and returns a Result
@@ -106,6 +119,8 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 		return e.evalCatch(n, ctx)
 	case *parser.ListExpr:
 		return e.evalListExpr(n, ctx)
+	case *parser.ListRangeExpr:
+		return e.evalListRangeExpr(n, ctx)
 	case *parser.MapExpr:
 		return e.evalMapExpr(n, ctx)
 	default:
@@ -470,6 +485,60 @@ func (e *Evaluator) evalListExpr(node *parser.ListExpr, ctx *types.TaskContext) 
 				return result
 			}
 			elements = append(elements, result.Val)
+		}
+	}
+
+	return types.Ok(types.NewList(elements))
+}
+
+// evalListRangeExpr evaluates a range list expression: {start..end}
+// Generates a list of integers from start to end (inclusive)
+// Accepts both integers and objects (which are treated as their ID values)
+func (e *Evaluator) evalListRangeExpr(node *parser.ListRangeExpr, ctx *types.TaskContext) types.Result {
+	// Evaluate start expression
+	startResult := e.Eval(node.Start, ctx)
+	if !startResult.IsNormal() {
+		return startResult
+	}
+
+	// Evaluate end expression
+	endResult := e.Eval(node.End, ctx)
+	if !endResult.IsNormal() {
+		return endResult
+	}
+
+	// Extract integer values (accept both INT and OBJ types)
+	var start, end int64
+
+	switch v := startResult.Val.(type) {
+	case types.IntValue:
+		start = v.Val
+	case types.ObjValue:
+		start = int64(v.ID())
+	default:
+		return types.Err(types.E_TYPE)
+	}
+
+	switch v := endResult.Val.(type) {
+	case types.IntValue:
+		end = v.Val
+	case types.ObjValue:
+		end = int64(v.ID())
+	default:
+		return types.Err(types.E_TYPE)
+	}
+
+	// Generate the list
+	var elements []types.Value
+	if start <= end {
+		// Ascending range
+		for i := start; i <= end; i++ {
+			elements = append(elements, types.NewInt(i))
+		}
+	} else {
+		// Descending range (or empty if start > end, but MOO allows descending)
+		for i := start; i >= end; i-- {
+			elements = append(elements, types.NewInt(i))
 		}
 	}
 

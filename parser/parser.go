@@ -297,6 +297,12 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			}
 		}
 
+		// Expect closing single quote
+		if p.current.Type != TOKEN_SQUOTE {
+			return nil, fmt.Errorf("expected closing ' in catch expression, got %s", p.current.Type)
+		}
+		p.nextToken()
+
 		left = &CatchExpr{
 			Pos:     pos,
 			Expr:    expr,
@@ -646,9 +652,10 @@ func (p *Parser) parseErrorCode() (types.ErrorCode, error) {
 	return code, nil
 }
 
-// parseListExpr parses a list expression: {expr, expr, ...}
+// parseListExpr parses a list expression: {expr, expr, ...} or {start..end}
 // Unlike parseListLiteral, this allows full expressions including splice (@)
-func (p *Parser) parseListExpr() (*ListExpr, error) {
+// Returns either *ListExpr or *ListRangeExpr depending on the syntax
+func (p *Parser) parseListExpr() (Expr, error) {
 	pos := p.current.Position
 	p.nextToken() // skip '{'
 
@@ -665,6 +672,26 @@ func (p *Parser) parseListExpr() (*ListExpr, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse list element: %w", err)
 	}
+
+	// Check for range syntax: {start..end}
+	if p.current.Type == TOKEN_RANGE {
+		p.nextToken() // skip '..'
+
+		// Parse end expression
+		endExpr, err := p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse range end: %w", err)
+		}
+
+		// Expect closing '}'
+		if p.current.Type != TOKEN_RBRACE {
+			return nil, fmt.Errorf("expected '}' after range expression, got %s", p.current.Type)
+		}
+		p.nextToken() // skip '}'
+
+		return &ListRangeExpr{Pos: pos, Start: elem, End: endExpr}, nil
+	}
+
 	elements = append(elements, elem)
 
 	// Parse remaining elements

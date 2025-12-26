@@ -223,6 +223,12 @@ func (t TokenType) String() string {
 		return "ARROW"
 	case TOKEN_RANGE:
 		return "RANGE"
+	case TOKEN_FATARROW:
+		return "FATARROW"
+	case TOKEN_BACKTICK:
+		return "BACKTICK"
+	case TOKEN_SQUOTE:
+		return "SQUOTE"
 	case TOKEN_LPAREN:
 		return "LPAREN"
 	case TOKEN_RPAREN:

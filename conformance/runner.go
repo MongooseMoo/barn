@@ -2,7 +2,7 @@ package conformance
 
 import (
 	"barn/db"
-	"barn/eval"
+	"barn/vm"
 	"barn/parser"
 	"barn/types"
 	"fmt"
@@ -10,7 +10,7 @@ import (
 )
 
 // Default database path (local copy)
-const DefaultDBPath = "C:/Users/Q/code/barn/toastcore.db"
+const DefaultDBPath = "C:/Users/Q/code/barn/Test.db"
 
 // TestResult represents the outcome of running a single test
 type TestResult struct {
@@ -23,7 +23,7 @@ type TestResult struct {
 
 // Runner executes conformance tests
 type Runner struct {
-	evaluator    *eval.Evaluator
+	evaluator    *vm.Evaluator
 	setupSuites  map[string]bool // Track which suites have had setup run
 }
 
@@ -39,7 +39,7 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	if err != nil {
 		// Fall back to empty store if database can't be loaded
 		return &Runner{
-			evaluator:   eval.NewEvaluator(),
+			evaluator:   vm.NewEvaluator(),
 			setupSuites: make(map[string]bool),
 		}
 	}
@@ -47,22 +47,98 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	// Create store from loaded database
 	store := database.NewStoreFromDatabase()
 
-	// Ensure $object exists (alias for $nothing or first available object)
-	// Many tests expect $object to be defined
+	// Ensure standard MOO system properties exist on #0
+	// These are expected by conformance tests (same as cow_py transport.py)
 	if obj := store.Get(0); obj != nil {
+		// $sysobj -> #0 (the system object itself)
+		if _, ok := obj.Properties["sysobj"]; !ok {
+			obj.Properties["sysobj"] = &db.Property{
+				Name:    "sysobj",
+				Value:   types.NewObj(0),
+				Owner:   0,
+				Perms:   db.PropRead,
+				Defined: true,
+			}
+		}
+		// $object -> #1 (root object class)
 		if _, ok := obj.Properties["object"]; !ok {
-			// Create $object as alias for $nothing (which is #-1)
 			obj.Properties["object"] = &db.Property{
-				Name:  "object",
-				Value: types.NewObj(-1),
-				Owner: 0,
-				Perms: db.PropRead,
+				Name:    "object",
+				Value:   types.NewObj(1),
+				Owner:   0,
+				Perms:   db.PropRead,
+				Defined: true,
+			}
+		}
+		// $anon -> anonymous object parent
+		// First check if $anonymous exists, reuse that
+		if _, ok := obj.Properties["anon"]; !ok {
+			var anonID types.ObjID = -1
+			if anonymousProp, exists := obj.Properties["anonymous"]; exists {
+				if objVal, ok := anonymousProp.Value.(types.ObjValue); ok {
+					anonID = objVal.ID()
+				}
+			}
+			// If no $anonymous property, find an object with anonymous flag
+			if anonID == -1 {
+				for id := types.ObjID(0); id <= store.MaxObject(); id++ {
+					if o := store.Get(id); o != nil && o.Flags.Has(db.FlagAnonymous) {
+						anonID = id
+						break
+					}
+				}
+			}
+			// If still not found, create one
+			if anonID == -1 {
+				anonID = store.NextID()
+				anonObj := db.NewObject(anonID, 0)
+				anonObj.Name = "Anonymous Object Parent"
+				anonObj.Anonymous = true
+				anonObj.Flags = anonObj.Flags.Set(db.FlagAnonymous).Set(db.FlagFertile)
+				store.Add(anonObj)
+			}
+			obj.Properties["anon"] = &db.Property{
+				Name:    "anon",
+				Value:   types.NewObj(anonID),
+				Owner:   0,
+				Perms:   db.PropRead,
+				Defined: true,
+			}
+		}
+		// Ensure the anonymous parent has the fertile flag so non-wizards can create from it
+		if anonProp, ok := obj.Properties["anon"]; ok {
+			if anonObjVal, ok := anonProp.Value.(types.ObjValue); ok {
+				if anonObj := store.Get(anonObjVal.ID()); anonObj != nil {
+					anonObj.Flags = anonObj.Flags.Set(db.FlagFertile).Set(db.FlagAnonymous)
+				}
+			}
+		}
+		// Also ensure $anonymous has fertile flag if it exists
+		if anonymousProp, ok := obj.Properties["anonymous"]; ok {
+			if anonObjVal, ok := anonymousProp.Value.(types.ObjValue); ok {
+				if anonObj := store.Get(anonObjVal.ID()); anonObj != nil {
+					anonObj.Flags = anonObj.Flags.Set(db.FlagFertile).Set(db.FlagAnonymous)
+				}
+			}
+		}
+		// Add prototype properties for primitive types (needed by primitives.yaml tests)
+		// These are writable so tests can set their own prototypes
+		protoProps := []string{"int_proto", "str_proto", "list_proto", "map_proto", "float_proto", "err_proto"}
+		for _, propName := range protoProps {
+			if _, ok := obj.Properties[propName]; !ok {
+				obj.Properties[propName] = &db.Property{
+					Name:    propName,
+					Value:   types.NewObj(-1), // $nothing by default
+					Owner:   0,
+					Perms:   db.PropRead | db.PropWrite,
+					Defined: true,
+				}
 			}
 		}
 	}
 
 	return &Runner{
-		evaluator:   eval.NewEvaluatorWithStore(store),
+		evaluator:   vm.NewEvaluatorWithStore(store),
 		setupSuites: make(map[string]bool),
 	}
 }

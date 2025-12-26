@@ -2,7 +2,7 @@ package server
 
 import (
 	"barn/db"
-	"barn/eval"
+	"barn/vm"
 	"barn/parser"
 	"barn/types"
 	"container/heap"
@@ -17,7 +17,7 @@ type Scheduler struct {
 	tasks       map[int64]*Task
 	waiting     *TaskQueue
 	nextTaskID  int64
-	evaluator   *eval.Evaluator
+	evaluator   *vm.Evaluator
 	store       *db.Store
 	mu          sync.Mutex
 	ctx         context.Context
@@ -33,7 +33,7 @@ func NewScheduler(store *db.Store) *Scheduler {
 		tasks:      make(map[int64]*Task),
 		waiting:    NewTaskQueue(),
 		nextTaskID: 1,
-		evaluator:  eval.NewEvaluatorWithStore(store),
+		evaluator:  vm.NewEvaluatorWithStore(store),
 		store:      store,
 		ctx:        ctx,
 		cancel:     cancel,

@@ -22,6 +22,7 @@ func TestASTNodes(t *testing.T) {
 	var _ Expr = &CatchExpr{}
 	var _ Expr = &AssignExpr{}
 	var _ Expr = &ListExpr{}
+	var _ Expr = &ListRangeExpr{}
 	var _ Expr = &MapExpr{}
 }
 

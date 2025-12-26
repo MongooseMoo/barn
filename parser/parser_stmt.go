@@ -263,6 +263,13 @@ func (p *Parser) parseForStatement() (Stmt, error) {
 			return nil, fmt.Errorf("expected ')' after for loop expression")
 		}
 		p.nextToken() // consume ')'
+	} else if p.current.Type == TOKEN_LBRACE {
+		// List literal iteration: for x in {expr, ...} or {start..end}
+		// Parse the list/map expression directly
+		container, err = p.ParseExpression(PREC_LOWEST)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		return nil, fmt.Errorf("expected '[' or '(' after 'in' in for loop")
 	}

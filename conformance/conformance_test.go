@@ -53,11 +53,6 @@ func TestConformance(t *testing.T) {
 
 	// Print summary at the end
 	t.Logf("\n=== Summary ===\n%s", FormatStats(stats))
-
-	// For Phase 0, we expect 0 passed, all skipped
-	if stats.Passed > 0 {
-		t.Logf("Note: %d tests unexpectedly passed (interpreter not implemented)", stats.Passed)
-	}
 }
 
 func TestLoadAllTests(t *testing.T) {

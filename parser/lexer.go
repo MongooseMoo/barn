@@ -187,10 +187,15 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 		}
 	case '=':
-		// Check for ==
+		// Check for == or =>
 		if l.peekChar() == '=' {
 			tok.Type = TOKEN_EQ
 			tok.Value = "=="
+			l.readChar()
+			l.readChar()
+		} else if l.peekChar() == '>' {
+			tok.Type = TOKEN_FATARROW
+			tok.Value = "=>"
 			l.readChar()
 			l.readChar()
 		} else {
@@ -284,6 +289,14 @@ func (l *Lexer) NextToken() Token {
 		l.readChar()
 	case '?':
 		tok.Type = TOKEN_QUESTION
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '`':
+		tok.Type = TOKEN_BACKTICK
+		tok.Value = string(l.ch)
+		l.readChar()
+	case '\'':
+		tok.Type = TOKEN_SQUOTE
 		tok.Value = string(l.ch)
 		l.readChar()
 	case '.':

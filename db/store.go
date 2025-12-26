@@ -8,18 +8,20 @@ import (
 
 // Store is an in-memory object database
 type Store struct {
-	mu         sync.RWMutex
-	objects    map[types.ObjID]*Object
-	maxObjID   types.ObjID
-	recycledID []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	mu          sync.RWMutex
+	objects     map[types.ObjID]*Object
+	maxObjID    types.ObjID // Highest non-anonymous object ID (for max_object())
+	highWaterID types.ObjID // Highest allocated ID (including anonymous, for NextID())
+	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
 }
 
 // NewStore creates a new empty object store
 func NewStore() *Store {
 	return &Store{
-		objects:    make(map[types.ObjID]*Object),
-		maxObjID:   -1,
-		recycledID: []types.ObjID{},
+		objects:     make(map[types.ObjID]*Object),
+		maxObjID:    -1,
+		highWaterID: -1,
+		recycledID:  []types.ObjID{},
 	}
 }
 
@@ -57,8 +59,14 @@ func (s *Store) Add(obj *Object) error {
 
 	s.objects[obj.ID] = obj
 
-	// Update max object ID
-	if obj.ID > s.maxObjID {
+	// Update high water ID (tracks all allocations including anonymous)
+	if obj.ID > s.highWaterID {
+		s.highWaterID = obj.ID
+	}
+
+	// Update max object ID (but NOT for anonymous objects)
+	// Anonymous objects don't affect max_object()
+	if !obj.Anonymous && obj.ID > s.maxObjID {
 		s.maxObjID = obj.ID
 	}
 
@@ -66,13 +74,13 @@ func (s *Store) Add(obj *Object) error {
 }
 
 // NextID returns the next available object ID
-// Per spec: Sequential allocation from max_object() + 1
+// Uses highWaterID to ensure unique IDs (including anonymous objects)
 // Recycled slots are NOT automatically reused
 func (s *Store) NextID() types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.maxObjID + 1
+	return s.highWaterID + 1
 }
 
 // MaxObject returns the highest allocated object ID
@@ -94,8 +102,8 @@ func (s *Store) Valid(id types.ObjID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Check if ID exceeds max_object
-	if id > s.maxObjID {
+	// Check if ID exceeds high water mark (includes anonymous objects)
+	if id > s.highWaterID {
 		return false
 	}
 
@@ -201,6 +209,126 @@ func (s *Store) Players() []types.ObjID {
 		}
 	}
 	return result
+}
+
+// LowestFreeID finds the lowest available object ID
+// Checks recycled slots and gaps in the ID sequence
+func (s *Store) LowestFreeID() types.ObjID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// First check for recycled slots (lowest first)
+	lowestRecycled := types.ObjID(-1)
+	for _, id := range s.recycledID {
+		if lowestRecycled == -1 || id < lowestRecycled {
+			lowestRecycled = id
+		}
+	}
+	if lowestRecycled != -1 {
+		return lowestRecycled
+	}
+
+	// Check for gaps in ID sequence (0 to maxObjID)
+	for id := types.ObjID(0); id <= s.maxObjID; id++ {
+		obj, exists := s.objects[id]
+		if !exists {
+			return id
+		}
+		if obj.Recycled {
+			return id
+		}
+	}
+
+	// No gaps, use next sequential ID
+	return s.maxObjID + 1
+}
+
+// Renumber moves an object from oldID to newID, updating all references
+// Returns the new ID, or error if object doesn't exist
+func (s *Store) Renumber(oldID, newID types.ObjID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Get the object to renumber
+	obj, ok := s.objects[oldID]
+	if !ok || obj.Recycled {
+		return fmt.Errorf("object #%d does not exist", oldID)
+	}
+
+	// If old and new are the same, nothing to do
+	if oldID == newID {
+		return nil
+	}
+
+	// Check new ID is available
+	if existing, exists := s.objects[newID]; exists && !existing.Recycled {
+		return fmt.Errorf("object #%d already exists", newID)
+	}
+
+	// Update the object's ID
+	obj.ID = newID
+
+	// Move in store
+	delete(s.objects, oldID)
+	s.objects[newID] = obj
+
+	// Update recycledID list - remove newID if present, add oldID
+	newRecycled := []types.ObjID{}
+	for _, rid := range s.recycledID {
+		if rid != newID {
+			newRecycled = append(newRecycled, rid)
+		}
+	}
+	newRecycled = append(newRecycled, oldID)
+	s.recycledID = newRecycled
+
+	// Update all references in ALL objects
+	for _, other := range s.objects {
+		if other.Recycled {
+			continue
+		}
+
+		// Update Parents
+		for i, pid := range other.Parents {
+			if pid == oldID {
+				other.Parents[i] = newID
+			}
+		}
+
+		// Update Children
+		for i, cid := range other.Children {
+			if cid == oldID {
+				other.Children[i] = newID
+			}
+		}
+
+		// Update ChparentChildren
+		if other.ChparentChildren != nil {
+			if other.ChparentChildren[oldID] {
+				delete(other.ChparentChildren, oldID)
+				other.ChparentChildren[newID] = true
+			}
+		}
+
+		// Update Location
+		if other.Location == oldID {
+			other.Location = newID
+		}
+
+		// Update Contents
+		for i, cid := range other.Contents {
+			if cid == oldID {
+				other.Contents[i] = newID
+			}
+		}
+
+		// Update Owner
+		if other.Owner == oldID {
+			other.Owner = newID
+		}
+	}
+
+	return nil
 }
 
 // FindVerb looks up a verb on an object, following inheritance chain

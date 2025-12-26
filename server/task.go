@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/eval"
+	"barn/vm"
 	"barn/parser"
 	"barn/types"
 	"context"
@@ -36,7 +36,7 @@ type Task struct {
 	TaskLocal     map[types.Value]types.Value
 	WakeChannel   chan types.Value // For suspension/resumption
 	Context       *types.TaskContext
-	Evaluator     *eval.Evaluator
+	Evaluator     *vm.Evaluator
 	Code          []parser.Stmt // Code to execute
 	Result        types.Result
 	mu            sync.Mutex
@@ -67,7 +67,7 @@ func NewTask(id int64, player types.ObjID, code []parser.Stmt, tickLimit int, ti
 }
 
 // Run executes the task
-func (t *Task) Run(ctx context.Context, evaluator *eval.Evaluator) error {
+func (t *Task) Run(ctx context.Context, evaluator *vm.Evaluator) error {
 	t.mu.Lock()
 	if t.State != TaskWaiting && t.State != TaskCreated {
 		t.mu.Unlock()

@@ -25,8 +25,12 @@ func (db *Database) NewStoreFromDatabase() *Store {
 	store := NewStore()
 	for id, obj := range db.Objects {
 		store.objects[id] = obj
-		// Track max object ID
-		if id > store.maxObjID {
+		// Track high water ID (all objects including anonymous)
+		if id > store.highWaterID {
+			store.highWaterID = id
+		}
+		// Track max object ID (only non-anonymous objects)
+		if !obj.Anonymous && id > store.maxObjID {
 			store.maxObjID = id
 		}
 	}
@@ -79,50 +83,120 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 		return nil, fmt.Errorf("unsupported database format: %s", header)
 	}
 
-	// Section 1: Players list
-	if err := db.readPlayers(r); err != nil {
-		return nil, fmt.Errorf("read players: %w", err)
+	// Version-specific parsing
+	if db.Version == 4 {
+		return db.parseV4(r)
 	}
+	return db.parseV17(r)
+}
 
-	// Section 2: Pending finalizations (v17 only)
-	if db.Version >= 17 {
-		if err := db.readFinalizations(r); err != nil {
-			return nil, fmt.Errorf("read finalizations: %w", err)
-		}
-	}
-
-	// Section 3: Clocks (obsolete, should be 0)
-	if err := db.readClocks(r); err != nil {
-		return nil, fmt.Errorf("read clocks: %w", err)
-	}
-
-	// Section 4: Queued tasks
-	if err := db.readQueuedTasks(r); err != nil {
-		return nil, fmt.Errorf("read queued tasks: %w", err)
-	}
-
-	// Section 5: Suspended tasks
-	if err := db.readSuspendedTasks(r); err != nil {
-		return nil, fmt.Errorf("read suspended tasks: %w", err)
-	}
-
-	// Section 6: Interrupted tasks (skip - usually 0)
-	if err := db.readInterruptedTasks(r); err != nil {
-		return nil, fmt.Errorf("read interrupted tasks: %w", err)
-	}
-
-	// Section 7: Active connections (skip - always 0 on load)
-	if err := db.readActiveConnections(r); err != nil {
-		return nil, fmt.Errorf("read active connections: %w", err)
-	}
-
-	// Section 8: Object count
+// parseV4 parses a version 4 database
+func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
+	// Line 1: total objects
 	objCount, err := readInt(r)
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
 
-	// Section 9: Objects
+	// Line 2: total verbs
+	verbCount, err := readInt(r)
+	if err != nil {
+		return nil, fmt.Errorf("read verb count: %w", err)
+	}
+
+	// Line 3: dummy line
+	if _, err := readLine(r); err != nil {
+		return nil, fmt.Errorf("read dummy line: %w", err)
+	}
+
+	// Players section
+	if err := db.readPlayersV4(r); err != nil {
+		return nil, fmt.Errorf("read players: %w", err)
+	}
+
+	// Objects section
+	for i := 0; i < objCount; i++ {
+		obj, err := db.readObjectV4(r)
+		if err != nil {
+			return nil, fmt.Errorf("read object %d: %w", i, err)
+		}
+		if obj != nil {
+			db.Objects[obj.ID] = obj
+		}
+	}
+
+	// Verb code section
+	for i := 0; i < verbCount; i++ {
+		if err := db.readVerbCode(r); err != nil {
+			return nil, fmt.Errorf("read verb code %d: %w", i, err)
+		}
+	}
+
+	// Clocks (obsolete)
+	if err := db.readClocks(r); err != nil {
+		return nil, fmt.Errorf("read clocks: %w", err)
+	}
+
+	// Queued tasks
+	if err := db.readQueuedTasks(r); err != nil {
+		return nil, fmt.Errorf("read queued tasks: %w", err)
+	}
+
+	// Suspended tasks
+	if err := db.readSuspendedTasks(r); err != nil {
+		return nil, fmt.Errorf("read suspended tasks: %w", err)
+	}
+
+	// Optional: Active connections (may not be present)
+	// We just ignore any remaining content
+
+	return db, nil
+}
+
+// parseV17 parses a version 17 database
+func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
+	// Players section
+	if err := db.readPlayersV17(r); err != nil {
+		return nil, fmt.Errorf("read players: %w", err)
+	}
+
+	// Pending finalizations
+	if err := db.readFinalizations(r); err != nil {
+		return nil, fmt.Errorf("read finalizations: %w", err)
+	}
+
+	// Clocks (obsolete, should be 0)
+	if err := db.readClocks(r); err != nil {
+		return nil, fmt.Errorf("read clocks: %w", err)
+	}
+
+	// Queued tasks
+	if err := db.readQueuedTasks(r); err != nil {
+		return nil, fmt.Errorf("read queued tasks: %w", err)
+	}
+
+	// Suspended tasks
+	if err := db.readSuspendedTasks(r); err != nil {
+		return nil, fmt.Errorf("read suspended tasks: %w", err)
+	}
+
+	// Interrupted tasks
+	if err := db.readInterruptedTasks(r); err != nil {
+		return nil, fmt.Errorf("read interrupted tasks: %w", err)
+	}
+
+	// Active connections
+	if err := db.readActiveConnections(r); err != nil {
+		return nil, fmt.Errorf("read active connections: %w", err)
+	}
+
+	// Object count
+	objCount, err := readInt(r)
+	if err != nil {
+		return nil, fmt.Errorf("read object count: %w", err)
+	}
+
+	// Objects
 	for i := 0; i < objCount; i++ {
 		obj, err := db.readObject(r)
 		if err != nil {
@@ -133,20 +207,17 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 		}
 	}
 
-	// Section 10: Anonymous objects (v17 only)
-	if db.Version >= 17 {
-		if err := db.readAnonymousObjects(r); err != nil {
-			return nil, fmt.Errorf("read anonymous objects: %w", err)
-		}
+	// Anonymous objects
+	if err := db.readAnonymousObjects(r); err != nil {
+		return nil, fmt.Errorf("read anonymous objects: %w", err)
 	}
 
-	// Section 11: Verb count
+	// Verb count and code
 	verbCount, err := readInt(r)
 	if err != nil {
 		return nil, fmt.Errorf("read verb count: %w", err)
 	}
 
-	// Section 12: Verb code
 	for i := 0; i < verbCount; i++ {
 		if err := db.readVerbCode(r); err != nil {
 			return nil, fmt.Errorf("read verb code %d: %w", i, err)
@@ -156,8 +227,28 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 	return db, nil
 }
 
-// readPlayers reads the players list
-func (db *Database) readPlayers(r *bufio.Reader) error {
+// readPlayersV4 reads the players list for version 4 format
+func (db *Database) readPlayersV4(r *bufio.Reader) error {
+	// Format: nplayers, player[0], player[1], ...
+	count, err := readInt(r)
+	if err != nil {
+		return err
+	}
+
+	db.Players = make([]types.ObjID, count)
+	for i := 0; i < count; i++ {
+		objID, err := readObjID(r)
+		if err != nil {
+			return err
+		}
+		db.Players[i] = objID
+	}
+	return nil
+}
+
+// readPlayersV17 reads the players list for version 17 format
+func (db *Database) readPlayersV17(r *bufio.Reader) error {
+	// Format: nplayers, player[0], player[1], ...
 	count, err := readInt(r)
 	if err != nil {
 		return err
@@ -302,6 +393,204 @@ func (db *Database) readActiveConnections(r *bufio.Reader) error {
 	return nil
 }
 
+// readObjectV4 reads a single object in version 4 format
+func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
+	// Read object ID line: "#123" or "#123 recycled"
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	line = strings.TrimSpace(line)
+
+	// Parse object ID
+	var objID types.ObjID
+	var recycled bool
+	if strings.Contains(line, "recycled") {
+		recycled = true
+		// Format: "# 123 recycled" or "#123 recycled"
+		line = strings.Replace(line, "recycled", "", 1)
+	}
+	if !strings.HasPrefix(line, "#") {
+		return nil, fmt.Errorf("invalid object ID line: %s", line)
+	}
+	// Remove # and any spaces
+	idStr := strings.TrimSpace(line[1:])
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse object ID: %w", err)
+	}
+	objID = types.ObjID(id)
+
+	if recycled {
+		db.RecycledObjs = append(db.RecycledObjs, objID)
+		return nil, nil
+	}
+
+	obj := &Object{
+		ID:         objID,
+		Properties: make(map[string]*Property),
+		Verbs:      make(map[string]*Verb),
+	}
+
+	// Read name
+	obj.Name, err = r.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	obj.Name = strings.TrimSpace(obj.Name)
+
+	// Read blank line (v4 specific)
+	if _, err := r.ReadString('\n'); err != nil {
+		return nil, err
+	}
+
+	// Read flags
+	flags, err := readInt(r)
+	if err != nil {
+		return nil, err
+	}
+	obj.Flags = ObjectFlags(flags)
+
+	// Read owner
+	obj.Owner, err = readObjID(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read location (simple objnum in v4)
+	obj.Location, err = readObjID(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read firstContent (skip - we don't use linked list structure)
+	if _, err := readInt(r); err != nil {
+		return nil, err
+	}
+
+	// Read neighbor (skip)
+	if _, err := readInt(r); err != nil {
+		return nil, err
+	}
+
+	// Read parent (single objnum in v4)
+	parent, err := readObjID(r)
+	if err != nil {
+		return nil, err
+	}
+	if parent != -1 {
+		obj.Parents = []types.ObjID{parent}
+	}
+
+	// Read firstChild (skip)
+	if _, err := readInt(r); err != nil {
+		return nil, err
+	}
+
+	// Read sibling (skip)
+	if _, err := readInt(r); err != nil {
+		return nil, err
+	}
+
+	// Read verb count
+	verbCount, err := readInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read verb metadata
+	obj.VerbList = make([]*Verb, verbCount)
+	for i := 0; i < verbCount; i++ {
+		verb := &Verb{}
+
+		// Verb name
+		verb.Name, err = r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		verb.Name = strings.TrimSpace(verb.Name)
+		verb.Names = strings.Split(verb.Name, " ")
+
+		// Owner
+		verb.Owner, err = readObjID(r)
+		if err != nil {
+			return nil, err
+		}
+
+		// Perms
+		perms, err := readInt(r)
+		if err != nil {
+			return nil, err
+		}
+		verb.Perms = VerbPerms(perms)
+
+		// Preps
+		_, err = readInt(r)
+		if err != nil {
+			return nil, err
+		}
+
+		obj.VerbList[i] = verb
+		obj.Verbs[verb.Names[0]] = verb
+	}
+
+	// Read property definitions
+	propDefCount, err := readInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	propDefs := make([]string, propDefCount)
+	for i := 0; i < propDefCount; i++ {
+		propDefs[i], err = r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		propDefs[i] = strings.TrimSpace(propDefs[i])
+	}
+
+	// Read total property count (including inherited)
+	totalPropCount, err := readInt(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read property values
+	for i := 0; i < totalPropCount; i++ {
+		var propName string
+		if i < propDefCount {
+			propName = propDefs[i]
+		} else {
+			propName = fmt.Sprintf("_inherited_%d", i)
+		}
+
+		prop := &Property{Name: propName}
+
+		// Value
+		prop.Value, err = readValue(r, db.Version)
+		if err != nil {
+			return nil, err
+		}
+
+		// Owner
+		prop.Owner, err = readObjID(r)
+		if err != nil {
+			return nil, err
+		}
+
+		// Perms
+		perms, err := readInt(r)
+		if err != nil {
+			return nil, err
+		}
+		prop.Perms = PropertyPerms(perms)
+
+		obj.Properties[propName] = prop
+	}
+
+	return obj, nil
+}
+
 // readObject reads a single object
 func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	// Read object ID line: "#123" or "#123 recycled"
@@ -423,6 +712,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	}
 
 	// Read verb metadata
+	obj.VerbList = make([]*Verb, verbCount)
 	for i := 0; i < verbCount; i++ {
 		verb := &Verb{}
 
@@ -453,6 +743,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 			return nil, err
 		}
 
+		obj.VerbList[i] = verb
 		obj.Verbs[verb.Names[0]] = verb
 	}
 
@@ -549,6 +840,11 @@ func (db *Database) readVerbCode(r *bufio.Reader) error {
 		return fmt.Errorf("parse verb object ID: %w", err)
 	}
 
+	verbIndex, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return fmt.Errorf("parse verb index: %w", err)
+	}
+
 	// Read code lines until "."
 	var codeLines []string
 	for {
@@ -563,14 +859,10 @@ func (db *Database) readVerbCode(r *bufio.Reader) error {
 		codeLines = append(codeLines, line)
 	}
 
-	// Store code in verb (find by index)
+	// Store code in verb using VerbList for proper indexing
 	obj := db.Objects[types.ObjID(objID)]
-	if obj != nil && len(obj.Verbs) > 0 {
-		// For now, just store in first verb (proper indexing needs verb ordering)
-		for _, verb := range obj.Verbs {
-			verb.Code = codeLines
-			break
-		}
+	if obj != nil && verbIndex < len(obj.VerbList) {
+		obj.VerbList[verbIndex].Code = codeLines
 	}
 
 	return nil

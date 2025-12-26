@@ -1,4 +1,4 @@
-package eval
+package vm
 
 import (
 	"barn/db"
@@ -97,10 +97,36 @@ func (e *Evaluator) evalVerbCall(expr *parser.VerbCallExpr, ctx *types.TaskConte
 	ctx.ThisObj = defObjID // this = object where verb is defined
 	ctx.Verb = expr.Verb
 
+	// Update environment variables for the verb call
+	// These need to be accessible from within the verb code
+	oldVerbEnv, _ := e.env.Get("verb")
+	oldThisEnv, _ := e.env.Get("this")
+	oldCallerEnv, _ := e.env.Get("caller")
+	oldArgsEnv, _ := e.env.Get("args")
+
+	e.env.Set("verb", types.NewStr(expr.Verb))
+	e.env.Set("this", types.NewObj(objID)) // this = object the verb was called ON (not where defined)
+	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
+	e.env.Set("args", types.NewList(args))
+
 	// TODO: Set up dobj, iobj, etc.
 
 	// Execute the verb
 	result := e.evalStatements(verb.Program.Statements, ctx)
+
+	// Restore environment
+	if oldVerbEnv != nil {
+		e.env.Set("verb", oldVerbEnv)
+	}
+	if oldThisEnv != nil {
+		e.env.Set("this", oldThisEnv)
+	}
+	if oldCallerEnv != nil {
+		e.env.Set("caller", oldCallerEnv)
+	}
+	if oldArgsEnv != nil {
+		e.env.Set("args", oldArgsEnv)
+	}
 
 	// Restore context
 	ctx.ThisObj = oldThis
@@ -130,6 +156,107 @@ func (e *Evaluator) evalStatements(stmts []parser.Stmt, ctx *types.TaskContext) 
 		}
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+// CallVerb calls a verb on an object directly without needing to parse an expression
+// This is used by builtins like create() to call :initialize
+// Returns the result of the verb call, or E_VERBNF if verb not found
+func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
+	// Check if object is valid
+	if !e.store.Valid(objID) {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Look up the verb
+	verb, defObjID, err := e.store.FindVerb(objID, verbName)
+	if err != nil {
+		return types.Err(types.E_VERBNF)
+	}
+
+	// Check execute permission
+	if !verb.Perms.Has(db.VerbExecute) {
+		// TODO: Check if caller is owner or wizard
+		return types.Err(types.E_PERM)
+	}
+
+	// Compile verb if not already compiled
+	if verb.Program == nil {
+		program, errors := db.CompileVerb(verb.Code)
+		if len(errors) > 0 {
+			// Compilation error - return E_VERBNF (verb is broken)
+			return types.Err(types.E_VERBNF)
+		}
+		verb.Program = program
+	}
+
+	// Push activation frame onto call stack (if we have a task)
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			frame := task.ActivationFrame{
+				This:       defObjID,
+				Player:     ctx.Player,
+				Programmer: ctx.Programmer,
+				Caller:     ctx.ThisObj, // The object that called this verb
+				Verb:       verbName,
+				VerbLoc:    defObjID,
+				Args:       args,
+				LineNumber: 0, // TODO: Track line numbers during execution
+			}
+			t.PushFrame(frame)
+			defer t.PopFrame()
+		}
+	}
+
+	// Set up verb call context
+	oldThis := ctx.ThisObj
+	oldVerb := ctx.Verb
+	ctx.ThisObj = defObjID // this = object where verb is defined
+	ctx.Verb = verbName
+
+	// Update environment variables for the verb call
+	oldVerbEnv, _ := e.env.Get("verb")
+	oldThisEnv, _ := e.env.Get("this")
+	oldCallerEnv, _ := e.env.Get("caller")
+	oldArgsEnv, _ := e.env.Get("args")
+
+	e.env.Set("verb", types.NewStr(verbName))
+	e.env.Set("this", types.NewObj(objID)) // this = object the verb was called ON (not where defined)
+	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
+	e.env.Set("args", types.NewList(args))
+
+	// Execute the verb
+	result := e.evalStatements(verb.Program.Statements, ctx)
+
+	// Restore environment
+	if oldVerbEnv != nil {
+		e.env.Set("verb", oldVerbEnv)
+	}
+	if oldThisEnv != nil {
+		e.env.Set("this", oldThisEnv)
+	}
+	if oldCallerEnv != nil {
+		e.env.Set("caller", oldCallerEnv)
+	}
+	if oldArgsEnv != nil {
+		e.env.Set("args", oldArgsEnv)
+	}
+
+	// Restore context
+	ctx.ThisObj = oldThis
+	ctx.Verb = oldVerb
+
+	// If the verb returned, extract the value
+	if result.Flow == types.FlowReturn {
+		return types.Ok(result.Val)
+	}
+
+	// If normal completion, return 0
+	if result.IsNormal() {
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Propagate errors, break, continue
+	return result
 }
 
 // getPrimitivePrototype returns the prototype object ID for a primitive value
