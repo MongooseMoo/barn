@@ -79,6 +79,50 @@ func (e ErrorCode) String() string {
 	}
 }
 
+// ErrorFromString converts a string like "E_PERM" to an ErrorCode
+func ErrorFromString(s string) (ErrorCode, bool) {
+	switch s {
+	case "E_NONE":
+		return E_NONE, true
+	case "E_TYPE":
+		return E_TYPE, true
+	case "E_DIV":
+		return E_DIV, true
+	case "E_PERM":
+		return E_PERM, true
+	case "E_PROPNF":
+		return E_PROPNF, true
+	case "E_VERBNF":
+		return E_VERBNF, true
+	case "E_VARNF":
+		return E_VARNF, true
+	case "E_INVIND":
+		return E_INVIND, true
+	case "E_RECMOVE":
+		return E_RECMOVE, true
+	case "E_MAXREC":
+		return E_MAXREC, true
+	case "E_RANGE":
+		return E_RANGE, true
+	case "E_ARGS":
+		return E_ARGS, true
+	case "E_NACC":
+		return E_NACC, true
+	case "E_INVARG":
+		return E_INVARG, true
+	case "E_QUOTA":
+		return E_QUOTA, true
+	case "E_FLOAT":
+		return E_FLOAT, true
+	case "E_FILE":
+		return E_FILE, true
+	case "E_EXEC":
+		return E_EXEC, true
+	default:
+		return E_NONE, false
+	}
+}
+
 // Value is the interface all MOO values implement
 type Value interface {
 	Type() TypeCode

@@ -17,6 +17,7 @@ func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Resul
 
 	value := args[0]
 	pretty := false
+	embeddedTypes := false
 
 	// Parse options if provided
 	if len(args) > 1 {
@@ -26,10 +27,11 @@ func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Resul
 		}
 		opts := optsVal.Value()
 		pretty = strings.Contains(opts, "pretty")
+		embeddedTypes = strings.Contains(opts, "embedded")
 	}
 
 	// Convert MOO value to Go value suitable for JSON marshaling
-	jsonValue, err := mooToJSON(value)
+	jsonValue, err := mooToJSON(value, embeddedTypes, false)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -51,9 +53,14 @@ func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Resul
 }
 
 // mooToJSON converts a MOO value to a Go value suitable for JSON marshaling
-func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
+// embeddedTypes: when true, add type suffixes (|obj, |err, |int, |float)
+// isKey: when true, this value is being used as a map key
+func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, types.ErrorCode) {
 	switch val := v.(type) {
 	case types.IntValue:
+		if embeddedTypes && isKey {
+			return fmt.Sprintf("%d|int", val.Val), types.E_NONE
+		}
 		return val.Val, types.E_NONE
 
 	case types.FloatValue:
@@ -61,6 +68,14 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 		// Check for NaN and Infinity
 		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, types.E_FLOAT
+		}
+		if embeddedTypes && isKey {
+			// Format float with decimal point for key
+			s := fmt.Sprintf("%g", f)
+			if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
+				s += ".0"
+			}
+			return s + "|float", types.E_NONE
 		}
 		// Format float with decimal point (MOO semantics)
 		s := fmt.Sprintf("%g", f)
@@ -82,16 +97,22 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 		return val.Val, types.E_NONE
 
 	case types.ObjValue:
+		if embeddedTypes {
+			return fmt.Sprintf("#%d|obj", val.ID()), types.E_NONE
+		}
 		return fmt.Sprintf("#%d", val.ID()), types.E_NONE
 
 	case types.ErrValue:
+		if embeddedTypes {
+			return val.String() + "|err", types.E_NONE
+		}
 		return val.String(), types.E_NONE
 
 	case types.ListValue:
 		arr := make([]interface{}, val.Len())
 		for i := 1; i <= val.Len(); i++ {
 			elem := val.Get(i)
-			jsonElem, err := mooToJSON(elem)
+			jsonElem, err := mooToJSON(elem, embeddedTypes, false)
 			if err != types.E_NONE {
 				return nil, err
 			}
@@ -106,16 +127,26 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 			key := pair[0]
 			value := pair[1]
 
-			// Convert key to string - use raw value for strings, String() for others
+			// Convert key to string
 			var keyStr string
-			if strKey, ok := key.(types.StrValue); ok {
-				keyStr = strKey.Value() // Raw string without quotes
+			if embeddedTypes {
+				// In embedded mode, keys get type annotations
+				keyVal, err := mooToJSON(key, true, true)
+				if err != types.E_NONE {
+					return nil, err
+				}
+				keyStr = fmt.Sprintf("%v", keyVal)
 			} else {
-				keyStr = key.String() // For numbers, objects, etc.
+				// Default mode - use raw value for strings, String() for others
+				if strKey, ok := key.(types.StrValue); ok {
+					keyStr = strKey.Value()
+				} else {
+					keyStr = key.String()
+				}
 			}
 
 			// Convert value
-			jsonValue, err := mooToJSON(value)
+			jsonValue, err := mooToJSON(value, embeddedTypes, false)
 			if err != types.E_NONE {
 				return nil, err
 			}
@@ -131,7 +162,7 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 
 // builtinParseJson parses JSON string to MOO value
 // Signature: parse_json(string [, mode]) → VALUE
-// Modes: "common-subset", "embedded", or default (no mode)
+// Modes: "common-subset", "embedded-types", or default (no mode)
 func builtinParseJson(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -142,12 +173,15 @@ func builtinParseJson(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Parse optional mode argument (currently ignored - same behavior for all modes)
+	// Parse optional mode argument
+	embeddedTypes := false
 	if len(args) == 2 {
-		_, ok := args[1].(types.StrValue)
+		modeVal, ok := args[1].(types.StrValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
+		mode := modeVal.Value()
+		embeddedTypes = strings.Contains(mode, "embedded")
 	}
 
 	jsonStr := strVal.Value()
@@ -157,11 +191,12 @@ func builtinParseJson(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(jsonToMOO(data))
+	return types.Ok(jsonToMOO(data, embeddedTypes))
 }
 
 // jsonToMOO converts a Go value from JSON unmarshaling to a MOO value
-func jsonToMOO(v interface{}) types.Value {
+// embeddedTypes: when true, parse type-annotated strings (|int, |float, |str, |obj, |err)
+func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 	switch val := v.(type) {
 	case nil:
 		// JSON null becomes MOO integer 0
@@ -179,13 +214,19 @@ func jsonToMOO(v interface{}) types.Value {
 		return types.NewFloat(val)
 
 	case string:
+		if embeddedTypes {
+			// Check for type annotations
+			if parsed, ok := parseEmbeddedType(val); ok {
+				return parsed
+			}
+		}
 		return types.NewStr(val)
 
 	case []interface{}:
 		// JSON array becomes MOO list
 		elements := make([]types.Value, len(val))
 		for i, item := range val {
-			elements[i] = jsonToMOO(item)
+			elements[i] = jsonToMOO(item, embeddedTypes)
 		}
 		return types.NewList(elements)
 
@@ -193,9 +234,20 @@ func jsonToMOO(v interface{}) types.Value {
 		// JSON object becomes MOO map
 		pairs := make([][2]types.Value, 0, len(val))
 		for k, v := range val {
+			// In embedded mode, keys may have type annotations too
+			var keyVal types.Value
+			if embeddedTypes {
+				if parsed, ok := parseEmbeddedType(k); ok {
+					keyVal = parsed
+				} else {
+					keyVal = types.NewStr(k)
+				}
+			} else {
+				keyVal = types.NewStr(k)
+			}
 			pairs = append(pairs, [2]types.Value{
-				types.NewStr(k),
-				jsonToMOO(v),
+				keyVal,
+				jsonToMOO(v, embeddedTypes),
 			})
 		}
 		return types.NewMap(pairs)
@@ -204,6 +256,39 @@ func jsonToMOO(v interface{}) types.Value {
 		// Unknown type - return 0
 		return types.NewInt(0)
 	}
+}
+
+// parseEmbeddedType parses a type-annotated string like "123|int" or "#5|obj"
+func parseEmbeddedType(s string) (types.Value, bool) {
+	if strings.HasSuffix(s, "|int") {
+		numStr := s[:len(s)-4]
+		var n int64
+		if _, err := fmt.Sscanf(numStr, "%d", &n); err == nil {
+			return types.NewInt(n), true
+		}
+	} else if strings.HasSuffix(s, "|float") {
+		numStr := s[:len(s)-6]
+		var f float64
+		if _, err := fmt.Sscanf(numStr, "%f", &f); err == nil {
+			return types.NewFloat(f), true
+		}
+	} else if strings.HasSuffix(s, "|str") {
+		return types.NewStr(s[:len(s)-4]), true
+	} else if strings.HasSuffix(s, "|obj") {
+		objStr := s[:len(s)-4]
+		if len(objStr) > 0 && objStr[0] == '#' {
+			var id int64
+			if _, err := fmt.Sscanf(objStr[1:], "%d", &id); err == nil {
+				return types.NewObj(types.ObjID(id)), true
+			}
+		}
+	} else if strings.HasSuffix(s, "|err") {
+		errStr := s[:len(s)-4]
+		if errCode, ok := types.ErrorFromString(errStr); ok {
+			return types.NewErr(errCode), true
+		}
+	}
+	return nil, false
 }
 
 // decodeBinaryEscapes converts MOO binary escapes (~XX) to actual bytes
