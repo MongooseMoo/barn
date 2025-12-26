@@ -448,9 +448,13 @@ func convertYAMLValue(v interface{}) (types.Value, error) {
 		return types.NewFloat(val), nil
 	case string:
 		// Check if string represents an object reference like "#2" or "#-1"
+		// Must be ONLY the object reference, no extra characters
 		if len(val) > 0 && val[0] == '#' {
 			var id int64
-			if _, err := fmt.Sscanf(val, "#%d", &id); err == nil {
+			var extra string
+			n, err := fmt.Sscanf(val, "#%d%s", &id, &extra)
+			// Must parse exactly the ID with no extra characters
+			if err == nil && n == 1 {
 				return types.NewObj(types.ObjID(id)), nil
 			}
 		}
