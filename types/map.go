@@ -31,6 +31,10 @@ type goMap struct {
 func keyHash(v Value) string {
 	// Use String() representation for hashing
 	// This ensures that equal values hash to the same key
+	// MOO strings are case-insensitive, so normalize to lowercase
+	if str, ok := v.(StrValue); ok {
+		return fmt.Sprintf("%T:%s", v, strings.ToLower(str.Value()))
+	}
 	return fmt.Sprintf("%T:%s", v, v.String())
 }
 

@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // StrValue represents a MOO string
 type StrValue struct {
@@ -29,9 +32,10 @@ func (s StrValue) Truthy() bool {
 }
 
 // Equal compares two values for equality
+// MOO strings are case-insensitive
 func (s StrValue) Equal(other Value) bool {
 	if o, ok := other.(StrValue); ok {
-		return s.val == o.val
+		return strings.EqualFold(s.val, o.val)
 	}
 	return false
 }
