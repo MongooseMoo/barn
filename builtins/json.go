@@ -62,7 +62,14 @@ func mooToJSON(v types.Value) (interface{}, types.ErrorCode) {
 		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, types.E_FLOAT
 		}
-		return f, types.E_NONE
+		// Format float with decimal point (MOO semantics)
+		s := fmt.Sprintf("%g", f)
+		// Ensure we have a decimal point for whole numbers
+		if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
+			s += ".0"
+		}
+		// Use json.Number to avoid re-formatting
+		return json.Number(s), types.E_NONE
 
 	case types.StrValue:
 		return val.Value(), types.E_NONE

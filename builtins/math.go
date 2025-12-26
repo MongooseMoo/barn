@@ -102,7 +102,7 @@ func builtinRandom(ctx *types.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		if maxV.Val <= 0 {
-			return types.Err(types.E_RANGE)
+			return types.Err(types.E_INVARG) // Must be positive
 		}
 		return types.Ok(types.IntValue{Val: rand.Int63n(maxV.Val) + 1})
 
