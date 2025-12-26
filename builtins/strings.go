@@ -14,6 +14,7 @@ import (
 // length(str) -> int
 // length(list) -> int
 // length(map) -> int
+// For strings with binary escapes (~XX), counts decoded bytes, not encoded length
 func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -21,8 +22,8 @@ func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	switch v := args[0].(type) {
 	case types.StrValue:
-		// Return number of bytes (MOO strings are byte-oriented, not Unicode)
-		return types.Ok(types.IntValue{Val: int64(len(v.Value()))})
+		// Count bytes, decoding ~XX binary escapes
+		return types.Ok(types.IntValue{Val: int64(countDecodedBytes(v.Value()))})
 	case types.ListValue:
 		return types.Ok(types.IntValue{Val: int64(v.Len())})
 	case types.MapValue:
@@ -30,6 +31,34 @@ func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 	default:
 		return types.Err(types.E_TYPE)
 	}
+}
+
+// countDecodedBytes counts the number of bytes in a MOO string,
+// treating ~XX sequences as single bytes
+func countDecodedBytes(s string) int {
+	count := 0
+	i := 0
+	for i < len(s) {
+		if i+2 < len(s) && s[i] == '~' {
+			// Check if this is a valid ~XX hex escape
+			c1, c2 := s[i+1], s[i+2]
+			if isHexDigit(c1) && isHexDigit(c2) {
+				// ~XX counts as 1 byte
+				count++
+				i += 3
+				continue
+			}
+		}
+		// Regular character counts as 1 byte
+		count++
+		i++
+	}
+	return count
+}
+
+// isHexDigit returns true if c is a valid hex digit (0-9, A-F, a-f)
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')
 }
 
 // builtinStrsub replaces all occurrences of old with new in subject

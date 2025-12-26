@@ -3,6 +3,7 @@ package builtins
 import (
 	"barn/types"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -198,15 +199,116 @@ func builtinToobj(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinEqual tests deep equality of two values
 // equal(val1, val2) -> bool
+// For maps, this is case-SENSITIVE (unlike == operator)
 func builtinEqual(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
 
-	if args[0].Equal(args[1]) {
+	if strictEqual(args[0], args[1]) {
 		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+// strictEqual performs case-sensitive deep equality comparison
+// This is used by equal() builtin, not by == operator
+func strictEqual(a, b types.Value) bool {
+	// For maps, do case-sensitive comparison of keys and values
+	aMap, aIsMap := a.(types.MapValue)
+	bMap, bIsMap := b.(types.MapValue)
+	if aIsMap && bIsMap {
+		if aMap.Len() != bMap.Len() {
+			return false
+		}
+		aPairs := aMap.Pairs()
+		bPairs := bMap.Pairs()
+		// Compare in sorted order
+		sortPairs(aPairs)
+		sortPairs(bPairs)
+		for i, ap := range aPairs {
+			bp := bPairs[i]
+			if !strictEqual(ap[0], bp[0]) || !strictEqual(ap[1], bp[1]) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// For lists, recursively check with strictEqual
+	aList, aIsList := a.(types.ListValue)
+	bList, bIsList := b.(types.ListValue)
+	if aIsList && bIsList {
+		if aList.Len() != bList.Len() {
+			return false
+		}
+		for i := 1; i <= aList.Len(); i++ {
+			if !strictEqual(aList.Get(i), bList.Get(i)) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// For strings, case-SENSITIVE comparison
+	aStr, aIsStr := a.(types.StrValue)
+	bStr, bIsStr := b.(types.StrValue)
+	if aIsStr && bIsStr {
+		return aStr.Value() == bStr.Value()
+	}
+
+	// For other types, use standard Equal
+	return a.Equal(b)
+}
+
+// sortPairs sorts key-value pairs by key for consistent comparison
+func sortPairs(pairs [][2]types.Value) {
+	sort.Slice(pairs, func(i, j int) bool {
+		return comparePairKeys(pairs[i][0], pairs[j][0]) < 0
+	})
+}
+
+// comparePairKeys compares two keys for sorting
+func comparePairKeys(a, b types.Value) int {
+	// Type ordering: INT < FLOAT < OBJ < ERR < STR
+	typeOrder := func(v types.Value) int {
+		switch v.Type() {
+		case types.TYPE_INT:
+			return 0
+		case types.TYPE_FLOAT:
+			return 1
+		case types.TYPE_OBJ:
+			return 2
+		case types.TYPE_ERR:
+			return 3
+		case types.TYPE_STR:
+			return 4
+		default:
+			return 5
+		}
+	}
+
+	aOrder := typeOrder(a)
+	bOrder := typeOrder(b)
+	if aOrder != bOrder {
+		return aOrder - bOrder
+	}
+
+	// Same type, compare values
+	switch av := a.(type) {
+	case types.IntValue:
+		bv := b.(types.IntValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case types.StrValue:
+		bv := b.(types.StrValue)
+		return strings.Compare(av.Value(), bv.Value())
+	}
+	return 0
 }
 
 // ============================================================================
