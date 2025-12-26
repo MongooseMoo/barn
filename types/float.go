@@ -1,8 +1,9 @@
 package types
 
 import (
-	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // FloatValue represents a MOO floating point number
@@ -27,7 +28,13 @@ func (f FloatValue) String() string {
 	if math.IsInf(f.Val, -1) {
 		return "-Inf"
 	}
-	return fmt.Sprintf("%g", f.Val)
+	// MOO expects whole numbers to still show decimal (3.0 not 3)
+	s := strconv.FormatFloat(f.Val, 'g', -1, 64)
+	// Add .0 if no decimal point and not in scientific notation
+	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
+		s += ".0"
+	}
+	return s
 }
 
 // Equal checks deep equality

@@ -38,8 +38,13 @@ func builtinTostr(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	case types.FloatValue:
 		// Convert float to string
-		// Use Go's default formatting which handles scientific notation
-		return types.Ok(types.NewStr(fmt.Sprintf("%g", v.Val)))
+		// MOO expects whole numbers to still show decimal (3.0 not 3)
+		s := strconv.FormatFloat(v.Val, 'g', -1, 64)
+		// Add .0 if no decimal point and not in scientific notation
+		if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
+			s += ".0"
+		}
+		return types.Ok(types.NewStr(s))
 
 	case types.ObjValue:
 		// Convert object to string: #123

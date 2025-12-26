@@ -124,9 +124,9 @@ func (m MapValue) Type() TypeCode {
 }
 
 // Truthy returns whether the value is truthy
-// In MOO, maps are never truthy (only non-zero ints and non-empty strings)
+// In MOO, non-empty maps are truthy
 func (m MapValue) Truthy() bool {
-	return false
+	return m.data.Len() > 0
 }
 
 // Equal compares two values for equality (deep comparison)
