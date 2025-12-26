@@ -98,13 +98,20 @@ func builtinIndex(ctx *types.TaskContext, args []types.Value) types.Result {
 		caseSensitive = args[2].Truthy()
 	}
 
-	start := 1 // 1-based
+	// The 4th argument is an offset that:
+	// 1. Shifts the start position (search from offset+1)
+	// 2. Adjusts the returned position (result - offset)
+	offset := 0
 	if len(args) == 4 {
-		startVal, ok := args[3].(types.IntValue)
+		offsetVal, ok := args[3].(types.IntValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		start = int(startVal.Val)
+		offset = int(offsetVal.Val)
+		// Negative offset is invalid
+		if offset < 0 {
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	h := haystack.Value()
@@ -114,11 +121,9 @@ func builtinIndex(ctx *types.TaskContext, args []types.Value) types.Result {
 	hRunes := []rune(h)
 	nRunes := []rune(n)
 
-	// Adjust start to 0-based
-	if start < 1 {
-		start = 1
-	}
-	startIdx := start - 1
+	// Start searching from position (offset + 1) in 1-based terms
+	// which is offset in 0-based terms
+	startIdx := offset
 
 	if startIdx >= len(hRunes) {
 		return types.Ok(types.IntValue{Val: 0})
@@ -143,7 +148,14 @@ func builtinIndex(ctx *types.TaskContext, args []types.Value) types.Result {
 			}
 		}
 		if match {
-			return types.Ok(types.IntValue{Val: int64(i + 1)}) // 1-based
+			// Return position adjusted by offset
+			// i is 0-based, so actual position is i+1
+			// Result is (i+1) - offset
+			result := int64(i + 1 - offset)
+			if result <= 0 {
+				return types.Ok(types.IntValue{Val: 0})
+			}
+			return types.Ok(types.IntValue{Val: result})
 		}
 	}
 
@@ -151,7 +163,8 @@ func builtinIndex(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 // builtinRindex finds the last occurrence of needle in haystack
-// rindex(haystack, needle [, case_matters [, start]]) -> int
+// rindex(haystack, needle [, case_matters [, offset]]) -> int
+// offset is 0 or negative; specifies end position for search (from end of string)
 func builtinRindex(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
@@ -178,8 +191,36 @@ func builtinRindex(ctx *types.TaskContext, args []types.Value) types.Result {
 	hRunes := []rune(h)
 	nRunes := []rune(n)
 
-	// Search backwards
-	for i := len(hRunes) - len(nRunes); i >= 0; i-- {
+	// Handle offset (4th argument)
+	// offset <= 0: specifies search end position (length + offset)
+	// offset > 0: invalid
+	endPos := len(hRunes) // Default: search whole string
+	if len(args) == 4 {
+		offsetVal, ok := args[3].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		offset := int(offsetVal.Val)
+		if offset > 0 {
+			return types.Err(types.E_INVARG)
+		}
+		// offset is 0 or negative
+		endPos = len(hRunes) + offset
+		if endPos < 0 {
+			return types.Ok(types.IntValue{Val: 0})
+		}
+	}
+
+	// Search backwards from endPos
+	startSearch := endPos - len(nRunes)
+	if startSearch < 0 {
+		startSearch = 0
+	}
+	if startSearch > len(hRunes)-len(nRunes) {
+		startSearch = len(hRunes) - len(nRunes)
+	}
+
+	for i := startSearch; i >= 0; i-- {
 		match := true
 		for j := 0; j < len(nRunes); j++ {
 			hChar := hRunes[i+j]
