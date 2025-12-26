@@ -62,12 +62,12 @@ func builtinTostr(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewStr("false"))
 
 	case types.ListValue:
-		// Convert list to string representation: {1, 2, 3}
-		return types.Ok(types.NewStr(listToString(v)))
+		// MOO tostr() on list returns "{list}", not the literal representation
+		return types.Ok(types.NewStr("{list}"))
 
 	case types.MapValue:
-		// Convert map to string representation: ["a" -> 1, "b" -> 2]
-		return types.Ok(types.NewStr(mapToString(v)))
+		// MOO tostr() on map returns "[map]", not the literal representation
+		return types.Ok(types.NewStr("[map]"))
 
 	default:
 		// Unknown type - shouldn't happen
