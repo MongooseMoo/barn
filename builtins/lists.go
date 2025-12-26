@@ -190,9 +190,9 @@ func builtinIsMember(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	switch collection := args[1].(type) {
 	case types.ListValue:
-		// Find value in list
+		// Find value in list (case-sensitive for strings)
 		for i := 1; i <= collection.Len(); i++ {
-			if collection.Get(i).Equal(value) {
+			if strictEqual(collection.Get(i), value) {
 				return types.Ok(types.IntValue{Val: int64(i)})
 			}
 		}
@@ -201,11 +201,11 @@ func builtinIsMember(ctx *types.TaskContext, args []types.Value) types.Result {
 	case types.MapValue:
 		// For maps, is_member searches for a VALUE and returns the position
 		// of its key in the sorted key list (1-based), or 0 if not found
-		// This is case-insensitive for string values (uses Equal)
+		// This is case-SENSITIVE for string values (uses strictEqual)
 		pairs := collection.Pairs()
 		sortMapPairs(pairs)
 		for i, pair := range pairs {
-			if pair[1].Equal(value) {
+			if strictEqual(pair[1], value) {
 				return types.Ok(types.IntValue{Val: int64(i + 1)})
 			}
 		}

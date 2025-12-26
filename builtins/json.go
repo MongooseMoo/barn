@@ -27,6 +27,11 @@ func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Resul
 			return types.Err(types.E_TYPE)
 		}
 		opts := optsVal.Value()
+		// Validate mode string - must be one of the valid modes or empty
+		if opts != "" && opts != "common-subset" && opts != "embedded-types" &&
+			!strings.HasPrefix(opts, "pretty") && !strings.Contains(opts, "embedded") {
+			return types.Err(types.E_INVARG)
+		}
 		pretty = strings.Contains(opts, "pretty")
 		embeddedTypes = strings.Contains(opts, "embedded")
 	}
@@ -193,8 +198,11 @@ func builtinParseJson(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	jsonStr := strVal.Value()
 
+	// Use json.Decoder to parse just one JSON value, ignoring trailing chars
+	// This matches ToastStunt behavior where parse_json("12abc") returns 12
 	var data interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(jsonStr))
+	if err := decoder.Decode(&data); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 
