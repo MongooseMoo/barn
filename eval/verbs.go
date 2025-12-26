@@ -15,13 +15,26 @@ func (e *Evaluator) evalVerbCall(expr *parser.VerbCallExpr, ctx *types.TaskConte
 		return objResult
 	}
 
-	// Must be an object
+	var objID types.ObjID
+	isPrimitive := false
+
+	// Check if target is an object or a primitive with a prototype
 	objVal, ok := objResult.Val.(types.ObjValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
+	if ok {
+		objID = objVal.ID()
+	} else {
+		// Not an object - check if it's a primitive with a prototype
+		protoID := e.getPrimitivePrototype(objResult.Val)
+		if protoID == types.ObjNothing {
+			// No prototype for this type
+			return types.Err(types.E_TYPE)
+		}
+		objID = protoID
+		isPrimitive = true
 	}
 
-	objID := objVal.ID()
+	// Suppress unused variable warning
+	_ = isPrimitive
 
 	// Check if object is valid
 	if !e.store.Valid(objID) {
@@ -117,4 +130,52 @@ func (e *Evaluator) evalStatements(stmts []parser.Stmt, ctx *types.TaskContext) 
 		}
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+// getPrimitivePrototype returns the prototype object ID for a primitive value
+// Returns ObjNothing if no prototype is configured for this type
+func (e *Evaluator) getPrimitivePrototype(val types.Value) types.ObjID {
+	// Get #0 (system object)
+	sysObj := e.store.Get(0)
+	if sysObj == nil {
+		return types.ObjNothing
+	}
+
+	// Determine the prototype property name based on value type
+	var propName string
+	switch val.(type) {
+	case types.IntValue:
+		propName = "int_proto"
+	case types.FloatValue:
+		propName = "float_proto"
+	case types.StrValue:
+		propName = "str_proto"
+	case types.ListValue:
+		propName = "list_proto"
+	case types.MapValue:
+		propName = "map_proto"
+	case types.ErrValue:
+		propName = "err_proto"
+	case types.BoolValue:
+		propName = "bool_proto"
+	default:
+		return types.ObjNothing
+	}
+
+	// Look up the prototype property on #0
+	prop, ok := sysObj.Properties[propName]
+	if !ok || prop == nil {
+		return types.ObjNothing
+	}
+
+	// Get the object ID from the property value
+	if objVal, ok := prop.Value.(types.ObjValue); ok {
+		protoID := objVal.ID()
+		// Check if the prototype object is valid
+		if e.store.Valid(protoID) {
+			return protoID
+		}
+	}
+
+	return types.ObjNothing
 }
