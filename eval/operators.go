@@ -426,7 +426,7 @@ func evalLeftShift(left, right types.Value) types.Result {
 }
 
 // evalRightShift implements right shift: left >> right
-// Uses ARITHMETIC right shift (sign-extending) with 64-bit semantics
+// Uses LOGICAL right shift (zero-fill) with 64-bit semantics per MOO standard
 func evalRightShift(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
@@ -442,16 +442,14 @@ func evalRightShift(left, right types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Shift by >= 64 returns 0 for positive, -1 for negative (sign extension)
+	// Shift by >= 64 returns 0 (all bits shifted out)
 	if rightInt.Val >= 64 {
-		if leftInt.Val < 0 {
-			return types.Ok(types.IntValue{Val: -1})
-		}
 		return types.Ok(types.IntValue{Val: 0})
 	}
 
-	// Go's >> on signed integers is arithmetic (sign-extending)
-	return types.Ok(types.IntValue{Val: leftInt.Val >> uint(rightInt.Val)})
+	// Use unsigned cast for logical right shift (zero-fill, not sign-extending)
+	result := int64(uint64(leftInt.Val) >> uint(rightInt.Val))
+	return types.Ok(types.IntValue{Val: result})
 }
 
 // ============================================================================
