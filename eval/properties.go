@@ -233,12 +233,6 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 // Returns (isBuiltin, errorCode) where isBuiltin indicates if it was a built-in property
 // and errorCode is E_NONE on success or the appropriate error on failure
 func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
-	// Helper to check if caller is wizard
-	isWizard := func() bool {
-		programmer := e.store.Get(ctx.Programmer)
-		return programmer != nil && programmer.Flags.Has(db.FlagWizard)
-	}
-
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
@@ -249,7 +243,7 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 	case "owner":
 		if objVal, ok := value.(types.ObjValue); ok {
 			// For anonymous objects, only wizards can change owner
-			if obj.Anonymous && !isWizard() {
+			if obj.Anonymous && !ctx.IsWizard {
 				return true, types.E_PERM
 			}
 			obj.Owner = objVal.ID()
@@ -266,7 +260,11 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 	case "programmer":
 		if intVal, ok := value.(types.IntValue); ok {
 			// Anonymous objects cannot have programmer flag modified
+			// Wizard gets E_INVARG (operation invalid), others get E_PERM
 			if obj.Anonymous {
+				if ctx.IsWizard {
+					return true, types.E_INVARG
+				}
 				return true, types.E_PERM
 			}
 			if intVal.Val != 0 {
@@ -280,7 +278,11 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 	case "wizard":
 		if intVal, ok := value.(types.IntValue); ok {
 			// Anonymous objects cannot have wizard flag modified
+			// Wizard gets E_INVARG (operation invalid), others get E_PERM
 			if obj.Anonymous {
+				if ctx.IsWizard {
+					return true, types.E_INVARG
+				}
 				return true, types.E_PERM
 			}
 			if intVal.Val != 0 {
