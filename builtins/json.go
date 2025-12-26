@@ -266,15 +266,22 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 }
 
 // parseEmbeddedType parses a type-annotated string like "123|int" or "#5|obj"
+// Empty prefix is valid and returns the default value for that type
 func parseEmbeddedType(s string) (types.Value, bool) {
 	if strings.HasSuffix(s, "|int") {
 		numStr := s[:len(s)-4]
+		if numStr == "" {
+			return types.NewInt(0), true
+		}
 		var n int64
 		if _, err := fmt.Sscanf(numStr, "%d", &n); err == nil {
 			return types.NewInt(n), true
 		}
 	} else if strings.HasSuffix(s, "|float") {
 		numStr := s[:len(s)-6]
+		if numStr == "" {
+			return types.NewFloat(0.0), true
+		}
 		var f float64
 		if _, err := fmt.Sscanf(numStr, "%f", &f); err == nil {
 			return types.NewFloat(f), true
@@ -283,6 +290,9 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 		return types.NewStr(s[:len(s)-4]), true
 	} else if strings.HasSuffix(s, "|obj") {
 		objStr := s[:len(s)-4]
+		if objStr == "" {
+			return types.NewObj(0), true
+		}
 		if len(objStr) > 0 && objStr[0] == '#' {
 			var id int64
 			if _, err := fmt.Sscanf(objStr[1:], "%d", &id); err == nil {
@@ -291,6 +301,9 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 		}
 	} else if strings.HasSuffix(s, "|err") {
 		errStr := s[:len(s)-4]
+		if errStr == "" {
+			return types.NewErr(types.E_NONE), true
+		}
 		if errCode, ok := types.ErrorFromString(errStr); ok {
 			return types.NewErr(errCode), true
 		}
