@@ -584,6 +584,10 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		if endIdx < 0 || endIdx > int64(length) {
 			return types.Err(types.E_RANGE)
 		}
+		// Check for inverted range
+		if startIdx > endIdx+1 {
+			return types.Err(types.E_RANGE)
+		}
 
 		// Build new list: [1..start-1] + newVals + [end+1..$]
 		result := make([]types.Value, 0)
@@ -614,6 +618,10 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 		if endIdx < 0 || endIdx > int64(len(s)) {
 			return types.Err(types.E_RANGE)
 		}
+		// Check for inverted range
+		if startIdx > endIdx+1 {
+			return types.Err(types.E_RANGE)
+		}
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
 		result := s[:startIdx-1] + newStr.Value() + s[endIdx:]
@@ -631,6 +639,10 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 			return types.Err(types.E_RANGE)
 		}
 		if endIdx < 0 || endIdx > int64(length) {
+			return types.Err(types.E_RANGE)
+		}
+		// Check for inverted range
+		if startIdx > endIdx+1 {
 			return types.Err(types.E_RANGE)
 		}
 
