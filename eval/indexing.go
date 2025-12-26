@@ -492,7 +492,10 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 		return types.NewStr(newStr), types.E_NONE
 
 	case types.MapValue:
-		// Map assignment - key can be any valid map key
+		// Map assignment - key can be any valid map key (not list or map)
+		if !types.IsValidMapKey(index) {
+			return nil, types.E_TYPE
+		}
 		return c.Set(index, value), types.E_NONE
 
 	default:

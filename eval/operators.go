@@ -175,12 +175,23 @@ func evalModulo(left, right types.Value) types.Result {
 	if leftIsFloat || rightIsFloat {
 		leftFloat := toFloat64(leftNum)
 		rightFloat := toFloat64(rightNum)
-		// Use math.Mod for float modulo
-		return types.Ok(types.FloatValue{Val: math.Mod(leftFloat, rightFloat)})
+		// Use floored modulo (MOO/Python semantics): result sign matches divisor
+		result := math.Mod(leftFloat, rightFloat)
+		if result != 0 && (result < 0) != (rightFloat < 0) {
+			result += rightFloat
+		}
+		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	// Both are ints
-	return types.Ok(types.IntValue{Val: leftNum.(int64) % rightNum.(int64)})
+	// Both are ints - use floored modulo (MOO/Python semantics)
+	leftInt := leftNum.(int64)
+	rightInt := rightNum.(int64)
+	result := leftInt % rightInt
+	// Adjust if signs differ and result is non-zero
+	if result != 0 && (result < 0) != (rightInt < 0) {
+		result += rightInt
+	}
+	return types.Ok(types.IntValue{Val: result})
 }
 
 // evalPower implements exponentiation: left ^ right

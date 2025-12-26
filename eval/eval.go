@@ -486,6 +486,11 @@ func (e *Evaluator) evalMapExpr(node *parser.MapExpr, ctx *types.TaskContext) ty
 			return keyResult
 		}
 
+		// Validate key type - lists and maps cannot be map keys
+		if !types.IsValidMapKey(keyResult.Val) {
+			return types.Err(types.E_TYPE)
+		}
+
 		// Evaluate value
 		valueResult := e.Eval(pair.Value, ctx)
 		if !valueResult.IsNormal() {

@@ -199,7 +199,7 @@ func (e *Evaluator) evalForRange(stmt *parser.ForStmt, ctx *types.TaskContext) t
 		case types.FlowReturn, types.FlowException:
 			return bodyResult
 		case types.FlowBreak:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				// Break value becomes loop value, or 0 if no value
 				if bodyResult.Val != nil {
 					return types.Ok(bodyResult.Val)
@@ -208,7 +208,7 @@ func (e *Evaluator) evalForRange(stmt *parser.ForStmt, ctx *types.TaskContext) t
 			}
 			return bodyResult
 		case types.FlowContinue:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				continue
 			}
 			return bodyResult
@@ -247,6 +247,24 @@ func (e *Evaluator) evalForContainer(stmt *parser.ForStmt, ctx *types.TaskContex
 	return types.Err(types.E_TYPE)
 }
 
+// forLoopLabelMatches checks if a break/continue label matches this for loop
+// In MOO, the loop variable name(s) act as implicit labels for the loop
+func forLoopLabelMatches(label string, stmt *parser.ForStmt) bool {
+	if label == "" {
+		return true // No label means innermost loop
+	}
+	if stmt.Label != "" && label == stmt.Label {
+		return true // Explicit loop label matches
+	}
+	if label == stmt.Value {
+		return true // Matches first loop variable
+	}
+	if stmt.Index != "" && label == stmt.Index {
+		return true // Matches second loop variable (index/key)
+	}
+	return false
+}
+
 // evalForList evaluates for loops over lists
 func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx *types.TaskContext) types.Result {
 	// Take a snapshot - mutations during iteration don't affect us
@@ -269,7 +287,7 @@ func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx
 		case types.FlowReturn, types.FlowException:
 			return bodyResult
 		case types.FlowBreak:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				// Break value becomes loop value, or 0 if no value
 				if bodyResult.Val != nil {
 					return types.Ok(bodyResult.Val)
@@ -278,7 +296,7 @@ func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx
 			}
 			return bodyResult
 		case types.FlowContinue:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				continue
 			}
 			return bodyResult
@@ -313,7 +331,7 @@ func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx
 		case types.FlowReturn, types.FlowException:
 			return bodyResult
 		case types.FlowBreak:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				// Break value becomes loop value, or 0 if no value
 				if bodyResult.Val != nil {
 					return types.Ok(bodyResult.Val)
@@ -322,7 +340,7 @@ func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx
 			}
 			return bodyResult
 		case types.FlowContinue:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				continue
 			}
 			return bodyResult
@@ -355,7 +373,7 @@ func (e *Evaluator) evalForString(stmt *parser.ForStmt, strVal *types.StrValue, 
 		case types.FlowReturn, types.FlowException:
 			return bodyResult
 		case types.FlowBreak:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				// Break value becomes loop value, or 0 if no value
 				if bodyResult.Val != nil {
 					return types.Ok(bodyResult.Val)
@@ -364,7 +382,7 @@ func (e *Evaluator) evalForString(stmt *parser.ForStmt, strVal *types.StrValue, 
 			}
 			return bodyResult
 		case types.FlowContinue:
-			if bodyResult.Label == "" || bodyResult.Label == stmt.Label {
+			if forLoopLabelMatches(bodyResult.Label, stmt) {
 				continue
 			}
 			return bodyResult
