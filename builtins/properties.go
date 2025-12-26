@@ -56,10 +56,13 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value, store *db.Sto
 
 	// TODO: Check read permission (currently allows all)
 
-	// Return list of property names
+	// Return list of property names that are DEFINED on this object
+	// (not just local value overrides of inherited properties)
 	names := make([]types.Value, 0, len(obj.Properties))
-	for name := range obj.Properties {
-		names = append(names, types.NewStr(name))
+	for name, prop := range obj.Properties {
+		if prop.Defined {
+			names = append(names, types.NewStr(name))
+		}
 	}
 
 	return types.Ok(types.NewList(names))
@@ -235,13 +238,14 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_TYPE)
 	}
 
-	// Create property
+	// Create property (defined on this object via add_property)
 	obj.Properties[propName] = &db.Property{
-		Name:  propName,
-		Value: value,
-		Owner: owner,
-		Perms: perms,
-		Clear: false,
+		Name:    propName,
+		Value:   value,
+		Owner:   owner,
+		Perms:   perms,
+		Clear:   false,
+		Defined: true, // This property is defined on this object
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -319,13 +323,14 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 	// Get or create property entry
 	prop, exists := obj.Properties[propName]
 	if !exists {
-		// Create a clear property
+		// Create a clear property (not a defined property)
 		obj.Properties[propName] = &db.Property{
-			Name:  propName,
-			Value: nil,
-			Owner: ctx.Programmer,
-			Perms: db.PropRead | db.PropWrite,
-			Clear: true,
+			Name:    propName,
+			Value:   nil,
+			Owner:   ctx.Programmer,
+			Perms:   db.PropRead | db.PropWrite,
+			Clear:   true,
+			Defined: false, // Not defined via add_property
 		}
 	} else {
 		// Clear existing property

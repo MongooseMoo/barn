@@ -210,12 +210,15 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 
 	// Property is inherited - create a local copy with the new value
 	// This "overrides" the inherited value on this object
+	// Note: Defined=false because this is NOT a new property definition,
+	// just a local value override of an inherited property
 	newProp := &db.Property{
-		Name:  node.Property,
-		Value: value,
-		Owner: inheritedProp.Owner,
-		Perms: inheritedProp.Perms,
-		Clear: false, // Has local value now
+		Name:    node.Property,
+		Value:   value,
+		Owner:   inheritedProp.Owner,
+		Perms:   inheritedProp.Perms,
+		Clear:   false, // Has local value now
+		Defined: false, // Not defined on this object, just overriding inherited
 	}
 	obj.Properties[node.Property] = newProp
 

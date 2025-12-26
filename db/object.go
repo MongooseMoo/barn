@@ -29,11 +29,12 @@ type Object struct {
 
 // Property represents a property on an object
 type Property struct {
-	Name  string
-	Value types.Value
-	Owner types.ObjID
-	Perms PropertyPerms
-	Clear bool // If true, inherits from parent
+	Name    string
+	Value   types.Value
+	Owner   types.ObjID
+	Perms   PropertyPerms
+	Clear   bool // If true, inherits from parent
+	Defined bool // If true, was added via add_property on this object
 }
 
 // Verb represents a verb on an object
