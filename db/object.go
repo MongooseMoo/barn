@@ -162,6 +162,6 @@ func NewObject(id types.ObjID, owner types.ObjID) *Object {
 		Location:   types.ObjNothing,
 		Properties: make(map[string]*Property),
 		Verbs:      make(map[string]*Verb),
-		Flags:      FlagRead | FlagWrite, // Default: readable and writable
+		Flags:      0, // Default: not readable or writable (MOO semantics)
 	}
 }

@@ -156,12 +156,12 @@ func TestNewObject(t *testing.T) {
 		t.Errorf("Verbs len = %d, want 0", len(obj.Verbs))
 	}
 
-	// Check default flags (readable + writable)
-	if !obj.Flags.Has(FlagRead) {
-		t.Error("FlagRead not set by default")
+	// Check default flags (not readable or writable per MOO semantics)
+	if obj.Flags.Has(FlagRead) {
+		t.Error("FlagRead should not be set by default")
 	}
-	if !obj.Flags.Has(FlagWrite) {
-		t.Error("FlagWrite not set by default")
+	if obj.Flags.Has(FlagWrite) {
+		t.Error("FlagWrite should not be set by default")
 	}
 }
 
