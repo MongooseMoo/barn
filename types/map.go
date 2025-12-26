@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -144,17 +145,96 @@ func NewEmptyMap() MapValue {
 }
 
 // String returns the MOO string representation
+// Keys are sorted in MOO canonical order: INT < OBJ < FLOAT < ERR < STR
 func (m MapValue) String() string {
 	pairs := m.data.Pairs()
 	if len(pairs) == 0 {
 		return "[]"
 	}
 
+	// Sort pairs by key in MOO order
+	sortMapPairsForOutput(pairs)
+
 	var parts []string
 	for _, p := range pairs {
 		parts = append(parts, fmt.Sprintf("%s -> %s", p[0].String(), p[1].String()))
 	}
 	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// sortMapPairsForOutput sorts pairs by key in MOO order
+func sortMapPairsForOutput(pairs [][2]Value) {
+	sort.Slice(pairs, func(i, j int) bool {
+		return compareMapKeysForOutput(pairs[i][0], pairs[j][0]) < 0
+	})
+}
+
+// compareMapKeysForOutput compares two keys for MOO map output order
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
+func compareMapKeysForOutput(a, b Value) int {
+	typeOrder := func(v Value) int {
+		switch v.(type) {
+		case IntValue:
+			return 0
+		case ObjValue:
+			return 1
+		case FloatValue:
+			return 2
+		case ErrValue:
+			return 3
+		case StrValue:
+			return 4
+		default:
+			return 5
+		}
+	}
+
+	aOrder := typeOrder(a)
+	bOrder := typeOrder(b)
+	if aOrder != bOrder {
+		return aOrder - bOrder
+	}
+
+	// Same type, compare values
+	switch av := a.(type) {
+	case IntValue:
+		bv := b.(IntValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case ObjValue:
+		bv := b.(ObjValue)
+		if av.id < bv.id {
+			return -1
+		} else if av.id > bv.id {
+			return 1
+		}
+		return 0
+	case FloatValue:
+		bv := b.(FloatValue)
+		if av.Val < bv.Val {
+			return -1
+		} else if av.Val > bv.Val {
+			return 1
+		}
+		return 0
+	case ErrValue:
+		bv := b.(ErrValue)
+		if av.code < bv.code {
+			return -1
+		} else if av.code > bv.code {
+			return 1
+		}
+		return 0
+	case StrValue:
+		bv := b.(StrValue)
+		// Case-insensitive comparison for strings
+		return strings.Compare(strings.ToLower(av.val), strings.ToLower(bv.val))
+	}
+	return 0
 }
 
 // Type returns the MOO type
