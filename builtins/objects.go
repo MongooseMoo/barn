@@ -971,9 +971,9 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_INVIND)
 	}
 
-	// Anonymous objects cannot be players
+	// Anonymous objects cannot be players - E_TYPE per MOO spec
 	if obj.Anonymous {
-		return types.Err(types.E_INVARG)
+		return types.Err(types.E_TYPE)
 	}
 
 	if obj.Flags.Has(db.FlagUser) {
@@ -999,9 +999,9 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.
 		return types.Err(types.E_INVIND)
 	}
 
-	// Anonymous objects cannot have player flag set
+	// Anonymous objects cannot have player flag set - E_TYPE per MOO spec
 	if obj.Anonymous {
-		return types.Err(types.E_INVARG)
+		return types.Err(types.E_TYPE)
 	}
 
 	// TODO: Check wizard permissions (Layer 8.5)

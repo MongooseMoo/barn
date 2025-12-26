@@ -188,7 +188,10 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 	}
 
 	// Check for built-in property assignment
-	if e.setBuiltinProperty(obj, node.Property, value) {
+	if isBuiltin, errCode := e.setBuiltinProperty(obj, node.Property, value, ctx); isBuiltin {
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 		return types.Ok(value)
 	}
 
@@ -227,48 +230,67 @@ func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Va
 }
 
 // setBuiltinProperty sets a built-in object property
-// Returns true if the property was a built-in, false otherwise
-func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.Value) bool {
+// Returns (isBuiltin, errorCode) where isBuiltin indicates if it was a built-in property
+// and errorCode is E_NONE on success or the appropriate error on failure
+func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
+	// Helper to check if caller is wizard
+	isWizard := func() bool {
+		programmer := e.store.Get(ctx.Programmer)
+		return programmer != nil && programmer.Flags.Has(db.FlagWizard)
+	}
+
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
 			obj.Name = str.Value()
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "owner":
 		if objVal, ok := value.(types.ObjValue); ok {
+			// For anonymous objects, only wizards can change owner
+			if obj.Anonymous && !isWizard() {
+				return true, types.E_PERM
+			}
 			obj.Owner = objVal.ID()
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "location":
 		if objVal, ok := value.(types.ObjValue); ok {
 			// TODO: Update contents of old/new locations
 			obj.Location = objVal.ID()
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "programmer":
 		if intVal, ok := value.(types.IntValue); ok {
+			// Anonymous objects cannot have programmer flag modified
+			if obj.Anonymous {
+				return true, types.E_PERM
+			}
 			if intVal.Val != 0 {
 				obj.Flags = obj.Flags.Set(db.FlagProgrammer)
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagProgrammer)
 			}
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "wizard":
 		if intVal, ok := value.(types.IntValue); ok {
+			// Anonymous objects cannot have wizard flag modified
+			if obj.Anonymous {
+				return true, types.E_PERM
+			}
 			if intVal.Val != 0 {
 				obj.Flags = obj.Flags.Set(db.FlagWizard)
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagWizard)
 			}
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "player":
 		if intVal, ok := value.(types.IntValue); ok {
 			if intVal.Val != 0 {
@@ -276,9 +298,9 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagUser)
 			}
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "r":
 		if intVal, ok := value.(types.IntValue); ok {
 			if intVal.Val != 0 {
@@ -286,9 +308,9 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagRead)
 			}
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "w":
 		if intVal, ok := value.(types.IntValue); ok {
 			if intVal.Val != 0 {
@@ -296,9 +318,9 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagWrite)
 			}
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	case "f":
 		if intVal, ok := value.(types.IntValue); ok {
 			if intVal.Val != 0 {
@@ -306,10 +328,10 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagFertile)
 			}
-			return true
+			return true, types.E_NONE
 		}
-		return false
+		return false, types.E_NONE
 	default:
-		return false
+		return false, types.E_NONE
 	}
 }
