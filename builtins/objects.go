@@ -163,7 +163,10 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 		// Check fertile flag and permissions:
 		// - Wizards can create from any object
 		// - Non-wizards can only create from objects they own OR that have the fertile flag
-		if !ctx.IsWizard {
+		// Note: Wizard check is based on Player, not Programmer (verb owner)
+		// This allows wizard players to use create() even when called from non-wizard verbs
+		playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+		if !playerIsWizard {
 			isOwner := parent.Owner == ctx.Programmer
 			hasFertile := parent.Flags.Has(db.FlagFertile)
 			if !isOwner && !hasFertile {
@@ -271,7 +274,8 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 			return types.Err(types.E_INVARG)
 		}
 		// Only wizards can specify $nothing as owner (makes object own itself)
-		if owner == types.ObjNothing && !ctx.IsWizard {
+		playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+		if owner == types.ObjNothing && !playerIsWizard {
 			return types.Err(types.E_PERM)
 		}
 	}
@@ -1083,6 +1087,15 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) typ
 }
 
 // Helper functions
+
+// isPlayerWizard checks if a player object has wizard permissions
+func isPlayerWizard(store *db.Store, objID types.ObjID) bool {
+	obj := store.Get(objID)
+	if obj == nil {
+		return false
+	}
+	return obj.Flags.Has(db.FlagWizard)
+}
 
 // removeObjID removes an ObjID from a slice
 func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
