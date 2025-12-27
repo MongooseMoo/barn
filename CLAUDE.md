@@ -52,11 +52,67 @@ barn/
 
 Tests live in `~/code/cow_py/tests/conformance/` and are shared between Python and Go implementations.
 
+### Running Tests Against Barn (Go Server)
+
 ```bash
-# Run all conformance tests
+# 1. Build barn
+cd ~/code/barn
+go build -o barn_test.exe ./cmd/barn/
+
+# 2. Start barn server on a free port
+./barn_test.exe -db Test.db -port 9300 > server.log 2>&1 &
+
+# 3. Wait for server to start
+sleep 2
+
+# 4. Run conformance tests via socket transport
 cd ~/code/cow_py
-uv run pytest tests/conformance/ -v
+uv run pytest tests/conformance/ --transport socket --moo-port 9300 -v
+
+# Stop on first failure (recommended for debugging):
+uv run pytest tests/conformance/ --transport socket --moo-port 9300 -x -v
+
+# Run specific test category:
+uv run pytest tests/conformance/ --transport socket --moo-port 9300 -k "arithmetic" -v
+
+# Skip known problematic tests:
+uv run pytest tests/conformance/ --transport socket --moo-port 9300 -k "not property and not crypt" -x -v
 ```
+
+### Running Tests Against cow_py (Python Server - Direct)
+
+```bash
+cd ~/code/cow_py
+uv run pytest tests/conformance/ -v  # Uses direct transport by default
+```
+
+### Test Options
+
+| Option | Description |
+|--------|-------------|
+| `--transport socket` | Connect to external MOO server via TCP |
+| `--transport direct` | Use cow_py's Python implementation directly (default) |
+| `--moo-port PORT` | Port for socket transport (default: 7777) |
+| `--moo-host HOST` | Host for socket transport (default: localhost) |
+| `-x` | Stop on first failure |
+| `-v` | Verbose output |
+| `-k "pattern"` | Filter tests by name pattern |
+
+### Manual Testing
+
+```bash
+# Quick manual test against barn:
+printf 'connect wizard\n; return 1 + 1;\n' | nc -w 3 localhost 9300
+
+# Expected output:
+# -=!-^-!=-
+# {1, 2}
+# -=!-v-!=-
+```
+
+### Test Database
+
+Barn uses `Test.db` which creates new wizard players on `connect wizard`. Each connection gets a fresh wizard player object.
 
 ## Spec Audit Workflow
 
