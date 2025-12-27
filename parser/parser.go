@@ -467,13 +467,22 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 			// Verb name can be static or dynamic
 			var verbName string
+			var verbExpr Expr
 			if p.current.Type == TOKEN_IDENTIFIER {
 				verbName = p.current.Value
 				p.nextToken()
 			} else if p.current.Type == TOKEN_LPAREN {
 				// Dynamic verb name: expr:(expr)(args)
-				// Not implemented yet
-				return nil, fmt.Errorf("dynamic verb names not yet implemented")
+				p.nextToken() // consume '('
+				var err error
+				verbExpr, err = p.ParseExpression(PREC_LOWEST)
+				if err != nil {
+					return nil, err
+				}
+				if p.current.Type != TOKEN_RPAREN {
+					return nil, fmt.Errorf("expected ')' after dynamic verb name, got %s", p.current.Type)
+				}
+				p.nextToken() // consume ')'
 			} else {
 				return nil, fmt.Errorf("expected verb name after ':', got %s", p.current.Type)
 			}
@@ -506,10 +515,11 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			p.nextToken()
 
 			left = &VerbCallExpr{
-				Pos:  pos,
-				Expr: left,
-				Verb: verbName,
-				Args: args,
+				Pos:      pos,
+				Expr:     left,
+				Verb:     verbName,
+				VerbExpr: verbExpr,
+				Args:     args,
 			}
 
 		case TOKEN_QUESTION:

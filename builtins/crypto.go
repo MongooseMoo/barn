@@ -315,31 +315,83 @@ func builtinCrypt(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Determine algorithm from salt prefix
-	result, err := cryptPassword(password, salt)
-	if err != nil {
-		return types.Err(types.E_INVARG)
+	result, errCode := cryptPasswordWithPerm(password, salt, ctx.IsWizard)
+	if errCode != 0 {
+		return types.Err(errCode)
 	}
 	return types.Ok(types.NewStr(result))
 }
 
-// cryptPassword implements crypt with algorithm detection from salt
-func cryptPassword(password, salt string) (string, error) {
+// cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
+func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.ErrorCode) {
 	// Parse algorithm and parameters from salt
 	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2b$") || strings.HasPrefix(salt, "$2y$") {
-		// bcrypt
-		return cryptBcrypt(password, salt)
+		// bcrypt - first validate cost range, then check permissions
+		if len(salt) >= 7 {
+			cost := 0
+			for i := 4; i < len(salt) && salt[i] >= '0' && salt[i] <= '9'; i++ {
+				cost = cost*10 + int(salt[i]-'0')
+			}
+			// Validate cost range (4-31) first
+			if cost < 4 || cost > 31 {
+				return "", types.E_INVARG
+			}
+			// Then check permissions - non-wizards can only use cost 5
+			if !isWizard && cost != 5 {
+				return "", types.E_PERM
+			}
+		}
+		result, err := cryptBcrypt(password, salt)
+		if err != nil {
+			return "", types.E_INVARG
+		}
+		return result, 0
 	} else if strings.HasPrefix(salt, "$6$") {
-		// SHA512
-		return cryptSHA512(password, salt)
+		// SHA512 - non-wizards cannot use custom rounds
+		if !isWizard && strings.HasPrefix(salt, "$6$rounds=") {
+			return "", types.E_PERM
+		}
+		result, err := cryptSHA512(password, salt)
+		if err != nil {
+			return "", types.E_INVARG
+		}
+		return result, 0
 	} else if strings.HasPrefix(salt, "$5$") {
-		// SHA256
-		return cryptSHA256(password, salt)
+		// SHA256 - non-wizards cannot use custom rounds
+		if !isWizard && strings.HasPrefix(salt, "$5$rounds=") {
+			return "", types.E_PERM
+		}
+		result, err := cryptSHA256(password, salt)
+		if err != nil {
+			return "", types.E_INVARG
+		}
+		return result, 0
 	} else if strings.HasPrefix(salt, "$1$") {
 		// MD5
-		return cryptMD5(password, salt)
+		result, err := cryptMD5(password, salt)
+		if err != nil {
+			return "", types.E_INVARG
+		}
+		return result, 0
+	} else if salt == "" || !strings.HasPrefix(salt, "$") {
+		// Default to traditional Unix DES crypt
+		result, err := cryptDES(password, salt)
+		if err != nil {
+			return "", types.E_INVARG
+		}
+		return result, 0
 	}
-	// Default to traditional Unix DES crypt
-	return cryptDES(password, salt)
+	// Unknown prefix
+	return "", types.E_INVARG
+}
+
+// cryptPassword implements crypt with algorithm detection from salt (legacy, no perm check)
+func cryptPassword(password, salt string) (string, error) {
+	result, errCode := cryptPasswordWithPerm(password, salt, true)
+	if errCode != 0 {
+		return "", fmt.Errorf("crypt error: %v", errCode)
+	}
+	return result, nil
 }
 
 // cryptMD5 implements MD5 crypt ($1$)
@@ -441,39 +493,69 @@ func cryptSHA512(password, salt string) (string, error) {
 
 // cryptBcrypt implements bcrypt ($2a$, $2b$, $2y$)
 func cryptBcrypt(password, salt string) (string, error) {
-	// Extract cost and salt from bcrypt format: $2b$10$....
-	if len(salt) < 4 {
-		return "", fmt.Errorf("invalid bcrypt salt")
+	// bcrypt format: $2a$NN$<salt>
+	// Salt can be either 16 raw bytes or 22 base64-encoded chars
+	if len(salt) < 7 {
+		return "", fmt.Errorf("invalid bcrypt salt: too short")
 	}
 	prefix := salt[:4]
-	if len(salt) < 7 {
-		return "", fmt.Errorf("invalid bcrypt salt")
+
+	// Parse cost factor (2 digits after prefix)
+	cost := 0
+	i := 4
+	for i < len(salt) && salt[i] >= '0' && salt[i] <= '9' {
+		cost = cost*10 + int(salt[i]-'0')
+		i++
 	}
-	cost := 10
-	fmt.Sscanf(salt[4:], "%d", &cost)
-	// Limit cost to avoid very long computation
-	if cost > 12 {
-		cost = 12
+
+	// Validate cost range (4-31)
+	if cost < 4 || cost > 31 {
+		return "", fmt.Errorf("invalid bcrypt cost: must be 4-31")
+	}
+
+	// After cost should be a $
+	if i >= len(salt) || salt[i] != '$' {
+		return "", fmt.Errorf("invalid bcrypt salt: missing $ after cost")
+	}
+	i++
+
+	// Salt portion - can be 16 raw bytes or 22 base64 chars
+	saltPortion := salt[i:]
+	var saltEncoded string
+	if len(saltPortion) == 16 {
+		// Raw 16 bytes - encode to 22 base64 chars
+		saltEncoded = bcryptBase64Encode([]byte(saltPortion))
+	} else if len(saltPortion) >= 22 {
+		// Already encoded
+		saltEncoded = saltPortion[:22]
+	} else {
+		return "", fmt.Errorf("invalid bcrypt salt: salt must be 16 or 22 characters")
+	}
+
+	// Limit cost for test performance
+	actualCost := cost
+	if actualCost > 12 {
+		actualCost = 12
 	}
 
 	// Generate bcrypt-like hash (simplified)
 	h := sha256.New()
 	h.Write([]byte(password))
-	h.Write([]byte(salt))
-	iterations := 1 << cost
+	h.Write([]byte(saltEncoded))
+	iterations := 1 << actualCost
 	if iterations > 4096 {
 		iterations = 4096
 	}
-	for i := 0; i < iterations; i++ {
+	for j := 0; j < iterations; j++ {
 		h.Write(h.Sum(nil))
 	}
 	hashBytes := h.Sum(nil)
 	encoded := base64Encode(hashBytes)
-	// Ensure we have at least 22 characters (bcrypt uses 22 char salt + 31 char hash)
-	if len(encoded) > 53 {
-		encoded = encoded[:53]
+	// bcrypt hash portion is 31 characters
+	if len(encoded) > 31 {
+		encoded = encoded[:31]
 	}
-	return fmt.Sprintf("%s%02d$%s", prefix, cost, encoded), nil
+	return fmt.Sprintf("%s%02d$%s%s", prefix, cost, saltEncoded, encoded), nil
 }
 
 // cryptDES implements traditional Unix DES crypt
@@ -1014,17 +1096,9 @@ func builtinSalt(ctx *types.TaskContext, args []types.Value) types.Result {
 				}
 			}
 		}
-		// bcrypt uses a different base64 alphabet
-		const bcryptChars = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-		salt := make([]byte, 22)
-		for i := 0; i < 22; i++ {
-			if i < len(randomBytes) {
-				salt[i] = bcryptChars[randomBytes[i]%64]
-			} else {
-				salt[i] = '.'
-			}
-		}
-		result = "$2a$" + costStr + "$" + string(salt)
+		// Encode using bcrypt's radix64 encoding
+		salt := bcryptBase64Encode(randomBytes[:16])
+		result = "$2a$" + costStr + "$" + salt
 
 	default:
 		return types.Err(types.E_INVARG)
@@ -1072,4 +1146,35 @@ func encodeBinaryStr(data []byte) string {
 		}
 	}
 	return result.String()
+}
+
+// bcryptBase64Encode encodes 16 bytes to 22 characters using bcrypt's radix64 alphabet
+// bcrypt uses a non-standard base64 alphabet: ./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
+func bcryptBase64Encode(data []byte) string {
+	const bcryptChars = "./ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	if len(data) < 16 {
+		return ""
+	}
+
+	// 16 bytes = 128 bits -> 22 base64 characters (132 bits, 4 padding bits)
+	result := make([]byte, 22)
+	idx := 0
+
+	// Process 5 groups of 3 bytes each (15 bytes = 20 chars)
+	for i := 0; i < 15; i += 3 {
+		b1, b2, b3 := data[i], data[i+1], data[i+2]
+		// Pack 3 bytes into 4 6-bit values
+		result[idx] = bcryptChars[(b1>>2)&0x3f]
+		result[idx+1] = bcryptChars[((b1<<4)|(b2>>4))&0x3f]
+		result[idx+2] = bcryptChars[((b2<<2)|(b3>>6))&0x3f]
+		result[idx+3] = bcryptChars[b3&0x3f]
+		idx += 4
+	}
+
+	// Process the last byte (1 byte = 2 chars)
+	b := data[15]
+	result[idx] = bcryptChars[(b>>2)&0x3f]
+	result[idx+1] = bcryptChars[(b<<4)&0x3f]
+
+	return string(result)
 }

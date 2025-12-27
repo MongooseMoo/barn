@@ -1,8 +1,10 @@
 package server
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/parser"
+	"barn/vm"
 	"context"
 	"fmt"
 	"log"
@@ -55,8 +57,24 @@ func (s *Server) LoadDatabase() error {
 	s.scheduler = NewScheduler(s.store)
 	s.connManager = NewConnectionManager(s, s.port)
 
+	// Wire scheduler to connection manager for output flushing
+	s.scheduler.SetConnectionManager(s.connManager)
+
+	// Wire notify() builtin to connection manager
+	builtins.SetConnectionManager(s.connManager)
+
 	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	return nil
+}
+
+// GetStore returns the object store
+func (s *Server) GetStore() *db.Store {
+	return s.store
+}
+
+// GetEvaluator returns the evaluator from the scheduler
+func (s *Server) GetEvaluator() *vm.Evaluator {
+	return s.scheduler.GetEvaluator()
 }
 
 // Start starts the server

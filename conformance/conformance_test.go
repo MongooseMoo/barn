@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"barn/server"
 	"fmt"
 	"testing"
 )
@@ -16,8 +17,17 @@ func TestConformance(t *testing.T) {
 		t.Fatal("No tests loaded")
 	}
 
-	// Create runner
-	runner := NewRunner()
+	// Create server and load database
+	srv, err := server.NewServer(DefaultDBPath, 0) // port 0 = no network
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+	if err := srv.LoadDatabase(); err != nil {
+		t.Fatalf("Failed to load database: %v", err)
+	}
+
+	// Create runner using server's evaluator
+	runner := NewRunnerWithServer(srv)
 
 	// Run all tests
 	results := runner.RunAll(tests)

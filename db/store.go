@@ -360,6 +360,14 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 		}
 
 		// Check if verb exists on this object
+		// Debug: show verbs on #0
+		if current == 0 && verbName == "do_login_command" {
+			fmt.Printf("[FINDVERB] Checking #0 for verb %q\n", verbName)
+			fmt.Printf("[FINDVERB] #0 has %d verbs in Verbs map:\n", len(obj.Verbs))
+			for k := range obj.Verbs {
+				fmt.Printf("[FINDVERB]   - key %q\n", k)
+			}
+		}
 		// Try exact name match first
 		if verb, ok := obj.Verbs[verbName]; ok {
 			return verb, current, nil

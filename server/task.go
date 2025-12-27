@@ -41,6 +41,18 @@ type Task struct {
 	Result        types.Result
 	mu            sync.Mutex
 	cancelFunc    context.CancelFunc
+
+	// Verb context (set for verb tasks)
+	VerbName string
+	This     types.ObjID // Object where verb was found
+	Caller   types.ObjID // Object that invoked the verb
+	Argstr   string      // Full argument string
+	Args     []string    // Arguments as word list
+	Dobjstr  string      // Direct object string
+	Dobj     types.ObjID // Direct object
+	Prepstr  string      // Preposition string
+	Iobjstr  string      // Indirect object string
+	Iobj     types.ObjID // Indirect object
 }
 
 // NewTask creates a new task
@@ -76,6 +88,26 @@ func (t *Task) Run(ctx context.Context, evaluator *vm.Evaluator) error {
 	t.State = TaskRunning
 	t.Evaluator = evaluator
 	t.mu.Unlock()
+
+	// Set up verb context if this is a verb task
+	if t.VerbName != "" {
+		evaluator.SetVerbContext(&vm.VerbContext{
+			Player:  t.Player,
+			This:    t.This,
+			Caller:  t.Caller,
+			Verb:    t.VerbName,
+			Args:    t.Args,
+			Argstr:  t.Argstr,
+			Dobj:    t.Dobj,
+			Dobjstr: t.Dobjstr,
+			Iobj:    t.Iobj,
+			Iobjstr: t.Iobjstr,
+			Prepstr: t.Prepstr,
+		})
+		// Also update TaskContext for permissions and builtins
+		t.Context.ThisObj = t.This
+		t.Context.Verb = t.VerbName
+	}
 
 	// Set up cancellation
 	taskCtx, cancel := context.WithDeadline(ctx, t.Deadline)

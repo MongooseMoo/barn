@@ -88,56 +88,56 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 	// Dispatch based on node type
 	switch n := node.(type) {
 	case *parser.LiteralExpr:
-		return e.evalLiteral(n, ctx)
+		return e.literal(n, ctx)
 	case *parser.IdentifierExpr:
-		return e.evalIdentifier(n, ctx)
+		return e.identifier(n, ctx)
 	case *parser.UnaryExpr:
-		return e.evalUnary(n, ctx)
+		return e.unary(n, ctx)
 	case *parser.BinaryExpr:
-		return e.evalBinary(n, ctx)
+		return e.binary(n, ctx)
 	case *parser.TernaryExpr:
-		return e.evalTernary(n, ctx)
+		return e.ternary(n, ctx)
 	case *parser.AssignExpr:
-		return e.evalAssign(n, ctx)
+		return e.assign(n, ctx)
 	case *parser.ParenExpr:
 		return e.Eval(n.Expr, ctx)
 	case *parser.BuiltinCallExpr:
-		return e.evalBuiltinCall(n, ctx)
+		return e.builtinCall(n, ctx)
 	case *parser.IndexExpr:
-		return e.evalIndex(n, ctx)
+		return e.index(n, ctx)
 	case *parser.RangeExpr:
-		return e.evalRange(n, ctx)
+		return e.rangeExpr(n, ctx)
 	case *parser.IndexMarkerExpr:
-		return e.evalIndexMarker(n, ctx)
+		return e.indexMarker(n, ctx)
 	case *parser.PropertyExpr:
-		return e.evalProperty(n, ctx)
+		return e.property(n, ctx)
 	case *parser.VerbCallExpr:
-		return e.evalVerbCall(n, ctx)
+		return e.verbCall(n, ctx)
 	case *parser.SpliceExpr:
-		return e.evalSplice(n, ctx)
+		return e.splice(n, ctx)
 	case *parser.CatchExpr:
-		return e.evalCatch(n, ctx)
+		return e.catch(n, ctx)
 	case *parser.ListExpr:
-		return e.evalListExpr(n, ctx)
+		return e.listExpr(n, ctx)
 	case *parser.ListRangeExpr:
-		return e.evalListRangeExpr(n, ctx)
+		return e.listRangeExpr(n, ctx)
 	case *parser.MapExpr:
-		return e.evalMapExpr(n, ctx)
+		return e.mapExpr(n, ctx)
 	default:
 		// Unknown node type - this should never happen if parser is correct
 		return types.Err(types.E_TYPE)
 	}
 }
 
-// evalLiteral evaluates a literal expression
+// literal evaluates a literal expression
 // Literals are already Values, just wrap in Result
-func (e *Evaluator) evalLiteral(node *parser.LiteralExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) literal(node *parser.LiteralExpr, ctx *types.TaskContext) types.Result {
 	return types.Ok(node.Value)
 }
 
-// evalIdentifier looks up a variable by name
+// identifier looks up a variable by name
 // Returns E_VARNF if the variable is not defined
-func (e *Evaluator) evalIdentifier(node *parser.IdentifierExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) identifier(node *parser.IdentifierExpr, ctx *types.TaskContext) types.Result {
 	val, ok := e.env.Get(node.Name)
 	if !ok {
 		return types.Err(types.E_VARNF)
@@ -145,9 +145,9 @@ func (e *Evaluator) evalIdentifier(node *parser.IdentifierExpr, ctx *types.TaskC
 	return types.Ok(val)
 }
 
-// evalUnary evaluates a unary expression
+// unary evaluates a unary expression
 // Implements: - (negation), ! (logical not), ~ (bitwise not)
-func (e *Evaluator) evalUnary(node *parser.UnaryExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) unary(node *parser.UnaryExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate operand
 	operandResult := e.Eval(node.Operand, ctx)
 	if !operandResult.IsNormal() {
@@ -159,27 +159,27 @@ func (e *Evaluator) evalUnary(node *parser.UnaryExpr, ctx *types.TaskContext) ty
 	switch node.Operator {
 	case parser.TOKEN_MINUS:
 		// Unary minus: -x
-		return evalUnaryMinus(operand)
+		return unaryMinus(operand)
 
 	case parser.TOKEN_NOT:
 		// Logical not: !x
-		return evalUnaryNot(operand)
+		return unaryNot(operand)
 
 	case parser.TOKEN_BITNOT:
 		// Bitwise not: ~x
-		return evalBitwiseNot(operand)
+		return bitwiseNot(operand)
 
 	default:
 		return types.Err(types.E_TYPE)
 	}
 }
 
-// evalBinary evaluates a binary expression
+// binary evaluates a binary expression
 // Handles arithmetic, comparison, logical, and bitwise operators
-func (e *Evaluator) evalBinary(node *parser.BinaryExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) binary(node *parser.BinaryExpr, ctx *types.TaskContext) types.Result {
 	// Short-circuit evaluation for && and ||
 	if node.Operator == parser.TOKEN_AND || node.Operator == parser.TOKEN_OR {
-		return e.evalLogical(node, ctx)
+		return e.logical(node, ctx)
 	}
 
 	// Evaluate both operands
@@ -200,53 +200,53 @@ func (e *Evaluator) evalBinary(node *parser.BinaryExpr, ctx *types.TaskContext) 
 	switch node.Operator {
 	// Arithmetic
 	case parser.TOKEN_PLUS:
-		return evalAdd(left, right)
+		return add(left, right)
 	case parser.TOKEN_MINUS:
-		return evalSubtract(left, right)
+		return subtract(left, right)
 	case parser.TOKEN_STAR:
-		return evalMultiply(left, right)
+		return multiply(left, right)
 	case parser.TOKEN_SLASH:
-		return evalDivide(left, right)
+		return divide(left, right)
 	case parser.TOKEN_PERCENT:
-		return evalModulo(left, right)
+		return modulo(left, right)
 	case parser.TOKEN_CARET:
-		return evalPower(left, right)
+		return power(left, right)
 
 	// Comparison
 	case parser.TOKEN_EQ:
-		return evalEqual(left, right)
+		return equal(left, right)
 	case parser.TOKEN_NE:
-		return evalNotEqual(left, right)
+		return notEqual(left, right)
 	case parser.TOKEN_LT:
-		return evalLessThan(left, right)
+		return lessThan(left, right)
 	case parser.TOKEN_LE:
-		return evalLessThanEqual(left, right)
+		return lessThanEqual(left, right)
 	case parser.TOKEN_GT:
-		return evalGreaterThan(left, right)
+		return greaterThan(left, right)
 	case parser.TOKEN_GE:
-		return evalGreaterThanEqual(left, right)
+		return greaterThanEqual(left, right)
 	case parser.TOKEN_IN:
-		return evalIn(left, right)
+		return inOp(left, right)
 
 	// Bitwise
 	case parser.TOKEN_BITAND:
-		return evalBitwiseAnd(left, right)
+		return bitwiseAnd(left, right)
 	case parser.TOKEN_BITOR:
-		return evalBitwiseOr(left, right)
+		return bitwiseOr(left, right)
 	case parser.TOKEN_BITXOR:
-		return evalBitwiseXor(left, right)
+		return bitwiseXor(left, right)
 	case parser.TOKEN_LSHIFT:
-		return evalLeftShift(left, right)
+		return leftShift(left, right)
 	case parser.TOKEN_RSHIFT:
-		return evalRightShift(left, right)
+		return rightShift(left, right)
 
 	default:
 		return types.Err(types.E_TYPE)
 	}
 }
 
-// evalLogical evaluates && and || with short-circuit semantics
-func (e *Evaluator) evalLogical(node *parser.BinaryExpr, ctx *types.TaskContext) types.Result {
+// logical evaluates && and || with short-circuit semantics
+func (e *Evaluator) logical(node *parser.BinaryExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate left operand
 	leftResult := e.Eval(node.Left, ctx)
 	if !leftResult.IsNormal() {
@@ -277,8 +277,8 @@ func (e *Evaluator) evalLogical(node *parser.BinaryExpr, ctx *types.TaskContext)
 	}
 }
 
-// evalTernary evaluates a ternary expression: cond ? true_expr | false_expr
-func (e *Evaluator) evalTernary(node *parser.TernaryExpr, ctx *types.TaskContext) types.Result {
+// ternary evaluates a ternary expression: cond ? true_expr | false_expr
+func (e *Evaluator) ternary(node *parser.TernaryExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate condition
 	condResult := e.Eval(node.Condition, ctx)
 	if !condResult.IsNormal() {
@@ -293,9 +293,9 @@ func (e *Evaluator) evalTernary(node *parser.TernaryExpr, ctx *types.TaskContext
 	}
 }
 
-// evalAssign evaluates an assignment expression: target = value
+// assign evaluates an assignment expression: target = value
 // Supports variable assignment (simple and nested scopes)
-func (e *Evaluator) evalAssign(node *parser.AssignExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) assign(node *parser.AssignExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate the value to assign
 	valueResult := e.Eval(node.Value, ctx)
 	if !valueResult.IsNormal() {
@@ -313,15 +313,15 @@ func (e *Evaluator) evalAssign(node *parser.AssignExpr, ctx *types.TaskContext) 
 
 	case *parser.PropertyExpr:
 		// Property assignment: obj.property = value
-		return e.evalAssignProperty(target, value, ctx)
+		return e.assignProperty(target, value, ctx)
 
 	case *parser.IndexExpr:
 		// Index assignment: list[i] = value, str[i] = char, map[key] = value
-		return e.evalAssignIndex(target, value, ctx)
+		return e.assignIndex(target, value, ctx)
 
 	case *parser.RangeExpr:
 		// Range assignment: list[1..3] = vals, str[1..3] = substr
-		return e.evalAssignRange(target, value, ctx)
+		return e.assignRange(target, value, ctx)
 
 	default:
 		// Other assignment targets not supported
@@ -329,8 +329,8 @@ func (e *Evaluator) evalAssign(node *parser.AssignExpr, ctx *types.TaskContext) 
 	}
 }
 
-// evalBuiltinCall evaluates a builtin function call
-func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.TaskContext) types.Result {
+// builtinCall evaluates a builtin function call
+func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskContext) types.Result {
 	// Look up the builtin function
 	fn, ok := e.builtins.Get(node.Name)
 	if !ok {
@@ -352,10 +352,10 @@ func (e *Evaluator) evalBuiltinCall(node *parser.BuiltinCallExpr, ctx *types.Tas
 	return fn(ctx, args)
 }
 
-// evalIndexMarker evaluates an index marker (^ or $)
+// indexMarker evaluates an index marker (^ or $)
 // For lists/strings: ^ = 1, $ = length
 // For maps: ^ = first key, $ = last key
-func (e *Evaluator) evalIndexMarker(node *parser.IndexMarkerExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) indexMarker(node *parser.IndexMarkerExpr, ctx *types.TaskContext) types.Result {
 	// Check if we have an indexing context
 	// IndexContext = -1 means "not in an indexing context"
 	// IndexContext >= 0 means we're indexing a collection of that length (0 for empty)
@@ -385,6 +385,43 @@ func (e *Evaluator) GetEnvironment() *Environment {
 	return e.env
 }
 
+// VerbContext contains the context for a verb execution
+type VerbContext struct {
+	Player  types.ObjID
+	This    types.ObjID
+	Caller  types.ObjID
+	Verb    string
+	Args    []string
+	Argstr  string
+	Dobj    types.ObjID
+	Dobjstr string
+	Iobj    types.ObjID
+	Iobjstr string
+	Prepstr string
+}
+
+// SetVerbContext sets up the environment for verb execution
+func (e *Evaluator) SetVerbContext(vc *VerbContext) {
+	e.env.Set("player", types.NewObj(vc.Player))
+	e.env.Set("this", types.NewObj(vc.This))
+	e.env.Set("caller", types.NewObj(vc.Caller))
+	e.env.Set("verb", types.NewStr(vc.Verb))
+	e.env.Set("argstr", types.NewStr(vc.Argstr))
+
+	// Convert string args to Value list
+	argList := make([]types.Value, len(vc.Args))
+	for i, arg := range vc.Args {
+		argList[i] = types.NewStr(arg)
+	}
+	e.env.Set("args", types.NewList(argList))
+
+	e.env.Set("dobj", types.NewObj(vc.Dobj))
+	e.env.Set("dobjstr", types.NewStr(vc.Dobjstr))
+	e.env.Set("iobj", types.NewObj(vc.Iobj))
+	e.env.Set("iobjstr", types.NewStr(vc.Iobjstr))
+	e.env.Set("prepstr", types.NewStr(vc.Prepstr))
+}
+
 // EvalString parses and evaluates a string of MOO code
 // This is used by the eval() builtin
 func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result {
@@ -407,10 +444,10 @@ func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result
 	return result
 }
 
-// evalSplice evaluates a splice expression: @expr
+// splice evaluates a splice expression: @expr
 // Splice is only valid in specific contexts (list literals, function args, scatter)
 // When evaluated standalone, it simply returns E_TYPE as per spec
-func (e *Evaluator) evalSplice(node *parser.SpliceExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) splice(node *parser.SpliceExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate the expression
 	result := e.Eval(node.Expr, ctx)
 	if !result.IsNormal() {
@@ -427,9 +464,9 @@ func (e *Evaluator) evalSplice(node *parser.SpliceExpr, ctx *types.TaskContext) 
 	return result
 }
 
-// evalCatch evaluates a catch expression: `expr ! codes => default`
+// catch evaluates a catch expression: `expr ! codes => default`
 // Catches errors matching codes and returns default (or the error if no default)
-func (e *Evaluator) evalCatch(node *parser.CatchExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) catch(node *parser.CatchExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate the main expression
 	result := e.Eval(node.Expr, ctx)
 
@@ -454,9 +491,9 @@ func (e *Evaluator) evalCatch(node *parser.CatchExpr, ctx *types.TaskContext) ty
 	return result
 }
 
-// evalListExpr evaluates a list expression: {expr, expr, ...}
+// listExpr evaluates a list expression: {expr, expr, ...}
 // Handles splice (@expr) by expanding its elements into the list
-func (e *Evaluator) evalListExpr(node *parser.ListExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) listExpr(node *parser.ListExpr, ctx *types.TaskContext) types.Result {
 	var elements []types.Value
 
 	for _, elem := range node.Elements {
@@ -491,10 +528,10 @@ func (e *Evaluator) evalListExpr(node *parser.ListExpr, ctx *types.TaskContext) 
 	return types.Ok(types.NewList(elements))
 }
 
-// evalListRangeExpr evaluates a range list expression: {start..end}
+// listRangeExpr evaluates a range list expression: {start..end}
 // Generates a list of integers from start to end (inclusive)
 // Accepts both integers and objects (which are treated as their ID values)
-func (e *Evaluator) evalListRangeExpr(node *parser.ListRangeExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) listRangeExpr(node *parser.ListRangeExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate start expression
 	startResult := e.Eval(node.Start, ctx)
 	if !startResult.IsNormal() {
@@ -545,8 +582,8 @@ func (e *Evaluator) evalListRangeExpr(node *parser.ListRangeExpr, ctx *types.Tas
 	return types.Ok(types.NewList(elements))
 }
 
-// evalMapExpr evaluates a map expression: [key -> value, ...]
-func (e *Evaluator) evalMapExpr(node *parser.MapExpr, ctx *types.TaskContext) types.Result {
+// mapExpr evaluates a map expression: [key -> value, ...]
+func (e *Evaluator) mapExpr(node *parser.MapExpr, ctx *types.TaskContext) types.Result {
 	pairs := make([][2]types.Value, 0, len(node.Pairs))
 
 	for _, pair := range node.Pairs {

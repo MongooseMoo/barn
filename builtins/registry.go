@@ -106,6 +106,7 @@ func NewRegistry() *Registry {
 	r.Register("connected_players", builtinConnectedPlayers)
 	r.Register("connection_name", builtinConnectionName)
 	r.Register("boot_player", builtinBootPlayer)
+	r.Register("switch_player", builtinSwitchPlayer)
 	r.Register("idle_seconds", builtinIdleSeconds)
 	r.Register("connected_seconds", builtinConnectedSeconds)
 

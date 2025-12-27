@@ -71,4 +71,12 @@ See `prompts/README.md` for details.
 
 Phase 1: Specification (complete)
 Phase 2: Test suite completion (in progress)
-Phase 3: Go implementation (not started)
+Phase 3: Go implementation (in progress)
+
+## Go Tools Available
+
+| Tool | Install | Usage |
+|------|---------|-------|
+| gorename | `go install golang.org/x/tools/cmd/gorename@latest` | Type-safe renaming: `gorename -from '"barn/vm".Evaluator.evalFoo' -to foo` |
+
+Use these instead of manual string replacement for refactoring.

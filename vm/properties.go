@@ -6,11 +6,11 @@ import (
 	"barn/types"
 )
 
-// evalProperty evaluates property access: obj.property
+// property evaluates property access: obj.property
 // Returns E_INVIND if object is invalid
 // Returns E_PROPNF if property not found
 // Returns E_PERM if permission denied
-func (e *Evaluator) evalProperty(node *parser.PropertyExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) property(node *parser.PropertyExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate the object expression
 	objResult := e.Eval(node.Expr, ctx)
 	if objResult.Flow != types.FlowNormal {
@@ -166,11 +166,11 @@ func (e *Evaluator) findProperty(obj *db.Object, name string, ctx *types.TaskCon
 	return nil, types.E_PROPNF
 }
 
-// evalAssignProperty handles property assignment: obj.property = value
+// assignProperty handles property assignment: obj.property = value
 // Returns E_INVIND if object is invalid
 // Returns E_PROPNF if property not found
 // Returns E_PERM if permission denied
-func (e *Evaluator) evalAssignProperty(node *parser.PropertyExpr, value types.Value, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Evaluate the object expression
 	objResult := e.Eval(node.Expr, ctx)
 	if objResult.Flow != types.FlowNormal {

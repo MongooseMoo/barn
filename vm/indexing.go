@@ -6,9 +6,9 @@ import (
 	"barn/types"
 )
 
-// evalIndex evaluates indexing: expr[index]
+// index evaluates indexing: expr[index]
 // Supports: lists, strings, and maps
-func (e *Evaluator) evalIndex(node *parser.IndexExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) index(node *parser.IndexExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate the expression being indexed
 	exprResult := e.Eval(node.Expr, ctx)
 	if !exprResult.IsNormal() {
@@ -54,11 +54,11 @@ func (e *Evaluator) evalIndex(node *parser.IndexExpr, ctx *types.TaskContext) ty
 	// Dispatch based on collection type
 	switch coll := expr.(type) {
 	case types.ListValue:
-		return evalListIndex(coll, index)
+		return listIndex(coll, index)
 	case types.StrValue:
-		return evalStrIndex(coll, index)
+		return strIndex(coll, index)
 	case types.MapValue:
-		return evalMapIndex(coll, index)
+		return mapIndex(coll, index)
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -78,9 +78,9 @@ func getCollectionLength(val types.Value) int {
 	}
 }
 
-// evalRange evaluates range indexing: expr[start..end]
+// rangeExpr evaluates range indexing: expr[start..end]
 // Supports: lists and strings
-func (e *Evaluator) evalRange(node *parser.RangeExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) rangeExpr(node *parser.RangeExpr, ctx *types.TaskContext) types.Result {
 	// Evaluate the expression being indexed
 	exprResult := e.Eval(node.Expr, ctx)
 	if !exprResult.IsNormal() {
@@ -125,18 +125,18 @@ func (e *Evaluator) evalRange(node *parser.RangeExpr, ctx *types.TaskContext) ty
 	// Dispatch based on collection type
 	switch coll := expr.(type) {
 	case types.ListValue:
-		return evalListRange(coll, startIdx, endIdx)
+		return listRange(coll, startIdx, endIdx)
 	case types.StrValue:
-		return evalStrRange(coll, startIdx, endIdx)
+		return strRange(coll, startIdx, endIdx)
 	case types.MapValue:
-		return evalMapRange(coll, startIdx, endIdx)
+		return mapRange(coll, startIdx, endIdx)
 	default:
 		return types.Err(types.E_TYPE)
 	}
 }
 
-// evalListIndex evaluates list indexing
-func evalListIndex(list types.ListValue, index types.Value) types.Result {
+// listIndex evaluates list indexing
+func listIndex(list types.ListValue, index types.Value) types.Result {
 	// Index must be an integer
 	indexInt, ok := index.(types.IntValue)
 	if !ok {
@@ -157,8 +157,8 @@ func evalListIndex(list types.ListValue, index types.Value) types.Result {
 	return types.Ok(val)
 }
 
-// evalListRange evaluates list range indexing
-func evalListRange(list types.ListValue, start, end int64) types.Result {
+// listRange evaluates list range indexing
+func listRange(list types.ListValue, start, end int64) types.Result {
 	length := int64(list.Len())
 
 	// If start > end, return empty list (before bounds checking per MOO semantics)
@@ -189,8 +189,8 @@ func evalListRange(list types.ListValue, start, end int64) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
-// evalStrIndex evaluates string indexing (returns single character)
-func evalStrIndex(str types.StrValue, index types.Value) types.Result {
+// strIndex evaluates string indexing (returns single character)
+func strIndex(str types.StrValue, index types.Value) types.Result {
 	// Index must be an integer
 	indexInt, ok := index.(types.IntValue)
 	if !ok {
@@ -214,8 +214,8 @@ func evalStrIndex(str types.StrValue, index types.Value) types.Result {
 	return types.Ok(types.NewStr(char))
 }
 
-// evalStrRange evaluates string range indexing (returns substring)
-func evalStrRange(str types.StrValue, start, end int64) types.Result {
+// strRange evaluates string range indexing (returns substring)
+func strRange(str types.StrValue, start, end int64) types.Result {
 	// Get underlying string
 	s := str.Value()
 	length := int64(len(s))
@@ -238,9 +238,9 @@ func evalStrRange(str types.StrValue, start, end int64) types.Result {
 	return types.Ok(types.NewStr(substr))
 }
 
-// evalMapRange evaluates map range indexing (returns submap)
+// mapRange evaluates map range indexing (returns submap)
 // Maps are indexed by position, not key, for range operations
-func evalMapRange(m types.MapValue, start, end int64) types.Result {
+func mapRange(m types.MapValue, start, end int64) types.Result {
 	length := int64(m.Len())
 
 	// If start > end, return empty map (before bounds checking per MOO semantics)
@@ -266,8 +266,8 @@ func evalMapRange(m types.MapValue, start, end int64) types.Result {
 	return types.Ok(types.NewMap(result))
 }
 
-// evalMapIndex evaluates map indexing
-func evalMapIndex(m types.MapValue, key types.Value) types.Result {
+// mapIndex evaluates map indexing
+func mapIndex(m types.MapValue, key types.Value) types.Result {
 	// Map keys must be scalar types (not list or map)
 	// But we need to check specifically for list and map types that could be used as keys
 	switch key.(type) {
@@ -284,10 +284,10 @@ func evalMapIndex(m types.MapValue, key types.Value) types.Result {
 	return types.Ok(val)
 }
 
-// evalAssignIndex handles index assignment: coll[idx] = value
+// assignIndex handles index assignment: coll[idx] = value
 // Also handles nested assignment: coll[i][j][k] = value (copy-on-write)
 // Also handles property-indexed assignment: obj.prop[idx] = value
-func (e *Evaluator) evalAssignIndex(target *parser.IndexExpr, value types.Value, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) assignIndex(target *parser.IndexExpr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Build path of indices from the target expression
 	var path []parser.Expr // Index expressions, innermost first
 	var current parser.Expr = target
@@ -303,22 +303,22 @@ func (e *Evaluator) evalAssignIndex(target *parser.IndexExpr, value types.Value,
 			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 				path[i], path[j] = path[j], path[i]
 			}
-			return e.evalNestedAssign(expr.Name, path, value, ctx)
+			return e.nestedAssign(expr.Name, path, value, ctx)
 		case *parser.PropertyExpr:
 			// Property-indexed assignment: obj.prop[idx] = value
 			// Reverse path for processing
 			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 				path[i], path[j] = path[j], path[i]
 			}
-			return e.evalPropertyIndexedAssign(expr, path, value, ctx)
+			return e.propertyIndexedAssign(expr, path, value, ctx)
 		default:
 			return types.Err(types.E_TYPE) // Not assignable
 		}
 	}
 }
 
-// evalNestedAssign handles nested index assignment with copy-on-write semantics
-func (e *Evaluator) evalNestedAssign(varName string, indices []parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
+// nestedAssign handles nested index assignment with copy-on-write semantics
+func (e *Evaluator) nestedAssign(varName string, indices []parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Get the root collection
 	rootVal, exists := e.env.Get(varName)
 	if !exists {
@@ -327,7 +327,7 @@ func (e *Evaluator) evalNestedAssign(varName string, indices []parser.Expr, valu
 
 	// For single-level assignment, use simple path
 	if len(indices) == 1 {
-		return e.evalSimpleIndexAssign(varName, rootVal, indices[0], value, ctx)
+		return e.simpleIndexAssign(varName, rootVal, indices[0], value, ctx)
 	}
 
 	// For nested assignment, we need to:
@@ -418,8 +418,8 @@ func (e *Evaluator) evalNestedAssign(varName string, indices []parser.Expr, valu
 	return types.Ok(value)
 }
 
-// evalSimpleIndexAssign handles single-level index assignment
-func (e *Evaluator) evalSimpleIndexAssign(varName string, collVal types.Value, indexExpr parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
+// simpleIndexAssign handles single-level index assignment
+func (e *Evaluator) simpleIndexAssign(varName string, collVal types.Value, indexExpr parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Get collection length for ^ and $ resolution
 	length := getCollectionLength(collVal)
 	if length < 0 {
@@ -508,12 +508,12 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 	}
 }
 
-// evalAssignRange handles range assignment: coll[start..end] = value
+// assignRange handles range assignment: coll[start..end] = value
 // Also handles nested cases like: list[i][start..end] = value
-func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Check if this is a nested range assignment (e.g., l[3][2..$] = "u")
 	if indexExpr, ok := target.Expr.(*parser.IndexExpr); ok {
-		return e.evalNestedRangeAssign(indexExpr, target.Start, target.End, value, ctx)
+		return e.nestedRangeAssign(indexExpr, target.Start, target.End, value, ctx)
 	}
 
 	// Get the collection (must be a variable reference)
@@ -742,9 +742,9 @@ func (e *Evaluator) evalAssignRange(target *parser.RangeExpr, value types.Value,
 	return types.Ok(value)
 }
 
-// evalPropertyIndexedAssign handles property-indexed assignment: obj.prop[idx] = value
+// propertyIndexedAssign handles property-indexed assignment: obj.prop[idx] = value
 // Also handles nested: obj.prop[i][j] = value
-func (e *Evaluator) evalPropertyIndexedAssign(propExpr *parser.PropertyExpr, indices []parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) propertyIndexedAssign(propExpr *parser.PropertyExpr, indices []parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Evaluate the object expression
 	objResult := e.Eval(propExpr.Expr, ctx)
 	if objResult.Flow != types.FlowNormal {
@@ -889,7 +889,7 @@ func (e *Evaluator) evalPropertyIndexedAssign(propExpr *parser.PropertyExpr, ind
 	}
 
 	// Write the new value back to the property
-	return e.evalAssignProperty(propExpr, newPropVal, ctx)
+	return e.assignProperty(propExpr, newPropVal, ctx)
 }
 
 // getPropertyValue retrieves a property value from an object
@@ -933,9 +933,9 @@ func getBaseVariableFromRange(expr *parser.RangeExpr) (string, bool) {
 	}
 }
 
-// evalNestedRangeAssign handles nested range assignment like: l[3][2..$] = "u"
+// nestedRangeAssign handles nested range assignment like: l[3][2..$] = "u"
 // This replaces part of a nested collection element
-func (e *Evaluator) evalNestedRangeAssign(indexExpr *parser.IndexExpr, start, end parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) nestedRangeAssign(indexExpr *parser.IndexExpr, start, end parser.Expr, value types.Value, ctx *types.TaskContext) types.Result {
 	// Build path of indices from the IndexExpr chain
 	var indices []parser.Expr
 	var baseVarName string

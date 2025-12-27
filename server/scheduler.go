@@ -19,6 +19,7 @@ type Scheduler struct {
 	nextTaskID  int64
 	evaluator   *vm.Evaluator
 	store       *db.Store
+	connManager *ConnectionManager
 	mu          sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -50,6 +51,16 @@ func (s *Scheduler) Start() {
 func (s *Scheduler) Stop() {
 	s.cancel()
 	s.wg.Wait()
+}
+
+// GetEvaluator returns the scheduler's evaluator
+func (s *Scheduler) GetEvaluator() *vm.Evaluator {
+	return s.evaluator
+}
+
+// SetConnectionManager sets the connection manager for output flushing
+func (s *Scheduler) SetConnectionManager(cm *ConnectionManager) {
+	s.connManager = cm
 }
 
 // run is the main scheduler loop
@@ -97,6 +108,13 @@ func (s *Scheduler) processReadyTasks() {
 				// Log error (in real implementation)
 				_ = err
 			}
+
+			// Flush output buffer for the player
+			if s.connManager != nil {
+				if conn := s.connManager.GetConnection(t.Player); conn != nil {
+					conn.Flush()
+				}
+			}
 		}(task)
 	}
 }
@@ -121,6 +139,27 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 	return s.QueueTask(task)
 }
 
+// CreateVerbTask creates a task to execute a verb
+func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand) int64 {
+	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	task := NewTask(taskID, player, match.Verb.Program.Statements, 60000, 5*time.Second)
+	task.StartTime = time.Now()
+
+	// Set up verb context
+	task.VerbName = match.Verb.Name
+	task.This = match.This
+	task.Caller = player
+	task.Argstr = cmd.Argstr
+	task.Args = cmd.Args
+	task.Dobjstr = cmd.Dobjstr
+	task.Dobj = cmd.Dobj
+	task.Prepstr = cmd.Prepstr
+	task.Iobjstr = cmd.Iobjstr
+	task.Iobj = cmd.Iobj
+
+	return s.QueueTask(task)
+}
+
 // CreateBackgroundTask creates a background task (fork)
 func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
@@ -132,6 +171,18 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt,
 // Fork creates a forked task with a delay
 func (s *Scheduler) Fork(ctx *types.TaskContext, code []parser.Stmt, delay time.Duration) int64 {
 	return s.CreateBackgroundTask(ctx.Player, code, delay)
+}
+
+// CallVerb synchronously executes a verb on an object and returns the result
+// This is used for server hooks like do_login_command, user_connected, etc.
+func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) types.Result {
+	ctx := types.NewTaskContext()
+	ctx.Player = player
+	ctx.Programmer = player
+	ctx.ThisObj = objID
+	ctx.Verb = verbName
+
+	return s.evaluator.CallVerb(objID, verbName, args, ctx)
 }
 
 // ResumeTask resumes a suspended task

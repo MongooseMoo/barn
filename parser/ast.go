@@ -118,12 +118,14 @@ type PropertyExpr struct {
 func (e *PropertyExpr) Position() Position { return e.Pos }
 func (e *PropertyExpr) exprNode()          {}
 
-// VerbCallExpr represents verb call: expr:verb(args)
+// VerbCallExpr represents verb call: expr:verb(args) or expr:(expr)(args)
+// If Verb is empty, VerbExpr is the dynamic verb name expression
 type VerbCallExpr struct {
-	Pos  Position
-	Expr Expr
-	Verb string
-	Args []Expr
+	Pos      Position
+	Expr     Expr
+	Verb     string // Static verb name (empty if dynamic)
+	VerbExpr Expr   // Dynamic verb name expression (nil if static)
+	Args     []Expr
 }
 
 func (e *VerbCallExpr) Position() Position { return e.Pos }

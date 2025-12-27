@@ -2,9 +2,10 @@ package conformance
 
 import (
 	"barn/db"
-	"barn/vm"
 	"barn/parser"
+	"barn/server"
 	"barn/types"
+	"barn/vm"
 	"fmt"
 	"strings"
 )
@@ -47,6 +48,30 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	// Create store from loaded database
 	store := database.NewStoreFromDatabase()
 
+	// Apply test-required properties
+	setupStoreForTests(store)
+
+	return &Runner{
+		evaluator:   vm.NewEvaluatorWithStore(store),
+		setupSuites: make(map[string]bool),
+	}
+}
+
+// NewRunnerWithServer creates a test runner using a server's evaluator
+func NewRunnerWithServer(srv *server.Server) *Runner {
+	// Apply the same store setup that NewRunnerWithDB does
+	store := srv.GetStore()
+	setupStoreForTests(store)
+
+	return &Runner{
+		evaluator:   srv.GetEvaluator(),
+		setupSuites: make(map[string]bool),
+	}
+}
+
+// setupStoreForTests applies test-required properties to the store
+// This ensures $sysobj, $anon, prototype properties etc. exist
+func setupStoreForTests(store *db.Store) {
 	// Ensure standard MOO system properties exist on #0
 	// These are expected by conformance tests (same as cow_py transport.py)
 	if obj := store.Get(0); obj != nil {
@@ -135,11 +160,6 @@ func NewRunnerWithDB(dbPath string) *Runner {
 				}
 			}
 		}
-	}
-
-	return &Runner{
-		evaluator:   vm.NewEvaluatorWithStore(store),
-		setupSuites: make(map[string]bool),
 	}
 }
 

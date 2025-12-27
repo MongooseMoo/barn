@@ -145,7 +145,7 @@ func (e *Evaluator) RegisterPassBuiltin() {
 		e.env.Set("args", types.NewList(args))
 
 		// Execute the verb
-		result := e.evalStatements(verb.Program.Statements, ctx)
+		result := e.statements(verb.Program.Statements, ctx)
 
 		// Restore environment
 		if oldVerbEnv != nil {

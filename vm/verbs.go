@@ -5,10 +5,12 @@ import (
 	"barn/parser"
 	"barn/task"
 	"barn/types"
+	"fmt"
 )
 
-// evalVerbCall evaluates a verb call expression: obj:verb(args)
-func (e *Evaluator) evalVerbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) types.Result {
+	fmt.Printf("[EVAL VERB] Calling verb: %s (dynamic: %v)\n", expr.Verb, expr.VerbExpr != nil)
+
 	// Evaluate the object expression
 	objResult := e.Eval(expr.Expr, ctx)
 	if !objResult.IsNormal() {
@@ -51,125 +53,26 @@ func (e *Evaluator) evalVerbCall(expr *parser.VerbCallExpr, ctx *types.TaskConte
 		args[i] = argResult.Val
 	}
 
-	// Look up the verb
-	verb, defObjID, err := e.store.FindVerb(objID, expr.Verb)
-	if err != nil {
-		return types.Err(types.E_VERBNF)
-	}
-
-	// Check execute permission
-	if !verb.Perms.Has(db.VerbExecute) {
-		// TODO: Check if caller is owner or wizard
-		return types.Err(types.E_PERM)
-	}
-
-	// Compile verb if not already compiled
-	if verb.Program == nil {
-		program, errors := db.CompileVerb(verb.Code)
-		if len(errors) > 0 {
-			// Compilation error - return E_VERBNF (verb is broken)
-			return types.Err(types.E_VERBNF)
+	// Get verb name (static or dynamic)
+	verbName := expr.Verb
+	if verbName == "" && expr.VerbExpr != nil {
+		// Dynamic verb name - evaluate the expression
+		verbResult := e.Eval(expr.VerbExpr, ctx)
+		if !verbResult.IsNormal() {
+			return verbResult
 		}
-		verb.Program = program
-	}
-
-	// Push activation frame onto call stack (if we have a task)
-	if ctx.Task != nil {
-		if t, ok := ctx.Task.(*task.Task); ok {
-			frame := task.ActivationFrame{
-				This:       defObjID,
-				Player:     ctx.Player,
-				Programmer: ctx.Programmer,
-				Caller:     ctx.ThisObj, // The object that called this verb
-				Verb:       expr.Verb,
-				VerbLoc:    defObjID,
-				Args:       args,
-				LineNumber: 0, // TODO: Track line numbers during execution
-			}
-			t.PushFrame(frame)
-			defer t.PopFrame()
+		// The verb name must be a string
+		strVal, ok := verbResult.Val.(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
 		}
+		verbName = strVal.Value()
 	}
 
-	// Set up verb call context
-	oldThis := ctx.ThisObj
-	oldVerb := ctx.Verb
-	ctx.ThisObj = defObjID // this = object where verb is defined
-	ctx.Verb = expr.Verb
-
-	// Update environment variables for the verb call
-	// These need to be accessible from within the verb code
-	oldVerbEnv, _ := e.env.Get("verb")
-	oldThisEnv, _ := e.env.Get("this")
-	oldCallerEnv, _ := e.env.Get("caller")
-	oldArgsEnv, _ := e.env.Get("args")
-
-	e.env.Set("verb", types.NewStr(expr.Verb))
-	e.env.Set("this", types.NewObj(objID)) // this = object the verb was called ON (not where defined)
-	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
-	e.env.Set("args", types.NewList(args))
-
-	// TODO: Set up dobj, iobj, etc.
-
-	// Execute the verb
-	result := e.evalStatements(verb.Program.Statements, ctx)
-
-	// Restore environment
-	if oldVerbEnv != nil {
-		e.env.Set("verb", oldVerbEnv)
-	}
-	if oldThisEnv != nil {
-		e.env.Set("this", oldThisEnv)
-	}
-	if oldCallerEnv != nil {
-		e.env.Set("caller", oldCallerEnv)
-	}
-	if oldArgsEnv != nil {
-		e.env.Set("args", oldArgsEnv)
-	}
-
-	// Restore context
-	ctx.ThisObj = oldThis
-	ctx.Verb = oldVerb
-
-	// If the verb returned, extract the value
-	if result.Flow == types.FlowReturn {
-		return types.Ok(result.Val)
-	}
-
-	// If normal completion, return 0
-	if result.IsNormal() {
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Propagate errors, break, continue
-	return result
-}
-
-// evalStatements executes a sequence of statements
-func (e *Evaluator) evalStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
-	var result types.Result
-	for _, stmt := range stmts {
-		result = e.EvalStmt(stmt, ctx)
-		if !result.IsNormal() {
-			return result
-		}
-	}
-	return types.Ok(types.NewInt(0))
-}
-
-// CallVerb calls a verb on an object directly without needing to parse an expression
-// This is used by builtins like create() to call :initialize
-// Returns the result of the verb call, or E_VERBNF if verb not found
-func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
-	// Check if object is valid
-	if !e.store.Valid(objID) {
-		return types.Err(types.E_INVIND)
-	}
-
-	// Look up the verb
+	// Look up the verb (in EvalVerbCall - handles expr:verb(args))
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
+		fmt.Printf("[VERB CALL FAIL] EvalVerbCall: #%d:%s - verb not found\n", objID, verbName)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -214,18 +117,21 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	ctx.Verb = verbName
 
 	// Update environment variables for the verb call
+	// These need to be accessible from within the verb code
 	oldVerbEnv, _ := e.env.Get("verb")
 	oldThisEnv, _ := e.env.Get("this")
 	oldCallerEnv, _ := e.env.Get("caller")
 	oldArgsEnv, _ := e.env.Get("args")
 
 	e.env.Set("verb", types.NewStr(verbName))
-	e.env.Set("this", types.NewObj(objID)) // this = object the verb was called ON (not where defined)
+	e.env.Set("this", types.NewObj(objID))         // this = object the verb was called ON (not where defined)
 	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
 	e.env.Set("args", types.NewList(args))
 
+	// TODO: Set up dobj, iobj, etc.
+
 	// Execute the verb
-	result := e.evalStatements(verb.Program.Statements, ctx)
+	result := e.statements(verb.Program.Statements, ctx)
 
 	// Restore environment
 	if oldVerbEnv != nil {
@@ -239,6 +145,154 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	}
 	if oldArgsEnv != nil {
 		e.env.Set("args", oldArgsEnv)
+	}
+
+	// Restore context
+	ctx.ThisObj = oldThis
+	ctx.Verb = oldVerb
+
+	// If the verb returned, extract the value
+	if result.Flow == types.FlowReturn {
+		return types.Ok(result.Val)
+	}
+
+	// If normal completion, return 0
+	if result.IsNormal() {
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Propagate errors, break, continue
+	return result
+}
+
+// statements executes a sequence of statements
+func (e *Evaluator) statements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
+	var result types.Result
+	for _, stmt := range stmts {
+		result = e.EvalStmt(stmt, ctx)
+		if !result.IsNormal() {
+			return result
+		}
+	}
+	return types.Ok(types.NewInt(0))
+}
+
+// CallVerb calls a verb on an object directly without needing to parse an expression
+// This is used by builtins like create() to call :initialize
+// Returns the result of the verb call, or E_VERBNF if verb not found
+func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
+	// Check if object is valid
+	if !e.store.Valid(objID) {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Look up the verb (in CallVerb - direct verb invocation)
+	verb, defObjID, err := e.store.FindVerb(objID, verbName)
+	if err != nil {
+		fmt.Printf("[VERB CALL FAIL] CallVerb: #%d:%s - verb not found\n", objID, verbName)
+		return types.Err(types.E_VERBNF)
+	}
+
+	// Check execute permission
+	if !verb.Perms.Has(db.VerbExecute) {
+		// TODO: Check if caller is owner or wizard
+		return types.Err(types.E_PERM)
+	}
+
+	// Compile verb if not already compiled
+	if verb.Program == nil {
+		program, errors := db.CompileVerb(verb.Code)
+		if len(errors) > 0 {
+			// Compilation error - return E_VERBNF (verb is broken)
+			fmt.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d:\n", verbName, defObjID)
+			for i, err := range errors {
+				fmt.Printf("[COMPILE ERROR]   %d: %v\n", i, err)
+			}
+			fmt.Printf("[COMPILE ERROR] Verb code:\n")
+			for i, line := range verb.Code {
+				fmt.Printf("[COMPILE ERROR]   %d: %s\n", i, line)
+			}
+			return types.Err(types.E_VERBNF)
+		}
+		verb.Program = program
+	}
+
+	// Push activation frame onto call stack (if we have a task)
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			frame := task.ActivationFrame{
+				This:       defObjID,
+				Player:     ctx.Player,
+				Programmer: ctx.Programmer,
+				Caller:     ctx.ThisObj, // The object that called this verb
+				Verb:       verbName,
+				VerbLoc:    defObjID,
+				Args:       args,
+				LineNumber: 0, // TODO: Track line numbers during execution
+			}
+			t.PushFrame(frame)
+			defer t.PopFrame()
+		}
+	}
+
+	// Set up verb call context
+	oldThis := ctx.ThisObj
+	oldVerb := ctx.Verb
+	ctx.ThisObj = defObjID // this = object where verb is defined
+	ctx.Verb = verbName
+
+	// Update environment variables for the verb call
+	oldVerbEnv, _ := e.env.Get("verb")
+	oldThisEnv, _ := e.env.Get("this")
+	oldCallerEnv, _ := e.env.Get("caller")
+	oldArgsEnv, _ := e.env.Get("args")
+	oldPlayerEnv, _ := e.env.Get("player")
+
+	e.env.Set("verb", types.NewStr(verbName))
+	e.env.Set("this", types.NewObj(objID))         // this = object the verb was called ON (not where defined)
+	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
+	e.env.Set("args", types.NewList(args))
+	e.env.Set("player", types.NewObj(ctx.Player)) // player from context
+
+	// Debug: verify args is set correctly
+	if verbName == "do_login_command" {
+		if argsVal, ok := e.env.Get("args"); ok {
+			fmt.Printf("[VERB DEBUG] args set to: %v (type: %T)\n", argsVal, argsVal)
+			if list, ok := argsVal.(types.ListValue); ok {
+				fmt.Printf("[VERB DEBUG] args length: %d\n", list.Len())
+				for i := 1; i <= list.Len(); i++ {
+					fmt.Printf("[VERB DEBUG] args[%d] = %v (type: %T)\n", i, list.Get(i), list.Get(i))
+				}
+			}
+		}
+		// Debug: show verb code
+		fmt.Printf("[VERB DEBUG] verb code lines: %d\n", len(verb.Code))
+		for i, line := range verb.Code {
+			if i < 20 { // Only show first 20 lines
+				fmt.Printf("[VERB DEBUG] code[%d]: %s\n", i, line)
+			}
+		}
+		fmt.Printf("[VERB DEBUG] number of statements: %d\n", len(verb.Program.Statements))
+	}
+
+	// Execute the verb
+	result := e.statements(verb.Program.Statements, ctx)
+
+	// Restore environment
+	if oldVerbEnv != nil {
+		e.env.Set("verb", oldVerbEnv)
+	}
+	if oldThisEnv != nil {
+		e.env.Set("this", oldThisEnv)
+	}
+	if oldCallerEnv != nil {
+		e.env.Set("caller", oldCallerEnv)
+	}
+	if oldArgsEnv != nil {
+		e.env.Set("args", oldArgsEnv)
+	}
+	if oldPlayerEnv != nil {
+		e.env.Set("player", oldPlayerEnv)
 	}
 
 	// Restore context

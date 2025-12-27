@@ -55,7 +55,9 @@ func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.NewStr(string(data)))
+	// Convert lowercase \uxxxx escapes to uppercase \uXXXX for MOO compatibility
+	result := uppercaseUnicodeEscapes(string(data))
+	return types.Ok(types.NewStr(result))
 }
 
 // mooToJSON converts a MOO value to a Go value suitable for JSON marshaling
@@ -236,7 +238,8 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 				return parsed
 			}
 		}
-		return types.NewStr(val)
+		// Convert non-printable and non-ASCII bytes to ~XX format
+		return types.NewStr(encodeBinaryEscapes(val))
 
 	case []interface{}:
 		// JSON array becomes MOO list
@@ -320,8 +323,48 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 	return nil, false
 }
 
+// uppercaseUnicodeEscapes converts \uxxxx escapes to \uXXXX (uppercase)
+func uppercaseUnicodeEscapes(s string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(s) {
+		if i+5 < len(s) && s[i] == '\\' && s[i+1] == 'u' {
+			// Found \u, check for 4 hex digits and uppercase them
+			hex := s[i+2 : i+6]
+			result.WriteString("\\u")
+			result.WriteString(strings.ToUpper(hex))
+			i += 6
+		} else {
+			result.WriteByte(s[i])
+			i++
+		}
+	}
+	return result.String()
+}
+
+// encodeBinaryEscapes converts non-printable and non-ASCII bytes to ~XX format
+// This is the inverse of decodeBinaryEscapes
+func encodeBinaryEscapes(s string) string {
+	var result strings.Builder
+	for _, b := range []byte(s) {
+		if b == '~' {
+			result.WriteString("~7E")
+		} else if b < 32 || b > 126 {
+			// Non-printable or non-ASCII: encode as ~XX
+			const hexDigits = "0123456789ABCDEF"
+			result.WriteByte('~')
+			result.WriteByte(hexDigits[b>>4])
+			result.WriteByte(hexDigits[b&0xF])
+		} else {
+			result.WriteByte(b)
+		}
+	}
+	return result.String()
+}
+
 // decodeBinaryEscapes converts MOO binary escapes (~XX) to actual bytes
-// This allows JSON marshaler to produce proper escape sequences
+// Only decodes control characters (0x00-0x1F) so JSON can escape them as \uXXXX
+// Other escapes (~20-~7F, ~80-~FF) stay as literal text
 func decodeBinaryEscapes(s string) string {
 	var result strings.Builder
 	i := 0
@@ -332,9 +375,13 @@ func decodeBinaryEscapes(s string) string {
 			hex2, ok2 := hexDigit(s[i+2])
 			if ok1 && ok2 {
 				b := byte(hex1<<4 | hex2)
-				result.WriteByte(b)
-				i += 3
-				continue
+				// Only decode control characters (0x00-0x1F)
+				if b < 0x20 {
+					result.WriteByte(b)
+					i += 3
+					continue
+				}
+				// Leave other escapes as literal ~XX
 			}
 		}
 		result.WriteByte(s[i])

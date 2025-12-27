@@ -11,9 +11,9 @@ import (
 // UNARY OPERATORS
 // ============================================================================
 
-// evalUnaryMinus implements unary negation: -x
+// unaryMinus implements unary negation: -x
 // Supports INT and FLOAT types
-func evalUnaryMinus(operand types.Value) types.Result {
+func unaryMinus(operand types.Value) types.Result {
 	switch v := operand.(type) {
 	case types.IntValue:
 		return types.Ok(types.IntValue{Val: -v.Val})
@@ -24,18 +24,18 @@ func evalUnaryMinus(operand types.Value) types.Result {
 	}
 }
 
-// evalUnaryNot implements logical NOT: !x
+// unaryNot implements logical NOT: !x
 // Returns 1 if falsy, 0 if truthy
-func evalUnaryNot(operand types.Value) types.Result {
+func unaryNot(operand types.Value) types.Result {
 	if operand.Truthy() {
 		return types.Ok(types.IntValue{Val: 0})
 	}
 	return types.Ok(types.IntValue{Val: 1})
 }
 
-// evalBitwiseNot implements bitwise NOT: ~x
+// bitwiseNot implements bitwise NOT: ~x
 // Requires INT operand
-func evalBitwiseNot(operand types.Value) types.Result {
+func bitwiseNot(operand types.Value) types.Result {
 	intVal, ok := operand.(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -47,10 +47,10 @@ func evalBitwiseNot(operand types.Value) types.Result {
 // ARITHMETIC OPERATORS
 // ============================================================================
 
-// evalAdd implements addition: left + right
+// add implements addition: left + right
 // Supports INT + INT, FLOAT + FLOAT, INT + FLOAT (promotes to FLOAT)
 // Also supports string concatenation: STR + STR
-func evalAdd(left, right types.Value) types.Result {
+func add(left, right types.Value) types.Result {
 	// String concatenation
 	if leftStr, ok := left.(types.StrValue); ok {
 		if rightStr, ok := right.(types.StrValue); ok {
@@ -80,8 +80,8 @@ func evalAdd(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftNum.(int64) + rightNum.(int64)})
 }
 
-// evalSubtract implements subtraction: left - right
-func evalSubtract(left, right types.Value) types.Result {
+// subtract implements subtraction: left - right
+func subtract(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
 
@@ -100,8 +100,8 @@ func evalSubtract(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftNum.(int64) - rightNum.(int64)})
 }
 
-// evalMultiply implements multiplication: left * right
-func evalMultiply(left, right types.Value) types.Result {
+// multiply implements multiplication: left * right
+func multiply(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
 
@@ -120,10 +120,10 @@ func evalMultiply(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftNum.(int64) * rightNum.(int64)})
 }
 
-// evalDivide implements division: left / right
+// divide implements division: left / right
 // Integer division truncates toward zero
 // Raises E_DIV for division by zero
-func evalDivide(left, right types.Value) types.Result {
+func divide(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
 
@@ -151,9 +151,9 @@ func evalDivide(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftNum.(int64) / rightInt})
 }
 
-// evalModulo implements modulo: left % right
+// modulo implements modulo: left % right
 // Supports INT and FLOAT operands
-func evalModulo(left, right types.Value) types.Result {
+func modulo(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
 
@@ -195,9 +195,9 @@ func evalModulo(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: result})
 }
 
-// evalPower implements exponentiation: left ^ right
+// power implements exponentiation: left ^ right
 // Supports INT and FLOAT operands
-func evalPower(left, right types.Value) types.Result {
+func power(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
 
@@ -243,26 +243,26 @@ func evalPower(left, right types.Value) types.Result {
 // COMPARISON OPERATORS
 // ============================================================================
 
-// evalEqual implements equality: left == right
+// equal implements equality: left == right
 // Deep equality for all types
-func evalEqual(left, right types.Value) types.Result {
+func equal(left, right types.Value) types.Result {
 	if left.Equal(right) {
 		return types.Ok(types.IntValue{Val: 1})
 	}
 	return types.Ok(types.IntValue{Val: 0})
 }
 
-// evalNotEqual implements inequality: left != right
-func evalNotEqual(left, right types.Value) types.Result {
+// notEqual implements inequality: left != right
+func notEqual(left, right types.Value) types.Result {
 	if left.Equal(right) {
 		return types.Ok(types.IntValue{Val: 0})
 	}
 	return types.Ok(types.IntValue{Val: 1})
 }
 
-// evalLessThan implements less than: left < right
+// lessThan implements less than: left < right
 // Supports INT, FLOAT, and STR comparisons
-func evalLessThan(left, right types.Value) types.Result {
+func lessThan(left, right types.Value) types.Result {
 	cmp, err := compare(left, right)
 	if err != types.E_NONE {
 		return types.Err(err)
@@ -273,8 +273,8 @@ func evalLessThan(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: 0})
 }
 
-// evalLessThanEqual implements less than or equal: left <= right
-func evalLessThanEqual(left, right types.Value) types.Result {
+// lessThanEqual implements less than or equal: left <= right
+func lessThanEqual(left, right types.Value) types.Result {
 	cmp, err := compare(left, right)
 	if err != types.E_NONE {
 		return types.Err(err)
@@ -285,8 +285,8 @@ func evalLessThanEqual(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: 0})
 }
 
-// evalGreaterThan implements greater than: left > right
-func evalGreaterThan(left, right types.Value) types.Result {
+// greaterThan implements greater than: left > right
+func greaterThan(left, right types.Value) types.Result {
 	cmp, err := compare(left, right)
 	if err != types.E_NONE {
 		return types.Err(err)
@@ -297,8 +297,8 @@ func evalGreaterThan(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: 0})
 }
 
-// evalGreaterThanEqual implements greater than or equal: left >= right
-func evalGreaterThanEqual(left, right types.Value) types.Result {
+// greaterThanEqual implements greater than or equal: left >= right
+func greaterThanEqual(left, right types.Value) types.Result {
 	cmp, err := compare(left, right)
 	if err != types.E_NONE {
 		return types.Err(err)
@@ -309,9 +309,9 @@ func evalGreaterThanEqual(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: 0})
 }
 
-// evalIn implements the 'in' operator: left in right
+// inOp implements the 'in' operator: left in right
 // Checks if left is contained in right (list membership, string substring, map key)
-func evalIn(left, right types.Value) types.Result {
+func inOp(left, right types.Value) types.Result {
 	switch container := right.(type) {
 	case types.ListValue:
 		// Check if left is an element of the list
@@ -355,8 +355,8 @@ func evalIn(left, right types.Value) types.Result {
 // BITWISE OPERATORS
 // ============================================================================
 
-// evalBitwiseAnd implements bitwise AND: left &. right
-func evalBitwiseAnd(left, right types.Value) types.Result {
+// bitwiseAnd implements bitwise AND: left &. right
+func bitwiseAnd(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -368,8 +368,8 @@ func evalBitwiseAnd(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftInt.Val & rightInt.Val})
 }
 
-// evalBitwiseOr implements bitwise OR: left |. right
-func evalBitwiseOr(left, right types.Value) types.Result {
+// bitwiseOr implements bitwise OR: left |. right
+func bitwiseOr(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -381,8 +381,8 @@ func evalBitwiseOr(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftInt.Val | rightInt.Val})
 }
 
-// evalBitwiseXor implements bitwise XOR: left ^. right
-func evalBitwiseXor(left, right types.Value) types.Result {
+// bitwiseXor implements bitwise XOR: left ^. right
+func bitwiseXor(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -394,9 +394,9 @@ func evalBitwiseXor(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftInt.Val ^ rightInt.Val})
 }
 
-// evalLeftShift implements left shift: left << right
+// leftShift implements left shift: left << right
 // Uses 64-bit integer semantics (barn is a 64-bit implementation)
-func evalLeftShift(left, right types.Value) types.Result {
+func leftShift(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -424,9 +424,9 @@ func evalLeftShift(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: leftInt.Val << uint(rightInt.Val)})
 }
 
-// evalRightShift implements right shift: left >> right
+// rightShift implements right shift: left >> right
 // Uses LOGICAL right shift (zero-fill) with 64-bit semantics per MOO standard
-func evalRightShift(left, right types.Value) types.Result {
+func rightShift(left, right types.Value) types.Result {
 	leftInt, ok := left.(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)

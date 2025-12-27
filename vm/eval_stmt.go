@@ -30,34 +30,34 @@ func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Res
 
 	switch s := stmt.(type) {
 	case *parser.ExprStmt:
-		return e.evalExprStmt(s, ctx)
+		return e.exprStmt(s, ctx)
 	case *parser.IfStmt:
-		return e.evalIfStmt(s, ctx)
+		return e.ifStmt(s, ctx)
 	case *parser.WhileStmt:
-		return e.evalWhileStmt(s, ctx)
+		return e.whileStmt(s, ctx)
 	case *parser.ForStmt:
-		return e.evalForStmt(s, ctx)
+		return e.forStmt(s, ctx)
 	case *parser.ReturnStmt:
-		return e.evalReturnStmt(s, ctx)
+		return e.returnStmt(s, ctx)
 	case *parser.BreakStmt:
-		return e.evalBreakStmt(s, ctx)
+		return e.breakStmt(s, ctx)
 	case *parser.ContinueStmt:
-		return e.evalContinueStmt(s, ctx)
+		return e.continueStmt(s, ctx)
 	case *parser.TryExceptStmt:
-		return e.evalTryExceptStmt(s, ctx)
+		return e.tryExceptStmt(s, ctx)
 	case *parser.TryFinallyStmt:
-		return e.evalTryFinallyStmt(s, ctx)
+		return e.tryFinallyStmt(s, ctx)
 	case *parser.TryExceptFinallyStmt:
-		return e.evalTryExceptFinallyStmt(s, ctx)
+		return e.tryExceptFinallyStmt(s, ctx)
 	case *parser.ScatterStmt:
-		return e.evalScatterStmt(s, ctx)
+		return e.scatterStmt(s, ctx)
 	default:
 		return types.Err(types.E_TYPE)
 	}
 }
 
-// evalExprStmt evaluates an expression statement
-func (e *Evaluator) evalExprStmt(stmt *parser.ExprStmt, ctx *types.TaskContext) types.Result {
+// exprStmt evaluates an expression statement
+func (e *Evaluator) exprStmt(stmt *parser.ExprStmt, ctx *types.TaskContext) types.Result {
 	if stmt.Expr == nil {
 		// Empty statement
 		return types.Ok(types.NewInt(0))
@@ -73,16 +73,20 @@ func (e *Evaluator) evalExprStmt(stmt *parser.ExprStmt, ctx *types.TaskContext) 
 	return types.Ok(types.NewInt(0))
 }
 
-// evalIfStmt evaluates if/elseif/else statements
-func (e *Evaluator) evalIfStmt(stmt *parser.IfStmt, ctx *types.TaskContext) types.Result {
+// ifStmt evaluates if/elseif/else statements
+func (e *Evaluator) ifStmt(stmt *parser.IfStmt, ctx *types.TaskContext) types.Result {
 	// Evaluate main condition
 	condResult := e.Eval(stmt.Condition, ctx)
 	if !condResult.IsNormal() {
+		fmt.Printf("[IF DEBUG] condition error: %v\n", condResult.Error)
 		return condResult
 	}
 
+	fmt.Printf("[IF DEBUG] condition result: %v (type: %T, truthy: %v)\n", condResult.Val, condResult.Val, condResult.Val.Truthy())
+
 	if condResult.Val.Truthy() {
 		// Execute if body
+		fmt.Printf("[IF DEBUG] entering if body\n")
 		return e.EvalStatements(stmt.Body, ctx)
 	}
 
@@ -107,8 +111,8 @@ func (e *Evaluator) evalIfStmt(stmt *parser.IfStmt, ctx *types.TaskContext) type
 	return types.Ok(types.NewInt(0))
 }
 
-// evalWhileStmt evaluates while loops
-func (e *Evaluator) evalWhileStmt(stmt *parser.WhileStmt, ctx *types.TaskContext) types.Result {
+// whileStmt evaluates while loops
+func (e *Evaluator) whileStmt(stmt *parser.WhileStmt, ctx *types.TaskContext) types.Result {
 	for {
 		// Evaluate condition
 		condResult := e.Eval(stmt.Condition, ctx)
@@ -154,18 +158,18 @@ func (e *Evaluator) evalWhileStmt(stmt *parser.WhileStmt, ctx *types.TaskContext
 	return types.Ok(types.NewInt(0))
 }
 
-// evalForStmt evaluates for loops
-func (e *Evaluator) evalForStmt(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
+// forStmt evaluates for loops
+func (e *Evaluator) forStmt(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
 	// Determine loop type: range, list, or map
 	if stmt.RangeStart != nil {
-		return e.evalForRange(stmt, ctx)
+		return e.forRange(stmt, ctx)
 	} else {
-		return e.evalForContainer(stmt, ctx)
+		return e.forContainer(stmt, ctx)
 	}
 }
 
-// evalForRange evaluates for loops over ranges: for x in [start..end]
-func (e *Evaluator) evalForRange(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
+// forRange evaluates for loops over ranges: for x in [start..end]
+func (e *Evaluator) forRange(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
 	// Evaluate start
 	startResult := e.Eval(stmt.RangeStart, ctx)
 	if !startResult.IsNormal() {
@@ -220,8 +224,8 @@ func (e *Evaluator) evalForRange(stmt *parser.ForStmt, ctx *types.TaskContext) t
 	return types.Ok(types.NewInt(0))
 }
 
-// evalForContainer evaluates for loops over lists, maps, and strings
-func (e *Evaluator) evalForContainer(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
+// forContainer evaluates for loops over lists, maps, and strings
+func (e *Evaluator) forContainer(stmt *parser.ForStmt, ctx *types.TaskContext) types.Result {
 	// Evaluate container expression
 	containerResult := e.Eval(stmt.Container, ctx)
 	if !containerResult.IsNormal() {
@@ -232,17 +236,17 @@ func (e *Evaluator) evalForContainer(stmt *parser.ForStmt, ctx *types.TaskContex
 
 	// Check if it's a list
 	if list, ok := container.(types.ListValue); ok {
-		return e.evalForList(stmt, &list, ctx)
+		return e.forList(stmt, &list, ctx)
 	}
 
 	// Check if it's a map
 	if mapVal, ok := container.(types.MapValue); ok {
-		return e.evalForMap(stmt, &mapVal, ctx)
+		return e.forMap(stmt, &mapVal, ctx)
 	}
 
 	// Check if it's a string
 	if strVal, ok := container.(types.StrValue); ok {
-		return e.evalForString(stmt, &strVal, ctx)
+		return e.forString(stmt, &strVal, ctx)
 	}
 
 	// Not a list, map, or string - type error
@@ -267,8 +271,8 @@ func forLoopLabelMatches(label string, stmt *parser.ForStmt) bool {
 	return false
 }
 
-// evalForList evaluates for loops over lists
-func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx *types.TaskContext) types.Result {
+// forList evaluates for loops over lists
+func (e *Evaluator) forList(stmt *parser.ForStmt, list *types.ListValue, ctx *types.TaskContext) types.Result {
 	// Take a snapshot - mutations during iteration don't affect us
 	elements := list.Elements()
 
@@ -308,8 +312,8 @@ func (e *Evaluator) evalForList(stmt *parser.ForStmt, list *types.ListValue, ctx
 	return types.Ok(types.NewInt(0))
 }
 
-// evalForMap evaluates for loops over maps
-func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx *types.TaskContext) types.Result {
+// forMap evaluates for loops over maps
+func (e *Evaluator) forMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx *types.TaskContext) types.Result {
 	// Take a snapshot - mutations during iteration don't affect us
 	pairs := mapVal.Pairs()
 	// Sort pairs by key in MOO canonical order
@@ -354,8 +358,8 @@ func (e *Evaluator) evalForMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx
 	return types.Ok(types.NewInt(0))
 }
 
-// evalForString evaluates for loops over strings (iterating characters)
-func (e *Evaluator) evalForString(stmt *parser.ForStmt, strVal *types.StrValue, ctx *types.TaskContext) types.Result {
+// forString evaluates for loops over strings (iterating characters)
+func (e *Evaluator) forString(stmt *parser.ForStmt, strVal *types.StrValue, ctx *types.TaskContext) types.Result {
 	// Get characters as runes for proper Unicode handling
 	s := strVal.Value()
 	runes := []rune(s)
@@ -396,8 +400,8 @@ func (e *Evaluator) evalForString(stmt *parser.ForStmt, strVal *types.StrValue, 
 	return types.Ok(types.NewInt(0))
 }
 
-// evalReturnStmt evaluates return statements
-func (e *Evaluator) evalReturnStmt(stmt *parser.ReturnStmt, ctx *types.TaskContext) types.Result {
+// returnStmt evaluates return statements
+func (e *Evaluator) returnStmt(stmt *parser.ReturnStmt, ctx *types.TaskContext) types.Result {
 	var value types.Value
 
 	if stmt.Value != nil {
@@ -415,8 +419,8 @@ func (e *Evaluator) evalReturnStmt(stmt *parser.ReturnStmt, ctx *types.TaskConte
 	return types.Return(value)
 }
 
-// evalBreakStmt evaluates break statements
-func (e *Evaluator) evalBreakStmt(stmt *parser.BreakStmt, ctx *types.TaskContext) types.Result {
+// breakStmt evaluates break statements
+func (e *Evaluator) breakStmt(stmt *parser.BreakStmt, ctx *types.TaskContext) types.Result {
 	// If there's a value expression, evaluate it
 	var val types.Value
 	if stmt.Value != nil {
@@ -429,8 +433,8 @@ func (e *Evaluator) evalBreakStmt(stmt *parser.BreakStmt, ctx *types.TaskContext
 	return types.Break(stmt.Label, val)
 }
 
-// evalContinueStmt evaluates continue statements
-func (e *Evaluator) evalContinueStmt(stmt *parser.ContinueStmt, ctx *types.TaskContext) types.Result {
+// continueStmt evaluates continue statements
+func (e *Evaluator) continueStmt(stmt *parser.ContinueStmt, ctx *types.TaskContext) types.Result {
 	return types.Continue(stmt.Label)
 }
 
@@ -462,8 +466,8 @@ func (e *Evaluator) EvalProgram(source string) (types.Value, error) {
 	return result.Val, nil
 }
 
-// evalTryExceptStmt evaluates try/except statements
-func (e *Evaluator) evalTryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.TaskContext) types.Result {
+// tryExceptStmt evaluates try/except statements
+func (e *Evaluator) tryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.TaskContext) types.Result {
 	// Execute try body
 	result := e.EvalStatements(stmt.Body, ctx)
 
@@ -491,8 +495,8 @@ func (e *Evaluator) evalTryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.Tas
 	return result
 }
 
-// evalTryFinallyStmt evaluates try/finally statements
-func (e *Evaluator) evalTryFinallyStmt(stmt *parser.TryFinallyStmt, ctx *types.TaskContext) types.Result {
+// tryFinallyStmt evaluates try/finally statements
+func (e *Evaluator) tryFinallyStmt(stmt *parser.TryFinallyStmt, ctx *types.TaskContext) types.Result {
 	// Execute try body
 	result := e.EvalStatements(stmt.Body, ctx)
 
@@ -508,8 +512,8 @@ func (e *Evaluator) evalTryFinallyStmt(stmt *parser.TryFinallyStmt, ctx *types.T
 	return result
 }
 
-// evalTryExceptFinallyStmt evaluates try/except/finally statements
-func (e *Evaluator) evalTryExceptFinallyStmt(stmt *parser.TryExceptFinallyStmt, ctx *types.TaskContext) types.Result {
+// tryExceptFinallyStmt evaluates try/except/finally statements
+func (e *Evaluator) tryExceptFinallyStmt(stmt *parser.TryExceptFinallyStmt, ctx *types.TaskContext) types.Result {
 	// Execute try body
 	result := e.EvalStatements(stmt.Body, ctx)
 
@@ -552,8 +556,8 @@ func (e *Evaluator) matchesErrorCode(code types.ErrorCode, codes []types.ErrorCo
 	return false
 }
 
-// evalScatterStmt evaluates scatter assignment: {a, ?b, @rest} = list
-func (e *Evaluator) evalScatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext) types.Result {
+// scatterStmt evaluates scatter assignment: {a, ?b, @rest} = list
+func (e *Evaluator) scatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext) types.Result {
 	// Evaluate the value expression
 	valueResult := e.Eval(stmt.Value, ctx)
 	if !valueResult.IsNormal() {
@@ -572,11 +576,11 @@ func (e *Evaluator) evalScatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskCon
 
 	// Track if we've seen @rest
 	var restTarget *parser.ScatterTarget
-	
+
 	// Process targets
 	for i := range stmt.Targets {
 		target := &stmt.Targets[i]
-		
+
 		if target.Rest {
 			restTarget = target
 			continue // Process rest at the end

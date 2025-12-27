@@ -10,12 +10,14 @@ type ConnectionManager interface {
 	GetConnection(player types.ObjID) Connection
 	ConnectedPlayers() []types.ObjID
 	BootPlayer(player types.ObjID) error
+	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
 }
 
 // Connection interface to avoid import cycle
 type Connection interface {
 	Send(message string) error
 	Buffer(message string)
+	Flush() error
 }
 
 // Global connection manager (set by server)
@@ -146,6 +148,42 @@ func builtinBootPlayer(ctx *types.TaskContext, args []types.Value) types.Result 
 	if err := globalConnManager.BootPlayer(player); err != nil {
 		return types.Err(types.E_INVARG)
 	}
+
+	return types.Ok(types.NewInt(0))
+}
+
+// switch_player(old_player, new_player) -> none
+// Associates the connection for old_player with new_player
+// Used during login to switch from negative connection ID to player object
+func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if len(args) < 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Get old player
+	oldPlayerVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	oldPlayer := oldPlayerVal.ID()
+
+	// Get new player
+	newPlayerVal, ok := args[1].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	newPlayer := newPlayerVal.ID()
+
+	// Switch player
+	fmt.Printf("[SWITCH] switch_player(%d, %d) called\n", oldPlayer, newPlayer)
+	if err := globalConnManager.SwitchPlayer(oldPlayer, newPlayer); err != nil {
+		fmt.Printf("[SWITCH] switch_player error: %v\n", err)
+		return types.Err(types.E_INVARG)
+	}
+	fmt.Printf("[SWITCH] switch_player succeeded\n")
 
 	return types.Ok(types.NewInt(0))
 }
