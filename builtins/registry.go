@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/types"
 )
 
@@ -105,6 +106,7 @@ func NewRegistry() *Registry {
 
 	// Register network builtins (Layer 12.5)
 	r.Register("notify", builtinNotify)
+	r.Register("listeners", builtinListeners)
 	r.Register("connected_players", builtinConnectedPlayers)
 	r.Register("connection_name", builtinConnectionName)
 	r.Register("connection_name_lookup", builtinConnectionNameLookup)
@@ -115,12 +117,11 @@ func NewRegistry() *Registry {
 	r.Register("set_connection_option", builtinSetConnectionOption)
 	r.Register("connection_option", builtinConnectionOption)
 
-	// Register crypto/encoding builtins
+	// Register crypto/encoding builtins (except crypt which needs store)
 	r.Register("encode_base64", builtinEncodeBase64)
 	r.Register("decode_base64", builtinDecodeBase64)
 	r.Register("encode_binary", builtinEncodeBinary)
 	r.Register("decode_binary", builtinDecodeBinary)
-	r.Register("crypt", builtinCrypt)
 
 	// Register hash builtins
 	r.Register("string_hash", builtinStringHash)
@@ -145,6 +146,9 @@ func NewRegistry() *Registry {
 	r.Register("seconds_left", builtinSecondsLeft)
 	r.Register("exec", builtinExec)
 	r.Register("server_log", builtinServerLog)
+	r.Register("server_version", builtinServerVersion)
+	r.Register("time", builtinTime)
+	r.Register("ctime", builtinCtime)
 
 	// Task management builtins
 	r.Register("queued_tasks", builtinQueuedTasks)
@@ -211,4 +215,11 @@ func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Val
 		return types.Err(types.E_VERBNF)
 	}
 	return r.verbCaller(objID, verbName, args, ctx)
+}
+
+// RegisterCryptoBuiltins registers crypto builtins that need store access
+func (r *Registry) RegisterCryptoBuiltins(store *db.Store) {
+	r.Register("crypt", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinCrypt(ctx, args, store)
+	})
 }

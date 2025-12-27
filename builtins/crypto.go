@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/types"
 	"crypto/hmac"
 	"crypto/md5"
@@ -292,7 +293,7 @@ func hexValue(c byte) int {
 // - SHA256 ($5$)
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2b$)
-func builtinCrypt(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinCrypt(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -314,8 +315,13 @@ func builtinCrypt(ctx *types.TaskContext, args []types.Value) types.Result {
 		salt = saltVal.Value()
 	}
 
+	// Check if player is wizard (not just verb owner)
+	// This allows wizard players to use SHA256/SHA512 with custom rounds
+	// even when called from non-wizard verbs
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+
 	// Determine algorithm from salt prefix
-	result, errCode := cryptPasswordWithPerm(password, salt, ctx.IsWizard)
+	result, errCode := cryptPasswordWithPerm(password, salt, playerIsWizard)
 	if errCode != 0 {
 		return types.Err(errCode)
 	}
@@ -560,6 +566,8 @@ func cryptBcrypt(password, salt string) (string, error) {
 
 // cryptDES implements traditional Unix DES crypt
 // Produces a 13-character result: 2-char salt + 11-char hash
+// On Unix: uses system crypt(3) for compatibility with ToastStunt
+// On Windows: returns error (matches ToastStunt behavior)
 func cryptDES(password, salt string) (string, error) {
 	const alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
@@ -574,25 +582,10 @@ func cryptDES(password, salt string) (string, error) {
 		saltChars = string([]byte{alphabet[int(saltBytes[0])%64], alphabet[int(saltBytes[1])%64]})
 	}
 
-	// Simplified hash using MD5 (not real DES, but produces correct format)
-	h := md5.New()
-	h.Write([]byte(password))
-	h.Write([]byte(saltChars))
-	hashBytes := h.Sum(nil)
-
-	// Encode as 11 characters using crypt alphabet
-	var encoded strings.Builder
-	for i := 0; i < 11 && i*6/8 < len(hashBytes); i++ {
-		byteIdx := i * 6 / 8
-		bitOffset := (i * 6) % 8
-		val := int(hashBytes[byteIdx]) >> bitOffset
-		if byteIdx+1 < len(hashBytes) && bitOffset > 2 {
-			val |= int(hashBytes[byteIdx+1]) << (8 - bitOffset)
-		}
-		encoded.WriteByte(alphabet[val&0x3f])
-	}
-
-	return saltChars + encoded.String(), nil
+	// Use platform-specific implementation
+	// On Unix: calls system crypt(3)
+	// On Windows: returns error
+	return cryptDESPlatform(password, saltChars)
 }
 
 // extractSalt extracts the salt value from a crypt-style salt string
