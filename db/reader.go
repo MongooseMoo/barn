@@ -517,18 +517,27 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 			return nil, err
 		}
 
-		// Perms
+		// Perms (includes argspec encoding)
 		perms, err := readInt(r)
 		if err != nil {
 			return nil, err
 		}
-		verb.Perms = VerbPerms(perms)
+		verb.Perms = VerbPerms(perms & 0xF) // Lower 4 bits are permissions
 
-		// Preps
-		_, err = readInt(r)
+		// Extract dobj and iobj from perms
+		dobj := (perms >> 4) & 0x3
+		iobj := (perms >> 6) & 0x3
+
+		// Prep value
+		prep, err := readInt(r)
 		if err != nil {
 			return nil, err
 		}
+
+		// Convert to argspec strings
+		verb.ArgSpec.This = argspecToString(dobj)
+		verb.ArgSpec.Prep = prepToString(prep)
+		verb.ArgSpec.That = argspecToString(iobj)
 
 		obj.VerbList[i] = verb
 		obj.Verbs[verb.Names[0]] = verb
@@ -684,11 +693,18 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Parents can be either a single object or a list of objects
 	if listVal, ok := parentsVal.(types.ListValue); ok {
+		// Multiple parents (list)
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
 				obj.Parents = append(obj.Parents, objVal.ID())
 			}
+		}
+	} else if objVal, ok := parentsVal.(types.ObjValue); ok {
+		// Single parent (common case)
+		if objVal.ID() != -1 {
+			obj.Parents = append(obj.Parents, objVal.ID())
 		}
 	}
 
@@ -730,18 +746,27 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 			return nil, err
 		}
 
-		// Perms
+		// Perms (includes argspec encoding)
 		perms, err := readInt(r)
 		if err != nil {
 			return nil, err
 		}
-		verb.Perms = VerbPerms(perms)
+		verb.Perms = VerbPerms(perms & 0xF) // Lower 4 bits are permissions
 
-		// Preps
-		_, err = readInt(r)
+		// Extract dobj and iobj from perms
+		dobj := (perms >> 4) & 0x3
+		iobj := (perms >> 6) & 0x3
+
+		// Prep value
+		prep, err := readInt(r)
 		if err != nil {
 			return nil, err
 		}
+
+		// Convert to argspec strings
+		verb.ArgSpec.This = argspecToString(dobj)
+		verb.ArgSpec.Prep = prepToString(prep)
+		verb.ArgSpec.That = argspecToString(iobj)
 
 		obj.VerbList[i] = verb
 		obj.Verbs[verb.Names[0]] = verb
@@ -1009,4 +1034,51 @@ func readLine(r *bufio.Reader) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(line, "\n\r"), nil
+}
+
+// argspecToString converts dobj/iobj spec to string
+func argspecToString(spec int) string {
+	switch spec {
+	case 0:
+		return "none"
+	case 1:
+		return "any"
+	case 2:
+		return "this"
+	default:
+		return "none"
+	}
+}
+
+// prepToString converts prep value to string
+func prepToString(prep int) string {
+	// Preposition table (0-indexed)
+	preps := []string{
+		"with/using",
+		"at/to",
+		"in front of",
+		"in/inside/into",
+		"on top of/on/onto/upon",
+		"out of/from inside/from",
+		"over",
+		"through",
+		"under/underneath/beneath",
+		"behind",
+		"beside",
+		"for/about",
+		"is",
+		"as",
+		"off/off of",
+	}
+
+	switch {
+	case prep == -1:
+		return "none"
+	case prep == -2:
+		return "any"
+	case prep >= 0 && prep < len(preps):
+		return preps[prep]
+	default:
+		return "none"
+	}
 }
