@@ -13,18 +13,39 @@ type VerbMatch struct {
 }
 
 // verbNameMatches checks if a verb name matches a search string
-// Supports case-insensitive matching and wildcard (*) at end for prefix matching
+// Supports case-insensitive matching and wildcard (*) for abbreviation
+// In MOO, "eval*-d" means "eval" is required, "-d" is optional
+// So "eval", "eval-", and "eval-d" all match "eval*-d"
 func verbNameMatches(verbName, searchName string) bool {
 	verbLower := strings.ToLower(verbName)
 	searchLower := strings.ToLower(searchName)
 
-	if strings.HasSuffix(verbLower, "*") {
-		// Prefix match
-		prefix := verbLower[:len(verbLower)-1]
-		return strings.HasPrefix(searchLower, prefix)
+	// Check for wildcard in verb name
+	starIdx := strings.Index(verbLower, "*")
+	if starIdx == -1 {
+		// No wildcard - exact match required
+		return verbLower == searchLower
 	}
-	// Exact match
-	return verbLower == searchLower
+
+	// Has wildcard - split into required prefix and optional suffix
+	prefix := verbLower[:starIdx]
+	suffix := verbLower[starIdx+1:] // Part after *
+
+	// Search name must start with the prefix
+	if !strings.HasPrefix(searchLower, prefix) {
+		return false
+	}
+
+	// The remainder (after prefix) must match the beginning of the suffix
+	remainder := searchLower[len(prefix):]
+
+	// If no remainder, that's fine (abbreviation used)
+	if len(remainder) == 0 {
+		return true
+	}
+
+	// Otherwise, remainder must be a prefix of the suffix
+	return strings.HasPrefix(suffix, remainder)
 }
 
 // argspecMatches checks if an argument specification matches
