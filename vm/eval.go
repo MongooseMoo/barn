@@ -158,6 +158,7 @@ func (e *Evaluator) literal(node *parser.LiteralExpr, ctx *types.TaskContext) ty
 func (e *Evaluator) identifier(node *parser.IdentifierExpr, ctx *types.TaskContext) types.Result {
 	val, ok := e.env.Get(node.Name)
 	if !ok {
+		fmt.Printf("[VARNF DEBUG] verb=%s variable '%s' not found\n", ctx.Verb, node.Name)
 		return types.Err(types.E_VARNF)
 	}
 	// Debug specific variables that are causing issues
@@ -489,22 +490,27 @@ func (e *Evaluator) SetVerbContext(vc *VerbContext) {
 // EvalString parses and evaluates a string of MOO code
 // This is used by the eval() builtin
 func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result {
-	// Parse the code
+	// Parse the code as statements
 	p := parser.NewParser(code)
 	stmts, err := p.ParseProgram()
 	if err != nil {
-		// Parse error -> E_INVARG
 		return types.Err(types.E_INVARG)
 	}
 
 	// Evaluate all statements using EvalStatements
 	result := e.EvalStatements(stmts, ctx)
 
-	// Handle FlowReturn - extract the value
+	// Handle FlowReturn - extract the value and convert to normal flow
 	if result.Flow == types.FlowReturn {
 		return types.Ok(result.Val)
 	}
 
+	// Handle FlowNormal - already has the right value (or 0)
+	if result.Flow == types.FlowNormal {
+		return types.Ok(result.Val)
+	}
+
+	// Propagate errors and other control flow
 	return result
 }
 

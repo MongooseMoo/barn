@@ -568,12 +568,16 @@ func (e *Evaluator) scatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext
 	// Evaluate the value expression
 	valueResult := e.Eval(stmt.Value, ctx)
 	if !valueResult.IsNormal() {
+		fmt.Printf("[SCATTER DEBUG] verb=%s value evaluation failed: %v\n", ctx.Verb, valueResult.Error)
 		return valueResult
 	}
+
+	fmt.Printf("[SCATTER DEBUG] verb=%s value=%v (type=%T)\n", ctx.Verb, valueResult.Val, valueResult.Val)
 
 	// Must be a list
 	listVal, ok := valueResult.Val.(types.ListValue)
 	if !ok {
+		fmt.Printf("[SCATTER DEBUG] verb=%s E_TYPE: expected list, got %T\n", ctx.Verb, valueResult.Val)
 		return types.Err(types.E_TYPE)
 	}
 
@@ -614,6 +618,7 @@ func (e *Evaluator) scatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext
 			}
 		} else {
 			// Bind element to variable
+			fmt.Printf("[SCATTER DEBUG] verb=%s assigning %s = %v (type=%T)\n", ctx.Verb, target.Name, elements[elemIdx], elements[elemIdx])
 			e.env.Set(target.Name, elements[elemIdx])
 			elemIdx++
 		}
