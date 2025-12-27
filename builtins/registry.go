@@ -54,6 +54,8 @@ func NewRegistry() *Registry {
 	r.Register("trim", builtinTrim)
 	r.Register("ltrim", builtinLtrim)
 	r.Register("rtrim", builtinRtrim)
+	r.Register("match", builtinMatch)
+	r.Register("rmatch", builtinRmatch)
 
 	// Register list builtins (Layer 7.2)
 	r.Register("listappend", builtinListappend)
@@ -105,10 +107,13 @@ func NewRegistry() *Registry {
 	r.Register("notify", builtinNotify)
 	r.Register("connected_players", builtinConnectedPlayers)
 	r.Register("connection_name", builtinConnectionName)
+	r.Register("connection_name_lookup", builtinConnectionNameLookup)
 	r.Register("boot_player", builtinBootPlayer)
 	r.Register("switch_player", builtinSwitchPlayer)
 	r.Register("idle_seconds", builtinIdleSeconds)
 	r.Register("connected_seconds", builtinConnectedSeconds)
+	r.Register("set_connection_option", builtinSetConnectionOption)
+	r.Register("connection_option", builtinConnectionOption)
 
 	// Register crypto/encoding builtins
 	r.Register("encode_base64", builtinEncodeBase64)
@@ -139,6 +144,7 @@ func NewRegistry() *Registry {
 	r.Register("ticks_left", builtinTicksLeft)
 	r.Register("seconds_left", builtinSecondsLeft)
 	r.Register("exec", builtinExec)
+	r.Register("server_log", builtinServerLog)
 
 	// Task management builtins
 	r.Register("queued_tasks", builtinQueuedTasks)
@@ -146,6 +152,9 @@ func NewRegistry() *Registry {
 	r.Register("suspend", builtinSuspend)
 	r.Register("resume", builtinResume)
 	r.Register("callers", builtinCallers)
+	r.Register("set_task_perms", builtinSetTaskPerms)
+	r.Register("caller_perms", builtinCallerPerms)
+	r.Register("raise", builtinRaise)
 
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)

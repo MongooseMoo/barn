@@ -3,6 +3,7 @@ package db
 import (
 	"barn/types"
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -331,6 +332,45 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	return nil
 }
 
+// matchVerbName checks if a search name matches a MOO verb name pattern
+// Supports MOO wildcard matching where * means "zero or more characters"
+// Example: "co*nnect" matches "connect" because:
+//   - Must start with "co"
+//   - Must end with "nnect"
+//   - Any characters (including none) can appear where * is
+func matchVerbName(verbPattern, searchName string) bool {
+	// Case-insensitive matching
+	pattern := strings.ToLower(verbPattern)
+	search := strings.ToLower(searchName)
+
+	// Find the wildcard position
+	starPos := strings.Index(pattern, "*")
+	if starPos == -1 {
+		// No wildcard, exact match required
+		return pattern == search
+	}
+
+	// Split pattern at wildcard: "co*nnect" -> prefix="co", suffix="nnect"
+	prefix := pattern[:starPos]
+	suffix := pattern[starPos+1:]
+
+	// Check if search string has the required prefix and suffix
+	if !strings.HasPrefix(search, prefix) {
+		return false
+	}
+	if !strings.HasSuffix(search, suffix) {
+		return false
+	}
+
+	// Ensure prefix and suffix don't overlap
+	// For pattern "co*nnect" matching "connect":
+	//   prefix="co" (len 2), suffix="nnect" (len 5)
+	//   search="connect" (len 7)
+	//   Need: len(search) >= len(prefix) + len(suffix)
+	//   7 >= 2 + 5 = 7, valid
+	return len(search) >= len(prefix)+len(suffix)
+}
+
 // FindVerb looks up a verb on an object, following inheritance chain
 // Uses breadth-first search per spec
 // Returns the verb and the object it's defined on, or error
@@ -373,10 +413,10 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 			return verb, current, nil
 		}
 
-		// Also check verb aliases (names field)
+		// Also check verb aliases (names field) with wildcard matching
 		for _, verb := range obj.Verbs {
 			for _, alias := range verb.Names {
-				if alias == verbName {
+				if matchVerbName(alias, verbName) {
 					return verb, current, nil
 				}
 			}

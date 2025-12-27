@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // EvalStatements evaluates a sequence of statements
@@ -51,6 +52,8 @@ func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Res
 		return e.tryExceptFinallyStmt(s, ctx)
 	case *parser.ScatterStmt:
 		return e.scatterStmt(s, ctx)
+	case *parser.ForkStmt:
+		return e.forkStmt(s, ctx)
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -66,6 +69,7 @@ func (e *Evaluator) exprStmt(stmt *parser.ExprStmt, ctx *types.TaskContext) type
 	// Evaluate expression and discard result (unless it's an error/control flow)
 	result := e.Eval(stmt.Expr, ctx)
 	if !result.IsNormal() {
+		fmt.Printf("[EXPR STMT] verb=%s expr type=%T returned error: Flow=%d, Error=%v\n", ctx.Verb, stmt.Expr, result.Flow, result.Error)
 		return result
 	}
 
@@ -82,21 +86,24 @@ func (e *Evaluator) ifStmt(stmt *parser.IfStmt, ctx *types.TaskContext) types.Re
 		return condResult
 	}
 
-	fmt.Printf("[IF DEBUG] condition result: %v (type: %T, truthy: %v)\n", condResult.Val, condResult.Val, condResult.Val.Truthy())
+	fmt.Printf("[IF DEBUG] verb=%s condition result: %v (type: %T, truthy: %v)\n", ctx.Verb, condResult.Val, condResult.Val, condResult.Val.Truthy())
 
 	if condResult.Val.Truthy() {
 		// Execute if body
-		fmt.Printf("[IF DEBUG] entering if body\n")
+		fmt.Printf("[IF DEBUG] verb=%s entering if body\n", ctx.Verb)
 		return e.EvalStatements(stmt.Body, ctx)
 	}
 
 	// Try elseif clauses
-	for _, elseIf := range stmt.ElseIfs {
+	for i, elseIf := range stmt.ElseIfs {
+		fmt.Printf("[ELSEIF DEBUG] verb=%s evaluating elseif %d\n", ctx.Verb, i+1)
 		elseIfCondResult := e.Eval(elseIf.Condition, ctx)
 		if !elseIfCondResult.IsNormal() {
+			fmt.Printf("[ELSEIF DEBUG] verb=%s elseif %d condition error: %v\n", ctx.Verb, i+1, elseIfCondResult.Error)
 			return elseIfCondResult
 		}
 
+		fmt.Printf("[ELSEIF DEBUG] verb=%s elseif %d condition result: %v (truthy: %v)\n", ctx.Verb, i+1, elseIfCondResult.Val, elseIfCondResult.Val.Truthy())
 		if elseIfCondResult.Val.Truthy() {
 			return e.EvalStatements(elseIf.Body, ctx)
 		}
@@ -702,4 +709,93 @@ func compareForMapKeys(a, b types.Value) int {
 		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
 	}
 	return 0
+}
+
+// forkStmt evaluates a fork statement
+func (e *Evaluator) forkStmt(stmt *parser.ForkStmt, ctx *types.TaskContext) types.Result {
+	// 1. Evaluate delay expression
+	delayResult := e.Eval(stmt.Delay, ctx)
+	if !delayResult.IsNormal() {
+		return delayResult
+	}
+
+	// 2. Convert delay to duration (must be numeric and >= 0)
+	var delaySeconds float64
+	switch v := delayResult.Val.(type) {
+	case types.IntValue:
+		delaySeconds = float64(v.Val)
+	case types.FloatValue:
+		delaySeconds = v.Val
+	default:
+		return types.Err(types.E_TYPE)
+	}
+
+	if delaySeconds < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
+	delay := time.Duration(delaySeconds * float64(time.Second))
+
+	// 3. Deep copy variable environment
+	allVars := e.env.GetAllVars()
+	varEnv := make(map[string]types.Value)
+	for k, v := range allVars {
+		varEnv[k] = deepCopyValue(v)
+	}
+
+	// 4. Get caller from environment
+	caller := types.ObjNothing
+	if callerVal, ok := e.env.Get("caller"); ok {
+		if callerObj, ok := callerVal.(types.ObjValue); ok {
+			caller = callerObj.ID()
+		}
+	}
+
+	// 5. Build fork info
+	forkInfo := &types.ForkInfo{
+		Body:      stmt.Body, // []parser.Stmt
+		Delay:     delay,
+		VarName:   stmt.VarName,
+		Variables: varEnv,
+		ThisObj:   ctx.ThisObj,
+		Player:    ctx.Player,
+		Caller:    caller,
+		Verb:      ctx.Verb,
+	}
+
+	// 5. Return fork flow - scheduler will handle task creation
+	return types.Fork(forkInfo)
+}
+
+// deepCopyValue creates a deep copy of a value
+func deepCopyValue(v types.Value) types.Value {
+	switch val := v.(type) {
+	case types.ListValue:
+		items := val.Elements()
+		newItems := make([]types.Value, len(items))
+		for i, item := range items {
+			newItems[i] = deepCopyValue(item)
+		}
+		return types.NewList(newItems)
+	case types.MapValue:
+		// Deep copy map
+		pairs := val.Pairs()
+		newPairs := make([][2]types.Value, len(pairs))
+		for i, pair := range pairs {
+			newPairs[i] = [2]types.Value{
+				deepCopyValue(pair[0]),
+				deepCopyValue(pair[1]),
+			}
+		}
+		return types.NewMap(newPairs)
+	case types.WaifValue:
+		// For waif, we need to deep copy properties
+		// Since we can't iterate properties directly, we'll just return the value as-is for now
+		// In a full implementation, WaifValue should expose a way to copy properties
+		// TODO: Implement proper waif deep copy
+		return val
+	default:
+		// Immutable types (int, float, str, obj, err, bool) don't need copying
+		return v
+	}
 }

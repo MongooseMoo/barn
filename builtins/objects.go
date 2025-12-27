@@ -71,6 +71,10 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 		return builtinSetPlayerFlag(ctx, args, store)
 	})
 
+	r.Register("players", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinPlayers(ctx, args, store)
+	})
+
 	r.Register("renumber", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinRenumber(ctx, args, store)
 	})
@@ -1111,6 +1115,22 @@ func isChildOf(store *db.Store, descendant, ancestor types.ObjID) bool {
 	}
 
 	return false
+}
+
+// builtinPlayers implements players()
+// Returns a list of all player objects
+func builtinPlayers(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+
+	playerIDs := store.Players()
+	result := make([]types.Value, len(playerIDs))
+	for i, id := range playerIDs {
+		result[i] = types.NewObj(id)
+	}
+
+	return types.Ok(types.NewList(result))
 }
 
 // builtinIsPlayer implements is_player(object)

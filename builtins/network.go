@@ -18,6 +18,7 @@ type Connection interface {
 	Send(message string) error
 	Buffer(message string)
 	Flush() error
+	RemoteAddr() string
 }
 
 // Global connection manager (set by server)
@@ -30,22 +31,28 @@ func SetConnectionManager(cm ConnectionManager) {
 
 // notify(player, message [, no_flush]) -> none
 func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
+	fmt.Printf("[NOTIFY DEBUG] called with %d args\n", len(args))
 	if globalConnManager == nil {
+		fmt.Printf("[NOTIFY DEBUG] no connection manager\n")
 		return types.Err(types.E_INVARG)
 	}
 	// Get player
 	playerVal, ok := args[0].(types.ObjValue)
 	if !ok {
+		fmt.Printf("[NOTIFY DEBUG] player arg not ObjValue: %T\n", args[0])
 		return types.Err(types.E_TYPE)
 	}
 	player := playerVal.ID()
+	fmt.Printf("[NOTIFY DEBUG] player=%d\n", player)
 
 	// Get message
 	messageVal, ok := args[1].(types.StrValue)
 	if !ok {
+		fmt.Printf("[NOTIFY DEBUG] message arg not StrValue: %T\n", args[1])
 		return types.Err(types.E_TYPE)
 	}
 	message := messageVal.Value()
+	fmt.Printf("[NOTIFY DEBUG] message=%q (len=%d)\n", message, len(message))
 
 	// Get no_flush (optional)
 	noFlush := false
@@ -56,9 +63,11 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Get connection
 	conn := globalConnManager.GetConnection(player)
 	if conn == nil {
+		fmt.Printf("[NOTIFY DEBUG] no connection for player %d\n", player)
 		// Player not connected - fail silently (MOO behavior)
 		return types.Ok(types.NewInt(0))
 	}
+	fmt.Printf("[NOTIFY DEBUG] got connection for player %d\n", player)
 
 	// Send message
 	if noFlush {
@@ -91,6 +100,10 @@ func builtinConnectedPlayers(ctx *types.TaskContext, args []types.Value) types.R
 }
 
 // connection_name(player [, method]) -> str
+// ToastStunt behavior:
+// - No method or method=0: return hostname (or IP if no DNS lookup)
+// - method=1: return numeric IP address
+// - method=2: return legacy "IP, port XXXX" format
 func builtinConnectionName(ctx *types.TaskContext, args []types.Value) types.Result {
 	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
@@ -102,11 +115,11 @@ func builtinConnectionName(ctx *types.TaskContext, args []types.Value) types.Res
 	}
 	player := playerVal.ID()
 
-	// Get method (optional)
-	method := "legacy"
+	// Get method (optional, default 0)
+	method := int64(0)
 	if len(args) > 1 {
-		if methodVal, ok := args[1].(types.StrValue); ok {
-			method = methodVal.Value()
+		if methodVal, ok := args[1].(types.IntValue); ok {
+			method = methodVal.Val
 		}
 	}
 
@@ -116,15 +129,33 @@ func builtinConnectionName(ctx *types.TaskContext, args []types.Value) types.Res
 		return types.Err(types.E_INVARG)
 	}
 
-	// Get connection info
+	// Parse remote address to extract IP and port
+	remoteAddr := conn.RemoteAddr()
+	ip := remoteAddr
+	port := "0"
+	// remoteAddr format is typically "IP:port"
+	if idx := len(remoteAddr) - 1; idx >= 0 {
+		for i := idx; i >= 0; i-- {
+			if remoteAddr[i] == ':' {
+				ip = remoteAddr[:i]
+				port = remoteAddr[i+1:]
+				break
+			}
+		}
+	}
+
+	// Get connection info based on method
 	var name string
 	switch method {
-	case "legacy":
-		name = fmt.Sprintf("%s, port %d", "127.0.0.1", 7777) // Placeholder
-	case "ip-address":
-		name = "127.0.0.1" // Placeholder
-	case "hostname":
-		name = "localhost" // Placeholder
+	case 0:
+		// Default: return just the IP (or hostname if DNS lookup was done)
+		name = ip
+	case 1:
+		// Return numeric IP address
+		name = ip
+	case 2:
+		// Return legacy "IP, port XXXX" format
+		name = fmt.Sprintf("%s, port %s", ip, port)
 	default:
 		return types.Err(types.E_INVARG)
 	}
@@ -234,4 +265,28 @@ func builtinConnectedSeconds(ctx *types.TaskContext, args []types.Value) types.R
 	connectedSeconds := 0
 
 	return types.Ok(types.NewInt(int64(connectedSeconds)))
+}
+
+// connection_name_lookup(player) -> 0
+// ToastStunt builtin to start async DNS lookup for a connection
+// We stub this to return 0 (success) immediately since we don't need async DNS
+func builtinConnectionNameLookup(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Stub: just return 0 (success) - no async DNS lookup needed
+	return types.Ok(types.NewInt(0))
+}
+
+// set_connection_option(conn, option, value) -> none
+// Sets I/O options for a connection (hold-input, disable-oob, etc.)
+func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Stub: accept and ignore connection options for now
+	// TODO: implement hold-input, disable-oob, client-echo, etc.
+	return types.Ok(types.NewInt(0))
+}
+
+// connection_option(conn, option) -> value
+// Gets I/O options for a connection
+func builtinConnectionOption(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Stub: return default values
+	// TODO: implement actual option retrieval
+	return types.Ok(types.NewInt(0))
 }

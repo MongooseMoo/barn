@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"barn/types"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -606,4 +607,193 @@ func replaceAllCaseInsensitive(s, old, new string) string {
 	}
 
 	return string(result)
+}
+
+// ============================================================================
+// LAYER 8.1: REGEX BUILTINS
+// ============================================================================
+
+// builtinMatch implements match(subject, pattern [, case_matters]) -> list
+// MOO-style regex matching. Returns {start, end, subs, subject} or {} if no match.
+// For now, implements a simplified version that handles basic patterns.
+func builtinMatch(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	subjectVal, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	subject := subjectVal.Value()
+
+	patternVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	pattern := patternVal.Value()
+
+	// Case matters (default true)
+	caseSensitive := true
+	if len(args) > 2 {
+		caseSensitive = args[2].Truthy()
+	}
+
+	// Convert MOO pattern to Go regex
+	goPattern, err := mooPatternToGoRegex(pattern)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Compile and match
+	var re *regexp.Regexp
+	if caseSensitive {
+		re, err = regexp.Compile(goPattern)
+	} else {
+		re, err = regexp.Compile("(?i)" + goPattern)
+	}
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	loc := re.FindStringIndex(subject)
+	if loc == nil {
+		// No match - return empty list
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+
+	// Return {start, end, substitutions, subject}
+	// MOO uses 1-based indexing
+	start := types.NewInt(int64(loc[0] + 1))
+	end := types.NewInt(int64(loc[1]))
+	subs := types.NewList([]types.Value{}) // TODO: capture groups
+	subj := types.NewStr(subject)
+
+	return types.Ok(types.NewList([]types.Value{start, end, subs, subj}))
+}
+
+// builtinRmatch implements rmatch(subject, pattern [, case_matters]) -> list
+// Like match but finds the last occurrence.
+func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	subjectVal, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	subject := subjectVal.Value()
+
+	patternVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	pattern := patternVal.Value()
+
+	// Case matters (default true)
+	caseSensitive := true
+	if len(args) > 2 {
+		caseSensitive = args[2].Truthy()
+	}
+
+	// Convert MOO pattern to Go regex
+	goPattern, err := mooPatternToGoRegex(pattern)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Compile and match
+	var re *regexp.Regexp
+	if caseSensitive {
+		re, err = regexp.Compile(goPattern)
+	} else {
+		re, err = regexp.Compile("(?i)" + goPattern)
+	}
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Find all matches and return the last one
+	allLocs := re.FindAllStringIndex(subject, -1)
+	if len(allLocs) == 0 {
+		// No match - return empty list
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+
+	loc := allLocs[len(allLocs)-1]
+
+	// Return {start, end, substitutions, subject}
+	start := types.NewInt(int64(loc[0] + 1))
+	end := types.NewInt(int64(loc[1]))
+	subs := types.NewList([]types.Value{}) // TODO: capture groups
+	subj := types.NewStr(subject)
+
+	return types.Ok(types.NewList([]types.Value{start, end, subs, subj}))
+}
+
+// mooPatternToGoRegex converts MOO regex patterns to Go regex
+// MOO uses %d for digits, %w for word chars, %s for spaces, etc.
+func mooPatternToGoRegex(pattern string) (string, error) {
+	var result strings.Builder
+	i := 0
+	for i < len(pattern) {
+		if pattern[i] == '%' && i+1 < len(pattern) {
+			switch pattern[i+1] {
+			case 'd': // digit
+				result.WriteString("[0-9]")
+			case 'D': // non-digit
+				result.WriteString("[^0-9]")
+			case 'w': // word character
+				result.WriteString("[a-zA-Z0-9_]")
+			case 'W': // non-word character
+				result.WriteString("[^a-zA-Z0-9_]")
+			case 's': // whitespace
+				result.WriteString("[ \\t\\n\\r]")
+			case 'S': // non-whitespace
+				result.WriteString("[^ \\t\\n\\r]")
+			case '%': // literal %
+				result.WriteByte('%')
+			case '(': // start capture group
+				result.WriteByte('(')
+			case ')': // end capture group
+				result.WriteByte(')')
+			case '+': // one or more (non-greedy in MOO)
+				result.WriteString("+?")
+			case '*': // zero or more (non-greedy in MOO)
+				result.WriteString("*?")
+			case '?': // zero or one
+				result.WriteByte('?')
+			case '.': // any char
+				result.WriteByte('.')
+			case '^': // start of string
+				result.WriteByte('^')
+			case '$': // end of string
+				result.WriteByte('$')
+			case '[': // character class start
+				result.WriteByte('[')
+			case ']': // character class end
+				result.WriteByte(']')
+			case '|': // alternation
+				result.WriteByte('|')
+			default:
+				// Unknown escape - pass through
+				result.WriteByte('%')
+				result.WriteByte(pattern[i+1])
+			}
+			i += 2
+		} else {
+			// Regular character - escape if special in Go regex
+			// EXCEPT chars that have the same meaning in MOO and Go regex:
+			// ^ $ [ ] are passed through (anchors and character classes)
+			// . + * ? also pass through (they work the same in MOO and Go)
+			c := pattern[i]
+			if strings.ContainsRune("{}()|\\", rune(c)) {
+				result.WriteByte('\\')
+			}
+			result.WriteByte(c)
+			i++
+		}
+	}
+	return result.String(), nil
 }

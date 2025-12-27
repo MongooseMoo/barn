@@ -136,6 +136,7 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	task := NewTask(taskID, player, code, 60000, 5*time.Second)
 	task.StartTime = time.Now()
+	task.Scheduler = s // Give task access to scheduler for forks
 	return s.QueueTask(task)
 }
 
@@ -156,6 +157,7 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 	task.Prepstr = cmd.Prepstr
 	task.Iobjstr = cmd.Iobjstr
 	task.Iobj = cmd.Iobj
+	task.Scheduler = s // Give task access to scheduler for forks
 
 	return s.QueueTask(task)
 }
@@ -165,6 +167,7 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt,
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	task := NewTask(taskID, player, code, 30000, 3*time.Second)
 	task.StartTime = time.Now().Add(delay)
+	task.Scheduler = s // Give task access to scheduler for forks
 	return s.QueueTask(task)
 }
 
@@ -173,12 +176,60 @@ func (s *Scheduler) Fork(ctx *types.TaskContext, code []parser.Stmt, delay time.
 	return s.CreateBackgroundTask(ctx.Player, code, delay)
 }
 
+// CreateForkedTask creates a forked child task from fork statement
+func (s *Scheduler) CreateForkedTask(parent *Task, forkInfo *types.ForkInfo) int64 {
+	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+
+	// Cast Body back to []parser.Stmt
+	body, ok := forkInfo.Body.([]parser.Stmt)
+	if !ok {
+		// Should not happen - return 0 as error indicator
+		return 0
+	}
+
+	// Create child task with forked task limits (30k ticks, 3 seconds)
+	task := NewTask(taskID, forkInfo.Player, body, 30000, 3*time.Second)
+	task.StartTime = time.Now().Add(forkInfo.Delay)
+	task.IsForked = true
+	task.ForkInfo = forkInfo
+	task.Programmer = parent.Programmer // Inherit permissions
+	task.This = forkInfo.ThisObj
+	task.Caller = forkInfo.Caller
+	task.VerbName = forkInfo.Verb
+	task.Scheduler = s // Give child access to scheduler for nested forks
+
+	// Set up child's context
+	task.Context.ThisObj = forkInfo.ThisObj
+	task.Context.Player = forkInfo.Player
+	task.Context.Programmer = parent.Programmer
+	task.Context.Verb = forkInfo.Verb
+
+	// Create evaluator with copied variable environment
+	childEnv := vm.NewEnvironment()
+	for k, v := range forkInfo.Variables {
+		childEnv.Set(k, v)
+	}
+	task.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
+
+	return s.QueueTask(task)
+}
+
 // CallVerb synchronously executes a verb on an object and returns the result
 // This is used for server hooks like do_login_command, user_connected, etc.
 func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) types.Result {
+	// Look up the verb to get its owner for programmer permissions
+	verb, _, err := s.store.FindVerb(objID, verbName)
+	if err != nil || verb == nil {
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_VERBNF,
+		}
+	}
+
 	ctx := types.NewTaskContext()
 	ctx.Player = player
-	ctx.Programmer = player
+	ctx.Programmer = verb.Owner // Programmer is verb owner, not player
+	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner
 	ctx.ThisObj = objID
 	ctx.Verb = verbName
 

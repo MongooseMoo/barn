@@ -18,61 +18,59 @@ func builtinTypeof(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: int64(args[0].Type())})
 }
 
-// builtinTostr converts a value to its string representation
-// tostr(value) -> str
-// For most types, returns the MOO literal representation
+// builtinTostr converts values to strings and concatenates them
+// tostr(value, ...) -> str
+// Accepts any number of arguments (0 or more), converts each to string, concatenates
 func builtinTostr(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
+	// tostr() with no args returns empty string
+	if len(args) == 0 {
+		return types.Ok(types.NewStr(""))
 	}
 
-	val := args[0]
+	var result strings.Builder
+	for _, val := range args {
+		result.WriteString(valueToStr(val))
+	}
+	return types.Ok(types.NewStr(result.String()))
+}
 
+// valueToStr converts a single value to its string representation
+func valueToStr(val types.Value) string {
 	switch v := val.(type) {
 	case types.StrValue:
-		// Already a string, return as-is
-		return types.Ok(v)
+		return v.Value()
 
 	case types.IntValue:
-		// Convert integer to string
-		return types.Ok(types.NewStr(fmt.Sprintf("%d", v.Val)))
+		return fmt.Sprintf("%d", v.Val)
 
 	case types.FloatValue:
-		// Convert float to string
-		// MOO expects whole numbers to still show decimal (3.0 not 3)
 		s := strconv.FormatFloat(v.Val, 'g', -1, 64)
 		// Add .0 if no decimal point and not in scientific notation
 		if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 			s += ".0"
 		}
-		return types.Ok(types.NewStr(s))
+		return s
 
 	case types.ObjValue:
-		// Convert object to string: #123
-		return types.Ok(types.NewStr(fmt.Sprintf("#%d", v.ID())))
+		return fmt.Sprintf("#%d", v.ID())
 
 	case types.ErrValue:
-		// Convert error to string: E_TYPE
-		return types.Ok(types.NewStr(v.String()))
+		return v.String()
 
 	case types.BoolValue:
-		// Convert bool to string
 		if v.Val {
-			return types.Ok(types.NewStr("true"))
+			return "true"
 		}
-		return types.Ok(types.NewStr("false"))
+		return "false"
 
 	case types.ListValue:
-		// MOO tostr() on list returns "{list}", not the literal representation
-		return types.Ok(types.NewStr("{list}"))
+		return "{list}"
 
 	case types.MapValue:
-		// MOO tostr() on map returns "[map]", not the literal representation
-		return types.Ok(types.NewStr("[map]"))
+		return "[map]"
 
 	default:
-		// Unknown type - shouldn't happen
-		return types.Err(types.E_TYPE)
+		return ""
 	}
 }
 

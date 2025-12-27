@@ -133,7 +133,7 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 	return &ConnectionManager{
 		connections:    make(map[int64]*Connection),
 		playerConns:    make(map[types.ObjID]*Connection),
-		nextConnID:     1,
+		nextConnID:     2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		server:         server,
 		listenPort:     port,
 		connectTimeout: 5 * time.Minute,

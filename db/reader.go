@@ -555,7 +555,8 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		propDefs[i] = strings.TrimSpace(propDefs[i])
+		propDefs[i] = strings.TrimSuffix(propDefs[i], "\n")
+		propDefs[i] = strings.TrimSuffix(propDefs[i], "\r") // Handle Windows line endings
 	}
 
 	// Read total property count (including inherited)
@@ -784,7 +785,8 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		propDefs[i] = strings.TrimSpace(propDefs[i])
+		propDefs[i] = strings.TrimSuffix(propDefs[i], "\n")
+		propDefs[i] = strings.TrimSuffix(propDefs[i], "\r") // Handle Windows line endings
 	}
 
 	// Read total property count (including inherited)

@@ -53,6 +53,11 @@ type Task struct {
 	Prepstr  string      // Preposition string
 	Iobjstr  string      // Indirect object string
 	Iobj     types.ObjID // Indirect object
+
+	// Fork context (set for forked tasks)
+	ForkInfo      *types.ForkInfo // Fork information (only for forked tasks)
+	IsForked      bool            // True if this is a forked task
+	Scheduler     *Scheduler      // Reference to scheduler for fork creation
 }
 
 // NewTask creates a new task
@@ -138,6 +143,20 @@ func (t *Task) Run(ctx context.Context, evaluator *vm.Evaluator) error {
 		t.Result = result
 
 		// Handle control flow
+		if result.Flow == types.FlowFork {
+			// Fork statement - create child task via scheduler
+			if t.Scheduler != nil && result.ForkInfo != nil {
+				childID := t.Scheduler.CreateForkedTask(t, result.ForkInfo)
+
+				// If named fork, store child ID in parent's variable
+				if result.ForkInfo.VarName != "" {
+					evaluator.GetEnvironment().Set(result.ForkInfo.VarName, types.NewInt(childID))
+				}
+			}
+			// Parent continues execution
+			continue
+		}
+
 		if result.Flow == types.FlowReturn || result.Flow == types.FlowException {
 			t.mu.Lock()
 			if result.Flow == types.FlowException {

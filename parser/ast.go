@@ -108,11 +108,13 @@ type RangeExpr struct {
 func (e *RangeExpr) Position() Position { return e.Pos }
 func (e *RangeExpr) exprNode()          {}
 
-// PropertyExpr represents property access: expr.property
+// PropertyExpr represents property access: expr.property or expr.(expr)
+// If Property is empty, PropertyExpr is the dynamic property name expression
 type PropertyExpr struct {
-	Pos      Position
-	Expr     Expr
-	Property string
+	Pos          Position
+	Expr         Expr
+	Property     string // Static property name (empty if dynamic)
+	PropertyExpr Expr   // Dynamic property name expression (nil if static)
 }
 
 func (e *PropertyExpr) Position() Position { return e.Pos }
@@ -350,3 +352,14 @@ type ScatterTarget struct {
 
 func (s *ScatterStmt) Position() Position { return s.Pos }
 func (s *ScatterStmt) stmtNode()          {}
+
+// ForkStmt represents fork [varname] (delay) body endfork
+type ForkStmt struct {
+	Pos     Position
+	Delay   Expr     // Delay expression (seconds)
+	VarName string   // Variable name for task ID (empty = anonymous)
+	Body    []Stmt   // Fork body statements
+}
+
+func (s *ForkStmt) Position() Position { return s.Pos }
+func (s *ForkStmt) stmtNode()          {}

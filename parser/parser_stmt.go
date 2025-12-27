@@ -29,6 +29,8 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseWhileStatement()
 	case TOKEN_FOR:
 		return p.parseForStatement()
+	case TOKEN_FORK:
+		return p.parseForkStatement()
 	case TOKEN_TRY:
 		return p.parseTryStatement()
 	case TOKEN_RETURN:
@@ -295,6 +297,55 @@ func (p *Parser) parseForStatement() (Stmt, error) {
 		RangeStart: rangeStart,
 		RangeEnd:   rangeEnd,
 		Body:       body,
+	}, nil
+}
+
+// parseForkStatement parses fork statements
+// Syntax: fork [varname] (delay) body endfork
+func (p *Parser) parseForkStatement() (Stmt, error) {
+	pos := p.current.Position
+	p.nextToken() // consume 'fork'
+
+	// Check for optional variable name
+	var varName string
+	if p.current.Type == TOKEN_IDENTIFIER && p.peek.Type == TOKEN_LPAREN {
+		varName = p.current.Value
+		p.nextToken() // consume variable name
+	}
+
+	// Parse delay expression in parentheses
+	if p.current.Type != TOKEN_LPAREN {
+		return nil, fmt.Errorf("expected '(' after 'fork'")
+	}
+	p.nextToken() // consume '('
+
+	delay, err := p.ParseExpression(PREC_LOWEST)
+	if err != nil {
+		return nil, err
+	}
+
+	if p.current.Type != TOKEN_RPAREN {
+		return nil, fmt.Errorf("expected ')' after fork delay")
+	}
+	p.nextToken() // consume ')'
+
+	// Parse fork body
+	body, err := p.parseBody(TOKEN_ENDFORK)
+	if err != nil {
+		return nil, err
+	}
+
+	// Expect endfork
+	if p.current.Type != TOKEN_ENDFORK {
+		return nil, fmt.Errorf("expected 'endfork'")
+	}
+	p.nextToken() // consume 'endfork'
+
+	return &ForkStmt{
+		Pos:     pos,
+		Delay:   delay,
+		VarName: varName,
+		Body:    body,
 	}, nil
 }
 

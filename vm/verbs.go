@@ -9,11 +9,12 @@ import (
 )
 
 func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) types.Result {
-	fmt.Printf("[EVAL VERB] Calling verb: %s (dynamic: %v)\n", expr.Verb, expr.VerbExpr != nil)
+	fmt.Printf("[EVAL VERB] in=%s calling=%s (dynamic: %v)\n", ctx.Verb, expr.Verb, expr.VerbExpr != nil)
 
 	// Evaluate the object expression
 	objResult := e.Eval(expr.Expr, ctx)
 	if !objResult.IsNormal() {
+		fmt.Printf("[EVAL VERB] Object eval failed: %v\n", objResult.Error)
 		return objResult
 	}
 
@@ -24,11 +25,13 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	objVal, ok := objResult.Val.(types.ObjValue)
 	if ok {
 		objID = objVal.ID()
+		fmt.Printf("[EVAL VERB] Target object: #%d\n", objID)
 	} else {
 		// Not an object - check if it's a primitive with a prototype
 		protoID := e.getPrimitivePrototype(objResult.Val)
 		if protoID == types.ObjNothing {
 			// No prototype for this type
+			fmt.Printf("[EVAL VERB] E_TYPE: got %T, no prototype\n", objResult.Val)
 			return types.Err(types.E_TYPE)
 		}
 		objID = protoID
@@ -40,17 +43,37 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Check if object is valid
 	if !e.store.Valid(objID) {
+		fmt.Printf("[EVAL VERB] E_INVIND: #%d not valid\n", objID)
 		return types.Err(types.E_INVIND)
 	}
 
-	// Evaluate arguments
-	args := make([]types.Value, len(expr.Args))
-	for i, argExpr := range expr.Args {
-		argResult := e.Eval(argExpr, ctx)
-		if !argResult.IsNormal() {
-			return argResult
+	// Evaluate arguments, handling splice expressions (@arg)
+	var args []types.Value
+	for _, argExpr := range expr.Args {
+		// Check if this is a splice expression
+		if splice, ok := argExpr.(*parser.SpliceExpr); ok {
+			// Evaluate the splice operand
+			spliceResult := e.Eval(splice.Expr, ctx)
+			if !spliceResult.IsNormal() {
+				return spliceResult
+			}
+			// Splice requires a LIST operand
+			if spliceResult.Val.Type() != types.TYPE_LIST {
+				return types.Err(types.E_TYPE)
+			}
+			// Expand all elements from the spliced list into args
+			list := spliceResult.Val.(types.ListValue)
+			for i := 1; i <= list.Len(); i++ {
+				args = append(args, list.Get(i))
+			}
+		} else {
+			// Regular argument - evaluate and append
+			argResult := e.Eval(argExpr, ctx)
+			if !argResult.IsNormal() {
+				return argResult
+			}
+			args = append(args, argResult.Val)
 		}
-		args[i] = argResult.Val
 	}
 
 	// Get verb name (static or dynamic)
@@ -87,6 +110,10 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 		program, errors := db.CompileVerb(verb.Code)
 		if len(errors) > 0 {
 			// Compilation error - return E_VERBNF (verb is broken)
+			fmt.Printf("[COMPILE FAIL] verbCall: #%d:%s compile errors:\n", objID, verbName)
+			for i, err := range errors {
+				fmt.Printf("[COMPILE FAIL]   %d: %v\n", i, err)
+			}
 			return types.Err(types.E_VERBNF)
 		}
 		verb.Program = program
@@ -124,8 +151,8 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	oldArgsEnv, _ := e.env.Get("args")
 
 	e.env.Set("verb", types.NewStr(verbName))
-	e.env.Set("this", types.NewObj(objID))         // this = object the verb was called ON (not where defined)
-	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
+	e.env.Set("this", types.NewObj(objID))    // this = object the verb was called ON (not where defined)
+	e.env.Set("caller", types.NewObj(oldThis)) // caller = previous this
 	e.env.Set("args", types.NewList(args))
 
 	// TODO: Set up dobj, iobj, etc.
@@ -168,9 +195,10 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 // statements executes a sequence of statements
 func (e *Evaluator) statements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
 	var result types.Result
-	for _, stmt := range stmts {
+	for i, stmt := range stmts {
 		result = e.EvalStmt(stmt, ctx)
 		if !result.IsNormal() {
+			fmt.Printf("[STATEMENTS] verb=%s stmt %d/%d failed: Flow=%d, Error=%v, stmt type=%T\n", ctx.Verb, i+1, len(stmts), result.Flow, result.Error, stmt)
 			return result
 		}
 	}
@@ -249,8 +277,8 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	oldPlayerEnv, _ := e.env.Get("player")
 
 	e.env.Set("verb", types.NewStr(verbName))
-	e.env.Set("this", types.NewObj(objID))         // this = object the verb was called ON (not where defined)
-	e.env.Set("caller", types.NewObj(ctx.ThisObj)) // caller = old this
+	e.env.Set("this", types.NewObj(objID))    // this = object the verb was called ON (not where defined)
+	e.env.Set("caller", types.NewObj(oldThis)) // caller = previous this
 	e.env.Set("args", types.NewList(args))
 	e.env.Set("player", types.NewObj(ctx.Player)) // player from context
 

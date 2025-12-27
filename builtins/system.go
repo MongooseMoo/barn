@@ -246,3 +246,33 @@ func execCommand(program string, args []string, input string) types.Result {
 	}
 	return types.Ok(types.NewList(result))
 }
+
+// builtinServerLog implements server_log(message)
+// Logs a message to the server log. Requires wizard permissions.
+func builtinServerLog(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Check wizard permissions
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
+	// Convert all args to strings and concatenate
+	var msg string
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case types.StrValue:
+			msg += v.Value()
+		default:
+			msg += arg.String()
+		}
+	}
+
+	// Log to server output
+	// TODO: Use a proper logging system
+	println("[SERVER_LOG]", msg)
+
+	return types.Ok(types.NewInt(0))
+}

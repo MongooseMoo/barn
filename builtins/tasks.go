@@ -124,6 +124,37 @@ func builtinResume(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
+// builtinSetTaskPerms: set_task_perms(who) → none
+// Changes the permission context for the current task
+// Wizard only - allows running code with different permissions
+func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Get the new permission object
+	whoVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// TODO: Check if caller is wizard
+	// For now, just update the context programmer
+	ctx.Programmer = whoVal.ID()
+
+	return types.Ok(types.NewInt(0))
+}
+
+// builtinCallerPerms: caller_perms() → OBJ
+// Returns the current permission context object
+func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+
+	return types.Ok(types.NewObj(ctx.Programmer))
+}
+
 // builtinCallers: callers([include_line_numbers]) → LIST
 // Returns the call stack
 // Each entry: {this, verb_name, programmer, verb_loc, player, line_number}
@@ -173,4 +204,25 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewList(result))
+}
+
+// builtinRaise: raise(error [, message [, value]]) → none
+// Raises an error, stopping execution until caught by try/except
+func builtinRaise(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// First arg must be an error code
+	errVal, ok := args[0].(types.ErrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// For now, just return the error - message and value are TODO
+	// The FlowException flow type will cause the error to propagate
+	return types.Result{
+		Flow:  types.FlowException,
+		Error: errVal.Code(),
+	}
 }

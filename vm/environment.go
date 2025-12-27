@@ -89,3 +89,13 @@ func (e *Environment) Set(name string, value types.Value) {
 func (e *Environment) Define(name string, value types.Value) {
 	e.vars[name] = value
 }
+
+// GetAllVars returns a map of all variables in the current scope
+// Does NOT include parent scope variables
+func (e *Environment) GetAllVars() map[string]types.Value {
+	result := make(map[string]types.Value, len(e.vars))
+	for k, v := range e.vars {
+		result[k] = v
+	}
+	return result
+}

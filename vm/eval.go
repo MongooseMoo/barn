@@ -5,6 +5,7 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/types"
+	"fmt"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
@@ -35,6 +36,23 @@ func NewEvaluator() *Evaluator {
 // NewEvaluatorWithEnv creates a new evaluator with a given environment
 func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	store := db.NewStore()
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
+	registry.RegisterVerbBuiltins(store)
+	e := &Evaluator{
+		env:      env,
+		builtins: registry,
+		store:    store,
+	}
+	e.RegisterEvalBuiltin()
+	e.RegisterPassBuiltin()
+	e.registerVerbCaller()
+	return e
+}
+
+// NewEvaluatorWithEnvAndStore creates a new evaluator with a given environment and store
+func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
 	registry := builtins.NewRegistry()
 	registry.RegisterObjectBuiltins(store)
 	registry.RegisterPropertyBuiltins(store)
@@ -142,6 +160,10 @@ func (e *Evaluator) identifier(node *parser.IdentifierExpr, ctx *types.TaskConte
 	if !ok {
 		return types.Err(types.E_VARNF)
 	}
+	// Debug specific variables that are causing issues
+	if node.Name == "h" || node.Name == "hostname" || node.Name == "host" {
+		fmt.Printf("[IDENT DEBUG] verb=%s reading %s = %v (%T)\n", ctx.Verb, node.Name, val, val)
+	}
 	return types.Ok(val)
 }
 
@@ -218,13 +240,29 @@ func (e *Evaluator) binary(node *parser.BinaryExpr, ctx *types.TaskContext) type
 	case parser.TOKEN_NE:
 		return notEqual(left, right)
 	case parser.TOKEN_LT:
-		return lessThan(left, right)
+		result := lessThan(left, right)
+		if !result.IsNormal() {
+			fmt.Printf("[COMPARE DEBUG] verb=%s LT failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
+		}
+		return result
 	case parser.TOKEN_LE:
-		return lessThanEqual(left, right)
+		result := lessThanEqual(left, right)
+		if !result.IsNormal() {
+			fmt.Printf("[COMPARE DEBUG] verb=%s LE failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
+		}
+		return result
 	case parser.TOKEN_GT:
-		return greaterThan(left, right)
+		result := greaterThan(left, right)
+		if !result.IsNormal() {
+			fmt.Printf("[COMPARE DEBUG] verb=%s GT failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
+		}
+		return result
 	case parser.TOKEN_GE:
-		return greaterThanEqual(left, right)
+		result := greaterThanEqual(left, right)
+		if !result.IsNormal() {
+			fmt.Printf("[COMPARE DEBUG] verb=%s GE failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
+		}
+		return result
 	case parser.TOKEN_IN:
 		return inOp(left, right)
 
@@ -308,6 +346,7 @@ func (e *Evaluator) assign(node *parser.AssignExpr, ctx *types.TaskContext) type
 	switch target := node.Target.(type) {
 	case *parser.IdentifierExpr:
 		// Variable assignment
+		fmt.Printf("[ASSIGN DEBUG] verb=%s setting %s = %v (%T)\n", ctx.Verb, target.Name, value, value)
 		e.env.Set(target.Name, value)
 		return types.Ok(value)
 
@@ -335,21 +374,46 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	fn, ok := e.builtins.Get(node.Name)
 	if !ok {
 		// Builtin not found
+		fmt.Printf("[BUILTIN NOT FOUND] verb=%s tried to call builtin: %s\n", ctx.Verb, node.Name)
 		return types.Err(types.E_VERBNF)
 	}
 
-	// Evaluate all arguments
-	args := make([]types.Value, len(node.Args))
-	for i, argExpr := range node.Args {
-		argResult := e.Eval(argExpr, ctx)
-		if !argResult.IsNormal() {
-			return argResult // Propagate error/control flow
+	// Evaluate all arguments, handling splice expressions (@arg)
+	var args []types.Value
+	for _, argExpr := range node.Args {
+		// Check if this is a splice expression
+		if splice, ok := argExpr.(*parser.SpliceExpr); ok {
+			// Evaluate the splice operand
+			spliceResult := e.Eval(splice.Expr, ctx)
+			if !spliceResult.IsNormal() {
+				return spliceResult
+			}
+			// Splice requires a LIST operand
+			if spliceResult.Val.Type() != types.TYPE_LIST {
+				return types.Err(types.E_TYPE)
+			}
+			// Expand all elements from the spliced list into args
+			list := spliceResult.Val.(types.ListValue)
+			for i := 1; i <= list.Len(); i++ {
+				args = append(args, list.Get(i))
+			}
+		} else {
+			// Regular argument - evaluate and append
+			argResult := e.Eval(argExpr, ctx)
+			if !argResult.IsNormal() {
+				fmt.Printf("[BUILTIN DEBUG] verb=%s builtin=%s arg eval failed: %v\n", ctx.Verb, node.Name, argResult.Error)
+				return argResult // Propagate error/control flow
+			}
+			args = append(args, argResult.Val)
 		}
-		args[i] = argResult.Val
 	}
 
 	// Call the builtin function
-	return fn(ctx, args)
+	result := fn(ctx, args)
+	if !result.IsNormal() {
+		fmt.Printf("[BUILTIN DEBUG] verb=%s builtin=%s returned error: %v, args=%v\n", ctx.Verb, node.Name, result.Error, args)
+	}
+	return result
 }
 
 // indexMarker evaluates an index marker (^ or $)

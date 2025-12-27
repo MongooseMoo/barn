@@ -78,8 +78,9 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value, store *db.Store) t
 	return types.Ok(types.NewList(names))
 }
 
-// builtinVerbInfo: verb_info(object, name) → LIST
+// builtinVerbInfo: verb_info(object, name-or-index) → LIST
 // Returns {owner, perms, names}
+// name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -90,14 +91,33 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	var verb *db.Verb
+
+	// Accept string (verb name) or integer (verb index)
+	switch v := args[1].(type) {
+	case types.StrValue:
+		var err error
+		verb, _, err = store.FindVerb(objID, v.Value())
+		if err != nil {
+			return types.Err(types.E_VERBNF)
+		}
+	case types.IntValue:
+		index := int(v.Val) - 1 // Convert to 0-based
+		if index < 0 || index >= len(obj.VerbList) {
+			return types.Err(types.E_RANGE)
+		}
+		verb = obj.VerbList[index]
+	default:
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
+	if verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -114,8 +134,9 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.Store
 	}))
 }
 
-// builtinVerbArgs: verb_args(object, name) → LIST
+// builtinVerbArgs: verb_args(object, name-or-index) → LIST
 // Returns {dobj, prep, iobj}
+// name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -126,14 +147,33 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	var verb *db.Verb
+
+	// Accept string (verb name) or integer (verb index)
+	switch v := args[1].(type) {
+	case types.StrValue:
+		var err error
+		verb, _, err = store.FindVerb(objID, v.Value())
+		if err != nil {
+			return types.Err(types.E_VERBNF)
+		}
+	case types.IntValue:
+		index := int(v.Val) - 1 // Convert to 0-based
+		if index < 0 || index >= len(obj.VerbList) {
+			return types.Err(types.E_RANGE)
+		}
+		verb = obj.VerbList[index]
+	default:
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
+	if verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
 

@@ -134,8 +134,8 @@ func precedence(t TokenType) int {
 		return PREC_MULTIPLICATIVE
 	case TOKEN_CARET:
 		return PREC_POWER
-	case TOKEN_LPAREN, TOKEN_LBRACKET, TOKEN_DOT:
-		return PREC_POSTFIX // Function calls, indexing, and property access have high precedence
+	case TOKEN_LPAREN, TOKEN_LBRACKET, TOKEN_DOT, TOKEN_COLON:
+		return PREC_POSTFIX // Function calls, indexing, property access, and verb calls have high precedence
 	default:
 		return PREC_LOWEST
 	}
@@ -433,7 +433,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			// Check for dynamic property access: obj.(expr)
 			if p.current.Type == TOKEN_LPAREN {
 				p.nextToken() // consume '('
-				_, err := p.ParseExpression(PREC_LOWEST)
+				propExpr, err := p.ParseExpression(PREC_LOWEST)
 				if err != nil {
 					return nil, err
 				}
@@ -442,22 +442,24 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				}
 				p.nextToken() // consume ')'
 
-				// Dynamic property access not yet implemented
-				// Will need a DynamicPropertyExpr AST node
-				return nil, fmt.Errorf("dynamic property access not yet implemented")
-			}
+				left = &PropertyExpr{
+					Pos:          pos,
+					Expr:         left,
+					PropertyExpr: propExpr,
+				}
+			} else {
+				// Static property access: expr.identifier
+				if p.current.Type != TOKEN_IDENTIFIER {
+					return nil, fmt.Errorf("expected property name after '.', got %s", p.current.Type)
+				}
+				propName := p.current.Value
+				p.nextToken()
 
-			// Static property access: expr.identifier
-			if p.current.Type != TOKEN_IDENTIFIER {
-				return nil, fmt.Errorf("expected property name after '.', got %s", p.current.Type)
-			}
-			propName := p.current.Value
-			p.nextToken()
-
-			left = &PropertyExpr{
-				Pos:      pos,
-				Expr:     left,
-				Property: propName,
+				left = &PropertyExpr{
+					Pos:      pos,
+					Expr:     left,
+					Property: propName,
+				}
 			}
 
 		case TOKEN_COLON:

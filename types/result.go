@@ -1,5 +1,9 @@
 package types
 
+import (
+	"time"
+)
+
 // ControlFlow represents the control flow state of evaluation
 type ControlFlow int
 
@@ -9,15 +13,30 @@ const (
 	FlowBreak                         // Break statement
 	FlowContinue                      // Continue statement
 	FlowException                     // MOO error being raised
+	FlowFork                          // Fork statement executed
 )
+
+// ForkInfo contains information needed to create a forked task
+// Note: Body is []interface{} to avoid circular dependency with parser package
+type ForkInfo struct {
+	Body      interface{}       // []parser.Stmt - Fork body to execute
+	Delay     time.Duration     // Delay before execution
+	VarName   string            // Variable to store task ID (empty = anonymous)
+	Variables map[string]Value  // Deep copy of variable environment
+	ThisObj   ObjID             // this context
+	Player    ObjID             // player context
+	Caller    ObjID             // caller context
+	Verb      string            // verb context
+}
 
 // Result represents the outcome of evaluating an expression or statement
 // This unifies normal values, control flow (return/break/continue), and errors
 type Result struct {
-	Val   Value       // The value (if Flow == FlowNormal or FlowReturn)
-	Flow  ControlFlow // Control flow state
-	Error ErrorCode   // Only set when Flow == FlowException
-	Label string      // Loop label for break/continue (empty = innermost loop)
+	Val      Value       // The value (if Flow == FlowNormal or FlowReturn)
+	Flow     ControlFlow // Control flow state
+	Error    ErrorCode   // Only set when Flow == FlowException
+	Label    string      // Loop label for break/continue (empty = innermost loop)
+	ForkInfo *ForkInfo   // Only set when Flow == FlowFork
 }
 
 // Ok creates a Result for normal execution with a value
@@ -51,6 +70,11 @@ func Continue(label string) Result {
 	return Result{Flow: FlowContinue, Label: label}
 }
 
+// Fork creates a Result for a fork statement
+func Fork(info *ForkInfo) Result {
+	return Result{Flow: FlowFork, ForkInfo: info}
+}
+
 // IsNormal returns true if this is normal execution
 func (r Result) IsNormal() bool {
 	return r.Flow == FlowNormal
@@ -74,4 +98,9 @@ func (r Result) IsBreak() bool {
 // IsContinue returns true if this is a continue statement
 func (r Result) IsContinue() bool {
 	return r.Flow == FlowContinue
+}
+
+// IsFork returns true if this is a fork statement
+func (r Result) IsFork() bool {
+	return r.Flow == FlowFork
 }

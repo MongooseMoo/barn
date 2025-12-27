@@ -4,9 +4,10 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/types"
+	"fmt"
 )
 
-// property evaluates property access: obj.property
+// property evaluates property access: obj.property or obj.(expr)
 // Returns E_INVIND if object is invalid
 // Returns E_PROPNF if property not found
 // Returns E_PERM if permission denied
@@ -29,16 +30,37 @@ func (e *Evaluator) property(node *parser.PropertyExpr, ctx *types.TaskContext) 
 	obj := e.store.Get(objID)
 	if obj == nil {
 		// Invalid or recycled object
+		propName := node.Property
+		if propName == "" {
+			propName = "(dynamic)"
+		}
+		fmt.Printf("[PROPERTY GET] E_INVIND: verb=%s trying to get .%s on invalid object #%d\n", ctx.Verb, propName, objID)
 		return types.Err(types.E_INVIND)
 	}
 
+	// Get property name (static or dynamic)
+	propName := node.Property
+	if propName == "" && node.PropertyExpr != nil {
+		// Dynamic property name - evaluate the expression
+		propResult := e.Eval(node.PropertyExpr, ctx)
+		if !propResult.IsNormal() {
+			return propResult
+		}
+		// The property name must be a string
+		strVal, ok := propResult.Val.(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		propName = strVal.Value()
+	}
+
 	// Check for built-in properties first
-	if val, ok := e.getBuiltinProperty(obj, node.Property); ok {
+	if val, ok := e.getBuiltinProperty(obj, propName); ok {
 		return types.Ok(val)
 	}
 
 	// Look up property (will handle inheritance in Layer 8.3)
-	prop, errCode := e.findProperty(obj, node.Property, ctx)
+	prop, errCode := e.findProperty(obj, propName, ctx)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -166,7 +188,7 @@ func (e *Evaluator) findProperty(obj *db.Object, name string, ctx *types.TaskCon
 	return nil, types.E_PROPNF
 }
 
-// assignProperty handles property assignment: obj.property = value
+// assignProperty handles property assignment: obj.property = value or obj.(expr) = value
 // Returns E_INVIND if object is invalid
 // Returns E_PROPNF if property not found
 // Returns E_PERM if permission denied
@@ -192,8 +214,24 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 		return types.Err(types.E_INVIND)
 	}
 
+	// Get property name (static or dynamic)
+	propName := node.Property
+	if propName == "" && node.PropertyExpr != nil {
+		// Dynamic property name - evaluate the expression
+		propResult := e.Eval(node.PropertyExpr, ctx)
+		if !propResult.IsNormal() {
+			return propResult
+		}
+		// The property name must be a string
+		strVal, ok := propResult.Val.(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		propName = strVal.Value()
+	}
+
 	// Check for built-in property assignment
-	if isBuiltin, errCode := e.setBuiltinProperty(obj, node.Property, value, ctx); isBuiltin {
+	if isBuiltin, errCode := e.setBuiltinProperty(obj, propName, value, ctx); isBuiltin {
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -201,7 +239,7 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 	}
 
 	// Check if property exists directly on this object
-	prop, ok := obj.Properties[node.Property]
+	prop, ok := obj.Properties[propName]
 	if ok {
 		// Property exists locally - update it
 		prop.Clear = false
@@ -210,7 +248,7 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 	}
 
 	// Property not on this object - check if inherited
-	inheritedProp, errCode := e.findProperty(obj, node.Property, ctx)
+	inheritedProp, errCode := e.findProperty(obj, propName, ctx)
 	if errCode != types.E_NONE {
 		// Property not found anywhere
 		return types.Err(types.E_PROPNF)
@@ -221,14 +259,14 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 	// Note: Defined=false because this is NOT a new property definition,
 	// just a local value override of an inherited property
 	newProp := &db.Property{
-		Name:    node.Property,
+		Name:    propName,
 		Value:   value,
 		Owner:   inheritedProp.Owner,
 		Perms:   inheritedProp.Perms,
 		Clear:   false, // Has local value now
 		Defined: false, // Not defined on this object, just overriding inherited
 	}
-	obj.Properties[node.Property] = newProp
+	obj.Properties[propName] = newProp
 
 	// Assignment returns the assigned value
 	return types.Ok(value)

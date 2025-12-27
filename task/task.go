@@ -18,6 +18,15 @@ const (
 	TaskKilled
 )
 
+// TaskKind represents the type/origin of a task
+type TaskKind int
+
+const (
+	TaskInput TaskKind = iota  // User command input task
+	TaskForked                 // Background forked task
+	TaskSuspendedTask          // Suspended task (for resume)
+)
+
 func (s TaskState) String() string {
 	switch s {
 	case TaskCreated:
@@ -67,6 +76,7 @@ func (a *ActivationFrame) ToList() types.Value {
 type Task struct {
 	ID           int64
 	Owner        types.ObjID
+	Kind         TaskKind    // Type of task (input, forked, suspended)
 	State        TaskState
 	StartTime    time.Time
 	QueueTime    time.Time // When task was queued
@@ -81,6 +91,9 @@ type Task struct {
 	WakeTime     time.Time
 	WakeValue    types.Value // Value to return when resumed
 
+	// For forked tasks
+	ForkInfo     *types.ForkInfo // Fork information (only for forked tasks)
+
 	mu           sync.RWMutex
 }
 
@@ -90,6 +103,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 	return &Task{
 		ID:           id,
 		Owner:        owner,
+		Kind:         TaskInput, // Default to input task
 		State:        TaskCreated,
 		StartTime:    now,
 		QueueTime:    now,

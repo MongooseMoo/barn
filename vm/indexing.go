@@ -4,6 +4,7 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/types"
+	"fmt"
 )
 
 // index evaluates indexing: expr[index]
@@ -16,6 +17,19 @@ func (e *Evaluator) index(node *parser.IndexExpr, ctx *types.TaskContext) types.
 	}
 
 	expr := exprResult.Val
+
+	// Debug: trace args[1] access in domain_literal
+	if ctx.Verb == "domain_literal" {
+		if id, ok := node.Expr.(*parser.IdentifierExpr); ok && id.Name == "args" {
+			fmt.Printf("[INDEX DEBUG] verb=domain_literal accessing args: expr=%v (%T), index will be evaluated\n", expr, expr)
+			if list, ok := expr.(types.ListValue); ok {
+				fmt.Printf("[INDEX DEBUG] verb=domain_literal args is list with %d elements\n", list.Len())
+				for i := 1; i <= list.Len(); i++ {
+					fmt.Printf("[INDEX DEBUG] verb=domain_literal args[%d] = %v (%T)\n", i, list.Get(i), list.Get(i))
+				}
+			}
+		}
+	}
 
 	// Get collection length for $ and ^ resolution in sub-expressions
 	length := getCollectionLength(expr)

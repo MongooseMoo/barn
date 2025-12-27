@@ -100,9 +100,9 @@ func (l ListValue) Type() TypeCode {
 }
 
 // Truthy returns whether the value is truthy
-// In MOO, lists are never truthy (only non-zero ints and non-empty strings)
+// In MOO, non-empty lists are truthy, empty lists are falsy
 func (l ListValue) Truthy() bool {
-	return false
+	return l.Len() > 0
 }
 
 // Equal compares two values for equality (deep comparison)
