@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/task"
 	"barn/types"
 	"bytes"
@@ -247,6 +248,50 @@ func execCommand(program string, args []string, input string) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
+// builtinTime implements time()
+// Returns the current time as a Unix timestamp (seconds since epoch)
+func builtinTime(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+	return types.Ok(types.NewInt(time.Now().Unix()))
+}
+
+// builtinCtime implements ctime([time])
+// Converts a Unix timestamp to a human-readable string
+func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {
+	var timestamp int64
+	if len(args) == 0 {
+		timestamp = time.Now().Unix()
+	} else if len(args) == 1 {
+		switch v := args[0].(type) {
+		case types.IntValue:
+			timestamp = v.Val
+		case types.FloatValue:
+			timestamp = int64(v.Val)
+		default:
+			return types.Err(types.E_TYPE)
+		}
+	} else {
+		return types.Err(types.E_ARGS)
+	}
+	t := time.Unix(timestamp, 0)
+	// MOO format: "Sun Dec 26 22:30:00 2025 PST"
+	return types.Ok(types.NewStr(t.Format("Mon Jan  2 15:04:05 2006 MST")))
+}
+
+// builtinServerVersion implements server_version([key])
+// Returns server version information
+// With no args: returns version string like "1.0.0"
+// With arg: returns specific version info (not fully implemented yet)
+func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) == 0 {
+		return types.Ok(types.NewStr("1.0.0-barn"))
+	}
+	// For now, just return version string for any argument
+	return types.Ok(types.NewStr("1.0.0-barn"))
+}
+
 // builtinServerLog implements server_log(message)
 // Logs a message to the server log. Requires wizard permissions.
 func builtinServerLog(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -275,4 +320,24 @@ func builtinServerLog(ctx *types.TaskContext, args []types.Value) types.Result {
 	println("[SERVER_LOG]", msg)
 
 	return types.Ok(types.NewInt(0))
+}
+
+// builtinLoadServerOptions implements load_server_options()
+// Reloads server configuration from $server_options object.
+// Reads properties like max_string_concat and caches them globally.
+// Requires wizard permissions.
+func builtinLoadServerOptions(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Check wizard permissions
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
+	// Load server options from $server_options object into global cache
+	loaded := LoadServerOptionsFromStore(store)
+
+	return types.Ok(types.NewInt(int64(loaded)))
 }
