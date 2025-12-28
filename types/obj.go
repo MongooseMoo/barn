@@ -26,7 +26,11 @@ func NewAnon(id ObjID) ObjValue {
 }
 
 // String returns the MOO string representation
+// Anonymous objects use *#N format, regular objects use #N
 func (o ObjValue) String() string {
+	if o.anonymous {
+		return fmt.Sprintf("*#%d", o.id)
+	}
 	return fmt.Sprintf("#%d", o.id)
 }
 

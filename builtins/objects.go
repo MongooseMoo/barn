@@ -160,19 +160,7 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 		if parent == nil {
 			return types.Err(types.E_INVARG)
 		}
-		// Check fertile flag and permissions:
-		// - Wizards can create from any object
-		// - Non-wizards can only create from objects they own OR that have the fertile flag
-		// Note: Wizard check is based on Player, not Programmer (verb owner)
-		// This allows wizard players to use create() even when called from non-wizard verbs
-		playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
-		if !playerIsWizard {
-			isOwner := parent.Owner == ctx.Programmer
-			hasFertile := parent.Flags.Has(db.FlagFertile)
-			if !isOwner && !hasFertile {
-				return types.Err(types.E_PERM)
-			}
-		}
+		// Permission check deferred until after anonymous flag is parsed
 		validParents = append(validParents, parentID)
 	}
 	parents = validParents
@@ -264,6 +252,32 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 		}
 	}
 
+	// Check permissions for creating from each parent
+	// - Wizards can create from any object
+	// - For anonymous objects: non-wizards need to own parent OR parent has FlagAnonymous
+	// - For regular objects: non-wizards need to own parent OR parent has FlagFertile
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+	if !playerIsWizard {
+		for _, parentID := range parents {
+			parent := store.Get(parentID)
+			if parent == nil {
+				continue
+			}
+			isOwner := parent.Owner == ctx.Programmer
+			if anonymous {
+				hasAnonFlag := parent.Flags.Has(db.FlagAnonymous)
+				if !isOwner && !hasAnonFlag {
+					return types.Err(types.E_PERM)
+				}
+			} else {
+				hasFertile := parent.Flags.Has(db.FlagFertile)
+				if !isOwner && !hasFertile {
+					return types.Err(types.E_PERM)
+				}
+			}
+		}
+	}
+
 	// Validate owner if explicitly specified
 	if ownerSpecified {
 		if owner < -1 {
@@ -274,7 +288,6 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 			return types.Err(types.E_INVARG)
 		}
 		// Only wizards can specify $nothing as owner (makes object own itself)
-		playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
 		if owner == types.ObjNothing && !playerIsWizard {
 			return types.Err(types.E_PERM)
 		}
