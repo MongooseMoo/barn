@@ -75,7 +75,6 @@ func (e *Evaluator) exprStmt(stmt *parser.ExprStmt, ctx *types.TaskContext) type
 	// Evaluate expression and discard result (unless it's an error/control flow)
 	result := e.Eval(stmt.Expr, ctx)
 	if !result.IsNormal() {
-		fmt.Printf("[EXPR STMT] verb=%s expr type=%T returned error: Flow=%d, Error=%v\n", ctx.Verb, stmt.Expr, result.Flow, result.Error)
 		return result
 	}
 
@@ -88,28 +87,21 @@ func (e *Evaluator) ifStmt(stmt *parser.IfStmt, ctx *types.TaskContext) types.Re
 	// Evaluate main condition
 	condResult := e.Eval(stmt.Condition, ctx)
 	if !condResult.IsNormal() {
-		fmt.Printf("[IF DEBUG] condition error: %v\n", condResult.Error)
 		return condResult
 	}
 
-	fmt.Printf("[IF DEBUG] verb=%s condition result: %v (type: %T, truthy: %v)\n", ctx.Verb, condResult.Val, condResult.Val, condResult.Val.Truthy())
-
 	if condResult.Val.Truthy() {
 		// Execute if body
-		fmt.Printf("[IF DEBUG] verb=%s entering if body\n", ctx.Verb)
 		return e.EvalStatements(stmt.Body, ctx)
 	}
 
 	// Try elseif clauses
-	for i, elseIf := range stmt.ElseIfs {
-		fmt.Printf("[ELSEIF DEBUG] verb=%s evaluating elseif %d\n", ctx.Verb, i+1)
+	for _, elseIf := range stmt.ElseIfs {
 		elseIfCondResult := e.Eval(elseIf.Condition, ctx)
 		if !elseIfCondResult.IsNormal() {
-			fmt.Printf("[ELSEIF DEBUG] verb=%s elseif %d condition error: %v\n", ctx.Verb, i+1, elseIfCondResult.Error)
 			return elseIfCondResult
 		}
 
-		fmt.Printf("[ELSEIF DEBUG] verb=%s elseif %d condition result: %v (truthy: %v)\n", ctx.Verb, i+1, elseIfCondResult.Val, elseIfCondResult.Val.Truthy())
 		if elseIfCondResult.Val.Truthy() {
 			return e.EvalStatements(elseIf.Body, ctx)
 		}
@@ -574,16 +566,12 @@ func (e *Evaluator) scatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext
 	// Evaluate the value expression
 	valueResult := e.Eval(stmt.Value, ctx)
 	if !valueResult.IsNormal() {
-		fmt.Printf("[SCATTER DEBUG] verb=%s value evaluation failed: %v\n", ctx.Verb, valueResult.Error)
 		return valueResult
 	}
-
-	fmt.Printf("[SCATTER DEBUG] verb=%s value=%v (type=%T)\n", ctx.Verb, valueResult.Val, valueResult.Val)
 
 	// Must be a list
 	listVal, ok := valueResult.Val.(types.ListValue)
 	if !ok {
-		fmt.Printf("[SCATTER DEBUG] verb=%s E_TYPE: expected list, got %T\n", ctx.Verb, valueResult.Val)
 		return types.Err(types.E_TYPE)
 	}
 
@@ -624,7 +612,6 @@ func (e *Evaluator) scatterStmt(stmt *parser.ScatterStmt, ctx *types.TaskContext
 			}
 		} else {
 			// Bind element to variable
-			fmt.Printf("[SCATTER DEBUG] verb=%s assigning %s = %v (type=%T)\n", ctx.Verb, target.Name, elements[elemIdx], elements[elemIdx])
 			e.env.Set(target.Name, elements[elemIdx])
 			elemIdx++
 		}

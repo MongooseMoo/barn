@@ -304,11 +304,11 @@ func (vm *VM) executeIn() error {
 	case types.ListValue:
 		for i := 0; i < coll.Len(); i++ {
 			if element.Equal(coll.Get(i + 1)) {
-				vm.Push(types.BoolValue{Val: true})
+				vm.Push(types.IntValue{Val: int64(i + 1)})
 				return nil
 			}
 		}
-		vm.Push(types.BoolValue{Val: false})
+		vm.Push(types.IntValue{Val: 0})
 		return nil
 
 	case types.StrValue:

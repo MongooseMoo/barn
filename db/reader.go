@@ -594,6 +594,12 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 			return nil, err
 		}
 
+		// If value is nil, this is a CLEAR property (type code 5)
+		// It should inherit its value from the parent object
+		if prop.Value == nil {
+			prop.Clear = true
+		}
+
 		// Owner
 		prop.Owner, err = readObjID(r)
 		if err != nil {
@@ -829,6 +835,12 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 		prop.Value, err = readValue(r, db.Version)
 		if err != nil {
 			return nil, err
+		}
+
+		// If value is nil, this is a CLEAR property (type code 5)
+		// It should inherit its value from the parent object
+		if prop.Value == nil {
+			prop.Clear = true
 		}
 
 		// Owner

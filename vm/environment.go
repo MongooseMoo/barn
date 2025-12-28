@@ -20,12 +20,14 @@ func NewEnvironment() *Environment {
 	// Define MOO type constants
 	// These match the values from typeof() returns
 	env.vars["INT"] = types.NewInt(int64(types.TYPE_INT))
+	env.vars["NUM"] = types.NewInt(int64(types.TYPE_INT)) // NUM is alias for INT
 	env.vars["OBJ"] = types.NewInt(int64(types.TYPE_OBJ))
 	env.vars["STR"] = types.NewInt(int64(types.TYPE_STR))
 	env.vars["ERR"] = types.NewInt(int64(types.TYPE_ERR))
 	env.vars["LIST"] = types.NewInt(int64(types.TYPE_LIST))
 	env.vars["FLOAT"] = types.NewInt(int64(types.TYPE_FLOAT))
 	env.vars["MAP"] = types.NewInt(int64(types.TYPE_MAP))
+	env.vars["ANON"] = types.NewInt(int64(types.TYPE_ANON))
 	env.vars["WAIF"] = types.NewInt(int64(types.TYPE_WAIF))
 	env.vars["BOOL"] = types.NewInt(int64(types.TYPE_BOOL))
 

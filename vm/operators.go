@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/builtins"
 	"barn/types"
 	"math"
 	"sort"
@@ -54,7 +55,14 @@ func add(left, right types.Value) types.Result {
 	// String concatenation
 	if leftStr, ok := left.(types.StrValue); ok {
 		if rightStr, ok := right.(types.StrValue); ok {
-			return types.Ok(types.NewStr(leftStr.Value() + rightStr.Value()))
+			result := leftStr.Value() + rightStr.Value()
+
+			// Check string limit
+			if err := builtins.CheckStringLimit(result); err != types.E_NONE {
+				return types.Err(err)
+			}
+
+			return types.Ok(types.NewStr(result))
 		}
 		return types.Err(types.E_TYPE)
 	}
@@ -314,10 +322,10 @@ func greaterThanEqual(left, right types.Value) types.Result {
 func inOp(left, right types.Value) types.Result {
 	switch container := right.(type) {
 	case types.ListValue:
-		// Check if left is an element of the list
+		// Check if left is an element of the list - return 1-based index
 		for i := 1; i <= container.Len(); i++ {
 			if elem := container.Get(i); elem.Equal(left) {
-				return types.Ok(types.IntValue{Val: 1})
+				return types.Ok(types.IntValue{Val: int64(i)})
 			}
 		}
 		return types.Ok(types.IntValue{Val: 0})

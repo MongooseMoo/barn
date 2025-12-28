@@ -31,28 +31,22 @@ func SetConnectionManager(cm ConnectionManager) {
 
 // notify(player, message [, no_flush]) -> none
 func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
-	fmt.Printf("[NOTIFY DEBUG] called with %d args\n", len(args))
 	if globalConnManager == nil {
-		fmt.Printf("[NOTIFY DEBUG] no connection manager\n")
 		return types.Err(types.E_INVARG)
 	}
 	// Get player
 	playerVal, ok := args[0].(types.ObjValue)
 	if !ok {
-		fmt.Printf("[NOTIFY DEBUG] player arg not ObjValue: %T\n", args[0])
 		return types.Err(types.E_TYPE)
 	}
 	player := playerVal.ID()
-	fmt.Printf("[NOTIFY DEBUG] player=%d\n", player)
 
 	// Get message
 	messageVal, ok := args[1].(types.StrValue)
 	if !ok {
-		fmt.Printf("[NOTIFY DEBUG] message arg not StrValue: %T\n", args[1])
 		return types.Err(types.E_TYPE)
 	}
 	message := messageVal.Value()
-	fmt.Printf("[NOTIFY DEBUG] message=%q (len=%d)\n", message, len(message))
 
 	// Get no_flush (optional)
 	noFlush := false
@@ -63,11 +57,9 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Get connection
 	conn := globalConnManager.GetConnection(player)
 	if conn == nil {
-		fmt.Printf("[NOTIFY DEBUG] no connection for player %d\n", player)
 		// Player not connected - fail silently (MOO behavior)
 		return types.Ok(types.NewInt(0))
 	}
-	fmt.Printf("[NOTIFY DEBUG] got connection for player %d\n", player)
 
 	// Send message
 	if noFlush {
@@ -79,6 +71,35 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewInt(0))
+}
+
+// listeners([object]) -> list of {obj, point, print_messages}
+// Returns list of listening ports, optionally filtered by canonical object
+func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Optional object argument to filter by
+	var filterObj types.ObjID = -1
+	if len(args) > 0 {
+		if objVal, ok := args[0].(types.ObjValue); ok {
+			filterObj = objVal.ID()
+		}
+	}
+
+	// For now, return a single listener on the default port
+	// TODO: Get actual listener info from server
+	// Format: {canon, desc, port, print_messages}
+	listener := []types.Value{
+		types.NewObj(0),    // canonical object (system object)
+		types.NewStr("#0"), // description
+		types.NewInt(7777), // port (placeholder)
+		types.NewInt(0),    // print_messages
+	}
+
+	// If filtering and doesn't match, return empty list
+	if filterObj >= 0 && filterObj != 0 {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+
+	return types.Ok(types.NewList([]types.Value{types.NewList(listener)}))
 }
 
 // connected_players([include_queued]) -> list
@@ -209,12 +230,9 @@ func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Resul
 	newPlayer := newPlayerVal.ID()
 
 	// Switch player
-	fmt.Printf("[SWITCH] switch_player(%d, %d) called\n", oldPlayer, newPlayer)
 	if err := globalConnManager.SwitchPlayer(oldPlayer, newPlayer); err != nil {
-		fmt.Printf("[SWITCH] switch_player error: %v\n", err)
 		return types.Err(types.E_INVARG)
 	}
-	fmt.Printf("[SWITCH] switch_player succeeded\n")
 
 	return types.Ok(types.NewInt(0))
 }

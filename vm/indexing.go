@@ -1,10 +1,10 @@
 package vm
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/parser"
 	"barn/types"
-	"fmt"
 )
 
 // index evaluates indexing: expr[index]
@@ -17,19 +17,6 @@ func (e *Evaluator) index(node *parser.IndexExpr, ctx *types.TaskContext) types.
 	}
 
 	expr := exprResult.Val
-
-	// Debug: trace args[1] access in domain_literal
-	if ctx.Verb == "domain_literal" {
-		if id, ok := node.Expr.(*parser.IdentifierExpr); ok && id.Name == "args" {
-			fmt.Printf("[INDEX DEBUG] verb=domain_literal accessing args: expr=%v (%T), index will be evaluated\n", expr, expr)
-			if list, ok := expr.(types.ListValue); ok {
-				fmt.Printf("[INDEX DEBUG] verb=domain_literal args is list with %d elements\n", list.Len())
-				for i := 1; i <= list.Len(); i++ {
-					fmt.Printf("[INDEX DEBUG] verb=domain_literal args[%d] = %v (%T)\n", i, list.Get(i), list.Get(i))
-				}
-			}
-		}
-	}
 
 	// Get collection length for $ and ^ resolution in sub-expressions
 	length := getCollectionLength(expr)
@@ -489,7 +476,14 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 		if i < 1 || i > c.Len() {
 			return nil, types.E_RANGE
 		}
-		return c.Set(i, value), types.E_NONE
+		result := c.Set(i, value)
+
+		// Check size limit
+		if err := builtins.CheckListLimit(result); err != types.E_NONE {
+			return nil, err
+		}
+
+		return result, types.E_NONE
 
 	case types.StrValue:
 		idx, ok := index.(types.IntValue)
@@ -508,6 +502,12 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 		}
 		// Create new string with replaced character
 		newStr := s[:i-1] + newChar.Value() + s[i:]
+
+		// Check string limit
+		if err := builtins.CheckStringLimit(newStr); err != types.E_NONE {
+			return nil, err
+		}
+
 		return types.NewStr(newStr), types.E_NONE
 
 	case types.MapValue:
@@ -515,7 +515,14 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 		if !types.IsValidMapKey(index) {
 			return nil, types.E_TYPE
 		}
-		return c.Set(index, value), types.E_NONE
+		result := c.Set(index, value)
+
+		// Check size limit
+		if err := builtins.CheckMapLimit(result); err != types.E_NONE {
+			return nil, err
+		}
+
+		return result, types.E_NONE
 
 	default:
 		return nil, types.E_TYPE
@@ -657,6 +664,11 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 		}
 		newColl = types.NewList(result)
 
+		// Check size limit
+		if err := builtins.CheckListLimit(newColl.(types.ListValue)); err != types.E_NONE {
+			return types.Err(err)
+		}
+
 	case types.StrValue:
 		// Value must be a string
 		newStr, ok := value.(types.StrValue)
@@ -701,6 +713,12 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
 		// For inverted ranges, this naturally duplicates characters
 		result := s[:startIdx-1] + newStr.Value() + s[effectiveEnd:]
+
+		// Check string limit
+		if err := builtins.CheckStringLimit(result); err != types.E_NONE {
+			return types.Err(err)
+		}
+
 		newColl = types.NewStr(result)
 
 	case types.MapValue:
@@ -746,6 +764,11 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 			result = append(result, pairs[i])
 		}
 		newColl = types.NewMap(result)
+
+		// Check size limit
+		if err := builtins.CheckMapLimit(newColl.(types.MapValue)); err != types.E_NONE {
+			return types.Err(err)
+		}
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -1111,6 +1134,12 @@ foundBase:
 		}
 
 		result := s[:startIdx-1] + newStr.Value() + s[effectiveEnd:]
+
+		// Check string limit
+		if err := builtins.CheckStringLimit(result); err != types.E_NONE {
+			return types.Err(err)
+		}
+
 		newInnerVal = types.NewStr(result)
 
 	case types.ListValue:
@@ -1140,6 +1169,11 @@ foundBase:
 			result = append(result, inner.Get(i))
 		}
 		newInnerVal = types.NewList(result)
+
+		// Check size limit
+		if err := builtins.CheckListLimit(newInnerVal.(types.ListValue)); err != types.E_NONE {
+			return types.Err(err)
+		}
 
 	default:
 		return types.Err(types.E_TYPE)

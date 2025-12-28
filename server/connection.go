@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	"barn/db"
 	"barn/types"
 	"context"
 	"fmt"
@@ -19,6 +20,8 @@ type Connection struct {
 	player        types.ObjID
 	loggedIn      bool
 	outputBuffer  []string
+	outputPrefix  string // PREFIX/OUTPUTPREFIX command sets this
+	outputSuffix  string // SUFFIX/OUTPUTSUFFIX command sets this
 	connectedAt   time.Time
 	lastInput     time.Time
 	mu            sync.Mutex
@@ -116,6 +119,20 @@ func (c *Connection) IsLoggedIn() bool {
 	return c.loggedIn
 }
 
+// GetOutputPrefix returns the connection's output prefix
+func (c *Connection) GetOutputPrefix() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.outputPrefix
+}
+
+// GetOutputSuffix returns the connection's output suffix
+func (c *Connection) GetOutputSuffix() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.outputSuffix
+}
+
 // ConnectionManager manages all active connections
 type ConnectionManager struct {
 	connections    map[int64]*Connection
@@ -204,6 +221,10 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	timeoutCtx, cancel := context.WithTimeout(conn.ctx, cm.connectTimeout)
 	defer cancel()
 
+	// Send initial welcome banner by calling do_login_command with empty string
+	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
+	_, _ = cm.callDoLoginCommand(conn, "")
+
 	// Unlogged phase
 	for !conn.IsLoggedIn() {
 		select {
@@ -278,12 +299,9 @@ func (cm *ConnectionManager) callDoLoginCommand(conn *Connection, line string) (
 		args[i] = types.NewStr(word)
 	}
 
-	log.Printf("[LOGIN] Calling do_login_command with args=%v, connID=%d", args, connID)
 	result := cm.server.scheduler.CallVerb(0, "do_login_command", args, connID)
-	log.Printf("[LOGIN] do_login_command returned: Flow=%d, Val=%v, Error=%v", result.Flow, result.Val, result.Error)
 
 	if result.Flow == types.FlowException {
-		log.Printf("do_login_command error: %v", result.Error)
 		return types.ObjID(-1), nil // Login failed, stay unlogged
 	}
 
@@ -295,20 +313,55 @@ func (cm *ConnectionManager) callDoLoginCommand(conn *Connection, line string) (
 		}
 	}
 
+	// Check if switch_player was called during the verb execution
+	// If so, the connection's player has already been updated
+	cm.mu.Lock()
+	currentPlayer := conn.GetPlayer()
+	cm.mu.Unlock()
+	if currentPlayer > 0 {
+		return currentPlayer, nil
+	}
+
 	return types.ObjID(-1), nil // Login failed, stay unlogged
 }
 
 // loginPlayer associates a connection with a player
 func (cm *ConnectionManager) loginPlayer(conn *Connection, player types.ObjID) {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
 
 	// Remove negative ID mapping (used for pre-login notify())
 	delete(cm.playerConns, types.ObjID(-conn.ID))
 
 	// Check if player already connected
-	if existingConn, exists := cm.playerConns[player]; exists {
-		// Boot existing connection
+	alreadyLoggedIn := false
+	reconnection := false
+	var existingConn *Connection
+	if ec, exists := cm.playerConns[player]; exists {
+		if ec == conn {
+			// Already logged in via switch_player, just need to call user_connected
+			alreadyLoggedIn = true
+		} else {
+			// Different connection - need to boot
+			existingConn = ec
+			reconnection = true
+		}
+	}
+
+	if !alreadyLoggedIn {
+		conn.SetPlayer(player)
+		cm.playerConns[player] = conn
+	}
+
+	cm.mu.Unlock()
+
+	// Call hooks outside the lock
+	if alreadyLoggedIn {
+		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
+		cm.callUserConnected(player)
+		return
+	}
+
+	if reconnection {
 		existingConn.Send("You have been disconnected (reconnected elsewhere)")
 		existingConn.Close()
 		cm.callUserReconnected(player)
@@ -316,11 +369,7 @@ func (cm *ConnectionManager) loginPlayer(conn *Connection, player types.ObjID) {
 		cm.callUserConnected(player)
 	}
 
-	conn.SetPlayer(player)
-	cm.playerConns[player] = conn
-
 	log.Printf("Connection %d logged in as player %d", conn.ID, player)
-	conn.Send("Login successful!")
 }
 
 // dispatchCommand parses and dispatches a command
@@ -336,6 +385,22 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	cmd := ParseCommand(line)
 	if cmd.Verb == "" {
 		return nil // Empty command
+	}
+
+	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX)
+	// These are server-level commands that set output delimiters, not MOO verbs
+	verbUpper := strings.ToUpper(cmd.Verb)
+	switch verbUpper {
+	case "PREFIX", "OUTPUTPREFIX":
+		conn.mu.Lock()
+		conn.outputPrefix = cmd.Argstr
+		conn.mu.Unlock()
+		return nil
+	case "SUFFIX", "OUTPUTSUFFIX":
+		conn.mu.Lock()
+		conn.outputSuffix = cmd.Argstr
+		conn.mu.Unlock()
+		return nil
 	}
 
 	// Resolve direct object
@@ -362,6 +427,16 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 		}
 		conn.Send(fmt.Sprintf("I don't understand that."))
 		return nil
+	}
+
+	// Compile verb if needed (lazy compilation)
+	if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
+		program, errors := db.CompileVerb(match.Verb.Code)
+		if len(errors) > 0 {
+			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
+			return nil
+		}
+		match.Verb.Program = program
 	}
 
 	// Execute the verb

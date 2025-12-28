@@ -9,12 +9,9 @@ import (
 )
 
 func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) types.Result {
-	fmt.Printf("[EVAL VERB] in=%s calling=%s (dynamic: %v)\n", ctx.Verb, expr.Verb, expr.VerbExpr != nil)
-
 	// Evaluate the object expression
 	objResult := e.Eval(expr.Expr, ctx)
 	if !objResult.IsNormal() {
-		fmt.Printf("[EVAL VERB] Object eval failed: %v\n", objResult.Error)
 		return objResult
 	}
 
@@ -25,13 +22,11 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	objVal, ok := objResult.Val.(types.ObjValue)
 	if ok {
 		objID = objVal.ID()
-		fmt.Printf("[EVAL VERB] Target object: #%d\n", objID)
 	} else {
 		// Not an object - check if it's a primitive with a prototype
 		protoID := e.getPrimitivePrototype(objResult.Val)
 		if protoID == types.ObjNothing {
 			// No prototype for this type
-			fmt.Printf("[EVAL VERB] E_TYPE: got %T, no prototype\n", objResult.Val)
 			return types.Err(types.E_TYPE)
 		}
 		objID = protoID
@@ -43,7 +38,6 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Check if object is valid
 	if !e.store.Valid(objID) {
-		fmt.Printf("[EVAL VERB] E_INVIND: #%d not valid\n", objID)
 		return types.Err(types.E_INVIND)
 	}
 
@@ -95,7 +89,6 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	// Look up the verb (in EvalVerbCall - handles expr:verb(args))
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
-		fmt.Printf("[VERB CALL FAIL] EvalVerbCall: #%d:%s - verb not found\n", objID, verbName)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -195,10 +188,9 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 // statements executes a sequence of statements
 func (e *Evaluator) statements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
 	var result types.Result
-	for i, stmt := range stmts {
+	for _, stmt := range stmts {
 		result = e.EvalStmt(stmt, ctx)
 		if !result.IsNormal() {
-			fmt.Printf("[STATEMENTS] verb=%s stmt %d/%d failed: Flow=%d, Error=%v, stmt type=%T\n", ctx.Verb, i+1, len(stmts), result.Flow, result.Error, stmt)
 			return result
 		}
 	}
@@ -217,7 +209,6 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// Look up the verb (in CallVerb - direct verb invocation)
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
-		fmt.Printf("[VERB CALL FAIL] CallVerb: #%d:%s - verb not found\n", objID, verbName)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -281,27 +272,6 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	e.env.Set("caller", types.NewObj(oldThis)) // caller = previous this
 	e.env.Set("args", types.NewList(args))
 	e.env.Set("player", types.NewObj(ctx.Player)) // player from context
-
-	// Debug: verify args is set correctly
-	if verbName == "do_login_command" {
-		if argsVal, ok := e.env.Get("args"); ok {
-			fmt.Printf("[VERB DEBUG] args set to: %v (type: %T)\n", argsVal, argsVal)
-			if list, ok := argsVal.(types.ListValue); ok {
-				fmt.Printf("[VERB DEBUG] args length: %d\n", list.Len())
-				for i := 1; i <= list.Len(); i++ {
-					fmt.Printf("[VERB DEBUG] args[%d] = %v (type: %T)\n", i, list.Get(i), list.Get(i))
-				}
-			}
-		}
-		// Debug: show verb code
-		fmt.Printf("[VERB DEBUG] verb code lines: %d\n", len(verb.Code))
-		for i, line := range verb.Code {
-			if i < 20 { // Only show first 20 lines
-				fmt.Printf("[VERB DEBUG] code[%d]: %s\n", i, line)
-			}
-		}
-		fmt.Printf("[VERB DEBUG] number of statements: %d\n", len(verb.Program.Statements))
-	}
 
 	// Execute the verb
 	result := e.statements(verb.Program.Statements, ctx)

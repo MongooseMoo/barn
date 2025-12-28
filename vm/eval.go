@@ -5,7 +5,6 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/types"
-	"fmt"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
@@ -23,6 +22,7 @@ func NewEvaluator() *Evaluator {
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
@@ -42,6 +42,7 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -60,6 +61,7 @@ func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -78,6 +80,7 @@ func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 	registry.RegisterPropertyBuiltins(store)
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
@@ -162,12 +165,7 @@ func (e *Evaluator) literal(node *parser.LiteralExpr, ctx *types.TaskContext) ty
 func (e *Evaluator) identifier(node *parser.IdentifierExpr, ctx *types.TaskContext) types.Result {
 	val, ok := e.env.Get(node.Name)
 	if !ok {
-		fmt.Printf("[VARNF DEBUG] verb=%s variable '%s' not found\n", ctx.Verb, node.Name)
 		return types.Err(types.E_VARNF)
-	}
-	// Debug specific variables that are causing issues
-	if node.Name == "h" || node.Name == "hostname" || node.Name == "host" {
-		fmt.Printf("[IDENT DEBUG] verb=%s reading %s = %v (%T)\n", ctx.Verb, node.Name, val, val)
 	}
 	return types.Ok(val)
 }
@@ -245,29 +243,13 @@ func (e *Evaluator) binary(node *parser.BinaryExpr, ctx *types.TaskContext) type
 	case parser.TOKEN_NE:
 		return notEqual(left, right)
 	case parser.TOKEN_LT:
-		result := lessThan(left, right)
-		if !result.IsNormal() {
-			fmt.Printf("[COMPARE DEBUG] verb=%s LT failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
-		}
-		return result
+		return lessThan(left, right)
 	case parser.TOKEN_LE:
-		result := lessThanEqual(left, right)
-		if !result.IsNormal() {
-			fmt.Printf("[COMPARE DEBUG] verb=%s LE failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
-		}
-		return result
+		return lessThanEqual(left, right)
 	case parser.TOKEN_GT:
-		result := greaterThan(left, right)
-		if !result.IsNormal() {
-			fmt.Printf("[COMPARE DEBUG] verb=%s GT failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
-		}
-		return result
+		return greaterThan(left, right)
 	case parser.TOKEN_GE:
-		result := greaterThanEqual(left, right)
-		if !result.IsNormal() {
-			fmt.Printf("[COMPARE DEBUG] verb=%s GE failed: left=%v (%T), right=%v (%T), error=%v\n", ctx.Verb, left, left, right, right, result.Error)
-		}
-		return result
+		return greaterThanEqual(left, right)
 	case parser.TOKEN_IN:
 		return inOp(left, right)
 
@@ -351,7 +333,6 @@ func (e *Evaluator) assign(node *parser.AssignExpr, ctx *types.TaskContext) type
 	switch target := node.Target.(type) {
 	case *parser.IdentifierExpr:
 		// Variable assignment
-		fmt.Printf("[ASSIGN DEBUG] verb=%s setting %s = %v (%T)\n", ctx.Verb, target.Name, value, value)
 		e.env.Set(target.Name, value)
 		return types.Ok(value)
 
@@ -379,7 +360,6 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	fn, ok := e.builtins.Get(node.Name)
 	if !ok {
 		// Builtin not found
-		fmt.Printf("[BUILTIN NOT FOUND] verb=%s tried to call builtin: %s\n", ctx.Verb, node.Name)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -406,7 +386,6 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 			// Regular argument - evaluate and append
 			argResult := e.Eval(argExpr, ctx)
 			if !argResult.IsNormal() {
-				fmt.Printf("[BUILTIN DEBUG] verb=%s builtin=%s arg eval failed: %v\n", ctx.Verb, node.Name, argResult.Error)
 				return argResult // Propagate error/control flow
 			}
 			args = append(args, argResult.Val)
@@ -414,11 +393,7 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	}
 
 	// Call the builtin function
-	result := fn(ctx, args)
-	if !result.IsNormal() {
-		fmt.Printf("[BUILTIN DEBUG] verb=%s builtin=%s returned error: %v, args=%v\n", ctx.Verb, node.Name, result.Error, args)
-	}
-	return result
+	return fn(ctx, args)
 }
 
 // indexMarker evaluates an index marker (^ or $)
@@ -599,7 +574,14 @@ func (e *Evaluator) listExpr(node *parser.ListExpr, ctx *types.TaskContext) type
 		}
 	}
 
-	return types.Ok(types.NewList(elements))
+	resultList := types.NewList(elements)
+
+	// Check size limit
+	if err := builtins.CheckListLimit(resultList); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(resultList)
 }
 
 // listRangeExpr evaluates a range list expression: {start..end}
