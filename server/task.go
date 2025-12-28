@@ -67,7 +67,7 @@ func NewTask(id int64, player types.ObjID, code []parser.Stmt, tickLimit int, ti
 	ctx.Programmer = player
 	ctx.TicksRemaining = int64(tickLimit)
 
-	return &Task{
+	t := &Task{
 		ID:          id,
 		State:       TaskCreated,
 		Player:      player,
@@ -81,6 +81,9 @@ func NewTask(id int64, player types.ObjID, code []parser.Stmt, tickLimit int, ti
 		Context:     ctx,
 		Code:        code,
 	}
+	// Set ctx.Task so builtins like suspend() can access the task
+	ctx.Task = t
+	return t
 }
 
 // Run executes the task

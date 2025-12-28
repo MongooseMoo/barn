@@ -134,7 +134,7 @@ func (s *Scheduler) QueueTask(task *Task) int64 {
 // CreateForegroundTask creates a foreground task (user command)
 func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	task := NewTask(taskID, player, code, 60000, 5*time.Second)
+	task := NewTask(taskID, player, code, 300000, 5*time.Second)
 	task.StartTime = time.Now()
 	task.Scheduler = s // Give task access to scheduler for forks
 	return s.QueueTask(task)
@@ -143,7 +143,7 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 // CreateVerbTask creates a task to execute a verb
 func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	task := NewTask(taskID, player, match.Verb.Program.Statements, 60000, 5*time.Second)
+	task := NewTask(taskID, player, match.Verb.Program.Statements, 300000, 5*time.Second)
 	task.StartTime = time.Now()
 
 	// Set up verb context
@@ -165,7 +165,7 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 // CreateBackgroundTask creates a background task (fork)
 func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	task := NewTask(taskID, player, code, 30000, 3*time.Second)
+	task := NewTask(taskID, player, code, 300000, 3*time.Second)
 	task.StartTime = time.Now().Add(delay)
 	task.Scheduler = s // Give task access to scheduler for forks
 	return s.QueueTask(task)
@@ -187,8 +187,8 @@ func (s *Scheduler) CreateForkedTask(parent *Task, forkInfo *types.ForkInfo) int
 		return 0
 	}
 
-	// Create child task with forked task limits (30k ticks, 3 seconds)
-	task := NewTask(taskID, forkInfo.Player, body, 30000, 3*time.Second)
+	// Create child task with forked task limits
+	task := NewTask(taskID, forkInfo.Player, body, 300000, 3*time.Second)
 	task.StartTime = time.Now().Add(forkInfo.Delay)
 	task.IsForked = true
 	task.ForkInfo = forkInfo
