@@ -32,6 +32,10 @@ type Object struct {
 	// ChparentChildren tracks children that were added via chparent() rather than create()
 	// This is used for property conflict checking - only chparent-added children are checked
 	ChparentChildren map[types.ObjID]bool
+
+	// AnonymousChildren tracks anonymous children created from this parent
+	// Used for invalidation when parent hierarchy changes
+	AnonymousChildren []types.ObjID
 }
 
 // Property represents a property on an object

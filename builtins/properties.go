@@ -248,6 +248,15 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		Defined: true, // This property is defined on this object
 	}
 
+	// Invalidate anonymous children (parent schema changed)
+	for _, childID := range obj.AnonymousChildren {
+		child := store.Get(childID)
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(db.FlagInvalid)
+		}
+	}
+	obj.AnonymousChildren = nil
+
 	return types.Ok(types.NewInt(0))
 }
 
@@ -284,6 +293,15 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 
 	// Delete property
 	delete(obj.Properties, propName)
+
+	// Invalidate anonymous children (parent schema changed)
+	for _, childID := range obj.AnonymousChildren {
+		child := store.Get(childID)
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(db.FlagInvalid)
+		}
+	}
+	obj.AnonymousChildren = nil
 
 	return types.Ok(types.NewInt(0))
 }

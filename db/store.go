@@ -9,11 +9,12 @@ import (
 
 // Store is an in-memory object database
 type Store struct {
-	mu          sync.RWMutex
-	objects     map[types.ObjID]*Object
-	maxObjID    types.ObjID // Highest non-anonymous object ID (for max_object())
-	highWaterID types.ObjID // Highest allocated ID (including anonymous, for NextID())
-	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	mu           sync.RWMutex
+	objects      map[types.ObjID]*Object
+	maxObjID     types.ObjID // Highest non-anonymous object ID (for max_object())
+	highWaterID  types.ObjID // Highest allocated ID (including anonymous, for NextID())
+	recycledID   []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	waifRegistry map[types.ObjID]map[*types.WaifValue]struct{} // Track live waifs by class
 }
 
 // NewStore creates a new empty object store
@@ -113,8 +114,12 @@ func (s *Store) Valid(id types.ObjID) bool {
 		return false
 	}
 
-	// Check if recycled
-	return !obj.Recycled
+	// Check if recycled or explicitly invalidated
+	if obj.Recycled || obj.Flags.Has(FlagInvalid) {
+		return false
+	}
+
+	return true
 }
 
 // IsRecycled checks if an object ID was recycled (vs never existed)
@@ -149,6 +154,15 @@ func (s *Store) Recycle(id types.ObjID) error {
 	if obj.Recycled {
 		return fmt.Errorf("object #%d already recycled", id)
 	}
+
+	// Invalidate any anonymous children (before marking as recycled)
+	for _, childID := range obj.AnonymousChildren {
+		child := s.objects[childID]
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(FlagInvalid)
+		}
+	}
+	obj.AnonymousChildren = nil
 
 	// Mark as recycled and invalid
 	obj.Recycled = true
@@ -265,6 +279,15 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	if existing, exists := s.objects[newID]; exists && !existing.Recycled {
 		return fmt.Errorf("object #%d already exists", newID)
 	}
+
+	// Invalidate any anonymous children (parent is being renumbered)
+	for _, childID := range obj.AnonymousChildren {
+		child := s.objects[childID]
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(FlagInvalid)
+		}
+	}
+	obj.AnonymousChildren = nil
 
 	// Update the object's ID
 	obj.ID = newID
@@ -428,4 +451,67 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 
 	// Verb not found in entire inheritance chain
 	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+}
+
+// RegisterWaif registers a waif with its class object for invalidation tracking
+func (s *Store) RegisterWaif(classID types.ObjID, waif *types.WaifValue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.waifRegistry == nil {
+		s.waifRegistry = make(map[types.ObjID]map[*types.WaifValue]struct{})
+	}
+
+	if s.waifRegistry[classID] == nil {
+		s.waifRegistry[classID] = make(map[*types.WaifValue]struct{})
+	}
+
+	s.waifRegistry[classID][waif] = struct{}{}
+}
+
+// WaifCount returns the total number of live waifs across all classes
+func (s *Store) WaifCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, waifs := range s.waifRegistry {
+		count += len(waifs)
+	}
+	return count
+}
+
+// WaifCountByClass returns a map of class ID to waif count
+func (s *Store) WaifCountByClass() map[types.ObjID]int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[types.ObjID]int)
+	for classID, waifs := range s.waifRegistry {
+		result[classID] = len(waifs)
+	}
+	return result
+}
+
+// InvalidateAnonymousChildren marks all anonymous children of an object as invalid
+// This is called when the parent hierarchy changes (recycle, chparents, add_property, delete_property, renumber)
+func (s *Store) InvalidateAnonymousChildren(parentID types.ObjID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	parent := s.objects[parentID]
+	if parent == nil {
+		return
+	}
+
+	// Invalidate all anonymous children
+	for _, childID := range parent.AnonymousChildren {
+		child := s.objects[childID]
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(FlagInvalid)
+		}
+	}
+
+	// Clear the list (children are now invalid)
+	parent.AnonymousChildren = nil
 }

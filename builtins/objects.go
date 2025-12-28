@@ -326,11 +326,20 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 
 	// Add to parents' children lists (only for non-anonymous objects)
 	// Anonymous objects do not appear in children() results
+	// But DO track anonymous children on parent for invalidation
 	if !anonymous {
 		for _, parentID := range parents {
 			parent := store.Get(parentID)
 			if parent != nil {
 				parent.Children = append(parent.Children, newID)
+			}
+		}
+	} else {
+		// Track anonymous children on all parents for invalidation
+		for _, parentID := range parents {
+			parent := store.Get(parentID)
+			if parent != nil {
+				parent.AnonymousChildren = append(parent.AnonymousChildren, newID)
 			}
 		}
 	}
@@ -715,6 +724,16 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 
 	// TODO: Check permissions and fertile flag (Layer 8.5)
 
+	// Invalidate anonymous children of the object being reparented
+	// (its hierarchy is changing, so its anonymous children become invalid)
+	for _, childID := range obj.AnonymousChildren {
+		child := store.Get(childID)
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(db.FlagInvalid)
+		}
+	}
+	obj.AnonymousChildren = nil
+
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
 		oldParent := store.Get(oldParentID)
@@ -843,6 +862,16 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 	}
 
 	// TODO: Check permissions and fertile flags (Layer 8.5)
+
+	// Invalidate anonymous children of the object being reparented
+	// (its hierarchy is changing, so its anonymous children become invalid)
+	for _, childID := range obj.AnonymousChildren {
+		child := store.Get(childID)
+		if child != nil && child.Anonymous {
+			child.Flags = child.Flags.Set(db.FlagInvalid)
+		}
+	}
+	obj.AnonymousChildren = nil
 
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
