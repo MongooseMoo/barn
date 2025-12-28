@@ -164,6 +164,17 @@ func (s *Scheduler) runTask(t *task.Task) error {
 		// Also update TaskContext for permissions and builtins
 		ctx.ThisObj = t.This
 		ctx.Verb = t.VerbName
+
+		// Push initial activation frame for traceback support
+		t.PushFrame(task.ActivationFrame{
+			This:       t.This,
+			Player:     t.Owner,
+			Programmer: t.Programmer,
+			Caller:     t.Caller,
+			Verb:       t.VerbName,
+			VerbLoc:    t.This, // TODO: Track actual verb location separately
+			LineNumber: 1,
+		})
 	}
 
 	// Set up cancellation with deadline
@@ -209,6 +220,8 @@ func (s *Scheduler) runTask(t *task.Task) error {
 		if result.Flow == types.FlowReturn || result.Flow == types.FlowException {
 			if result.Flow == types.FlowException {
 				t.SetState(task.TaskKilled)
+				// Send traceback to player
+				s.sendTraceback(t, result.Error)
 			} else {
 				t.SetState(task.TaskCompleted)
 			}
@@ -409,6 +422,24 @@ func (s *Scheduler) isWizard(objID types.ObjID) bool {
 		return false
 	}
 	return obj.Flags.Has(db.FlagWizard)
+}
+
+// sendTraceback sends a formatted traceback to the player
+func (s *Scheduler) sendTraceback(t *task.Task, err types.ErrorCode) {
+	if s.connManager == nil {
+		return
+	}
+
+	conn := s.connManager.GetConnection(t.Owner)
+	if conn == nil {
+		return
+	}
+
+	// Format and send the traceback
+	lines := task.FormatTraceback(t.GetCallStack(), err, t.Owner)
+	for _, line := range lines {
+		conn.Send(line)
+	}
 }
 
 // TaskQueue is a priority queue for tasks ordered by start time

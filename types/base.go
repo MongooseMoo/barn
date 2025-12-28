@@ -79,6 +79,51 @@ func (e ErrorCode) String() string {
 	}
 }
 
+// Message returns a human-readable message for an error code
+// These match LambdaMOO/ToastStunt error messages
+func (e ErrorCode) Message() string {
+	switch e {
+	case E_NONE:
+		return "No error"
+	case E_TYPE:
+		return "Type mismatch"
+	case E_DIV:
+		return "Division by zero"
+	case E_PERM:
+		return "Permission denied"
+	case E_PROPNF:
+		return "Property not found"
+	case E_VERBNF:
+		return "Verb not found"
+	case E_VARNF:
+		return "Variable not found"
+	case E_INVIND:
+		return "Invalid indirection"
+	case E_RECMOVE:
+		return "Recursive move"
+	case E_MAXREC:
+		return "Too many verb calls"
+	case E_RANGE:
+		return "Range error"
+	case E_ARGS:
+		return "Incorrect number of arguments"
+	case E_NACC:
+		return "Move refused by destination"
+	case E_INVARG:
+		return "Invalid argument"
+	case E_QUOTA:
+		return "Resource limit exceeded"
+	case E_FLOAT:
+		return "Floating-point arithmetic error"
+	case E_FILE:
+		return "File system error"
+	case E_EXEC:
+		return "Exec error"
+	default:
+		return "Unknown error"
+	}
+}
+
 // ErrorFromString converts a string like "E_PERM" to an ErrorCode
 func ErrorFromString(s string) (ErrorCode, bool) {
 	switch s {
