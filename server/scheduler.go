@@ -2,11 +2,13 @@ package server
 
 import (
 	"barn/db"
+	"barn/task"
 	"barn/vm"
 	"barn/parser"
 	"barn/types"
 	"container/heap"
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +16,7 @@ import (
 
 // Scheduler manages task execution
 type Scheduler struct {
-	tasks       map[int64]*Task
+	tasks       map[int64]*task.Task
 	waiting     *TaskQueue
 	nextTaskID  int64
 	evaluator   *vm.Evaluator
@@ -31,7 +33,7 @@ func NewScheduler(store *db.Store) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Scheduler{
-		tasks:      make(map[int64]*Task),
+		tasks:      make(map[int64]*task.Task),
 		waiting:    NewTaskQueue(),
 		nextTaskID: 1,
 		evaluator:  vm.NewEvaluatorWithStore(store),
@@ -85,25 +87,25 @@ func (s *Scheduler) processReadyTasks() {
 	s.mu.Lock()
 
 	now := time.Now()
-	var readyTasks []*Task
+	var readyTasks []*task.Task
 
 	// Collect all ready tasks
 	for s.waiting.Len() > 0 {
-		task := s.waiting.Peek()
-		if task.StartTime.After(now) {
+		t := s.waiting.Peek()
+		if t.StartTime.After(now) {
 			break // Tasks are ordered by start time
 		}
 		heap.Pop(s.waiting)
-		readyTasks = append(readyTasks, task)
+		readyTasks = append(readyTasks, t)
 	}
 
 	s.mu.Unlock()
 
 	// Execute ready tasks (outside the lock to allow concurrency)
-	for _, task := range readyTasks {
+	for _, t := range readyTasks {
 		// Run task in a goroutine
-		go func(t *Task) {
-			err := t.Run(s.ctx, s.evaluator)
+		go func(t *task.Task) {
+			err := s.runTask(t)
 			if err != nil {
 				// Log error (in real implementation)
 				_ = err
@@ -111,64 +113,163 @@ func (s *Scheduler) processReadyTasks() {
 
 			// Flush output buffer for the player
 			if s.connManager != nil {
-				if conn := s.connManager.GetConnection(t.Player); conn != nil {
+				if conn := s.connManager.GetConnection(t.Owner); conn != nil {
 					conn.Flush()
 				}
 			}
-		}(task)
+		}(t)
 	}
 }
 
+// runTask executes a task's code
+func (s *Scheduler) runTask(t *task.Task) error {
+	t.SetState(task.TaskRunning)
+
+	// Get code and context
+	code, ok := t.Code.([]parser.Stmt)
+	if !ok || code == nil {
+		t.SetState(task.TaskKilled)
+		return errors.New("task has no code")
+	}
+
+	ctx := t.Context
+	if ctx == nil {
+		t.SetState(task.TaskKilled)
+		return errors.New("task has no context")
+	}
+
+	// Get or create evaluator
+	evaluator := s.evaluator
+	if t.Evaluator != nil {
+		if eval, ok := t.Evaluator.(*vm.Evaluator); ok {
+			evaluator = eval
+		}
+	}
+
+	// Set up verb context if this is a verb task
+	if t.VerbName != "" {
+		evaluator.SetVerbContext(&vm.VerbContext{
+			Player:  t.Owner,
+			This:    t.This,
+			Caller:  t.Caller,
+			Verb:    t.VerbName,
+			Args:    t.Args,
+			Argstr:  t.Argstr,
+			Dobj:    t.Dobj,
+			Dobjstr: t.Dobjstr,
+			Iobj:    t.Iobj,
+			Iobjstr: t.Iobjstr,
+			Prepstr: t.Prepstr,
+		})
+		// Also update TaskContext for permissions and builtins
+		ctx.ThisObj = t.This
+		ctx.Verb = t.VerbName
+	}
+
+	// Set up cancellation with deadline
+	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
+	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
+	t.CancelFunc = cancel
+	defer cancel()
+
+	// Execute code
+	for _, stmt := range code {
+		select {
+		case <-taskCtx.Done():
+			t.SetState(task.TaskKilled)
+			return taskCtx.Err()
+		default:
+		}
+
+		// Check tick limit
+		if ctx.TicksRemaining <= 0 {
+			t.SetState(task.TaskKilled)
+			return ErrTicksExceeded
+		}
+
+		// Execute statement
+		result := evaluator.EvalStmt(stmt, ctx)
+		t.Result = result
+
+		// Handle control flow
+		if result.Flow == types.FlowFork {
+			// Fork statement - create child task via ForkCreator
+			if t.ForkCreator != nil && result.ForkInfo != nil {
+				childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
+
+				// If named fork, store child ID in parent's variable
+				if result.ForkInfo.VarName != "" {
+					evaluator.GetEnvironment().Set(result.ForkInfo.VarName, types.NewInt(childID))
+				}
+			}
+			// Parent continues execution
+			continue
+		}
+
+		if result.Flow == types.FlowReturn || result.Flow == types.FlowException {
+			if result.Flow == types.FlowException {
+				t.SetState(task.TaskKilled)
+			} else {
+				t.SetState(task.TaskCompleted)
+			}
+			return nil
+		}
+	}
+
+	t.SetState(task.TaskCompleted)
+	return nil
+}
+
 // QueueTask adds a task to the scheduler
-func (s *Scheduler) QueueTask(task *Task) int64 {
+func (s *Scheduler) QueueTask(t *task.Task) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	task.State = TaskWaiting
-	s.tasks[task.ID] = task
-	heap.Push(s.waiting, task)
+	t.SetState(task.TaskQueued)
+	s.tasks[t.ID] = t
+	heap.Push(s.waiting, t)
 
-	return task.ID
+	return t.ID
 }
 
 // CreateForegroundTask creates a foreground task (user command)
 func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	task := NewTask(taskID, player, code, 300000, 5*time.Second)
-	task.StartTime = time.Now()
-	task.Scheduler = s // Give task access to scheduler for forks
-	return s.QueueTask(task)
+	t := task.NewTaskFull(taskID, player, code, 300000, 5.0)
+	t.StartTime = time.Now()
+	t.ForkCreator = s // Give task access to scheduler for forks
+	return s.QueueTask(t)
 }
 
 // CreateVerbTask creates a task to execute a verb
 func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	task := NewTask(taskID, player, match.Verb.Program.Statements, 300000, 5*time.Second)
-	task.StartTime = time.Now()
+	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
+	t.StartTime = time.Now()
 
 	// Set up verb context
-	task.VerbName = match.Verb.Name
-	task.This = match.This
-	task.Caller = player
-	task.Argstr = cmd.Argstr
-	task.Args = cmd.Args
-	task.Dobjstr = cmd.Dobjstr
-	task.Dobj = cmd.Dobj
-	task.Prepstr = cmd.Prepstr
-	task.Iobjstr = cmd.Iobjstr
-	task.Iobj = cmd.Iobj
-	task.Scheduler = s // Give task access to scheduler for forks
+	t.VerbName = match.Verb.Name
+	t.This = match.This
+	t.Caller = player
+	t.Argstr = cmd.Argstr
+	t.Args = cmd.Args
+	t.Dobjstr = cmd.Dobjstr
+	t.Dobj = cmd.Dobj
+	t.Prepstr = cmd.Prepstr
+	t.Iobjstr = cmd.Iobjstr
+	t.Iobj = cmd.Iobj
+	t.ForkCreator = s // Give task access to scheduler for forks
 
-	return s.QueueTask(task)
+	return s.QueueTask(t)
 }
 
 // CreateBackgroundTask creates a background task (fork)
 func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	task := NewTask(taskID, player, code, 300000, 3*time.Second)
-	task.StartTime = time.Now().Add(delay)
-	task.Scheduler = s // Give task access to scheduler for forks
-	return s.QueueTask(task)
+	t := task.NewTaskFull(taskID, player, code, 300000, 3.0)
+	t.StartTime = time.Now().Add(delay)
+	t.ForkCreator = s // Give task access to scheduler for forks
+	return s.QueueTask(t)
 }
 
 // Fork creates a forked task with a delay
@@ -177,7 +278,8 @@ func (s *Scheduler) Fork(ctx *types.TaskContext, code []parser.Stmt, delay time.
 }
 
 // CreateForkedTask creates a forked child task from fork statement
-func (s *Scheduler) CreateForkedTask(parent *Task, forkInfo *types.ForkInfo) int64 {
+// Implements task.ForkCreator interface
+func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 
 	// Cast Body back to []parser.Stmt
@@ -188,30 +290,31 @@ func (s *Scheduler) CreateForkedTask(parent *Task, forkInfo *types.ForkInfo) int
 	}
 
 	// Create child task with forked task limits
-	task := NewTask(taskID, forkInfo.Player, body, 300000, 3*time.Second)
-	task.StartTime = time.Now().Add(forkInfo.Delay)
-	task.IsForked = true
-	task.ForkInfo = forkInfo
-	task.Programmer = parent.Programmer // Inherit permissions
-	task.This = forkInfo.ThisObj
-	task.Caller = forkInfo.Caller
-	task.VerbName = forkInfo.Verb
-	task.Scheduler = s // Give child access to scheduler for nested forks
+	t := task.NewTaskFull(taskID, forkInfo.Player, body, 300000, 3.0)
+	t.StartTime = time.Now().Add(forkInfo.Delay)
+	t.Kind = task.TaskForked
+	t.IsForked = true
+	t.ForkInfo = forkInfo
+	t.Programmer = parent.Programmer // Inherit permissions
+	t.This = forkInfo.ThisObj
+	t.Caller = forkInfo.Caller
+	t.VerbName = forkInfo.Verb
+	t.ForkCreator = s // Give child access to scheduler for nested forks
 
 	// Set up child's context
-	task.Context.ThisObj = forkInfo.ThisObj
-	task.Context.Player = forkInfo.Player
-	task.Context.Programmer = parent.Programmer
-	task.Context.Verb = forkInfo.Verb
+	t.Context.ThisObj = forkInfo.ThisObj
+	t.Context.Player = forkInfo.Player
+	t.Context.Programmer = parent.Programmer
+	t.Context.Verb = forkInfo.Verb
 
 	// Create evaluator with copied variable environment
 	childEnv := vm.NewEnvironment()
 	for k, v := range forkInfo.Variables {
 		childEnv.Set(k, v)
 	}
-	task.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
+	t.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
 
-	return s.QueueTask(task)
+	return s.QueueTask(t)
 }
 
 // CallVerb synchronously executes a verb on an object and returns the result
@@ -239,20 +342,23 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 // ResumeTask resumes a suspended task
 func (s *Scheduler) ResumeTask(taskID int64, value types.Value) error {
 	s.mu.Lock()
-	task, exists := s.tasks[taskID]
+	t, exists := s.tasks[taskID]
 	s.mu.Unlock()
 
 	if !exists {
 		return ErrNotSuspended
 	}
 
-	return task.Resume(value)
+	if !t.Resume(value) {
+		return ErrNotSuspended
+	}
+	return nil
 }
 
 // KillTask kills a running task
 func (s *Scheduler) KillTask(taskID int64, killerID types.ObjID) error {
 	s.mu.Lock()
-	task, exists := s.tasks[taskID]
+	t, exists := s.tasks[taskID]
 	s.mu.Unlock()
 
 	if !exists {
@@ -260,30 +366,30 @@ func (s *Scheduler) KillTask(taskID int64, killerID types.ObjID) error {
 	}
 
 	// Permission check
-	if task.Player != killerID && !s.isWizard(killerID) {
+	if t.Owner != killerID && !s.isWizard(killerID) {
 		return ErrPermission
 	}
 
-	task.Kill()
+	t.Kill()
 	return nil
 }
 
 // GetTask retrieves a task by ID
-func (s *Scheduler) GetTask(taskID int64) *Task {
+func (s *Scheduler) GetTask(taskID int64) *task.Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.tasks[taskID]
 }
 
 // QueuedTasks returns list of queued tasks
-func (s *Scheduler) QueuedTasks() []*Task {
+func (s *Scheduler) QueuedTasks() []*task.Task {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tasks := make([]*Task, 0)
-	for _, task := range s.tasks {
-		if task.GetState() == TaskWaiting {
-			tasks = append(tasks, task)
+	tasks := make([]*task.Task, 0)
+	for _, t := range s.tasks {
+		if t.GetState() == task.TaskQueued {
+			tasks = append(tasks, t)
 		}
 	}
 	return tasks
@@ -299,7 +405,7 @@ func (s *Scheduler) isWizard(objID types.ObjID) bool {
 }
 
 // TaskQueue is a priority queue for tasks ordered by start time
-type TaskQueue []*Task
+type TaskQueue []*task.Task
 
 func NewTaskQueue() *TaskQueue {
 	tq := make(TaskQueue, 0)
@@ -318,7 +424,7 @@ func (tq TaskQueue) Swap(i, j int) {
 }
 
 func (tq *TaskQueue) Push(x interface{}) {
-	*tq = append(*tq, x.(*Task))
+	*tq = append(*tq, x.(*task.Task))
 }
 
 func (tq *TaskQueue) Pop() interface{} {
@@ -329,9 +435,17 @@ func (tq *TaskQueue) Pop() interface{} {
 	return item
 }
 
-func (tq TaskQueue) Peek() *Task {
+func (tq TaskQueue) Peek() *task.Task {
 	if len(tq) == 0 {
 		return nil
 	}
 	return tq[0]
 }
+
+// Error definitions
+var (
+	ErrTicksExceeded = errors.New("tick limit exceeded")
+	ErrNotSuspended  = errors.New("task not suspended")
+	ErrResumeFailed  = errors.New("failed to resume task")
+	ErrPermission    = errors.New("permission denied")
+)

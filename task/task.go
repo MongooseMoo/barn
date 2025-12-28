@@ -2,6 +2,7 @@ package task
 
 import (
 	"barn/types"
+	"context"
 	"sync"
 	"time"
 )
@@ -26,6 +27,11 @@ const (
 	TaskForked                 // Background forked task
 	TaskSuspendedTask          // Suspended task (for resume)
 )
+
+// ForkCreator interface allows tasks to create forked children without importing server
+type ForkCreator interface {
+	CreateForkedTask(parent *Task, info *types.ForkInfo) int64
+}
 
 func (s TaskState) String() string {
 	switch s {
@@ -93,6 +99,30 @@ type Task struct {
 
 	// For forked tasks
 	ForkInfo     *types.ForkInfo // Fork information (only for forked tasks)
+	IsForked     bool            // True if this is a forked task
+
+	// Execution fields (use interface{} to avoid circular imports)
+	Code         interface{}    // []parser.Stmt - actual code to execute
+	Evaluator    interface{}    // *vm.Evaluator - evaluator for execution
+	Context      *types.TaskContext // Task execution context
+	Result       types.Result    // Last execution result
+	ForkCreator  ForkCreator    // For creating forked tasks
+	CancelFunc   context.CancelFunc // For cancellation (exported for scheduler)
+
+	// Verb context (set for verb tasks)
+	VerbName     string
+	This         types.ObjID // Object this verb is called on
+	Caller       types.ObjID // Object that invoked the verb
+	Argstr       string      // Full argument string
+	Args         []string    // Arguments as word list
+	Dobjstr      string      // Direct object string
+	Dobj         types.ObjID // Direct object
+	Prepstr      string      // Preposition string
+	Iobjstr      string      // Indirect object string
+	Iobj         types.ObjID // Indirect object
+
+	// For compatibility with old server.Task
+	Programmer   types.ObjID // Permission context (usually same as Owner)
 
 	mu           sync.RWMutex
 }
@@ -103,6 +133,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 	return &Task{
 		ID:           id,
 		Owner:        owner,
+		Programmer:   owner, // Default programmer is owner
 		Kind:         TaskInput, // Default to input task
 		State:        TaskCreated,
 		StartTime:    now,
@@ -113,7 +144,41 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 		SecondsLimit: secondsLimit,
 		CallStack:    make([]ActivationFrame, 0),
 		TaskLocal:    types.NewInt(0), // Default task_local is 0
+		WakeValue:    types.NewInt(0), // Default wake value is 0 (matches LambdaMOO)
 	}
+}
+
+// NewTaskFull creates a task with full context (code, evaluator, etc)
+func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64, secondsLimit float64) *Task {
+	ctx := types.NewTaskContext()
+	ctx.Player = owner
+	ctx.Programmer = owner
+	ctx.TicksRemaining = tickLimit
+
+	now := time.Now()
+	t := &Task{
+		ID:           id,
+		Owner:        owner,
+		Programmer:   owner,
+		Kind:         TaskInput,
+		State:        TaskCreated,
+		StartTime:    now,
+		QueueTime:    now,
+		TicksUsed:    0,
+		TicksLimit:   tickLimit,
+		SecondsUsed:  0,
+		SecondsLimit: secondsLimit,
+		CallStack:    make([]ActivationFrame, 0),
+		TaskLocal:    types.NewInt(0),
+		WakeValue:    types.NewInt(0),
+		Code:         code,
+		Context:      ctx,
+	}
+	// Set ctx.Task to this task so builtins can access it
+	if ctx != nil {
+		ctx.Task = t
+	}
+	return t
 }
 
 // GetState returns the current state (thread-safe)
