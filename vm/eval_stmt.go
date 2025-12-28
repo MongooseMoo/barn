@@ -13,7 +13,13 @@ import (
 func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
 	for _, stmt := range stmts {
 		result := e.EvalStmt(stmt, ctx)
-		// Propagate control flow (return, break, continue, error)
+		// FlowFork: fork schedules a background task, but the parent continues execution
+		// Without a full scheduler, fork is essentially a no-op for the parent, but
+		// we must NOT return early - the parent must continue executing subsequent statements
+		if result.Flow == types.FlowFork {
+			continue
+		}
+		// Propagate other control flow (return, break, continue, error)
 		if !result.IsNormal() {
 			return result
 		}

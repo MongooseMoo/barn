@@ -89,7 +89,11 @@ func (l ListValue) String() string {
 
 	var parts []string
 	for _, elem := range elements {
-		parts = append(parts, elem.String())
+		if elem == nil {
+			parts = append(parts, "0") // nil becomes 0 in MOO
+		} else {
+			parts = append(parts, elem.String())
+		}
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
 }

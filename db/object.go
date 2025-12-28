@@ -19,9 +19,11 @@ type Object struct {
 	Flags    ObjectFlags
 
 	// Properties and verbs
-	Properties map[string]*Property
-	Verbs      map[string]*Verb
-	VerbList   []*Verb // Ordered list for verb code indexing
+	Properties    map[string]*Property
+	PropDefsCount int      // Number of properties defined on this object (not inherited)
+	PropOrder     []string // Property names in order they were read (for name resolution)
+	Verbs         map[string]*Verb
+	VerbList      []*Verb // Ordered list for verb code indexing
 
 	// Object lifecycle
 	Recycled  bool

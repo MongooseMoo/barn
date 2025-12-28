@@ -150,6 +150,9 @@ func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	// Optional: Active connections (may not be present)
 	// We just ignore any remaining content
 
+	// Resolve inherited property names now that all objects are loaded
+	db.resolvePropertyNames()
+
 	return db, nil
 }
 
@@ -223,6 +226,9 @@ func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
 			return nil, fmt.Errorf("read verb code %d: %w", i, err)
 		}
 	}
+
+	// Resolve inherited property names now that all objects are loaded
+	db.resolvePropertyNames()
 
 	return db, nil
 }
@@ -565,6 +571,10 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		return nil, err
 	}
 
+	// Store PropDefsCount for later name resolution
+	obj.PropDefsCount = propDefCount
+	obj.PropOrder = make([]string, totalPropCount)
+
 	// Read property values
 	for i := 0; i < totalPropCount; i++ {
 		var propName string
@@ -573,6 +583,8 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		} else {
 			propName = fmt.Sprintf("_inherited_%d", i)
 		}
+
+		obj.PropOrder[i] = propName // Track order for resolution
 
 		prop := &Property{Name: propName}
 
@@ -795,6 +807,10 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 		return nil, err
 	}
 
+	// Store PropDefsCount for later name resolution
+	obj.PropDefsCount = propDefCount
+	obj.PropOrder = make([]string, totalPropCount)
+
 	// Read property values
 	for i := 0; i < totalPropCount; i++ {
 		var propName string
@@ -804,6 +820,8 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 			// Inherited property - name will be resolved later
 			propName = fmt.Sprintf("_inherited_%d", i)
 		}
+
+		obj.PropOrder[i] = propName // Track order for resolution
 
 		prop := &Property{Name: propName}
 
@@ -1082,5 +1100,74 @@ func prepToString(prep int) string {
 		return preps[prep]
 	default:
 		return "none"
+	}
+}
+
+// resolvePropertyNames resolves inherited property names after all objects are loaded.
+// MOO databases store property values in order: first propDefsCount have names,
+// the rest inherit names from ancestors in depth-first order.
+func (db *Database) resolvePropertyNames() {
+	for _, obj := range db.Objects {
+		if obj == nil {
+			continue
+		}
+
+		// Build the full list of property names by walking up the parent chain
+		allNames := db.collectPropertyNames(obj)
+
+		// Now rename _inherited_N properties to their actual names
+		newProperties := make(map[string]*Property)
+		for i, oldName := range obj.PropOrder {
+			prop := obj.Properties[oldName]
+			if prop == nil {
+				continue
+			}
+
+			var newName string
+			if i < len(allNames) {
+				newName = allNames[i]
+			} else {
+				// Shouldn't happen, but keep placeholder if out of range
+				newName = oldName
+			}
+
+			prop.Name = newName
+			newProperties[newName] = prop
+		}
+
+		obj.Properties = newProperties
+	}
+}
+
+// collectPropertyNames builds an ordered list of all property names for an object
+// by walking up the parent chain and collecting property definitions.
+func (db *Database) collectPropertyNames(obj *Object) []string {
+	var names []string
+	visited := make(map[types.ObjID]bool)
+
+	// Start with this object and walk up parents
+	db.collectPropNamesRecursive(obj, &names, visited)
+
+	return names
+}
+
+// collectPropNamesRecursive recursively collects property names from an object and its ancestors.
+// Properties are collected in order: this object's propDefs first, then parent's, etc.
+func (db *Database) collectPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
+	if obj == nil || visited[obj.ID] {
+		return
+	}
+	visited[obj.ID] = true
+
+	// First, add this object's defined properties (propDefs)
+	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
+		*names = append(*names, obj.PropOrder[i])
+	}
+
+	// Then recurse to parents (single inheritance for now)
+	// For multiple inheritance, the order matters and should match ToastStunt
+	for _, parentID := range obj.Parents {
+		parent := db.Objects[parentID]
+		db.collectPropNamesRecursive(parent, names, visited)
 	}
 }
