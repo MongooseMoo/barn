@@ -368,6 +368,13 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 		return false, types.E_NONE
 	case "f":
 		if intVal, ok := value.(types.IntValue); ok {
+			// Wizards can modify any object's fertile flag
+			// Players can only modify their own player object's fertile flag
+			// (ownership alone is not sufficient)
+			isPlayerObject := obj.ID == ctx.Player
+			if !ctx.IsWizard && !isPlayerObject {
+				return true, types.E_PERM
+			}
 			if intVal.Val != 0 {
 				obj.Flags = obj.Flags.Set(db.FlagFertile)
 			} else {
@@ -379,11 +386,10 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 	case "a":
 		if intVal, ok := value.(types.IntValue); ok {
 			// Wizards can modify any object's anonymous flag
-			// Owners can modify their own object's anonymous flag
-			// Players can modify their own player object's anonymous flag
-			isOwner := obj.Owner == ctx.Programmer
+			// Players can only modify their own player object's anonymous flag
+			// (ownership alone is not sufficient)
 			isPlayerObject := obj.ID == ctx.Player
-			if !ctx.IsWizard && !isOwner && !isPlayerObject {
+			if !ctx.IsWizard && !isPlayerObject {
 				return true, types.E_PERM
 			}
 			if intVal.Val != 0 {

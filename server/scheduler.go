@@ -238,6 +238,8 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 	t := task.NewTaskFull(taskID, player, code, 300000, 5.0)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give task access to scheduler for forks
+	// Set wizard flag based on player
+	t.Context.IsWizard = s.isWizard(player)
 	return s.QueueTask(t)
 }
 
@@ -246,6 +248,8 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
 	t.StartTime = time.Now()
+	// Set wizard flag based on player
+	t.Context.IsWizard = s.isWizard(player)
 
 	// Set up verb context
 	t.VerbName = match.Verb.Name
@@ -269,6 +273,8 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt,
 	t := task.NewTaskFull(taskID, player, code, 300000, 3.0)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give task access to scheduler for forks
+	// Set wizard flag based on player
+	t.Context.IsWizard = s.isWizard(player)
 	return s.QueueTask(t)
 }
 
@@ -306,6 +312,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Context.Player = forkInfo.Player
 	t.Context.Programmer = parent.Programmer
 	t.Context.Verb = forkInfo.Verb
+	t.Context.IsWizard = s.isWizard(parent.Programmer)
 
 	// Create evaluator with copied variable environment
 	childEnv := vm.NewEnvironment()

@@ -3,6 +3,7 @@ package builtins
 import (
 	"barn/db"
 	"barn/types"
+	"fmt"
 	"strings"
 )
 
@@ -270,20 +271,10 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	}
 
 	// Parse args list (1-indexed)
-	dobjStr, ok := argsList.Get(1).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
-	prepStr, ok := argsList.Get(2).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
-	iobjStr, ok := argsList.Get(3).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
+	// Accept either string or object values (objects get converted to string)
+	dobjStr := valueToArgSpec(argsList.Get(1))
+	prepStr := valueToArgSpec(argsList.Get(2))
+	iobjStr := valueToArgSpec(argsList.Get(3))
 
 	// Parse verb names (space-separated)
 	names := strings.Fields(namesStr.Value())
@@ -308,9 +299,9 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		Owner: owner.ID(),
 		Perms: perms,
 		ArgSpec: db.VerbArgs{
-			This: dobjStr.Value(),
-			Prep: prepStr.Value(),
-			That: iobjStr.Value(),
+			This: dobjStr,
+			Prep: prepStr,
+			That: iobjStr,
 		},
 		Code:    []string{},
 		Program: nil,
@@ -446,26 +437,16 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.St
 	// TODO: Check permissions (must be owner or wizard)
 
 	// Parse args list (1-indexed)
-	dobjStr, ok := argsList.Get(1).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
-	prepStr, ok := argsList.Get(2).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
-	iobjStr, ok := argsList.Get(3).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
+	// Accept either string or object values (objects get converted to string)
+	dobjStr := valueToArgSpec(argsList.Get(1))
+	prepStr := valueToArgSpec(argsList.Get(2))
+	iobjStr := valueToArgSpec(argsList.Get(3))
 
 	// Update verb args
 	verb.ArgSpec = db.VerbArgs{
-		This: dobjStr.Value(),
-		Prep: prepStr.Value(),
-		That: iobjStr.Value(),
+		This: dobjStr,
+		Prep: prepStr,
+		That: iobjStr,
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -534,6 +515,20 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// Return empty list (success)
 	return types.Ok(types.NewList([]types.Value{}))
+}
+
+// valueToArgSpec converts a Value to an arg spec string
+// Accepts string values directly, converts object values to their string representation
+func valueToArgSpec(v types.Value) string {
+	switch val := v.(type) {
+	case types.StrValue:
+		return val.Value()
+	case types.ObjValue:
+		// Convert object ID to string - cow_py compatibility
+		return fmt.Sprintf("%d", val.ID())
+	default:
+		return ""
+	}
 }
 
 // parseVerbPerms converts permission string like "rxd" to VerbPerms
