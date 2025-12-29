@@ -2,6 +2,7 @@ package vm
 
 import (
 	"barn/parser"
+	"barn/task"
 	"barn/types"
 	"fmt"
 	"sort"
@@ -33,6 +34,13 @@ func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Res
 	// Tick counting
 	if !ctx.ConsumeTick() {
 		return types.Err(types.E_MAXREC)
+	}
+
+	// Update line number in current activation frame
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			t.UpdateLineNumber(stmt.Position().Line)
+		}
 	}
 
 	switch s := stmt.(type) {

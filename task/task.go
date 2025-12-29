@@ -78,6 +78,19 @@ func (a *ActivationFrame) ToList() types.Value {
 	})
 }
 
+// ToMap converts an activation frame to a MOO map for task_stack()
+// Keys: "this", "verb", "programmer", "verb_loc", "player", "line_number"
+func (a *ActivationFrame) ToMap() types.Value {
+	return types.NewMap([][2]types.Value{
+		{types.NewStr("this"), types.NewObj(a.This)},
+		{types.NewStr("verb"), types.NewStr(a.Verb)},
+		{types.NewStr("programmer"), types.NewObj(a.Programmer)},
+		{types.NewStr("verb_loc"), types.NewObj(a.VerbLoc)},
+		{types.NewStr("player"), types.NewObj(a.Player)},
+		{types.NewStr("line_number"), types.NewInt(int64(a.LineNumber))},
+	})
+}
+
 // Task represents a MOO task (unit of execution)
 type Task struct {
 	ID           int64
@@ -111,6 +124,7 @@ type Task struct {
 
 	// Verb context (set for verb tasks)
 	VerbName     string
+	VerbLoc      types.ObjID // Object where verb is defined (for traceback)
 	This         types.ObjID // Object this verb is called on
 	Caller       types.ObjID // Object that invoked the verb
 	Argstr       string      // Full argument string
@@ -229,6 +243,15 @@ func (t *Task) GetTopFrame() *ActivationFrame {
 		return nil
 	}
 	return &t.CallStack[len(t.CallStack)-1]
+}
+
+// UpdateLineNumber updates the line number of the top activation frame
+func (t *Task) UpdateLineNumber(line int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.CallStack) > 0 {
+		t.CallStack[len(t.CallStack)-1].LineNumber = line
+	}
 }
 
 // TicksLeft returns remaining ticks

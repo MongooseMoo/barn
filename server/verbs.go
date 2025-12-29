@@ -8,8 +8,9 @@ import (
 
 // VerbMatch is the result of verb lookup
 type VerbMatch struct {
-	Verb *db.Verb
-	This types.ObjID // Object where verb was found (for 'this' binding)
+	Verb    *db.Verb
+	This    types.ObjID // Object the verb is called on ('this' in MOO)
+	VerbLoc types.ObjID // Object where verb is defined (for traceback)
 }
 
 // verbNameMatches checks if a verb name matches a search string
@@ -145,7 +146,11 @@ func findVerbOnObject(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *V
 		// Check verbs on this object
 		for _, verb := range obj.Verbs {
 			if verbMatches(verb, cmd, objID) {
-				return &VerbMatch{Verb: verb, This: objID}
+				return &VerbMatch{
+					Verb:    verb,
+					This:    objID,    // Original target object
+					VerbLoc: currentID, // Where verb is actually defined
+				}
 			}
 		}
 
