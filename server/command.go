@@ -143,8 +143,9 @@ func ParseCommand(input string) *ParsedCommand {
 	if strings.HasPrefix(input, ";") {
 		cmd.Verb = "eval"
 		cmd.Argstr = input[1:]
+		// For eval, don't tokenize - pass the entire string as a single arg
 		if cmd.Argstr != "" {
-			cmd.Args = strings.Fields(cmd.Argstr)
+			cmd.Args = []string{cmd.Argstr}
 		}
 		return cmd
 	}

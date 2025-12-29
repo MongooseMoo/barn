@@ -2,13 +2,14 @@ package server
 
 import (
 	"barn/db"
-	"barn/task"
-	"barn/vm"
 	"barn/parser"
+	"barn/task"
 	"barn/types"
+	"barn/vm"
 	"container/heap"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -404,6 +405,64 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	}
 
 	return result
+}
+
+// evalConnection is the interface needed for eval command output
+type evalConnection interface {
+	Send(string) error
+	GetOutputPrefix() string
+	GetOutputSuffix() string
+}
+
+// EvalCommand evaluates MOO code directly (for ; commands)
+// Executes synchronously and sends the result back to the connection
+func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{}) {
+	// Parse the code
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+
+	// Type assert to get full eval connection interface
+	c, ok := conn.(evalConnection)
+	if !ok {
+		return // Can't send output without proper connection
+	}
+
+	// Get prefix/suffix for response framing
+	prefix := c.GetOutputPrefix()
+	suffix := c.GetOutputSuffix()
+
+	if err != nil {
+		// Send parse error wrapped with prefix/suffix
+		errMsg := fmt.Sprintf("Parse error: %s", err)
+		if prefix != "" {
+			c.Send(prefix)
+		}
+		c.Send(errMsg)
+		if suffix != "" {
+			c.Send(suffix)
+		}
+		return
+	}
+
+	// Execute the code synchronously
+	ctx := types.NewTaskContext()
+	ctx.Player = player
+	ctx.Programmer = player
+	ctx.IsWizard = s.isWizard(player)
+
+	// Create evaluator for execution
+	eval := vm.NewEvaluatorWithStore(s.store)
+	result := eval.EvalStatements(stmts, ctx)
+
+	// Send result wrapped with prefix/suffix
+	if prefix != "" {
+		c.Send(prefix)
+	}
+	resultStr := result.Val.String()
+	c.Send(resultStr)
+	if suffix != "" {
+		c.Send(suffix)
+	}
 }
 
 // ResumeTask resumes a suspended task
