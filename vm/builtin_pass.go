@@ -11,23 +11,40 @@ import (
 // pass(@args) calls the same verb on a parent object
 func (e *Evaluator) RegisterPassBuiltin() {
 	e.builtins.Register("pass", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		// Get the current verb name
-		verbName := ctx.Verb
-		if verbName == "" {
-			return types.Err(types.E_VERBNF)
+		// Get the task from context
+		if ctx.Task == nil {
+			return types.Err(types.E_INVIND)
 		}
 
-		// Get the object where the current verb is defined from the call stack
-		verbLoc := types.ObjNothing
-		if ctx.Task != nil {
-			if t, ok := ctx.Task.(*task.Task); ok {
-				if frame := t.GetTopFrame(); frame != nil {
-					verbLoc = frame.VerbLoc
-				}
-			}
+		t, ok := ctx.Task.(*task.Task)
+		if !ok {
+			return types.Err(types.E_INVIND)
 		}
+
+		// Get the top frame (current verb)
+		frame := t.GetTopFrame()
+		if frame == nil {
+			return types.Err(types.E_INVIND)
+		}
+
+		verbName := frame.Verb
+		if verbName == "" {
+			return types.Err(types.E_INVIND)
+		}
+
+		// Get the definer (where current verb is defined)
+		verbLoc := frame.VerbLoc
 		if verbLoc == types.ObjNothing {
 			return types.Err(types.E_INVIND)
+		}
+
+		// Use provided args or inherit from current frame
+		var passArgs []types.Value
+		if len(args) > 0 {
+			passArgs = args
+		} else {
+			// Get args from current frame
+			passArgs = frame.Args
 		}
 
 		// Get the object where the current verb is defined
@@ -110,36 +127,32 @@ func (e *Evaluator) RegisterPassBuiltin() {
 			verb.Program = program
 		}
 
-		// Get the 'this' object from the environment (the object the verb was originally called on)
-		thisEnvVal, _ := e.env.Get("this")
-		thisObjID := types.ObjNothing
-		if thisEnvVal != nil {
-			if ov, ok := thisEnvVal.(types.ObjValue); ok {
-				thisObjID = ov.ID()
-			}
-		}
+		// CRITICAL: 'this' must remain the original object the verb was called on
+		// Only VerbLoc (definer) changes to point to where we found the parent verb
+		// frame.This should be the original target object, not the definer
+		thisObjID := frame.This
 
-		// Push activation frame onto call stack (if we have a task)
-		if ctx.Task != nil {
-			if t, ok := ctx.Task.(*task.Task); ok {
-				frame := task.ActivationFrame{
-					This:       defObjID,
-					Player:     ctx.Player,
-					Programmer: ctx.Programmer,
-					Caller:     ctx.ThisObj,
-					Verb:       verbName,
-					VerbLoc:    defObjID,
-					Args:       args,
-					LineNumber: 0,
-				}
-				t.PushFrame(frame)
-				defer t.PopFrame()
-			}
+		// Push activation frame onto call stack
+		// This is the inherited verb's frame
+		newFrame := task.ActivationFrame{
+			This:       thisObjID,  // KEEP original 'this' - the object verb was called on
+			Player:     ctx.Player,
+			Programmer: ctx.Programmer,
+			Caller:     verbLoc,    // Caller is the object where we're calling FROM (current definer)
+			Verb:       verbName,
+			VerbLoc:    defObjID,   // Where the PARENT verb is defined
+			Args:       passArgs,   // Use inherited or passed args
+			LineNumber: 0,
 		}
+		t.PushFrame(newFrame)
+		defer t.PopFrame()
 
 		// Set up verb call context
+		// DON'T change ctx.ThisObj - it should remain the original object
 		oldThis := ctx.ThisObj
-		ctx.ThisObj = defObjID
+		oldVerb := ctx.Verb
+		ctx.Verb = verbName
+		// ctx.ThisObj stays the same!
 
 		// Update environment variables
 		oldVerbEnv, _ := e.env.Get("verb")
@@ -148,8 +161,8 @@ func (e *Evaluator) RegisterPassBuiltin() {
 		// Note: 'this' stays the same - it's the original object the verb was called ON
 
 		e.env.Set("verb", types.NewStr(verbName))
-		e.env.Set("caller", types.NewObj(oldThis))
-		e.env.Set("args", types.NewList(args))
+		e.env.Set("caller", types.NewObj(verbLoc))  // Caller is where we're passing FROM
+		e.env.Set("args", types.NewList(passArgs))  // Use the pass args (inherited or explicit)
 
 		// Execute the verb
 		result := e.statements(verb.Program.Statements, ctx)
@@ -167,9 +180,7 @@ func (e *Evaluator) RegisterPassBuiltin() {
 
 		// Restore context
 		ctx.ThisObj = oldThis
-
-		// Suppress unused variable warning
-		_ = thisObjID
+		ctx.Verb = oldVerb
 
 		// If the verb returned, extract the value
 		if result.Flow == types.FlowReturn {

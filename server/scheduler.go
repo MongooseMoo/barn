@@ -353,6 +353,7 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		Owner:      player,
 		Programmer: player, // Will be updated to verb owner if verb found
 		CallStack:  make([]task.ActivationFrame, 0),
+		TaskLocal:  types.NewEmptyMap(), // Initialize task_local to empty map
 	}
 
 	// Look up the verb to get its owner for programmer permissions
@@ -449,6 +450,15 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
+
+	// Create a task for call stack tracking and pass() support
+	t := &task.Task{
+		Owner:      player,
+		Programmer: player,
+		CallStack:  make([]task.ActivationFrame, 0),
+		TaskLocal:  types.NewEmptyMap(), // Initialize task_local to empty map
+	}
+	ctx.Task = t
 
 	// Create evaluator for execution
 	eval := vm.NewEvaluatorWithStore(s.store)
