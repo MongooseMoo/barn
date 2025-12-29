@@ -458,7 +458,15 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	if prefix != "" {
 		c.Send(prefix)
 	}
-	resultStr := result.Val.String()
+	// Handle nil result (e.g., empty statements, errors)
+	var resultStr string
+	if result.Val != nil {
+		resultStr = result.Val.String()
+	} else if result.Flow == types.FlowException {
+		resultStr = types.NewErr(result.Error).String()
+	} else {
+		resultStr = "0" // Default for no return value
+	}
 	c.Send(resultStr)
 	if suffix != "" {
 		c.Send(suffix)
