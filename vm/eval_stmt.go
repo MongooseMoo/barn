@@ -12,6 +12,8 @@ import (
 
 // EvalStatements evaluates a sequence of statements
 func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
+	// Set up context variables from task context
+	e.env.Set("player", types.NewObj(ctx.Player))
 	for _, stmt := range stmts {
 		result := e.EvalStmt(stmt, ctx)
 		// FlowFork: fork schedules a background task, but the parent continues execution
