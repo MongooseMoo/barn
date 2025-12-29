@@ -3,6 +3,7 @@ package server
 import (
 	"barn/builtins"
 	"barn/db"
+	"barn/task"
 	"barn/types"
 	"context"
 	"fmt"
@@ -302,6 +303,18 @@ func (cm *ConnectionManager) callDoLoginCommand(conn *Connection, line string) (
 	result := cm.server.scheduler.CallVerb(0, "do_login_command", args, connID)
 
 	if result.Flow == types.FlowException {
+		// Extract call stack from result and send traceback to connection
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = s
+			}
+		}
+		// Send traceback to the unlogged connection
+		lines := task.FormatTraceback(stack, result.Error, connID)
+		for _, line := range lines {
+			conn.Send(line)
+		}
 		return types.ObjID(-1), nil // Login failed, stay unlogged
 	}
 
@@ -453,16 +466,39 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 
 // removeConnection removes a connection
 func (cm *ConnectionManager) removeConnection(conn *Connection) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	var player types.ObjID
+	wasLoggedIn := false
 
+	cm.mu.Lock()
 	delete(cm.connections, conn.ID)
 	if conn.IsLoggedIn() {
-		delete(cm.playerConns, conn.GetPlayer())
-		cm.callUserDisconnected(conn.GetPlayer())
+		player = conn.GetPlayer()
+		wasLoggedIn = true
+		delete(cm.playerConns, player)
+	}
+	cm.mu.Unlock()
+
+	// Call hook OUTSIDE the lock to prevent deadlock
+	if wasLoggedIn {
+		cm.callUserDisconnected(player)
 	}
 
 	log.Printf("Connection %d closed", conn.ID)
+}
+
+// sendTracebackToPlayer sends a formatted traceback to the player's connection
+// Used when hook calls fail with uncaught exceptions
+func (cm *ConnectionManager) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	conn := cm.GetConnection(player)
+	if conn == nil {
+		return
+	}
+
+	// Format traceback and send each line
+	lines := task.FormatTraceback(stack, err, player)
+	for _, line := range lines {
+		conn.Send(line)
+	}
 }
 
 // callUserConnected calls #0:user_connected(player)
@@ -471,6 +507,14 @@ func (cm *ConnectionManager) callUserConnected(player types.ObjID) {
 	result := cm.server.scheduler.CallVerb(0, "user_connected", args, player)
 	if result.Flow == types.FlowException {
 		log.Printf("user_connected error: %v", result.Error)
+		// Extract call stack from result if available
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = s
+			}
+		}
+		cm.sendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
@@ -480,6 +524,14 @@ func (cm *ConnectionManager) callUserReconnected(player types.ObjID) {
 	result := cm.server.scheduler.CallVerb(0, "user_reconnected", args, player)
 	if result.Flow == types.FlowException {
 		log.Printf("user_reconnected error: %v", result.Error)
+		// Extract call stack from result if available
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = s
+			}
+		}
+		cm.sendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
@@ -489,6 +541,14 @@ func (cm *ConnectionManager) callUserDisconnected(player types.ObjID) {
 	result := cm.server.scheduler.CallVerb(0, "user_disconnected", args, player)
 	if result.Flow == types.FlowException {
 		log.Printf("user_disconnected error: %v", result.Error)
+		// Extract call stack from result if available
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = s
+			}
+		}
+		cm.sendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
