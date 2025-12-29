@@ -157,7 +157,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 		SecondsUsed:  0,
 		SecondsLimit: secondsLimit,
 		CallStack:    make([]ActivationFrame, 0),
-		TaskLocal:    types.NewInt(0), // Default task_local is 0
+		TaskLocal:    types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
 		WakeValue:    types.NewInt(0), // Default wake value is 0 (matches LambdaMOO)
 	}
 }
@@ -183,7 +183,7 @@ func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64,
 		SecondsUsed:  0,
 		SecondsLimit: secondsLimit,
 		CallStack:    make([]ActivationFrame, 0),
-		TaskLocal:    types.NewInt(0),
+		TaskLocal:    types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
 		WakeValue:    types.NewInt(0),
 		Code:         code,
 		Context:      ctx,

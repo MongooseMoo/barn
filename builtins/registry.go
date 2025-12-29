@@ -223,3 +223,10 @@ func (r *Registry) RegisterCryptoBuiltins(store *db.Store) {
 		return builtinCrypt(ctx, args, store)
 	})
 }
+
+// RegisterSystemBuiltins registers system builtins that need store access
+func (r *Registry) RegisterSystemBuiltins(store *db.Store) {
+	r.Register("load_server_options", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinLoadServerOptions(ctx, args, store)
+	})
+}
