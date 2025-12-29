@@ -2,11 +2,11 @@ package builtins
 
 import (
 	"barn/db"
+	"barn/parser"
 	"barn/types"
 	"fmt"
 	"strings"
 )
-
 // RegisterVerbBuiltins registers verb-related builtin functions
 func (r *Registry) RegisterVerbBuiltins(store *db.Store) {
 	// Verb listing and information
@@ -577,13 +577,121 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_VERBNF)
 	}
 
-	// Return a list of disassembly lines
-	// For now, return the source code prefixed with line numbers
-	// A real implementation would show bytecode
-	lines := make([]types.Value, len(verb.Code))
-	for i, line := range verb.Code {
-		lines[i] = types.NewStr(line)
+	// If verb has no compiled program, return empty list
+	if verb.Program == nil || len(verb.Program.Statements) == 0 {
+		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	return types.Ok(types.NewList(lines))
+	// Walk AST to produce pseudo-disassembly with opcode names
+	var lines []string
+	for _, stmt := range verb.Program.Statements {
+		lines = append(lines, disassembleStmt(stmt)...)
+	}
+
+	// Convert to Value list
+	result := make([]types.Value, len(lines))
+	for i, line := range lines {
+		result[i] = types.NewStr(line)
+	}
+
+	return types.Ok(types.NewList(result))
+}
+
+// disassembleStmt walks a statement AST node and emits pseudo-opcodes
+func disassembleStmt(stmt parser.Stmt) []string {
+	switch s := stmt.(type) {
+	case *parser.ExprStmt:
+		return disassembleExpr(s.Expr)
+	case *parser.ReturnStmt:
+		if s.Value != nil {
+			lines := disassembleExpr(s.Value)
+			lines = append(lines, "RETURN")
+			return lines
+		}
+		return []string{"RETURN"}
+	default:
+		return []string{"STMT"}
+	}
+}
+
+// disassembleExpr walks an expression AST node and emits pseudo-opcodes
+func disassembleExpr(expr parser.Expr) []string {
+	switch e := expr.(type) {
+	case *parser.BinaryExpr:
+		// Emit operands then operator
+		lines := disassembleExpr(e.Left)
+		lines = append(lines, disassembleExpr(e.Right)...)
+		lines = append(lines, opToOpcode(e.Operator))
+		return lines
+	case *parser.UnaryExpr:
+		// Emit operand then operator
+		lines := disassembleExpr(e.Operand)
+		lines = append(lines, unaryOpToOpcode(e.Operator))
+		return lines
+	case *parser.LiteralExpr:
+		return []string{fmt.Sprintf("PUSH %v", e.Value)}
+	case *parser.IndexExpr:
+		// Emit collection, index, then INDEX opcode
+		lines := disassembleExpr(e.Expr)
+		lines = append(lines, disassembleExpr(e.Index)...)
+		lines = append(lines, "INDEX")
+		return lines
+	case *parser.RangeExpr:
+		// Emit collection, start, end, then RANGE opcode
+		lines := disassembleExpr(e.Expr)
+		lines = append(lines, disassembleExpr(e.Start)...)
+		lines = append(lines, disassembleExpr(e.End)...)
+		lines = append(lines, "RANGE")
+		return lines
+	case *parser.IndexMarkerExpr:
+		// ^ = FIRST, $ = LAST
+		if e.Marker == parser.TOKEN_CARET {
+			return []string{"FIRST"}
+		}
+		return []string{"LAST"}
+	default:
+		return []string{"EXPR"}
+	}
+}
+
+// opToOpcode converts a binary operator token to opcode name
+func opToOpcode(op parser.TokenType) string {
+	switch op {
+	case parser.TOKEN_BITAND:
+		return "BITAND"
+	case parser.TOKEN_BITOR:
+		return "BITOR"
+	case parser.TOKEN_BITXOR:
+		return "BITXOR"
+	case parser.TOKEN_LSHIFT:
+		return "BITSHL"
+	case parser.TOKEN_RSHIFT:
+		return "BITSHR"
+	case parser.TOKEN_PLUS:
+		return "ADD"
+	case parser.TOKEN_MINUS:
+		return "SUB"
+	case parser.TOKEN_STAR:
+		return "MUL"
+	case parser.TOKEN_SLASH:
+		return "DIV"
+	case parser.TOKEN_PERCENT:
+		return "MOD"
+	default:
+		return "OP"
+	}
+}
+
+// unaryOpToOpcode converts a unary operator token to opcode name
+func unaryOpToOpcode(op parser.TokenType) string {
+	switch op {
+	case parser.TOKEN_BITNOT:
+		return "COMPLEMENT"
+	case parser.TOKEN_MINUS:
+		return "NEG"
+	case parser.TOKEN_NOT:
+		return "NOT"
+	default:
+		return "UNARY_OP"
+	}
 }

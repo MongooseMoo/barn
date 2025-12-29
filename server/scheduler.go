@@ -432,11 +432,11 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	suffix := c.GetOutputSuffix()
 
 	if err != nil {
-		// Send parse error wrapped with prefix/suffix
-		errMsg := fmt.Sprintf("Parse error: %s", err)
+		// Send parse error in ToastStunt eval format: {0, {"error message"}}
 		if prefix != "" {
 			c.Send(prefix)
 		}
+		errMsg := fmt.Sprintf("{0, {\"Parse error: %s\"}}", err)
 		c.Send(errMsg)
 		if suffix != "" {
 			c.Send(suffix)
@@ -454,18 +454,23 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	eval := vm.NewEvaluatorWithStore(s.store)
 	result := eval.EvalStatements(stmts, ctx)
 
-	// Send result wrapped with prefix/suffix
+	// Send result wrapped with prefix/suffix in ToastStunt eval format:
+	// Success: {1, value}
+	// Runtime error: {2, {E_TYPE, "message", value}}
 	if prefix != "" {
 		c.Send(prefix)
 	}
-	// Handle nil result (e.g., empty statements, errors)
 	var resultStr string
-	if result.Val != nil {
-		resultStr = result.Val.String()
-	} else if result.Flow == types.FlowException {
-		resultStr = types.NewErr(result.Error).String()
+	if result.Flow == types.FlowException {
+		// Runtime error: {2, {E_TYPE, "message", value}}
+		errCode := types.NewErr(result.Error).String()
+		resultStr = fmt.Sprintf("{2, {%s, \"\", 0}}", errCode)
+	} else if result.Val != nil {
+		// Success: {1, value}
+		resultStr = fmt.Sprintf("{1, %s}", result.Val.String())
 	} else {
-		resultStr = "0" // Default for no return value
+		// Success with no return value: {1, 0}
+		resultStr = "{1, 0}"
 	}
 	c.Send(resultStr)
 	if suffix != "" {
