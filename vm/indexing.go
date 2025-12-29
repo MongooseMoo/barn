@@ -575,6 +575,11 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 		if !startResult.IsNormal() {
 			return startResult
 		}
+		// Check if start is a list or map - these cannot be used as range endpoints
+		switch startResult.Val.(type) {
+		case types.ListValue, types.MapValue:
+			return types.Err(types.E_TYPE)
+		}
 		if startInt, ok := startResult.Val.(types.IntValue); ok {
 			startIdx = startInt.Val
 		} else if isMap {
@@ -603,6 +608,11 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 		endResult := e.Eval(target.End, ctx)
 		if !endResult.IsNormal() {
 			return endResult
+		}
+		// Check if end is a list or map - these cannot be used as range endpoints
+		switch endResult.Val.(type) {
+		case types.ListValue, types.MapValue:
+			return types.Err(types.E_TYPE)
 		}
 		if endInt, ok := endResult.Val.(types.IntValue); ok {
 			endIdx = endInt.Val
@@ -786,6 +796,11 @@ func (e *Evaluator) propertyIndexedAssign(propExpr *parser.PropertyExpr, indices
 	objResult := e.Eval(propExpr.Expr, ctx)
 	if objResult.Flow != types.FlowNormal {
 		return objResult
+	}
+
+	// Check if result is a waif - delegate to waif-specific handler
+	if waifVal, ok := objResult.Val.(types.WaifValue); ok {
+		return e.waifPropertyIndexedAssign(waifVal, propExpr, indices, value, ctx)
 	}
 
 	// Check that result is an object

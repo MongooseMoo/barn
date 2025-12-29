@@ -73,33 +73,38 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-// listeners([object]) -> list of {obj, point, print_messages}
-// Returns list of listening ports, optionally filtered by canonical object
+// listeners([find]) -> list of maps
+// Returns list of listening ports as maps with keys:
+//   "object" (OBJ), "port" (ANY), "print-messages" (INT),
+//   "ipv6" (INT), "interface" (STR)
+// Optional argument filters by object ID (if OBJ) or port descriptor (if other type)
+//
+// ToastStunt implementation: iterates over all_slisteners linked list,
+// returns map for each listener. When no listeners exist, returns empty list.
+//
+// Since Barn doesn't implement listen() builtin yet, we always return empty list.
+// When listen() is implemented, this should query the server's listener registry.
 func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
-	// Optional object argument to filter by
-	var filterObj types.ObjID = -1
+	// Optional filter argument (object ID or port descriptor)
+	var findObj types.ObjID = -1
+	var findPort types.Value = nil
+
 	if len(args) > 0 {
 		if objVal, ok := args[0].(types.ObjValue); ok {
-			filterObj = objVal.ID()
+			findObj = objVal.ID()
+		} else {
+			findPort = args[0]
 		}
 	}
 
-	// For now, return a single listener on the default port
-	// TODO: Get actual listener info from server
-	// Format: {canon, desc, port, print_messages}
-	listener := []types.Value{
-		types.NewObj(0),    // canonical object (system object)
-		types.NewStr("#0"), // description
-		types.NewInt(7777), // port (placeholder)
-		types.NewInt(0),    // print_messages
-	}
+	// TODO: When listen() builtin is implemented, query actual listeners here
+	// For now, return empty list since no listeners can be registered
+	// This prevents MCP code from running during login (it checks for listeners on #0)
 
-	// If filtering and doesn't match, return empty list
-	if filterObj >= 0 && filterObj != 0 {
-		return types.Ok(types.NewList([]types.Value{}))
-	}
+	_ = findObj  // Suppress unused warnings
+	_ = findPort
 
-	return types.Ok(types.NewList([]types.Value{types.NewList(listener)}))
+	return types.Ok(types.NewList([]types.Value{}))
 }
 
 // connected_players([include_queued]) -> list

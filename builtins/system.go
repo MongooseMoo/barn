@@ -8,6 +8,9 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 )
 
@@ -190,6 +193,12 @@ func builtinExec(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	// Validate and resolve program path
+	resolvedPath, err := validateAndResolvePath(program)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
 	// Get input if provided
 	var input string
 	if len(args) == 2 {
@@ -201,25 +210,120 @@ func builtinExec(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Execute command
-	result := execCommand(program, cmdArgs, input)
+	result := execCommand(resolvedPath, cmdArgs, input)
 	return result
+}
+
+// validateAndResolvePath validates the program path and resolves it to an executable
+// Returns E_INVARG for:
+// - Absolute paths (starting with /, \, or drive letter)
+// - Relative paths containing ./ or ../
+// - Path traversal attempts
+// - Non-existent files
+func validateAndResolvePath(program string) (string, error) {
+	// Empty path check
+	if len(program) == 0 {
+		return "", os.ErrNotExist
+	}
+
+	// Windows-specific validations
+	if runtime.GOOS == "windows" {
+		// Reject absolute paths: drive letter (C:), forward slash (/), backslash (\)
+		if len(program) >= 2 && program[1] == ':' {
+			return "", os.ErrInvalid
+		}
+		if program[0] == '/' || program[0] == '\\' {
+			return "", os.ErrInvalid
+		}
+		// Reject parent directory references: .., ./, .\, /., \.
+		if strings.HasPrefix(program, "..") {
+			return "", os.ErrInvalid
+		}
+		if strings.Contains(program, "/.") || strings.Contains(program, "./") ||
+			strings.Contains(program, "\\.") || strings.Contains(program, ".\\") {
+			return "", os.ErrInvalid
+		}
+	} else {
+		// Unix-specific validations
+		if program[0] == '/' {
+			return "", os.ErrInvalid
+		}
+		if strings.HasPrefix(program, "..") {
+			return "", os.ErrInvalid
+		}
+		if strings.Contains(program, "/.") || strings.Contains(program, "./") {
+			return "", os.ErrInvalid
+		}
+	}
+
+	// Prepend executables/ subdirectory
+	execDir := "executables"
+	fullPath := filepath.Join(execDir, program)
+
+	// On Windows, try PATHEXT extensions
+	if runtime.GOOS == "windows" {
+		pathExt := os.Getenv("PATHEXT")
+		if pathExt == "" {
+			pathExt = ".COM;.EXE;.BAT;.CMD"
+		}
+
+		extensions := strings.Split(pathExt, ";")
+		for _, ext := range extensions {
+			if ext == "" {
+				continue
+			}
+			tryPath := fullPath + ext
+			if info, err := os.Stat(tryPath); err == nil && !info.IsDir() {
+				return tryPath, nil
+			}
+		}
+
+		// Try exact name as fallback
+		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+			return fullPath, nil
+		}
+
+		return "", os.ErrNotExist
+	}
+
+	// Unix: check if file exists
+	if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+		return fullPath, nil
+	}
+
+	return "", os.ErrNotExist
 }
 
 // execCommand runs a command and returns {exit_code, stdout, stderr}
 func execCommand(program string, args []string, input string) types.Result {
-	cmd := exec.Command(program, args...)
+	var cmdProgram string
+	var cmdArgs []string
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdin = bytes.NewBufferString(input)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// On Windows, check if this is a batch file that needs cmd.exe
+	if runtime.GOOS == "windows" {
+		lower := strings.ToLower(program)
+		if strings.HasSuffix(lower, ".bat") || strings.HasSuffix(lower, ".cmd") {
+			// Run batch files through cmd.exe
+			cmdProgram = "cmd.exe"
+			// Build args: /c "path\to\file.bat" arg1 arg2
+			cmdArgs = append([]string{"/c", program}, args...)
+		} else {
+			cmdProgram = program
+			cmdArgs = args
+		}
+	} else {
+		cmdProgram = program
+		cmdArgs = args
+	}
 
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Recreate command with context
-	cmd = exec.CommandContext(ctx, program, args...)
+	// Create command with context
+	cmd := exec.CommandContext(ctx, cmdProgram, cmdArgs...)
+
+	var stdout, stderr bytes.Buffer
 	cmd.Stdin = bytes.NewBufferString(input)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

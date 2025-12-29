@@ -270,7 +270,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		// Parse catch expression: `expr ! codes => default`
 		pos := p.current.Position
 		p.nextToken()
-		expr, err := p.ParseExpression(PREC_CATCH)
+		expr, err := p.ParseExpression(PREC_ASSIGNMENT)
 		if err != nil {
 			return nil, err
 		}

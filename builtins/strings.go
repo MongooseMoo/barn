@@ -104,6 +104,12 @@ func builtinStrsub(ctx *types.TaskContext, args []types.Value) types.Result {
 		result = replaceAllCaseInsensitive(subj, oldStr, newStr)
 	}
 
+	// Check string length limit (update from load_server_options cache first)
+	UpdateContextLimits(ctx)
+	if errCode := ctx.CheckStringLimit(len(result)); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
 	return types.Ok(types.NewStr(result))
 }
 
@@ -408,7 +414,14 @@ func builtinImplode(ctx *types.TaskContext, args []types.Value) types.Result {
 		parts[i-1] = str.Value()
 	}
 
-	return types.Ok(types.NewStr(strings.Join(parts, delimiter)))
+	result := strings.Join(parts, delimiter)
+
+	// Check string limit
+	if err := CheckStringLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(types.NewStr(result))
 }
 
 // builtinTrim removes leading and trailing characters
@@ -730,6 +743,132 @@ func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
 	subj := types.NewStr(subject)
 
 	return types.Ok(types.NewList([]types.Value{start, end, subs, subj}))
+}
+
+// builtinSubstitute implements substitute(template, match_result) -> str
+// Substitutes captured groups from match result into template.
+// Template syntax: %1, %2, etc. for captured groups, %% for literal %
+func builtinSubstitute(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	templateVal, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	template := templateVal.Value()
+
+	matchResult, ok := args[1].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Match result format: {start, end, subs, subject}
+	// If empty list, no match - return template unchanged
+	if matchResult.Len() == 0 {
+		return types.Ok(templateVal)
+	}
+
+	// Extract subs (3rd element) and subject (4th element)
+	if matchResult.Len() < 4 {
+		return types.Err(types.E_INVARG)
+	}
+
+	subs, ok := matchResult.Get(3).(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	subject, ok := matchResult.Get(4).(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Process template and substitute %N with captured groups
+	var result strings.Builder
+	i := 0
+	for i < len(template) {
+		if template[i] == '%' && i+1 < len(template) {
+			if template[i+1] == '%' {
+				// %% -> literal %
+				result.WriteByte('%')
+				i += 2
+			} else if template[i+1] >= '0' && template[i+1] <= '9' {
+				// %N -> captured group N
+				groupNum := int(template[i+1] - '0')
+				if groupNum == 0 {
+					// %0 is the entire match (original subject from start to end)
+					startVal, ok := matchResult.Get(1).(types.IntValue)
+					if !ok {
+						return types.Err(types.E_TYPE)
+					}
+					endVal, ok := matchResult.Get(2).(types.IntValue)
+					if !ok {
+						return types.Err(types.E_TYPE)
+					}
+					start := int(startVal.Val) - 1 // Convert from 1-based to 0-based
+					end := int(endVal.Val)          // end is already exclusive in 1-based
+					if start < 0 {
+						start = 0
+					}
+					if end > len(subject.Value()) {
+						end = len(subject.Value())
+					}
+					if start <= end {
+						result.WriteString(subject.Value()[start:end])
+					}
+				} else {
+					// %N for N >= 1 -> captured group N
+					if groupNum <= subs.Len() {
+						groupRange, ok := subs.Get(groupNum).(types.ListValue)
+						if ok && groupRange.Len() >= 2 {
+							startVal, ok := groupRange.Get(1).(types.IntValue)
+							if !ok {
+								return types.Err(types.E_TYPE)
+							}
+							endVal, ok := groupRange.Get(2).(types.IntValue)
+							if !ok {
+								return types.Err(types.E_TYPE)
+							}
+							start := int(startVal.Val)
+							end := int(endVal.Val)
+							// Negative values mean no capture
+							if start > 0 && end > 0 {
+								start-- // Convert from 1-based to 0-based
+								if start < 0 {
+									start = 0
+								}
+								if end > len(subject.Value()) {
+									end = len(subject.Value())
+								}
+								if start <= end {
+									result.WriteString(subject.Value()[start:end])
+								}
+							}
+						}
+					}
+				}
+				i += 2
+			} else {
+				// % followed by non-digit, non-% -> treat as literal %
+				result.WriteByte('%')
+				i++
+			}
+		} else {
+			result.WriteByte(template[i])
+			i++
+		}
+	}
+
+	resultStr := result.String()
+
+	// Check string limit
+	if err := CheckStringLimit(resultStr); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(types.NewStr(resultStr))
 }
 
 // mooPatternToGoRegex converts MOO regex patterns to Go regex

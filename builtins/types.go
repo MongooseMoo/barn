@@ -31,7 +31,15 @@ func builtinTostr(ctx *types.TaskContext, args []types.Value) types.Result {
 	for _, val := range args {
 		result.WriteString(valueToStr(val))
 	}
-	return types.Ok(types.NewStr(result.String()))
+
+	// Check string length limit (update from load_server_options cache first)
+	UpdateContextLimits(ctx)
+	resultStr := result.String()
+	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(types.NewStr(resultStr))
 }
 
 // valueToStr converts a single value to its string representation
@@ -101,10 +109,11 @@ func builtinToint(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	case types.StrValue:
 		// Parse string as integer
+		// Per MOO semantics: returns 0 for unparseable strings (not E_INVARG)
 		str := strings.TrimSpace(v.Value())
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err != nil {
-			return types.Err(types.E_INVARG)
+			return types.Ok(types.IntValue{Val: 0})
 		}
 		return types.Ok(types.IntValue{Val: i})
 
@@ -156,7 +165,15 @@ func builtinToliteral(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	return types.Ok(types.NewStr(args[0].String()))
+	resultStr := args[0].String()
+
+	// Check string length limit (update from load_server_options cache first)
+	UpdateContextLimits(ctx)
+	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(types.NewStr(resultStr))
 }
 
 // builtinToobj converts a value to an object reference

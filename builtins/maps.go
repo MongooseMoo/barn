@@ -164,7 +164,14 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_RANGE)
 	}
 
-	return types.Ok(m.Delete(key))
+	result := m.Delete(key)
+
+	// Check size limit
+	if err := CheckMapLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // isValidMapKey checks if a value can be used as a map key
@@ -220,6 +227,11 @@ func builtinMapmerge(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Add all entries from map2 (overriding any duplicates)
 	for _, pair := range m2.Pairs() {
 		result = result.Set(pair[0], pair[1])
+	}
+
+	// Check size limit
+	if err := CheckMapLimit(result); err != types.E_NONE {
+		return types.Err(err)
 	}
 
 	return types.Ok(result)

@@ -400,8 +400,8 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 		return nil // Empty command
 	}
 
-	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX)
-	// These are server-level commands that set output delimiters, not MOO verbs
+	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX, EVAL)
+	// These are server-level commands that set output delimiters or evaluate code
 	verbUpper := strings.ToUpper(cmd.Verb)
 	switch verbUpper {
 	case "PREFIX", "OUTPUTPREFIX":
@@ -413,6 +413,16 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 		conn.mu.Lock()
 		conn.outputSuffix = cmd.Argstr
 		conn.mu.Unlock()
+		return nil
+	case "EVAL":
+		// Evaluate the code directly using eval() builtin
+		// The code is in cmd.Argstr (already trimmed of leading whitespace)
+		code := strings.TrimSpace(cmd.Argstr)
+		if code == "" {
+			return nil
+		}
+		// Queue eval task
+		cm.server.scheduler.EvalCommand(player, code, conn)
 		return nil
 	}
 

@@ -54,6 +54,12 @@ func builtinEncodeBase64(ctx *types.TaskContext, args []types.Value) types.Resul
 		encoded = base64.StdEncoding.EncodeToString(bytes)
 	}
 
+	// Check string length limit (update from load_server_options cache first)
+	UpdateContextLimits(ctx)
+	if err := ctx.CheckStringLimit(len(encoded)); err != types.E_NONE {
+		return types.Err(err)
+	}
+
 	return types.Ok(types.NewStr(encoded))
 }
 
@@ -151,7 +157,14 @@ func builtinEncodeBinary(ctx *types.TaskContext, args []types.Value) types.Resul
 		}
 	}
 
-	return types.Ok(types.NewStr(result.String()))
+	// Check string length limit (update from load_server_options cache first)
+	UpdateContextLimits(ctx)
+	resultStr := result.String()
+	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(types.NewStr(resultStr))
 }
 
 // encodeByte writes a byte to the builder, escaping non-printable chars
@@ -1117,13 +1130,28 @@ func builtinRandomBytes(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
+	// Check string length limit before generating bytes (update from load_server_options cache first)
+	// The encoded string will be longer than count due to ~XX escapes
+	// but checking count first prevents unnecessary work
+	UpdateContextLimits(ctx)
+	if errCode := ctx.CheckStringLimit(count); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
 	bytes := make([]byte, count)
 	_, err := rand.Read(bytes)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.NewStr(encodeBinaryStr(bytes)))
+	resultStr := encodeBinaryStr(bytes)
+
+	// Check actual encoded length (may be longer due to escapes)
+	if errCode := ctx.CheckStringLimit(len(resultStr)); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+
+	return types.Ok(types.NewStr(resultStr))
 }
 
 // encodeBinaryStr encodes bytes as MOO binary string (~XX)

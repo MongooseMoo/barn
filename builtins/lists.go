@@ -38,7 +38,14 @@ func builtinListappend(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 
 	// Insert after index
-	return types.Ok(list.InsertAt(index+1, value))
+	result := list.InsertAt(index+1, value)
+
+	// Check size limit
+	if err := CheckListLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // builtinListinsert inserts value before the specified position
@@ -74,7 +81,14 @@ func builtinListinsert(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 
 	// Insert at index (1-based)
-	return types.Ok(list.InsertAt(index, value))
+	result := list.InsertAt(index, value)
+
+	// Check size limit
+	if err := CheckListLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // builtinListdelete removes element at index
@@ -99,7 +113,14 @@ func builtinListdelete(ctx *types.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_RANGE)
 	}
 
-	return types.Ok(list.DeleteAt(index))
+	result := list.DeleteAt(index)
+
+	// Check size limit (even for deletions, to be thorough)
+	if err := CheckListLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // builtinListset replaces element at index
@@ -126,7 +147,14 @@ func builtinListset(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_RANGE)
 	}
 
-	return types.Ok(list.Set(index, value))
+	result := list.Set(index, value)
+
+	// Check size limit
+	if err := CheckListLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // builtinSetadd adds value if not already present
@@ -151,7 +179,14 @@ func builtinSetadd(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Not present, append
-	return types.Ok(list.Append(value))
+	result := list.Append(value)
+
+	// Check size limit
+	if err := CheckListLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // builtinSetremove removes first occurrence of value
@@ -171,7 +206,14 @@ func builtinSetremove(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Find first occurrence
 	for i := 1; i <= list.Len(); i++ {
 		if list.Get(i).Equal(value) {
-			return types.Ok(list.DeleteAt(i))
+			result := list.DeleteAt(i)
+
+			// Check size limit
+			if err := CheckListLimit(result); err != types.E_NONE {
+				return types.Err(err)
+			}
+
+			return types.Ok(result)
 		}
 	}
 

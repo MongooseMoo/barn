@@ -34,7 +34,8 @@ func (o ObjValue) String() string {
 	return fmt.Sprintf("#%d", o.id)
 }
 
-// Type returns the MOO type (TYPE_ANON for anonymous objects)
+// Type returns the MOO type
+// Anonymous objects return TYPE_ANON (12), regular objects return TYPE_OBJ (1)
 func (o ObjValue) Type() TypeCode {
 	if o.anonymous {
 		return TYPE_ANON
