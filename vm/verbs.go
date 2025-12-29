@@ -137,7 +137,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	// Set up verb call context
 	oldThis := ctx.ThisObj
 	oldVerb := ctx.Verb
-	ctx.ThisObj = defObjID // this = object where verb is defined
+	ctx.ThisObj = objID // this = object the verb was called on
 	ctx.Verb = verbName
 
 	// Update environment variables for the verb call
@@ -284,7 +284,7 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// Set up verb call context
 	oldThis := ctx.ThisObj
 	oldVerb := ctx.Verb
-	ctx.ThisObj = defObjID // this = object where verb is defined
+	ctx.ThisObj = objID // this = object the verb was called on
 	ctx.Verb = verbName
 
 	// Update environment variables for the verb call

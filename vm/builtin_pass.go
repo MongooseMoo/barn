@@ -17,8 +17,15 @@ func (e *Evaluator) RegisterPassBuiltin() {
 			return types.Err(types.E_VERBNF)
 		}
 
-		// Get the object where the current verb is defined (ctx.ThisObj)
-		verbLoc := ctx.ThisObj
+		// Get the object where the current verb is defined from the call stack
+		verbLoc := types.ObjNothing
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				if frame := t.GetTopFrame(); frame != nil {
+					verbLoc = frame.VerbLoc
+				}
+			}
+		}
 		if verbLoc == types.ObjNothing {
 			return types.Err(types.E_INVIND)
 		}

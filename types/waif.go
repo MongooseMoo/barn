@@ -6,13 +6,15 @@ import "fmt"
 // WAIFs are prototype-based lightweight objects with properties
 type WaifValue struct {
 	class      ObjID             // The waif's class object
+	owner      ObjID             // The waif's owner (programmer who created it)
 	properties map[string]Value  // Property values
 }
 
-// NewWaif creates a new waif with the given class
-func NewWaif(class ObjID) WaifValue {
+// NewWaif creates a new waif with the given class and owner
+func NewWaif(class ObjID, owner ObjID) WaifValue {
 	return WaifValue{
 		class:      class,
+		owner:      owner,
 		properties: make(map[string]Value),
 	}
 }
@@ -51,6 +53,11 @@ func (w WaifValue) Class() ObjID {
 	return w.class
 }
 
+// Owner returns the waif's owner object ID
+func (w WaifValue) Owner() ObjID {
+	return w.owner
+}
+
 // GetProperty returns a property value by name
 func (w WaifValue) GetProperty(name string) (Value, bool) {
 	val, ok := w.properties[name]
@@ -67,6 +74,7 @@ func (w WaifValue) SetProperty(name string, value Value) WaifValue {
 	newProps[name] = value
 	return WaifValue{
 		class:      w.class,
+		owner:      w.owner,
 		properties: newProps,
 	}
 }

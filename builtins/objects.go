@@ -78,6 +78,11 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 	r.Register("renumber", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinRenumber(ctx, args, store)
 	})
+
+	// Waif management
+	r.Register("new_waif", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinNewWaif(ctx, args, store)
+	})
 }
 
 // builtinCreate implements create(parent [, owner] [, anonymous] [, args])
@@ -424,6 +429,10 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
+		// Check if object was already recycled - that's a no-op
+		if store.IsRecycled(objID) {
+			return types.Ok(types.NewInt(0))
+		}
 		return types.Err(types.E_INVARG)
 	}
 
@@ -524,9 +533,15 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 // builtinValid implements valid(object)
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
+// Waifs are never valid (always returns 0)
 func builtinValid(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
+	}
+
+	// Waifs are never valid
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Ok(types.NewInt(0))
 	}
 
 	var objID types.ObjID
@@ -592,9 +607,15 @@ func builtinParent(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 
 // builtinParents implements parents(object)
 // Returns list of all direct parents
+// Waifs have no parents (E_INVARG)
 func builtinParents(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
+	}
+
+	// Waifs have no parents
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_INVARG)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
@@ -627,9 +648,15 @@ func builtinParents(ctx *types.TaskContext, args []types.Value, store *db.Store)
 
 // builtinChildren implements children(object)
 // Returns list of direct children
+// Waifs have no children (E_INVARG)
 func builtinChildren(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
+	}
+
+	// Waifs have no children
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_INVARG)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
@@ -1190,9 +1217,15 @@ func builtinPlayers(ctx *types.TaskContext, args []types.Value, store *db.Store)
 
 // builtinIsPlayer implements is_player(object)
 // Returns 1 if object is a player, 0 otherwise
+// Waifs can't be players (E_TYPE)
 func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
+	}
+
+	// Waifs can't be players
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_TYPE)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
@@ -1218,9 +1251,15 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store
 
 // builtinSetPlayerFlag implements set_player_flag(object, value)
 // Sets or clears the player flag on an object
+// Waifs can't have player flag set (E_TYPE)
 func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
+	}
+
+	// Waifs can't have player flag set
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_TYPE)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
@@ -1418,4 +1457,43 @@ func builtinRenumber(ctx *types.TaskContext, args []types.Value, store *db.Store
 	}
 
 	return types.Ok(types.NewObj(newID))
+}
+
+// builtinNewWaif implements new_waif() - creates a new waif instance
+// The waif's class is the caller (the object whose verb called new_waif)
+// The waif's owner is the programmer (task permissions)
+func builtinNewWaif(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Get caller (the object whose verb called new_waif)
+	// In barn, ctx.ThisObj is the object whose verb is currently executing
+	callerID := ctx.ThisObj
+
+	// Caller must be a valid object (not $nothing or invalid)
+	if callerID < 0 {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Check if class object is valid
+	if !store.Valid(callerID) {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Check if class object is anonymous (anonymous objects cannot be waif parents)
+	classObj := store.Get(callerID)
+	if classObj == nil {
+		return types.Err(types.E_INVIND)
+	}
+	if classObj.Anonymous {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Owner is the programmer (task permissions)
+	owner := ctx.Programmer
+
+	// Create the waif
+	waif := types.NewWaif(callerID, owner)
+	return types.Ok(waif)
 }
