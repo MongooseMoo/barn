@@ -5,6 +5,7 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/types"
+	"fmt"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
@@ -468,12 +469,22 @@ func (e *Evaluator) SetVerbContext(vc *VerbContext) {
 
 // EvalString parses and evaluates a string of MOO code
 // This is used by the eval() builtin
+// Returns Result with either:
+// - FlowNormal/FlowReturn: successful evaluation
+// - FlowException: runtime error (Error field set)
+// - FlowParseError: syntax error (Val contains list of error strings)
 func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result {
 	// Parse the code as statements
 	p := parser.NewParser(code)
 	stmts, err := p.ParseProgram()
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		// Return parse error with error message list (Toast format)
+		// Format: "Line <n>:  <message>"
+		errorMsg := fmt.Sprintf("Line 1:  %s", err.Error())
+		return types.Result{
+			Flow: types.FlowParseError,
+			Val: types.NewList([]types.Value{types.NewStr(errorMsg)}),
+		}
 	}
 
 	// Evaluate all statements using EvalStatements

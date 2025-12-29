@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/db"
 	"barn/types"
 	"strings"
 )
@@ -11,6 +12,13 @@ func (e *Evaluator) RegisterEvalBuiltin() {
 	e.builtins.Register("eval", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
+		}
+
+		// eval() requires programmer permissions
+		// Check if the programmer has the programmer flag
+		progObj := e.store.Get(ctx.Programmer)
+		if progObj == nil || !progObj.Flags.Has(db.FlagProgrammer) {
+			return types.Err(types.E_PERM)
 		}
 
 		// All arguments must be strings
@@ -31,8 +39,17 @@ func (e *Evaluator) RegisterEvalBuiltin() {
 
 		// eval() returns {success, result}
 		// success = 1 if evaluation succeeded, 0 if error
+
+		// Handle parse/syntax errors - return {0, {error_messages}}
+		if result.Flow == types.FlowParseError {
+			return types.Ok(types.NewList([]types.Value{
+				types.NewInt(0),
+				result.Val, // Val contains list of error strings
+			}))
+		}
+
+		// Handle runtime errors - return {0, error_code}
 		if result.Flow == types.FlowException {
-			// Return {0, error_value}
 			return types.Ok(types.NewList([]types.Value{
 				types.NewInt(0),
 				types.NewErr(result.Error),
