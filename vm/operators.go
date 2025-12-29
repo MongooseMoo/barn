@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+// Toast defines MININT as one more than INT64_MIN to avoid overflow issues
+// when negating or dividing MININT by -1. We match this for compatibility.
+const MININT int64 = -9223372036854775807
+
 // ============================================================================
 // UNARY OPERATORS
 // ============================================================================
@@ -152,11 +156,16 @@ func divide(left, right types.Value) types.Result {
 	}
 
 	// Integer division
+	leftInt := leftNum.(int64)
 	rightInt := rightNum.(int64)
 	if rightInt == 0 {
 		return types.Err(types.E_DIV)
 	}
-	return types.Ok(types.IntValue{Val: leftNum.(int64) / rightInt})
+	// Toast special case: MININT / -1 returns MININT to prevent overflow
+	if leftInt == MININT && rightInt == -1 {
+		return types.Ok(types.IntValue{Val: MININT})
+	}
+	return types.Ok(types.IntValue{Val: leftInt / rightInt})
 }
 
 // modulo implements modulo: left % right
