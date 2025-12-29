@@ -276,8 +276,9 @@ func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 	t := time.Unix(timestamp, 0)
-	// MOO format: "Sun Dec 26 22:30:00 2025 PST"
-	return types.Ok(types.NewStr(t.Format("Mon Jan  2 15:04:05 2006 MST")))
+	// MOO format: "Sun Dec 26 22:30:00 2025" (24 chars, no timezone)
+	// Go's _2 gives space-padded day: " 1" for day 1, "28" for day 28
+	return types.Ok(types.NewStr(t.Format("Mon Jan _2 15:04:05 2006")))
 }
 
 // builtinServerVersion implements server_version([key])
