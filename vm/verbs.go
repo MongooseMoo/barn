@@ -113,6 +113,10 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	}
 
 	// Push activation frame onto call stack (if we have a task)
+	// NOTE: We do NOT use defer PopFrame() because we want to preserve the call stack
+	// when an exception occurs, so the scheduler can extract it for tracebacks.
+	// We explicitly pop the frame only on successful completion.
+	var framePushed bool
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
 			frame := task.ActivationFrame{
@@ -126,7 +130,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 				LineNumber: 0, // TODO: Track line numbers during execution
 			}
 			t.PushFrame(frame)
-			defer t.PopFrame()
+			framePushed = true
 		}
 	}
 
@@ -171,6 +175,14 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	ctx.ThisObj = oldThis
 	ctx.Verb = oldVerb
 
+	// Pop frame only on successful completion
+	// For errors (FlowException), leave the frame on the stack for traceback
+	if result.Flow != types.FlowException && framePushed {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			t.PopFrame()
+		}
+	}
+
 	// If the verb returned, extract the value
 	if result.Flow == types.FlowReturn {
 		return types.Ok(result.Val)
@@ -206,10 +218,43 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		return types.Err(types.E_INVIND)
 	}
 
+	// Push activation frame EARLY, before verb lookup, so errors get proper traceback
+	// We'll update VerbLoc after we find where the verb is defined
+	// NOTE: We do NOT use defer PopFrame() because we want to keep the frame on error
+	// so that scheduler.CallVerb can extract the call stack for tracebacks
+	// The scheduler is responsible for popping frames after extracting the call stack
+	var framePushed bool
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			frame := task.ActivationFrame{
+				This:       objID,           // The object we're calling on
+				Player:     ctx.Player,
+				Programmer: ctx.Programmer,
+				Caller:     ctx.ThisObj,     // The object that called this verb
+				Verb:       verbName,
+				VerbLoc:    objID,           // Will be updated if verb found
+				Args:       args,
+				LineNumber: 1,               // Line 1 for verb call
+			}
+			t.PushFrame(frame)
+			framePushed = true
+		}
+	}
+
 	// Look up the verb (in CallVerb - direct verb invocation)
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
+		// Don't pop frame - leave it for traceback
 		return types.Err(types.E_VERBNF)
+	}
+
+	// Update VerbLoc in the frame now that we know where the verb is defined
+	if framePushed {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			if topFrame := t.GetTopFrame(); topFrame != nil {
+				topFrame.VerbLoc = defObjID
+			}
+		}
 	}
 
 	// Check execute permission
@@ -234,24 +279,6 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 			return types.Err(types.E_VERBNF)
 		}
 		verb.Program = program
-	}
-
-	// Push activation frame onto call stack (if we have a task)
-	if ctx.Task != nil {
-		if t, ok := ctx.Task.(*task.Task); ok {
-			frame := task.ActivationFrame{
-				This:       defObjID,
-				Player:     ctx.Player,
-				Programmer: ctx.Programmer,
-				Caller:     ctx.ThisObj, // The object that called this verb
-				Verb:       verbName,
-				VerbLoc:    defObjID,
-				Args:       args,
-				LineNumber: 0, // TODO: Track line numbers during execution
-			}
-			t.PushFrame(frame)
-			defer t.PopFrame()
-		}
 	}
 
 	// Set up verb call context

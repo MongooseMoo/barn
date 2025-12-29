@@ -172,7 +172,7 @@ func (s *Scheduler) runTask(t *task.Task) error {
 			Programmer: t.Programmer,
 			Caller:     t.Caller,
 			Verb:       t.VerbName,
-			VerbLoc:    t.This, // TODO: Track actual verb location separately
+			VerbLoc:    t.VerbLoc, // Object where verb is defined
 			LineNumber: 1,
 		})
 	}
@@ -222,6 +222,10 @@ func (s *Scheduler) runTask(t *task.Task) error {
 				t.SetState(task.TaskKilled)
 				// Send traceback to player
 				s.sendTraceback(t, result.Error)
+				// Clean up call stack after traceback has been sent
+				for len(t.CallStack) > 0 {
+					t.PopFrame()
+				}
 			} else {
 				t.SetState(task.TaskCompleted)
 			}
@@ -266,6 +270,7 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 
 	// Set up verb context
 	t.VerbName = match.Verb.Name
+	t.VerbLoc = match.VerbLoc
 	t.This = match.This
 	t.Caller = player
 	t.Argstr = cmd.Argstr
@@ -339,15 +344,42 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 
 // CallVerb synchronously executes a verb on an object and returns the result
 // This is used for server hooks like do_login_command, user_connected, etc.
+// Returns a Result with a call stack for traceback formatting
 func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) types.Result {
+	// Create a lightweight task FIRST for call stack tracking
+	// This ensures we have a stack even if verb lookup fails
+	t := &task.Task{
+		Owner:      player,
+		Programmer: player, // Will be updated to verb owner if verb found
+		CallStack:  make([]task.ActivationFrame, 0),
+	}
+
 	// Look up the verb to get its owner for programmer permissions
 	verb, _, err := s.store.FindVerb(objID, verbName)
 	if err != nil || verb == nil {
-		return types.Result{
-			Flow:  types.FlowException,
-			Error: types.E_VERBNF,
+		// Verb not found - but we still want to track the attempted call
+		ctx := types.NewTaskContext()
+		ctx.Player = player
+		ctx.Programmer = player
+		ctx.IsWizard = s.isWizard(player)
+		ctx.ThisObj = objID
+		ctx.Verb = verbName
+		ctx.Task = t // Attach task so CallVerb can track the failed call
+
+		result := s.evaluator.CallVerb(objID, verbName, args, ctx)
+		// Extract call stack BEFORE popping frames
+		if result.Flow == types.FlowException {
+			result.CallStack = t.GetCallStack()
 		}
+		// Clean up call stack
+		if len(t.CallStack) > 0 {
+			t.PopFrame()
+		}
+		return result
 	}
+
+	// Update programmer to verb owner now that we found the verb
+	t.Programmer = verb.Owner
 
 	ctx := types.NewTaskContext()
 	ctx.Player = player
@@ -355,8 +387,23 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner
 	ctx.ThisObj = objID
 	ctx.Verb = verbName
+	ctx.Task = t // Attach task so CallVerb can track frames
 
-	return s.evaluator.CallVerb(objID, verbName, args, ctx)
+	result := s.evaluator.CallVerb(objID, verbName, args, ctx)
+
+	// Extract call stack BEFORE popping frames
+	// If there was an exception, attach the call stack to the result
+	if result.Flow == types.FlowException {
+		result.CallStack = t.GetCallStack()
+	}
+
+	// Now clean up the call stack for successful calls
+	// For errors, we've already extracted the stack, so popping is safe
+	if len(t.CallStack) > 0 {
+		t.PopFrame()
+	}
+
+	return result
 }
 
 // ResumeTask resumes a suspended task
