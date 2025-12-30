@@ -56,7 +56,8 @@ func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Convert lowercase \uxxxx escapes to uppercase \uXXXX for MOO compatibility
-	result := uppercaseUnicodeEscapes(string(data))
+	// Also convert \t to \u0009 to match MOO behavior
+	result := normalizeJSONEscapes(string(data))
 	return types.Ok(types.NewStr(result))
 }
 
@@ -105,6 +106,10 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		return val.Val, types.E_NONE
 
 	case types.ObjValue:
+		// Anonymous objects cannot be serialized to JSON
+		if val.IsAnonymous() {
+			return nil, types.E_INVARG
+		}
 		if embeddedTypes {
 			return fmt.Sprintf("#%d|obj", val.ID()), types.E_NONE
 		}
@@ -323,17 +328,30 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 	return nil, false
 }
 
-// uppercaseUnicodeEscapes converts \uxxxx escapes to \uXXXX (uppercase)
-func uppercaseUnicodeEscapes(s string) string {
+// normalizeJSONEscapes converts JSON escapes to match MOO behavior:
+// - \uxxxx -> \uXXXX (uppercase hex)
+// - \t -> \u0009 (tab as unicode escape)
+func normalizeJSONEscapes(s string) string {
 	var result strings.Builder
 	i := 0
 	for i < len(s) {
-		if i+5 < len(s) && s[i] == '\\' && s[i+1] == 'u' {
-			// Found \u, check for 4 hex digits and uppercase them
-			hex := s[i+2 : i+6]
-			result.WriteString("\\u")
-			result.WriteString(strings.ToUpper(hex))
-			i += 6
+		if i+1 < len(s) && s[i] == '\\' {
+			next := s[i+1]
+			if next == 'u' && i+5 < len(s) {
+				// Found \u, check for 4 hex digits and uppercase them
+				hex := s[i+2 : i+6]
+				result.WriteString("\\u")
+				result.WriteString(strings.ToUpper(hex))
+				i += 6
+			} else if next == 't' {
+				// Convert \t to \u0009
+				result.WriteString("\\u0009")
+				i += 2
+			} else {
+				// Other escape sequences pass through unchanged
+				result.WriteByte(s[i])
+				i++
+			}
 		} else {
 			result.WriteByte(s[i])
 			i++
