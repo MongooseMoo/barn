@@ -1,0 +1,555 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Q\code\cow_py\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Q\code\cow_py
+configfile: pyproject.toml
+collecting ... collected 1479 items / 1458 deselected / 21 selected
+
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::set_task_local_requires_wizard] PASSED [  4%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::task_local_requires_wizard] PASSED [  9%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::set_task_local_no_args] PASSED [ 14%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::set_task_local_too_many_args] PASSED [ 19%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::set_task_local_one_arg] PASSED [ 23%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::task_local_takes_no_args] PASSED [ 28%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::task_local_no_args] PASSED [ 33%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::simple_eval_case] PASSED [ 38%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::eval_case_with_error] PASSED [ 42%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::eval_case_with_suspend] PASSED [ 47%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::fork_and_suspend_case] FAILED [ 52%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::suspend_case_with_error] PASSED [ 57%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::fork_suspend_case_with_error] PASSED [ 61%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::command_verb] FAILED [ 66%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::server_verb] FAILED [ 71%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::across_verb_calls] FAILED [ 76%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::across_verb_calls_with_intermediate] FAILED [ 80%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::suspend_between_verb_calls] FAILED [ 85%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::read_between_verb_calls] FAILED [ 90%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::nonfunctional_fork_suspend] PASSED [ 95%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::nonfunctional_kill_task] FAILED [100%]
+
+================================== FAILURES ===================================
+______ TestConformance.test_yaml_case[task_local::fork_and_suspend_case] ______
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC435130>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:238: in _verify_expectations
+    self._verify_value(expect.value, result.value, test.name)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+expected = [[1, 2], ['foo', 'bar', 3, 4, 5]], actual = [[1, 2], 0]
+test_name = 'fork_and_suspend_case'
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -> None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+>           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, "
+                f"but got {actual!r}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'fork_and_suspend_case' expected value [[1, 2], ['foo', 'bar', 3, 4, 5]], but got [[1, 2], 0]
+
+tests\conformance\runner.py:285: AssertionError
+__________ TestConformance.test_yaml_case[task_local::command_verb] ___________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC435220>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...None, contains=None, range=None, satisfies=None, notifications=['> {"#-1 to the #-1"}']), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+test = MooTestCase(name='command_verb', description='', skip=False, skip_if=None, permission='wizard', setup=None, teardown=N...=None, contains=None, range=None, satisfies=None, notifications=['> {"#-1 to the #-1"}']), cleanup=[], timeout_ms=5000)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVIND: 'E_INVIND'>, error_message=None, notifications=[], logs=[])
+
+    def _verify_expectations(self, test: MooTestCase, result: ExecutionResult) -> None:
+        """Verify test result against expectations.
+    
+        Args:
+            test: The test case with expectations
+            result: The execution result to verify
+    
+        Raises:
+            AssertionError: If any expectation is not met
+        """
+        expect = test.expect
+    
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, test.name)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"Test '{test.name}' expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'command_verb' expected success but got error: MooError.E_INVIND
+
+tests\conformance\runner.py:231: AssertionError
+___________ TestConformance.test_yaml_case[task_local::server_verb] ___________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC4352C0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...atch=None, contains=None, range=None, satisfies=None, notifications=['> {1, {2, {3}}}']), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+test = MooTestCase(name='server_verb', description='', skip=False, skip_if=None, permission='wizard', setup=None, teardown=No...match=None, contains=None, range=None, satisfies=None, notifications=['> {1, {2, {3}}}']), cleanup=[], timeout_ms=5000)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVARG: 'E_INVARG'>, error_message=None, notifications=[], logs=[])
+
+    def _verify_expectations(self, test: MooTestCase, result: ExecutionResult) -> None:
+        """Verify test result against expectations.
+    
+        Args:
+            test: The test case with expectations
+            result: The execution result to verify
+    
+        Raises:
+            AssertionError: If any expectation is not met
+        """
+        expect = test.expect
+    
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, test.name)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"Test '{test.name}' expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'server_verb' expected success but got error: MooError.E_INVARG
+
+tests\conformance\runner.py:231: AssertionError
+________ TestConformance.test_yaml_case[task_local::across_verb_calls] ________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC435310>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+test = MooTestCase(name='across_verb_calls', description='', skip=False, skip_if=None, permission='wizard', setup=None, teard...ne, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVIND: 'E_INVIND'>, error_message=None, notifications=[], logs=[])
+
+    def _verify_expectations(self, test: MooTestCase, result: ExecutionResult) -> None:
+        """Verify test result against expectations.
+    
+        Args:
+            test: The test case with expectations
+            result: The execution result to verify
+    
+        Raises:
+            AssertionError: If any expectation is not met
+        """
+        expect = test.expect
+    
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, test.name)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"Test '{test.name}' expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'across_verb_calls' expected success but got error: MooError.E_INVIND
+
+tests\conformance\runner.py:231: AssertionError
+_ TestConformance.test_yaml_case[task_local::across_verb_calls_with_intermediate] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC435360>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+test = MooTestCase(name='across_verb_calls_with_intermediate', description='', skip=False, skip_if=None, permission='wizard',...ne, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVIND: 'E_INVIND'>, error_message=None, notifications=[], logs=[])
+
+    def _verify_expectations(self, test: MooTestCase, result: ExecutionResult) -> None:
+        """Verify test result against expectations.
+    
+        Args:
+            test: The test case with expectations
+            result: The execution result to verify
+    
+        Raises:
+            AssertionError: If any expectation is not met
+        """
+        expect = test.expect
+    
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, test.name)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"Test '{test.name}' expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'across_verb_calls_with_intermediate' expected success but got error: MooError.E_INVIND
+
+tests\conformance\runner.py:231: AssertionError
+___ TestConformance.test_yaml_case[task_local::suspend_between_verb_calls] ____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC4353B0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+test = MooTestCase(name='suspend_between_verb_calls', description='', skip=False, skip_if=None, permission='wizard', setup=No...ne, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVIND: 'E_INVIND'>, error_message=None, notifications=[], logs=[])
+
+    def _verify_expectations(self, test: MooTestCase, result: ExecutionResult) -> None:
+        """Verify test result against expectations.
+    
+        Args:
+            test: The test case with expectations
+            result: The execution result to verify
+    
+        Raises:
+            AssertionError: If any expectation is not met
+        """
+        expect = test.expect
+    
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, test.name)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"Test '{test.name}' expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'suspend_between_verb_calls' expected success but got error: MooError.E_INVIND
+
+tests\conformance\runner.py:231: AssertionError
+_____ TestConformance.test_yaml_case[task_local::read_between_verb_calls] _____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC435400>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+test = MooTestCase(name='read_between_verb_calls', description='', skip=False, skip_if=None, permission='wizard', setup=None,...ne, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVIND: 'E_INVIND'>, error_message=None, notifications=[], logs=[])
+
+    def _verify_expectations(self, test: MooTestCase, result: ExecutionResult) -> None:
+        """Verify test result against expectations.
+    
+        Args:
+            test: The test case with expectations
+            result: The execution result to verify
+    
+        Raises:
+            AssertionError: If any expectation is not met
+        """
+        expect = test.expect
+    
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, test.name)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"Test '{test.name}' expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'read_between_verb_calls' expected success but got error: MooError.E_INVIND
+
+tests\conformance\runner.py:231: AssertionError
+_____ TestConformance.test_yaml_case[task_local::nonfunctional_kill_task] _____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x000001B0EC4354A0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+yaml_test_case = (MooTestSuite(name='task_local', description='Tests for task_local() and set_task_local() builtins', version='1.0', sk...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:96: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:226: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001B0EBF3C440>
+expected_error = 'E_INTRPT'
+result = ExecutionResult(success=False, value=None, error=<MooError.E_INVARG: 'E_INVARG'>, error_message=None, notifications=[], logs=[])
+test_name = 'nonfunctional_kill_task'
+
+    def _verify_error(self, expected_error: str, result: ExecutionResult, test_name: str) -> None:
+        """Verify that an error was returned."""
+        if result.success:
+            raise AssertionError(
+                f"Test '{test_name}' expected error {expected_error}, "
+                f"but got success with value: {result.value!r}"
+            )
+    
+        if result.error is None:
+            raise AssertionError(
+                f"Test '{test_name}' expected error {expected_error}, "
+                f"but got non-MOO error: {result.error_message}"
+            )
+    
+        # Compare error codes
+        actual_error = result.error.value if isinstance(result.error, MooError) else str(result.error)
+        if actual_error != expected_error:
+>           raise AssertionError(
+                f"Test '{test_name}' expected error {expected_error}, "
+                f"but got {actual_error}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'nonfunctional_kill_task' expected error E_INTRPT, but got E_INVARG
+
+tests\conformance\runner.py:277: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::fork_and_suspend_case]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::command_verb]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::server_verb]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::across_verb_calls]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::across_verb_calls_with_intermediate]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::suspend_between_verb_calls]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::read_between_verb_calls]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[task_local::nonfunctional_kill_task]
+================ 8 failed, 13 passed, 1458 deselected in 0.81s ================

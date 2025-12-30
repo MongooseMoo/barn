@@ -1,0 +1,5 @@
+connect wizard
+; obj = create($nothing);
+; add_verb(obj, {player, "rxd", "test_func*tion"}, {"this", "none", "this"});
+; set_verb_code(obj, "test_func*tion", {"return 42;"});
+; return obj:test_func();

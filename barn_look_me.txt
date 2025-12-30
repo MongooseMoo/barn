@@ -1,0 +1,24 @@
+Connecting to localhost:9300...
+Connected.
+Sending command 1: connect wizard
+~FF~FBF
+Welcome to the ToastCore database.
+
+Type 'connect wizard' to log in.
+
+You will probably want to change this text and the output of the `help' command, which are stored in $login.welcome_message and $login.help_message, respectively.
+~FF~FBF
+ANSI Version 2.6 is currently active.  Type "?ansi-intro" for more information.
+Your previous connection was before we started keeping track.
+There is new news.  Type `news' to read all news or `news new' to read just new news.
+Sending command 2: look me
+Waiting 5 seconds for output...
+Wizard
+You see a wizard who chooses not to reveal its true appearance.
+#2 <- #41:_do (this == #41), line 33:  Verb not found
+#2 <- ... called from #41:pronoun_sub (this == #41), line 27
+#2 <- ... called from #6:look_self (this == #6), line 6
+#2 <- ... called from #3:l*ook (this == #62), line 13
+#2 <- (End of traceback)
+Read error: read tcp [::1]:48427->[::1]:9300: use of closed network connection
+Done.

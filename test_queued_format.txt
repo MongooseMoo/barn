@@ -1,0 +1,4 @@
+connect wizard
+; fork t (0) return suspend(); endfork return t;
+; q = queued_tasks(); return typeof(q);
+quit

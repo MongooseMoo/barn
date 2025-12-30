@@ -175,12 +175,8 @@ func listRange(list types.ListValue, start, end int64) types.Result {
 		return types.Err(types.E_RANGE)
 	}
 
-	// Special case: when start == end, return the single element (not a list)
-	if start == end {
-		return types.Ok(list.Get(int(start)))
-	}
-
 	// Extract slice (1-based to 0-based conversion)
+	// Always return a list, even if start == end
 	result := []types.Value{}
 	for i := start; i <= end; i++ {
 		val := list.Get(int(i))

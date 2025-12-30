@@ -1,0 +1,86 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Q\code\cow_py\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Q\code\cow_py
+configfile: pyproject.toml
+collecting ... collected 1132 items / 1102 deselected / 30 selected
+
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waifs_are_invalid] PASSED [  3%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waifs_have_no_parents] PASSED [  6%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waifs_have_no_children] PASSED [ 10%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waifs_cannot_check_player_flag] PASSED [ 13%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waifs_cannot_set_player_flag] PASSED [ 16%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waif_owner_is_creator] PASSED [ 20%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::programmer_cannot_change_waif_owner] PASSED [ 23%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::wizard_cannot_change_waif_owner] PASSED [ 26%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::programmer_cannot_set_wizard_flag_false] PASSED [ 30%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::programmer_cannot_set_wizard_flag_true] PASSED [ 33%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::wizard_cannot_set_wizard_flag_false] PASSED [ 36%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::wizard_cannot_set_wizard_flag_true] PASSED [ 40%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::programmer_cannot_set_programmer_flag_false] PASSED [ 43%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::programmer_cannot_set_programmer_flag_true] PASSED [ 46%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::wizard_cannot_set_programmer_flag_false] PASSED [ 50%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::wizard_cannot_set_programmer_flag_true] PASSED [ 53%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waif_properties_inherited] PASSED [ 56%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waif_verbs_inherited] PASSED [ 60%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::losing_waif_reference_calls_recycle] PASSED [ 63%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waif_recycle_called_once] PASSED [ 66%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::waifs_cant_reference_each_other] PASSED [ 70%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::recycling_parent_invalidates_waif] FAILED [ 73%]
+
+================================== FAILURES ===================================
+___ TestConformance.test_yaml_case[waif::recycling_parent_invalidates_waif] ___
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000021A004B5CC0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000021A000502F0>
+yaml_test_case = (MooTestSuite(name='waif', description='Tests for waif (lightweight objects) functionality', version='1.0', requires=R...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:229: in _verify_expectations
+    self._verify_value(expect.value, result.value, test.name)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000021A000502F0>
+expected = 1, actual = 0, test_name = 'recycling_parent_invalidates_waif'
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -> None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+>           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, "
+                f"but got {actual!r}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'recycling_parent_invalidates_waif' expected value 1, but got 0
+
+tests\conformance\runner.py:276: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[waif::recycling_parent_invalidates_waif]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+================ 1 failed, 21 passed, 1102 deselected in 0.93s ================

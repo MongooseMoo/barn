@@ -1,0 +1,23 @@
+225a226,241
+>
+> 	// Check if property name is built-in
+> 	if isBuiltinProperty(propName) {
+> 		return types.Err(types.E_INVARG)
+> 	}
+>
+> 	// Check if property already exists on this object (not just inherited)
+> 	if _, exists := obj.Properties[propName]; exists {
+> 		return types.Err(types.E_INVARG)
+> 	}
+>
+> 	// Check if property exists in ancestor chain
+> 	_, ancestorErr := findPropertyInChain(objID, propName, store)
+> 	if ancestorErr == types.E_NONE {
+> 		// Property exists in ancestor
+> 		return types.Err(types.E_INVARG)
+> 	}
+>
+> 	// Check if property exists in any descendant
+> 	if hasPropertyInDescendants(objID, propName, store) {
+> 		return types.Err(types.E_INVARG)
+> 	}

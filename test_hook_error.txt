@@ -1,0 +1,6 @@
+connect wizard
+@verb #0:test_hook_error tnt rxd
+@program #0:test_hook_error
+raise(E_INVARG, "Test error in hook");
+.
+; return this:test_hook_error();

@@ -1,0 +1,364 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Q\code\cow_py\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Q\code\cow_py
+configfile: pyproject.toml
+collecting ... collected 1480 items / 1423 deselected / 57 selected
+
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_basic] PASSED [  1%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_basic] PASSED [  3%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_works] PASSED [  5%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_invalid_owner] PASSED [  7%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_invalid_perms] PASSED [  8%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_recycled_object] PASSED [ 10%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_builtin_name] PASSED [ 12%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_defined_on_ancestor] PASSED [ 14%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_defined_on_descendant] PASSED [ 15%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_no_write_permission] SKIPPED [ 17%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_with_write_permission] PASSED [ 19%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_wizard_bypasses_write] PASSED [ 21%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_not_owner] PASSED [ 22%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_is_owner] PASSED [ 24%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::add_property_wizard_sets_owner] PASSED [ 26%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_works] PASSED [ 28%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_recycled_object] PASSED [ 29%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_not_found] PASSED [ 31%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_builtin] PASSED [ 33%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_no_write_permission] SKIPPED [ 35%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_with_write_permission] PASSED [ 36%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::delete_property_wizard_bypasses_write] PASSED [ 38%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_works] FAILED [ 40%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_recycled_object] PASSED [ 42%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_not_found] PASSED [ 43%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_builtin] PASSED [ 45%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_on_definer] FAILED [ 47%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_no_read_permission] SKIPPED [ 49%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_with_read_permission] FAILED [ 50%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_wizard_bypasses_read] FAILED [ 52%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_works] FAILED [ 54%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_recycled_object] PASSED [ 56%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_not_found] PASSED [ 57%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_builtin] PASSED [ 59%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_on_definer] PASSED [ 61%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_no_write_permission] SKIPPED [ 63%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_with_write_permission] PASSED [ 64%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_wizard_bypasses_write] PASSED [ 66%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_works] PASSED [ 68%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_recycled_object] PASSED [ 70%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_not_found] PASSED [ 71%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_builtin] PASSED [ 73%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_no_read_permission] SKIPPED [ 75%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_with_read_permission] PASSED [ 77%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::property_info_wizard_bypasses_read] PASSED [ 78%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_works] SKIPPED [ 80%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_recycled_object] PASSED [ 82%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_not_found] PASSED [ 84%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_builtin] PASSED [ 85%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_no_write_permission] SKIPPED [ 87%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_with_write_permission_still_fails] SKIPPED [ 89%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::set_property_info_wizard_succeeds] PASSED [ 91%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::properties_works] PASSED [ 92%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::properties_recycled_object] PASSED [ 94%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::properties_no_read_permission] SKIPPED [ 96%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::properties_with_read_permission] PASSED [ 98%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::properties_wizard_bypasses_read] PASSED [100%]
+
+================================== FAILURES ===================================
+_____ TestConformance.test_yaml_case[properties::is_clear_property_works] _____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000019770442440>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+yaml_test_case = (MooTestSuite(name='property_builtins', description='Tests for property manipulation builtins - property_info, add_pro...one, as_=None, expect=None), TestStep(run='recycle({parent})', capture=None, as_=None, expect=None)], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:75: in run_test
+    self._execute_steps(test)
+tests\conformance\runner.py:148: in _execute_steps
+    self._verify_expectation(step.expect, result, f"step '{step.run[:30]}...'")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+expect = Expectation(value=1, error=None, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_PERM: 'E_PERM'>, error_message=None, notifications=[], logs=[])
+context = 'step \'is_clear_property({child}, "fo...\''
+
+    def _verify_expectation(self, expect: Expectation, result: ExecutionResult, context: str) -> None:
+        """Verify a single expectation against a result.
+    
+        Args:
+            expect: The expectation to verify
+            result: The execution result
+            context: Context string for error messages (e.g., test name or step description)
+        """
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, context)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"{context} expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: step 'is_clear_property({child}, "fo...' expected success but got error: MooError.E_PERM
+
+tests\conformance\runner.py:195: AssertionError
+__ TestConformance.test_yaml_case[properties::is_clear_property_on_definer] ___
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000019770442580>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+yaml_test_case = (MooTestSuite(name='property_builtins', description='Tests for property manipulation builtins - property_info, add_pro..., notifications=None), cleanup=[TestStep(run='recycle({obj})', capture=None, as_=None, expect=None)], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:75: in run_test
+    self._execute_steps(test)
+tests\conformance\runner.py:148: in _execute_steps
+    self._verify_expectation(step.expect, result, f"step '{step.run[:30]}...'")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+expect = Expectation(value=0, error=None, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None)
+result = ExecutionResult(success=False, value=None, error=<MooError.E_PERM: 'E_PERM'>, error_message=None, notifications=[], logs=[])
+context = 'step \'is_clear_property({obj}, "foob...\''
+
+    def _verify_expectation(self, expect: Expectation, result: ExecutionResult, context: str) -> None:
+        """Verify a single expectation against a result.
+    
+        Args:
+            expect: The expectation to verify
+            result: The execution result
+            context: Context string for error messages (e.g., test name or step description)
+        """
+        # Check for expected error
+        if expect.error:
+            self._verify_error(expect.error, result, context)
+            return
+    
+        # If we got here, we expect success
+        if not result.success:
+>           raise AssertionError(
+                f"{context} expected success but got error: "
+                f"{result.error or result.error_message}"
+            )
+E           tests.conformance.runner.AssertionError: step 'is_clear_property({obj}, "foob...' expected success but got error: MooError.E_PERM
+
+tests\conformance\runner.py:195: AssertionError
+_ TestConformance.test_yaml_case[properties::is_clear_property_with_read_permission] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000019770442620>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+yaml_test_case = (MooTestSuite(name='property_builtins', description='Tests for property manipulation builtins - property_info, add_pro...one, as_=None, expect=None), TestStep(run='recycle({parent})', capture=None, as_=None, expect=None)], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:75: in run_test
+    self._execute_steps(test)
+tests\conformance\runner.py:148: in _execute_steps
+    self._verify_expectation(step.expect, result, f"step '{step.run[:30]}...'")
+tests\conformance\runner.py:202: in _verify_expectation
+    self._verify_value(expect.value, result.value, context)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+expected = 1, actual = 0
+test_name = 'step \'is_clear_property({child}, "fo...\''
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -> None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+>           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, "
+                f"but got {actual!r}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'step 'is_clear_property({child}, "fo...'' expected value 1, but got 0
+
+tests\conformance\runner.py:285: AssertionError
+_ TestConformance.test_yaml_case[properties::is_clear_property_wizard_bypasses_read] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000019770442670>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+yaml_test_case = (MooTestSuite(name='property_builtins', description='Tests for property manipulation builtins - property_info, add_pro...one, as_=None, expect=None), TestStep(run='recycle({parent})', capture=None, as_=None, expect=None)], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:75: in run_test
+    self._execute_steps(test)
+tests\conformance\runner.py:148: in _execute_steps
+    self._verify_expectation(step.expect, result, f"step '{step.run[:30]}...'")
+tests\conformance\runner.py:202: in _verify_expectation
+    self._verify_value(expect.value, result.value, context)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+expected = 1, actual = 0
+test_name = 'step \'is_clear_property({child}, "fo...\''
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -> None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+>           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, "
+                f"but got {actual!r}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'step 'is_clear_property({child}, "fo...'' expected value 1, but got 0
+
+tests\conformance\runner.py:285: AssertionError
+______ TestConformance.test_yaml_case[properties::clear_property_works] _______
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x00000197704426C0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+yaml_test_case = (MooTestSuite(name='property_builtins', description='Tests for property manipulation builtins - property_info, add_pro...one, as_=None, expect=None), TestStep(run='recycle({parent})', capture=None, as_=None, expect=None)], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+        runner.run_suite_setup(suite)
+    
+        # Run the test
+>       runner.run_test(test)
+
+tests\conformance\test_conformance.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\conformance\runner.py:75: in run_test
+    self._execute_steps(test)
+tests\conformance\runner.py:148: in _execute_steps
+    self._verify_expectation(step.expect, result, f"step '{step.run[:30]}...'")
+tests\conformance\runner.py:202: in _verify_expectation
+    self._verify_value(expect.value, result.value, context)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x000001976FFA8440>
+expected = 123, actual = 'hello', test_name = "step '{child}.foobar...'"
+
+    def _verify_value(self, expected: Any, actual: Any, test_name: str) -> None:
+        """Verify exact value match."""
+        if not self._values_equal(expected, actual):
+>           raise AssertionError(
+                f"Test '{test_name}' expected value {expected!r}, "
+                f"but got {actual!r}"
+            )
+E           tests.conformance.runner.AssertionError: Test 'step '{child}.foobar...'' expected value 123, but got 'hello'
+
+tests\conformance\runner.py:285: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_works]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_on_definer]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_with_read_permission]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::is_clear_property_wizard_bypasses_read]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[properties::clear_property_works]
+========== 5 failed, 43 passed, 9 skipped, 1423 deselected in 0.98s ===========

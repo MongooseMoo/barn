@@ -1,0 +1,4 @@
+connect wizard
+; return {"a", "b", "c"}[1..10];
+; return {"a", "b", "c"}[2..10];
+; return {"a", "b", "c"}[1..3];

@@ -1,0 +1,12 @@
+connect wizard
+@program #8:test_lines
+"Test verb with multiple lines to show traceback line numbers";
+x = 1;
+y = 2;
+z = 3;
+a = 10;
+b = 20;
+c = 30;
+return 1 / 0;
+.
+test_lines

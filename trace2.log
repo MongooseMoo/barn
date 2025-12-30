@@ -1,0 +1,28 @@
+2025/12/29 18:06:50 Barn MOO Server
+2025/12/29 18:06:50 Database: toastcore.db
+2025/12/29 18:06:50 Port: 9450
+2025/12/29 18:06:50 Tracing enabled (filters: [])
+2025/12/29 18:06:50 Loaded database version 17 with 127 objects
+2025/12/29 18:06:50 Starting server on port 9450...
+2025/12/29 18:06:50 Listening on port 9450
+2025/12/29 18:06:53 New connection from [::1]:37700 (ID: 2)
+[TRACE] CONN NEW conn=2 player=#-2 [::1]:37700
+[TRACE] CALL #0:do_login_command args=[] player=#-2 caller=#-2
+[TRACE]   NOTIFY #-2 "~FF~FBF"
+[TRACE]   NOTIFY #-2 "Welcome to the ToastCore database."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "Type 'connect wizard' to log in."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "You will probably want to change this text and the output..."
+[TRACE] RETURN #0:do_login_command => 0
+[TRACE] CALL #0:do_login_command args=[] player=#-2 caller=#-2
+[TRACE]   NOTIFY #-2 "~FF~FBF"
+[TRACE]   NOTIFY #-2 "Welcome to the ToastCore database."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "Type 'connect wizard' to log in."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "You will probably want to change this text and the output..."
+[TRACE] RETURN #0:do_login_command => 0
+2025/12/29 18:06:58 Connection 2 read error: EOF
+[TRACE] CONN DISCONNECT conn=2 player=#-2 unlogged
+2025/12/29 18:06:58 Connection 2 closed

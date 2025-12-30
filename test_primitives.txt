@@ -1,0 +1,12 @@
+connect wizard
+; `recycle(#0.map_proto) ! ANY => 0';
+; `delete_property(#0, "map_proto") ! ANY => 0';
+; test_map_proto = create($nothing);
+; add_property(#0, "map_proto", test_map_proto, {player, ""});
+; add_verb(test_map_proto, {player, "xd", "suspend"}, {"this", "none", "this"});
+; set_verb_code(test_map_proto, "suspend", {"fork t (0)", "  return suspend();", "endfork", "return t;"});
+; t = ["one" -> 1, "two" -> 2]:suspend();
+; q = queued_tasks();
+; kill_task(t);
+; return typeof(q[1][5]);
+quit

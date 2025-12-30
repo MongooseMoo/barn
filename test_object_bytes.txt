@@ -1,0 +1,4 @@
+connect wizard
+; return object_bytes(#0);
+; return object_bytes(#1);
+; return object_bytes(#2);

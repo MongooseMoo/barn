@@ -1,0 +1,22 @@
+	// If verb has no compiled program, return empty list
+	if verb.Program == nil || len(verb.Program.Statements) == 0 {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+
+	// Disassemble verb bytecode
+	lines, err := compiler.DisassembleVerb(verb.Program)
+	if err != nil {
+		// If compilation fails, return error message
+		return types.Ok(types.NewList([]types.Value{
+			types.NewStr(fmt.Sprintf("Compilation error: %v", err)),
+		}))
+	}
+
+	// Convert to Value list
+	result := make([]types.Value, len(lines))
+	for i, line := range lines {
+		result[i] = types.NewStr(line)
+	}
+
+	return types.Ok(types.NewList(result))
+}

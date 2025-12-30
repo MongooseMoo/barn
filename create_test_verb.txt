@@ -1,0 +1,9 @@
+connect wizard
+@create $nothing named "test object"
+@program $test_object:badverb
+"Documentation line";
+x = 1;
+y = 2;
+z = x / 0;
+.
+; $test_object:badverb()

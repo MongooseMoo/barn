@@ -1,0 +1,17 @@
+[TRACE] CONN NEW conn=2 player=#-2 [::1]:44198
+[TRACE]   NOTIFY #-2 "~FF~FBF"
+[TRACE]   NOTIFY #-2 "Welcome to the ToastCore database."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "Type 'connect wizard' to log in."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "You will probably want to change this text and the output..."
+[TRACE] RETURN #0:do_login_command => 0
+[TRACE] CALL #0:do_login_command args=[] player=#-2 caller=#-2
+[TRACE]   NOTIFY #-2 "~FF~FBF"
+[TRACE]   NOTIFY #-2 "Welcome to the ToastCore database."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "Type 'connect wizard' to log in."
+[TRACE]   NOTIFY #-2 ""
+[TRACE]   NOTIFY #-2 "You will probably want to change this text and the output..."
+[TRACE] RETURN #0:do_login_command => 0
+[TRACE] CONN DISCONNECT conn=2 player=#-2 unlogged

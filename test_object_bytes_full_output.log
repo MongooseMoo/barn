@@ -1,0 +1,20 @@
+Connecting to localhost:9300...
+Connected.
+Sending command 1: connect wizard
+#8 <- #0:user_connected (this == #0), line 1:  Verb not found
+#8 <- (End of traceback)
+Sending command 2: ; return object_bytes(#0) > 0;
+{2, {E_VERBNF, "", 0}}
+Sending command 3: ; return object_bytes(1);
+{2, {E_VERBNF, "", 0}}
+Sending command 4: ; return object_bytes(1.1);
+{2, {E_VERBNF, "", 0}}
+Sending command 5: ; return object_bytes("test");
+{2, {E_VERBNF, "", 0}}
+Sending command 6: ; o = create(#1); recycle(o); return object_bytes(o);
+{2, {E_VERBNF, "", 0}}
+Sending command 7: ; o = create(#1); result = object_bytes(o) > 0; recycle(o); return result;
+Waiting 5 seconds for output...
+{2, {E_VERBNF, "", 0}}
+Read error: read tcp [::1]:16046->[::1]:9300: use of closed network connection
+Done.

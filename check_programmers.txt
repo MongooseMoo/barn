@@ -1,0 +1,7 @@
+connect wizard
+; for obj in [#0..#20]
+  if (is_player(obj) && obj.programmer)
+    notify(player, tostr(obj, " wizard=", obj.wizard, " prog=", obj.programmer));
+  endif
+endfor
+return 1;

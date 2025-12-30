@@ -1,0 +1,7 @@
+connect wizard
+; test_map_proto = create($nothing); return test_map_proto;
+; add_property(#0, "map_proto", test_map_proto, {#2, ""}); return 1;
+; add_verb(test_map_proto, {#2, "xd", "suspend"}, {"this", "none", "this"}); return 1;
+; set_verb_code(test_map_proto, "suspend", {"fork t (0)", "  return suspend();", "endfork", "return t;"}); return 1;
+; t = ["one" -> 1, "two" -> 2]:suspend(); return t;
+quit

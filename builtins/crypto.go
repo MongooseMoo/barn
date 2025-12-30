@@ -717,8 +717,8 @@ func builtinStringHash(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
-		// Return bytes as MOO binary string with all bytes ~XX encoded
-		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
+		// Return raw bytes as string (MOO will display with ~XX encoding, but length counts raw bytes)
+		return types.Ok(types.NewStr(string(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -764,7 +764,7 @@ func builtinBinaryHash(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
-		// Return bytes as MOO binary string with all bytes ~XX encoded
+		// Return all bytes as ~XX encoded binary string
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
@@ -801,7 +801,7 @@ func builtinValueHash(ctx *types.TaskContext, args []types.Value) types.Result {
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
-		// Return bytes as MOO binary string with all bytes ~XX encoded
+		// Return all bytes as ~XX encoded binary string
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
@@ -858,7 +858,7 @@ func builtinStringHmac(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
-		// Return bytes as MOO binary string with all bytes ~XX encoded
+		// Return all bytes as ~XX encoded binary string
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
@@ -916,7 +916,7 @@ func builtinBinaryHmac(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
-		// Return bytes as MOO binary string with all bytes ~XX encoded
+		// Return all bytes as ~XX encoded binary string
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
@@ -963,7 +963,7 @@ func builtinValueHmac(ctx *types.TaskContext, args []types.Value) types.Result {
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
-		// Return bytes as MOO binary string with all bytes ~XX encoded
+		// Return all bytes as ~XX encoded binary string
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))

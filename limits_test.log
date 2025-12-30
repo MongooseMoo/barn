@@ -1,0 +1,1911 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Q\code\cow_py\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Q\code\cow_py
+configfile: pyproject.toml
+collecting ... collected 1132 items / 1094 deselected / 38 selected
+
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setadd_checks_list_max_value_bytes_small] FAILED [  2%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setadd_checks_list_max_value_bytes_exceeds] FAILED [  5%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setadd_fails_if_value_too_large] FAILED [  7%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listinsert_checks_list_max_value_bytes] FAILED [ 10%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listinsert_fails_if_value_too_large] FAILED [ 13%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listappend_checks_list_max_value_bytes] FAILED [ 15%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listappend_fails_if_value_too_large] FAILED [ 18%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listset_fails_if_value_too_large] FAILED [ 21%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setremove_fails_if_result_too_large] FAILED [ 23%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listdelete_fails_if_result_too_large] FAILED [ 26%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::appending_to_list_checks_max_value_bytes] FAILED [ 28%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::prepending_to_list_checks_max_value_bytes] FAILED [ 31%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::indexset_on_list_checks_max_value_bytes] FAILED [ 34%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::rangeset_on_list_checks_max_value_bytes] FAILED [ 36%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::assigning_list_fails_if_value_too_large] FAILED [ 39%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::decode_binary_checks_list_max_value_bytes] FAILED [ 42%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::mapdelete_fails_if_result_too_large] FAILED [ 44%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::indexset_on_map_checks_max_value_bytes] FAILED [ 47%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::rangeset_on_map_checks_max_value_bytes] FAILED [ 50%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::list_literal_checks_max_value_bytes] FAILED [ 52%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::map_literal_checks_max_value_bytes] FAILED [ 55%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::string_concat_limit] FAILED [ 57%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::string_concat_exceeds_limit] FAILED [ 60%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::tostr_limit] FAILED [ 63%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::tostr_exceeds_limit] FAILED [ 65%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::toliteral_limit] FAILED [ 68%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::toliteral_exceeds_limit] FAILED [ 71%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::strsub_limit] FAILED [ 73%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::strsub_exceeds_limit] FAILED [ 76%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_binary_limit] FAILED [ 78%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_binary_exceeds_limit] FAILED [ 81%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::substitute_limit] FAILED [ 84%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::substitute_exceeds_limit] FAILED [ 86%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_base64_limit] FAILED [ 89%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_base64_exceeds_limit] FAILED [ 92%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::random_bytes_within_limit] FAILED [ 94%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::random_bytes_exceeds_limit] FAILED [ 97%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::quota_errors_do_not_leak_memory] FAILED [100%]
+
+================================== FAILURES ===================================
+_ TestConformance.test_yaml_case[limits::setadd_checks_list_max_value_bytes_small] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF66C0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte..., type='int', match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::setadd_checks_list_max_value_bytes_exceeds] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6710>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+___ TestConformance.test_yaml_case[limits::setadd_fails_if_value_too_large] ___
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6760>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::listinsert_checks_list_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF67B0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::listinsert_fails_if_value_too_large] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6800>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::listappend_checks_list_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6850>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::listappend_fails_if_value_too_large] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF68A0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+__ TestConformance.test_yaml_case[limits::listset_fails_if_value_too_large] ___
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF68F0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::setremove_fails_if_result_too_large] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6940>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::listdelete_fails_if_result_too_large] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6990>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::appending_to_list_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF69E0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::prepending_to_list_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6A30>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::indexset_on_list_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6A80>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::rangeset_on_list_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6AD0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::assigning_list_fails_if_value_too_large] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6B20>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::decode_binary_checks_list_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6B70>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::mapdelete_fails_if_result_too_large] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6BC0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::indexset_on_map_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6C10>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::rangeset_on_map_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6C60>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::list_literal_checks_max_value_bytes] _
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6CB0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_ TestConformance.test_yaml_case[limits::map_literal_checks_max_value_bytes] __
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6D00>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_________ TestConformance.test_yaml_case[limits::string_concat_limit] _________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6D50>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_____ TestConformance.test_yaml_case[limits::string_concat_exceeds_limit] _____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6DA0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_____________ TestConformance.test_yaml_case[limits::tostr_limit] _____________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6E40>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_________ TestConformance.test_yaml_case[limits::tostr_exceeds_limit] _________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6E90>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+___________ TestConformance.test_yaml_case[limits::toliteral_limit] ___________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6F30>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_______ TestConformance.test_yaml_case[limits::toliteral_exceeds_limit] _______
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF6F80>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+____________ TestConformance.test_yaml_case[limits::strsub_limit] _____________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7020>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+________ TestConformance.test_yaml_case[limits::strsub_exceeds_limit] _________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7070>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_________ TestConformance.test_yaml_case[limits::encode_binary_limit] _________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF70C0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_____ TestConformance.test_yaml_case[limits::encode_binary_exceeds_limit] _____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7110>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+__________ TestConformance.test_yaml_case[limits::substitute_limit] ___________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7160>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+______ TestConformance.test_yaml_case[limits::substitute_exceeds_limit] _______
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF71B0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_________ TestConformance.test_yaml_case[limits::encode_base64_limit] _________
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7200>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_____ TestConformance.test_yaml_case[limits::encode_base64_exceeds_limit] _____
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7250>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+______ TestConformance.test_yaml_case[limits::random_bytes_within_limit] ______
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF72A0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...e, type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+_____ TestConformance.test_yaml_case[limits::random_bytes_exceeds_limit] ______
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF72F0>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+___ TestConformance.test_yaml_case[limits::quota_errors_do_not_leak_memory] ___
+
+self = <tests.conformance.test_conformance.TestConformance object at 0x0000024F27FF7340>
+runner = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+yaml_test_case = (MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_byte...', type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000))
+
+    def test_yaml_case(self, runner: YamlTestRunner, yaml_test_case: tuple[MooTestSuite, MooTestCase]):
+        """Run a single YAML test case.
+    
+        This method is called once for each test case defined in YAML files.
+        The yaml_test_case fixture is parametrized by conftest.pytest_generate_tests.
+        """
+        suite, test = yaml_test_case
+    
+        # Handle skip
+        if test.skip:
+            reason = test.skip if isinstance(test.skip, str) else "Skipped"
+            pytest.skip(reason)
+    
+        # Handle skip_if condition
+        if test.skip_if:
+            if self._evaluate_skip_condition(test.skip_if):
+                pytest.skip(f"Skipped due to: {test.skip_if}")
+    
+        # Run suite setup if defined (only runs once per suite)
+>       runner.run_suite_setup(suite)
+
+tests\conformance\test_conformance.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <tests.conformance.runner.YamlTestRunner object at 0x0000024F27B902F0>
+suite = MooTestSuite(name='limits', description='Test various in-MOO limits on values (max_string_concat, max_list_value_bytes..., type=None, match=None, contains=None, range=None, satisfies=None, notifications=None), cleanup=[], timeout_ms=5000)])
+
+    def run_suite_setup(self, suite: MooTestSuite) -> None:
+        """Run suite-level setup."""
+        if suite.setup and suite.name not in self._suites_setup_done:
+            self.transport.connect(suite.setup.permission)
+            # Run setup code as a single block (may contain multi-line constructs like for loops)
+            code = suite.setup.code if isinstance(suite.setup.code, str) else "\n".join(suite.setup.code)
+            if code.strip():
+                result = self.transport.execute(code)
+                if not result.success:
+>                   raise RuntimeError(
+                        f"Suite setup failed for {suite.name}: {result.error or result.error_message}"
+                    )
+E                   RuntimeError: Suite setup failed for limits: MooError.E_INVARG
+
+tests\conformance\runner.py:35: RuntimeError
+=========================== short test summary info ===========================
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setadd_checks_list_max_value_bytes_small]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setadd_checks_list_max_value_bytes_exceeds]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setadd_fails_if_value_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listinsert_checks_list_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listinsert_fails_if_value_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listappend_checks_list_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listappend_fails_if_value_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listset_fails_if_value_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::setremove_fails_if_result_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::listdelete_fails_if_result_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::appending_to_list_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::prepending_to_list_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::indexset_on_list_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::rangeset_on_list_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::assigning_list_fails_if_value_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::decode_binary_checks_list_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::mapdelete_fails_if_result_too_large]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::indexset_on_map_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::rangeset_on_map_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::list_literal_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::map_literal_checks_max_value_bytes]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::string_concat_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::string_concat_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::tostr_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::tostr_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::toliteral_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::toliteral_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::strsub_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::strsub_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_binary_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_binary_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::substitute_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::substitute_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_base64_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::encode_base64_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::random_bytes_within_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::random_bytes_exceeds_limit]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[limits::quota_errors_do_not_leak_memory]
+===================== 38 failed, 1094 deselected in 1.00s =====================

@@ -1,0 +1,11 @@
+connect wizard
+e = create($nothing);
+b = create(e);
+c = create(b);
+add_verb(e, {player, "xd", "foo"}, {"this", "none", "this"});
+set_verb_code(e, "foo", {"return {\"e\", @`pass() ! ANY => {}'};"});
+add_verb(b, {player, "xd", "foo"}, {"this", "none", "this"});
+set_verb_code(b, "foo", {"return {\"b\", @`pass() ! ANY => {}'};"});
+add_verb(c, {player, "xd", "foo"}, {"this", "none", "this"});
+set_verb_code(c, "foo", {"return {\"c\", @`pass() ! ANY => {}'};"});
+; return c:foo();

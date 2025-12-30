@@ -1,0 +1,55 @@
+Connecting to localhost:7777...
+Connected.
+Sending command 1: connect wizard
+ÿûF*** Connected ***
+#$#mcp version: 2.1 to: 2.1
+The First Room
+This is all there is right now.
+ANSI Version 2.6 is currently active.  Type "?ansi-intro" for more information.
+Confunc failed: Invalid argument.
+... called from #6:ctime (this == #2), line 3
+... called from #6:@last-connection (this == #2), line 21
+... called from #6:confunc (this == #2), line 4
+... called from #100:confunc (this == #2), line 21
+... called from #40:confunc (this == #2), line 7
+... called from #88:confunc (this == #2), line 5
+... called from #0:user_connected, line 10
+(End of traceback)
+Sending command 2: ; obj = create($nothing);
+=> #128  ()
+Sending command 3: ; add_verb(obj, {player, "rxd", "test_func*tion"}, {"this", "none", "this"});
+#0:bf_add_verb add_verb (this == #0), line 27:  Type mismatch
+... called from #-1:Input to EVAL (this == #-1), line 3
+... called from built-in function eval()
+... called from #58:eval_cmd_string, line 19
+... called from #58:eval*-d, line 13
+(End of traceback)
+Sending command 4: ; set_verb_code(obj, "test_func*tion", {"return 42;"});
+#-1:Input to EVAL (this == #-1), line 3:  Type mismatch
+... called from built-in function eval()
+... called from #58:eval_cmd_string, line 19
+... called from #58:eval*-d, line 13
+(End of traceback)
+Sending command 5: ; result = obj:test_func();
+#114:*, line 10:  Unknown built-in function
+... called from #-1:Input to EVAL (this == #-1), line 3
+... called from built-in function eval()
+... called from #58:eval_cmd_string, line 19
+... called from #58:eval*-d, line 13
+(End of traceback)
+Sending command 6: ; recycle(obj);
+#0:bf_recycle recycle (this == #0), line 3:  Type mismatch
+... called from #-1:Input to EVAL (this == #-1), line 3
+... called from built-in function eval()
+... called from #58:eval_cmd_string, line 19
+... called from #58:eval*-d, line 13
+(End of traceback)
+Sending command 7: ; return result;
+Waiting 10 seconds for output...
+#-1:Input to EVAL (this == #-1), line 3:  Variable not found: result
+... called from built-in function eval()
+... called from #58:eval_cmd_string, line 19
+... called from #58:eval*-d, line 13
+(End of traceback)
+Read error: read tcp [::1]:9095->[::1]:7777: use of closed network connection
+Done.

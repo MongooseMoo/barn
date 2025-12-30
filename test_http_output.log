@@ -1,0 +1,15 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Q\code\cow_py\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Q\code\cow_py
+configfile: pyproject.toml
+collecting ... collected 1479 items / 1473 deselected / 6 selected
+
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[http::non_wizard_cannot_call_no_arg_version] PASSED [ 16%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[http::read_http_no_args_fails] PASSED [ 33%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[http::read_http_invalid_type_foobar] PASSED [ 50%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[http::read_http_invalid_type_empty_string] PASSED [ 66%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[http::read_http_type_arg_not_string] PASSED [ 83%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[http::read_http_connection_arg_not_obj] PASSED [100%]
+
+===================== 6 passed, 1473 deselected in 0.59s ======================

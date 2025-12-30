@@ -1,0 +1,6 @@
+2025/12/29 20:11:20 Barn MOO Server
+2025/12/29 20:11:20 Database: toastcore_barn.db
+2025/12/29 20:11:20 Port: 9300
+2025/12/29 20:11:20 Loaded database version 17 with 127 objects
+2025/12/29 20:11:20 Starting server on port 9300...
+2025/12/29 20:11:20 Server error: listen failed: listen failed: listen tcp :9300: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.

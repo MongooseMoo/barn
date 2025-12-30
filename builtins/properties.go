@@ -103,6 +103,13 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.S
 		return types.Err(err)
 	}
 
+	// Check read permission (unless wizard)
+	wizObj := store.Get(ctx.Programmer)
+	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	if !isWizard && !prop.Perms.Has(db.PropRead) {
+		return types.Err(types.E_PERM)
+	}
+
 	// Build permissions string
 	perms := prop.Perms.String()
 
@@ -248,7 +255,6 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 
 	// Parse info argument (same as set_property_info)
-	// Parse info argument (same as set_property_info)
 	var owner types.ObjID
 	var perms db.PropertyPerms
 
@@ -257,7 +263,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		// Just permissions string
 		owner = ctx.Programmer // Default to caller
 		var errCode types.ErrorCode
-		_, errCode = parsePerms(info.Value())
+		perms, errCode = parsePerms(info.Value())
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -281,13 +287,26 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 
 		owner = ownerVal.ID()
 		var errCode2 types.ErrorCode
-		_, errCode2 = parsePerms(permsVal.Value())
+		perms, errCode2 = parsePerms(permsVal.Value())
 		if errCode2 != types.E_NONE {
 			return types.Err(errCode2)
 		}
 
 	default:
 		return types.Err(types.E_TYPE)
+	}
+
+	// Validate owner is a valid object
+	ownerObj := store.Get(owner)
+	if ownerObj == nil || store.IsRecycled(owner) {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Check permissions: only wizard can set owner to someone else
+	wizObj := store.Get(ctx.Programmer)
+	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	if !isWizard && owner != ctx.Programmer {
+		return types.Err(types.E_PERM)
 	}
 
 	// Create property (defined on this object via add_property)
@@ -468,38 +487,35 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Ok(types.NewInt(0))
 	}
 
+	// Find where property is defined in chain
+	definingProp, err := findPropertyInChain(objID, propName, store)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	// Check read permission (unless wizard)
+	wizObj := store.Get(ctx.Programmer)
+	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	if !isWizard && !definingProp.Perms.Has(db.PropRead) {
+		return types.Err(types.E_PERM)
+	}
+
 	// Check if property exists directly on this object
 	prop, exists := obj.Properties[propName]
 	if exists {
-		// Property exists on this object
-		// Check read permission (unless wizard)
-		wizObj := store.Get(ctx.Programmer)
-		isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
-		if !isWizard && !prop.Perms.Has(db.PropRead) {
-			return types.Err(types.E_PERM)
+		// Property is defined on this object (via add_property)
+		if prop.Defined {
+			return types.Ok(types.NewInt(0))
 		}
-
-		// Check if clear
+		// Property exists as local value override
+		// Return 1 if clear, 0 if has local value
 		if prop.Clear {
 			return types.Ok(types.NewInt(1))
 		}
 		return types.Ok(types.NewInt(0))
 	}
 
-	// Property not on this object - check if inherited
-	inheritedProp, err := findPropertyInChain(objVal.ID(), propName, store)
-	if err != types.E_NONE {
-		return types.Err(types.E_PROPNF)
-	}
-
-	// Check read permission on inherited property (unless wizard)
-	wizObj := store.Get(ctx.Programmer)
-	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
-	if !isWizard && !inheritedProp.Perms.Has(db.PropRead) {
-		return types.Err(types.E_PERM)
-	}
-
-	// Property is inherited (not defined locally) - this counts as "clear"
+	// Property not on this object - it's inherited (counts as "clear")
 	return types.Ok(types.NewInt(1))
 }
 

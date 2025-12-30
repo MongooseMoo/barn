@@ -1,0 +1,320 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.5, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\Q\code\cow_py\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\Q\code\cow_py
+configfile: pyproject.toml
+collecting ... collected 1117 items / 1005 deselected / 112 selected
+
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::parent_of_newly_created_object] PASSED [  0%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::name_of_newly_created_object] PASSED [  1%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::location_of_newly_created_object] PASSED [  2%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::contents_of_newly_created_object] PASSED [  3%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::programmer_flag_of_newly_created_object] PASSED [  4%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::wizard_flag_of_newly_created_object] PASSED [  5%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::r_flag_of_newly_created_object] PASSED [  6%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::w_flag_of_newly_created_object] PASSED [  7%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::f_flag_of_newly_created_object] PASSED [  8%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[object::is_player_of_newly_created_object] PASSED [  8%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[property::create_child_of_root] FAILED [  9%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[property::create_grandchild] FAILED [ 10%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::requires_argument] PASSED [ 11%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::first_arg_rejects_integer] PASSED [ 12%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::first_arg_rejects_list_of_integers] PASSED [ 13%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::first_arg_accepts_object] PASSED [ 14%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::first_arg_accepts_object_alt] PASSED [ 15%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::first_arg_accepts_list_of_objects] PASSED [ 16%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_owner_accepts_object] PASSED [ 16%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_owner_sets_owner_to_self] PASSED [ 17%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_owner_sets_owner] PASSED [ 18%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_int_accepts_anonymous_flag] FAILED [ 19%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_1_creates_anonymous] PASSED [ 20%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_0_creates_object] PASSED [ 21%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_list_passes_empty_args] PASSED [ 22%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_list_passes_args] PASSED [ 23%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_omitted_passes_empty_args] PASSED [ 24%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_as_int_accepts_anonymous_flag] FAILED [ 25%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_1_creates_anonymous] PASSED [ 25%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_0_creates_object] PASSED [ 26%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_as_list_passes_empty_args] PASSED [ 27%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_as_list_passes_args] PASSED [ 28%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_as_empty_list_passes_empty_args] PASSED [ 29%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_as_int_accepts_anonymous_flag] FAILED [ 30%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_1_creates_anonymous] PASSED [ 31%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_0_creates_object] PASSED [ 32%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_as_list_passes_empty_args] PASSED [ 33%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_as_list_passes_args] PASSED [ 33%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_as_empty_list_passes_empty_args] PASSED [ 34%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::regular_object_can_be_own_owner] PASSED [ 35%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::anonymous_cannot_be_own_owner] PASSED [ 36%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_int_list_obj] PASSED [ 37%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_list_obj] PASSED [ 38%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_obj_obj] PASSED [ 39%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_obj_int_int] PASSED [ 40%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_obj_list_list] PASSED [ 41%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_int_int] PASSED [ 41%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_list_list] PASSED [ 42%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_obj_float] PASSED [ 43%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_float_int] PASSED [ 44%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_map] PASSED [ 45%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::type_error_float] PASSED [ 46%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_can_set_fertile_flag] PASSED [ 47%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_set_others_fertile_flag] FAILED [ 48%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_can_set_own_fertile_flag] PASSED [ 49%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_can_set_anonymous_flag] PASSED [ 50%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_set_others_anonymous_flag] FAILED [ 50%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_can_set_own_anonymous_flag] PASSED [ 51%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_without_fertile_flag_system] FAILED [ 52%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_without_fertile_flag_object] PASSED [ 53%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_creates_self_without_fertile_flag] PASSED [ 54%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_create_non_fertile_other] FAILED [ 55%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_creates_with_fertile_flag] PASSED [ 56%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_cannot_create_non_fertile] FAILED [ 57%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_anonymous_without_anonymous_flag_system] FAILED [ 58%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_anonymous_without_anonymous_flag_anonymous] FAILED [ 58%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_creates_anonymous_self_without_flag] PASSED [ 59%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_create_anonymous_other_without_flag] FAILED [ 60%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_creates_anonymous_with_flag] FAILED [ 61%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_cannot_create_anonymous_without_flag] FAILED [ 62%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creates_object_type] PASSED [ 63%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creates_anonymous_type] FAILED [ 64%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creating_object_increments_max_object] PASSED [ 65%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creating_anonymous_does_not_increment_max_object] FAILED [ 66%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creating_object_calls_initialize] PASSED [ 66%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creating_anonymous_calls_initialize] PASSED [ 67%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::object_appears_in_parent_children] PASSED [ 68%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::anonymous_does_not_appear_in_parent_children] PASSED [ 69%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::duplicate_parents_not_allowed_objects] PASSED [ 70%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::duplicate_parents_not_allowed_anonymous] FAILED [ 71%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::parents_cannot_have_same_property_name] PASSED [ 72%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[miscellaneous::isa_with_create_no_opt] PASSED [ 73%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[miscellaneous::isa_with_create_opt_1] PASSED [ 74%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[miscellaneous::isa_with_create_reverse_no_opt] PASSED [ 75%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[miscellaneous::isa_with_create_reverse_opt_1] PASSED [ 75%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_single_inheritance] PASSED [ 76%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_sets_owner_correctly] PASSED [ 77%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_multiple_inheritance] PASSED [ 78%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_owner_invarg] PASSED [ 79%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_owner_ambiguous] PASSED [ 80%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_owner_failed_match] PASSED [ 81%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_owner_nothing_as_wizard] PASSED [ 82%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_owner_as_programmer] PASSED [ 83%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_owner_invarg_as_programmer] PASSED [ 83%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_no_args] PASSED [ 84%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_type_error_int] PASSED [ 85%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_type_error_string] PASSED [ 86%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_type_error_both_args] PASSED [ 87%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_parent_ambiguous] PASSED [ 88%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_parent_failed_match] PASSED [ 89%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_list_type_error_int] PASSED [ 90%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_list_type_error_string] PASSED [ 91%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_list_invalid_nothing] PASSED [ 91%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_list_invalid_ambiguous] PASSED [ 92%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_list_invalid_failed_match] PASSED [ 93%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_duplicate_property_error] PASSED [ 94%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_duplicate_parents_error] PASSED [ 95%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_permission_denied_as_programmer] FAILED [ 96%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_empty_list_vs_nothing] PASSED [ 97%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_nothing_in_list_error] PASSED [ 98%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_object_error] PASSED [ 99%]
+tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_invalid_object_in_list_error] PASSED [100%]
+
+================================== FAILURES ===================================
+_______ TestConformance.test_yaml_case[property::create_child_of_root] ________
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:229: in _verify_expectations
+    self._verify_value(expect.value, result.value, test.name)
+tests\conformance\runner.py:276: in _verify_value
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'create_child_of_root' expected value [1, '#1'], but got [0, 'E_PROPNF']
+_________ TestConformance.test_yaml_case[property::create_grandchild] _________
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:229: in _verify_expectations
+    self._verify_value(expect.value, result.value, test.name)
+tests\conformance\runner.py:276: in _verify_value
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'create_grandchild' expected value [1, 1], but got [0, 'E_PROPNF']
+_ TestConformance.test_yaml_case[create::second_arg_as_int_accepts_anonymous_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:233: in _verify_expectations
+    self._verify_type(expect.type, result.value, test.name)
+tests\conformance\runner.py:394: in _verify_type
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'second_arg_as_int_accepts_anonymous_flag' expected type anon, but got obj (value: '#419')
+_ TestConformance.test_yaml_case[create::third_arg_as_int_accepts_anonymous_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:233: in _verify_expectations
+    self._verify_type(expect.type, result.value, test.name)
+tests\conformance\runner.py:394: in _verify_type
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'third_arg_as_int_accepts_anonymous_flag' expected type anon, but got obj (value: '#431')
+_ TestConformance.test_yaml_case[create::fourth_arg_as_int_accepts_anonymous_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:233: in _verify_expectations
+    self._verify_type(expect.type, result.value, test.name)
+tests\conformance\runner.py:394: in _verify_type
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'fourth_arg_as_int_accepts_anonymous_flag' expected type anon, but got obj (value: '#443')
+_ TestConformance.test_yaml_case[create::owner_cannot_set_others_fertile_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:254: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'owner_cannot_set_others_fertile_flag' expected error E_PERM, but got success with value: 0
+_ TestConformance.test_yaml_case[create::owner_cannot_set_others_anonymous_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:254: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'owner_cannot_set_others_anonymous_flag' expected error E_PERM, but got success with value: 0
+_ TestConformance.test_yaml_case[create::wizard_creates_without_fertile_flag_system] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:222: in _verify_expectations
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'wizard_creates_without_fertile_flag_system' expected success but got error: MooError.E_PROPNF
+_ TestConformance.test_yaml_case[create::owner_cannot_create_non_fertile_other] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:268: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'owner_cannot_create_non_fertile_other' expected error E_PERM, but got E_PROPNF
+_ TestConformance.test_yaml_case[create::programmer_cannot_create_non_fertile] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:268: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'programmer_cannot_create_non_fertile' expected error E_PERM, but got E_PROPNF
+_ TestConformance.test_yaml_case[create::wizard_creates_anonymous_without_anonymous_flag_system] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:222: in _verify_expectations
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'wizard_creates_anonymous_without_anonymous_flag_system' expected success but got error: MooError.E_PROPNF
+_ TestConformance.test_yaml_case[create::wizard_creates_anonymous_without_anonymous_flag_anonymous] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:222: in _verify_expectations
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'wizard_creates_anonymous_without_anonymous_flag_anonymous' expected success but got error: MooError.E_PROPNF
+_ TestConformance.test_yaml_case[create::owner_cannot_create_anonymous_other_without_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:254: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'owner_cannot_create_anonymous_other_without_flag' expected error E_PERM, but got success with value: '#492'
+_ TestConformance.test_yaml_case[create::programmer_creates_anonymous_with_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:222: in _verify_expectations
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'programmer_creates_anonymous_with_flag' expected success but got error: MooError.E_PROPNF
+_ TestConformance.test_yaml_case[create::programmer_cannot_create_anonymous_without_flag] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:254: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'programmer_cannot_create_anonymous_without_flag' expected error E_PERM, but got success with value: '#495'
+_______ TestConformance.test_yaml_case[create::creates_anonymous_type] ________
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:222: in _verify_expectations
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'creates_anonymous_type' expected success but got error: MooError.E_PROPNF
+_ TestConformance.test_yaml_case[create::creating_anonymous_does_not_increment_max_object] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:222: in _verify_expectations
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'creating_anonymous_does_not_increment_max_object' expected success but got error: MooError.E_PROPNF
+_ TestConformance.test_yaml_case[create::duplicate_parents_not_allowed_anonymous] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:268: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'duplicate_parents_not_allowed_anonymous' expected error E_INVARG, but got E_PROPNF
+_ TestConformance.test_yaml_case[objects::create_permission_denied_as_programmer] _
+tests\conformance\test_conformance.py:48: in test_yaml_case
+    runner.run_test(test)
+tests\conformance\runner.py:87: in run_test
+    self._verify_expectations(test, result)
+tests\conformance\runner.py:217: in _verify_expectations
+    self._verify_error(expect.error, result, test.name)
+tests\conformance\runner.py:268: in _verify_error
+    raise AssertionError(
+E   tests.conformance.runner.AssertionError: Test 'create_permission_denied_as_programmer' expected error E_PERM, but got E_PROPNF
+=========================== short test summary info ===========================
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[property::create_child_of_root]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[property::create_grandchild]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::second_arg_as_int_accepts_anonymous_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::third_arg_as_int_accepts_anonymous_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::fourth_arg_as_int_accepts_anonymous_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_set_others_fertile_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_set_others_anonymous_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_without_fertile_flag_system]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_create_non_fertile_other]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_cannot_create_non_fertile]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_anonymous_without_anonymous_flag_system]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::wizard_creates_anonymous_without_anonymous_flag_anonymous]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::owner_cannot_create_anonymous_other_without_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_creates_anonymous_with_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::programmer_cannot_create_anonymous_without_flag]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creates_anonymous_type]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::creating_anonymous_does_not_increment_max_object]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[create::duplicate_parents_not_allowed_anonymous]
+FAILED tests/conformance/test_conformance.py::TestConformance::test_yaml_case[objects::create_permission_denied_as_programmer]
+=============== 19 failed, 93 passed, 1005 deselected in 1.78s ================

@@ -1,0 +1,4 @@
+connect wizard
+; $server_options.max_list_value_bytes = 100; load_server_options(); x = {}; for i in [1..5]; x = setadd(x, i); endfor; return value_bytes(x);
+; $server_options.max_list_value_bytes = value_bytes(x); load_server_options(); y = {}; for i in [1..5]; y = setadd(y, i); endfor; return value_bytes(y);
+; $server_options.max_list_value_bytes = value_bytes(x); load_server_options(); z = {}; for i in [1..6]; z = setadd(z, i); endfor; return value_bytes(z);

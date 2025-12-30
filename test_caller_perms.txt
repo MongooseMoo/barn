@@ -1,0 +1,8 @@
+; Test caller_perms() behavior
+; Create a verb that checks caller_perms
+verb #2:test_caller_perms
+  return caller_perms();
+.
+
+; Call it
+#2:test_caller_perms()

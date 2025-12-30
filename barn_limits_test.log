@@ -1,0 +1,6 @@
+2025/12/30 02:06:47 Barn MOO Server
+2025/12/30 02:06:47 Database: Test.db
+2025/12/30 02:06:47 Port: 9300
+2025/12/30 02:06:47 Loaded database version 4 with 8 objects
+2025/12/30 02:06:47 Starting server on port 9300...
+2025/12/30 02:06:47 Server error: listen failed: listen failed: listen tcp :9300: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.

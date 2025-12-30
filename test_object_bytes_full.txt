@@ -1,0 +1,7 @@
+connect wizard
+; return object_bytes(#0) > 0;
+; return object_bytes(1);
+; return object_bytes(1.1);
+; return object_bytes("test");
+; o = create(#1); recycle(o); return object_bytes(o);
+; o = create(#1); result = object_bytes(o) > 0; recycle(o); return result;
