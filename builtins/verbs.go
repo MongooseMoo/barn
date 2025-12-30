@@ -300,8 +300,13 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_PERM)
 	}
 
-	// Use original source lines
-	sourceLines := verb.Code
+	// Decompile from AST if program exists, otherwise use original source
+	var sourceLines []string
+	if verb.Program != nil && len(verb.Program.Statements) > 0 {
+		sourceLines = parser.UnparseProgram(verb.Program.Statements)
+	} else {
+		sourceLines = verb.Code
+	}
 
 	// Convert source lines to list
 	lines := make([]types.Value, len(sourceLines))
