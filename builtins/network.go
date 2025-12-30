@@ -216,7 +216,13 @@ func builtinBootPlayer(ctx *types.TaskContext, args []types.Value) types.Result 
 // switch_player(old_player, new_player) -> none
 // Associates the connection for old_player with new_player
 // Used during login to switch from negative connection ID to player object
+// Requires wizard permissions
 func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Check wizard permissions
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
 	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
