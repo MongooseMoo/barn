@@ -740,22 +740,27 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 
 		// For inverted ranges (startIdx > endIdx), MOO has special semantics:
 		// m[7..1] = x means: m[1..6] + x + m[2..7]
-		isInverted := startIdx > endIdx+1
+		// Note: For maps, we must check startIdx > endIdx, not startIdx > endIdx+1
+		// because map indices represent positions, and any overlap is invalid
+		isInverted := startIdx > endIdx
 
-		// Bounds check for normal ranges
-		if !isInverted {
-			if startIdx < 1 || startIdx > int64(length)+1 {
-				return types.Err(types.E_RANGE)
-			}
-			if endIdx < 0 || endIdx > int64(length) {
-				return types.Err(types.E_RANGE)
-			}
-		} else {
-			// Bounds check for inverted ranges
-			if startIdx < 1 || startIdx > int64(length)+1 {
-				return types.Err(types.E_RANGE)
-			}
-			if endIdx < 0 || endIdx > int64(length) {
+		// Bounds check - both start and end must be valid positions
+		// Valid positions are 1..length for existing entries, or length+1 for append
+		if startIdx < 1 || startIdx > int64(length)+1 {
+			return types.Err(types.E_RANGE)
+		}
+		if endIdx < 0 || endIdx > int64(length) {
+			return types.Err(types.E_RANGE)
+		}
+
+		// For inverted ranges, we also need start and end to both be valid positions
+		// within the existing map (not beyond it)
+		if isInverted {
+			// Inverted ranges can only work if both indices are within bounds
+			// startIdx can be at most length+1 (for insertion after last element)
+			// endIdx must be at most length (for existing elements)
+			// But if startIdx > length, it's out of range for inverted
+			if startIdx > int64(length) || endIdx < 1 {
 				return types.Err(types.E_RANGE)
 			}
 		}

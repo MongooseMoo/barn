@@ -154,13 +154,20 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	key := args[1]
 
-	// Map keys must be scalar types (not list or map)
+	// Map keys must be scalar types or lists (not maps or waifs)
 	if !isValidMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Check if key exists - E_RANGE if not found
-	if _, found := m.Get(key); !found {
+	// Check if key exists
+	_, found := m.Get(key)
+	if !found {
+		// Special case: Empty list key returns map unchanged (not E_RANGE)
+		// This allows empty lists as valid map keys without requiring them to exist
+		if list, ok := key.(types.ListValue); ok && list.Len() == 0 {
+			return types.Ok(m)
+		}
+		// All other missing keys return E_RANGE
 		return types.Err(types.E_RANGE)
 	}
 
@@ -176,7 +183,7 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // isValidMapKey checks if a value can be used as a map key
 // Scalar types (int, obj, str, err, float, bool) and lists are valid keys
-// Maps and waifs are NOT valid keys
+// Maps and waifs are NOT valid keys (return E_TYPE)
 func isValidMapKey(v types.Value) bool {
 	switch v.Type() {
 	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_STR, types.TYPE_ERR, types.TYPE_FLOAT, types.TYPE_BOOL, types.TYPE_LIST:
