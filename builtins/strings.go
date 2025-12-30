@@ -15,7 +15,7 @@ import (
 // length(str) -> int
 // length(list) -> int
 // length(map) -> int
-// For strings with binary escapes (~XX), counts decoded bytes, not encoded length
+// For strings, returns the raw string length (number of characters), not decoded byte count
 func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -23,8 +23,8 @@ func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	switch v := args[0].(type) {
 	case types.StrValue:
-		// Count bytes, decoding ~XX binary escapes
-		return types.Ok(types.IntValue{Val: int64(countDecodedBytes(v.Value()))})
+		// Return raw string length (like C strlen) - do NOT decode ~XX escapes
+		return types.Ok(types.IntValue{Val: int64(len(v.Value()))})
 	case types.ListValue:
 		return types.Ok(types.IntValue{Val: int64(v.Len())})
 	case types.MapValue:

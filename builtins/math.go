@@ -92,8 +92,10 @@ func builtinMax(ctx *types.TaskContext, args []types.Value) types.Result {
 func builtinRandom(ctx *types.TaskContext, args []types.Value) types.Result {
 	switch len(args) {
 	case 0:
-		// Random 32-bit integer
-		return types.Ok(types.IntValue{Val: rand.Int63n(1<<31) - (1 << 30)})
+		// Random positive integer in full 64-bit range [1, MaxInt64]
+		// Use rand.Int63n(MaxInt64) which gives [0, MaxInt64-1], then add 1
+		const maxInt64 = 9223372036854775807
+		return types.Ok(types.IntValue{Val: rand.Int63n(maxInt64) + 1})
 
 	case 1:
 		// Random in [1, max]

@@ -1,0 +1,6 @@
+connect wizard
+; parent = create($nothing); return parent;
+; add_property(parent, "foobar", 123, {player, "r"}); return 0;
+; child = create(parent); return child;
+; return is_clear_property(child, "foobar");
+; return properties(child);

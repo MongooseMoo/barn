@@ -1,26 +1,6 @@
-2025/12/30 03:06:57 Barn MOO Server
-2025/12/30 03:06:57 Database: Test.db
-2025/12/30 03:06:57 Port: 9310
-2025/12/30 03:06:57 Loaded database version 4 with 8 objects
-2025/12/30 03:06:57 Starting server on port 9310...
-2025/12/30 03:06:57 Listening on port 9310
-2025/12/30 03:07:14 New connection from [::1]:57666 (ID: 2)
-2025/12/30 03:07:14 Switched connection 2 from player -2 to 8
-2025/12/30 03:07:14 Connection 2 already logged in as player 8 via switch_player
-2025/12/30 03:07:14 user_connected error: E_VERBNF
-2025/12/30 03:07:20 Connection 2 read error: EOF
-2025/12/30 03:07:20 user_disconnected error: E_VERBNF
-2025/12/30 03:07:20 Traceback for player %!s(types.ObjID=8) (connection not found):
-2025/12/30 03:07:20   #8 <- #0:user_disconnected (this == #0), line 1:  Verb not found
-2025/12/30 03:07:20   #8 <- (End of traceback)
-2025/12/30 03:07:20 Connection 2 closed
-2025/12/30 03:07:58 New connection from [::1]:1215 (ID: 3)
-2025/12/30 03:07:58 Switched connection 3 from player -3 to 10
-2025/12/30 03:07:58 Connection 3 already logged in as player 10 via switch_player
-2025/12/30 03:07:58 user_connected error: E_VERBNF
-2025/12/30 03:08:04 Connection 3 read error: EOF
-2025/12/30 03:08:04 user_disconnected error: E_VERBNF
-2025/12/30 03:08:04 Traceback for player %!s(types.ObjID=10) (connection not found):
-2025/12/30 03:08:04   #10 <- #0:user_disconnected (this == #0), line 1:  Verb not found
-2025/12/30 03:08:04   #10 <- (End of traceback)
-2025/12/30 03:08:04 Connection 3 closed
+2025/12/30 06:26:26 Barn MOO Server
+2025/12/30 06:26:26 Database: Test.db
+2025/12/30 06:26:26 Port: 9305
+2025/12/30 06:26:26 Loaded database version 4 with 8 objects
+2025/12/30 06:26:26 Starting server on port 9305...
+2025/12/30 06:26:26 Server error: listen failed: listen failed: listen tcp :9305: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.

@@ -1,0 +1,4 @@
+connect wizard
+; $server_options.max_list_value_bytes = 100; return load_server_options();
+; return value_bytes({1, 2, 3});
+; x = {1, 2, 3}; for i in [1..100]; x = listappend(x, i); endfor; return value_bytes(x);

@@ -507,25 +507,17 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 	if exists {
 		// Property is defined on this object (via add_property)
 		if prop.Defined {
-			// DEBUG
-			//fmt.Printf("DEBUG is_clear_property: obj=%d prop=%s Defined=true -> 0\n", objID, propName)
 			return types.Ok(types.NewInt(0))
 		}
 		// Property exists as local value override
 		// Return 1 if clear, 0 if has local value
 		if prop.Clear {
-			// DEBUG
-			//fmt.Printf("DEBUG is_clear_property: obj=%d prop=%s Clear=true -> 1\n", objID, propName)
 			return types.Ok(types.NewInt(1))
 		}
-		// DEBUG
-		//fmt.Printf("DEBUG is_clear_property: obj=%d prop=%s has local value -> 0\n", objID, propName)
 		return types.Ok(types.NewInt(0))
 	}
 
 	// Property not on this object - it's inherited (counts as "clear")
-	// DEBUG
-	//fmt.Printf("DEBUG is_clear_property: obj=%d prop=%s not local -> 1\n", objID, propName)
 	return types.Ok(types.NewInt(1))
 }
 
