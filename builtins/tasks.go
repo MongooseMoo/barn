@@ -307,14 +307,9 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 			result = append(result, frame.ToMap())
 		} else {
 			// Omit line_number from map
-			var thisVal types.Value
-			if frame.ThisValue != nil {
-				thisVal = frame.ThisValue
-			} else {
-				thisVal = types.NewObj(frame.This)
-			}
+			// Note: 'this' is always an object ID (#-1 for primitives, matching Toast)
 			frameMap := types.NewMap([][2]types.Value{
-				{types.NewStr("this"), thisVal},
+				{types.NewStr("this"), types.NewObj(frame.This)},
 				{types.NewStr("verb"), types.NewStr(frame.Verb)},
 				{types.NewStr("programmer"), types.NewObj(frame.Programmer)},
 				{types.NewStr("verb_loc"), types.NewObj(frame.VerbLoc)},

@@ -69,17 +69,12 @@ type ActivationFrame struct {
 
 // ToList converts an activation frame to a MOO list for callers()
 // Format: {this, verb_name, programmer, verb_loc, player, line_number}
+// Note: For primitive prototype calls, 'this' in callers() is #-1 (matching Toast).
+// The actual primitive value is stored in ThisValue and used for the 'this' variable
+// inside the verb, but callers() shows the object ID (which is #-1 for primitives).
 func (a *ActivationFrame) ToList() types.Value {
-	// If ThisValue is set (primitive prototype call), use it; otherwise use This (object ID)
-	var thisVal types.Value
-	if a.ThisValue != nil {
-		thisVal = a.ThisValue
-	} else {
-		thisVal = types.NewObj(a.This)
-	}
-
 	return types.NewList([]types.Value{
-		thisVal,
+		types.NewObj(a.This), // Always use object ID (#-1 for primitives)
 		types.NewStr(a.Verb),
 		types.NewObj(a.Programmer),
 		types.NewObj(a.VerbLoc),
@@ -90,17 +85,10 @@ func (a *ActivationFrame) ToList() types.Value {
 
 // ToMap converts an activation frame to a MOO map for task_stack()
 // Keys: "this", "verb", "programmer", "verb_loc", "player", "line_number"
+// Note: For primitive prototype calls, 'this' is #-1 (matching Toast).
 func (a *ActivationFrame) ToMap() types.Value {
-	// If ThisValue is set (primitive prototype call), use it; otherwise use This (object ID)
-	var thisVal types.Value
-	if a.ThisValue != nil {
-		thisVal = a.ThisValue
-	} else {
-		thisVal = types.NewObj(a.This)
-	}
-
 	return types.NewMap([][2]types.Value{
-		{types.NewStr("this"), thisVal},
+		{types.NewStr("this"), types.NewObj(a.This)}, // Always use object ID (#-1 for primitives)
 		{types.NewStr("verb"), types.NewStr(a.Verb)},
 		{types.NewStr("programmer"), types.NewObj(a.Programmer)},
 		{types.NewStr("verb_loc"), types.NewObj(a.VerbLoc)},
@@ -346,6 +334,7 @@ func (t *Task) Kill() {
 
 // ToQueuedTaskInfo returns task info for queued_tasks()
 // Format: {task_id, start_time, clock_id, bg_ticks, programmer, verb_loc, verb_name, line, this, bytes}
+// Note: For primitive prototype calls, 'this' is #-1 (matching Toast).
 func (t *Task) ToQueuedTaskInfo() types.Value {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -354,7 +343,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 	var verbName string
 	var verbLoc types.ObjID
 	var lineNumber int
-	var thisVal types.Value
+	var thisObj types.ObjID
 	var programmer types.ObjID
 
 	if len(t.CallStack) > 0 {
@@ -363,20 +352,14 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		verbLoc = topFrame.VerbLoc
 		lineNumber = topFrame.LineNumber
 		programmer = topFrame.Programmer
-
-		// Use ThisValue if set (primitive prototype call), else This (object ID)
-		if topFrame.ThisValue != nil {
-			thisVal = topFrame.ThisValue
-		} else {
-			thisVal = types.NewObj(topFrame.This)
-		}
+		thisObj = topFrame.This // Always use object ID (#-1 for primitives)
 	} else {
 		// Fallback if no call stack
 		verbName = t.VerbName
 		verbLoc = t.VerbLoc
 		lineNumber = 1
 		programmer = t.Owner
-		thisVal = types.NewObj(t.This)
+		thisObj = t.This
 	}
 
 	// Estimate bytes (0 for now, can be calculated later if needed)
@@ -391,7 +374,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		types.NewObj(verbLoc),                  // [6] verb_loc
 		types.NewStr(verbName),                 // [7] verb_name
 		types.NewInt(int64(lineNumber)),        // [8] line_number
-		thisVal,                                // [9] this (OBJ or primitive value)
+		types.NewObj(thisObj),                  // [9] this (always OBJ, #-1 for primitives)
 		types.NewInt(bytes),                    // [10] bytes
 	})
 }
