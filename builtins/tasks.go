@@ -40,6 +40,12 @@ func builtinKillTask(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	taskID := taskIDVal.Val
+
+	// Special case: killing yourself returns E_INTRPT
+	if ctx.TaskID == taskID {
+		return types.Err(types.E_INTRPT)
+	}
+
 	mgr := task.GetManager()
 
 	errCode := mgr.KillTask(taskID, ctx.Programmer, ctx.IsWizard)

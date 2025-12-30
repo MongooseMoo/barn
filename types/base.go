@@ -33,6 +33,7 @@ const (
 	E_FLOAT   ErrorCode = 15
 	E_FILE    ErrorCode = 16
 	E_EXEC    ErrorCode = 17
+	E_INTRPT  ErrorCode = 18
 )
 
 // ErrorName returns the string name for an error code
@@ -74,6 +75,8 @@ func (e ErrorCode) String() string {
 		return "E_FILE"
 	case E_EXEC:
 		return "E_EXEC"
+	case E_INTRPT:
+		return "E_INTRPT"
 	default:
 		return "E_UNKNOWN"
 	}
@@ -119,6 +122,8 @@ func (e ErrorCode) Message() string {
 		return "File system error"
 	case E_EXEC:
 		return "Exec error"
+	case E_INTRPT:
+		return "Task interrupted"
 	default:
 		return "Unknown error"
 	}
@@ -163,6 +168,8 @@ func ErrorFromString(s string) (ErrorCode, bool) {
 		return E_FILE, true
 	case "E_EXEC":
 		return E_EXEC, true
+	case "E_INTRPT":
+		return E_INTRPT, true
 	default:
 		return E_NONE, false
 	}
