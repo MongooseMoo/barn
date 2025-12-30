@@ -7,6 +7,73 @@ import (
 	"fmt"
 	"strings"
 )
+
+// Preposition list matching ToastStunt's prep_list
+// Index corresponds to PrepSpec value
+var prepList = []string{
+	"with/using",                          // 0
+	"at/to",                               // 1
+	"in front of",                         // 2
+	"in/inside/into",                      // 3
+	"on top of/on/onto/upon",              // 4
+	"out of/from inside/from",             // 5
+	"over",                                // 6
+	"through",                             // 7
+	"under/underneath/beneath",            // 8
+	"behind",                              // 9
+	"beside",                              // 10
+	"for/about",                           // 11
+	"is",                                  // 12
+	"as",                                  // 13
+	"off/off of",                          // 14
+}
+
+// matchArgSpec validates argument spec string (this/none/any)
+func matchArgSpec(s string) bool {
+	lower := strings.ToLower(s)
+	return lower == "this" || lower == "none" || lower == "any"
+}
+
+// matchPrepSpec validates and returns prep index or -1 if invalid
+func matchPrepSpec(s string) int {
+	lower := strings.ToLower(s)
+	if lower == "none" || lower == "any" {
+		return -2 // Special value for none/any
+	}
+
+	// Check each prep in prepList
+	for idx, prepStr := range prepList {
+		aliases := strings.Split(prepStr, "/")
+		for _, alias := range aliases {
+			if strings.ToLower(alias) == lower {
+				return idx
+			}
+		}
+	}
+	return -1 // Not found
+}
+
+// unparsePrepSpec returns the full prep string for a prep value stored in verb
+func unparsePrepSpec(prepStr string) string {
+	lower := strings.ToLower(prepStr)
+	if lower == "none" || lower == "any" {
+		return lower
+	}
+
+	// Find matching prep in list and return full string
+	for _, fullPrep := range prepList {
+		aliases := strings.Split(fullPrep, "/")
+		for _, alias := range aliases {
+			if strings.ToLower(alias) == lower {
+				return fullPrep
+			}
+		}
+	}
+
+	// If not found, return as-is (shouldn't happen with valid data)
+	return prepStr
+}
+
 // RegisterVerbBuiltins registers verb-related builtin functions
 func (r *Registry) RegisterVerbBuiltins(store *db.Store) {
 	// Verb listing and information
@@ -187,9 +254,12 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_VERBNF)
 	}
 
+	// Unparse the prep spec to get full string (e.g., "on" -> "on top of/on/onto/upon")
+	prepStr := unparsePrepSpec(verb.ArgSpec.Prep)
+
 	return types.Ok(types.NewList([]types.Value{
 		types.NewStr(verb.ArgSpec.This),
-		types.NewStr(verb.ArgSpec.Prep),
+		types.NewStr(prepStr),
 		types.NewStr(verb.ArgSpec.That),
 	}))
 }
@@ -239,8 +309,8 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value, store *db.Store
 	return types.Ok(types.NewList(lines))
 }
 
-// builtinAddVerb: add_verb(object, info, args) → none
-// Adds a new verb to object
+// builtinAddVerb: add_verb(object, info, args) → INT
+// Adds a new verb to object and returns 1-based verb index
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
@@ -272,12 +342,16 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		return types.Err(types.E_INVIND)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
-
 	// Parse info list (1-indexed)
 	owner, ok := infoList.Get(1).(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+
+	// Validate owner is valid
+	ownerID := owner.ID()
+	if !store.Valid(ownerID) {
+		return types.Err(types.E_INVARG)
 	}
 
 	permsStr, ok := infoList.Get(2).(types.StrValue)
@@ -285,21 +359,66 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		return types.Err(types.E_TYPE)
 	}
 
+	// Validate permissions string - only rwxd allowed
+	for _, ch := range permsStr.Value() {
+		if ch != 'r' && ch != 'w' && ch != 'x' && ch != 'd' &&
+			ch != 'R' && ch != 'W' && ch != 'X' && ch != 'D' {
+			return types.Err(types.E_INVARG)
+		}
+	}
+
 	namesStr, ok := infoList.Get(3).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Parse args list (1-indexed)
-	// Accept either string or object values (objects get converted to string)
-	dobjStr := valueToArgSpec(argsList.Get(1))
-	prepStr := valueToArgSpec(argsList.Get(2))
-	iobjStr := valueToArgSpec(argsList.Get(3))
+	// Parse args list (1-indexed) - must be strings
+	dobjVal, ok := argsList.Get(1).(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	prepVal, ok := argsList.Get(2).(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	iobjVal, ok := argsList.Get(3).(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	dobjStr := dobjVal.Value()
+	prepStr := prepVal.Value()
+	iobjStr := iobjVal.Value()
+
+	// Validate arg specs
+	if !matchArgSpec(dobjStr) {
+		return types.Err(types.E_INVARG)
+	}
+	if matchPrepSpec(prepStr) == -1 {
+		return types.Err(types.E_INVARG)
+	}
+	if !matchArgSpec(iobjStr) {
+		return types.Err(types.E_INVARG)
+	}
 
 	// Parse verb names (space-separated)
 	names := strings.Fields(namesStr.Value())
 	if len(names) == 0 {
 		return types.Err(types.E_INVARG)
+	}
+
+	// Check permissions:
+	// - Must have write permission on object (or be wizard)
+	// - Must be the owner specified in verbinfo (or be wizard)
+	if !ctx.IsWizard {
+		// Check write permission on object
+		if !obj.Flags.Has(db.FlagWrite) && obj.Owner != ctx.Player {
+			return types.Err(types.E_PERM)
+		}
+		// Check caller is the owner in verbinfo
+		if ownerID != ctx.Player {
+			return types.Err(types.E_PERM)
+		}
 	}
 
 	// Check if any name already exists
@@ -316,7 +435,7 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	verb := &db.Verb{
 		Name:  names[0],
 		Names: names,
-		Owner: owner.ID(),
+		Owner: ownerID,
 		Perms: perms,
 		ArgSpec: db.VerbArgs{
 			This: dobjStr,
@@ -329,8 +448,11 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 
 	// Add verb to object (use first name as key)
 	obj.Verbs[names[0]] = verb
+	// Add to VerbList for indexing
+	obj.VerbList = append(obj.VerbList, verb)
 
-	return types.Ok(types.NewInt(0))
+	// Return 1-based index
+	return types.Ok(types.NewInt(int64(len(obj.VerbList))))
 }
 
 // builtinDeleteVerb: delete_verb(object, name) → none
