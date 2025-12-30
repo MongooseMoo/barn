@@ -3,7 +3,6 @@ package builtins
 import (
 	"barn/db"
 	"barn/types"
-	"strings"
 )
 
 // RegisterPropertyBuiltins registers property management builtins
@@ -154,7 +153,10 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 	switch info := args[2].(type) {
 	case types.StrValue:
 		// Just permissions string
-		perms := parsePerms(info.Value())
+		perms, err := parsePerms(info.Value())
+		if err != types.E_NONE {
+			return types.Err(err)
+		}
 		prop.Perms = perms
 
 	case types.ObjValue:
@@ -179,7 +181,11 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 		}
 
 		prop.Owner = ownerVal.ID()
-		prop.Perms = parsePerms(permsVal.Value())
+		perms, err := parsePerms(permsVal.Value())
+		if err != types.E_NONE {
+			return types.Err(err)
+		}
+		prop.Perms = perms
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -218,13 +224,30 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	propName := nameVal.Value()
 
-	// Check if property already exists
+
+	// Check if property name is built-in
+	if isBuiltinProperty(propName) {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Check if property already exists on this object
 	if _, exists := obj.Properties[propName]; exists {
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions (owner or wizard)
+	// Check if property exists in ancestor chain
+	_, ancestorErr := findPropertyInChain(objID, propName, store)
+	if ancestorErr == types.E_NONE {
+		// Property exists in ancestor
+		return types.Err(types.E_INVARG)
+	}
 
+	// Check if property exists in any descendant
+	if hasPropertyInDescendants(objID, propName, store) {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Parse info argument (same as set_property_info)
 	// Parse info argument (same as set_property_info)
 	var owner types.ObjID
 	var perms db.PropertyPerms
@@ -233,7 +256,11 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 	case types.StrValue:
 		// Just permissions string
 		owner = ctx.Programmer // Default to caller
-		perms = parsePerms(info.Value())
+		var errCode types.ErrorCode
+		_, errCode = parsePerms(info.Value())
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 
 	case types.ListValue:
 		// {owner, perms}
@@ -253,7 +280,11 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		}
 
 		owner = ownerVal.ID()
-		perms = parsePerms(permsVal.Value())
+		var errCode2 types.ErrorCode
+		_, errCode2 = parsePerms(permsVal.Value())
+		if errCode2 != types.E_NONE {
+			return types.Err(errCode2)
+		}
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -359,13 +390,28 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 
 	propName := nameVal.Value()
 
-	// Check if property exists (anywhere in chain)
-	_, err := findPropertyInChain(objID, propName, store)
+	// Check if it's a built-in property - return E_PERM
+	if isBuiltinProperty(propName) {
+		return types.Err(types.E_PERM)
+	}
+
+	// Find property in chain
+	foundProp, err := findPropertyInChain(objID, propName, store)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
 
-	// TODO: Check permissions (owner or wizard)
+	// Check if property is defined on this object - E_INVARG if so
+	if prop, exists := obj.Properties[propName]; exists && prop.Defined {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Check write permission (unless wizard)
+	wizObj := store.Get(ctx.Programmer)
+	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	if !isWizard && !foundProp.Perms.Has(db.PropWrite) {
+		return types.Err(types.E_PERM)
+	}
 
 	// Get or create property entry
 	prop, exists := obj.Properties[propName]
@@ -417,10 +463,23 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 
 	propName := nameVal.Value()
 
+	// Check if it's a built-in property - return 0
+	if isBuiltinProperty(propName) {
+		return types.Ok(types.NewInt(0))
+	}
+
 	// Check if property exists directly on this object
 	prop, exists := obj.Properties[propName]
 	if exists {
-		// Property exists on this object - check if clear
+		// Property exists on this object
+		// Check read permission (unless wizard)
+		wizObj := store.Get(ctx.Programmer)
+		isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+		if !isWizard && !prop.Perms.Has(db.PropRead) {
+			return types.Err(types.E_PERM)
+		}
+
+		// Check if clear
 		if prop.Clear {
 			return types.Ok(types.NewInt(1))
 		}
@@ -428,9 +487,16 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 	}
 
 	// Property not on this object - check if inherited
-	_, err := findPropertyInChain(objVal.ID(), propName, store)
+	inheritedProp, err := findPropertyInChain(objVal.ID(), propName, store)
 	if err != types.E_NONE {
 		return types.Err(types.E_PROPNF)
+	}
+
+	// Check read permission on inherited property (unless wizard)
+	wizObj := store.Get(ctx.Programmer)
+	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	if !isWizard && !inheritedProp.Perms.Has(db.PropRead) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Property is inherited (not defined locally) - this counts as "clear"
@@ -439,19 +505,35 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 
 // Helper functions
 
+// isBuiltinProperty checks if a property name is a built-in property
+// Built-in properties: name, owner, location, contents, parents, parent, children, programmer, wizard, player, r, w, f, a
+func isBuiltinProperty(name string) bool {
+	switch name {
+	case "name", "owner", "location", "contents", "parents", "parent", "children",
+		"programmer", "wizard", "player", "r", "w", "f", "a":
+		return true
+	default:
+		return false
+	}
+}
+
 // parsePerms converts a permission string like "rw" to PropertyPerms flags
-func parsePerms(s string) db.PropertyPerms {
+// Returns error code if invalid characters found
+func parsePerms(s string) (db.PropertyPerms, types.ErrorCode) {
 	var perms db.PropertyPerms
-	if strings.Contains(s, "r") {
-		perms |= db.PropRead
+	for _, c := range s {
+		switch c {
+		case 'r', 'R':
+			perms |= db.PropRead
+		case 'w', 'W':
+			perms |= db.PropWrite
+		case 'c', 'C':
+			perms |= db.PropChown
+		default:
+			return 0, types.E_INVARG
+		}
 	}
-	if strings.Contains(s, "w") {
-		perms |= db.PropWrite
-	}
-	if strings.Contains(s, "c") {
-		perms |= db.PropChown
-	}
-	return perms
+	return perms, types.E_NONE
 }
 
 // findPropertyInChain finds a property anywhere in the inheritance chain
@@ -485,4 +567,45 @@ func findPropertyInChain(objID types.ObjID, name string, store *db.Store) (*db.P
 	}
 
 	return nil, types.E_PROPNF
+}
+
+// hasPropertyInDescendants checks if any descendant has a defined property with the given name
+// Returns true if found, false otherwise
+func hasPropertyInDescendants(objID types.ObjID, name string, store *db.Store) bool {
+	// Breadth-first search through descendants
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := store.Get(currentID)
+		if current == nil {
+			continue
+		}
+
+		// Check children for the property
+		for _, childID := range current.Children {
+			child := store.Get(childID)
+			if child == nil {
+				continue
+			}
+
+			// Check if property is defined on this child
+			if prop, ok := child.Properties[name]; ok && prop.Defined {
+				return true
+			}
+
+			// Add child to queue to check its descendants
+			queue = append(queue, childID)
+		}
+	}
+
+	return false
 }

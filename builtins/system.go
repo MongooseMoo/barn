@@ -207,11 +207,40 @@ func builtinExec(ctx *types.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		input = inputVal.Value()
+		// Validate binary string encoding
+		if !isValidBinaryString(input) {
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	// Execute command
 	result := execCommand(resolvedPath, cmdArgs, input)
 	return result
+}
+
+// isValidBinaryString checks if a string contains only valid MOO binary string encoding
+// Valid sequences are: regular characters and ~XX where XX are hex digits (0-9, A-F, a-f)
+func isValidBinaryString(s string) bool {
+	i := 0
+	for i < len(s) {
+		if s[i] == '~' {
+			// Need at least 2 more characters for ~XX
+			if i+2 >= len(s) {
+				return false
+			}
+			// Check if next two characters are valid hex digits
+			c1, c2 := s[i+1], s[i+2]
+			// isHexDigit is defined in strings.go
+			if !((c1 >= '0' && c1 <= '9') || (c1 >= 'A' && c1 <= 'F') || (c1 >= 'a' && c1 <= 'f')) ||
+			   !((c2 >= '0' && c2 <= '9') || (c2 >= 'A' && c2 <= 'F') || (c2 >= 'a' && c2 <= 'f')) {
+				return false
+			}
+			i += 3
+		} else {
+			i++
+		}
+	}
+	return true
 }
 
 // validateAndResolvePath validates the program path and resolves it to an executable
