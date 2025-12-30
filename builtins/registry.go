@@ -117,6 +117,7 @@ func NewRegistry() *Registry {
 	r.Register("connected_seconds", builtinConnectedSeconds)
 	r.Register("set_connection_option", builtinSetConnectionOption)
 	r.Register("connection_option", builtinConnectionOption)
+	// TODO: r.Register("read_http", builtinReadHTTP) - not fully implemented yet
 
 	// Register crypto/encoding builtins (except crypt which needs store)
 	r.Register("encode_base64", builtinEncodeBase64)
