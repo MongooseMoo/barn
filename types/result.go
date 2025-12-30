@@ -14,6 +14,7 @@ const (
 	FlowContinue                      // Continue statement
 	FlowException                     // MOO error being raised
 	FlowFork                          // Fork statement executed
+	FlowSuspend                       // Suspend statement executed
 	FlowParseError                    // Parse/syntax error (Val contains error message list)
 )
 
@@ -75,6 +76,12 @@ func Continue(label string) Result {
 // Fork creates a Result for a fork statement
 func Fork(info *ForkInfo) Result {
 	return Result{Flow: FlowFork, ForkInfo: info}
+}
+
+// Suspend creates a Result for a suspend statement
+// The Val field contains the seconds to suspend (0 = indefinite)
+func Suspend(seconds float64) Result {
+	return Result{Flow: FlowSuspend, Val: NewFloat(seconds)}
 }
 
 // IsNormal returns true if this is normal execution

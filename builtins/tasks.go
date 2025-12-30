@@ -260,3 +260,70 @@ func builtinRaise(ctx *types.TaskContext, args []types.Value) types.Result {
 		Error: errVal.Code(),
 	}
 }
+
+// builtinTaskStack: task_stack(task_id [, include_line_numbers]) → LIST
+// Returns the call stack for a suspended task
+// Each frame is a map with keys: this, verb, programmer, verb_loc, player, line_number
+func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	taskIDVal, ok := args[0].(types.IntValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Second arg (include_line_numbers) is optional, defaults to true
+	includeLineNumbers := true
+	if len(args) == 2 {
+		includeVal, ok := args[1].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		includeLineNumbers = includeVal.Val != 0
+	}
+
+	taskID := taskIDVal.Val
+
+	// Get the task from manager
+	mgr := task.GetManager()
+	t := mgr.GetTask(taskID)
+	if t == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Permission check: must be task owner or wizard
+	if t.Owner != ctx.Programmer && !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
+	// Get call stack
+	callStack := t.GetCallStack()
+
+	// Convert to list of maps
+	result := make([]types.Value, 0, len(callStack))
+	for _, frame := range callStack {
+		if includeLineNumbers {
+			result = append(result, frame.ToMap())
+		} else {
+			// Omit line_number from map
+			var thisVal types.Value
+			if frame.ThisValue != nil {
+				thisVal = frame.ThisValue
+			} else {
+				thisVal = types.NewObj(frame.This)
+			}
+			frameMap := types.NewMap([][2]types.Value{
+				{types.NewStr("this"), thisVal},
+				{types.NewStr("verb"), types.NewStr(frame.Verb)},
+				{types.NewStr("programmer"), types.NewObj(frame.Programmer)},
+				{types.NewStr("verb_loc"), types.NewObj(frame.VerbLoc)},
+				{types.NewStr("player"), types.NewObj(frame.Player)},
+			})
+			result = append(result, frameMap)
+		}
+	}
+
+	return types.Ok(types.NewList(result))
+}
