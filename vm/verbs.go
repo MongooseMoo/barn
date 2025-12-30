@@ -16,6 +16,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	}
 
 	var objID types.ObjID
+	var primitiveValue types.Value
 	isPrimitive := false
 
 	// Check if target is an object or a primitive with a prototype
@@ -31,10 +32,8 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 		}
 		objID = protoID
 		isPrimitive = true
+		primitiveValue = objResult.Val // Save the primitive value to use as 'this'
 	}
-
-	// Suppress unused variable warning
-	_ = isPrimitive
 
 	// Check if object is valid
 	if !e.store.Valid(objID) {
@@ -119,8 +118,11 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	var framePushed bool
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
+			// For primitives, 'This' should be the primitive object ID (the prototype)
+			// but ThisValue should hold the actual primitive value for callers() and queued_tasks()
 			frame := task.ActivationFrame{
 				This:            defObjID,
+				ThisValue:       primitiveValue, // Store primitive value for prototype calls
 				Player:          ctx.Player,
 				Programmer:      ctx.Programmer,
 				Caller:          ctx.ThisObj, // The object that called this verb
@@ -149,7 +151,12 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	oldArgsEnv, _ := e.env.Get("args")
 
 	e.env.Set("verb", types.NewStr(verbName))
-	e.env.Set("this", types.NewObj(objID))    // this = object the verb was called ON (not where defined)
+	// For primitives, 'this' should be the primitive value itself, not the prototype object
+	if isPrimitive {
+		e.env.Set("this", primitiveValue)
+	} else {
+		e.env.Set("this", types.NewObj(objID))
+	}
 	e.env.Set("caller", types.NewObj(oldThis)) // caller = previous this
 	e.env.Set("args", types.NewList(args))
 

@@ -55,7 +55,8 @@ func (s TaskState) String() string {
 // ActivationFrame represents a single verb call on the call stack
 // This is what callers() returns
 type ActivationFrame struct {
-	This            types.ObjID   // Object this verb is called on
+	This            types.ObjID   // Object this verb is called on (prototype for primitives)
+	ThisValue       types.Value   // For primitive prototype calls: the actual primitive value
 	Player          types.ObjID   // Player who initiated this task
 	Programmer      types.ObjID   // Programmer (for permissions)
 	Caller          types.ObjID   // Object that called this verb
@@ -69,8 +70,16 @@ type ActivationFrame struct {
 // ToList converts an activation frame to a MOO list for callers()
 // Format: {this, verb_name, programmer, verb_loc, player, line_number}
 func (a *ActivationFrame) ToList() types.Value {
+	// If ThisValue is set (primitive prototype call), use it; otherwise use This (object ID)
+	var thisVal types.Value
+	if a.ThisValue != nil {
+		thisVal = a.ThisValue
+	} else {
+		thisVal = types.NewObj(a.This)
+	}
+
 	return types.NewList([]types.Value{
-		types.NewObj(a.This),
+		thisVal,
 		types.NewStr(a.Verb),
 		types.NewObj(a.Programmer),
 		types.NewObj(a.VerbLoc),
@@ -82,8 +91,16 @@ func (a *ActivationFrame) ToList() types.Value {
 // ToMap converts an activation frame to a MOO map for task_stack()
 // Keys: "this", "verb", "programmer", "verb_loc", "player", "line_number"
 func (a *ActivationFrame) ToMap() types.Value {
+	// If ThisValue is set (primitive prototype call), use it; otherwise use This (object ID)
+	var thisVal types.Value
+	if a.ThisValue != nil {
+		thisVal = a.ThisValue
+	} else {
+		thisVal = types.NewObj(a.This)
+	}
+
 	return types.NewMap([][2]types.Value{
-		{types.NewStr("this"), types.NewObj(a.This)},
+		{types.NewStr("this"), thisVal},
 		{types.NewStr("verb"), types.NewStr(a.Verb)},
 		{types.NewStr("programmer"), types.NewObj(a.Programmer)},
 		{types.NewStr("verb_loc"), types.NewObj(a.VerbLoc)},
