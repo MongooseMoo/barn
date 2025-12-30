@@ -151,6 +151,10 @@ func NewRegistry() *Registry {
 	r.Register("time", builtinTime)
 	r.Register("ctime", builtinCtime)
 
+	// GC builtins
+	r.Register("run_gc", builtinRunGC)
+	r.Register("gc_stats", builtinGCStats)
+
 	// Task management builtins
 	r.Register("queued_tasks", builtinQueuedTasks)
 	r.Register("kill_task", builtinKillTask)
