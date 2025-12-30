@@ -4,3 +4,1623 @@
 2025/12/30 06:27:23 Loaded database version 4 with 8 objects
 2025/12/30 06:27:23 Starting server on port 9305...
 2025/12/30 06:27:23 Listening on port 9305
+2025/12/30 06:27:38 New connection from 127.0.0.1:28833 (ID: 2)
+2025/12/30 06:27:38 Switched connection 2 from player -2 to 8
+2025/12/30 06:27:38 Connection 2 already logged in as player 8 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 2 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=8) (connection not found):
+2025/12/30 06:27:38   #8 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #8 <- (End of traceback)
+2025/12/30 06:27:38 Connection 2 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28834 (ID: 3)
+2025/12/30 06:27:38 Switched connection 3 from player -3 to 9
+2025/12/30 06:27:38 Connection 3 already logged in as player 9 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 3 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=9) (connection not found):
+2025/12/30 06:27:38   #9 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #9 <- (End of traceback)
+2025/12/30 06:27:38 Connection 3 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28835 (ID: 4)
+2025/12/30 06:27:38 Switched connection 4 from player -4 to 10
+2025/12/30 06:27:38 Connection 4 already logged in as player 10 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 4 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=10) (connection not found):
+2025/12/30 06:27:38   #10 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #10 <- (End of traceback)
+2025/12/30 06:27:38 Connection 4 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28836 (ID: 5)
+2025/12/30 06:27:38 Switched connection 5 from player -5 to 11
+2025/12/30 06:27:38 Connection 5 already logged in as player 11 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 5 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=11) (connection not found):
+2025/12/30 06:27:38   #11 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #11 <- (End of traceback)
+2025/12/30 06:27:38 Connection 5 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28837 (ID: 6)
+2025/12/30 06:27:38 Switched connection 6 from player -6 to 12
+2025/12/30 06:27:38 Connection 6 already logged in as player 12 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 6 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=12) (connection not found):
+2025/12/30 06:27:38   #12 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #12 <- (End of traceback)
+2025/12/30 06:27:38 Connection 6 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28838 (ID: 7)
+2025/12/30 06:27:38 Switched connection 7 from player -7 to 13
+2025/12/30 06:27:38 Connection 7 already logged in as player 13 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 7 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=13) (connection not found):
+2025/12/30 06:27:38   #13 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #13 <- (End of traceback)
+2025/12/30 06:27:38 Connection 7 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28839 (ID: 8)
+2025/12/30 06:27:38 Switched connection 8 from player -8 to 14
+2025/12/30 06:27:38 Connection 8 already logged in as player 14 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 8 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=14) (connection not found):
+2025/12/30 06:27:38   #14 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #14 <- (End of traceback)
+2025/12/30 06:27:38 Connection 8 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28840 (ID: 9)
+2025/12/30 06:27:38 Switched connection 9 from player -9 to 15
+2025/12/30 06:27:38 Connection 9 already logged in as player 15 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 9 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=15) (connection not found):
+2025/12/30 06:27:38   #15 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #15 <- (End of traceback)
+2025/12/30 06:27:38 Connection 9 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28841 (ID: 10)
+2025/12/30 06:27:38 Switched connection 10 from player -10 to 16
+2025/12/30 06:27:38 Connection 10 already logged in as player 16 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 10 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=16) (connection not found):
+2025/12/30 06:27:38   #16 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #16 <- (End of traceback)
+2025/12/30 06:27:38 Connection 10 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28842 (ID: 11)
+2025/12/30 06:27:38 Switched connection 11 from player -11 to 17
+2025/12/30 06:27:38 Connection 11 already logged in as player 17 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 11 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=17) (connection not found):
+2025/12/30 06:27:38   #17 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #17 <- (End of traceback)
+2025/12/30 06:27:38 Connection 11 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28843 (ID: 12)
+2025/12/30 06:27:38 Switched connection 12 from player -12 to 18
+2025/12/30 06:27:38 Connection 12 already logged in as player 18 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 12 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=18) (connection not found):
+2025/12/30 06:27:38   #18 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #18 <- (End of traceback)
+2025/12/30 06:27:38 Connection 12 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28844 (ID: 13)
+2025/12/30 06:27:38 Switched connection 13 from player -13 to 19
+2025/12/30 06:27:38 Connection 13 already logged in as player 19 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 13 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=19) (connection not found):
+2025/12/30 06:27:38   #19 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #19 <- (End of traceback)
+2025/12/30 06:27:38 Connection 13 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28845 (ID: 14)
+2025/12/30 06:27:38 Switched connection 14 from player -14 to 20
+2025/12/30 06:27:38 Connection 14 already logged in as player 20 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 14 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=20) (connection not found):
+2025/12/30 06:27:38   #20 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #20 <- (End of traceback)
+2025/12/30 06:27:38 Connection 14 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28846 (ID: 15)
+2025/12/30 06:27:38 Switched connection 15 from player -15 to 21
+2025/12/30 06:27:38 Connection 15 already logged in as player 21 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 15 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=21) (connection not found):
+2025/12/30 06:27:38   #21 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #21 <- (End of traceback)
+2025/12/30 06:27:38 Connection 15 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28847 (ID: 16)
+2025/12/30 06:27:38 Switched connection 16 from player -16 to 22
+2025/12/30 06:27:38 Connection 16 already logged in as player 22 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 16 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=22) (connection not found):
+2025/12/30 06:27:38   #22 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #22 <- (End of traceback)
+2025/12/30 06:27:38 Connection 16 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28848 (ID: 17)
+2025/12/30 06:27:38 Switched connection 17 from player -17 to 23
+2025/12/30 06:27:38 Connection 17 already logged in as player 23 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 17 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=23) (connection not found):
+2025/12/30 06:27:38   #23 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #23 <- (End of traceback)
+2025/12/30 06:27:38 Connection 17 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28849 (ID: 18)
+2025/12/30 06:27:38 Switched connection 18 from player -18 to 24
+2025/12/30 06:27:38 Connection 18 already logged in as player 24 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 18 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=24) (connection not found):
+2025/12/30 06:27:38   #24 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #24 <- (End of traceback)
+2025/12/30 06:27:38 Connection 18 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28850 (ID: 19)
+2025/12/30 06:27:38 Switched connection 19 from player -19 to 25
+2025/12/30 06:27:38 Connection 19 already logged in as player 25 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 19 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=25) (connection not found):
+2025/12/30 06:27:38   #25 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #25 <- (End of traceback)
+2025/12/30 06:27:38 Connection 19 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28851 (ID: 20)
+2025/12/30 06:27:38 Switched connection 20 from player -20 to 26
+2025/12/30 06:27:38 Connection 20 already logged in as player 26 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 20 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=26) (connection not found):
+2025/12/30 06:27:38   #26 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #26 <- (End of traceback)
+2025/12/30 06:27:38 Connection 20 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28852 (ID: 21)
+2025/12/30 06:27:38 Switched connection 21 from player -21 to 27
+2025/12/30 06:27:38 Connection 21 already logged in as player 27 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 21 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=27) (connection not found):
+2025/12/30 06:27:38   #27 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #27 <- (End of traceback)
+2025/12/30 06:27:38 Connection 21 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28853 (ID: 22)
+2025/12/30 06:27:38 Switched connection 22 from player -22 to 28
+2025/12/30 06:27:38 Connection 22 already logged in as player 28 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 22 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=28) (connection not found):
+2025/12/30 06:27:38   #28 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #28 <- (End of traceback)
+2025/12/30 06:27:38 Connection 22 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28854 (ID: 23)
+2025/12/30 06:27:38 Switched connection 23 from player -23 to 29
+2025/12/30 06:27:38 Connection 23 already logged in as player 29 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 23 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=29) (connection not found):
+2025/12/30 06:27:38   #29 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #29 <- (End of traceback)
+2025/12/30 06:27:38 Connection 23 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28855 (ID: 24)
+2025/12/30 06:27:38 Switched connection 24 from player -24 to 30
+2025/12/30 06:27:38 Connection 24 already logged in as player 30 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 24 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=30) (connection not found):
+2025/12/30 06:27:38   #30 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #30 <- (End of traceback)
+2025/12/30 06:27:38 Connection 24 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28856 (ID: 25)
+2025/12/30 06:27:38 Switched connection 25 from player -25 to 31
+2025/12/30 06:27:38 Connection 25 already logged in as player 31 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 25 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=31) (connection not found):
+2025/12/30 06:27:38   #31 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #31 <- (End of traceback)
+2025/12/30 06:27:38 Connection 25 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28857 (ID: 26)
+2025/12/30 06:27:38 Switched connection 26 from player -26 to 32
+2025/12/30 06:27:38 Connection 26 already logged in as player 32 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 26 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=32) (connection not found):
+2025/12/30 06:27:38   #32 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #32 <- (End of traceback)
+2025/12/30 06:27:38 Connection 26 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28858 (ID: 27)
+2025/12/30 06:27:38 Switched connection 27 from player -27 to 33
+2025/12/30 06:27:38 Connection 27 already logged in as player 33 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 27 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=33) (connection not found):
+2025/12/30 06:27:38   #33 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #33 <- (End of traceback)
+2025/12/30 06:27:38 Connection 27 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28859 (ID: 28)
+2025/12/30 06:27:38 Switched connection 28 from player -28 to 34
+2025/12/30 06:27:38 Connection 28 already logged in as player 34 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 28 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=34) (connection not found):
+2025/12/30 06:27:38   #34 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #34 <- (End of traceback)
+2025/12/30 06:27:38 Connection 28 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28860 (ID: 29)
+2025/12/30 06:27:38 Switched connection 29 from player -29 to 35
+2025/12/30 06:27:38 Connection 29 already logged in as player 35 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 29 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=35) (connection not found):
+2025/12/30 06:27:38   #35 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #35 <- (End of traceback)
+2025/12/30 06:27:38 Connection 29 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28861 (ID: 30)
+2025/12/30 06:27:38 Switched connection 30 from player -30 to 36
+2025/12/30 06:27:38 Connection 30 already logged in as player 36 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 30 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=36) (connection not found):
+2025/12/30 06:27:38   #36 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #36 <- (End of traceback)
+2025/12/30 06:27:38 Connection 30 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28862 (ID: 31)
+2025/12/30 06:27:38 Switched connection 31 from player -31 to 37
+2025/12/30 06:27:38 Connection 31 already logged in as player 37 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 31 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=37) (connection not found):
+2025/12/30 06:27:38   #37 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #37 <- (End of traceback)
+2025/12/30 06:27:38 Connection 31 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28863 (ID: 32)
+2025/12/30 06:27:38 Switched connection 32 from player -32 to 38
+2025/12/30 06:27:38 Connection 32 already logged in as player 38 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 32 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=38) (connection not found):
+2025/12/30 06:27:38   #38 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #38 <- (End of traceback)
+2025/12/30 06:27:38 Connection 32 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28864 (ID: 33)
+2025/12/30 06:27:38 Switched connection 33 from player -33 to 39
+2025/12/30 06:27:38 Connection 33 already logged in as player 39 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 33 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=39) (connection not found):
+2025/12/30 06:27:38   #39 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #39 <- (End of traceback)
+2025/12/30 06:27:38 Connection 33 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28865 (ID: 34)
+2025/12/30 06:27:38 Switched connection 34 from player -34 to 40
+2025/12/30 06:27:38 Connection 34 already logged in as player 40 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 34 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=40) (connection not found):
+2025/12/30 06:27:38   #40 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #40 <- (End of traceback)
+2025/12/30 06:27:38 Connection 34 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28866 (ID: 35)
+2025/12/30 06:27:38 Switched connection 35 from player -35 to 41
+2025/12/30 06:27:38 Connection 35 already logged in as player 41 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 35 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=41) (connection not found):
+2025/12/30 06:27:38   #41 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #41 <- (End of traceback)
+2025/12/30 06:27:38 Connection 35 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28867 (ID: 36)
+2025/12/30 06:27:38 Switched connection 36 from player -36 to 42
+2025/12/30 06:27:38 Connection 36 already logged in as player 42 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 36 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=42) (connection not found):
+2025/12/30 06:27:38   #42 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #42 <- (End of traceback)
+2025/12/30 06:27:38 Connection 36 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28868 (ID: 37)
+2025/12/30 06:27:38 Switched connection 37 from player -37 to 43
+2025/12/30 06:27:38 Connection 37 already logged in as player 43 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 37 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=43) (connection not found):
+2025/12/30 06:27:38   #43 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #43 <- (End of traceback)
+2025/12/30 06:27:38 Connection 37 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28869 (ID: 38)
+2025/12/30 06:27:38 Switched connection 38 from player -38 to 44
+2025/12/30 06:27:38 Connection 38 already logged in as player 44 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 38 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=44) (connection not found):
+2025/12/30 06:27:38   #44 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #44 <- (End of traceback)
+2025/12/30 06:27:38 Connection 38 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28870 (ID: 39)
+2025/12/30 06:27:38 Switched connection 39 from player -39 to 45
+2025/12/30 06:27:38 Connection 39 already logged in as player 45 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 39 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=45) (connection not found):
+2025/12/30 06:27:38   #45 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #45 <- (End of traceback)
+2025/12/30 06:27:38 Connection 39 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28871 (ID: 40)
+2025/12/30 06:27:38 Switched connection 40 from player -40 to 46
+2025/12/30 06:27:38 Connection 40 already logged in as player 46 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 40 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=46) (connection not found):
+2025/12/30 06:27:38   #46 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #46 <- (End of traceback)
+2025/12/30 06:27:38 Connection 40 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28872 (ID: 41)
+2025/12/30 06:27:38 Switched connection 41 from player -41 to 47
+2025/12/30 06:27:38 Connection 41 already logged in as player 47 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 41 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=47) (connection not found):
+2025/12/30 06:27:38   #47 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #47 <- (End of traceback)
+2025/12/30 06:27:38 Connection 41 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28873 (ID: 42)
+2025/12/30 06:27:38 Switched connection 42 from player -42 to 48
+2025/12/30 06:27:38 Connection 42 already logged in as player 48 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 42 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=48) (connection not found):
+2025/12/30 06:27:38   #48 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #48 <- (End of traceback)
+2025/12/30 06:27:38 Connection 42 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28874 (ID: 43)
+2025/12/30 06:27:38 Switched connection 43 from player -43 to 49
+2025/12/30 06:27:38 Connection 43 already logged in as player 49 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 43 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=49) (connection not found):
+2025/12/30 06:27:38   #49 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #49 <- (End of traceback)
+2025/12/30 06:27:38 Connection 43 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28875 (ID: 44)
+2025/12/30 06:27:38 Switched connection 44 from player -44 to 50
+2025/12/30 06:27:38 Connection 44 already logged in as player 50 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 44 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=50) (connection not found):
+2025/12/30 06:27:38   #50 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #50 <- (End of traceback)
+2025/12/30 06:27:38 Connection 44 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28876 (ID: 45)
+2025/12/30 06:27:38 Switched connection 45 from player -45 to 51
+2025/12/30 06:27:38 Connection 45 already logged in as player 51 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 45 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=51) (connection not found):
+2025/12/30 06:27:38   #51 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #51 <- (End of traceback)
+2025/12/30 06:27:38 Connection 45 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28877 (ID: 46)
+2025/12/30 06:27:38 Switched connection 46 from player -46 to 52
+2025/12/30 06:27:38 Connection 46 already logged in as player 52 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 46 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=52) (connection not found):
+2025/12/30 06:27:38   #52 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #52 <- (End of traceback)
+2025/12/30 06:27:38 Connection 46 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28878 (ID: 47)
+2025/12/30 06:27:38 Switched connection 47 from player -47 to 53
+2025/12/30 06:27:38 Connection 47 already logged in as player 53 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 47 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=53) (connection not found):
+2025/12/30 06:27:38   #53 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #53 <- (End of traceback)
+2025/12/30 06:27:38 Connection 47 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28879 (ID: 48)
+2025/12/30 06:27:38 Switched connection 48 from player -48 to 54
+2025/12/30 06:27:38 Connection 48 already logged in as player 54 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 48 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=54) (connection not found):
+2025/12/30 06:27:38   #54 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #54 <- (End of traceback)
+2025/12/30 06:27:38 Connection 48 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28880 (ID: 49)
+2025/12/30 06:27:38 Switched connection 49 from player -49 to 55
+2025/12/30 06:27:38 Connection 49 already logged in as player 55 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 49 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=55) (connection not found):
+2025/12/30 06:27:38   #55 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #55 <- (End of traceback)
+2025/12/30 06:27:38 Connection 49 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28881 (ID: 50)
+2025/12/30 06:27:38 Switched connection 50 from player -50 to 56
+2025/12/30 06:27:38 Connection 50 already logged in as player 56 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 50 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=56) (connection not found):
+2025/12/30 06:27:38   #56 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #56 <- (End of traceback)
+2025/12/30 06:27:38 Connection 50 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28882 (ID: 51)
+2025/12/30 06:27:38 Switched connection 51 from player -51 to 57
+2025/12/30 06:27:38 Connection 51 already logged in as player 57 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 51 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=57) (connection not found):
+2025/12/30 06:27:38   #57 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #57 <- (End of traceback)
+2025/12/30 06:27:38 Connection 51 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28883 (ID: 52)
+2025/12/30 06:27:38 Switched connection 52 from player -52 to 58
+2025/12/30 06:27:38 Connection 52 already logged in as player 58 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 52 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=58) (connection not found):
+2025/12/30 06:27:38   #58 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #58 <- (End of traceback)
+2025/12/30 06:27:38 Connection 52 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28884 (ID: 53)
+2025/12/30 06:27:38 Switched connection 53 from player -53 to 59
+2025/12/30 06:27:38 Connection 53 already logged in as player 59 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 53 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=59) (connection not found):
+2025/12/30 06:27:38   #59 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #59 <- (End of traceback)
+2025/12/30 06:27:38 Connection 53 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28885 (ID: 54)
+2025/12/30 06:27:38 Switched connection 54 from player -54 to 60
+2025/12/30 06:27:38 Connection 54 already logged in as player 60 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 54 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=60) (connection not found):
+2025/12/30 06:27:38   #60 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #60 <- (End of traceback)
+2025/12/30 06:27:38 Connection 54 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28886 (ID: 55)
+2025/12/30 06:27:38 Switched connection 55 from player -55 to 61
+2025/12/30 06:27:38 Connection 55 already logged in as player 61 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 55 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=61) (connection not found):
+2025/12/30 06:27:38   #61 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #61 <- (End of traceback)
+2025/12/30 06:27:38 Connection 55 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28887 (ID: 56)
+2025/12/30 06:27:38 Switched connection 56 from player -56 to 62
+2025/12/30 06:27:38 Connection 56 already logged in as player 62 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 56 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=62) (connection not found):
+2025/12/30 06:27:38   #62 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #62 <- (End of traceback)
+2025/12/30 06:27:38 Connection 56 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28888 (ID: 57)
+2025/12/30 06:27:38 Switched connection 57 from player -57 to 63
+2025/12/30 06:27:38 Connection 57 already logged in as player 63 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 57 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=63) (connection not found):
+2025/12/30 06:27:38   #63 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #63 <- (End of traceback)
+2025/12/30 06:27:38 Connection 57 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28889 (ID: 58)
+2025/12/30 06:27:38 Switched connection 58 from player -58 to 64
+2025/12/30 06:27:38 Connection 58 already logged in as player 64 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 58 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=64) (connection not found):
+2025/12/30 06:27:38   #64 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #64 <- (End of traceback)
+2025/12/30 06:27:38 Connection 58 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28890 (ID: 59)
+2025/12/30 06:27:38 Switched connection 59 from player -59 to 65
+2025/12/30 06:27:38 Connection 59 already logged in as player 65 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 59 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=65) (connection not found):
+2025/12/30 06:27:38   #65 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #65 <- (End of traceback)
+2025/12/30 06:27:38 Connection 59 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28891 (ID: 60)
+2025/12/30 06:27:38 Switched connection 60 from player -60 to 66
+2025/12/30 06:27:38 Connection 60 already logged in as player 66 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 60 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=66) (connection not found):
+2025/12/30 06:27:38   #66 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #66 <- (End of traceback)
+2025/12/30 06:27:38 Connection 60 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28892 (ID: 61)
+2025/12/30 06:27:38 Switched connection 61 from player -61 to 67
+2025/12/30 06:27:38 Connection 61 already logged in as player 67 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 61 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=67) (connection not found):
+2025/12/30 06:27:38   #67 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #67 <- (End of traceback)
+2025/12/30 06:27:38 Connection 61 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28893 (ID: 62)
+2025/12/30 06:27:38 Switched connection 62 from player -62 to 68
+2025/12/30 06:27:38 Connection 62 already logged in as player 68 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 62 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=68) (connection not found):
+2025/12/30 06:27:38   #68 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #68 <- (End of traceback)
+2025/12/30 06:27:38 Connection 62 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28894 (ID: 63)
+2025/12/30 06:27:38 Switched connection 63 from player -63 to 69
+2025/12/30 06:27:38 Connection 63 already logged in as player 69 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 63 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=69) (connection not found):
+2025/12/30 06:27:38   #69 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #69 <- (End of traceback)
+2025/12/30 06:27:38 Connection 63 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28895 (ID: 64)
+2025/12/30 06:27:38 Switched connection 64 from player -64 to 70
+2025/12/30 06:27:38 Connection 64 already logged in as player 70 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 64 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=70) (connection not found):
+2025/12/30 06:27:38   #70 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #70 <- (End of traceback)
+2025/12/30 06:27:38 Connection 64 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28896 (ID: 65)
+2025/12/30 06:27:38 Switched connection 65 from player -65 to 71
+2025/12/30 06:27:38 Connection 65 already logged in as player 71 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 65 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=71) (connection not found):
+2025/12/30 06:27:38   #71 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #71 <- (End of traceback)
+2025/12/30 06:27:38 Connection 65 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28897 (ID: 66)
+2025/12/30 06:27:38 Switched connection 66 from player -66 to 72
+2025/12/30 06:27:38 Connection 66 already logged in as player 72 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 66 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=72) (connection not found):
+2025/12/30 06:27:38   #72 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #72 <- (End of traceback)
+2025/12/30 06:27:38 Connection 66 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28898 (ID: 67)
+2025/12/30 06:27:38 Switched connection 67 from player -67 to 73
+2025/12/30 06:27:38 Connection 67 already logged in as player 73 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 67 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=73) (connection not found):
+2025/12/30 06:27:38   #73 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #73 <- (End of traceback)
+2025/12/30 06:27:38 Connection 67 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28899 (ID: 68)
+2025/12/30 06:27:38 Switched connection 68 from player -68 to 74
+2025/12/30 06:27:38 Connection 68 already logged in as player 74 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 68 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=74) (connection not found):
+2025/12/30 06:27:38   #74 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #74 <- (End of traceback)
+2025/12/30 06:27:38 Connection 68 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28900 (ID: 69)
+2025/12/30 06:27:38 Switched connection 69 from player -69 to 75
+2025/12/30 06:27:38 Connection 69 already logged in as player 75 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 69 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=75) (connection not found):
+2025/12/30 06:27:38   #75 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #75 <- (End of traceback)
+2025/12/30 06:27:38 Connection 69 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28901 (ID: 70)
+2025/12/30 06:27:38 Switched connection 70 from player -70 to 76
+2025/12/30 06:27:38 Connection 70 already logged in as player 76 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 70 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=76) (connection not found):
+2025/12/30 06:27:38   #76 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #76 <- (End of traceback)
+2025/12/30 06:27:38 Connection 70 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28902 (ID: 71)
+2025/12/30 06:27:38 Switched connection 71 from player -71 to 77
+2025/12/30 06:27:38 Connection 71 already logged in as player 77 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 71 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=77) (connection not found):
+2025/12/30 06:27:38   #77 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #77 <- (End of traceback)
+2025/12/30 06:27:38 Connection 71 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28903 (ID: 72)
+2025/12/30 06:27:38 Switched connection 72 from player -72 to 78
+2025/12/30 06:27:38 Connection 72 already logged in as player 78 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 72 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=78) (connection not found):
+2025/12/30 06:27:38   #78 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #78 <- (End of traceback)
+2025/12/30 06:27:38 Connection 72 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28904 (ID: 73)
+2025/12/30 06:27:38 Switched connection 73 from player -73 to 79
+2025/12/30 06:27:38 Connection 73 already logged in as player 79 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 73 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=79) (connection not found):
+2025/12/30 06:27:38   #79 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #79 <- (End of traceback)
+2025/12/30 06:27:38 Connection 73 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28905 (ID: 74)
+2025/12/30 06:27:38 Switched connection 74 from player -74 to 80
+2025/12/30 06:27:38 Connection 74 already logged in as player 80 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 74 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=80) (connection not found):
+2025/12/30 06:27:38   #80 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #80 <- (End of traceback)
+2025/12/30 06:27:38 Connection 74 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28906 (ID: 75)
+2025/12/30 06:27:38 Switched connection 75 from player -75 to 81
+2025/12/30 06:27:38 Connection 75 already logged in as player 81 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 75 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=81) (connection not found):
+2025/12/30 06:27:38   #81 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #81 <- (End of traceback)
+2025/12/30 06:27:38 Connection 75 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28907 (ID: 76)
+2025/12/30 06:27:38 Switched connection 76 from player -76 to 82
+2025/12/30 06:27:38 Connection 76 already logged in as player 82 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 76 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=82) (connection not found):
+2025/12/30 06:27:38   #82 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #82 <- (End of traceback)
+2025/12/30 06:27:38 Connection 76 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28908 (ID: 77)
+2025/12/30 06:27:38 Switched connection 77 from player -77 to 83
+2025/12/30 06:27:38 Connection 77 already logged in as player 83 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 77 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=83) (connection not found):
+2025/12/30 06:27:38   #83 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #83 <- (End of traceback)
+2025/12/30 06:27:38 Connection 77 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28909 (ID: 78)
+2025/12/30 06:27:38 Switched connection 78 from player -78 to 84
+2025/12/30 06:27:38 Connection 78 already logged in as player 84 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 78 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=84) (connection not found):
+2025/12/30 06:27:38   #84 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #84 <- (End of traceback)
+2025/12/30 06:27:38 Connection 78 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28910 (ID: 79)
+2025/12/30 06:27:38 Switched connection 79 from player -79 to 85
+2025/12/30 06:27:38 Connection 79 already logged in as player 85 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 79 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=85) (connection not found):
+2025/12/30 06:27:38   #85 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #85 <- (End of traceback)
+2025/12/30 06:27:38 Connection 79 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28911 (ID: 80)
+2025/12/30 06:27:38 Switched connection 80 from player -80 to 86
+2025/12/30 06:27:38 Connection 80 already logged in as player 86 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 80 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=86) (connection not found):
+2025/12/30 06:27:38   #86 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #86 <- (End of traceback)
+2025/12/30 06:27:38 Connection 80 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28912 (ID: 81)
+2025/12/30 06:27:38 Switched connection 81 from player -81 to 87
+2025/12/30 06:27:38 Connection 81 already logged in as player 87 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 81 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=87) (connection not found):
+2025/12/30 06:27:38   #87 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #87 <- (End of traceback)
+2025/12/30 06:27:38 Connection 81 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28913 (ID: 82)
+2025/12/30 06:27:38 Switched connection 82 from player -82 to 88
+2025/12/30 06:27:38 Connection 82 already logged in as player 88 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 82 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=88) (connection not found):
+2025/12/30 06:27:38   #88 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #88 <- (End of traceback)
+2025/12/30 06:27:38 Connection 82 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28914 (ID: 83)
+2025/12/30 06:27:38 Switched connection 83 from player -83 to 89
+2025/12/30 06:27:38 Connection 83 already logged in as player 89 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 83 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=89) (connection not found):
+2025/12/30 06:27:38   #89 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #89 <- (End of traceback)
+2025/12/30 06:27:38 Connection 83 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28915 (ID: 84)
+2025/12/30 06:27:38 Switched connection 84 from player -84 to 90
+2025/12/30 06:27:38 Connection 84 already logged in as player 90 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 84 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=90) (connection not found):
+2025/12/30 06:27:38   #90 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #90 <- (End of traceback)
+2025/12/30 06:27:38 Connection 84 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28916 (ID: 85)
+2025/12/30 06:27:38 Switched connection 85 from player -85 to 91
+2025/12/30 06:27:38 Connection 85 already logged in as player 91 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 85 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=91) (connection not found):
+2025/12/30 06:27:38   #91 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #91 <- (End of traceback)
+2025/12/30 06:27:38 Connection 85 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28917 (ID: 86)
+2025/12/30 06:27:38 Switched connection 86 from player -86 to 92
+2025/12/30 06:27:38 Connection 86 already logged in as player 92 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 86 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=92) (connection not found):
+2025/12/30 06:27:38   #92 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #92 <- (End of traceback)
+2025/12/30 06:27:38 Connection 86 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28918 (ID: 87)
+2025/12/30 06:27:38 Switched connection 87 from player -87 to 93
+2025/12/30 06:27:38 Connection 87 already logged in as player 93 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 87 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=93) (connection not found):
+2025/12/30 06:27:38   #93 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #93 <- (End of traceback)
+2025/12/30 06:27:38 Connection 87 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28919 (ID: 88)
+2025/12/30 06:27:38 Switched connection 88 from player -88 to 94
+2025/12/30 06:27:38 Connection 88 already logged in as player 94 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 88 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=94) (connection not found):
+2025/12/30 06:27:38   #94 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #94 <- (End of traceback)
+2025/12/30 06:27:38 Connection 88 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28920 (ID: 89)
+2025/12/30 06:27:38 Switched connection 89 from player -89 to 95
+2025/12/30 06:27:38 Connection 89 already logged in as player 95 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 89 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=95) (connection not found):
+2025/12/30 06:27:38   #95 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #95 <- (End of traceback)
+2025/12/30 06:27:38 Connection 89 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28921 (ID: 90)
+2025/12/30 06:27:38 Switched connection 90 from player -90 to 96
+2025/12/30 06:27:38 Connection 90 already logged in as player 96 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 90 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=96) (connection not found):
+2025/12/30 06:27:38   #96 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #96 <- (End of traceback)
+2025/12/30 06:27:38 Connection 90 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28922 (ID: 91)
+2025/12/30 06:27:38 Switched connection 91 from player -91 to 97
+2025/12/30 06:27:38 Connection 91 already logged in as player 97 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 91 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=97) (connection not found):
+2025/12/30 06:27:38   #97 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #97 <- (End of traceback)
+2025/12/30 06:27:38 Connection 91 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28923 (ID: 92)
+2025/12/30 06:27:38 Switched connection 92 from player -92 to 98
+2025/12/30 06:27:38 Connection 92 already logged in as player 98 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 92 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=98) (connection not found):
+2025/12/30 06:27:38   #98 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #98 <- (End of traceback)
+2025/12/30 06:27:38 Connection 92 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28924 (ID: 93)
+2025/12/30 06:27:38 Switched connection 93 from player -93 to 99
+2025/12/30 06:27:38 Connection 93 already logged in as player 99 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 93 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=99) (connection not found):
+2025/12/30 06:27:38   #99 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #99 <- (End of traceback)
+2025/12/30 06:27:38 Connection 93 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28925 (ID: 94)
+2025/12/30 06:27:38 Switched connection 94 from player -94 to 100
+2025/12/30 06:27:38 Connection 94 already logged in as player 100 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 94 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=100) (connection not found):
+2025/12/30 06:27:38   #100 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #100 <- (End of traceback)
+2025/12/30 06:27:38 Connection 94 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28926 (ID: 95)
+2025/12/30 06:27:38 Switched connection 95 from player -95 to 101
+2025/12/30 06:27:38 Connection 95 already logged in as player 101 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 95 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=101) (connection not found):
+2025/12/30 06:27:38   #101 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #101 <- (End of traceback)
+2025/12/30 06:27:38 Connection 95 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28927 (ID: 96)
+2025/12/30 06:27:38 Switched connection 96 from player -96 to 102
+2025/12/30 06:27:38 Connection 96 already logged in as player 102 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 96 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=102) (connection not found):
+2025/12/30 06:27:38   #102 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #102 <- (End of traceback)
+2025/12/30 06:27:38 Connection 96 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28928 (ID: 97)
+2025/12/30 06:27:38 Switched connection 97 from player -97 to 103
+2025/12/30 06:27:38 Connection 97 already logged in as player 103 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 97 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=103) (connection not found):
+2025/12/30 06:27:38   #103 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #103 <- (End of traceback)
+2025/12/30 06:27:38 Connection 97 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28929 (ID: 98)
+2025/12/30 06:27:38 Switched connection 98 from player -98 to 104
+2025/12/30 06:27:38 Connection 98 already logged in as player 104 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 98 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=104) (connection not found):
+2025/12/30 06:27:38   #104 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #104 <- (End of traceback)
+2025/12/30 06:27:38 Connection 98 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28930 (ID: 99)
+2025/12/30 06:27:38 Switched connection 99 from player -99 to 105
+2025/12/30 06:27:38 Connection 99 already logged in as player 105 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 99 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=105) (connection not found):
+2025/12/30 06:27:38   #105 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #105 <- (End of traceback)
+2025/12/30 06:27:38 Connection 99 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28931 (ID: 100)
+2025/12/30 06:27:38 Switched connection 100 from player -100 to 106
+2025/12/30 06:27:38 Connection 100 already logged in as player 106 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 100 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=106) (connection not found):
+2025/12/30 06:27:38   #106 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #106 <- (End of traceback)
+2025/12/30 06:27:38 Connection 100 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28932 (ID: 101)
+2025/12/30 06:27:38 Switched connection 101 from player -101 to 107
+2025/12/30 06:27:38 Connection 101 already logged in as player 107 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 101 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=107) (connection not found):
+2025/12/30 06:27:38   #107 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #107 <- (End of traceback)
+2025/12/30 06:27:38 Connection 101 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28933 (ID: 102)
+2025/12/30 06:27:38 Switched connection 102 from player -102 to 108
+2025/12/30 06:27:38 Connection 102 already logged in as player 108 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 102 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=108) (connection not found):
+2025/12/30 06:27:38   #108 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #108 <- (End of traceback)
+2025/12/30 06:27:38 Connection 102 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28934 (ID: 103)
+2025/12/30 06:27:38 Switched connection 103 from player -103 to 109
+2025/12/30 06:27:38 Connection 103 already logged in as player 109 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 103 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=109) (connection not found):
+2025/12/30 06:27:38   #109 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #109 <- (End of traceback)
+2025/12/30 06:27:38 Connection 103 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28935 (ID: 104)
+2025/12/30 06:27:38 Switched connection 104 from player -104 to 110
+2025/12/30 06:27:38 Connection 104 already logged in as player 110 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 104 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=110) (connection not found):
+2025/12/30 06:27:38   #110 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #110 <- (End of traceback)
+2025/12/30 06:27:38 Connection 104 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28936 (ID: 105)
+2025/12/30 06:27:38 Switched connection 105 from player -105 to 111
+2025/12/30 06:27:38 Connection 105 already logged in as player 111 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 105 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=111) (connection not found):
+2025/12/30 06:27:38   #111 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #111 <- (End of traceback)
+2025/12/30 06:27:38 Connection 105 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28937 (ID: 106)
+2025/12/30 06:27:38 Switched connection 106 from player -106 to 112
+2025/12/30 06:27:38 Connection 106 already logged in as player 112 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 106 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=112) (connection not found):
+2025/12/30 06:27:38   #112 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #112 <- (End of traceback)
+2025/12/30 06:27:38 Connection 106 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28938 (ID: 107)
+2025/12/30 06:27:38 Switched connection 107 from player -107 to 113
+2025/12/30 06:27:38 Connection 107 already logged in as player 113 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 107 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=113) (connection not found):
+2025/12/30 06:27:38   #113 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #113 <- (End of traceback)
+2025/12/30 06:27:38 Connection 107 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28939 (ID: 108)
+2025/12/30 06:27:38 Switched connection 108 from player -108 to 114
+2025/12/30 06:27:38 Connection 108 already logged in as player 114 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 108 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=114) (connection not found):
+2025/12/30 06:27:38   #114 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #114 <- (End of traceback)
+2025/12/30 06:27:38 Connection 108 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28940 (ID: 109)
+2025/12/30 06:27:38 Switched connection 109 from player -109 to 115
+2025/12/30 06:27:38 Connection 109 already logged in as player 115 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 109 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=115) (connection not found):
+2025/12/30 06:27:38   #115 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #115 <- (End of traceback)
+2025/12/30 06:27:38 Connection 109 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28941 (ID: 110)
+2025/12/30 06:27:38 Switched connection 110 from player -110 to 116
+2025/12/30 06:27:38 Connection 110 already logged in as player 116 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 110 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=116) (connection not found):
+2025/12/30 06:27:38   #116 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #116 <- (End of traceback)
+2025/12/30 06:27:38 Connection 110 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28942 (ID: 111)
+2025/12/30 06:27:38 Switched connection 111 from player -111 to 117
+2025/12/30 06:27:38 Connection 111 already logged in as player 117 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 111 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=117) (connection not found):
+2025/12/30 06:27:38   #117 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #117 <- (End of traceback)
+2025/12/30 06:27:38 Connection 111 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28943 (ID: 112)
+2025/12/30 06:27:38 Switched connection 112 from player -112 to 118
+2025/12/30 06:27:38 Connection 112 already logged in as player 118 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 112 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=118) (connection not found):
+2025/12/30 06:27:38   #118 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #118 <- (End of traceback)
+2025/12/30 06:27:38 Connection 112 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28944 (ID: 113)
+2025/12/30 06:27:38 Switched connection 113 from player -113 to 119
+2025/12/30 06:27:38 Connection 113 already logged in as player 119 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 113 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=119) (connection not found):
+2025/12/30 06:27:38   #119 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #119 <- (End of traceback)
+2025/12/30 06:27:38 Connection 113 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28945 (ID: 114)
+2025/12/30 06:27:38 Switched connection 114 from player -114 to 120
+2025/12/30 06:27:38 Connection 114 already logged in as player 120 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 114 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=120) (connection not found):
+2025/12/30 06:27:38   #120 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #120 <- (End of traceback)
+2025/12/30 06:27:38 Connection 114 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28946 (ID: 115)
+2025/12/30 06:27:38 Switched connection 115 from player -115 to 121
+2025/12/30 06:27:38 Connection 115 already logged in as player 121 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 115 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=121) (connection not found):
+2025/12/30 06:27:38   #121 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #121 <- (End of traceback)
+2025/12/30 06:27:38 Connection 115 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28947 (ID: 116)
+2025/12/30 06:27:38 Switched connection 116 from player -116 to 122
+2025/12/30 06:27:38 Connection 116 already logged in as player 122 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 116 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=122) (connection not found):
+2025/12/30 06:27:38   #122 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #122 <- (End of traceback)
+2025/12/30 06:27:38 Connection 116 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28948 (ID: 117)
+2025/12/30 06:27:38 Switched connection 117 from player -117 to 123
+2025/12/30 06:27:38 Connection 117 already logged in as player 123 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 117 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=123) (connection not found):
+2025/12/30 06:27:38   #123 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #123 <- (End of traceback)
+2025/12/30 06:27:38 Connection 117 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28949 (ID: 118)
+2025/12/30 06:27:38 Switched connection 118 from player -118 to 124
+2025/12/30 06:27:38 Connection 118 already logged in as player 124 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 118 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=124) (connection not found):
+2025/12/30 06:27:38   #124 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #124 <- (End of traceback)
+2025/12/30 06:27:38 Connection 118 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28950 (ID: 119)
+2025/12/30 06:27:38 Switched connection 119 from player -119 to 125
+2025/12/30 06:27:38 Connection 119 already logged in as player 125 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 119 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=125) (connection not found):
+2025/12/30 06:27:38   #125 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #125 <- (End of traceback)
+2025/12/30 06:27:38 Connection 119 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28951 (ID: 120)
+2025/12/30 06:27:38 Switched connection 120 from player -120 to 126
+2025/12/30 06:27:38 Connection 120 already logged in as player 126 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 120 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=126) (connection not found):
+2025/12/30 06:27:38   #126 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #126 <- (End of traceback)
+2025/12/30 06:27:38 Connection 120 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28952 (ID: 121)
+2025/12/30 06:27:38 Switched connection 121 from player -121 to 127
+2025/12/30 06:27:38 Connection 121 already logged in as player 127 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 121 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=127) (connection not found):
+2025/12/30 06:27:38   #127 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #127 <- (End of traceback)
+2025/12/30 06:27:38 Connection 121 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28953 (ID: 122)
+2025/12/30 06:27:38 Switched connection 122 from player -122 to 128
+2025/12/30 06:27:38 Connection 122 already logged in as player 128 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 122 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=128) (connection not found):
+2025/12/30 06:27:38   #128 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #128 <- (End of traceback)
+2025/12/30 06:27:38 Connection 122 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28954 (ID: 123)
+2025/12/30 06:27:38 Switched connection 123 from player -123 to 129
+2025/12/30 06:27:38 Connection 123 already logged in as player 129 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 123 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=129) (connection not found):
+2025/12/30 06:27:38   #129 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #129 <- (End of traceback)
+2025/12/30 06:27:38 Connection 123 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28955 (ID: 124)
+2025/12/30 06:27:38 Switched connection 124 from player -124 to 130
+2025/12/30 06:27:38 Connection 124 already logged in as player 130 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 124 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=130) (connection not found):
+2025/12/30 06:27:38   #130 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #130 <- (End of traceback)
+2025/12/30 06:27:38 Connection 124 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28956 (ID: 125)
+2025/12/30 06:27:38 Switched connection 125 from player -125 to 131
+2025/12/30 06:27:38 Connection 125 already logged in as player 131 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 125 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=131) (connection not found):
+2025/12/30 06:27:38   #131 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #131 <- (End of traceback)
+2025/12/30 06:27:38 Connection 125 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28957 (ID: 126)
+2025/12/30 06:27:38 Switched connection 126 from player -126 to 132
+2025/12/30 06:27:38 Connection 126 already logged in as player 132 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 126 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=132) (connection not found):
+2025/12/30 06:27:38   #132 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #132 <- (End of traceback)
+2025/12/30 06:27:38 Connection 126 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28958 (ID: 127)
+2025/12/30 06:27:38 Switched connection 127 from player -127 to 133
+2025/12/30 06:27:38 Connection 127 already logged in as player 133 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 127 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=133) (connection not found):
+2025/12/30 06:27:38   #133 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #133 <- (End of traceback)
+2025/12/30 06:27:38 Connection 127 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28959 (ID: 128)
+2025/12/30 06:27:38 Switched connection 128 from player -128 to 134
+2025/12/30 06:27:38 Connection 128 already logged in as player 134 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 128 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=134) (connection not found):
+2025/12/30 06:27:38   #134 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #134 <- (End of traceback)
+2025/12/30 06:27:38 Connection 128 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28960 (ID: 129)
+2025/12/30 06:27:38 Switched connection 129 from player -129 to 135
+2025/12/30 06:27:38 Connection 129 already logged in as player 135 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 129 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=135) (connection not found):
+2025/12/30 06:27:38   #135 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #135 <- (End of traceback)
+2025/12/30 06:27:38 Connection 129 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28961 (ID: 130)
+2025/12/30 06:27:38 Switched connection 130 from player -130 to 136
+2025/12/30 06:27:38 Connection 130 already logged in as player 136 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 130 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=136) (connection not found):
+2025/12/30 06:27:38   #136 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #136 <- (End of traceback)
+2025/12/30 06:27:38 Connection 130 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28962 (ID: 131)
+2025/12/30 06:27:38 Switched connection 131 from player -131 to 137
+2025/12/30 06:27:38 Connection 131 already logged in as player 137 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 131 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=137) (connection not found):
+2025/12/30 06:27:38   #137 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #137 <- (End of traceback)
+2025/12/30 06:27:38 Connection 131 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28963 (ID: 132)
+2025/12/30 06:27:38 Switched connection 132 from player -132 to 138
+2025/12/30 06:27:38 Connection 132 already logged in as player 138 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 132 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=138) (connection not found):
+2025/12/30 06:27:38   #138 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #138 <- (End of traceback)
+2025/12/30 06:27:38 Connection 132 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28964 (ID: 133)
+2025/12/30 06:27:38 Switched connection 133 from player -133 to 139
+2025/12/30 06:27:38 Connection 133 already logged in as player 139 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 133 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=139) (connection not found):
+2025/12/30 06:27:38   #139 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #139 <- (End of traceback)
+2025/12/30 06:27:38 Connection 133 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28965 (ID: 134)
+2025/12/30 06:27:38 Switched connection 134 from player -134 to 140
+2025/12/30 06:27:38 Connection 134 already logged in as player 140 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 134 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=140) (connection not found):
+2025/12/30 06:27:38   #140 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #140 <- (End of traceback)
+2025/12/30 06:27:38 Connection 134 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28966 (ID: 135)
+2025/12/30 06:27:38 Switched connection 135 from player -135 to 141
+2025/12/30 06:27:38 Connection 135 already logged in as player 141 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 135 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=141) (connection not found):
+2025/12/30 06:27:38   #141 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #141 <- (End of traceback)
+2025/12/30 06:27:38 Connection 135 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28967 (ID: 136)
+2025/12/30 06:27:38 Switched connection 136 from player -136 to 142
+2025/12/30 06:27:38 Connection 136 already logged in as player 142 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 136 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=142) (connection not found):
+2025/12/30 06:27:38   #142 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #142 <- (End of traceback)
+2025/12/30 06:27:38 Connection 136 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28968 (ID: 137)
+2025/12/30 06:27:38 Switched connection 137 from player -137 to 143
+2025/12/30 06:27:38 Connection 137 already logged in as player 143 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 137 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=143) (connection not found):
+2025/12/30 06:27:38   #143 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #143 <- (End of traceback)
+2025/12/30 06:27:38 Connection 137 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28969 (ID: 138)
+2025/12/30 06:27:38 Switched connection 138 from player -138 to 144
+2025/12/30 06:27:38 Connection 138 already logged in as player 144 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 138 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=144) (connection not found):
+2025/12/30 06:27:38   #144 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #144 <- (End of traceback)
+2025/12/30 06:27:38 Connection 138 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28970 (ID: 139)
+2025/12/30 06:27:38 Switched connection 139 from player -139 to 145
+2025/12/30 06:27:38 Connection 139 already logged in as player 145 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 139 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=145) (connection not found):
+2025/12/30 06:27:38   #145 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #145 <- (End of traceback)
+2025/12/30 06:27:38 Connection 139 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28971 (ID: 140)
+2025/12/30 06:27:38 Switched connection 140 from player -140 to 146
+2025/12/30 06:27:38 Connection 140 already logged in as player 146 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 140 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=146) (connection not found):
+2025/12/30 06:27:38   #146 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #146 <- (End of traceback)
+2025/12/30 06:27:38 Connection 140 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28972 (ID: 141)
+2025/12/30 06:27:38 Switched connection 141 from player -141 to 147
+2025/12/30 06:27:38 Connection 141 already logged in as player 147 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 141 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=147) (connection not found):
+2025/12/30 06:27:38   #147 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #147 <- (End of traceback)
+2025/12/30 06:27:38 Connection 141 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28973 (ID: 142)
+2025/12/30 06:27:38 Switched connection 142 from player -142 to 148
+2025/12/30 06:27:38 Connection 142 already logged in as player 148 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 142 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=148) (connection not found):
+2025/12/30 06:27:38   #148 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #148 <- (End of traceback)
+2025/12/30 06:27:38 Connection 142 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28974 (ID: 143)
+2025/12/30 06:27:38 Switched connection 143 from player -143 to 149
+2025/12/30 06:27:38 Connection 143 already logged in as player 149 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 143 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=149) (connection not found):
+2025/12/30 06:27:38   #149 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #149 <- (End of traceback)
+2025/12/30 06:27:38 Connection 143 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28975 (ID: 144)
+2025/12/30 06:27:38 Switched connection 144 from player -144 to 150
+2025/12/30 06:27:38 Connection 144 already logged in as player 150 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 144 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=150) (connection not found):
+2025/12/30 06:27:38   #150 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #150 <- (End of traceback)
+2025/12/30 06:27:38 Connection 144 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28976 (ID: 145)
+2025/12/30 06:27:38 Switched connection 145 from player -145 to 151
+2025/12/30 06:27:38 Connection 145 already logged in as player 151 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 145 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=151) (connection not found):
+2025/12/30 06:27:38   #151 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #151 <- (End of traceback)
+2025/12/30 06:27:38 Connection 145 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28977 (ID: 146)
+2025/12/30 06:27:38 Switched connection 146 from player -146 to 152
+2025/12/30 06:27:38 Connection 146 already logged in as player 152 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 146 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=152) (connection not found):
+2025/12/30 06:27:38   #152 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #152 <- (End of traceback)
+2025/12/30 06:27:38 Connection 146 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28978 (ID: 147)
+2025/12/30 06:27:38 Switched connection 147 from player -147 to 153
+2025/12/30 06:27:38 Connection 147 already logged in as player 153 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 147 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=153) (connection not found):
+2025/12/30 06:27:38   #153 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #153 <- (End of traceback)
+2025/12/30 06:27:38 Connection 147 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28979 (ID: 148)
+2025/12/30 06:27:38 Switched connection 148 from player -148 to 154
+2025/12/30 06:27:38 Connection 148 already logged in as player 154 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 148 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=154) (connection not found):
+2025/12/30 06:27:38   #154 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #154 <- (End of traceback)
+2025/12/30 06:27:38 Connection 148 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28980 (ID: 149)
+2025/12/30 06:27:38 Switched connection 149 from player -149 to 155
+2025/12/30 06:27:38 Connection 149 already logged in as player 155 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 149 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=155) (connection not found):
+2025/12/30 06:27:38   #155 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #155 <- (End of traceback)
+2025/12/30 06:27:38 Connection 149 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28981 (ID: 150)
+2025/12/30 06:27:38 Switched connection 150 from player -150 to 156
+2025/12/30 06:27:38 Connection 150 already logged in as player 156 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 150 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=156) (connection not found):
+2025/12/30 06:27:38   #156 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #156 <- (End of traceback)
+2025/12/30 06:27:38 Connection 150 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28982 (ID: 151)
+2025/12/30 06:27:38 Switched connection 151 from player -151 to 157
+2025/12/30 06:27:38 Connection 151 already logged in as player 157 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 151 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=157) (connection not found):
+2025/12/30 06:27:38   #157 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #157 <- (End of traceback)
+2025/12/30 06:27:38 Connection 151 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28983 (ID: 152)
+2025/12/30 06:27:38 Switched connection 152 from player -152 to 158
+2025/12/30 06:27:38 Connection 152 already logged in as player 158 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 152 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=158) (connection not found):
+2025/12/30 06:27:38   #158 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #158 <- (End of traceback)
+2025/12/30 06:27:38 Connection 152 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28984 (ID: 153)
+2025/12/30 06:27:38 Switched connection 153 from player -153 to 159
+2025/12/30 06:27:38 Connection 153 already logged in as player 159 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 153 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=159) (connection not found):
+2025/12/30 06:27:38   #159 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #159 <- (End of traceback)
+2025/12/30 06:27:38 Connection 153 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28985 (ID: 154)
+2025/12/30 06:27:38 Switched connection 154 from player -154 to 160
+2025/12/30 06:27:38 Connection 154 already logged in as player 160 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 154 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=160) (connection not found):
+2025/12/30 06:27:38   #160 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #160 <- (End of traceback)
+2025/12/30 06:27:38 Connection 154 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28986 (ID: 155)
+2025/12/30 06:27:38 Switched connection 155 from player -155 to 161
+2025/12/30 06:27:38 Connection 155 already logged in as player 161 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 155 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=161) (connection not found):
+2025/12/30 06:27:38   #161 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #161 <- (End of traceback)
+2025/12/30 06:27:38 Connection 155 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28987 (ID: 156)
+2025/12/30 06:27:38 Switched connection 156 from player -156 to 162
+2025/12/30 06:27:38 Connection 156 already logged in as player 162 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 156 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=162) (connection not found):
+2025/12/30 06:27:38   #162 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #162 <- (End of traceback)
+2025/12/30 06:27:38 Connection 156 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28988 (ID: 157)
+2025/12/30 06:27:38 Switched connection 157 from player -157 to 163
+2025/12/30 06:27:38 Connection 157 already logged in as player 163 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 157 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=163) (connection not found):
+2025/12/30 06:27:38   #163 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #163 <- (End of traceback)
+2025/12/30 06:27:38 Connection 157 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28989 (ID: 158)
+2025/12/30 06:27:38 Switched connection 158 from player -158 to 164
+2025/12/30 06:27:38 Connection 158 already logged in as player 164 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 158 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=164) (connection not found):
+2025/12/30 06:27:38   #164 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #164 <- (End of traceback)
+2025/12/30 06:27:38 Connection 158 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28990 (ID: 159)
+2025/12/30 06:27:38 Switched connection 159 from player -159 to 165
+2025/12/30 06:27:38 Connection 159 already logged in as player 165 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 159 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=165) (connection not found):
+2025/12/30 06:27:38   #165 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #165 <- (End of traceback)
+2025/12/30 06:27:38 Connection 159 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28991 (ID: 160)
+2025/12/30 06:27:38 Switched connection 160 from player -160 to 166
+2025/12/30 06:27:38 Connection 160 already logged in as player 166 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 160 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=166) (connection not found):
+2025/12/30 06:27:38   #166 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #166 <- (End of traceback)
+2025/12/30 06:27:38 Connection 160 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28992 (ID: 161)
+2025/12/30 06:27:38 Switched connection 161 from player -161 to 167
+2025/12/30 06:27:38 Connection 161 already logged in as player 167 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 161 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=167) (connection not found):
+2025/12/30 06:27:38   #167 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #167 <- (End of traceback)
+2025/12/30 06:27:38 Connection 161 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28993 (ID: 162)
+2025/12/30 06:27:38 Switched connection 162 from player -162 to 168
+2025/12/30 06:27:38 Connection 162 already logged in as player 168 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 162 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=168) (connection not found):
+2025/12/30 06:27:38   #168 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #168 <- (End of traceback)
+2025/12/30 06:27:38 Connection 162 closed
+2025/12/30 06:27:38 New connection from 127.0.0.1:28994 (ID: 163)
+2025/12/30 06:27:38 Switched connection 163 from player -163 to 169
+2025/12/30 06:27:38 Connection 163 already logged in as player 169 via switch_player
+2025/12/30 06:27:38 user_connected error: E_VERBNF
+2025/12/30 06:27:38 Connection 163 read error: EOF
+2025/12/30 06:27:38 user_disconnected error: E_VERBNF
+2025/12/30 06:27:38 Traceback for player %!s(types.ObjID=169) (connection not found):
+2025/12/30 06:27:38   #169 <- #0:user_disconnected (this == #0), line 1:  Verb not found
+2025/12/30 06:27:38   #169 <- (End of traceback)
+2025/12/30 06:27:38 Connection 163 closed
