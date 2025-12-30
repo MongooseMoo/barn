@@ -143,14 +143,15 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 	// Validate parents
 	// -1 ($nothing) is valid as a solo parent (means no parent)
 	// -1 ($nothing) in a list is E_INVARG
-	// -2, -3, -4 (special invalid object numbers) are always E_INVARG
+	// -2, -3, -4 (special invalid object numbers) are E_TYPE (not valid object types)
 	// Other negative IDs and non-existent objects are E_INVARG
 	validParents := []types.ObjID{}
 	seenParents := make(map[types.ObjID]bool)
 	for _, parentID := range parents {
 		if parentID < -1 {
-			// Special invalid object numbers: -2, -3, -4
-			return types.Err(types.E_INVARG)
+			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
+			// These are type errors because they're not valid object references
+			return types.Err(types.E_TYPE)
 		}
 		if parentID == types.ObjNothing {
 			if parentsFromList {
@@ -261,11 +262,30 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 		}
 	}
 
+	// Validate owner if explicitly specified
+	// Special case: invalid object numbers like -2, -3, -4 automatically create anonymous objects
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+	if ownerSpecified {
+		if owner < -1 {
+			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
+			// These automatically create anonymous objects (force anonymous flag)
+			anonymous = true
+			owner = ctx.Programmer // Use programmer as owner
+		} else if owner != types.ObjNothing && store.Get(owner) == nil {
+			return types.Err(types.E_INVARG)
+		} else if owner == types.ObjNothing && !playerIsWizard {
+			// Only wizards can specify $nothing as owner (makes object own itself)
+			return types.Err(types.E_PERM)
+		} else if owner != ctx.Programmer && !playerIsWizard {
+			// Non-wizards can only specify themselves as owner or get E_PERM
+			return types.Err(types.E_PERM)
+		}
+	}
+
 	// Check permissions for creating from each parent
 	// - Wizards can create from any object
 	// - For anonymous objects: non-wizards need to own parent OR parent has FlagAnonymous
 	// - For regular objects: non-wizards need to own parent OR parent has FlagFertile
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
 	if !playerIsWizard {
 		for _, parentID := range parents {
 			parent := store.Get(parentID)
@@ -284,21 +304,6 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, 
 					return types.Err(types.E_PERM)
 				}
 			}
-		}
-	}
-
-	// Validate owner if explicitly specified
-	if ownerSpecified {
-		if owner < -1 {
-			// Special invalid object numbers: -2, -3, -4
-			return types.Err(types.E_INVARG)
-		}
-		if owner != types.ObjNothing && store.Get(owner) == nil {
-			return types.Err(types.E_INVARG)
-		}
-		// Only wizards can specify $nothing as owner (makes object own itself)
-		if owner == types.ObjNothing && !playerIsWizard {
-			return types.Err(types.E_PERM)
 		}
 	}
 
