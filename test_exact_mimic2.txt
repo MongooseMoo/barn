@@ -1,0 +1,4 @@
+connect wizard
+; $server_options.max_concat_catchable = 1; $server_options.max_list_value_bytes = 1000000; return load_server_options();
+; n = 90; pad = value_bytes({1, 2}) - value_bytes({}); x = {}; for i in [1..n]; x = setadd(x, i); endfor; size = value_bytes(x); $server_options.max_list_value_bytes = size + pad; return {size, pad, size+pad, load_server_options()};
+; x = {}; for i in [1..(n+1)]; x = setadd(x, i); endfor; return value_bytes(x);

@@ -1,0 +1,5 @@
+connect wizard
+; add_property($server_options, "max_list_value_bytes", 1000000, {player, "r"}); return load_server_options();
+; n = 90; pad = value_bytes({1, 2}) - value_bytes({}); x = {}; for i in [1..n]; x = setadd(x, i); endfor; size = value_bytes(x); return {size, pad, size + pad};
+; $server_options.max_list_value_bytes = 1472; return load_server_options();
+; x = {}; for i in [1..91]; x = setadd(x, i); endfor; return value_bytes(x);

@@ -163,13 +163,16 @@ func ValueBytes(v types.Value) int {
 	case types.ErrValue:
 		return base + 4
 	case types.ListValue:
-		size := base + 8 // list header
+		// List overhead: base pointer (8) + list header (8) + slice overhead (16)
+		// Toast's value_bytes counts: base + length word + capacity + data pointer + elements
+		size := base + 8 + 16 // base + list metadata + slice overhead
 		for i := 1; i <= val.Len(); i++ {
 			size += ValueBytes(val.Get(i))
 		}
 		return size
 	case types.MapValue:
-		size := base + 8 // map header
+		// Map overhead: base pointer (8) + map header (8) + internal structures (16)
+		size := base + 8 + 16 // base + map metadata + internal overhead
 		for _, pair := range val.Pairs() {
 			size += ValueBytes(pair[0]) + ValueBytes(pair[1])
 		}
@@ -208,9 +211,10 @@ func GetMaxMapValueBytes() int {
 
 // CheckListLimit checks if a list exceeds the max_list_value_bytes limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
+// The limit is exclusive - a list with exactly limit bytes is not allowed.
 func CheckListLimit(list types.ListValue) types.ErrorCode {
 	limit := GetMaxListValueBytes()
-	if limit > 0 && ValueBytes(list) > limit {
+	if limit > 0 && ValueBytes(list) >= limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE
