@@ -15,9 +15,27 @@ func NewStr(s string) StrValue {
 	return StrValue{val: s}
 }
 
-// String returns the Go string representation
+// String returns the MOO string representation with binary encoding
+// Non-printable characters (< 32 or > 126) are encoded as ~XX
 func (s StrValue) String() string {
-	return fmt.Sprintf("%q", s.val)
+	var result strings.Builder
+	result.WriteByte('"')
+	for i := 0; i < len(s.val); i++ {
+		b := s.val[i]
+		if b == '"' {
+			result.WriteString("\\\"")
+		} else if b == '\\' {
+			result.WriteString("\\\\")
+		} else if b >= 32 && b <= 126 {
+			// Printable ASCII
+			result.WriteByte(b)
+		} else {
+			// Non-printable: use ~XX encoding
+			result.WriteString(fmt.Sprintf("~%02X", b))
+		}
+	}
+	result.WriteByte('"')
+	return result.String()
 }
 
 // Type returns the MOO type

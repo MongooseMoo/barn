@@ -372,11 +372,16 @@ func execCommand(program string, args []string, input string) types.Result {
 		}
 	}
 
+	// Normalize line endings to Unix format (LF only)
+	// MOO expects \n, but Windows produces \r\n
+	stdoutStr := strings.ReplaceAll(stdout.String(), "\r\n", "\n")
+	stderrStr := strings.ReplaceAll(stderr.String(), "\r\n", "\n")
+
 	// Return {exit_code, stdout, stderr}
 	result := []types.Value{
 		types.NewInt(int64(exitCode)),
-		types.NewStr(stdout.String()),
-		types.NewStr(stderr.String()),
+		types.NewStr(stdoutStr),
+		types.NewStr(stderrStr),
 	}
 	return types.Ok(types.NewList(result))
 }
