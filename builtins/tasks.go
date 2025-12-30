@@ -146,13 +146,36 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 }
 
 // builtinCallerPerms: caller_perms() → OBJ
-// Returns the current permission context object
+// Returns the programmer of the calling frame (not the current frame)
+// This is used for permission checks - returns who called this verb
 func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 
-	return types.Ok(types.NewObj(ctx.Programmer))
+	// Get the task from context
+	if ctx.Task == nil {
+		// No task - return NOTHING
+		return types.Ok(types.NewObj(types.NOTHING))
+	}
+
+	t, ok := ctx.Task.(*task.Task)
+	if !ok {
+		return types.Ok(types.NewObj(types.NOTHING))
+	}
+
+	// Get the call stack
+	stack := t.GetCallStack()
+
+	// Need at least 2 frames to have a caller
+	if len(stack) < 2 {
+		return types.Ok(types.NewObj(types.NOTHING))
+	}
+
+	// Return the programmer of the PREVIOUS frame (the caller)
+	// stack[len-1] is current frame, stack[len-2] is caller
+	callerFrame := stack[len(stack)-2]
+	return types.Ok(types.NewObj(callerFrame.Programmer))
 }
 
 // builtinCallers: callers([include_line_numbers]) → LIST
