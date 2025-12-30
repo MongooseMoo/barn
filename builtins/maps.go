@@ -175,10 +175,11 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 // isValidMapKey checks if a value can be used as a map key
-// Only scalar types (int, obj, str, err, float, bool) are valid keys
+// Scalar types (int, obj, str, err, float, bool) and lists are valid keys
+// Maps and waifs are NOT valid keys
 func isValidMapKey(v types.Value) bool {
 	switch v.Type() {
-	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_STR, types.TYPE_ERR, types.TYPE_FLOAT, types.TYPE_BOOL:
+	case types.TYPE_INT, types.TYPE_OBJ, types.TYPE_STR, types.TYPE_ERR, types.TYPE_FLOAT, types.TYPE_BOOL, types.TYPE_LIST:
 		return true
 	default:
 		return false

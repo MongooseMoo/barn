@@ -317,3 +317,81 @@ func builtinConnectionOption(ctx *types.TaskContext, args []types.Value) types.R
 	// TODO: implement actual option retrieval
 	return types.Ok(types.NewInt(0))
 }
+
+// read_http([type [, connection]]) -> map | E_PERM | E_ARGS | E_TYPE | E_INVARG
+// Reads HTTP request or response data from a connection
+// - type: "request" or "response" (required)
+// - connection: object ID of connection (optional, defaults to caller's connection)
+//
+// ToastStunt behavior:
+// - No args: requires wizard (for backward compat - should pass type)
+// - type arg: must be string "request" or "response", else E_INVARG
+// - connection arg: must be object, else E_TYPE
+// - With connection arg: requires wizard or owner of connection object
+// - Without connection arg: requires wizard and active task from that connection
+// - Suspends task to parse HTTP data from connection buffer
+func builtinReadHTTP(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Validate we have at least one argument (type)
+	if len(args) == 0 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// First argument must be a string (type)
+	typeVal, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	typeStr := typeVal.Value()
+
+	// Validate type is "request" or "response"
+	if typeStr != "request" && typeStr != "response" {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Second argument (if provided) must be an object (connection)
+	var connection types.ObjID = ctx.Player
+	if len(args) > 1 {
+		connVal, ok := args[1].(types.ObjValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		connection = connVal.ID()
+	}
+
+	// Permission checks (from ToastStunt bf_read_http)
+	if len(args) > 1 {
+		// With explicit connection: require wizard or owner of connection
+		if !ctx.IsWizard {
+			// Check if programmer owns the connection object
+			// TODO: implement db_object_owner check when we have DB access
+			// For now, require wizard for explicit connection
+			return types.Err(types.E_PERM)
+		}
+	} else {
+		// Without explicit connection: require wizard
+		if !ctx.IsWizard {
+			return types.Err(types.E_PERM)
+		}
+		// TODO: Also check that last_input_task_id(connection) == current_task_id
+		// This prevents reading from connections that aren't actively inputting
+	}
+
+	// At this point in ToastStunt, the function would:
+	// 1. Create a suspended task that waits for HTTP data
+	// 2. Return a suspend package with make_parsing_http_request_task or
+	//    make_parsing_http_response_task
+	// 3. When data arrives, parse it and resume with the parsed map
+	//
+	// Since Barn doesn't have HTTP connection infrastructure yet:
+	// - We validate all arguments correctly (tests verify this)
+	// - We would need to implement connection buffering, force_input(),
+	//   and HTTP parsing to make this fully functional
+	// - For now, return E_INVARG to indicate "no HTTP data available"
+	//   (this matches the behavior when a connection has no buffered data)
+
+	_ = connection // Use the connection variable
+
+	// TODO: Implement HTTP parsing and task suspension
+	// For now, return E_INVARG (no data available)
+	return types.Err(types.E_INVARG)
+}
