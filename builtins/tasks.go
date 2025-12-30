@@ -93,10 +93,9 @@ func builtinSuspend(ctx *types.TaskContext, args []types.Value) types.Result {
 	mgr := task.GetManager()
 	mgr.SuspendTask(t, seconds)
 
-	// In a real implementation, this would use goroutines/channels to actually suspend
-	// For now, we'll just mark it as suspended and return the wake value
-	// The actual suspension mechanism needs to be integrated with the task scheduler
-	return types.Ok(t.WakeValue)
+	// Return FlowSuspend so scheduler knows to pause execution
+	// The task will be resumed later via resume() builtin
+	return types.Suspend(seconds)
 }
 
 // builtinResume: resume(task_id [, value]) → none

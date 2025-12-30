@@ -188,8 +188,11 @@ func (s *Scheduler) runTask(t *task.Task) error {
 	t.CancelFunc = cancel
 	defer cancel()
 
-	// Execute code
-	for _, stmt := range code {
+	// Execute code starting from current statement index (for suspend/resume)
+	for i := t.StmtIndex; i < len(code); i++ {
+		stmt := code[i]
+		t.StmtIndex = i // Update current statement index
+
 		select {
 		case <-taskCtx.Done():
 			t.SetState(task.TaskKilled)
@@ -220,6 +223,14 @@ func (s *Scheduler) runTask(t *task.Task) error {
 			}
 			// Parent continues execution
 			continue
+		}
+
+		if result.Flow == types.FlowSuspend {
+			// Task is suspending - advance to next statement for when it resumes
+			t.StmtIndex = i + 1
+			// The task manager has already been notified via builtinSuspend
+			// Just return without setting state to Completed
+			return nil
 		}
 
 		if result.Flow == types.FlowReturn || result.Flow == types.FlowException {

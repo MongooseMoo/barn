@@ -140,6 +140,7 @@ type Task struct {
 	Result       types.Result    // Last execution result
 	ForkCreator  ForkCreator    // For creating forked tasks
 	CancelFunc   context.CancelFunc // For cancellation (exported for scheduler)
+	StmtIndex    int            // Current statement index (for suspend/resume)
 
 	// Verb context (set for verb tasks)
 	VerbName     string
