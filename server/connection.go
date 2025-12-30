@@ -517,13 +517,21 @@ func (cm *ConnectionManager) removeConnection(conn *Connection) {
 // sendTracebackToPlayer sends a formatted traceback to the player's connection
 // Used when hook calls fail with uncaught exceptions
 func (cm *ConnectionManager) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	// Format traceback first (needed for both connection and log fallback)
+	lines := task.FormatTraceback(stack, err, player)
+
 	conn := cm.GetConnection(player)
 	if conn == nil {
+		// Connection not found (player disconnected or not mapped yet)
+		// Log to server so the traceback isn't lost
+		log.Printf("Traceback for player %s (connection not found):", player)
+		for _, line := range lines {
+			log.Printf("  %s", line)
+		}
 		return
 	}
 
-	// Format traceback and send each line
-	lines := task.FormatTraceback(stack, err, player)
+	// Send to player connection
 	for _, line := range lines {
 		conn.Send(line)
 	}
