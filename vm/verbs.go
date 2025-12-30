@@ -260,7 +260,13 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// Look up the verb (in CallVerb - direct verb invocation)
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
-		// Don't pop frame - leave it for traceback
+		// Pop the frame since verb doesn't exist - no traceback needed for E_VERBNF
+		// (The caller may catch E_VERBNF and continue, e.g., create() calling :initialize)
+		if framePushed {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.PopFrame()
+			}
+		}
 		return types.Err(types.E_VERBNF)
 	}
 
