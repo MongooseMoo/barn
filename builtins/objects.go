@@ -404,13 +404,14 @@ func copyInheritedProperties(obj *db.Object, store *db.Store) map[string]*db.Pro
 		// Copy properties not already seen
 		for name, prop := range current.Properties {
 			if _, exists := result[name]; !exists {
-				// Copy property
+				// Copy property - inherited properties start as "clear" (inheriting value)
+				// The child doesn't have its own local value yet
 				newProp := &db.Property{
 					Name:  prop.Name,
 					Value: prop.Value,
 					Owner: prop.Owner,
 					Perms: prop.Perms,
-					Clear: prop.Clear,
+					Clear: true, // Inherited properties are "clear" until child sets own value
 				}
 				result[name] = newProp
 			}

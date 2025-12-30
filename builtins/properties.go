@@ -426,10 +426,11 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 		return types.Err(types.E_INVARG)
 	}
 
-	// Check write permission (unless wizard)
+	// Check write permission (unless wizard or owner)
 	wizObj := store.Get(ctx.Programmer)
 	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
-	if !isWizard && !foundProp.Perms.Has(db.PropWrite) {
+	isOwner := ctx.Programmer == foundProp.Owner
+	if !isWizard && !isOwner && !foundProp.Perms.Has(db.PropWrite) {
 		return types.Err(types.E_PERM)
 	}
 
