@@ -80,7 +80,7 @@ func builtinTaskLocal(ctx *types.TaskContext, args []types.Value) types.Result {
 // Sets the task-local storage for the current task
 // Requires wizard permissions
 func builtinSetTaskLocal(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
 
