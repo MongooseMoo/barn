@@ -140,6 +140,9 @@ func (s *Scheduler) runTask(t *task.Task) error {
 		return errors.New("task has no context")
 	}
 
+	// Attach task to context so builtins can access task_local
+	ctx.Task = t
+
 	// Get or create evaluator
 	evaluator := s.evaluator
 	if t.Evaluator != nil {
@@ -334,6 +337,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Context.Programmer = parent.Programmer
 	t.Context.Verb = forkInfo.Verb
 	t.Context.IsWizard = s.isWizard(parent.Programmer)
+	t.Context.Task = t // Attach task to context for task_local access
 
 	// Create evaluator with copied variable environment
 	childEnv := vm.NewEnvironment()
@@ -472,6 +476,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 		CallStack:  make([]task.ActivationFrame, 0),
 		TaskLocal:  types.NewEmptyMap(), // Initialize task_local to empty map
 	}
+	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.Task = t
 
 	// Create evaluator for execution

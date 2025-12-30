@@ -139,8 +139,14 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Set up verb call context
 	oldThis := ctx.ThisObj
+	oldThisValue := ctx.ThisValue
 	oldVerb := ctx.Verb
 	ctx.ThisObj = objID // this = object the verb was called on
+	if isPrimitive {
+		ctx.ThisValue = primitiveValue
+	} else {
+		ctx.ThisValue = nil
+	}
 	ctx.Verb = verbName
 
 	// Update environment variables for the verb call
@@ -181,6 +187,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Restore context
 	ctx.ThisObj = oldThis
+	ctx.ThisValue = oldThisValue
 	ctx.Verb = oldVerb
 
 	// Pop frame only on successful completion

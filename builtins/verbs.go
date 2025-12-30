@@ -300,9 +300,12 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_PERM)
 	}
 
+	// Use original source lines
+	sourceLines := verb.Code
+
 	// Convert source lines to list
-	lines := make([]types.Value, len(verb.Code))
-	for i, line := range verb.Code {
+	lines := make([]types.Value, len(sourceLines))
+	for i, line := range sourceLines {
 		lines[i] = types.NewStr(line)
 	}
 

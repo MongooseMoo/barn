@@ -1,0 +1,2 @@
+connect wizard
+; $server_options.max_list_value_bytes = 100; load_server_options(); x = {1,2,3}; return value_bytes(x);

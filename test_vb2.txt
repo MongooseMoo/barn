@@ -1,0 +1,2 @@
+connect wizard
+; return {value_bytes({}), value_bytes({1}), value_bytes({1,2})};

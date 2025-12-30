@@ -1,0 +1,8 @@
+connect wizard
+; waif_class = create($waif);
+; add_property(waif_class, ":data", [], {player, ""});
+; w = waif_class:new();
+; w.data = ["outer" -> ["inner" -> "value"]];
+; return w.data;
+; return w.data["outer"];
+; return w.data["outer"]["inner"];

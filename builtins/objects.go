@@ -745,9 +745,22 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_RECMOVE)
 	}
 
+	// Check for direct property conflicts between obj and new parent
+	// If obj defines a property that new_parent or its ancestors also define, that's E_INVARG
+	// (This is different from inherited properties, which can be shadowed)
+	if newParentVal.ID() != types.ObjNothing {
+		newParentProps := collectAncestorProperties(store, newParentVal.ID())
+
+		// Check properties DEFINED on obj (Defined=true)
+		for name, prop := range obj.Properties {
+			if prop.Defined && newParentProps[name] {
+				return types.Err(types.E_INVARG)
+			}
+		}
+	}
+
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new_parent or its ancestors.
-	// The object being reparented itself is NOT checked - it can shadow parent properties.
 	if newParentVal.ID() != types.ObjNothing {
 		newParentProps := collectAncestorProperties(store, newParentVal.ID())
 		if hasChparentDescendantConflict(store, obj, newParentProps) {
@@ -795,8 +808,17 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 
 	// Reset inherited property overrides when parent changes
 	// Properties that are propdefs (Defined=true) are kept
-	// Properties that are local overrides (Defined=false) are cleared
+	// Properties that are local overrides (Defined=false) are removed and re-inherited
 	resetInheritedProperties(obj)
+	// Re-inherit properties from new parent chain
+	newProps := copyInheritedProperties(obj, store)
+	// Merge with existing defined properties
+	for name, prop := range obj.Properties {
+		if prop.Defined {
+			newProps[name] = prop
+		}
+	}
+	obj.Properties = newProps
 
 	return types.Ok(types.NewInt(1))
 }
@@ -880,9 +902,8 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		}
 	}
 
-	// Check for property conflicts: only chparent-added descendants of obj
-	// cannot define properties that are also defined on new parents or their ancestors.
-	// The object being reparented itself is NOT checked - it can shadow parent properties.
+	// Check for direct property conflicts between obj and new parents
+	// If obj defines a property that any new parent or their ancestors also define, that's E_INVARG
 	allNewParentProps := make(map[string]bool)
 	for _, parentID := range newParents {
 		props := collectAncestorProperties(store, parentID)
@@ -890,6 +911,16 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 			allNewParentProps[name] = true
 		}
 	}
+
+	// Check properties DEFINED on obj (Defined=true)
+	for name, prop := range obj.Properties {
+		if prop.Defined && allNewParentProps[name] {
+			return types.Err(types.E_INVARG)
+		}
+	}
+
+	// Check for property conflicts: only chparent-added descendants of obj
+	// cannot define properties that are also defined on new parents or their ancestors.
 	if hasChparentDescendantConflict(store, obj, allNewParentProps) {
 		return types.Err(types.E_INVARG)
 	}
@@ -933,6 +964,20 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 			newParent.ChparentChildren[objVal.ID()] = true
 		}
 	}
+
+	// Reset inherited property overrides when parents change
+	// Properties that are propdefs (Defined=true) are kept
+	// Properties that are local overrides (Defined=false) are removed and re-inherited
+	resetInheritedProperties(obj)
+	// Re-inherit properties from new parent chain
+	newProps := copyInheritedProperties(obj, store)
+	// Merge with existing defined properties
+	for name, prop := range obj.Properties {
+		if prop.Defined {
+			newProps[name] = prop
+		}
+	}
+	obj.Properties = newProps
 
 	return types.Ok(types.NewInt(0))
 }

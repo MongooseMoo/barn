@@ -61,19 +61,19 @@ func builtinTaskLocal(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Get task-local from task if available
-	if ctx.Task != nil {
-		if t, ok := ctx.Task.(*task.Task); ok {
-			return types.Ok(t.GetTaskLocal())
-		}
-	}
-
-	// Fallback to context for backward compatibility
-	if ctx.TaskLocal == nil {
+	// ctx.Task must be set for task_local to work
+	if ctx.Task == nil {
+		// This should never happen in normal execution - return empty map as safe fallback
 		return types.Ok(types.NewEmptyMap())
 	}
 
-	return types.Ok(ctx.TaskLocal)
+	// Get task-local from task
+	if t, ok := ctx.Task.(*task.Task); ok {
+		return types.Ok(t.GetTaskLocal())
+	}
+
+	// Should never reach here - return empty map
+	return types.Ok(types.NewEmptyMap())
 }
 
 // builtinSetTaskLocal implements set_task_local(value)
@@ -89,17 +89,19 @@ func builtinSetTaskLocal(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	// Set task-local in task if available
-	if ctx.Task != nil {
-		if t, ok := ctx.Task.(*task.Task); ok {
-			t.SetTaskLocal(args[0])
-			return types.Ok(types.NewInt(0))
-		}
+	// ctx.Task must be set for set_task_local to work
+	if ctx.Task == nil {
+		// This should never happen in normal execution - return success silently
+		return types.Ok(types.NewInt(0))
 	}
 
-	// Fallback to context for backward compatibility
-	ctx.TaskLocal = args[0]
+	// Set task-local in task
+	if t, ok := ctx.Task.(*task.Task); ok {
+		t.SetTaskLocal(args[0])
+		return types.Ok(types.NewInt(0))
+	}
 
+	// Should never reach here
 	return types.Ok(types.NewInt(0))
 }
 

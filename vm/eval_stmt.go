@@ -17,9 +17,19 @@ func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) 
 	for _, stmt := range stmts {
 		result := e.EvalStmt(stmt, ctx)
 		// FlowFork: fork schedules a background task, but the parent continues execution
-		// Without a full scheduler, fork is essentially a no-op for the parent, but
-		// we must NOT return early - the parent must continue executing subsequent statements
 		if result.Flow == types.FlowFork {
+			// If we have a ForkCreator (scheduler), create the child task and assign fork variable
+			if ctx.Task != nil {
+				if t, ok := ctx.Task.(*task.Task); ok && t.ForkCreator != nil && result.ForkInfo != nil {
+					childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
+
+					// If named fork, store child ID in parent's variable
+					if result.ForkInfo.VarName != "" {
+						e.env.Set(result.ForkInfo.VarName, types.NewInt(childID))
+					}
+				}
+			}
+			// Parent continues execution
 			continue
 		}
 		// Propagate other control flow (return, break, continue, error)

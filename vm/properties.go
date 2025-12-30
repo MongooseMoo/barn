@@ -200,7 +200,19 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 
 	// Check if result is a waif
 	if waifVal, ok := objResult.Val.(types.WaifValue); ok {
-		return e.assignWaifProperty(waifVal, node, value, ctx)
+		newWaif, result := e.assignWaifProperty(waifVal, node, value, ctx)
+		if !result.IsNormal() {
+			return result
+		}
+
+		// Update the variable that holds the waif (waifs are immutable, copy-on-write)
+		// For now, only handle simple identifier case: w.data = value
+		// TODO: Handle complex cases (nested properties, indexed access)
+		if ident, ok := node.Expr.(*parser.IdentifierExpr); ok {
+			e.env.Set(ident.Name, newWaif)
+		}
+
+		return result
 	}
 
 	// Check that result is an object
@@ -470,19 +482,19 @@ func (e *Evaluator) waifProperty(waif types.WaifValue, node *parser.PropertyExpr
 // assignWaifProperty handles property assignment on a waif: waif.property = value
 // Returns E_PERM for attempts to set .owner, .class, .wizard, or .programmer
 // Returns E_RECMOVE if value contains the waif itself (circular reference)
-func (e *Evaluator) assignWaifProperty(waif types.WaifValue, node *parser.PropertyExpr, value types.Value, ctx *types.TaskContext) types.Result {
+func (e *Evaluator) assignWaifProperty(waif types.WaifValue, node *parser.PropertyExpr, value types.Value, ctx *types.TaskContext) (types.WaifValue, types.Result) {
 	// Get property name (static or dynamic)
 	propName := node.Property
 	if propName == "" && node.PropertyExpr != nil {
 		// Dynamic property name - evaluate the expression
 		propResult := e.Eval(node.PropertyExpr, ctx)
 		if !propResult.IsNormal() {
-			return propResult
+			return types.WaifValue{}, propResult
 		}
 		// The property name must be a string
 		strVal, ok := propResult.Val.(types.StrValue)
 		if !ok {
-			return types.Err(types.E_TYPE)
+			return types.WaifValue{}, types.Err(types.E_TYPE)
 		}
 		propName = strVal.Value()
 	}
@@ -490,23 +502,20 @@ func (e *Evaluator) assignWaifProperty(waif types.WaifValue, node *parser.Proper
 	// These properties cannot be set on waifs
 	switch propName {
 	case "owner", "class", "wizard", "programmer":
-		return types.Err(types.E_PERM)
+		return types.WaifValue{}, types.Err(types.E_PERM)
 	}
 
 	// Check for self-reference (circular reference)
 	if containsWaif(value, waif) {
-		return types.Err(types.E_RECMOVE)
+		return types.WaifValue{}, types.Err(types.E_RECMOVE)
 	}
 
 	// Set property on waif (this creates a new waif value with the property set)
-	// NOTE: This doesn't actually persist the change in barn's current architecture
-	// because waifs are immutable values. The calling code needs to handle updating
-	// the variable that holds the waif.
-	// For now, we'll just return success - the actual persistence will be handled
-	// by the assignment expression evaluator.
-	_ = waif.SetProperty(propName, value)
+	// Waifs are immutable values, so this returns a new waif with the property set.
+	// The caller must update the variable that holds the waif.
+	newWaif := waif.SetProperty(propName, value)
 
-	return types.Ok(value)
+	return newWaif, types.Ok(value)
 }
 
 // containsWaif checks if val contains or equals the waif (for circular reference detection)

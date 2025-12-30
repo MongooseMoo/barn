@@ -344,21 +344,53 @@ func (t *Task) Kill() {
 }
 
 // ToQueuedTaskInfo returns task info for queued_tasks()
-// Format: {task_id, start_time, x, y, z, programmer, ...}
-// For now, simplified version
+// Format: {task_id, start_time, clock_id, bg_ticks, programmer, verb_loc, verb_name, line, this, bytes}
 func (t *Task) ToQueuedTaskInfo() types.Value {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	// queued_tasks() returns:
-	// {task_id, start_time, x, y, z, programmer, verb_loc, verb_name, line, this}
-	// We'll return a simplified version with the key fields
+	// Get information from the top frame if call stack exists
+	var verbName string
+	var verbLoc types.ObjID
+	var lineNumber int
+	var thisVal types.Value
+	var programmer types.ObjID
+
+	if len(t.CallStack) > 0 {
+		topFrame := t.CallStack[len(t.CallStack)-1]
+		verbName = topFrame.Verb
+		verbLoc = topFrame.VerbLoc
+		lineNumber = topFrame.LineNumber
+		programmer = topFrame.Programmer
+
+		// Use ThisValue if set (primitive prototype call), else This (object ID)
+		if topFrame.ThisValue != nil {
+			thisVal = topFrame.ThisValue
+		} else {
+			thisVal = types.NewObj(topFrame.This)
+		}
+	} else {
+		// Fallback if no call stack
+		verbName = t.VerbName
+		verbLoc = t.VerbLoc
+		lineNumber = 1
+		programmer = t.Owner
+		thisVal = types.NewObj(t.This)
+	}
+
+	// Estimate bytes (0 for now, can be calculated later if needed)
+	bytes := int64(0)
+
 	return types.NewList([]types.Value{
-		types.NewInt(t.ID),
-		types.NewInt(t.QueueTime.Unix()), // start_time as Unix timestamp
-		types.NewInt(0), // x (unused)
-		types.NewInt(0), // y (unused)
-		types.NewInt(0), // z (unused)
-		types.NewObj(t.Owner), // programmer
+		types.NewInt(t.ID),                    // [1] task_id
+		types.NewInt(t.QueueTime.Unix()),      // [2] start_time
+		types.NewInt(0),                        // [3] obsolete clock ID
+		types.NewInt(30000),                    // [4] DEFAULT_BG_TICKS (obsolete)
+		types.NewObj(programmer),               // [5] programmer
+		types.NewObj(verbLoc),                  // [6] verb_loc
+		types.NewStr(verbName),                 // [7] verb_name
+		types.NewInt(int64(lineNumber)),        // [8] line_number
+		thisVal,                                // [9] this (OBJ or primitive value)
+		types.NewInt(bytes),                    // [10] bytes
 	})
 }

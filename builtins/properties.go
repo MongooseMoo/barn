@@ -433,23 +433,9 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 		return types.Err(types.E_PERM)
 	}
 
-	// Get or create property entry
-	prop, exists := obj.Properties[propName]
-	if !exists {
-		// Create a clear property (not a defined property)
-		obj.Properties[propName] = &db.Property{
-			Name:    propName,
-			Value:   nil,
-			Owner:   ctx.Programmer,
-			Perms:   db.PropRead | db.PropWrite,
-			Clear:   true,
-			Defined: false, // Not defined via add_property
-		}
-	} else {
-		// Clear existing property
-		prop.Clear = true
-		prop.Value = nil
-	}
+	// Clear property by removing local entry
+	// This causes the property to inherit from parent
+	delete(obj.Properties, propName)
 
 	return types.Ok(types.NewInt(0))
 }
@@ -494,31 +480,39 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(err)
 	}
 
-	// Check read permission (unless wizard or owner)
-	wizObj := store.Get(ctx.Programmer)
-	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
-	isOwner := ctx.Programmer == definingProp.Owner
-	if !isWizard && !isOwner && !definingProp.Perms.Has(db.PropRead) {
-		return types.Err(types.E_PERM)
-	}
-
-	// Check if property exists directly on this object
+	// Check if property exists directly on this object and determine clear state FIRST
 	prop, exists := obj.Properties[propName]
+	var isClear bool
 	if exists {
 		// Property is defined on this object (via add_property)
 		if prop.Defined {
-			return types.Ok(types.NewInt(0))
+			isClear = false
+		} else if prop.Clear {
+			// Property exists as cleared local value
+			isClear = true
+		} else {
+			// Property exists as local value override
+			isClear = false
 		}
-		// Property exists as local value override
-		// Return 1 if clear, 0 if has local value
-		if prop.Clear {
-			return types.Ok(types.NewInt(1))
-		}
-		return types.Ok(types.NewInt(0))
+	} else {
+		// Property not on this object - it's inherited (counts as "clear")
+		isClear = true
 	}
 
-	// Property not on this object - it's inherited (counts as "clear")
-	return types.Ok(types.NewInt(1))
+	// NOW check read permission (unless wizard or owner)
+	wizObj := store.Get(ctx.Programmer)
+	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	isOwner := ctx.Programmer == definingProp.Owner
+	hasReadPerm := definingProp.Perms.Has(db.PropRead)
+	if !isWizard && !isOwner && !hasReadPerm {
+		return types.Err(types.E_PERM)
+	}
+
+	// Return clear state
+	if isClear {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
 }
 
 // Helper functions

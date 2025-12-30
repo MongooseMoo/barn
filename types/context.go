@@ -9,7 +9,8 @@ type TaskContext struct {
 	TicksRemaining int64  // Infinite loop protection
 	Player         ObjID  // Current player
 	Programmer     ObjID  // Effective permissions
-	ThisObj        ObjID  // Current 'this'
+	ThisObj        ObjID  // Current 'this' (might be prototype for primitives)
+	ThisValue      Value  // Actual value of 'this' (primitive value, or nil for objects)
 	Verb           string // Current verb name
 
 	// IndexContext is the length of the collection currently being indexed
