@@ -232,7 +232,12 @@ func builtinDecodeBinary(ctx *types.TaskContext, args []types.Value) types.Resul
 		for _, b := range bytes {
 			elements = append(elements, types.NewInt(int64(b)))
 		}
-		return types.Ok(types.NewList(elements))
+		result := types.NewList(elements)
+		// Check size limit
+		if err := CheckListLimit(result); err != types.E_NONE {
+			return types.Err(err)
+		}
+		return types.Ok(result)
 	}
 
 	// Group printable ASCII (32-126, excluding ~) as strings, non-printable as ints
@@ -258,7 +263,13 @@ func builtinDecodeBinary(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 	flushString() // Flush any remaining string
 
-	return types.Ok(types.NewList(elements))
+	result := types.NewList(elements)
+	// Check size limit
+	if err := CheckListLimit(result); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(result)
 }
 
 // decodeBinaryString decodes a ~XX encoded string
@@ -706,8 +717,8 @@ func builtinStringHash(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
-		// Return raw bytes as string (MOO binary string)
-		return types.Ok(types.NewStr(string(hashBytes)))
+		// Return bytes as MOO binary string with all bytes ~XX encoded
+		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -753,8 +764,8 @@ func builtinBinaryHash(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
-		// Return raw bytes as string (MOO binary string)
-		return types.Ok(types.NewStr(string(hashBytes)))
+		// Return bytes as MOO binary string with all bytes ~XX encoded
+		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -790,8 +801,8 @@ func builtinValueHash(ctx *types.TaskContext, args []types.Value) types.Result {
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
-		// Return raw bytes as string (MOO binary string)
-		return types.Ok(types.NewStr(string(hashBytes)))
+		// Return bytes as MOO binary string with all bytes ~XX encoded
+		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -847,8 +858,8 @@ func builtinStringHmac(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
-		// Return raw bytes as string (MOO binary string)
-		return types.Ok(types.NewStr(string(hashBytes)))
+		// Return bytes as MOO binary string with all bytes ~XX encoded
+		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -905,8 +916,8 @@ func builtinBinaryHmac(ctx *types.TaskContext, args []types.Value) types.Result 
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
-		// Return raw bytes as string (MOO binary string)
-		return types.Ok(types.NewStr(string(hashBytes)))
+		// Return bytes as MOO binary string with all bytes ~XX encoded
+		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -952,8 +963,8 @@ func builtinValueHmac(ctx *types.TaskContext, args []types.Value) types.Result {
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
-		// Return raw bytes as string (MOO binary string)
-		return types.Ok(types.NewStr(string(hashBytes)))
+		// Return bytes as MOO binary string with all bytes ~XX encoded
+		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
 	}
 	return types.Ok(types.NewStr(strings.ToUpper(hex.EncodeToString(hashBytes))))
 }
@@ -1155,6 +1166,7 @@ func builtinRandomBytes(ctx *types.TaskContext, args []types.Value) types.Result
 }
 
 // encodeBinaryStr encodes bytes as MOO binary string (~XX)
+// This encodes non-printable bytes and tildes, leaving printable ASCII as-is
 func encodeBinaryStr(data []byte) string {
 	var result strings.Builder
 	for _, b := range data {
@@ -1165,6 +1177,16 @@ func encodeBinaryStr(data []byte) string {
 		} else {
 			result.WriteByte(b)
 		}
+	}
+	return result.String()
+}
+
+// encodeAllBinaryStr encodes ALL bytes as ~XX format (for hash binary output)
+// Unlike encodeBinaryStr, this doesn't leave printable ASCII unencoded
+func encodeAllBinaryStr(data []byte) string {
+	var result strings.Builder
+	for _, b := range data {
+		result.WriteString(encodeByteHex(b))
 	}
 	return result.String()
 }

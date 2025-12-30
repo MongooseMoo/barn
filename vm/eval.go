@@ -674,7 +674,14 @@ func (e *Evaluator) mapExpr(node *parser.MapExpr, ctx *types.TaskContext) types.
 		pairs = append(pairs, [2]types.Value{keyResult.Val, valueResult.Val})
 	}
 
-	return types.Ok(types.NewMap(pairs))
+	resultMap := types.NewMap(pairs)
+
+	// Check size limit
+	if err := builtins.CheckMapLimit(resultMap); err != types.E_NONE {
+		return types.Err(err)
+	}
+
+	return types.Ok(resultMap)
 }
 
 // Note: Operator implementation functions (evalAdd, evalSubtract, etc.)
