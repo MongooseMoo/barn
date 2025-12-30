@@ -210,7 +210,7 @@ func GetMaxMapValueBytes() int {
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 func CheckListLimit(list types.ListValue) types.ErrorCode {
 	limit := GetMaxListValueBytes()
-	if limit > 0 && ValueBytes(list) >= limit {
+	if limit > 0 && ValueBytes(list) > limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE

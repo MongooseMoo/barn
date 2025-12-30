@@ -438,10 +438,7 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
-		// Check if object was already recycled - that's a no-op
-		if store.IsRecycled(objID) {
-			return types.Ok(types.NewInt(0))
-		}
+		// Object doesn't exist or was already recycled - both are E_INVARG
 		return types.Err(types.E_INVARG)
 	}
 

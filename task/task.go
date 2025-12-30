@@ -127,6 +127,7 @@ type Task struct {
 	// For suspension/resumption
 	WakeTime     time.Time
 	WakeValue    types.Value // Value to return when resumed
+	IsExecSuspended bool     // True if suspended by exec() (can't resume, only kill)
 
 	// For forked tasks
 	ForkInfo     *types.ForkInfo // Fork information (only for forked tasks)
@@ -319,10 +320,15 @@ func (t *Task) Suspend(duration time.Duration) {
 }
 
 // Resume resumes the task with a value
+// Returns false if task is not suspended or is exec-suspended
 func (t *Task) Resume(value types.Value) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.State != TaskSuspended {
+		return false
+	}
+	// Can't resume exec-suspended tasks - they must complete on their own or be killed
+	if t.IsExecSuspended {
 		return false
 	}
 	t.State = TaskQueued

@@ -103,10 +103,11 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.S
 		return types.Err(err)
 	}
 
-	// Check read permission (unless wizard)
+	// Check read permission (unless wizard or owner)
 	wizObj := store.Get(ctx.Programmer)
 	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
-	if !isWizard && !prop.Perms.Has(db.PropRead) {
+	isOwner := ctx.Programmer == prop.Owner
+	if !isWizard && !isOwner && !prop.Perms.Has(db.PropRead) {
 		return types.Err(types.E_PERM)
 	}
 
@@ -493,10 +494,11 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(err)
 	}
 
-	// Check read permission (unless wizard)
+	// Check read permission (unless wizard or owner)
 	wizObj := store.Get(ctx.Programmer)
 	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
-	if !isWizard && !definingProp.Perms.Has(db.PropRead) {
+	isOwner := ctx.Programmer == definingProp.Owner
+	if !isWizard && !isOwner && !definingProp.Perms.Has(db.PropRead) {
 		return types.Err(types.E_PERM)
 	}
 

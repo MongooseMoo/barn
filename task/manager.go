@@ -84,10 +84,15 @@ func (m *Manager) GetQueuedTasks() []*Task {
 }
 
 // KillTask kills a task by ID
-// Returns ErrorCode if task doesn't exist or caller doesn't have permission
+// Returns ErrorCode if task doesn't exist, already killed, or caller doesn't have permission
 func (m *Manager) KillTask(taskID int64, killerID types.ObjID, isWizard bool) types.ErrorCode {
 	task := m.GetTask(taskID)
 	if task == nil {
+		return types.E_INVARG
+	}
+
+	// Check if task is already killed
+	if task.GetState() == TaskKilled {
 		return types.E_INVARG
 	}
 
