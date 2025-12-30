@@ -57,6 +57,7 @@ func NewRegistry() *Registry {
 	r.Register("rtrim", builtinRtrim)
 	r.Register("match", builtinMatch)
 	r.Register("rmatch", builtinRmatch)
+	r.Register("substitute", builtinSubstitute)
 
 	// Register list builtins (Layer 7.2)
 	r.Register("listappend", builtinListappend)
@@ -229,4 +230,5 @@ func (r *Registry) RegisterSystemBuiltins(store *db.Store) {
 	r.Register("load_server_options", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinLoadServerOptions(ctx, args, store)
 	})
+	r.Register("value_bytes", builtinValueBytes)
 }
