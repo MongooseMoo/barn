@@ -55,14 +55,15 @@ func (s TaskState) String() string {
 // ActivationFrame represents a single verb call on the call stack
 // This is what callers() returns
 type ActivationFrame struct {
-	This       types.ObjID   // Object this verb is called on
-	Player     types.ObjID   // Player who initiated this task
-	Programmer types.ObjID   // Programmer (for permissions)
-	Caller     types.ObjID   // Object that called this verb
-	Verb       string        // Verb name
-	VerbLoc    types.ObjID   // Object where verb is defined
-	Args       []types.Value // Arguments passed to verb
-	LineNumber int           // Current line number in verb
+	This            types.ObjID   // Object this verb is called on
+	Player          types.ObjID   // Player who initiated this task
+	Programmer      types.ObjID   // Programmer (for permissions)
+	Caller          types.ObjID   // Object that called this verb
+	Verb            string        // Verb name
+	VerbLoc         types.ObjID   // Object where verb is defined
+	Args            []types.Value // Arguments passed to verb
+	LineNumber      int           // Current line number in verb
+	ServerInitiated bool          // True if this is a server-invoked call (do_login_command, etc.)
 }
 
 // ToList converts an activation frame to a MOO list for callers()

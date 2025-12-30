@@ -4,6 +4,7 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/server"
+	"barn/trace"
 	"barn/types"
 	"barn/vm"
 	"flag"
@@ -18,6 +19,10 @@ import (
 func main() {
 	dbPath := flag.String("db", "Test.db", "Database file path")
 	port := flag.Int("port", 7777, "Listen port")
+
+	// Trace flags
+	traceEnabled := flag.Bool("trace", false, "Enable execution tracing")
+	traceFilter := flag.String("trace-filter", "", "Trace filter pattern (glob, e.g., 'do_*' or 'user_*')")
 
 	// Inspection flags
 	verbCode := flag.String("verb-code", "", "Dump verb code for #obj:verb (e.g., #0:do_login_command)")
@@ -70,6 +75,21 @@ func main() {
 	log.Printf("Barn MOO Server")
 	log.Printf("Database: %s", *dbPath)
 	log.Printf("Port: %d", *port)
+
+	// Initialize tracer
+	if *traceEnabled {
+		var filters []string
+		if *traceFilter != "" {
+			filters = strings.Split(*traceFilter, ",")
+			for i := range filters {
+				filters[i] = strings.TrimSpace(filters[i])
+			}
+		}
+		trace.Init(true, filters, os.Stderr)
+		log.Printf("Tracing enabled (filters: %v)", filters)
+	} else {
+		trace.Init(false, nil, nil)
+	}
 
 	srv, err := server.NewServer(*dbPath, *port)
 	if err != nil {

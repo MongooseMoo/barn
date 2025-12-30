@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/trace"
 	"barn/types"
 	"fmt"
 )
@@ -47,6 +48,9 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	message := messageVal.Value()
+
+	// Trace notify call
+	trace.Notify(player, message)
 
 	// Get no_flush (optional)
 	noFlush := false

@@ -187,9 +187,14 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Get the call stack
 	stack := t.GetCallStack()
 
-	// Convert to MOO list format
+	// Convert to MOO list format, filtering out server-initiated frames
 	result := make([]types.Value, 0, len(stack))
 	for _, frame := range stack {
+		// Skip server-initiated frames (do_login_command, user_connected, etc.)
+		if frame.ServerInitiated {
+			continue
+		}
+
 		if includeLineNumbers {
 			result = append(result, frame.ToList())
 		} else {

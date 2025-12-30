@@ -120,14 +120,15 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
 			frame := task.ActivationFrame{
-				This:       defObjID,
-				Player:     ctx.Player,
-				Programmer: ctx.Programmer,
-				Caller:     ctx.ThisObj, // The object that called this verb
-				Verb:       verbName,
-				VerbLoc:    defObjID,
-				Args:       args,
-				LineNumber: 0, // TODO: Track line numbers during execution
+				This:            defObjID,
+				Player:          ctx.Player,
+				Programmer:      ctx.Programmer,
+				Caller:          ctx.ThisObj, // The object that called this verb
+				Verb:            verbName,
+				VerbLoc:         defObjID,
+				Args:            args,
+				LineNumber:      0,     // TODO: Track line numbers during execution
+				ServerInitiated: false, // This is a MOO-code verb call, not server-initiated
 			}
 			t.PushFrame(frame)
 			framePushed = true
@@ -227,14 +228,15 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
 			frame := task.ActivationFrame{
-				This:       objID,           // The object we're calling on
-				Player:     ctx.Player,
-				Programmer: ctx.Programmer,
-				Caller:     ctx.ThisObj,     // The object that called this verb
-				Verb:       verbName,
-				VerbLoc:    objID,           // Will be updated if verb found
-				Args:       args,
-				LineNumber: 1,               // Line 1 for verb call
+				This:            objID,              // The object we're calling on
+				Player:          ctx.Player,
+				Programmer:      ctx.Programmer,
+				Caller:          ctx.ThisObj,        // The object that called this verb
+				Verb:            verbName,
+				VerbLoc:         objID,              // Will be updated if verb found
+				Args:            args,
+				LineNumber:      1,                  // Line 1 for verb call
+				ServerInitiated: ctx.ServerInitiated, // Mark server-initiated frames
 			}
 			t.PushFrame(frame)
 			framePushed = true

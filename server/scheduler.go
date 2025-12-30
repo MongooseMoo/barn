@@ -4,6 +4,7 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/task"
+	"barn/trace"
 	"barn/types"
 	"barn/vm"
 	"container/heap"
@@ -347,6 +348,9 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
 func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) types.Result {
+	// Trace verb call
+	trace.VerbCall(objID, verbName, args, player, player)
+
 	// Create a lightweight task FIRST for call stack tracking
 	// This ensures we have a stack even if verb lookup fails
 	t := &task.Task{
@@ -366,12 +370,15 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		ctx.IsWizard = s.isWizard(player)
 		ctx.ThisObj = objID
 		ctx.Verb = verbName
+		ctx.ServerInitiated = true // Mark as server-initiated
 		ctx.Task = t // Attach task so CallVerb can track the failed call
 
 		result := s.evaluator.CallVerb(objID, verbName, args, ctx)
 		// Extract call stack BEFORE popping frames
 		if result.Flow == types.FlowException {
 			result.CallStack = t.GetCallStack()
+			// Trace exception
+			trace.Exception(objID, verbName, result.Error)
 		}
 		// Clean up call stack
 		if len(t.CallStack) > 0 {
@@ -389,6 +396,7 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner
 	ctx.ThisObj = objID
 	ctx.Verb = verbName
+	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Task = t // Attach task so CallVerb can track frames
 
 	result := s.evaluator.CallVerb(objID, verbName, args, ctx)
@@ -397,6 +405,11 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// If there was an exception, attach the call stack to the result
 	if result.Flow == types.FlowException {
 		result.CallStack = t.GetCallStack()
+		// Trace exception
+		trace.Exception(objID, verbName, result.Error)
+	} else {
+		// Trace return value
+		trace.VerbReturn(objID, verbName, result.Val)
 	}
 
 	// Now clean up the call stack for successful calls

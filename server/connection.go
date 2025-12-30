@@ -4,6 +4,7 @@ import (
 	"barn/builtins"
 	"barn/db"
 	"barn/task"
+	"barn/trace"
 	"barn/types"
 	"context"
 	"fmt"
@@ -213,6 +214,9 @@ func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Co
 
 // HandleConnection processes a connection (exported for testing)
 func (cm *ConnectionManager) HandleConnection(conn *Connection) {
+	// Trace new connection
+	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
+
 	defer func() {
 		cm.removeConnection(conn)
 		conn.Close()
@@ -367,6 +371,13 @@ func (cm *ConnectionManager) loginPlayer(conn *Connection, player types.ObjID) {
 
 	cm.mu.Unlock()
 
+	// Trace login event
+	if reconnection {
+		trace.Connection("RECONNECT", conn.ID, player, "")
+	} else {
+		trace.Connection("LOGIN", conn.ID, player, "")
+	}
+
 	// Call hooks outside the lock
 	if alreadyLoggedIn {
 		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
@@ -487,6 +498,13 @@ func (cm *ConnectionManager) removeConnection(conn *Connection) {
 		delete(cm.playerConns, player)
 	}
 	cm.mu.Unlock()
+
+	// Trace disconnect event
+	if wasLoggedIn {
+		trace.Connection("DISCONNECT", conn.ID, player, "")
+	} else {
+		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID), "unlogged")
+	}
 
 	// Call hook OUTSIDE the lock to prevent deadlock
 	if wasLoggedIn {

@@ -31,6 +31,10 @@ type TaskContext struct {
 	// IsWizard indicates if the current programmer has wizard permissions
 	IsWizard bool
 
+	// ServerInitiated indicates if this is a server-initiated call (do_login_command, etc.)
+	// Server-initiated frames are excluded from callers() results
+	ServerInitiated bool
+
 	// Task is a reference to the actual Task object (if this context is part of a task)
 	// This allows builtins to access the call stack, suspend/resume, etc.
 	// Import cycle prevention: This is stored as interface{} and cast to *task.Task when needed
