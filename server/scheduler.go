@@ -212,7 +212,14 @@ func (s *Scheduler) runTask(t *task.Task) error {
 
 				// If named fork, store child ID in parent's variable
 				if result.ForkInfo.VarName != "" {
+					println("[DEBUG] Setting fork variable:", result.ForkInfo.VarName, "=", childID)
 					evaluator.GetEnvironment().Set(result.ForkInfo.VarName, types.NewInt(childID))
+					// Verify it was set
+					if val, ok := evaluator.GetEnvironment().Get(result.ForkInfo.VarName); ok {
+						println("[DEBUG] Variable verified:", result.ForkInfo.VarName, "=", val.String())
+					} else {
+						println("[DEBUG] ERROR: Variable not found after Set!")
+					}
 				}
 			}
 			// Parent continues execution

@@ -161,21 +161,21 @@ func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result
 
 	// Get the task from context
 	if ctx.Task == nil {
-		// No task - return NOTHING
-		return types.Ok(types.NewObj(types.NOTHING))
+		// No task - return programmer from context (top-level eval)
+		return types.Ok(types.NewObj(ctx.Programmer))
 	}
 
 	t, ok := ctx.Task.(*task.Task)
 	if !ok {
-		return types.Ok(types.NewObj(types.NOTHING))
+		return types.Ok(types.NewObj(ctx.Programmer))
 	}
 
 	// Get the call stack
 	stack := t.GetCallStack()
 
-	// Need at least 2 frames to have a caller
+	// If less than 2 frames, return the task's programmer (top-level eval)
 	if len(stack) < 2 {
-		return types.Ok(types.NewObj(types.NOTHING))
+		return types.Ok(types.NewObj(t.Programmer))
 	}
 
 	// Return the programmer of the PREVIOUS frame (the caller)
