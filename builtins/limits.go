@@ -148,42 +148,49 @@ func builtinValueBytes(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 // ValueBytes calculates the byte size of a MOO value.
-// This matches the algorithm from spec/builtins/limits.md.
+// This matches Toast's value_bytes() algorithm from src/utils.cc.
+// Toast uses sizeof(Var) = 16 bytes as the base size for all values.
 func ValueBytes(v types.Value) int {
-	base := 8 // sizeof pointer/interface
+	const varSize = 16 // sizeof(Var) in Toast - base size for any value
+
 	switch val := v.(type) {
 	case types.IntValue:
-		return base + 8
+		// Integer fits in Var structure
+		return varSize
 	case types.FloatValue:
-		return base + 8
+		// Var + separate double storage
+		return varSize + 8
 	case types.StrValue:
-		return base + len(val.Value()) + 1
+		// Var + string data + null terminator
+		return varSize + len(val.Value()) + 1
 	case types.ObjValue:
-		return base + 8
+		// Object ID fits in Var structure
+		return varSize
 	case types.ErrValue:
-		return base + 4
+		// Error code fits in Var structure
+		return varSize
 	case types.ListValue:
-		// List overhead: base pointer (8) + list header (8) + slice overhead (16)
-		// Toast's value_bytes counts: base + length word + capacity + data pointer + elements
-		size := base + 8 + 16 // base + list metadata + slice overhead
+		// List contains: Var for the list itself + Var for length + elements
+		// Toast: sizeof(Var) + list_sizeof() where list_sizeof = sizeof(Var) + elements
+		size := varSize + varSize // list Var + length Var
 		for i := 1; i <= val.Len(); i++ {
 			size += ValueBytes(val.Get(i))
 		}
 		return size
 	case types.MapValue:
-		// Map overhead: base pointer (8) + map header (8) + internal structures (16)
-		size := base + 8 + 16 // base + map metadata + internal overhead
+		// Similar to list: Var for map + overhead + entries
+		size := varSize + varSize // map Var + overhead
 		for _, pair := range val.Pairs() {
 			size += ValueBytes(pair[0]) + ValueBytes(pair[1])
 		}
 		return size
 	case types.WaifValue:
-		// Waif size = base + class ref + property values
-		size := base + 16
-		// Add property values if accessible
+		// Waif: Var + class reference
+		size := varSize + varSize // waif Var + class ref
+		// Note: actual waif properties not included here (matches Toast behavior)
 		return size
 	default:
-		return base
+		return varSize
 	}
 }
 
