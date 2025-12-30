@@ -91,7 +91,7 @@ func (s *Scheduler) processReadyTasks() {
 	now := time.Now()
 	var readyTasks []*task.Task
 
-	// Collect all ready tasks
+	// Collect all ready tasks from waiting queue
 	for s.waiting.Len() > 0 {
 		t := s.waiting.Peek()
 		if t.StartTime.After(now) {
@@ -99,6 +99,20 @@ func (s *Scheduler) processReadyTasks() {
 		}
 		heap.Pop(s.waiting)
 		readyTasks = append(readyTasks, t)
+	}
+
+	// Check for resumed tasks that need to be re-run
+	// These are tasks that were suspended and later resumed via resume() builtin
+	for _, t := range s.tasks {
+		// TaskQueued state means it was resumed and is ready to run again
+		// We need to check if it's not already in readyTasks and not in waiting queue
+		if t.GetState() == task.TaskQueued && t.StmtIndex > 0 {
+			// This is a resumed task (StmtIndex > 0 means it was partially executed)
+			// Check if wake time has passed (or no wake time was set)
+			if t.WakeTime.IsZero() || !t.WakeTime.After(now) {
+				readyTasks = append(readyTasks, t)
+			}
+		}
 	}
 
 	s.mu.Unlock()
@@ -261,6 +275,9 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 	t.SetState(task.TaskQueued)
 	s.tasks[t.ID] = t
 	heap.Push(s.waiting, t)
+
+	// Also register with global task manager so builtins can find it
+	task.GetManager().RegisterTask(t)
 
 	return t.ID
 }

@@ -32,6 +32,22 @@ func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) 
 			// Parent continues execution
 			continue
 		}
+		// FlowSuspend: for synchronous execution, sleep and continue
+		if result.Flow == types.FlowSuspend {
+			// Get suspend duration from result.Val
+			var seconds float64
+			if fv, ok := result.Val.(types.FloatValue); ok {
+				seconds = fv.Val
+			} else if iv, ok := result.Val.(types.IntValue); ok {
+				seconds = float64(iv.Val)
+			}
+			// Sleep for the duration (timed suspend)
+			if seconds > 0 {
+				time.Sleep(time.Duration(seconds * float64(time.Second)))
+			}
+			// Continue to next statement after suspend
+			continue
+		}
 		// Propagate other control flow (return, break, continue, error)
 		if !result.IsNormal() {
 			return result
