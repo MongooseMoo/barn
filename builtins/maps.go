@@ -186,7 +186,7 @@ func isValidMapKey(v types.Value) bool {
 }
 
 // builtinMaphaskey tests if a key exists in the map
-// maphaskey(map, key) -> bool
+// maphaskey(map, key) -> int (1 if found, 0 if not)
 func builtinMaphaskey(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -205,7 +205,10 @@ func builtinMaphaskey(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	_, found := m.Get(key)
-	return types.Ok(types.BoolValue{Val: found})
+	if found {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
 }
 
 // builtinMapmerge merges two maps (map2 values override map1 on duplicates)
