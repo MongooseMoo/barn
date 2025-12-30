@@ -49,8 +49,12 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value, store *db.Sto
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
+	objID := objVal.ID()
+	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -85,8 +89,17 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.S
 		return types.Err(types.E_TYPE)
 	}
 
+	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_INVIND)
+	}
+
 	// Find property (with inheritance)
-	prop, err := findPropertyInChain(objVal.ID(), nameVal.Value(), store)
+	prop, err := findPropertyInChain(objID, nameVal.Value(), store)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -120,8 +133,12 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
+	objID := objVal.ID()
+	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -190,8 +207,12 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	value := args[2]
 
-	obj := store.Get(objVal.ID())
+	objID := objVal.ID()
+	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -277,8 +298,12 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
+	objID := objVal.ID()
+	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -323,15 +348,19 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
+	objID := objVal.ID()
+	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
 	propName := nameVal.Value()
 
 	// Check if property exists (anywhere in chain)
-	_, err := findPropertyInChain(objVal.ID(), propName, store)
+	_, err := findPropertyInChain(objID, propName, store)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -377,8 +406,12 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
+	objID := objVal.ID()
+	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 

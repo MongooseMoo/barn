@@ -67,6 +67,9 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value, store *db.Store) t
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -95,6 +98,9 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.Store
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -151,6 +157,9 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.Store
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -203,6 +212,14 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value, store *db.Store
 	}
 
 	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_INVIND)
+	}
+
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
@@ -249,6 +266,9 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -333,6 +353,9 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value, store *db.Sto
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
@@ -371,6 +394,14 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 
 	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_INVIND)
+	}
+
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
@@ -429,6 +460,14 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 
 	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_INVIND)
+	}
+
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
@@ -471,6 +510,14 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 
 	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_INVIND)
+	}
+
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
