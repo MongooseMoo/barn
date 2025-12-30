@@ -356,11 +356,11 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 }
 
 // matchVerbName checks if a search name matches a MOO verb name pattern
-// Supports MOO wildcard matching where * means "zero or more characters"
-// Example: "co*nnect" matches "connect" because:
-//   - Must start with "co"
-//   - Must end with "nnect"
-//   - Any characters (including none) can appear where * is
+// Supports MOO wildcard matching where * marks the minimum abbreviation point
+// Example: "co*nnect" matches "co", "con", "conn", "conne", "connec", "connect"
+//   - Must type at least "co" (prefix before *)
+//   - Can type any prefix of the full name "connect"
+// Example: "get_conj*ugation" matches "get_conj", "get_conju", ..., "get_conjugation"
 func matchVerbName(verbPattern, searchName string) bool {
 	// Case-insensitive matching
 	pattern := strings.ToLower(verbPattern)
@@ -373,25 +373,24 @@ func matchVerbName(verbPattern, searchName string) bool {
 		return pattern == search
 	}
 
-	// Split pattern at wildcard: "co*nnect" -> prefix="co", suffix="nnect"
-	prefix := pattern[:starPos]
-	suffix := pattern[starPos+1:]
+	// MOO wildcard semantics:
+	// Pattern "get_conj*ugation" matches any search that:
+	// 1. Starts with the prefix "get_conj" (required minimum)
+	// 2. Is a prefix of the full name "get_conjugation" (remove the *)
+	//
+	// Valid: "get_conj", "get_conju", "get_conjug", "get_conjugation"
+	// Invalid: "get_con", "get_conjugate"
 
-	// Check if search string has the required prefix and suffix
+	prefix := pattern[:starPos]              // "get_conj" - required minimum
+	full := pattern[:starPos] + pattern[starPos+1:] // "get_conjugation" - full name
+
+	// Search must start with the required prefix
 	if !strings.HasPrefix(search, prefix) {
 		return false
 	}
-	if !strings.HasSuffix(search, suffix) {
-		return false
-	}
 
-	// Ensure prefix and suffix don't overlap
-	// For pattern "co*nnect" matching "connect":
-	//   prefix="co" (len 2), suffix="nnect" (len 5)
-	//   search="connect" (len 7)
-	//   Need: len(search) >= len(prefix) + len(suffix)
-	//   7 >= 2 + 5 = 7, valid
-	return len(search) >= len(prefix)+len(suffix)
+	// Search must be a prefix of the full name
+	return strings.HasPrefix(full, search)
 }
 
 // FindVerb looks up a verb on an object, following inheritance chain
