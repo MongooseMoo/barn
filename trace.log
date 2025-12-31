@@ -1,7 +1,0 @@
-2025/12/29 18:06:23 Barn MOO Server
-2025/12/29 18:06:23 Database: toastcore.db
-2025/12/29 18:06:23 Port: 9400
-2025/12/29 18:06:23 Tracing enabled (filters: [])
-2025/12/29 18:06:23 Loaded database version 17 with 127 objects
-2025/12/29 18:06:23 Starting server on port 9400...
-2025/12/29 18:06:23 Server error: listen failed: listen failed: listen tcp :9400: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.

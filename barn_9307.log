@@ -1,6 +1,0 @@
-2025/12/30 06:29:46 Barn MOO Server
-2025/12/30 06:29:46 Database: Test.db
-2025/12/30 06:29:46 Port: 9307
-2025/12/30 06:29:46 Loaded database version 4 with 8 objects
-2025/12/30 06:29:46 Starting server on port 9307...
-2025/12/30 06:29:46 Server error: listen failed: listen failed: listen tcp :9307: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted.

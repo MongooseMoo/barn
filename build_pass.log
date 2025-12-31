@@ -1,5 +1,0 @@
-# barn/vm
-vm\eval.go:26:11: registry.RegisterSystemBuiltins undefined (type *builtins.Registry has no field or method RegisterSystemBuiltins)
-vm\eval.go:46:11: registry.RegisterSystemBuiltins undefined (type *builtins.Registry has no field or method RegisterSystemBuiltins)
-vm\eval.go:65:11: registry.RegisterSystemBuiltins undefined (type *builtins.Registry has no field or method RegisterSystemBuiltins)
-vm\eval.go:84:11: registry.RegisterSystemBuiltins undefined (type *builtins.Registry has no field or method RegisterSystemBuiltins)
