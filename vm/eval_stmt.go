@@ -11,9 +11,14 @@ import (
 )
 
 // EvalStatements evaluates a sequence of statements
+// Returns the value of the last statement (for eval() and ; command)
 func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
 	// Set up context variables from task context
 	e.env.Set("player", types.NewObj(ctx.Player))
+
+	// Track the last statement's value for implicit return
+	var lastResult types.Result = types.Ok(types.NewInt(0))
+
 	for _, stmt := range stmts {
 		result := e.EvalStmt(stmt, ctx)
 		// FlowFork: fork schedules a background task, but the parent continues execution
@@ -52,9 +57,11 @@ func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) 
 		if !result.IsNormal() {
 			return result
 		}
+		// Track the last normal result for implicit return
+		lastResult = result
 	}
-	// Normal completion - return 0 (default)
-	return types.Ok(types.NewInt(0))
+	// Return the last statement's value (supports eval() and ; command)
+	return lastResult
 }
 
 // EvalStmt evaluates a single statement
@@ -102,20 +109,16 @@ func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Res
 }
 
 // exprStmt evaluates an expression statement
+// Returns the expression's value (for use by eval() and ; command)
 func (e *Evaluator) exprStmt(stmt *parser.ExprStmt, ctx *types.TaskContext) types.Result {
 	if stmt.Expr == nil {
 		// Empty statement
 		return types.Ok(types.NewInt(0))
 	}
 
-	// Evaluate expression and discard result (unless it's an error/control flow)
-	result := e.Eval(stmt.Expr, ctx)
-	if !result.IsNormal() {
-		return result
-	}
-
-	// Normal expression - discard value, continue
-	return types.Ok(types.NewInt(0))
+	// Evaluate expression and return its value
+	// The value is used by eval() and ; command to return the last expression
+	return e.Eval(stmt.Expr, ctx)
 }
 
 // ifStmt evaluates if/elseif/else statements
