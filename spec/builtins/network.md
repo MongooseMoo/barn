@@ -43,9 +43,11 @@ connection_name(player, "ip-address") => "192.168.1.1"
 
 ---
 
-### 1.3 connection_info (ToastStunt)
+### 1.3 connection_info() [Not Implemented]
 
 **Signature:** `connection_info(player) → MAP`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Returns detailed connection information.
 
@@ -147,9 +149,11 @@ name = read(player);
 
 ## 4. HTTP Client (ToastStunt)
 
-### 4.1 curl
+### 4.1 curl() [Not Implemented]
 
 **Signature:** `curl(url [, options]) → LIST`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Makes HTTP request.
 

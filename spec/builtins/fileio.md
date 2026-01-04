@@ -4,6 +4,8 @@
 
 Functions for file system operations. Requires file I/O to be enabled in server configuration.
 
+> **Note:** File I/O functions require server configuration to enable. They are disabled by default in Test.db and cannot be tested without enabling `file_io` in server options.
+
 ---
 
 ## 1. File Reading
@@ -167,9 +169,102 @@ file_seek(handle, -10, 2);  // 10 bytes before end
 
 ---
 
-## 4. File Information
+### 3.4 file_flush (ToastStunt)
 
-### 4.1 file_size
+**Signature:** `file_flush(handle) → none`
+
+**Description:** Flushes buffered output to disk.
+
+**Examples:**
+```moo
+file_write(handle, "important data");
+file_flush(handle);  // Ensure written to disk
+```
+
+---
+
+## 4. File Handle Management
+
+### 4.1 file_handles (ToastStunt)
+
+**Signature:** `file_handles() → LIST`
+
+**Description:** Returns list of currently open file handles.
+
+**Examples:**
+```moo
+handles = file_handles();
+// => {1, 2, 3}
+```
+
+---
+
+### 4.2 file_name (ToastStunt)
+
+**Signature:** `file_name(handle) → STR`
+
+**Description:** Returns file path associated with handle.
+
+**Examples:**
+```moo
+file_name(handle)
+// => "/data/file.txt"
+```
+
+---
+
+### 4.3 file_openmode (ToastStunt)
+
+**Signature:** `file_openmode(handle) → STR`
+
+**Description:** Returns mode string used to open handle.
+
+**Examples:**
+```moo
+file_openmode(handle)
+// => "r-tn"
+```
+
+---
+
+### 4.4 file_grep (ToastStunt)
+
+**Signature:** `file_grep(handle, pattern [, case_sensitive]) → LIST`
+
+**Description:** Searches file for lines matching pattern.
+
+**Parameters:**
+- `handle`: File handle
+- `pattern`: String or regex pattern to search for
+- `case_sensitive`: Optional, defaults to case-sensitive (1)
+
+**Returns:** List of matching lines.
+
+**Examples:**
+```moo
+matches = file_grep(handle, "error");
+// => {"Error on line 1", "Fatal error occurred"}
+```
+
+---
+
+### 4.5 file_count_lines (ToastStunt)
+
+**Signature:** `file_count_lines(handle) → INT`
+
+**Description:** Returns total number of lines in file.
+
+**Examples:**
+```moo
+count = file_count_lines(handle);
+// => 42
+```
+
+---
+
+## 5. File Information
+
+### 5.1 file_size
 
 **Signature:** `file_size(path) → INT`
 
@@ -180,15 +275,7 @@ file_seek(handle, -10, 2);  // 10 bytes before end
 
 ---
 
-### 4.2 file_exists (ToastStunt)
-
-**Signature:** `file_exists(path) → BOOL`
-
-**Description:** Tests if file exists.
-
----
-
-### 4.3 file_stat (ToastStunt)
+### 5.2 file_stat (ToastStunt)
 
 **Signature:** `file_stat(path) → LIST`
 
@@ -201,7 +288,7 @@ file_seek(handle, -10, 2);  // 10 bytes before end
 
 ---
 
-### 4.4 file_type (ToastStunt)
+### 5.3 file_type (ToastStunt)
 
 **Signature:** `file_type(path) → STR`
 
@@ -211,9 +298,9 @@ file_seek(handle, -10, 2);  // 10 bytes before end
 
 ---
 
-## 5. Directory Operations
+## 6. Directory Operations
 
-### 5.1 file_list
+### 6.1 file_list
 
 **Signature:** `file_list(path [, details]) → LIST`
 
@@ -235,7 +322,7 @@ files = file_list("/data", 1);
 
 ---
 
-### 5.2 file_mkdir (ToastStunt)
+### 6.2 file_mkdir (ToastStunt)
 
 **Signature:** `file_mkdir(path) → none`
 
@@ -243,7 +330,7 @@ files = file_list("/data", 1);
 
 ---
 
-### 5.3 file_rmdir (ToastStunt)
+### 6.3 file_rmdir (ToastStunt)
 
 **Signature:** `file_rmdir(path) → none`
 
@@ -251,9 +338,9 @@ files = file_list("/data", 1);
 
 ---
 
-## 6. File Management
+## 7. File Management
 
-### 6.1 file_rename
+### 7.1 file_rename
 
 **Signature:** `file_rename(old_path, new_path) → none`
 
@@ -261,7 +348,7 @@ files = file_list("/data", 1);
 
 ---
 
-### 6.2 file_remove
+### 7.2 file_remove
 
 **Signature:** `file_remove(path) → none`
 
@@ -269,47 +356,13 @@ files = file_list("/data", 1);
 
 ---
 
-### 6.3 file_copy (ToastStunt)
-
-**Signature:** `file_copy(source, dest) → none`
-
-**Description:** Copies file.
-
----
-
-### 6.4 file_chmod (ToastStunt)
+### 7.3 file_chmod (ToastStunt)
 
 **Signature:** `file_chmod(path, mode) → none`
 
 **Description:** Changes file permissions.
 
 **Mode:** Unix permission bits (e.g., 0644)
-
----
-
-## 7. Path Operations
-
-### 7.1 file_path_info (ToastStunt)
-
-**Signature:** `file_path_info(path) → LIST`
-
-**Description:** Parses path components.
-
-**Returns:** `{directory, filename, extension}`
-
-**Examples:**
-```moo
-file_path_info("/data/file.txt")
-// => {"/data", "file", "txt"}
-```
-
----
-
-### 7.2 file_resolve (ToastStunt)
-
-**Signature:** `file_resolve(path) → STR`
-
-**Description:** Resolves to absolute path.
 
 ---
 

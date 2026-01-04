@@ -48,19 +48,22 @@ exec({"program", "arg1", "arg2"})
 // Direct execution, no shell interpretation
 ```
 
-**String form:**
+**String form (requires shell in executables directory):**
 ```moo
 exec("program arg1 arg2")
 // Passed to shell, supports pipes, redirects
+// Note: Requires shell executable (e.g., "sh") in executables/ directory
 ```
 
 ---
 
 ## 2. Execution Options
 
-### 2.1 exec_async (ToastStunt)
+### 2.1 exec_async() [Not Implemented]
 
 **Signature:** `exec_async(command [, callback_obj, callback_verb]) → INT`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Executes command asynchronously.
 
@@ -80,9 +83,11 @@ pid = exec_async({"long_running_command"}, this, "process_done");
 
 ---
 
-### 2.2 exec_timeout (ToastStunt)
+### 2.2 exec_timeout() [Not Implemented]
 
 **Signature:** `exec_timeout(command, timeout [, input]) → LIST`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn. The basic `exec()` function has a hardcoded 30-second timeout.
 
 **Description:** Executes with timeout.
 
@@ -96,9 +101,11 @@ pid = exec_async({"long_running_command"}, this, "process_done");
 
 ## 3. Process Control
 
-### 3.1 kill_process (ToastStunt)
+### 3.1 kill_process() [Not Implemented]
 
 **Signature:** `kill_process(pid [, signal]) → none`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Sends signal to process.
 
@@ -111,9 +118,11 @@ pid = exec_async({"long_running_command"}, this, "process_done");
 
 ---
 
-### 3.2 wait_process (ToastStunt)
+### 3.2 wait_process() [Not Implemented]
 
 **Signature:** `wait_process(pid) → LIST`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Waits for async process to complete.
 
@@ -123,9 +132,11 @@ pid = exec_async({"long_running_command"}, this, "process_done");
 
 ## 4. Environment
 
-### 4.1 exec_env (ToastStunt)
+### 4.1 exec_env() [Not Implemented]
 
 **Signature:** `exec_env(command, env [, input]) → LIST`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Executes with custom environment.
 

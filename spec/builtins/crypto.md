@@ -22,15 +22,15 @@ Functions for hashing, encryption, and secure random generation.
 | "SHA256" | 64 hex chars |
 | "SHA512" | 128 hex chars |
 
-**Default:** MD5 (for compatibility)
+**Default:** SHA256
 
 **Examples:**
 ```moo
 string_hash("hello")
-// => "5d41402abc4b2a76b9719d911017c592" (MD5)
+// => "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" (SHA256)
 
-string_hash("hello", "SHA256")
-// => "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+string_hash("hello", "MD5")
+// => "5d41402abc4b2a76b9719d911017c592"
 
 string_hash("password", "SHA512")
 // => "b109f3bbbc244eb82441917ed06d618b..."
@@ -236,9 +236,11 @@ encode_base64("\x00\x01") => "AAE="
 
 ---
 
-### 6.3 encode_hex (ToastStunt)
+### 6.3 encode_hex() [Not Implemented]
 
 **Signature:** `encode_hex(data) → STR`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Encodes as hexadecimal.
 
@@ -249,9 +251,11 @@ encode_hex("ABC")   => "414243"
 
 ---
 
-### 6.4 decode_hex (ToastStunt)
+### 6.4 decode_hex() [Not Implemented]
 
 **Signature:** `decode_hex(string) → STR`
+
+> **Note:** This function is documented but not implemented in ToastStunt or Barn.
 
 **Description:** Decodes hexadecimal.
 
@@ -312,7 +316,7 @@ import (
 func builtinStringHash(args []Value) (Value, error) {
     data := []byte(string(args[0].(StringValue)))
 
-    algorithm := "MD5"
+    algorithm := "SHA256"
     if len(args) > 1 {
         algorithm = string(args[1].(StringValue))
     }
