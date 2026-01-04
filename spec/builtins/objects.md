@@ -254,34 +254,34 @@ isa(obj, obj)         => true (object is its own ancestor)
 
 ### 4.1 Flags
 
-**Signature:** `set_object_flag(object, flag, value) → none`
-**Signature:** `object_flag(object, flag) → BOOL`
+Object flags are accessed and modified via properties only. There are no `object_flag()` or `set_object_flag()` functions.
 
 **Flags:**
-| Flag | Property | Description |
-|------|----------|-------------|
-| "user" | `.player` | Is a player |
-| "programmer" | `.programmer` | Can program |
-| "wizard" | `.wizard` | Full access |
-| "read" | `.r` | Readable |
-| "write" | `.w` | Writable |
-| "fertile" | `.f` | Can have children |
+| Property | Description |
+|----------|-------------|
+| `.player` | Is a player (use `is_player()` to test, `set_player_flag()` to change) |
+| `.programmer` | Can program |
+| `.wizard` | Full access (wizard-only to set) |
+| `.r` | Readable |
+| `.w` | Writable |
+| `.f` | Can have children |
 
 **Examples:**
 ```moo
-// Using properties
-obj.wizard = 1;           // Requires caller to be wizard
+// Reading flags
+if (obj.wizard) ...
 if (obj.programmer) ...
 
-// Using functions (equivalent)
-set_object_flag(obj, "wizard", 1);  // Requires caller to be wizard
-if (object_flag(obj, "programmer")) ...
+// Setting flags
+obj.programmer = 1;       // Requires permissions
+obj.wizard = 1;           // Requires caller to be wizard
+obj.f = 1;                // Make object fertile
 ```
 
 **Privilege escalation prevention:**
-- Setting the `wizard` flag requires caller to be a wizard
+- Setting the `wizard` property requires caller to be a wizard
 - Ownership of the object is NOT sufficient
-- Raises E_PERM if non-wizard attempts to set wizard flag
+- Raises E_PERM if non-wizard attempts to set wizard property
 - This prevents privilege escalation attacks
 
 ---
@@ -293,12 +293,12 @@ obj.name              // Object name (STR)
 obj.owner             // Owner object (OBJ)
 ```
 
-**To change owner:**
+**Changing owner (wizard only):**
 ```moo
-chown(object, new_owner);
+obj.owner = new_owner;
 ```
 
-**Wizard only for chown.**
+**Note:** There is no `chown()` function. Owner is changed via property assignment.
 
 ---
 
@@ -354,19 +354,27 @@ locations(ball)   => {#box, #room}
 
 ---
 
-### 5.4 contents
+### 5.4 occupants (ToastStunt)
 
-**Signature:** `contents(object) → LIST`
+**Signature:** `occupants(locations [, fully_recursive [, include_locations [, player_only]]]) → LIST`
 
-**Description:** Same as `object.contents`.
+**Description:** Returns all objects inside locations (recursive).
 
----
+**Parameters:**
+- `locations`: LIST of location objects to search
+- `fully_recursive`: If true, recurse into all nested containers (default: false)
+- `include_locations`: If true, include the location objects themselves (default: false)
+- `player_only`: If true, only return player objects (default: false)
 
-### 5.5 occupants (ToastStunt)
+**Examples:**
+```moo
+occupants({#room})              // All objects directly in room
+occupants({#room}, 1)           // All objects in room and nested containers
+occupants({#room1, #room2})     // All objects in multiple rooms
+occupants({#room}, 1, 0, 1)     // Only players in room (recursive)
+```
 
-**Signature:** `occupants(location) → LIST`
-
-**Description:** Returns all objects inside (recursive).
+**Note:** There is no `contents()` function. Use `object.contents` property to get direct contents.
 
 ---
 
@@ -424,15 +432,74 @@ locations(ball)   => {#box, #room}
 
 ### 7.2 reset_max_object (ToastStunt)
 
-**Signature:** `reset_max_object() → OBJ`
+**Signature:** `reset_max_object() → INT`
 
-**Description:** Reclaims recycled object slots at end.
+**Description:** Reclaims recycled object slots at end of database and returns new max_object value.
 
 **Wizard only.**
 
 ---
 
-### 7.3 object_bytes
+### 7.3 recycled_objects (ToastStunt)
+
+**Signature:** `recycled_objects() → LIST`
+
+**Description:** Returns list of all recycled object IDs.
+
+**Examples:**
+```moo
+recycled = recycled_objects();   => {#100, #105, #112}
+```
+
+---
+
+### 7.4 next_recycled_object (ToastStunt)
+
+**Signature:** `next_recycled_object([start]) → OBJ`
+
+**Description:** Returns next recycled object ID after start (or first if no start).
+
+**Examples:**
+```moo
+first = next_recycled_object();      => #100
+next = next_recycled_object(#100);   => #105
+```
+
+---
+
+### 7.5 owned_objects (ToastStunt)
+
+**Signature:** `owned_objects(owner) → LIST`
+
+**Description:** Returns list of all objects owned by owner.
+
+**Examples:**
+```moo
+my_objects = owned_objects(player);
+wizard_objects = owned_objects(#2);
+```
+
+---
+
+### 7.6 locate_by_name (ToastStunt)
+
+**Signature:** `locate_by_name(name [, exact]) → OBJ`
+
+**Description:** Searches for object by name.
+
+**Parameters:**
+- `name`: String to search for
+- `exact`: If true, require exact match (default: false for substring)
+
+**Examples:**
+```moo
+obj = locate_by_name("System");           // Substring search
+obj = locate_by_name("System Object", 1); // Exact match
+```
+
+---
+
+### 7.7 object_bytes
 
 **Signature:** `object_bytes(object) → INT`
 
@@ -455,9 +522,7 @@ anon = create($thing, $nothing, 1);
 - Cannot be stored in database
 - Useful for temporary structures
 
-### 8.3 is_anonymous (ToastStunt)
-
-**Signature:** `is_anonymous(object) → BOOL`
+**Note:** There is no `is_anonymous()` function. Check object type with `typeof(obj) == TYPE_ANON` or test if object is less than #0
 
 ---
 

@@ -4,21 +4,24 @@
 
 Functions for executing external processes. Requires exec to be enabled in server configuration.
 
+**IMPORTANT:** exec() is an asynchronous operation that suspends the current task until the external process completes.
+
 ---
 
 ## 1. Process Execution
 
 ### 1.1 exec
 
-**Signature:** `exec(command [, input]) → LIST`
+**Signature:** `exec(command [, input [, environment]]) → LIST`
 
-**Description:** Executes external command and returns output.
+**Description:** Executes external command asynchronously and returns output. The task is suspended until the process completes.
 
 **Parameters:**
-- `command`: List of command and arguments, or string
+- `command`: LIST of strings - first element is program name, rest are arguments
 - `input`: Optional string to send to stdin
+- `environment`: Optional list of strings - environment variables in "KEY=VALUE" format
 
-**Returns:** `{exit_code, stdout, stderr}`
+**Returns:** `{exit_code, stdout, stderr}` (when task resumes)
 
 **Examples:**
 ```moo
@@ -30,70 +33,95 @@ result = exec({"ls", "-la"});
 result = exec({"cat"}, "Hello, World!");
 // stdout => "Hello, World!"
 
-// String form (parsed by shell)
-result = exec("echo hello");
+// With environment variables
+result = exec({"printenv"}, "", {"MY_VAR=test", "DEBUG=1"});
 ```
 
 **Errors:**
-- E_EXEC: Command not found or execution failed
-- E_PERM: Not allowed to exec
+- E_INVARG: Invalid command, path, or arguments
+- E_PERM: Not a wizard (exec requires wizard permission)
+- E_TYPE: Command is not a list
+
+**CRITICAL:** The task suspends when exec() is called and resumes when the process completes. Use fork/task_id if you need non-blocking execution.
 
 ---
 
-### 1.2 Command Forms
+## 2. Security and Path Restrictions
 
-**List form (recommended):**
+### 2.1 Executables Directory
+
+All commands are executed from the server's `executables/` subdirectory. Commands cannot specify absolute paths or traverse outside this directory.
+
+**Example:**
 ```moo
-exec({"program", "arg1", "arg2"})
-// Direct execution, no shell interpretation
+exec({"test_io"})  // Runs executables/test_io
 ```
 
-**String form (requires shell in executables directory):**
+### 2.2 Path Restrictions
+
+The following path forms are **forbidden** and raise E_INVARG:
+
+- **Absolute paths:** `/bin/ls`, `\Windows\system32\cmd.exe`, `C:\Program Files\tool.exe`
+- **Parent directory traversal:** `../../../etc/passwd`, `..`
+- **Relative path markers:** `./script.sh`, `foo/../bar`
+
+**Valid examples:**
 ```moo
-exec("program arg1 arg2")
-// Passed to shell, supports pipes, redirects
-// Note: Requires shell executable (e.g., "sh") in executables/ directory
+exec({"mycommand"})           // OK: simple name
+exec({"subdir/mycommand"})    // OK: subdirectory (if allowed)
 ```
 
----
-
-## 2. Security
-
-### 2.1 Allowed Commands
-
-Server may restrict which commands can be executed:
-- Whitelist of allowed programs
-- Blacklist of forbidden programs
-- Path restrictions
-
-### 2.2 Sandboxing
-
-Executed processes may be sandboxed:
-- Limited filesystem access
-- Network restrictions
-- Resource limits (CPU, memory)
+**Invalid examples:**
+```moo
+exec({"/bin/ls"})             // E_INVARG: absolute path
+exec({"./mycommand"})         // E_INVARG: ./ prefix
+exec({"../mycommand"})        // E_INVARG: parent directory
+exec({"foo/../../bar"})       // E_INVARG: path traversal
+```
 
 ### 2.3 Permission Requirements
 
-- Usually requires wizard
-- May be allowed for programmers with restrictions
-- Never available to regular users
+- **Requires wizard permission** - exec() raises E_PERM for non-wizards
+- No exceptions - programmers and regular players cannot use exec()
+
+### 2.4 Additional Security
+
+Servers may implement additional restrictions:
+- Whitelist of allowed programs
+- Resource limits (CPU, memory, execution time)
+- Network access restrictions
+- Filesystem sandboxing
 
 ---
 
 ## 3. Error Handling
 
+### 3.1 MOO Errors
+
 | Error | Condition |
 |-------|-----------|
-| E_EXEC | Execution failed |
-| E_PERM | Permission denied |
-| E_INVARG | Invalid command |
+| E_PERM | Not a wizard |
+| E_INVARG | Invalid command path, arguments, or input |
+| E_TYPE | Command is not a list |
 | E_ARGS | Wrong argument count |
 
-**Exit codes:**
-- 0: Success
-- Non-zero: Command-specific failure
-- -1: Process killed by signal
+**E_INVARG conditions:**
+- Empty command list
+- Command path is empty string
+- Absolute path (starts with /, \, or drive letter)
+- Path contains parent directory (..)
+- Path contains ./ or path traversal
+- Command file doesn't exist in executables/ directory
+- Input contains invalid binary escape (e.g., ~ZZ)
+- List elements are not all strings
+
+### 3.2 Exit Codes
+
+The first element of the return list is the process exit code:
+
+- **0:** Success
+- **Non-zero:** Command-specific error (1-255 typically)
+- **Platform-specific:** May include signal numbers on Unix
 
 ---
 
@@ -102,7 +130,7 @@ Executed processes may be sandboxed:
 ### 4.1 Capture Output
 
 ```moo
-{code, out, err} = exec({"command"});
+{code, out, err} = exec({"command", "arg1", "arg2"});
 if (code == 0)
     process_output(out);
 else
@@ -110,115 +138,101 @@ else
 endif
 ```
 
-### 4.2 Pipeline Simulation
+### 4.2 Sending Input
 
 ```moo
-// No direct pipe support in list form
-// Use shell form for pipes:
-result = exec("cat file.txt | grep pattern | wc -l");
-
-// Or chain manually:
-{_, data, _} = exec({"cat", "file.txt"});
-{_, filtered, _} = exec({"grep", "pattern"}, data);
-{_, count, _} = exec({"wc", "-l"}, filtered);
+// Send data to command via stdin
+input_data = "Hello, World!";
+{code, output, errors} = exec({"process_input"}, input_data);
 ```
 
-### 4.3 Error Checking
+### 4.3 Environment Variables
+
+```moo
+// Set custom environment for the process
+env = {"PATH=/usr/bin:/bin", "DEBUG=1", "LANG=en_US.UTF-8"};
+{code, out, err} = exec({"myprogram"}, "", env);
+```
+
+### 4.4 Error Checking
 
 ```moo
 {code, out, err} = exec({"command"});
 if (code != 0)
-    raise(E_EXEC, err);
+    raise(E_INVARG, tostr("Command failed: ", err));
 endif
 return out;
+```
+
+### 4.5 Async Execution with Fork
+
+```moo
+// Run exec in background task
+fork task_id (0)
+    {code, out, err} = exec({"long_running_command"});
+    process_results(code, out, err);
+endfork
+// Task continues immediately, exec runs in forked task
 ```
 
 ---
 
 ## 5. Resource Limits
 
+ToastStunt implements various resource limits for exec():
+
 | Limit | Description |
 |-------|-------------|
-| Timeout | Maximum execution time |
-| Output size | Maximum stdout/stderr |
-| Processes | Maximum concurrent |
+| Timeout | Maximum execution time before termination |
+| Output size | Maximum stdout/stderr buffer size |
+| Concurrent processes | Maximum simultaneous exec() operations (EXEC_MAX_PROCESSES) |
+
+These limits are server-configurable and may vary by installation.
 
 ---
 
-## 6. Go Implementation Notes
+## 6. Task Suspension Behavior
 
-```go
-import (
-    "bytes"
-    "context"
-    "os/exec"
-    "time"
-)
+When exec() is called:
 
-func builtinExec(args []Value) (Value, error) {
-    // Check permission
-    if !callerIsWizard() {
-        return nil, E_PERM
-    }
+1. **Task suspends immediately** - The calling task enters a suspended state
+2. **Process starts** - External command begins execution
+3. **Server continues** - Other tasks continue running
+4. **Process completes** - When the external process exits, output is captured
+5. **Task resumes** - The suspended task resumes with the result list
 
-    var cmd *exec.Cmd
-    var input []byte
+**Key points:**
+- The suspension is mandatory - exec() cannot return synchronously
+- Multiple tasks can have exec() calls running concurrently (up to server limit)
+- Task can be killed with kill_task() while process is running
+- resume() cannot force an exec task to resume early (raises E_INVARG)
+- queued_tasks() shows exec tasks in suspended state
 
-    // Parse command
-    switch c := args[0].(type) {
-    case *MOOList:
-        if len(c.data) == 0 {
-            return nil, E_INVARG
-        }
-        program := string(c.data[0].(StringValue))
-        cmdArgs := make([]string, len(c.data)-1)
-        for i := 1; i < len(c.data); i++ {
-            cmdArgs[i-1] = string(c.data[i].(StringValue))
-        }
-        cmd = exec.Command(program, cmdArgs...)
-    case StringValue:
-        // Shell form
-        cmd = exec.Command("sh", "-c", string(c))
-    default:
-        return nil, E_TYPE
-    }
-
-    // Input
-    if len(args) > 1 {
-        input = []byte(string(args[1].(StringValue)))
-    }
-
-    // Set up I/O
-    var stdout, stderr bytes.Buffer
-    cmd.Stdin = bytes.NewReader(input)
-    cmd.Stdout = &stdout
-    cmd.Stderr = &stderr
-
-    // Run with timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-    cmd = exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
-    cmd.Stdin = bytes.NewReader(input)
-    cmd.Stdout = &stdout
-    cmd.Stderr = &stderr
-
-    err := cmd.Run()
-
-    exitCode := 0
-    if err != nil {
-        if exitErr, ok := err.(*exec.ExitError); ok {
-            exitCode = exitErr.ExitCode()
-        } else if ctx.Err() == context.DeadlineExceeded {
-            return nil, E_EXEC
-        } else {
-            return nil, E_EXEC
-        }
-    }
-
-    return &MOOList{data: []Value{
-        IntValue(exitCode),
-        StringValue(stdout.String()),
-        StringValue(stderr.String()),
-    }}, nil
-}
+**Example:**
+```moo
+// This suspends the current task
+player:tell("Starting command...");
+{code, out, err} = exec({"sleep", "5"});
+player:tell("Command finished!");  // Executes 5 seconds later
 ```
+
+---
+
+## 7. Implementation Notes
+
+### 7.1 Toast Implementation
+
+ToastStunt's exec() implementation (src/exec.cc):
+- Uses POSIX fork/exec on Unix, CreateProcess on Windows
+- Maintains process table (EXEC_MAX_PROCESSES slots)
+- Captures stdout/stderr via pipes
+- Handles SIGCHLD on Unix for process completion
+- Validates paths before execution
+- Prepends executables/ directory to command path
+
+### 7.2 Key Functions
+
+- `bf_exec()` - Main builtin function, validates and starts process
+- `exec_complete()` - Signal handler for child process completion
+- `deal_with_child_exit()` - Resumes suspended task with results
+- `exec_waiter_suspender()` - Task suspension mechanism

@@ -31,6 +31,8 @@ server_version()  => "Barn 1.0.0"
 
 **Returns:** List of memory metrics. Format is implementation-defined.
 
+**Implementation Note:** May raise E_FILE if memory statistics are not available in the current implementation.
+
 **Examples:**
 ```moo
 memory_usage()  => {block_size, nused, nfree}
@@ -343,20 +345,33 @@ buffered_output_length(#5)  => 1234
 
 ### 6.2 listen
 
-**Signature:** `listen(object, point [, print_messages]) → none`
+**Signature:** `listen(object, point [, options]) → INT`
 
 **Description:** Creates a network listener.
 
 **Parameters:**
 - `object` (OBJ): Object to receive connections
-- `point` (ANY): Port number or descriptor
-- `print_messages` (BOOL, optional): Send system messages to connections
+- `point` (INT): Port number
+- `options` (MAP, optional): Configuration map with keys:
+  - `"print-messages"` (INT): 1 to send system messages, 0 to suppress (default: implementation-defined)
+  - `"ipv6"` (INT): 1 for IPv6, 0 for IPv4 (default: 0)
+  - `"interface"` (STR): Interface name or address to bind to (default: all interfaces)
+
+**Returns:** Port number (INT) on success.
 
 **Permissions:** Wizard only.
+
+**Examples:**
+```moo
+listen(#0, 9999)                                       => 9999
+listen(#0, 8080, ["print-messages" -> 1])             => 8080
+listen(#0, 7777, ["ipv6" -> 1, "interface" -> "::"])  => 7777
+```
 
 **Errors:**
 - E_PERM: Caller is not a wizard
 - E_INVARG: Invalid parameters
+- E_TYPE: Options is not a map
 
 ---
 
@@ -379,7 +394,17 @@ buffered_output_length(#5)  => 1234
 
 **Description:** Returns list of active listeners.
 
-**Returns:** List of `{object, point, print_messages}` tuples.
+**Returns:** List of MAP values, each containing:
+- `"object"` (OBJ): Object receiving connections
+- `"port"` (INT): Port number
+- `"print-messages"` (INT): 1 if system messages enabled, 0 otherwise
+- `"ipv6"` (INT): 1 if IPv6, 0 if IPv4
+- `"interface"` (STR): Interface name or address
+
+**Examples:**
+```moo
+listeners()  => {["interface" -> "Empiricist", "ipv6" -> 1, "object" -> #0, "port" -> 7777, "print-messages" -> 1]}
+```
 
 ---
 

@@ -23,8 +23,8 @@ Type conversion functions transform values between MOO types.
 | LIST | 4 | TYPE_LIST |
 | FLOAT | 9 | TYPE_FLOAT |
 | MAP | 10 | TYPE_MAP |
-| BOOL | 11 | TYPE_BOOL |
 | WAIF | 12 | TYPE_WAIF |
+| BOOL | 14 | TYPE_BOOL |
 
 **Examples:**
 ```moo
@@ -35,7 +35,7 @@ typeof(E_TYPE)    => 3  (TYPE_ERR)
 typeof({1,2,3})   => 4  (TYPE_LIST)
 typeof(3.14)      => 9  (TYPE_FLOAT)
 typeof(["a"->1])  => 10 (TYPE_MAP)
-typeof(true)      => 11 (TYPE_BOOL)
+typeof(true)      => 14 (TYPE_BOOL)
 ```
 
 **Errors:** None
@@ -130,7 +130,6 @@ toint("abc")     => 0  (non-numeric string)
 | INT | Exact conversion |
 | FLOAT | Identity |
 | STR | Parse as float |
-| BOOL | 1.0 or 0.0 |
 
 **Examples:**
 ```moo
@@ -138,12 +137,11 @@ tofloat(42)       => 42.0
 tofloat(3.14)     => 3.14
 tofloat("3.14")   => 3.14
 tofloat("-1e10")  => -10000000000.0
-tofloat(true)     => 1.0
 tofloat("abc")    => 0.0  (non-numeric string)
 ```
 
 **Errors:**
-- E_TYPE: OBJ, ERR, LIST, MAP, WAIF
+- E_TYPE: OBJ, ERR, LIST, MAP, WAIF, BOOL
 
 ---
 
@@ -196,9 +194,12 @@ toobj(-1)     => #-1
 
 ## 8. value_hash
 
-**Signature:** `value_hash(value) → INT`
+**Signature:** `value_hash(value) → STR`
 
 **Description:** Returns a hash code for any value. Equal values produce equal hashes.
+
+**Implementation:**
+- Returns 64-character hexadecimal SHA-256 hash string
 
 **Properties:**
 - Consistent within session
@@ -207,9 +208,8 @@ toobj(-1)     => #-1
 
 **Examples:**
 ```moo
-value_hash("hello")      => 12345  (example)
-value_hash({1, 2, 3})    => 67890  (example)
-value_hash(#0) == value_hash(#0)   => true
+value_hash("hello")      => "5AA762AE383FBB727AF3C7A36D4940A5B8C40A989452D2304FC958FF3F354E7A"
+value_hash(#0) == value_hash(#0)   => 1
 ```
 
 **Errors:** None
@@ -271,8 +271,8 @@ const (
     TYPE_LIST  TypeCode = 4
     TYPE_FLOAT TypeCode = 9
     TYPE_MAP   TypeCode = 10
-    TYPE_BOOL  TypeCode = 11
     TYPE_WAIF  TypeCode = 12
+    TYPE_BOOL  TypeCode = 14
 )
 
 func Typeof(v Value) int64 {
@@ -280,9 +280,6 @@ func Typeof(v Value) int64 {
 }
 
 func Tostr(args []Value) (string, error) {
-    if len(args) == 0 {
-        return "", E_ARGS
-    }
     var sb strings.Builder
     for _, v := range args {
         sb.WriteString(v.String())

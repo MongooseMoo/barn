@@ -23,14 +23,27 @@ time()   => 1703419200 (varies)
 
 ### 1.2 ftime (ToastStunt)
 
-**Signature:** `ftime() → FLOAT`
+**Signature:** `ftime([clock_type]) → FLOAT`
 
 **Description:** Returns current time with sub-second precision.
 
+**Parameters:**
+- `clock_type` (optional INT): Clock source
+  - 0 or omitted: Real-time clock (wall clock time)
+  - 1: Monotonic clock (time since system boot, not affected by time adjustments)
+  - 2: Monotonic raw clock (monotonic, not adjusted by NTP)
+
 **Examples:**
 ```moo
-ftime()   => 1703419200.123456
+ftime()      => 1703419200.123456  (realtime)
+ftime(0)     => 1703419200.123456  (realtime)
+ftime(1)     => 433501.445197      (monotonic)
+ftime(2)     => 433635.761586      (monotonic raw)
 ```
+
+**Notes:**
+- Monotonic clocks are useful for measuring elapsed time intervals
+- Realtime clock can jump backwards if system time is adjusted
 
 ---
 
@@ -40,14 +53,33 @@ ftime()   => 1703419200.123456
 
 **Signature:** `ctime([time]) → STR`
 
-**Description:** Converts timestamp to human-readable string.
+**Description:** Converts Unix timestamp to human-readable local time string.
+
+**Parameters:**
+- `time` (optional INT): Unix timestamp. If omitted, uses current time.
+
+**Returns:** String in format `"Www Mmm dd hh:mm:ss yyyy TZ"` where:
+- Www = day of week (3 chars)
+- Mmm = month (3 chars)
+- dd = day of month (2 digits, space-padded)
+- hh:mm:ss = time in 24-hour format
+- yyyy = year (4 digits)
+- TZ = timezone name (system-dependent)
 
 **Examples:**
 ```moo
-ctime()              => "Mon Dec 25 12:00:00 2023"
-ctime(0)             => "Thu Jan  1 00:00:00 1970"
+ctime()              => "Sun Jan  4 00:10:54 2026 Mountain Standard Time"
+ctime(1000000000)    => "Sat Sep  8 19:46:40 2001 Mountain Daylight Time"
 ctime(time())        => current time string
 ```
+
+**Notes:**
+- Uses local timezone (result varies by server location)
+- Format is system-dependent
+- Years beyond max int are clamped to prevent overflow
+
+**Errors:**
+- E_TYPE: Non-integer timestamp
 
 ---
 
@@ -87,6 +119,7 @@ idle_seconds(player)   => 120 (2 minutes idle)
 ```
 
 **Errors:**
+- E_TYPE: Argument is not an object
 - E_INVARG: Not a connected player
 
 ---
@@ -96,6 +129,15 @@ idle_seconds(player)   => 120 (2 minutes idle)
 **Signature:** `connected_seconds(player) → INT`
 
 **Description:** Returns seconds since player connected.
+
+**Examples:**
+```moo
+connected_seconds(player)   => 3600 (1 hour connected)
+```
+
+**Errors:**
+- E_TYPE: Argument is not an object
+- E_INVARG: Not a connected player
 
 ---
 

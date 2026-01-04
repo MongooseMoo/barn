@@ -67,14 +67,6 @@ verbs($thing)   => {"tell", "look", "describe", ...}
 
 ---
 
-### 2.2 all_verbs (ToastStunt)
-
-**Signature:** `all_verbs(object) → LIST`
-
-**Description:** Returns all verbs including inherited.
-
----
-
 ## 3. Verb Information
 
 ### 3.1 verb_info
@@ -305,29 +297,7 @@ delete_verb(obj, "obsolete");
 
 ## 7. Verb Dispatch
 
-### 7.1 verb_location (ToastStunt)
-
-**Signature:** `verb_location(object, name) → OBJ`
-
-**Description:** Returns object where verb is defined.
-
-**Examples:**
-```moo
-// If obj inherits "tell" from $thing
-verb_location(obj, "tell")   => $thing
-```
-
----
-
-### 7.2 responds_to (ToastStunt)
-
-**Signature:** `responds_to(object, name) → BOOL`
-
-**Description:** Tests if object has verb (directly or inherited).
-
----
-
-### 7.3 call_function
+### 7.1 call_function
 
 **Signature:** `call_function(name, args...) → VALUE`
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Functions for hashing, encryption, and secure random generation.
+Functions for hashing, password hashing, secure random generation, and base64 encoding.
 
 ---
 
@@ -46,19 +46,30 @@ string_hash("password", "SHA512")
 
 **Signature:** `binary_hash(string [, algorithm]) → STR`
 
-**Description:** Returns raw binary hash (not hex-encoded).
+**Description:** Computes cryptographic hash, identical to string_hash().
 
-**Use case:** When binary output needed for further processing.
+**Note:** Despite the name, returns hex-encoded string (not raw binary).
+
+**Algorithms:** Same as string_hash (MD5, SHA1, SHA256, SHA512).
+
+**Default:** SHA256
 
 ---
 
 ### 1.3 value_hash
 
-**Signature:** `value_hash(value) → INT`
+**Signature:** `value_hash(value) → STR`
 
-**Description:** Returns integer hash of any MOO value.
+**Description:** Returns SHA256 hash of any MOO value as hex string.
 
-**Note:** Not cryptographic; for hash tables.
+**Examples:**
+```moo
+value_hash(123)        => "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+value_hash("hello")    => "5aa762ae383fbb727af3c7a36d4940a5b8c40a989452d2304fc958ff3f354e7a"
+value_hash({1, 2, 3})  => "8298d0492354e620262b63e1d84fb85e1b3d9df71672a4894441a5ee30b08c0c"
+```
+
+**Note:** Not suitable for hash tables (use map keys instead).
 
 ---
 
@@ -66,26 +77,31 @@ string_hash("password", "SHA512")
 
 ### 2.1 crypt
 
-**Signature:** `crypt(plaintext [, salt]) → STR`
+**Signature:** `crypt(plaintext, salt) → STR`
 
-**Description:** One-way password hash using Unix crypt().
+**Description:** One-way password hash using crypt().
 
 **Parameters:**
 - `plaintext`: Password to hash
-- `salt`: Salt string (auto-generated if omitted)
+- `salt`: Salt string (bcrypt format required)
 
-**Salt formats:**
+**Platform Support:**
+- **Windows:** Only bcrypt salts ($2a$, $2b$) supported
+- **Unix/Linux:** Full support (MD5, SHA-256, SHA-512, DES, bcrypt)
+
+**Salt formats (Unix/Linux only):**
 | Prefix | Algorithm |
 |--------|-----------|
-| `$1$` | MD5 |
-| `$5$` | SHA-256 |
-| `$6$` | SHA-512 |
-| (other) | DES (legacy) |
+| `$2a$`, `$2b$` | bcrypt (Windows + Unix) |
+| `$1$` | MD5 (Unix only) |
+| `$5$` | SHA-256 (Unix only) |
+| `$6$` | SHA-512 (Unix only) |
+| (other) | DES (Unix only, legacy) |
 
 **Examples:**
 ```moo
-hash = crypt("password");
-// => "$6$rounds=5000$salt$hash..."
+// On Windows, use bcrypt salt
+hash = crypt("password", "$2b$10$saltsaltsaltsaltsaltse");
 
 // Verify password
 if (crypt("password", stored_hash) == stored_hash)
@@ -93,36 +109,51 @@ if (crypt("password", stored_hash) == stored_hash)
 endif
 ```
 
+**Errors:**
+- E_INVARG: Unsupported salt format (e.g., non-bcrypt on Windows)
+
 ---
 
-### 2.2 bcrypt (ToastStunt)
+### 2.2 argon2 (ToastStunt)
 
-**Signature:** `bcrypt(plaintext [, cost]) → STR`
+**Signature:** `argon2(plaintext, salt [, options]) → STR`
 
-**Description:** Bcrypt password hash.
+**Description:** Argon2id password hash (Argon2 version 19).
 
 **Parameters:**
-- `cost`: Work factor (default: 10)
+- `plaintext`: Password to hash
+- `salt`: Salt string
+- `options`: Optional map for memory cost, time cost, parallelism
+
+**Default Parameters:**
+- Memory cost (m): 4096 KB
+- Time cost (t): 3 iterations
+- Parallelism (p): 1 thread
+- Algorithm: Argon2id (hybrid)
 
 **Examples:**
 ```moo
-hash = bcrypt("password");
-// => "$2b$10$..."
-
-hash = bcrypt("password", 12);  // Higher cost
+hash = argon2("password", "randomsalt");
+// => "$argon2id$v=19$m=4096,t=3,p=1$cmFuZG9tc2FsdA$..."
 ```
+
+**Note:** Argon2id won the Password Hashing Competition. Recommended for new applications.
 
 ---
 
-### 2.3 bcrypt_verify (ToastStunt)
+### 2.3 argon2_verify (ToastStunt)
 
-**Signature:** `bcrypt_verify(plaintext, hash) → BOOL`
+**Signature:** `argon2_verify(plaintext, hash) → INT`
 
-**Description:** Verifies password against bcrypt hash.
+**Description:** Verifies password against argon2 hash.
+
+**Returns:**
+- 1: Password matches hash
+- 0: Password does not match
 
 **Examples:**
 ```moo
-if (bcrypt_verify("password", stored_hash))
+if (argon2_verify("password", stored_hash))
     notify(player, "Login successful!");
 endif
 ```
@@ -151,67 +182,9 @@ See [math.md](math.md) - not cryptographically secure.
 
 ---
 
-## 4. HMAC (ToastStunt)
+## 4. Encoding
 
-### 4.1 hmac
-
-**Signature:** `hmac(key, data [, algorithm]) → STR`
-
-**Description:** Computes HMAC (keyed hash).
-
-**Algorithms:** Same as string_hash.
-
-**Examples:**
-```moo
-signature = hmac(secret_key, message, "SHA256");
-```
-
----
-
-## 5. Encryption (ToastStunt)
-
-### 5.1 encrypt
-
-**Signature:** `encrypt(plaintext, key [, algorithm]) → STR`
-
-**Description:** Encrypts data.
-
-**Algorithms:**
-| Algorithm | Key Size |
-|-----------|----------|
-| "AES-128" | 16 bytes |
-| "AES-256" | 32 bytes |
-
-**Returns:** Base64-encoded ciphertext with IV prepended.
-
-**Examples:**
-```moo
-key = random_bytes(32);
-encrypted = encrypt("secret message", key, "AES-256");
-```
-
----
-
-### 5.2 decrypt
-
-**Signature:** `decrypt(ciphertext, key [, algorithm]) → STR`
-
-**Description:** Decrypts data.
-
-**Examples:**
-```moo
-decrypted = decrypt(encrypted, key, "AES-256");
-// => "secret message"
-```
-
-**Errors:**
-- E_INVARG: Decryption failed (wrong key, corrupted data)
-
----
-
-## 6. Encoding
-
-### 6.1 encode_base64
+### 4.1 encode_base64
 
 **Signature:** `encode_base64(data) → STR`
 
@@ -225,7 +198,7 @@ encode_base64("\x00\x01") => "AAE="
 
 ---
 
-### 6.2 decode_base64
+### 4.2 decode_base64
 
 **Signature:** `decode_base64(string) → STR`
 
@@ -236,22 +209,7 @@ encode_base64("\x00\x01") => "AAE="
 
 ---
 
-## 7. UUID (ToastStunt)
-
-### 7.1 uuid
-
-**Signature:** `uuid() → STR`
-
-**Description:** Generates random UUID (v4).
-
-**Examples:**
-```moo
-uuid()   => "550e8400-e29b-41d4-a716-446655440000"
-```
-
----
-
-## 8. Error Handling
+## 5. Error Handling
 
 | Error | Condition |
 |-------|-----------|
@@ -261,22 +219,19 @@ uuid()   => "550e8400-e29b-41d4-a716-446655440000"
 
 ---
 
-## 9. Security Considerations
+## 6. Security Considerations
 
-1. **Use bcrypt for passwords** - Not MD5 or SHA
-2. **Use random_bytes for keys** - Not random()
-3. **Key management** - Store keys securely
+1. **Use argon2 for passwords** - Not MD5, SHA, or plain crypt()
+2. **Use random_bytes for salts/keys** - Not random()
+3. **Platform compatibility** - Test crypt() on target platform
 4. **Constant-time comparison** - For security-critical comparisons
 
 ---
 
-## 10. Go Implementation Notes
+## 7. Go Implementation Notes
 
 ```go
 import (
-    "crypto/aes"
-    "crypto/cipher"
-    "crypto/hmac"
     "crypto/md5"
     "crypto/rand"
     "crypto/sha1"
@@ -284,8 +239,13 @@ import (
     "crypto/sha512"
     "encoding/base64"
     "encoding/hex"
+    "strings"
 
-    "golang.org/x/crypto/bcrypt"
+    "github.com/GehirnInc/crypt"
+    _ "github.com/GehirnInc/crypt/sha256_crypt"
+    _ "github.com/GehirnInc/crypt/sha512_crypt"
+
+    "github.com/matthewhartstonge/argon2"
 )
 
 func builtinStringHash(args []Value) (Value, error) {
@@ -314,31 +274,73 @@ func builtinStringHash(args []Value) (Value, error) {
         return nil, E_INVARG
     }
 
-    return StringValue(hex.EncodeToString(hash)), nil
+    return StringValue(strings.ToUpper(hex.EncodeToString(hash))), nil
 }
 
-func builtinBcrypt(args []Value) (Value, error) {
-    password := []byte(string(args[0].(StringValue)))
+func builtinBinaryHash(args []Value) (Value, error) {
+    // Identical to string_hash despite the name
+    return builtinStringHash(args)
+}
 
-    cost := bcrypt.DefaultCost
-    if len(args) > 1 {
-        cost = int(args[1].(IntValue))
+func builtinValueHash(args []Value) (Value, error) {
+    // Serialize value to canonical form, then SHA256
+    serialized := serializeValue(args[0])
+    h := sha256.Sum256([]byte(serialized))
+    return StringValue(strings.ToLower(hex.EncodeToString(h[:]))), nil
+}
+
+func builtinCrypt(args []Value) (Value, error) {
+    plaintext := string(args[0].(StringValue))
+    salt := string(args[1].(StringValue))
+
+    // On Windows, only bcrypt is supported
+    // On Unix, full crypt() support
+    crypter := crypt.NewFromHash(salt)
+    if crypter == nil {
+        return nil, E_INVARG
     }
 
-    hash, err := bcrypt.GenerateFromPassword(password, cost)
+    hash, err := crypter.Generate([]byte(plaintext), []byte(salt))
     if err != nil {
         return nil, E_INVARG
     }
 
-    return StringValue(string(hash)), nil
+    return StringValue(hash), nil
 }
 
-func builtinBcryptVerify(args []Value) (Value, error) {
-    password := []byte(string(args[0].(StringValue)))
-    hash := []byte(string(args[1].(StringValue)))
+func builtinArgon2(args []Value) (Value, error) {
+    plaintext := []byte(string(args[0].(StringValue)))
+    salt := []byte(string(args[1].(StringValue)))
 
-    err := bcrypt.CompareHashAndPassword(hash, password)
-    return BoolValue(err == nil), nil
+    // Default config: m=4096, t=3, p=1
+    config := argon2.DefaultConfig()
+    if len(args) > 2 {
+        // Parse options map if provided
+        // opts := args[2].(MapValue)
+        // Update config based on opts
+    }
+
+    hash, err := config.Hash(plaintext, salt)
+    if err != nil {
+        return nil, E_INVARG
+    }
+
+    return StringValue(string(hash.Encode())), nil
+}
+
+func builtinArgon2Verify(args []Value) (Value, error) {
+    plaintext := []byte(string(args[0].(StringValue)))
+    encoded := string(args[1].(StringValue))
+
+    ok, err := argon2.VerifyEncoded(plaintext, []byte(encoded))
+    if err != nil {
+        return IntValue(0), nil
+    }
+
+    if ok {
+        return IntValue(1), nil
+    }
+    return IntValue(0), nil
 }
 
 func builtinRandomBytes(args []Value) (Value, error) {
@@ -356,29 +358,18 @@ func builtinRandomBytes(args []Value) (Value, error) {
     return StringValue(string(bytes)), nil
 }
 
-func builtinEncrypt(args []Value) (Value, error) {
-    plaintext := []byte(string(args[0].(StringValue)))
-    key := []byte(string(args[1].(StringValue)))
+func builtinEncodeBase64(args []Value) (Value, error) {
+    data := []byte(string(args[0].(StringValue)))
+    encoded := base64.StdEncoding.EncodeToString(data)
+    return StringValue(encoded), nil
+}
 
-    block, err := aes.NewCipher(key)
+func builtinDecodeBase64(args []Value) (Value, error) {
+    encoded := string(args[0].(StringValue))
+    decoded, err := base64.StdEncoding.DecodeString(encoded)
     if err != nil {
         return nil, E_INVARG
     }
-
-    // Generate IV
-    iv := make([]byte, aes.BlockSize)
-    rand.Read(iv)
-
-    // Pad plaintext
-    plaintext = pkcs7Pad(plaintext, aes.BlockSize)
-
-    // Encrypt
-    mode := cipher.NewCBCEncrypter(block, iv)
-    ciphertext := make([]byte, len(plaintext))
-    mode.CryptBlocks(ciphertext, plaintext)
-
-    // Prepend IV and base64 encode
-    result := append(iv, ciphertext...)
-    return StringValue(base64.StdEncoding.EncodeToString(result)), nil
+    return StringValue(string(decoded)), nil
 }
 ```

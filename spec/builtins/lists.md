@@ -207,10 +207,15 @@ list[index] = val   // Set element (statement)
 
 ### 2.2 is_member / `in` operator
 
-**Signature:** `is_member(value, list) → INT`
+**Signature:** `is_member(value, list [, case_matters]) → INT`
 **Operator:** `value in list → INT`
 
 **Description:** Returns 1-based index if found, 0 otherwise.
+
+**Parameters:**
+- `value`: Value to search for
+- `list`: List to search in
+- `case_matters`: Optional, for case-sensitive string comparison (default: case-insensitive)
 
 **Examples:**
 ```moo
@@ -227,7 +232,31 @@ is_member(4, {1, 2, 3})      => 0
 
 ---
 
-### 2.3 indexc [Verb]
+### 2.3 all_members (ToastStunt)
+
+**Signature:** `all_members(value, list) → LIST`
+
+**Description:** Returns list of all indices where value appears. Unlike is_member which returns only the first match, all_members returns all matching positions.
+
+**Note:** This is a builtin in ToastStunt implemented as a background thread operation.
+
+**Examples:**
+```moo
+all_members(2, {1, 2, 3, 2, 4})           => {2, 4}
+all_members(5, {1, 2, 3})                 => {}
+all_members("x", {"a", "x", "b", "x"})    => {2, 4}
+```
+
+**Comparison with is_member:**
+- `is_member(value, list)` → returns first index or 0
+- `all_members(value, list)` → returns list of all indices or {}
+
+**Errors:**
+- E_TYPE: Second arg not a list
+
+---
+
+### 2.4 indexc [Verb]
 
 **Signature:** `indexc(list, value [, start]) → INT`
 
@@ -293,22 +322,39 @@ reverse({})              => {}
 
 ---
 
-### 4.2 slice [Verb]
+### 4.2 slice (ToastStunt)
 
-**Signature:** `slice(list, indices) → LIST`
+**Signature:** `slice(list [, index] [, default_value]) → ANY`
 
-**Description:** Extracts elements at specified indices.
+**Description:** Extracts elements from a list. This is a builtin in ToastStunt.
 
-**Note:** Implemented as MOO verb, not a builtin.
+**Parameters:**
+- `list`: Source list
+- `index`: Optional index specification (INT, LIST, or STR)
+  - INT: Extract single element at that index
+  - LIST: Extract elements at multiple indices (must be positive, non-zero)
+  - STR: Extract by key (for associative lists/maps)
+  - Default: returns first element (index 1)
+- `default_value`: Value to return for missing indices (default: no default)
+
+**Index validation:**
+- Empty index list returns E_RANGE
+- Zero or negative indices in list return E_RANGE
+- Non-integer indices in list return E_INVARG
 
 **Examples:**
 ```moo
-slice({10, 20, 30, 40}, {2, 4})      => {20, 40}
-slice({10, 20, 30}, {1, 1, 1})       => {10, 10, 10}
+slice({10, 20, 30, 40})              => 10           // Default: first element
+slice({10, 20, 30, 40}, 2)           => 20           // Single index
+slice({10, 20, 30, 40}, {2, 4})      => {20, 40}     // Multiple indices
+slice({10, 20, 30}, {1, 1, 1})       => {10, 10, 10} // Repeated indices
+slice({10, 20}, {5}, "default")      => {"default"}  // Out of range with default
 ```
 
 **Errors:**
-- E_RANGE: Index out of bounds
+- E_TYPE: First arg not a list
+- E_RANGE: Empty index list, or zero/negative indices
+- E_INVARG: Non-integer values in index list
 
 ---
 
@@ -503,22 +549,7 @@ flatten({1, {2, {3}}}, 1)        => {1, 2, {3}}
 
 ---
 
-### 8.3 unique (ToastStunt)
-
-**Signature:** `unique(list) → LIST`
-
-**Description:** Removes duplicate elements, preserving order.
-
-**Note:** This is a builtin in ToastStunt (implemented in server).
-
-**Examples:**
-```moo
-unique({1, 2, 2, 3, 1})   => {1, 2, 3}
-```
-
----
-
-### 8.4 count [Verb]
+### 8.3 count [Verb]
 
 **Signature:** `count(list, value) → INT`
 

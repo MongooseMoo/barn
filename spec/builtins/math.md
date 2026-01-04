@@ -92,25 +92,24 @@ random(1, 100)   => 1-100
 
 ### 1.5 frandom (ToastStunt)
 
-**Signature:** `frandom() → FLOAT`
 **Signature:** `frandom(max) → FLOAT`
 **Signature:** `frandom(min, max) → FLOAT`
 
 **Description:** Returns random float.
 
 **Behavior:**
-- `frandom()` → float in [0.0, 1.0)
 - `frandom(max)` → float in [0.0, max)
 - `frandom(min, max)` → float in [min, max)
 
 **Examples:**
 ```moo
-frandom()        => 0.7234...  (varies)
-frandom(10.0)    => 0.0-10.0
+frandom(10.0)      => 7.695...  (varies, 0.0-10.0)
+frandom(1.0, 5.0)  => 3.638...  (varies, 1.0-5.0)
 ```
 
 **Errors:**
 - E_TYPE: Non-numeric argument
+- E_ARGS: No arguments (zero-arg form does not exist)
 
 ---
 
@@ -154,7 +153,7 @@ ceil(-3.2)  => -3.0
 ```
 
 **Errors:**
-- E_TYPE: Non-numeric argument
+- E_TYPE: Non-float argument (integers not accepted)
 
 ---
 
@@ -172,7 +171,7 @@ floor(-3.2)  => -4.0
 ```
 
 **Errors:**
-- E_TYPE: Non-numeric argument
+- E_TYPE: Non-float argument (integers not accepted)
 
 ---
 
@@ -189,13 +188,13 @@ trunc(-3.8)  => -3.0
 ```
 
 **Errors:**
-- E_TYPE: Non-numeric argument
+- E_TYPE: Non-float argument (integers not accepted)
 
 ---
 
 ## 3. Trigonometric Functions
 
-All angles in radians.
+All angles in radians. All functions require FLOAT arguments (integers not accepted).
 
 ### 3.1 sin
 
@@ -203,9 +202,12 @@ All angles in radians.
 
 **Examples:**
 ```moo
-sin(0)           => 0.0
-sin(3.14159/2)   => 1.0  (approximately)
+sin(0.0)                => 0.0
+sin(3.14159265359/2.0)  => 1.0  (approximately)
 ```
+
+**Errors:**
+- E_TYPE: Non-float argument
 
 ---
 
@@ -215,9 +217,12 @@ sin(3.14159/2)   => 1.0  (approximately)
 
 **Examples:**
 ```moo
-cos(0)           => 1.0
-cos(3.14159)     => -1.0  (approximately)
+cos(0.0)          => 1.0
+cos(3.14159265)   => -1.0  (approximately)
 ```
+
+**Errors:**
+- E_TYPE: Non-float argument
 
 ---
 
@@ -227,11 +232,12 @@ cos(3.14159)     => -1.0  (approximately)
 
 **Examples:**
 ```moo
-tan(0)           => 0.0
-tan(3.14159/4)   => 1.0  (approximately)
+tan(0.0)                 => 0.0
+tan(3.14159265359/4.0)   => 1.0  (approximately)
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: At asymptotes (π/2, 3π/2, etc.)
 
 ---
@@ -247,11 +253,12 @@ tan(3.14159/4)   => 1.0  (approximately)
 
 **Examples:**
 ```moo
-asin(0)    => 0.0
-asin(1)    => 1.5707...  (π/2)
+asin(0.0)  => 0.0
+asin(1.0)  => 1.5707963...  (π/2)
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: |value| > 1
 
 ---
@@ -267,11 +274,12 @@ asin(1)    => 1.5707...  (π/2)
 
 **Examples:**
 ```moo
-acos(1)    => 0.0
-acos(0)    => 1.5707...  (π/2)
+acos(1.0)  => 0.0
+acos(0.0)  => 1.5707963...  (π/2)
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: |value| > 1
 
 ---
@@ -285,10 +293,13 @@ acos(0)    => 1.5707...  (π/2)
 
 **Examples:**
 ```moo
-atan(1)      => 0.7853...  (π/4)
-atan(1, 1)   => 0.7853...  (π/4)
-atan(1, -1)  => 2.3561...  (3π/4)
+atan(1.0)       => 0.785398...  (π/4)
+atan(1.0, 1.0)  => 0.785398...  (π/4)
+atan(1.0, -1.0) => 2.356194...  (3π/4)
 ```
+
+**Errors:**
+- E_TYPE: Non-float argument
 
 ---
 
@@ -298,6 +309,9 @@ atan(1, -1)  => 2.3561...  (3π/4)
 
 **Description:** Hyperbolic sine.
 
+**Errors:**
+- E_TYPE: Non-float argument
+
 ---
 
 ### 3.8 cosh
@@ -305,6 +319,9 @@ atan(1, -1)  => 2.3561...  (3π/4)
 **Signature:** `cosh(value) → FLOAT`
 
 **Description:** Hyperbolic cosine.
+
+**Errors:**
+- E_TYPE: Non-float argument
 
 ---
 
@@ -314,9 +331,14 @@ atan(1, -1)  => 2.3561...  (3π/4)
 
 **Description:** Hyperbolic tangent.
 
+**Errors:**
+- E_TYPE: Non-float argument
+
 ---
 
 ## 4. Exponential and Logarithmic
+
+All functions require FLOAT arguments (integers not accepted).
 
 ### 4.1 sqrt
 
@@ -326,12 +348,13 @@ atan(1, -1)  => 2.3561...  (3π/4)
 
 **Examples:**
 ```moo
-sqrt(4)     => 2.0
-sqrt(2)     => 1.4142...
-sqrt(0)     => 0.0
+sqrt(4.0)   => 2.0
+sqrt(2.0)   => 1.4142135...
+sqrt(0.0)   => 0.0
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: Negative argument
 
 ---
@@ -344,12 +367,13 @@ sqrt(0)     => 0.0
 
 **Examples:**
 ```moo
-exp(0)    => 1.0
-exp(1)    => 2.7182...  (e)
-exp(2)    => 7.3890...
+exp(0.0)  => 1.0
+exp(1.0)  => 2.718281828...  (e)
+exp(2.0)  => 7.389056...
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: Overflow
 
 ---
@@ -362,12 +386,13 @@ exp(2)    => 7.3890...
 
 **Examples:**
 ```moo
-log(1)        => 0.0
-log(2.7182)   => 1.0  (approximately)
-log(10)       => 2.3025...
+log(1.0)       => 0.0
+log(2.718281)  => 1.0  (approximately)
+log(10.0)      => 2.302585...
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: value ≤ 0
 
 ---
@@ -380,47 +405,20 @@ log(10)       => 2.3025...
 
 **Examples:**
 ```moo
-log10(1)      => 0.0
-log10(10)     => 1.0
-log10(100)    => 2.0
+log10(1.0)    => 0.0
+log10(10.0)   => 1.0
+log10(100.0)  => 2.0
 ```
 
 **Errors:**
+- E_TYPE: Non-float argument
 - E_FLOAT: value ≤ 0
 
 ---
 
-## 5. Special Values (ToastStunt)
+## 5. Advanced Math (ToastStunt)
 
-### 5.1 floatinfo
-
-**Signature:** `floatinfo() → LIST`
-
-**Description:** Returns floating-point implementation details.
-
-**Returns:**
-```moo
-{max_float, min_positive_float, max_exponent, min_exponent, digits, epsilon}
-```
-
----
-
-### 5.2 intinfo
-
-**Signature:** `intinfo() → LIST`
-
-**Description:** Returns integer implementation details.
-
-**Returns:**
-```moo
-{min_int, max_int, bytes}
-```
-
----
-
-## 6. Advanced Math (ToastStunt)
-
-### 6.1 cbrt
+### 5.1 cbrt
 
 **Signature:** `cbrt(value) → FLOAT`
 
@@ -428,145 +426,42 @@ log10(100)    => 2.0
 
 **Examples:**
 ```moo
-cbrt(8)     => 2.0
-cbrt(-8)    => -2.0
+cbrt(8.0)   => 2.0
+cbrt(-8.0)  => -2.0
 ```
 
----
-
-### 6.2 log2
-
-**Signature:** `log2(value) → FLOAT`
-
-**Description:** Base-2 logarithm.
-
-**Examples:**
-```moo
-log2(8)     => 3.0
-log2(1024)  => 10.0
-```
+**Errors:**
+- E_TYPE: Non-float argument
 
 ---
 
-### 6.3 hypot
+## 6. Error Handling
 
-**Signature:** `hypot(x, y) → FLOAT`
+**Type Errors (E_TYPE):**
+- All transcendental functions (sin, cos, tan, asin, acos, atan, sinh, cosh, tanh) require FLOAT arguments
+- Rounding functions (ceil, floor, trunc) require FLOAT arguments
+- Exponential/logarithmic functions (sqrt, exp, log, log10) require FLOAT arguments
+- Passing integers to these functions raises E_TYPE
+- abs(), min(), max() accept both INT and FLOAT
 
-**Description:** Euclidean distance: sqrt(x² + y²).
+**Domain Errors (E_FLOAT):**
+- sqrt(x) where x < 0
+- log(x) where x ≤ 0
+- log10(x) where x ≤ 0
+- asin(x) where |x| > 1
+- acos(x) where |x| > 1
 
-**Examples:**
-```moo
-hypot(3, 4)   => 5.0
-hypot(1, 1)   => 1.4142...
-```
+**Argument Count Errors (E_ARGS):**
+- min() with no arguments
+- max() with no arguments
+- Any function called with wrong number of arguments
 
----
-
-### 6.4 fmod
-
-**Signature:** `fmod(x, y) → FLOAT`
-
-**Description:** Floating-point modulo.
-
-**Examples:**
-```moo
-fmod(5.5, 2.0)   => 1.5
-fmod(-5.5, 2.0)  => -1.5
-```
+**Overflow:**
+- May raise E_FLOAT or return infinity depending on implementation
 
 ---
 
-### 6.5 remainder
-
-**Signature:** `remainder(x, y) → FLOAT`
-
-**Description:** IEEE remainder (rounds to nearest).
-
----
-
-### 6.6 copysign
-
-**Signature:** `copysign(magnitude, sign) → FLOAT`
-
-**Description:** Returns magnitude with sign of second argument.
-
-**Examples:**
-```moo
-copysign(5.0, -1.0)   => -5.0
-copysign(-5.0, 1.0)   => 5.0
-```
-
----
-
-### 6.7 ldexp
-
-**Signature:** `ldexp(x, exp) → FLOAT`
-
-**Description:** Returns x × 2^exp.
-
----
-
-### 6.8 frexp
-
-**Signature:** `frexp(x) → LIST`
-
-**Description:** Decomposes float into mantissa and exponent.
-
-**Returns:** `{mantissa, exponent}` where x = mantissa × 2^exponent
-
----
-
-### 6.9 modf
-
-**Signature:** `modf(x) → LIST`
-
-**Description:** Splits into integer and fractional parts.
-
-**Returns:** `{integer_part, fractional_part}`
-
-**Examples:**
-```moo
-modf(3.14)   => {3.0, 0.14}
-modf(-3.14)  => {-3.0, -0.14}
-```
-
----
-
-### 6.10 isinf
-
-**Signature:** `isinf(value) → BOOL`
-
-**Description:** Tests if value is infinity.
-
----
-
-### 6.11 isnan
-
-**Signature:** `isnan(value) → BOOL`
-
-**Description:** Tests if value is NaN.
-
----
-
-### 6.12 isfinite
-
-**Signature:** `isfinite(value) → BOOL`
-
-**Description:** Tests if value is finite (not inf, not nan).
-
----
-
-## 7. Error Handling
-
-All math functions raise E_TYPE for wrong argument types.
-
-Domain errors (sqrt(-1), log(0), asin(2)) raise E_FLOAT.
-
-Overflow may raise E_FLOAT or return infinity depending on implementation.
-
----
-
-## Go Implementation Notes
+## 7. Go Implementation Notes
 
 ```go
 import "math"

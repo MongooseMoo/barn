@@ -71,26 +71,34 @@ mapkeys([])                       => {}
 
 ### 2.2 mapvalues
 
-**Signature:** `mapvalues(map) → LIST`
+**Signature:** `mapvalues(map [, key1, key2, ...]) → LIST`
 
-**Description:** Returns list of all values in map iteration order.
+**Description:** Returns list of values from map.
 
-**Order:** Returns values in map iteration order. For a given map `m`, `mapvalues(m)[i]` corresponds to `mapkeys(m)[i]`.
+**Single argument form:** Returns all values in map iteration order. For a given map `m`, `mapvalues(m)[i]` corresponds to `mapkeys(m)[i]`.
+
+**Multiple argument form:** Returns values for the specified keys, in the order the keys are provided.
 
 **Examples:**
 ```moo
+// All values
 mapvalues(["a" -> 1, "b" -> 2])   => {1, 2}
 mapvalues([])                      => {}
 
-// Order correspondence
+// Order correspondence with mapkeys
 m = ["x" -> 10, "y" -> 20];
 keys = mapkeys(m);
 vals = mapvalues(m);
 // keys[1] -> vals[1], keys[2] -> vals[2]
+
+// Specific keys
+mapvalues(["a" -> 1, "b" -> 2, "c" -> 3], "a", "c")   => {1, 3}
+mapvalues(["x" -> 10, "y" -> 20], "y", "x")           => {20, 10}
 ```
 
 **Errors:**
 - E_TYPE: Not a map
+- E_RANGE: Any specified key not found in map (multi-argument form only)
 
 ---
 
@@ -114,14 +122,26 @@ mapdelete(["a" -> 1], "x")             => E_RANGE  (key not found)
 
 ### 2.4 maphaskey (ToastStunt)
 
-**Signature:** `maphaskey(map, key) → BOOL`
+**Signature:** `maphaskey(map, key [, case_matters]) → BOOL`
 
 **Description:** Tests if key exists in map.
 
+**Arguments:**
+- `map`: The map to search
+- `key`: The key to look for
+- `case_matters` (optional): If provided and true (non-zero), string key matching is case-sensitive. If false (zero) or omitted, string keys match case-insensitively. Non-string keys always use exact matching.
+
 **Examples:**
 ```moo
-maphaskey(["a" -> 1], "a")    => 1
-maphaskey(["a" -> 1], "b")    => 0
+// Basic usage
+maphaskey(["a" -> 1], "a")     => 1
+maphaskey(["a" -> 1], "b")     => 0
+
+// Case-insensitive matching (default or case_matters=0)
+maphaskey(["a" -> 1], "A", 0)  => 1
+
+// Case-sensitive matching (case_matters=1)
+maphaskey(["a" -> 1], "A", 1)  => 0
 ```
 
 **Errors:**

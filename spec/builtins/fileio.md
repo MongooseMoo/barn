@@ -2,9 +2,9 @@
 
 ## Overview
 
-Functions for file system operations. Requires file I/O to be enabled in server configuration.
+Functions for file system operations. All file I/O functions require wizard permissions.
 
-> **Note:** File I/O functions require server configuration to enable. They are disabled by default in Test.db and cannot be tested without enabling `file_io` in server options.
+> **Note:** File I/O functions are compiled into ToastStunt by default (`#define FILE_IO 1` in `src/fileio.cc`) but all functions require wizard permissions to execute. Non-wizards receive E_PERM. All functions are implemented and verified against Toast source code.
 
 ---
 
@@ -71,32 +71,40 @@ endwhile
 
 ### 1.4 file_readlines
 
-**Signature:** `file_readlines(handle [, start [, end]]) → LIST`
+**Signature:** `file_readlines(handle, start, end) → LIST`
 
-**Description:** Reads multiple lines.
+**Description:** Reads multiple lines from file.
 
 **Parameters:**
-- `start`: First line (1-based, default: 1)
-- `end`: Last line (default: EOF)
+- `handle`: File handle (INT)
+- `start`: First line (1-based, INT)
+- `end`: Last line (INT)
 
 **Examples:**
 ```moo
-lines = file_readlines(handle);           // All lines
-lines = file_readlines(handle, 1, 10);    // First 10
+lines = file_readlines(handle, 1, 999999);  // Read many lines
+lines = file_readlines(handle, 1, 10);      // First 10 lines
+lines = file_readlines(handle, 5, 15);      // Lines 5-15
 ```
+
+**Note:** All three arguments are required. Use a large end value to read to EOF.
 
 ---
 
 ### 1.5 file_read
 
-**Signature:** `file_read(handle [, bytes]) → STR`
+**Signature:** `file_read(handle, bytes) → STR`
 
-**Description:** Reads bytes from file.
+**Description:** Reads specified number of bytes from file.
+
+**Parameters:**
+- `handle`: File handle (INT)
+- `bytes`: Number of bytes to read (INT)
 
 **Examples:**
 ```moo
 data = file_read(handle, 1024);   // Read up to 1024 bytes
-data = file_read(handle);         // Read all
+data = file_read(handle, 999999); // Read many bytes (will stop at EOF)
 ```
 
 ---
@@ -118,14 +126,16 @@ file_writeline(handle, "Hello, World!");
 
 ### 2.2 file_write
 
-**Signature:** `file_write(handle, data) → none`
+**Signature:** `file_write(handle, data) → INT`
 
 **Description:** Writes data without newline.
 
+**Returns:** Number of bytes written.
+
 **Examples:**
 ```moo
-file_write(handle, "partial");
-file_write(handle, " data\n");
+bytes = file_write(handle, "partial");
+bytes = file_write(handle, " data\n");
 ```
 
 ---
@@ -142,22 +152,30 @@ file_write(handle, " data\n");
 
 ### 3.2 file_seek
 
-**Signature:** `file_seek(handle, position [, whence]) → none`
+**Signature:** `file_seek(handle, position, whence) → none`
 
-**Description:** Moves to position.
+**Description:** Moves to position in file.
 
-**Whence:**
+**Parameters:**
+- `handle`: File handle (INT)
+- `position`: Byte position (INT)
+- `whence`: Position reference (STR)
+
+**Whence values:**
 | Value | From |
 |-------|------|
-| 0 | Start (default) |
-| 1 | Current |
-| 2 | End |
+| "SEEK_SET" | Start of file |
+| "SEEK_CUR" | Current position |
+| "SEEK_END" | End of file |
 
 **Examples:**
 ```moo
-file_seek(handle, 0);       // Go to start
-file_seek(handle, -10, 2);  // 10 bytes before end
+file_seek(handle, 0, "SEEK_SET");      // Go to start
+file_seek(handle, -10, "SEEK_END");    // 10 bytes before end
+file_seek(handle, 100, "SEEK_CUR");    // Move forward 100 bytes
 ```
+
+**Note:** Whence parameter is case-insensitive.
 
 ---
 
@@ -266,35 +284,155 @@ count = file_count_lines(handle);
 
 ### 5.1 file_size
 
-**Signature:** `file_size(path) → INT`
+**Signature:** `file_size(path_or_handle) → INT`
 
 **Description:** Returns file size in bytes.
 
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Examples:**
+```moo
+size = file_size("/data/file.txt");  // => 1024
+size = file_size(handle);             // => 1024
+```
+
 **Errors:**
 - E_FILE: File not found
+- E_INVARG: Invalid handle
 
 ---
 
 ### 5.2 file_stat (ToastStunt)
 
-**Signature:** `file_stat(path) → LIST`
+**Signature:** `file_stat(path_or_handle) → LIST`
 
 **Description:** Returns file metadata.
 
-**Returns:**
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Returns:** List with 8 elements:
 ```moo
-{size, atime, mtime, ctime, is_dir, is_file, is_link}
+{size, type, mode, owner, group, atime, mtime, ctime}
+```
+
+| Position | Type | Description |
+|----------|------|-------------|
+| 1 | INT | File size in bytes |
+| 2 | STR | File type: "reg", "dir", "fifo", "block", "socket", "unknown" |
+| 3 | STR | File mode (octal string, e.g., "644") |
+| 4 | STR | Owner (always empty string) |
+| 5 | STR | Group (always empty string) |
+| 6 | INT | Last access time (Unix timestamp) |
+| 7 | INT | Last modify time (Unix timestamp) |
+| 8 | INT | Last change time (Unix timestamp) |
+
+**Examples:**
+```moo
+stat = file_stat("/data/file.txt");
+// => {1024, "reg", "644", "", "", 1234567890, 1234567890, 1234567890}
+
+stat = file_stat(handle);
+// => {2048, "reg", "600", "", "", 1234567891, 1234567891, 1234567891}
 ```
 
 ---
 
 ### 5.3 file_type (ToastStunt)
 
-**Signature:** `file_type(path) → STR`
+**Signature:** `file_type(path_or_handle) → STR`
 
 **Description:** Returns file type.
 
-**Returns:** "file", "directory", "link", or "unknown"
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Returns:** One of:
+- "reg" - Regular file
+- "dir" - Directory
+- "fifo" - Named pipe (FIFO)
+- "block" - Block device
+- "socket" - Socket
+- "unknown" - Unknown type
+
+**Examples:**
+```moo
+file_type("/data/file.txt")  // => "reg"
+file_type("/data/subdir")    // => "dir"
+file_type(handle)            // => "reg"
+```
+
+---
+
+### 5.4 file_mode (ToastStunt)
+
+**Signature:** `file_mode(path_or_handle) → STR`
+
+**Description:** Returns file permission mode as octal string.
+
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Examples:**
+```moo
+file_mode("/data/file.txt")  // => "644"
+file_mode("/data/script.sh") // => "755"
+file_mode(handle)            // => "600"
+```
+
+---
+
+### 5.5 file_last_access (ToastStunt)
+
+**Signature:** `file_last_access(path_or_handle) → INT`
+
+**Description:** Returns last access time as Unix timestamp.
+
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Examples:**
+```moo
+atime = file_last_access("/data/file.txt");  // => 1234567890
+atime = file_last_access(handle);            // => 1234567890
+```
+
+---
+
+### 5.6 file_last_modify (ToastStunt)
+
+**Signature:** `file_last_modify(path_or_handle) → INT`
+
+**Description:** Returns last modification time as Unix timestamp.
+
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Examples:**
+```moo
+mtime = file_last_modify("/data/file.txt");  // => 1234567890
+mtime = file_last_modify(handle);            // => 1234567890
+```
+
+---
+
+### 5.7 file_last_change (ToastStunt)
+
+**Signature:** `file_last_change(path_or_handle) → INT`
+
+**Description:** Returns last status change time (ctime) as Unix timestamp.
+
+**Note:** This is inode change time (metadata change), not file creation time.
+
+**Parameters:**
+- `path_or_handle`: File path (STR) or file handle (INT)
+
+**Examples:**
+```moo
+ctime = file_last_change("/data/file.txt");  // => 1234567890
+ctime = file_last_change(handle);            // => 1234567890
+```
 
 ---
 
@@ -307,8 +445,24 @@ count = file_count_lines(handle);
 **Description:** Lists directory contents.
 
 **Parameters:**
-- `path`: Directory path
-- `details`: If true, include file info
+- `path`: Directory path (STR)
+- `details`: If true, include detailed file info (optional)
+
+**Returns:**
+- Simple mode: List of filenames (strings)
+- Detailed mode: List of lists with file information
+
+**Detailed entry format:**
+```moo
+{filename, file_type, file_mode, file_size}
+```
+
+| Position | Type | Description |
+|----------|------|-------------|
+| 1 | STR | Filename |
+| 2 | STR | File type ("reg", "dir", etc.) |
+| 3 | STR | File mode (octal string) |
+| 4 | INT | File size in bytes |
 
 **Examples:**
 ```moo
@@ -316,8 +470,9 @@ files = file_list("/data");
 // => {"file1.txt", "file2.txt", "subdir"}
 
 files = file_list("/data", 1);
-// => {{"file1.txt", 1024, 1}, {"file2.txt", 512, 1}, {"subdir", 0, 0}}
-// Format: {name, size, is_file}
+// => {{"file1.txt", "reg", "644", 1024},
+//     {"file2.txt", "reg", "644", 512},
+//     {"subdir", "dir", "755", 0}}
 ```
 
 ---
@@ -362,7 +517,16 @@ files = file_list("/data", 1);
 
 **Description:** Changes file permissions.
 
-**Mode:** Unix permission bits (e.g., 0644)
+**Parameters:**
+- `path`: File path (STR)
+- `mode`: Permission mode as octal string (STR)
+
+**Examples:**
+```moo
+file_chmod("/data/file.txt", "644");   // rw-r--r--
+file_chmod("/data/script.sh", "755");  // rwxr-xr-x
+file_chmod("/data/private.txt", "600"); // rw-------
+```
 
 ---
 

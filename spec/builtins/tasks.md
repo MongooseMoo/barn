@@ -21,13 +21,13 @@ id = task_id();   => 12345 (varies)
 
 ---
 
-### 1.2 caller
+### 1.2 caller (variable)
 
-**Signature:** `caller() → OBJ`
+**Type:** `OBJ`
 
-**Description:** Returns the object that called current verb.
+**Description:** Builtin variable containing the object that called current verb.
 
-**Note:** Same as `caller` variable but as function.
+**Note:** This is a **variable**, not a function. Use `caller` (no parentheses).
 
 ---
 
@@ -55,6 +55,16 @@ id = task_id();   => 12345 (varies)
 ```moo
 set_task_perms(#wizard);  // Run as wizard
 ```
+
+---
+
+### 1.5 task_perms (ToastStunt)
+
+**Signature:** `task_perms() → OBJ`
+
+**Description:** Alias for `caller_perms()`. Returns the permission context object.
+
+**Note:** This is identical to `caller_perms()` - ToastStunt provides both names for compatibility.
 
 ---
 
@@ -88,9 +98,14 @@ callers(0)
 
 ### 2.2 task_stack (ToastStunt)
 
-**Signature:** `task_stack([task_id [, include_vars]]) → LIST`
+**Signature:** `task_stack(task_id [, include_vars [, include_temp_vars]]) → LIST`
 
-**Description:** Returns detailed stack for task.
+**Description:** Returns detailed stack for specified task.
+
+**Parameters:**
+- `task_id` (INT): Task ID to inspect (required)
+- `include_vars` (ANY, optional): Include local variables if truthy
+- `include_temp_vars` (ANY, optional): Include temporary variables if truthy
 
 **Returns:** List of frames with more detail than callers().
 
@@ -98,24 +113,55 @@ callers(0)
 
 ### 2.3 queued_tasks
 
-**Signature:** `queued_tasks() → LIST`
+**Signature:** `queued_tasks([include_vars [, return_count]]) → LIST or INT`
 
-**Description:** Returns list of queued (waiting) tasks.
+**Description:** Returns list of queued (waiting) tasks, or count if requested.
 
-**Note:** Takes no arguments. Both Toast and Barn return E_ARGS if any arguments are provided.
+**Parameters:**
+- `include_vars` (INT, optional): If truthy, include variable info in task records
+- `return_count` (INT, optional): If truthy, return count (INT) instead of list
 
-**Returns:** List of task info:
-```moo
-{task_id, start_time, x, y, programmer, verb_loc, verb_name, line, this, [vars]}
-```
+**Returns:**
+- Without `return_count`: List of task info:
+  ```moo
+  {task_id, start_time, x, y, programmer, verb_loc, verb_name, line, this, [vars]}
+  ```
+- With `return_count`: Integer count of queued tasks
 
 **Examples:**
 ```moo
-tasks = queued_tasks();
+tasks = queued_tasks();              // Basic list
+tasks = queued_tasks(1);            // Include variables
+count = queued_tasks(0, 1);         // Just get the count
 for task in (tasks)
     notify(player, "Task " + tostr(task[1]) + " at " + tostr(task[2]));
 endfor
 ```
+
+---
+
+### 2.4 finished_tasks (ToastStunt)
+
+**Signature:** `finished_tasks() → LIST`
+
+**Description:** Returns list of recently completed tasks, if task history is enabled.
+
+**Note:** Server must be configured to track finished tasks. Returns empty list if disabled.
+
+**Returns:** List of completed task information, similar format to `queued_tasks()`.
+
+---
+
+### 2.5 queue_info (ToastStunt)
+
+**Signature:** `queue_info([player]) → LIST`
+
+**Description:** Returns task queue statistics.
+
+**Parameters:**
+- `player` (OBJ, optional): Get queue info for specific player. If omitted, returns server-wide stats.
+
+**Returns:** List containing queue statistics (counts, limits, etc.).
 
 ---
 
@@ -211,76 +257,87 @@ kill_task(runaway_task);
 
 ### 4.3 yin (ToastStunt: yield if needed)
 
-**Signature:** `yin(threshold) → none`
+**Signature:** `yin([threshold [, ticks [, seconds]]]) → none`
 
-**Description:** Yields if ticks remaining < threshold.
+**Description:** Yields execution if resources are low.
+
+**Parameters:**
+- `threshold` (NUMERIC, optional): Tick threshold - yield if ticks_left() < threshold
+- `ticks` (INT, optional): Additional tick threshold
+- `seconds` (INT, optional): Additional time threshold
 
 **Semantics:**
-- If `ticks_left() < threshold`, suspend and resume later
+- If ticks remaining is below threshold, suspend and resume later
 - Refreshes tick count on resume
+- Can be called with no arguments to unconditionally yield
 
 **Examples:**
 ```moo
+yin();              // Unconditional yield
+yin(1000);         // Yield if low on ticks
 for i in [1..10000]
-    yin(1000);  // Yield if low on ticks
+    yin(1000);     // Yield if low on ticks
     process_item(i);
 endfor
 ```
 
 ---
 
-## 5. Task Limits
+### 4.4 set_thread_mode (ToastStunt)
 
-### 5.1 set_task_ticks (ToastStunt)
+**Signature:** `set_thread_mode([mode]) → INT`
 
-**Signature:** `set_task_ticks(task_id, ticks) → none`
+**Description:** Controls threading behavior for task execution.
 
-**Description:** Sets tick limit for task.
+**Parameters:**
+- `mode` (INT, optional): Threading mode value. If omitted, returns current mode without changing it.
 
-**Wizard only.**
-
----
-
-### 5.2 set_task_seconds (ToastStunt)
-
-**Signature:** `set_task_seconds(task_id, seconds) → none`
-
-**Description:** Sets time limit for task.
+**Returns:** Previous or current threading mode value.
 
 **Wizard only.**
 
 ---
 
-## 6. Task-Local Storage
+## 5. Task-Local Storage
 
-### 6.1 set_task_local
+### 5.1 set_task_local
 
-**Signature:** `set_task_local(key, value) → none`
+**Signature:** `set_task_local(value) → none`
 
-**Description:** Stores value in task-local storage.
+**Description:** Stores a single value in task-local storage.
+
+**Permissions:** Wizard only.
+
+**Note:** Task-local storage holds ONE value per task, not a key/value map. Each call to `set_task_local()` replaces the previous value.
 
 **Examples:**
 ```moo
-set_task_local("request_id", 12345);
+set_task_local({#123, "request-456", time()});  // Store tuple
 ```
 
 ---
 
-### 6.2 task_local
+### 5.2 task_local
 
-**Signature:** `task_local(key) → VALUE`
+**Signature:** `task_local() → VALUE`
 
-**Description:** Retrieves value from task-local storage.
+**Description:** Retrieves the value from task-local storage.
+
+**Permissions:** Wizard only.
+
+**Returns:** The value previously stored with `set_task_local()`, or 0 if none.
 
 **Examples:**
 ```moo
-id = task_local("request_id");  => 12345
-task_local("missing")           => 0
+data = task_local();  // Get stored value
+if (typeof(data) == LIST)
+    {obj, request_id, timestamp} = data;
+endif
 ```
 
 ---
 
-## 7. Fork Statement
+## 6. Fork Statement
 
 The `fork` statement creates background tasks:
 
@@ -308,9 +365,9 @@ endfork
 
 ---
 
-## 8. Server Control
+## 7. Server Control
 
-### 8.1 server_version
+### 7.1 server_version
 
 **Signature:** `server_version() → STR`
 
@@ -318,7 +375,7 @@ endfork
 
 ---
 
-### 8.2 memory_usage (ToastStunt)
+### 7.2 memory_usage (ToastStunt)
 
 **Signature:** `memory_usage() → LIST`
 
@@ -326,17 +383,21 @@ endfork
 
 ---
 
-### 8.3 shutdown
+### 7.3 shutdown
 
-**Signature:** `shutdown([message]) → none`
+**Signature:** `shutdown([message [, restart]]) → none`
 
-**Description:** Initiates server shutdown.
+**Description:** Initiates server shutdown or restart.
+
+**Parameters:**
+- `message` (STR, optional): Shutdown message to display
+- `restart` (ANY, optional): If truthy, restart server instead of shutting down
 
 **Wizard only.**
 
 ---
 
-### 8.4 dump_database
+### 7.4 dump_database
 
 **Signature:** `dump_database() → none`
 
@@ -346,9 +407,9 @@ endfork
 
 ---
 
-## 9. Connection Management
+## 8. Connection Management
 
-### 9.1 connected_players
+### 8.1 connected_players
 
 **Signature:** `connected_players([include_queued]) → LIST`
 
@@ -356,15 +417,19 @@ endfork
 
 ---
 
-### 9.2 connection_name
+### 8.2 connection_name
 
-**Signature:** `connection_name(player) → STR`
+**Signature:** `connection_name(player [, full]) → STR`
 
 **Description:** Returns connection identifier.
 
+**Parameters:**
+- `player` (OBJ): Player object
+- `full` (INT, optional): If truthy, return full connection details
+
 ---
 
-### 9.3 boot_player
+### 8.3 boot_player
 
 **Signature:** `boot_player(player) → none`
 
@@ -374,22 +439,126 @@ endfork
 
 ---
 
-### 9.4 notify
+### 8.4 notify
 
-**Signature:** `notify(player, message [, no_flush]) → none`
+**Signature:** `notify(player, message [, no_flush [, binary]]) → none`
 
 **Description:** Sends message to player's connection.
+
+**Parameters:**
+- `player` (OBJ): Target player
+- `message` (STR): Message to send
+- `no_flush` (ANY, optional): If truthy, don't flush output buffer immediately
+- `binary` (ANY, optional): If truthy, send as binary data without line ending
 
 **Examples:**
 ```moo
 notify(player, "Hello, world!");
+notify(player, "Buffered message", 1);  // No immediate flush
 ```
 
 ---
 
-## 10. Exception Raising
+### 8.5 force_input (ToastStunt)
 
-### 10.1 raise
+**Signature:** `force_input(player, text [, at_front]) → none`
+
+**Description:** Injects input into player's command queue as if they typed it.
+
+**Parameters:**
+- `player` (OBJ): Target player
+- `text` (STR): Text to inject
+- `at_front` (ANY, optional): If truthy, insert at front of queue instead of back
+
+**Wizard only.**
+
+---
+
+### 8.6 flush_input (ToastStunt)
+
+**Signature:** `flush_input(player [, show_messages]) → none`
+
+**Description:** Clears player's pending input queue.
+
+**Parameters:**
+- `player` (OBJ): Target player
+- `show_messages` (ANY, optional): If truthy, show messages about flushed commands
+
+**Wizard only.**
+
+---
+
+### 8.7 output_delimiters (ToastStunt)
+
+**Signature:** `output_delimiters(player) → LIST`
+
+**Description:** Returns the output delimiters set for the player's connection.
+
+**Parameters:**
+- `player` (OBJ): Target player
+
+**Returns:** List containing the output prefix and suffix delimiters.
+
+---
+
+### 8.8 switch_player (ToastStunt)
+
+**Signature:** `switch_player(old_player, new_player [, include_queued]) → none`
+
+**Description:** Transfers connection from one player object to another.
+
+**Parameters:**
+- `old_player` (OBJ): Current player object
+- `new_player` (OBJ): Target player object
+- `include_queued` (INT, optional): If truthy, transfer queued input as well
+
+**Wizard only.**
+
+---
+
+### 8.9 connected_seconds (ToastStunt)
+
+**Signature:** `connected_seconds(player) → INT`
+
+**Description:** Returns how long player has been connected in seconds.
+
+**Parameters:**
+- `player` (OBJ): Target player
+
+**Returns:** Number of seconds since connection established.
+
+---
+
+### 8.10 idle_seconds (ToastStunt)
+
+**Signature:** `idle_seconds(player) → INT`
+
+**Description:** Returns how long player has been idle in seconds.
+
+**Parameters:**
+- `player` (OBJ): Target player
+
+**Returns:** Number of seconds since last input from player.
+
+---
+
+### 8.11 connection_name_lookup (ToastStunt)
+
+**Signature:** `connection_name_lookup(player [, include_all]) → STR or LIST`
+
+**Description:** Reverse lookup of connection information by player object.
+
+**Parameters:**
+- `player` (OBJ): Target player
+- `include_all` (ANY, optional): If truthy, return all connection details
+
+**Returns:** Connection name string or list of connection details.
+
+---
+
+## 9. Exception Raising
+
+### 9.1 raise
 
 **Signature:** `raise(error_code [, message [, value]]) → none`
 
@@ -443,7 +612,7 @@ endtry
 
 ---
 
-## 11. Error Handling
+## 10. Error Handling
 
 | Error | Condition |
 |-------|-----------|

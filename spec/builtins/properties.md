@@ -46,14 +46,6 @@ properties($thing)   => {"name", "description", ...}
 
 ---
 
-### 2.2 all_properties (ToastStunt)
-
-**Signature:** `all_properties(object) → LIST`
-
-**Description:** Returns all properties including inherited.
-
----
-
 ## 3. Property Information
 
 ### 3.1 property_info
@@ -254,28 +246,6 @@ is_clear_property(obj, "desc")   => true  (inheriting)
 
 ---
 
-### 5.3 property_defined (ToastStunt)
-
-**Signature:** `property_defined(object, name) → BOOL`
-
-**Description:** Tests if property is defined directly on object.
-
----
-
-### 5.4 property_location (ToastStunt)
-
-**Signature:** `property_location(object, name) → OBJ`
-
-**Description:** Returns object where property is defined.
-
-**Examples:**
-```moo
-// If obj inherits "name" from $thing
-property_location(obj, "name")   => $thing
-```
-
----
-
 ## 6. Built-in Properties
 
 Every object has these read-only or system-managed properties:
@@ -294,37 +264,7 @@ Every object has these read-only or system-managed properties:
 
 ---
 
-## 7. Property Value Access
-
-### 7.1 getprop (ToastStunt)
-
-**Signature:** `getprop(object, name [, default]) → VALUE`
-
-**Description:** Gets property value with optional default.
-
-**Examples:**
-```moo
-getprop(obj, "score")           => 100
-getprop(obj, "missing", 0)      => 0 (default)
-getprop(obj, "missing")         => E_PROPNF (error)
-```
-
----
-
-### 7.2 setprop (ToastStunt)
-
-**Signature:** `setprop(object, name, value) → none`
-
-**Description:** Sets property value.
-
-**Examples:**
-```moo
-setprop(obj, "score", 200);
-```
-
----
-
-## 8. Error Handling
+## 7. Error Handling
 
 | Error | Condition |
 |-------|-----------|
@@ -336,9 +276,9 @@ setprop(obj, "score", 200);
 
 ---
 
-## 9. Permission Model
+## 8. Permission Model
 
-### 9.1 Read Permission
+### 8.1 Read Permission
 
 Property readable if:
 - Caller owns the object
@@ -351,14 +291,14 @@ When accessing an inherited property (e.g., `child.prop` where `prop` is defined
 - The object owner's permissions are NOT checked
 - Example: If `parent.prop` has no 'r' flag, reading `child.prop` requires owning parent or being wizard, even if you own child
 
-### 9.2 Write Permission
+### 8.2 Write Permission
 
 Property writable if:
 - Caller owns the object
 - Caller is wizard
 - Property has 'w' permission
 
-### 9.3 Chown Permission
+### 8.3 Chown Permission
 
 Property owner changeable if:
 - Caller owns the object

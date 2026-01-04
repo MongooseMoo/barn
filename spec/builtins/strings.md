@@ -136,52 +136,9 @@ strtr("hello", "helo", "1234")    => "12334"
 
 ---
 
-## 2. Case Conversion
+## 2. Substrings
 
-### 2.1 upcase (ToastStunt)
-
-**Signature:** `upcase(string) → STR`
-
-**Description:** Converts to uppercase.
-
-**Examples:**
-```moo
-upcase("Hello World")   => "HELLO WORLD"
-upcase("123abc")        => "123ABC"
-```
-
----
-
-### 2.2 downcase (ToastStunt)
-
-**Signature:** `downcase(string) → STR`
-
-**Description:** Converts to lowercase.
-
-**Examples:**
-```moo
-downcase("Hello World")   => "hello world"
-```
-
----
-
-### 2.3 capitalize (ToastStunt)
-
-**Signature:** `capitalize(string) → STR`
-
-**Description:** Capitalizes first character of each word.
-
-**Examples:**
-```moo
-capitalize("hello world")   => "Hello World"
-capitalize("HELLO WORLD")   => "Hello World"
-```
-
----
-
-## 3. Substrings
-
-### 3.1 substr (implicit via indexing)
+### 2.1 substr (implicit via indexing)
 
 MOO uses indexing syntax for substrings:
 
@@ -199,7 +156,7 @@ str[start..$]     // To end of string
 
 ---
 
-### 3.2 explode (ToastStunt)
+### 2.2 explode (ToastStunt)
 
 **Signature:** `explode(string [, delimiter]) → LIST`
 
@@ -222,117 +179,61 @@ explode("  hello  world  ")  => {"hello", "world"}
 
 ---
 
-### 3.3 implode (ToastStunt)
+## 3. Formatting
 
-**Signature:** `implode(list [, delimiter]) → STR`
-
-**Description:** Joins list elements into string.
-
-**Examples:**
-```moo
-implode({"a", "b", "c"})       => "abc"
-implode({"a", "b", "c"}, ",")  => "a,b,c"
-implode({"a", "b", "c"}, " ")  => "a b c"
-```
-
-**Errors:**
-- E_TYPE: Not a list or list contains non-strings
-
----
-
-## 4. Trimming
-
-### 4.1 ltrim (ToastStunt)
-
-**Signature:** `ltrim(string [, chars]) → STR`
-
-**Description:** Removes leading characters.
-
-**Examples:**
-```moo
-ltrim("  hello  ")        => "hello  "
-ltrim("xxhelloxx", "x")   => "helloxx"
-```
-
----
-
-### 4.2 rtrim (ToastStunt)
-
-**Signature:** `rtrim(string [, chars]) → STR`
-
-**Description:** Removes trailing characters.
-
-**Examples:**
-```moo
-rtrim("  hello  ")        => "  hello"
-rtrim("xxhelloxx", "x")   => "xxhello"
-```
-
----
-
-### 4.3 trim (ToastStunt)
-
-**Signature:** `trim(string [, chars]) → STR`
-
-**Description:** Removes leading and trailing characters.
-
-**Examples:**
-```moo
-trim("  hello  ")         => "hello"
-trim("xxhelloxx", "x")    => "hello"
-```
-
----
-
-## 5. Formatting
-
-### 5.1 tostr
+### 3.1 tostr
 
 See [types.md](types.md) - converts values to strings.
 
 ---
 
-### 5.2 crypt
+### 3.2 crypt
 
 **Signature:** `crypt(plaintext [, salt]) → STR`
 
 **Description:** One-way hash using Unix crypt().
 
+**Platform Notes:**
+- Windows: Only bcrypt ($2a$/$2b$) salts are supported
+- Other platforms: Traditional DES crypt may be supported
+
 **Examples:**
 ```moo
-crypt("password")           => "xxxxxxxxxxxx"  (varies)
-crypt("password", "ab")     => "abXXXXXXXXXX"  (varies)
+crypt("password", "$2a$10$...")   => "$2a$10$..."  (bcrypt on Windows)
 ```
 
 ---
 
-### 5.3 string_hash
+### 3.3 string_hash
 
 **Signature:** `string_hash(string [, algorithm]) → STR`
 
-**Description:** Cryptographic hash of string.
+**Description:** Cryptographic hash of string, returns hex-encoded string.
 
-**Algorithms:** "MD5", "SHA1", "SHA256", "SHA512"
+**Algorithms:** "MD5", "SHA1", "SHA256" (default), "SHA512"
 
 **Examples:**
 ```moo
-string_hash("hello")              => "5d41402abc..."  (MD5)
-string_hash("hello", "SHA256")    => "2cf24dba5f..."
+string_hash("hello")              => "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824"  (SHA256 default)
+string_hash("hello", "MD5")       => "5D41402ABC4B2A76B9719D911017C592"
+string_hash("hello", "SHA256")    => "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824"
 ```
 
 ---
 
-### 5.4 binary_hash
+### 3.4 binary_hash
 
 **Signature:** `binary_hash(string [, algorithm]) → STR`
 
-**Description:** Hash returning raw binary.
+**Description:** Cryptographic hash of string, returns hex-encoded string. Despite the name, returns the same format as string_hash (hex string, not raw binary).
+
+**Algorithms:** Same as string_hash
 
 ---
 
-## 6. Character Operations
+## 4. Character Operations
 
-### 6.1 chr (ToastStunt)
+### 4.1 chr (ToastStunt)
 
 **Signature:** `chr(code) → STR`
 
@@ -349,28 +250,9 @@ chr(8364)    => "€"
 
 ---
 
-### 6.2 ord (ToastStunt)
+## 5. Encoding
 
-**Signature:** `ord(string [, index]) → INT`
-
-**Description:** Returns Unicode code point of character.
-
-**Examples:**
-```moo
-ord("A")       => 65
-ord("€")       => 8364
-ord("hello")   => 104
-ord("hello", 2) => 101  (second character)
-```
-
-**Errors:**
-- E_RANGE: Index out of bounds
-
----
-
-## 7. Encoding
-
-### 7.1 encode_binary
+### 5.1 encode_binary
 
 **Signature:** `encode_binary(args...) → STR`
 
@@ -384,7 +266,7 @@ encode_binary(0, 255)       => binary string with bytes 0, 255
 
 ---
 
-### 7.2 decode_binary
+### 5.2 decode_binary
 
 **Signature:** `decode_binary(string [, fully]) → LIST`
 
@@ -398,7 +280,7 @@ decode_binary("AB\x00C")    => {65, 66, 0, 67}
 
 ---
 
-### 7.3 encode_base64 (ToastStunt)
+### 5.3 encode_base64 (ToastStunt)
 
 **Signature:** `encode_base64(string) → STR`
 
@@ -411,7 +293,7 @@ encode_base64("hello")   => "aGVsbG8="
 
 ---
 
-### 7.4 decode_base64 (ToastStunt)
+### 5.4 decode_base64 (ToastStunt)
 
 **Signature:** `decode_base64(string) → STR`
 
@@ -427,9 +309,9 @@ decode_base64("aGVsbG8=")   => "hello"
 
 ---
 
-## 8. Pattern Matching
+## 6. Pattern Matching
 
-### 8.1 match
+### 6.1 match
 
 **Signature:** `match(subject, pattern [, case_matters]) → LIST`
 
@@ -456,26 +338,33 @@ decode_base64("aGVsbG8=")   => "hello"
 | `%[^abc]` | Negated class |
 | `%%` | Literal % |
 
-**Returns:** `{start, end, replacements, subject}` or `{}`
+**Returns:** `{start, end, capture_ranges, subject}` or `{}`
+
+Where `capture_ranges` is a list of `{start, end}` tuples for each capture group. Groups that didn't match have `{0, -1}`.
 
 **Examples:**
 ```moo
-match("hello world", "%w+")            => {1, 5, {}, "hello world"}
-match("hello world", "%(w%)%w")        => {1, 2, {"h"}, "hello world"}
-match("hello", "goodbye")              => {}
+match("hello world", "%w+")
+=> {1, 5, {{0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}}, "hello world"}
+
+match("hello world", "%(hello%) %(world%)")
+=> {1, 11, {{1, 5}, {7, 11}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}, {0, -1}}, "hello world"}
+
+match("hello", "goodbye")
+=> {}
 ```
 
 ---
 
-### 8.2 rmatch
+### 6.2 rmatch
 
 **Signature:** `rmatch(subject, pattern [, case_matters]) → LIST`
 
-**Description:** Like match but finds last occurrence.
+**Description:** Like match but finds last occurrence. Returns same format as match.
 
 ---
 
-### 8.3 substitute
+### 6.3 substitute
 
 **Signature:** `substitute(template, subs) → STR`
 
@@ -493,27 +382,7 @@ substitute("%2 %1", subs)   => "world hello"
 
 ---
 
-## 9. Unicode (ToastStunt)
-
-### 9.1 is_valid_unicode
-
-**Signature:** `is_valid_unicode(string) → BOOL`
-
-**Description:** Tests if string is valid UTF-8.
-
----
-
-### 9.2 normalize_unicode
-
-**Signature:** `normalize_unicode(string [, form]) → STR`
-
-**Description:** Normalizes Unicode string.
-
-**Forms:** "NFC", "NFD", "NFKC", "NFKD"
-
----
-
-## 10. Error Handling
+## 7. Error Handling
 
 All string functions raise:
 - E_TYPE for non-string arguments

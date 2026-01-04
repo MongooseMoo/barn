@@ -27,11 +27,7 @@ Functions for JSON encoding and decoding.
 | OBJ | string ("#N") |
 | ERR | string ("E_XXX") |
 
-**Options (ToastStunt):**
-| Option | Effect |
-|--------|--------|
-| "pretty" | Indented output |
-| "ascii" | Escape non-ASCII |
+**Options:** The optional second argument is currently unused in ToastStunt. Any value causes E_INVARG.
 
 **Examples:**
 ```moo
@@ -42,13 +38,9 @@ generate_json(["a" -> 1])        => "{\"a\":1}"
 generate_json(true)              => "true"
 generate_json(#0)                => "\"#0\""
 
-// Nested
+// Nested (note: keys are sorted alphabetically)
 generate_json(["name" -> "Alice", "age" -> 30])
-  => "{\"name\":\"Alice\",\"age\":30}"
-
-// Pretty
-generate_json(["a" -> 1], "pretty")
-  => "{\n  \"a\": 1\n}"
+  => "{\"age\":30,\"name\":\"Alice\"}"
 ```
 
 **Errors:**
@@ -59,12 +51,15 @@ generate_json(["a" -> 1], "pretty")
 
 ### 1.2 JSON Object Keys
 
-MOO map keys are converted to strings:
+MOO map keys are converted to strings and sorted alphabetically:
 
 ```moo
 generate_json([1 -> "one"])      => "{\"1\":\"one\"}"
 generate_json([#0 -> "sys"])     => "{\"#0\":\"sys\"}"
+generate_json(["b" -> 2, "a" -> 1])  => "{\"a\":1,\"b\":2}"
 ```
+
+This ensures consistent JSON output regardless of map insertion order.
 
 ---
 
@@ -86,7 +81,7 @@ generate_json([#0 -> "sys"])     => "{\"#0\":\"sys\"}"
 | array | LIST |
 | object | MAP |
 | true/false | BOOL |
-| null | INT (0) |
+| null | STR ("null") |
 
 **Examples:**
 ```moo
@@ -96,7 +91,7 @@ parse_json("\"hello\"")          => "hello"
 parse_json("[1,2,3]")            => {1, 2, 3}
 parse_json("{\"a\":1}")          => ["a" -> 1]
 parse_json("true")               => true
-parse_json("null")               => 0
+parse_json("null")               => "null"
 ```
 
 **Errors:**
@@ -120,13 +115,15 @@ Large integers that overflow INT are converted to FLOAT.
 
 ### 3.2 Null
 
-JSON `null` becomes MOO integer 0:
+JSON `null` becomes the MOO string "null":
 
 ```moo
-parse_json("null")               => 0
-parse_json("[1,null,3]")         => {1, 0, 3}
-parse_json("{\"x\":null}")       => ["x" -> 0]
+parse_json("null")               => "null"
+parse_json("[1,null,3]")         => {1, "null", 3}
+parse_json("{\"x\":null}")       => ["x" -> "null"]
 ```
+
+**Note:** Unlike some other MOO servers, ToastStunt converts JSON null to the literal string "null" rather than to a numeric zero or error value.
 
 ### 3.3 Unicode
 
@@ -151,8 +148,9 @@ Not all MOO values survive round-trip:
 | ["a"->1] | "{\"a\":1}" | ["a"->1] ✓ |
 | #0 | "\"#0\"" | "#0" (string!) |
 | E_TYPE | "\"E_TYPE\"" | "E_TYPE" (string!) |
+| - | "null" | "null" (string!) |
 
-**Object IDs and Errors become strings and don't round-trip.**
+**Object IDs, Errors, and null become strings and don't round-trip to their original types.**
 
 ---
 
@@ -180,22 +178,14 @@ import "encoding/json"
 func builtinGenerateJson(args []Value) (Value, error) {
     value := args[0]
 
-    pretty := false
+    // Toast rejects any options with E_INVARG
     if len(args) > 1 {
-        opts := string(args[1].(StringValue))
-        pretty = strings.Contains(opts, "pretty")
+        return nil, E_INVARG
     }
 
     jsonValue := mooToJson(value)
 
-    var data []byte
-    var err error
-    if pretty {
-        data, err = json.MarshalIndent(jsonValue, "", "  ")
-    } else {
-        data, err = json.Marshal(jsonValue)
-    }
-
+    data, err := json.Marshal(jsonValue)
     if err != nil {
         return nil, E_TYPE
     }
@@ -223,9 +213,16 @@ func mooToJson(v Value) any {
         }
         return arr
     case *MOOMap:
+        // Sort keys alphabetically for consistent output
+        keys := make([]string, 0, len(val.entries))
+        for k := range val.entries {
+            keys = append(keys, k.String())
+        }
+        sort.Strings(keys)
+
         obj := make(map[string]any)
-        for k, v := range val.entries {
-            obj[k.String()] = mooToJson(v)
+        for _, k := range keys {
+            obj[k] = mooToJson(val.entries[StringValue(k)])
         }
         return obj
     default:
@@ -247,7 +244,8 @@ func builtinParseJson(args []Value) (Value, error) {
 func jsonToMoo(v any) Value {
     switch val := v.(type) {
     case nil:
-        return IntValue(0)
+        // Toast converts null to the string "null"
+        return StringValue("null")
     case bool:
         return BoolValue(val)
     case float64:
@@ -271,7 +269,8 @@ func jsonToMoo(v any) Value {
         }
         return m
     default:
-        return IntValue(0)
+        // Fallback for unknown types
+        return StringValue("null")
     }
 }
 ```

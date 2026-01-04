@@ -2,7 +2,7 @@
 
 ## Overview
 
-Functions for network operations including HTTP, connections, and DNS.
+Functions for network operations including connections, HTTP client, and connection management.
 
 ---
 
@@ -94,19 +94,6 @@ notify(player, "Hello, world!");
 
 ---
 
-### 2.2 notify_list (ToastStunt)
-
-**Signature:** `notify_list(player, lines) → none`
-
-**Description:** Sends multiple lines efficiently.
-
-**Examples:**
-```moo
-notify_list(player, {"Line 1", "Line 2", "Line 3"});
-```
-
----
-
 ## 3. Input
 
 ### 3.1 read
@@ -156,6 +143,8 @@ name = read(player);
 
 **Description:** Makes HTTP request.
 
+**Note:** This function is defined in ToastStunt source code but may not be available at runtime depending on build configuration. Check if enabled before use.
+
 **Options map:**
 | Key | Type | Description |
 |-----|------|-------------|
@@ -185,40 +174,9 @@ result = curl("https://api.example.com/post", [
 
 ---
 
-## 5. DNS
+## 5. Connection Management
 
-### 5.1 dns_lookup (ToastStunt)
-
-**Signature:** `dns_lookup(hostname) → LIST`
-
-**Description:** Resolves hostname to IP addresses.
-
-**Returns:** List of IP address strings.
-
-**Examples:**
-```moo
-dns_lookup("example.com")
-// => {"93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"}
-```
-
----
-
-### 5.2 reverse_dns (ToastStunt)
-
-**Signature:** `reverse_dns(ip_address) → STR`
-
-**Description:** Reverse DNS lookup.
-
-**Examples:**
-```moo
-reverse_dns("8.8.8.8")   => "dns.google"
-```
-
----
-
-## 6. Connection Management
-
-### 6.1 listen
+### 5.1 listen
 
 **Signature:** `listen(object, point [, print_messages]) → none`
 
@@ -233,7 +191,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-### 6.2 unlisten
+### 5.2 unlisten
 
 **Signature:** `unlisten(point) → none`
 
@@ -241,7 +199,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-### 6.3 listeners
+### 5.3 listeners
 
 **Signature:** `listeners() → LIST`
 
@@ -249,7 +207,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-### 6.4 open_network_connection
+### 5.4 open_network_connection
 
 **Signature:** `open_network_connection(host, port [, listener]) → OBJ`
 
@@ -261,9 +219,9 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-## 7. Binary Protocol
+## 6. Binary Protocol
 
-### 7.1 set_connection_option
+### 6.1 set_connection_option
 
 **Signature:** `set_connection_option(player, option, value) → none`
 
@@ -278,7 +236,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-### 7.2 connection_options
+### 6.2 connection_options
 
 **Signature:** `connection_options(player) → MAP`
 
@@ -286,9 +244,9 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-## 8. Timeouts
+## 7. Timeouts
 
-### 8.1 idle_seconds
+### 7.1 idle_seconds
 
 **Signature:** `idle_seconds(player) → INT`
 
@@ -296,7 +254,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-### 8.2 connected_seconds
+### 7.2 connected_seconds
 
 **Signature:** `connected_seconds(player) → INT`
 
@@ -304,15 +262,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-### 8.3 set_connection_timeout (ToastStunt)
-
-**Signature:** `set_connection_timeout(player, seconds) → none`
-
-**Description:** Sets idle timeout for connection.
-
----
-
-## 9. Error Handling
+## 8. Error Handling
 
 | Error | Condition |
 |-------|-----------|
@@ -323,7 +273,7 @@ reverse_dns("8.8.8.8")   => "dns.google"
 
 ---
 
-## 10. Go Implementation Notes
+## 9. Go Implementation Notes
 
 ```go
 import "net/http"
