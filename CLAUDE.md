@@ -1,5 +1,27 @@
 # Barn - Go MOO Server
 
+## CRITICAL: What The Spec Is
+
+**The spec documents ToastStunt behavior. Period.**
+
+- Toast is the reference implementation
+- If Toast has a function → spec documents it
+- If Toast doesn't have a function → spec should NOT document it
+- Barn's implementation status is IRRELEVANT to the spec
+- "[Not Implemented]" is MEANINGLESS in the spec - remove it
+- The spec is NOT a Barn status document
+- The spec is NOT aspirational features nobody has built
+
+**When auditing specs:**
+- Test against Toast to find what Toast ACTUALLY does
+- If spec says something Toast doesn't do → FIX THE SPEC (remove it)
+- If Toast does something spec doesn't say → FIX THE SPEC (add it)
+- Barn matching or not matching is a separate concern
+
+**Barn's job:** Implement what the spec says (which is what Toast does)
+
+---
+
 ## CRITICAL: Subagent File Writing Failures
 
 **If Edit/Write fails with "file unexpectedly modified", follow this procedure:**
@@ -69,8 +91,9 @@ Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in 
 | Name | Path | Description |
 |------|------|-------------|
 | ToastStunt | `~/src/toaststunt/` | C++ MOO server (primary reference) |
+| moo-conformance-tests | `~/code/moo-conformance-tests/` | YAML-based conformance test suite |
 | moo_interp | `~/code/moo_interp/` | Python MOO interpreter |
-| cow_py | `~/code/cow_py/` | Python MOO server with conformance tests |
+| cow_py | `~/code/cow_py/` | Python MOO server (no longer has conformance tests) |
 | lambdamoo-db-py | `~/src/lambdamoo-db-py/` | LambdaMOO database parser |
 
 ## Directory Structure
@@ -86,53 +109,53 @@ barn/
 
 ## Conformance Tests
 
-Tests live in `~/code/cow_py/tests/conformance/` and are shared between Python and Go implementations.
+Tests live in `~/code/moo-conformance-tests/` as a standalone pytest plugin package.
 
-### Running Tests Against Barn (Go Server)
+**Test YAML files:** `~/code/moo-conformance-tests/src/moo_conformance/_tests/`
+
+### Running Tests Against Any MOO Server
 
 ```bash
-# 1. Build barn
+# From barn directory (has moo-conformance-tests as dependency)
 cd ~/code/barn
-go build -o barn_test.exe ./cmd/barn/
 
-# 2. Start barn server on a free port
-./barn_test.exe -db Test.db -port 9300 > server.log 2>&1 &
+# Run against Toast (port 9501)
+uv run pytest --pyargs moo_conformance --moo-port=9501 -v
 
-# 3. Wait for server to start
-sleep 2
+# Run against Barn (port 9500)
+uv run pytest --pyargs moo_conformance --moo-port=9500 -v
 
-# 4. Run conformance tests via socket transport
-cd ~/code/cow_py
-uv run pytest tests/conformance/ --transport socket --moo-port 9300 -v
+# Stop on first failure
+uv run pytest --pyargs moo_conformance --moo-port=9501 -x -v
 
-# Stop on first failure (recommended for debugging):
-uv run pytest tests/conformance/ --transport socket --moo-port 9300 -x -v
+# Run specific test by name
+uv run pytest --pyargs moo_conformance -k "arithmetic::addition" --moo-port=9501 -v
 
-# Run specific test category:
-uv run pytest tests/conformance/ --transport socket --moo-port 9300 -k "arithmetic" -v
-
-# Skip known problematic tests:
-uv run pytest tests/conformance/ --transport socket --moo-port 9300 -k "not property and not crypt" -x -v
-```
-
-### Running Tests Against cow_py (Python Server - Direct)
-
-```bash
-cd ~/code/cow_py
-uv run pytest tests/conformance/ -v  # Uses direct transport by default
+# Run specific category
+uv run pytest --pyargs moo_conformance -k "arithmetic" --moo-port=9501 -v
 ```
 
 ### Test Options
 
 | Option | Description |
 |--------|-------------|
-| `--transport socket` | Connect to external MOO server via TCP |
-| `--transport direct` | Use cow_py's Python implementation directly (default) |
-| `--moo-port PORT` | Port for socket transport (default: 7777) |
-| `--moo-host HOST` | Host for socket transport (default: localhost) |
+| `--moo-port PORT` | Port to connect to (required) |
+| `--moo-host HOST` | Host to connect to (default: localhost) |
 | `-x` | Stop on first failure |
 | `-v` | Verbose output |
 | `-k "pattern"` | Filter tests by name pattern |
+| `--tb=long` | Show full tracebacks |
+
+### Test Database
+
+Both Toast and Barn use `Test.db`. Connect as wizard with `connect wizard`.
+
+### Current Test Status
+
+- 1465 total tests
+- 1233 pass on both Toast and Barn
+- 67 fail on both (test bugs, not server bugs)
+- 165 skipped
 
 ### Manual Testing with moo_client
 
