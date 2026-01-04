@@ -43,15 +43,13 @@ connection_name(player, "ip-address") => "192.168.1.1"
 
 ---
 
-### 1.3 connection_info() [Not Implemented]
+### 1.3 connection_info
 
 **Signature:** `connection_info(player) → MAP`
 
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
 **Description:** Returns detailed connection information.
 
-**Returns:**
+**Returns:** Map with connection details:
 ```moo
 ["ip" -> "192.168.1.1",
  "port" -> 1234,
@@ -60,6 +58,9 @@ connection_name(player, "ip-address") => "192.168.1.1"
  "bytes_in" -> 1024,
  "bytes_out" -> 2048]
 ```
+
+**Errors:**
+- E_INVARG: Player not connected
 
 ---
 
@@ -149,11 +150,9 @@ name = read(player);
 
 ## 4. HTTP Client (ToastStunt)
 
-### 4.1 curl() [Not Implemented]
+### 4.1 curl
 
-**Signature:** `curl(url [, options]) → LIST`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
+**Signature:** `curl(url [, options [, timeout]]) → LIST`
 
 **Description:** Makes HTTP request.
 

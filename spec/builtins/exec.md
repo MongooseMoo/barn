@@ -57,119 +57,23 @@ exec("program arg1 arg2")
 
 ---
 
-## 2. Execution Options
+## 2. Security
 
-### 2.1 exec_async() [Not Implemented]
-
-**Signature:** `exec_async(command [, callback_obj, callback_verb]) → INT`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
-**Description:** Executes command asynchronously.
-
-**Returns:** Process ID.
-
-**Callback:** When process completes, calls:
-```moo
-callback_obj:callback_verb(pid, exit_code, stdout, stderr)
-```
-
-**Examples:**
-```moo
-pid = exec_async({"long_running_command"}, this, "process_done");
-
-// Later, this:process_done is called with results
-```
-
----
-
-### 2.2 exec_timeout() [Not Implemented]
-
-**Signature:** `exec_timeout(command, timeout [, input]) → LIST`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn. The basic `exec()` function has a hardcoded 30-second timeout.
-
-**Description:** Executes with timeout.
-
-**Parameters:**
-- `timeout`: Maximum seconds
-
-**Errors:**
-- E_EXEC: Timeout exceeded
-
----
-
-## 3. Process Control
-
-### 3.1 kill_process() [Not Implemented]
-
-**Signature:** `kill_process(pid [, signal]) → none`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
-**Description:** Sends signal to process.
-
-**Signals:**
-| Name | Number | Effect |
-|------|--------|--------|
-| "TERM" | 15 | Terminate |
-| "KILL" | 9 | Force kill |
-| "INT" | 2 | Interrupt |
-
----
-
-### 3.2 wait_process() [Not Implemented]
-
-**Signature:** `wait_process(pid) → LIST`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
-**Description:** Waits for async process to complete.
-
-**Returns:** `{exit_code, stdout, stderr}`
-
----
-
-## 4. Environment
-
-### 4.1 exec_env() [Not Implemented]
-
-**Signature:** `exec_env(command, env [, input]) → LIST`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
-**Description:** Executes with custom environment.
-
-**Parameters:**
-- `env`: Map of environment variables
-
-**Examples:**
-```moo
-result = exec_env(
-    {"./script.sh"},
-    ["PATH" -> "/usr/bin", "HOME" -> "/tmp"]
-);
-```
-
----
-
-## 5. Security
-
-### 5.1 Allowed Commands
+### 2.1 Allowed Commands
 
 Server may restrict which commands can be executed:
 - Whitelist of allowed programs
 - Blacklist of forbidden programs
 - Path restrictions
 
-### 5.2 Sandboxing
+### 2.2 Sandboxing
 
 Executed processes may be sandboxed:
 - Limited filesystem access
 - Network restrictions
 - Resource limits (CPU, memory)
 
-### 5.3 Permission Requirements
+### 2.3 Permission Requirements
 
 - Usually requires wizard
 - May be allowed for programmers with restrictions
@@ -177,7 +81,7 @@ Executed processes may be sandboxed:
 
 ---
 
-## 6. Error Handling
+## 3. Error Handling
 
 | Error | Condition |
 |-------|-----------|
@@ -193,9 +97,9 @@ Executed processes may be sandboxed:
 
 ---
 
-## 7. Common Patterns
+## 4. Common Patterns
 
-### 7.1 Capture Output
+### 4.1 Capture Output
 
 ```moo
 {code, out, err} = exec({"command"});
@@ -206,7 +110,7 @@ else
 endif
 ```
 
-### 7.2 Pipeline Simulation
+### 4.2 Pipeline Simulation
 
 ```moo
 // No direct pipe support in list form
@@ -219,7 +123,7 @@ result = exec("cat file.txt | grep pattern | wc -l");
 {_, count, _} = exec({"wc", "-l"}, filtered);
 ```
 
-### 7.3 Error Checking
+### 4.3 Error Checking
 
 ```moo
 {code, out, err} = exec({"command"});
@@ -231,7 +135,7 @@ return out;
 
 ---
 
-## 8. Resource Limits
+## 5. Resource Limits
 
 | Limit | Description |
 |-------|-------------|
@@ -241,7 +145,7 @@ return out;
 
 ---
 
-## 9. Go Implementation Notes
+## 6. Go Implementation Notes
 
 ```go
 import (
@@ -316,68 +220,5 @@ func builtinExec(args []Value) (Value, error) {
         StringValue(stdout.String()),
         StringValue(stderr.String()),
     }}, nil
-}
-
-func builtinExecAsync(args []Value) (Value, error) {
-    if !callerIsWizard() {
-        return nil, E_PERM
-    }
-
-    // Parse command
-    cmdList := args[0].(*MOOList)
-    program := string(cmdList.data[0].(StringValue))
-    cmdArgs := make([]string, len(cmdList.data)-1)
-    for i := 1; i < len(cmdList.data); i++ {
-        cmdArgs[i-1] = string(cmdList.data[i].(StringValue))
-    }
-
-    cmd := exec.Command(program, cmdArgs...)
-
-    var callbackObj, callbackVerb string
-    if len(args) > 1 {
-        callbackObj = string(args[1].(ObjValue))
-        callbackVerb = string(args[2].(StringValue))
-    }
-
-    // Start process
-    var stdout, stderr bytes.Buffer
-    cmd.Stdout = &stdout
-    cmd.Stderr = &stderr
-
-    if err := cmd.Start(); err != nil {
-        return nil, E_EXEC
-    }
-
-    pid := cmd.Process.Pid
-    asyncProcesses[pid] = &AsyncProcess{
-        Cmd:          cmd,
-        Stdout:       &stdout,
-        Stderr:       &stderr,
-        CallbackObj:  callbackObj,
-        CallbackVerb: callbackVerb,
-    }
-
-    // Wait in goroutine
-    go func() {
-        err := cmd.Wait()
-        exitCode := 0
-        if err != nil {
-            if exitErr, ok := err.(*exec.ExitError); ok {
-                exitCode = exitErr.ExitCode()
-            }
-        }
-
-        // Call callback if specified
-        if callbackVerb != "" {
-            scheduler.QueueVerbCall(callbackObj, callbackVerb, []Value{
-                IntValue(pid),
-                IntValue(exitCode),
-                StringValue(stdout.String()),
-                StringValue(stderr.String()),
-            })
-        }
-    }()
-
-    return IntValue(pid), nil
 }
 ```

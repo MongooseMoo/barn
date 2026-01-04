@@ -1,9 +1,5 @@
 # MOO SQLite Built-ins
 
-> **Status: Draft/Planned Feature - Not Implemented**
->
-> This specification describes a planned SQLite integration that has not been implemented in ToastStunt or Barn. The API described below is aspirational and no reference implementation exists.
-
 ## Overview
 
 Functions for embedded SQLite database operations (ToastStunt extension).

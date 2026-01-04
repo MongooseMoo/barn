@@ -129,76 +129,7 @@ maphaskey(["a" -> 1], "b")    => 0
 
 ---
 
-## 3. Transformation
-
-### 3.1 mapmerge [Not Implemented]
-
-**Signature:** `mapmerge(map1, map2) → MAP`
-
-> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
-
-**Description:** Would return new map with entries from both. map2 values would override map1 for duplicate keys.
-
-**Examples:**
-```moo
-mapmerge(["a" -> 1], ["b" -> 2])           => ["a" -> 1, "b" -> 2]
-mapmerge(["a" -> 1], ["a" -> 99])          => ["a" -> 99]
-mapmerge(["a" -> 1, "b" -> 2], ["b" -> 9]) => ["a" -> 1, "b" -> 9]
-```
-
----
-
-### 3.2 mapslice [Not Implemented]
-
-**Signature:** `mapslice(map, keys) → MAP`
-
-> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
-
-**Description:** Would return new map with only specified keys.
-
-**Examples:**
-```moo
-mapslice(["a" -> 1, "b" -> 2, "c" -> 3], {"a", "c"})
-    => ["a" -> 1, "c" -> 3]
-```
-
----
-
-## 4. Conversion
-
-### 4.1 mklist [Not Implemented]
-
-**Signature:** `mklist(map) → LIST`
-
-> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
-
-**Description:** Would convert map to list of {key, value} pairs.
-
-**Examples:**
-```moo
-mklist(["a" -> 1, "b" -> 2])    => {{"a", 1}, {"b", 2}}
-mklist([])                       => {}
-```
-
----
-
-### 4.2 mkmap [Not Implemented]
-
-**Signature:** `mkmap(list) → MAP`
-
-> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
-
-**Description:** Would convert list of {key, value} pairs to map.
-
-**Examples:**
-```moo
-mkmap({{"a", 1}, {"b", 2}})      => ["a" -> 1, "b" -> 2]
-mkmap({})                         => []
-```
-
----
-
-## 5. Iteration
+## 3. Iteration
 
 Maps can be iterated with for loops:
 
@@ -227,7 +158,7 @@ for value in ([])
 endfor
 ```
 
-### 5.1 Mutation During Iteration
+### 3.1 Mutation During Iteration
 
 Due to copy-on-write semantics, map modifications during iteration are **SAFE**:
 
@@ -259,7 +190,7 @@ endfor
 
 ---
 
-## 6. Key Types
+## 4. Key Types
 
 Maps support the following types as keys:
 
@@ -283,7 +214,7 @@ Maps support the following types as keys:
 [E_NONE -> "error key"]            // Error keys
 ```
 
-### 6.1 Float Key Equality
+### 4.1 Float Key Equality
 
 Float keys use **bitwise comparison** (same as `==` operator):
 
@@ -293,7 +224,7 @@ Float keys use **bitwise comparison** (same as `==` operator):
 
 **Recommendation:** Avoid float keys due to precision issues. Use string keys for decimal values.
 
-### 6.2 Reference Key Equality
+### 4.2 Reference Key Equality
 
 **ANON and WAIF keys:**
 - Use reference equality (identity comparison)
@@ -304,7 +235,7 @@ Float keys use **bitwise comparison** (same as `==` operator):
 
 ---
 
-## 7. Ordering
+## 5. Ordering
 
 Map iteration order is **implementation-defined** with these guarantees:
 
@@ -319,7 +250,7 @@ Map iteration order is **implementation-defined** with these guarantees:
 
 ---
 
-## 8. Error Handling
+## 6. Error Handling
 
 | Error | Condition |
 |-------|-----------|
@@ -329,7 +260,7 @@ Map iteration order is **implementation-defined** with these guarantees:
 
 ---
 
-## 9. `in` Operator [Not Working]
+## 7. `in` Operator [Not Working]
 
 > **Note:** The `in` operator does not currently work with maps in ToastStunt or Barn. It always returns 0 (false) regardless of whether the key exists. Use `maphaskey(map, key)` instead to test for key presence.
 
@@ -347,7 +278,7 @@ maphaskey(["a" -> 1], "x")     => 0  (correct)
 
 ---
 
-## 10. Go Implementation Notes
+## 8. Go Implementation Notes
 
 ```go
 // MOO maps are copy-on-write
@@ -402,7 +333,7 @@ type mapEntry struct {
 
 ---
 
-## 11. Performance Notes
+## 9. Performance Notes
 
 | Operation | Complexity |
 |-----------|------------|

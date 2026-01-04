@@ -236,31 +236,6 @@ encode_base64("\x00\x01") => "AAE="
 
 ---
 
-### 6.3 encode_hex() [Not Implemented]
-
-**Signature:** `encode_hex(data) → STR`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
-**Description:** Encodes as hexadecimal.
-
-**Examples:**
-```moo
-encode_hex("ABC")   => "414243"
-```
-
----
-
-### 6.4 decode_hex() [Not Implemented]
-
-**Signature:** `decode_hex(string) → STR`
-
-> **Note:** This function is documented but not implemented in ToastStunt or Barn.
-
-**Description:** Decodes hexadecimal.
-
----
-
 ## 7. UUID (ToastStunt)
 
 ### 7.1 uuid
