@@ -341,30 +341,52 @@ All bitwise operators require INT operands.
 
 ```moo
 left |. right
+bitor(left, right)  // Function form
 ```
 
 **Semantics:** Binary OR of integer bits
+
+**Examples:**
+```moo
+12 |. 10        => 14      // 1100 | 1010 = 1110
+bitor(12, 10)   => 14
+```
 
 ### 8.2 Bitwise XOR (`^.`)
 
 ```moo
 left ^. right
+bitxor(left, right)  // Function form
 ```
 
 **Semantics:** Binary XOR of integer bits
+
+**Examples:**
+```moo
+12 ^. 10        => 6       // 1100 ^ 1010 = 0110
+bitxor(12, 10)  => 6
+```
 
 ### 8.3 Bitwise AND (`&.`)
 
 ```moo
 left &. right
+bitand(left, right)  // Function form
 ```
 
 **Semantics:** Binary AND of integer bits
+
+**Examples:**
+```moo
+12 &. 10        => 8       // 1100 & 1010 = 1000
+bitand(12, 10)  => 8
+```
 
 ### 8.4 Bitwise NOT (`~`)
 
 ```moo
 ~expression
+bitnot(expression)  // Function form
 ```
 
 **Semantics:** Binary NOT (ones complement) of integer
@@ -374,20 +396,32 @@ left &. right
 ~0              => -1      // All zeros → all ones
 ~(-1)           => 0       // All ones → all zeros
 ~5              => -6      // 00000101 → 11111010 (two's complement)
+bitnot(0)       => -1
 ```
 
 ### 8.5 Left Shift (`<<`)
 
 ```moo
 value << count
+bitshl(value, count)  // Function form (ToastStunt)
 ```
 
 **Semantics:** Shift bits left, fill with zeros
+
+**Examples:**
+```moo
+1 << 4          => 16
+bitshl(1, 4)    => 16
+```
+
+**Errors:**
+- `E_INVARG`: Negative shift count
 
 ### 8.6 Right Shift (`>>`)
 
 ```moo
 value >> count
+bitshr(value, count)  // Function form (ToastStunt)
 ```
 
 **Semantics:** Arithmetic right shift (preserves sign)
@@ -397,10 +431,12 @@ value >> count
 8 >> 1          => 4       // Positive: fills with 0
 -8 >> 1         => -4      // Negative: sign-extended (fills with 1)
 -1 >> 10        => -1      // All-ones pattern remains all-ones
+bitshr(16, 4)   => 1
 ```
 
 **Errors:**
 - `E_TYPE`: Non-integer operand
+- `E_INVARG`: Negative shift count
 
 ---
 

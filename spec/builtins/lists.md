@@ -227,11 +227,13 @@ is_member(4, {1, 2, 3})      => 0
 
 ---
 
-### 2.3 indexc (ToastStunt)
+### 2.3 indexc [Verb]
 
 **Signature:** `indexc(list, value [, start]) → INT`
 
 **Description:** Case-insensitive search in list of strings.
+
+**Note:** Implemented as MOO verb, not a builtin.
 
 **Examples:**
 ```moo
@@ -291,11 +293,13 @@ reverse({})              => {}
 
 ---
 
-### 4.2 slice (ToastStunt)
+### 4.2 slice [Verb]
 
 **Signature:** `slice(list, indices) → LIST`
 
 **Description:** Extracts elements at specified indices.
+
+**Note:** Implemented as MOO verb, not a builtin.
 
 **Examples:**
 ```moo
@@ -308,11 +312,13 @@ slice({10, 20, 30}, {1, 1, 1})       => {10, 10, 10}
 
 ---
 
-### 4.3 rotate (ToastStunt)
+### 4.3 rotate [Verb]
 
 **Signature:** `rotate(list [, count]) → LIST`
 
 **Description:** Rotates list elements.
+
+**Note:** Implemented as MOO verb, not a builtin.
 
 **Examples:**
 ```moo
@@ -323,9 +329,11 @@ rotate({1, 2, 3, 4}, -1)     => {4, 1, 2, 3}
 
 ---
 
-## 5. Set Operations (ToastStunt)
+## 5. Set Operations (MOO Verbs - Not Builtins)
 
-### 5.1 intersection
+**Note:** The following are implemented as MOO verbs in standard databases, not as server builtins. They return E_VERBNF if called directly without the verb implementations.
+
+### 5.1 intersection [Verb]
 
 **Signature:** `intersection(list1, list2) → LIST`
 
@@ -339,7 +347,7 @@ intersection({1, 2}, {3, 4})         => {}
 
 ---
 
-### 5.2 union
+### 5.2 union [Verb]
 
 **Signature:** `union(list1, list2) → LIST`
 
@@ -352,7 +360,7 @@ union({1, 2, 3}, {2, 3, 4})   => {1, 2, 3, 4}
 
 ---
 
-### 5.3 diff (ToastStunt)
+### 5.3 diff [Verb]
 
 **Signature:** `diff(list1, list2) → LIST`
 
@@ -366,9 +374,11 @@ diff({1, 2, 3}, {4, 5})      => {1, 2, 3}
 
 ---
 
-## 6. Aggregation
+## 6. Aggregation (MOO Verbs - Not Builtins)
 
-### 6.1 sum (ToastStunt)
+**Note:** The following are implemented as MOO verbs in standard databases, not as server builtins.
+
+### 6.1 sum [Verb]
 
 **Signature:** `sum(list) → INT|FLOAT`
 
@@ -386,7 +396,7 @@ sum({})                  => 0
 
 ---
 
-### 6.2 avg (ToastStunt)
+### 6.2 avg [Verb]
 
 **Signature:** `avg(list) → FLOAT`
 
@@ -404,7 +414,7 @@ avg({10, 20})            => 15.0
 
 ---
 
-### 6.3 product (ToastStunt)
+### 6.3 product [Verb]
 
 **Signature:** `product(list) → INT|FLOAT`
 
@@ -418,9 +428,11 @@ product({})              => 1
 
 ---
 
-## 7. Searching
+## 7. Searching (MOO Verbs - Not Builtins)
 
-### 7.1 assoc (ToastStunt)
+**Note:** The following are implemented as MOO verbs in standard databases, not as server builtins.
+
+### 7.1 assoc [Verb]
 
 **Signature:** `assoc(value, alist [, index]) → LIST|0`
 
@@ -438,7 +450,7 @@ assoc(2, alist, 2)       => {"b", 2}
 
 ---
 
-### 7.2 rassoc (ToastStunt)
+### 7.2 rassoc [Verb]
 
 **Signature:** `rassoc(value, alist [, index]) → LIST|0`
 
@@ -446,7 +458,7 @@ assoc(2, alist, 2)       => {"b", 2}
 
 ---
 
-### 7.3 iassoc (ToastStunt)
+### 7.3 iassoc [Verb]
 
 **Signature:** `iassoc(value, alist [, index]) → INT`
 
@@ -454,9 +466,11 @@ assoc(2, alist, 2)       => {"b", 2}
 
 ---
 
-## 8. Utility
+## 8. Utility (MOO Verbs - Not Builtins)
 
-### 8.1 make_list (ToastStunt)
+**Note:** The following are implemented as MOO verbs in standard databases, not as server builtins.
+
+### 8.1 make_list [Verb]
 
 **Signature:** `make_list(count [, value]) → LIST`
 
@@ -474,7 +488,7 @@ make_list(0)          => {}
 
 ---
 
-### 8.2 flatten (ToastStunt)
+### 8.2 flatten [Verb]
 
 **Signature:** `flatten(list [, depth]) → LIST`
 
@@ -495,6 +509,8 @@ flatten({1, {2, {3}}}, 1)        => {1, 2, {3}}
 
 **Description:** Removes duplicate elements, preserving order.
 
+**Note:** This is a builtin in ToastStunt (implemented in server).
+
 **Examples:**
 ```moo
 unique({1, 2, 2, 3, 1})   => {1, 2, 3}
@@ -502,7 +518,7 @@ unique({1, 2, 2, 3, 1})   => {1, 2, 3}
 
 ---
 
-### 8.4 count (ToastStunt)
+### 8.4 count [Verb]
 
 **Signature:** `count(list, value) → INT`
 

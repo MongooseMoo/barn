@@ -390,115 +390,9 @@ log10(100)    => 2.0
 
 ---
 
-## 5. Bitwise Operations
+## 5. Special Values (ToastStunt)
 
-### 5.1 bitand
-
-**Signature:** `bitand(int1, int2) → INT`
-
-**Description:** Bitwise AND.
-
-**Examples:**
-```moo
-bitand(12, 10)   => 8    (1100 & 1010 = 1000)
-bitand(255, 15)  => 15
-```
-
-**Errors:**
-- E_TYPE: Non-integer arguments
-
----
-
-### 5.2 bitor
-
-**Signature:** `bitor(int1, int2) → INT`
-
-**Description:** Bitwise OR.
-
-**Examples:**
-```moo
-bitor(12, 10)   => 14   (1100 | 1010 = 1110)
-bitor(8, 1)     => 9
-```
-
-**Errors:**
-- E_TYPE: Non-integer arguments
-
----
-
-### 5.3 bitxor
-
-**Signature:** `bitxor(int1, int2) → INT`
-
-**Description:** Bitwise XOR.
-
-**Examples:**
-```moo
-bitxor(12, 10)   => 6    (1100 ^ 1010 = 0110)
-bitxor(255, 255) => 0
-```
-
-**Errors:**
-- E_TYPE: Non-integer arguments
-
----
-
-### 5.4 bitnot
-
-**Signature:** `bitnot(int) → INT`
-
-**Description:** Bitwise NOT (complement).
-
-**Examples:**
-```moo
-bitnot(0)    => -1
-bitnot(-1)   => 0
-```
-
-**Errors:**
-- E_TYPE: Non-integer argument
-
----
-
-### 5.5 bitshl (ToastStunt)
-
-**Signature:** `bitshl(int, count) → INT`
-
-**Description:** Bitwise left shift.
-
-**Examples:**
-```moo
-bitshl(1, 4)    => 16
-bitshl(5, 2)    => 20
-```
-
-**Errors:**
-- E_TYPE: Non-integer arguments
-- E_INVARG: Negative shift count
-
----
-
-### 5.6 bitshr (ToastStunt)
-
-**Signature:** `bitshr(int, count) → INT`
-
-**Description:** Bitwise right shift (arithmetic).
-
-**Examples:**
-```moo
-bitshr(16, 4)   => 1
-bitshr(20, 2)   => 5
-```
-
-**Errors:**
-- E_TYPE: Non-integer arguments
-- E_INVARG: Negative shift count
-
----
-
-## 6. Special Values
-
-### 6.1 floatinfo (ToastStunt)
+### 5.1 floatinfo
 
 **Signature:** `floatinfo() → LIST`
 
@@ -511,7 +405,7 @@ bitshr(20, 2)   => 5
 
 ---
 
-### 6.2 intinfo (ToastStunt)
+### 5.2 intinfo
 
 **Signature:** `intinfo() → LIST`
 
@@ -524,9 +418,9 @@ bitshr(20, 2)   => 5
 
 ---
 
-## 7. Advanced Math (ToastStunt)
+## 6. Advanced Math (ToastStunt)
 
-### 7.1 cbrt
+### 6.1 cbrt
 
 **Signature:** `cbrt(value) → FLOAT`
 
@@ -540,7 +434,7 @@ cbrt(-8)    => -2.0
 
 ---
 
-### 7.2 log2
+### 6.2 log2
 
 **Signature:** `log2(value) → FLOAT`
 
@@ -554,7 +448,7 @@ log2(1024)  => 10.0
 
 ---
 
-### 7.3 hypot
+### 6.3 hypot
 
 **Signature:** `hypot(x, y) → FLOAT`
 
@@ -568,7 +462,7 @@ hypot(1, 1)   => 1.4142...
 
 ---
 
-### 7.4 fmod
+### 6.4 fmod
 
 **Signature:** `fmod(x, y) → FLOAT`
 
@@ -582,7 +476,7 @@ fmod(-5.5, 2.0)  => -1.5
 
 ---
 
-### 7.5 remainder
+### 6.5 remainder
 
 **Signature:** `remainder(x, y) → FLOAT`
 
@@ -590,7 +484,7 @@ fmod(-5.5, 2.0)  => -1.5
 
 ---
 
-### 7.6 copysign
+### 6.6 copysign
 
 **Signature:** `copysign(magnitude, sign) → FLOAT`
 
@@ -604,7 +498,7 @@ copysign(-5.0, 1.0)   => 5.0
 
 ---
 
-### 7.7 ldexp
+### 6.7 ldexp
 
 **Signature:** `ldexp(x, exp) → FLOAT`
 
@@ -612,7 +506,7 @@ copysign(-5.0, 1.0)   => 5.0
 
 ---
 
-### 7.8 frexp
+### 6.8 frexp
 
 **Signature:** `frexp(x) → LIST`
 
@@ -622,7 +516,7 @@ copysign(-5.0, 1.0)   => 5.0
 
 ---
 
-### 7.9 modf
+### 6.9 modf
 
 **Signature:** `modf(x) → LIST`
 
@@ -638,7 +532,7 @@ modf(-3.14)  => {-3.0, -0.14}
 
 ---
 
-### 7.10 isinf
+### 6.10 isinf
 
 **Signature:** `isinf(value) → BOOL`
 
@@ -646,7 +540,7 @@ modf(-3.14)  => {-3.0, -0.14}
 
 ---
 
-### 7.11 isnan
+### 6.11 isnan
 
 **Signature:** `isnan(value) → BOOL`
 
@@ -654,7 +548,7 @@ modf(-3.14)  => {-3.0, -0.14}
 
 ---
 
-### 7.12 isfinite
+### 6.12 isfinite
 
 **Signature:** `isfinite(value) → BOOL`
 
@@ -662,7 +556,7 @@ modf(-3.14)  => {-3.0, -0.14}
 
 ---
 
-## 8. Error Handling
+## 7. Error Handling
 
 All math functions raise E_TYPE for wrong argument types.
 
