@@ -74,9 +74,15 @@ set_task_perms(#wizard);  // Run as wizard
 **Examples:**
 ```moo
 callers()
+  => {{#room, "look", #wizard, #room, #player, 1},
+      {#thing, "describe", #wizard, #thing, #player, 5}}
+
+callers(0)
   => {{#room, "look", #wizard, #room, #player},
       {#thing, "describe", #wizard, #thing, #player}}
 ```
+
+**Note:** By default, `callers()` includes line numbers (6-element frames). To omit line numbers, explicitly pass `0` as the argument.
 
 ---
 
@@ -92,9 +98,11 @@ callers()
 
 ### 2.3 queued_tasks
 
-**Signature:** `queued_tasks([include_vars]) → LIST`
+**Signature:** `queued_tasks() → LIST`
 
 **Description:** Returns list of queued (waiting) tasks.
+
+**Note:** Takes no arguments. Both Toast and Barn return E_ARGS if any arguments are provided.
 
 **Returns:** List of task info:
 ```moo
@@ -187,13 +195,17 @@ kill_task(runaway_task);
 
 **Description:** Returns remaining ticks for current task.
 
+**Note:** Returns 0 in eval context (non-forked tasks) where no tick limit is configured.
+
 ---
 
 ### 4.2 seconds_left
 
-**Signature:** `seconds_left() → INT`
+**Signature:** `seconds_left() → FLOAT`
 
 **Description:** Returns remaining seconds for current task.
+
+**Note:** Returns 0.0 in eval context (non-forked tasks) where no time limit is configured.
 
 ---
 

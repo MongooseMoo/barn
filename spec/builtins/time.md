@@ -21,11 +21,13 @@ time()   => 1703419200 (varies)
 
 ---
 
-### 1.2 ftime (ToastStunt)
+### 1.2 ftime (ToastStunt) [Not Implemented]
 
 **Signature:** `ftime() → FLOAT`
 
 **Description:** Returns current time with sub-second precision.
+
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds. It may require optional compile-time flags or specific configuration.
 
 **Examples:**
 ```moo
@@ -51,11 +53,13 @@ ctime(time())        => current time string
 
 ---
 
-### 2.2 strftime (ToastStunt)
+### 2.2 strftime (ToastStunt) [Not Implemented]
 
 **Signature:** `strftime(format [, time]) → STR`
 
 **Description:** Formats time according to format string.
+
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
 
 **Format codes:**
 | Code | Meaning |
@@ -85,11 +89,13 @@ strftime("%A, %B %d, %Y")      => "Monday, December 25, 2023"
 
 ---
 
-### 2.3 strptime (ToastStunt)
+### 2.3 strptime (ToastStunt) [Not Implemented]
 
 **Signature:** `strptime(string, format) → INT`
 
 **Description:** Parses time string according to format.
+
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
 
 **Examples:**
 ```moo
@@ -103,11 +109,13 @@ strptime("2023-12-25", "%Y-%m-%d")   => 1703462400
 
 ## 3. Time Components
 
-### 3.1 gmtime (ToastStunt)
+### 3.1 gmtime (ToastStunt) [Not Implemented]
 
 **Signature:** `gmtime([time]) → LIST`
 
 **Description:** Breaks down time into UTC components.
+
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
 
 **Returns:**
 ```moo
@@ -135,19 +143,23 @@ gmtime(0)   => {0, 0, 0, 1, 0, 70, 4, 0, 0}
 
 ---
 
-### 3.2 localtime (ToastStunt)
+### 3.2 localtime (ToastStunt) [Not Implemented]
 
 **Signature:** `localtime([time]) → LIST`
 
 **Description:** Like gmtime but in local timezone.
 
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
+
 ---
 
-### 3.3 mktime (ToastStunt)
+### 3.3 mktime (ToastStunt) [Not Implemented]
 
 **Signature:** `mktime(components) → INT`
 
 **Description:** Converts components back to timestamp.
+
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
 
 **Examples:**
 ```moo
@@ -206,19 +218,23 @@ idle_seconds(player)   => 120 (2 minutes idle)
 
 ## 6. Server Uptime
 
-### 6.1 server_started (ToastStunt)
+### 6.1 server_started (ToastStunt) [Not Implemented]
 
 **Signature:** `server_started() → INT`
 
 **Description:** Returns timestamp when server started.
 
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
+
 ---
 
-### 6.2 uptime (ToastStunt)
+### 6.2 uptime (ToastStunt) [Not Implemented]
 
 **Signature:** `uptime() → INT`
 
 **Description:** Returns seconds since server started.
+
+**Availability:** This builtin is documented in ToastStunt source code but is not available in standard Toast builds.
 
 **Examples:**
 ```moo

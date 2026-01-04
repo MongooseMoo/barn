@@ -79,9 +79,12 @@ verbs($thing)   => {"tell", "look", "describe", ...}
 
 ### 3.1 verb_info
 
-**Signature:** `verb_info(object, name) → LIST`
+**Signature:** `verb_info(object, name_or_index) → LIST`
 
 **Description:** Returns verb metadata.
+
+**Parameters:**
+- `name_or_index`: Either a verb name (STR) or 1-based integer index (INT)
 
 **Returns:** `{owner, perms, names}`
 - `owner`: Object that owns the verb
@@ -138,9 +141,12 @@ set_verb_info(obj, "secret", {player, "x", "secret"});
 
 ### 4.1 verb_args
 
-**Signature:** `verb_args(object, name) → LIST`
+**Signature:** `verb_args(object, name_or_index) → LIST`
 
 **Description:** Returns verb argument specification.
+
+**Parameters:**
+- `name_or_index`: Either a verb name (STR) or 1-based integer index (INT)
 
 **Returns:** `{dobj, prep, iobj}`
 - `dobj`: Direct object spec
@@ -155,6 +161,9 @@ set_verb_info(obj, "secret", {player, "x", "secret"});
 | "any" | Any object |
 
 **Preposition specs:**
+
+The preposition field in `verb_args()` returns the full slash-separated spec (e.g., `"with/using"`), but when setting verb arguments via `add_verb()` or `set_verb_args()`, only **individual preposition names** are valid (e.g., `"with"` or `"using"`), not the full slash-separated string.
+
 | Value | Matches |
 |-------|---------|
 | "none" | No preposition |
@@ -165,6 +174,12 @@ set_verb_info(obj, "secret", {player, "x", "secret"});
 | "on/onto/upon" | "on", "onto", "upon" |
 | "from/out of" | "from", "out of" |
 | ... | (many more) |
+
+**Prep spec validation:**
+- When calling `add_verb()` or `set_verb_args()`, the prep field must be either `"none"`, `"any"`, or a single preposition name like `"with"`, `"on"`, `"in"`, etc.
+- Full slash-separated strings like `"with/using"` will return E_INVARG
+- The server expands the single prep to its full form when storing (e.g., `"with"` becomes `"with/using"`)
+- `verb_args()` always returns the expanded form
 
 **Examples:**
 ```moo
@@ -194,9 +209,12 @@ set_verb_args(obj, "put", {"this", "in", "any"});
 
 ### 5.1 verb_code
 
-**Signature:** `verb_code(object, name [, fully_paren [, indent]]) → LIST`
+**Signature:** `verb_code(object, name_or_index [, fully_paren [, indent]]) → LIST`
 
 **Description:** Returns verb source code as list of lines.
+
+**Parameters:**
+- `name_or_index`: Either a verb name (STR) or 1-based integer index (INT)
 
 **Parameters:**
 - `fully_paren`: Add parentheses for clarity (default: false)
@@ -223,7 +241,9 @@ verb_code($thing, "tell")
 **Parameters:**
 - `code`: List of source lines
 
-**Returns:** Empty list on success, or list of compile errors.
+**Returns:** Empty list `{}` on success, or list of error strings on compile failure.
+
+**Error format:** Returns a list of strings describing parse/compile errors, not error objects. Each string contains a human-readable error message.
 
 **Examples:**
 ```moo
@@ -231,6 +251,9 @@ errors = set_verb_code(obj, "greet", {"notify(player, \"Hello!\");"});
 if (errors)
     notify(player, "Compile errors: " + tostr(errors));
 endif
+
+// Example error return:
+// {"parse error: expected ';' after expression statement"}
 ```
 
 **Errors:**
@@ -394,9 +417,14 @@ eval("syntax error")         => {0, "compile error..."}
 
 ### 11.1 disassemble
 
-**Signature:** `disassemble(object, name) → LIST`
+**Signature:** `disassemble(object, name_or_index) → LIST`
 
 **Description:** Returns bytecode disassembly.
+
+**Parameters:**
+- `name_or_index`: Either a verb name (STR) or 1-based integer index (INT)
+
+**Format:** Returns simplified pseudo-opcodes like "PUSH", "ADD", "RETURN" generated from an AST walk, not actual VM bytecode.
 
 **Wizard only.**
 
