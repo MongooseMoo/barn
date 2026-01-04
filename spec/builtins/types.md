@@ -63,18 +63,20 @@ typeof(true)      => 11 (TYPE_BOOL)
 
 **Examples:**
 ```moo
+tostr()                => ""  (empty string, not E_ARGS)
 tostr(42)              => "42"
 tostr(3.14159)         => "3.14159"
 tostr(#0)              => "#0"
-tostr(E_TYPE)          => "E_TYPE"
-tostr({1, 2})          => "{1, 2}"
-tostr(["a" -> 1])      => "[\"a\" -> 1]"
+tostr(E_TYPE)          => "Type mismatch"
+tostr({1, 2})          => "{list}"  (not expanded)
+tostr(["a" -> 1])      => "[map]"   (not expanded)
 tostr(true)            => "true"
 tostr("a", 1, "b")     => "a1b"
 ```
 
-**Errors:**
-- E_ARGS: No arguments provided
+**Note:** Collections (lists, maps) are formatted as `"{list}"` and `"[map]"` rather than being fully expanded. Use `toliteral()` for expanded representation.
+
+**Errors:** None
 
 ---
 
@@ -169,42 +171,26 @@ toobj(-1)     => #-1
 
 **Errors:**
 - E_TYPE: FLOAT, ERR, LIST, MAP, BOOL, WAIF
-- E_INVARG: Invalid string format
+
+**Note:** Spec says E_INVARG for invalid string format, but actual behavior returns `#0` for unparseable strings (e.g., `toobj("abc")` → `#0`, `toobj("")` → `#0`).
 
 ---
 
-## 6. toerr
+## 6. toerr [Not Implemented]
 
-**Signature:** `toerr(value) → ERR`
+**Status:** This function is documented but **NOT IMPLEMENTED** in ToastStunt.
 
-**Description:** Converts value to error code.
+**Original Signature:** `toerr(value) → ERR`
 
-**Conversion rules:**
-
-| Type | Conversion |
-|------|------------|
-| INT | Error with that code |
-| ERR | Identity |
-| STR | Parse error name |
-
-**Examples:**
-```moo
-toerr(1)        => E_TYPE
-toerr("E_TYPE") => E_TYPE
-toerr(E_TYPE)   => E_TYPE
-```
-
-**Errors:**
-- E_TYPE: FLOAT, OBJ, LIST, MAP, BOOL, WAIF
-- E_INVARG: Invalid error code/name
+**Note:** Testing confirms Toast returns "Unknown built-in function: toerr". This function should not be used.
 
 ---
 
-## 7. tonum (alias)
+## 7. tonum [Not Implemented]
 
-**Signature:** `tonum(value) → INT`
+**Status:** This function is documented as an alias for `toint()`, but **NOT IMPLEMENTED** in ToastStunt.
 
-**Description:** Alias for `toint()`.
+**Note:** Testing confirms Toast returns "Unknown built-in function: tonum". Use `toint()` instead.
 
 ---
 
@@ -252,53 +238,23 @@ value_bytes({1, 2, 3})   => 40   (approximate)
 
 ---
 
-## 10. typename
+## 10. typename [Not Implemented]
 
-**Signature:** `typename(value) → STR`
+**Status:** This function is documented but **NOT IMPLEMENTED** in ToastStunt.
 
-**Description:** Returns the human-readable name of a value's type.
+**Original Signature:** `typename(value) → STR`
 
-**Type names:**
-
-| Type | Name |
-|------|------|
-| INT | "int" |
-| OBJ | "obj" |
-| STR | "str" |
-| ERR | "err" |
-| LIST | "list" |
-| FLOAT | "float" |
-| MAP | "map" |
-| BOOL | "bool" |
-| WAIF | "waif" |
-
-**Examples:**
-```moo
-typename(42)        => "int"
-typename("hello")   => "str"
-typename({1,2,3})   => "list"
-```
-
-**Errors:** None
+**Note:** Testing confirms Toast returns "Unknown built-in function: typename". This function should not be used.
 
 ---
 
-## 11. is_type (ToastStunt extension)
+## 11. is_type [Not Implemented]
 
-**Signature:** `is_type(value, type_code) → BOOL`
+**Status:** This function is documented as a ToastStunt extension but **NOT IMPLEMENTED** in ToastStunt.
 
-**Description:** Tests if value is of specified type.
+**Original Signature:** `is_type(value, type_code) → BOOL`
 
-**Examples:**
-```moo
-is_type(42, TYPE_INT)    => true
-is_type("hi", TYPE_STR)  => true
-is_type({}, TYPE_LIST)   => true
-is_type(42, TYPE_STR)    => false
-```
-
-**Errors:**
-- E_INVARG: Invalid type code
+**Note:** Despite being labeled "ToastStunt extension", this function does not exist in the reference implementation. Use `typeof(value) == TYPE_CODE` instead.
 
 ---
 

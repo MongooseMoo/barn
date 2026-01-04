@@ -64,14 +64,29 @@ properties($thing)   => {"name", "description", ...}
 
 **Returns:** `{owner, perms}` where:
 - `owner`: Object that owns the property
-- `perms`: Permission string ("r", "w", "rw", "rwc", etc.)
+- `perms`: Permission string (see valid formats below)
+
+**Permission string format:**
+
+Valid permission strings (order matters):
+- `""` (empty) - no permissions
+- `"r"` - read only
+- `"w"` - write only
+- `"rw"` - read and write
+- `"rwc"` - read, write, and chown
+
+**Invalid combinations** (all return E_INVARG):
+- `"c"` alone - chown requires write permission
+- `"rc"` - chown requires write permission
+- `"wc"` - incorrect ordering (must be "rwc")
+- Any out-of-order strings: `"wrc"`, `"crw"`, `"cwr"`, `"rcw"`, etc.
 
 **Permission characters:**
 | Char | Meaning |
 |------|---------|
 | r | Readable |
 | w | Writable |
-| c | Change owner allowed |
+| c | Change owner allowed (requires 'w') |
 
 **Examples:**
 ```moo
@@ -81,6 +96,8 @@ property_info($thing, "name")   => {#wizard, "rw"}
 **Errors:**
 - E_INVIND: Invalid object
 - E_PROPNF: Property not found
+
+**Note on built-in properties:** Calling `property_info()` on built-in properties (name, owner, location, contents, etc.) returns E_PROPNF. Built-in properties are not tracked in the property system.
 
 ---
 
@@ -140,16 +157,27 @@ add_property(obj, "secret", "", {player, "r"});
 
 **Description:** Removes property from object.
 
-**Note:** Cannot delete inherited properties; use `clear_property` instead.
+**Behavior details:**
+- If property is defined on this object: removes the property definition
+- If property is inherited (no local value): succeeds as a no-op
+- If property has a local override of inherited property: removes the override, reverts to inherited value
+- E_PROPNF only if property doesn't exist anywhere in inheritance chain
 
 **Examples:**
 ```moo
-delete_property(obj, "temporary");
+delete_property(obj, "temporary");  // Remove defined property
+
+// Inherited property handling
+parent.x = 10;
+child.x = 99;  // Local override
+delete_property(child, "x");  // Removes override, child.x reverts to 10
+
+delete_property(child, "x");  // No-op (now inheriting), still succeeds
 ```
 
 **Errors:**
 - E_PERM: Not owner/wizard
-- E_PROPNF: Property not found (on this object)
+- E_PROPNF: Property not found in object or inheritance chain
 
 ---
 
