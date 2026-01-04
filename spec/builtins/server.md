@@ -23,13 +23,15 @@ server_version()  => "Barn 1.0.0"
 
 ---
 
-### 1.2 memory_usage
+### 1.2 memory_usage [Not Implemented]
 
 **Signature:** `memory_usage() → LIST`
 
-**Description:** Returns memory statistics.
+> **Note:** This function is documented in MOO specifications but not implemented in ToastStunt or Barn.
 
-**Returns:** List of memory metrics. Format is implementation-defined. Common implementations return `{total_bytes, used_bytes, free_bytes}` or a map of metric names to values.
+**Description:** Would return memory statistics.
+
+**Returns:** Would return list of memory metrics. Format is implementation-defined. Common implementations would return `{total_bytes, used_bytes, free_bytes}` or a map of metric names to values.
 
 **Examples:**
 ```moo
@@ -151,20 +153,22 @@ server_log("Quota exceeded for #123", 1);  // Warning
 
 ## 4. Object Management
 
-### 4.1 reset_max_object
+### 4.1 reset_max_object [Not Implemented]
 
 **Signature:** `reset_max_object() → INT`
 
-**Description:** Resets the maximum object ID counter.
+> **Note:** This function is documented in MOO specifications but not implemented in ToastStunt or Barn.
+
+**Description:** Would reset the maximum object ID counter.
 
 **Permissions:** Wizard only.
 
-**Returns:** New maximum object ID.
+**Returns:** Would return new maximum object ID.
 
 **Behavior:**
-- Scans all objects to find highest valid ID
-- Sets counter to that value
-- Next `create()` uses ID + 1
+- Would scan all objects to find highest valid ID
+- Would set counter to that value
+- Next `create()` would use ID + 1
 
 **Use case:** Reclaim IDs after mass object recycling.
 
@@ -173,37 +177,32 @@ server_log("Quota exceeded for #123", 1);  // Warning
 reset_max_object()  => 1523
 ```
 
-**Errors:**
-- E_PERM: Caller is not a wizard
-
 ---
 
-### 4.2 renumber
+### 4.2 renumber [Not Implemented]
 
 **Signature:** `renumber(object) → OBJ`
 
-**Description:** Changes an object's ID to the lowest available.
+> **Note:** This function is documented in MOO specifications but not implemented in ToastStunt or Barn.
+
+**Description:** Would change an object's ID to the lowest available.
 
 **Parameters:**
 - `object` (OBJ): Object to renumber
 
 **Permissions:** Wizard only.
 
-**Returns:** New object ID.
+**Returns:** Would return new object ID.
 
 **Behavior:**
-- Finds lowest unused object ID
-- Moves object to that ID
-- Updates all references (expensive operation)
+- Would find lowest unused object ID
+- Would move object to that ID
+- Would update all references (expensive operation)
 
 **Examples:**
 ```moo
 renumber(#9999)  => #42
 ```
-
-**Errors:**
-- E_PERM: Caller is not a wizard
-- E_INVARG: Invalid object
 
 ---
 
@@ -298,16 +297,18 @@ notify(player, "Hello, world!");
 
 ---
 
-### 5.5 buffered_output_length
+### 5.5 buffered_output_length [Not Implemented]
 
 **Signature:** `buffered_output_length(player) → INT`
 
-**Description:** Returns bytes pending in output buffer.
+> **Note:** This function is documented in MOO specifications but not implemented in ToastStunt or Barn.
+
+**Description:** Would return bytes pending in output buffer.
 
 **Parameters:**
 - `player` (OBJ): Connected player
 
-**Returns:** Number of bytes buffered.
+**Returns:** Would return number of bytes buffered.
 
 **Examples:**
 ```moo

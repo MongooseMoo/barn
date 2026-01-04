@@ -100,20 +100,15 @@ vals = mapvalues(m);
 
 **Description:** Returns new map with key removed.
 
-**Efficiency:** If the key does not exist, returns the original map (same reference). No copy is created.
-
 **Examples:**
 ```moo
 mapdelete(["a" -> 1, "b" -> 2], "a")   => ["b" -> 2]
-mapdelete(["a" -> 1], "x")             => ["a" -> 1]  (no change, same object)
-
-m1 = ["a" -> 1];
-m2 = mapdelete(m1, "x");
-// m1 and m2 are the same object (reference equality)
+mapdelete(["a" -> 1], "x")             => E_RANGE  (key not found)
 ```
 
 **Errors:**
 - E_TYPE: First arg not a map
+- E_RANGE: Key not found in map
 
 ---
 
@@ -123,16 +118,10 @@ m2 = mapdelete(m1, "x");
 
 **Description:** Tests if key exists in map.
 
-**Note:** `maphaskey(m, k)` is functionally equivalent to `k in m` for maps. Both return 1 (true) if the key exists, 0 (false) otherwise. The `in` operator (see section 9) is preferred for its conciseness, but `maphaskey` may be clearer in some contexts.
-
 **Examples:**
 ```moo
-maphaskey(["a" -> 1], "a")    => true
-maphaskey(["a" -> 1], "b")    => false
-
-// Equivalent to:
-"a" in ["a" -> 1]             => 1
-"b" in ["a" -> 1]             => 0
+maphaskey(["a" -> 1], "a")    => 1
+maphaskey(["a" -> 1], "b")    => 0
 ```
 
 **Errors:**
@@ -142,11 +131,13 @@ maphaskey(["a" -> 1], "b")    => false
 
 ## 3. Transformation
 
-### 3.1 mapmerge (ToastStunt)
+### 3.1 mapmerge [Not Implemented]
 
 **Signature:** `mapmerge(map1, map2) → MAP`
 
-**Description:** Returns new map with entries from both. map2 values override map1 for duplicate keys.
+> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
+
+**Description:** Would return new map with entries from both. map2 values would override map1 for duplicate keys.
 
 **Examples:**
 ```moo
@@ -155,16 +146,15 @@ mapmerge(["a" -> 1], ["a" -> 99])          => ["a" -> 99]
 mapmerge(["a" -> 1, "b" -> 2], ["b" -> 9]) => ["a" -> 1, "b" -> 9]
 ```
 
-**Errors:**
-- E_TYPE: Arguments not maps
-
 ---
 
-### 3.2 mapslice (ToastStunt)
+### 3.2 mapslice [Not Implemented]
 
 **Signature:** `mapslice(map, keys) → MAP`
 
-**Description:** Returns new map with only specified keys.
+> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
+
+**Description:** Would return new map with only specified keys.
 
 **Examples:**
 ```moo
@@ -172,19 +162,17 @@ mapslice(["a" -> 1, "b" -> 2, "c" -> 3], {"a", "c"})
     => ["a" -> 1, "c" -> 3]
 ```
 
-**Errors:**
-- E_TYPE: First arg not a map, second not a list
-- E_RANGE: Key not found in map
-
 ---
 
 ## 4. Conversion
 
-### 4.1 mklist (ToastStunt)
+### 4.1 mklist [Not Implemented]
 
 **Signature:** `mklist(map) → LIST`
 
-**Description:** Converts map to list of {key, value} pairs.
+> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
+
+**Description:** Would convert map to list of {key, value} pairs.
 
 **Examples:**
 ```moo
@@ -192,26 +180,21 @@ mklist(["a" -> 1, "b" -> 2])    => {{"a", 1}, {"b", 2}}
 mklist([])                       => {}
 ```
 
-**Errors:**
-- E_TYPE: Not a map
-
 ---
 
-### 4.2 mkmap (ToastStunt)
+### 4.2 mkmap [Not Implemented]
 
 **Signature:** `mkmap(list) → MAP`
 
-**Description:** Converts list of {key, value} pairs to map.
+> **Note:** This function is documented in some MOO variants but not implemented in ToastStunt.
+
+**Description:** Would convert list of {key, value} pairs to map.
 
 **Examples:**
 ```moo
 mkmap({{"a", 1}, {"b", 2}})      => ["a" -> 1, "b" -> 2]
 mkmap({})                         => []
 ```
-
-**Errors:**
-- E_TYPE: Not a list
-- E_INVARG: Elements not 2-element lists
 
 ---
 
@@ -278,7 +261,7 @@ endfor
 
 ## 6. Key Types
 
-Maps support any hashable value as keys:
+Maps support the following types as keys:
 
 | Type | Hashable | Notes |
 |------|----------|-------|
@@ -288,16 +271,16 @@ Maps support any hashable value as keys:
 | OBJ | Yes | Uses object ID |
 | ERR | Yes | |
 | BOOL | Yes | |
-| LIST | Yes | By value |
-| MAP | Yes | By value |
 | ANON | Yes | By reference |
 | WAIF | Yes | By reference |
+
+**Note:** LIST and MAP values cannot be used as map keys. Attempting to use them will result in E_TYPE.
 
 **Examples:**
 ```moo
 [1 -> "one", 2 -> "two"]           // Integer keys
 [#0 -> "system", #1 -> "wizard"]   // Object keys
-[{1,2} -> "pair"]                  // List key
+[E_NONE -> "error key"]            // Error keys
 ```
 
 ### 6.1 Float Key Equality
@@ -310,19 +293,14 @@ Float keys use **bitwise comparison** (same as `==` operator):
 
 **Recommendation:** Avoid float keys due to precision issues. Use string keys for decimal values.
 
-### 6.2 Composite Key Equality
+### 6.2 Reference Key Equality
 
-**LIST keys:**
-- Deep equality (recursive comparison)
-- Order-sensitive: `{1, 2} != {2, 1}`
-- Hash computed recursively
+**ANON and WAIF keys:**
+- Use reference equality (identity comparison)
+- Two distinct anonymous objects are different keys even if their properties match
+- Same object referenced twice is the same key
 
-**MAP keys:**
-- Deep equality (recursive comparison)
-- Order-independent: `["a" -> 1, "b" -> 2] == ["b" -> 2, "a" -> 1]`
-- Entry-set equality (ignores iteration order)
-
-**Performance:** Composite keys have O(n) equality checking for n elements
+**Performance:** Reference keys have O(1) equality checking
 
 ---
 
@@ -351,18 +329,20 @@ Map iteration order is **implementation-defined** with these guarantees:
 
 ---
 
-## 9. `in` Operator
+## 9. `in` Operator [Not Working]
 
-The `in` operator tests for key presence:
+> **Note:** The `in` operator does not currently work with maps in ToastStunt or Barn. It always returns 0 (false) regardless of whether the key exists. Use `maphaskey(map, key)` instead to test for key presence.
 
+**Current behavior (incorrect):**
 ```moo
-key in map    => 1 if key exists, 0 otherwise
+"a" in ["a" -> 1, "b" -> 2]    => 0  (should be 1, but returns 0)
+"x" in ["a" -> 1, "b" -> 2]    => 0  (correct)
 ```
 
-**Examples:**
+**Workaround:**
 ```moo
-"a" in ["a" -> 1, "b" -> 2]    => 1
-"x" in ["a" -> 1, "b" -> 2]    => 0
+maphaskey(["a" -> 1], "a")     => 1  (correct)
+maphaskey(["a" -> 1], "x")     => 0  (correct)
 ```
 
 ---
