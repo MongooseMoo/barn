@@ -38,7 +38,7 @@ Barn targets **version 17** (ToastStunt) for full feature support.
 7. Active connections
 8. Object count
 9. Objects (with properties and verb metadata)
-10. Anonymous objects
+10. Anonymous objects (batched, 0-terminated)
 11. Verb count
 12. Verb code
 
@@ -152,7 +152,25 @@ perms2
 
 ---
 
-## 5. Verb Code Section
+## 5. Anonymous Objects Section
+
+Anonymous objects are stored in **batches**, terminated by a count of 0:
+
+```
+count1        # First batch size (or 0 if no anonymous objects)
+<objects...>  # count1 objects in standard object format
+count2        # Second batch size
+<objects...>  # count2 objects
+0             # Terminator (count of 0 ends the section)
+```
+
+This batched format allows incremental writing as anonymous objects are created.
+
+**CRITICAL:** The anonymous objects section is NOT just a single count + objects. It's a loop that reads batches until a 0 count is encountered. Misreading this as a single batch will cause the verb count to be read as 0, breaking all verb code.
+
+---
+
+## 6. Verb Code Section
 
 After all objects, verb code appears:
 
@@ -168,9 +186,9 @@ The `.` terminates each verb's code.
 
 ---
 
-## 6. Task Persistence
+## 7. Task Persistence
 
-### 6.1 Queued Tasks
+### 7.1 Queued Tasks
 
 ```
 N queued tasks
@@ -185,7 +203,7 @@ code...
 .
 ```
 
-### 6.2 Suspended Tasks
+### 7.2 Suspended Tasks
 
 ```
 N suspended tasks
@@ -194,7 +212,7 @@ task_local_value
 vm...
 ```
 
-### 6.3 VM Structure
+### 7.3 VM Structure
 
 ```
 top_of_stack
@@ -205,7 +223,7 @@ activation2
 
 ---
 
-## 7. Recycled Objects
+## 8. Recycled Objects
 
 Recycled objects appear as:
 
@@ -217,9 +235,9 @@ These IDs are tracked for potential reuse.
 
 ---
 
-## 8. Compatibility Requirements
+## 9. Compatibility Requirements
 
-### 8.1 Read Support (Required)
+### 9.1 Read Support (Required)
 
 Barn MUST read:
 - LambdaMOO v4 databases
@@ -227,27 +245,27 @@ Barn MUST read:
 
 Use lambdamoo-db-py as reference for parsing.
 
-### 8.2 Write Support (Required)
+### 9.2 Write Support (Required)
 
 Barn MUST write v17 format for:
 - Checkpoints
 - Panic dumps
 - Manual database dumps
 
-### 8.3 Round-Trip Integrity
+### 9.3 Round-Trip Integrity
 
 A database read and immediately written must produce functionally equivalent output (whitespace may differ).
 
 ---
 
-## 9. Go Implementation Notes
+## 10. Go Implementation Notes
 
-### 9.1 Encoding
+### 10.1 Encoding
 
 - Use `latin-1` encoding (as original MOO does)
 - Line endings: `\n` (Unix style)
 
-### 9.2 Atomic Writes
+### 10.2 Atomic Writes
 
 ```go
 // Write to temp, rename for atomicity
@@ -256,13 +274,13 @@ tmpFile := dbPath + ".tmp"
 os.Rename(tmpFile, dbPath)
 ```
 
-### 9.3 Large Databases
+### 10.3 Large Databases
 
 Stream parsing recommended - don't load entire file to memory.
 
 ---
 
-## 10. Reference
+## 11. Reference
 
 The authoritative implementation is:
 - **Reader:** `lambdamoo_db/reader.py`

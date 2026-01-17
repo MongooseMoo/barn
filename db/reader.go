@@ -198,7 +198,6 @@ func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read object count: %w", err)
 	}
-
 	// Objects
 	for i := 0; i < objCount; i++ {
 		obj, err := db.readObject(r)
@@ -343,17 +342,181 @@ func (db *Database) readSuspendedTasks(r *bufio.Reader) error {
 
 	db.SuspendedTasks = make([]*SuspendedTask, 0, count)
 	for i := 0; i < count; i++ {
-		// Skip task data for now
-		for {
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(line) == "." {
-				break
-			}
+		if err := db.skipSuspendedTask(r); err != nil {
+			return fmt.Errorf("skip suspended task %d: %w", i, err)
 		}
 	}
+	return nil
+}
+
+// skipSuspendedTask skips over a complete suspended task in the database file.
+// A suspended task contains a VM with multiple activations (stack frames),
+// each terminated by a period. We must parse the VM header to know how many
+// activations to skip.
+func (db *Database) skipSuspendedTask(r *bufio.Reader) error {
+	// Task header: "<start_time> <task_id> <type_code>"
+	// The type_code is the start of the suspend value.
+	// Format: "1767134605 2112268937 0" where 0 is INT type code
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read task header: %w", err)
+	}
+
+	// Parse the header: time, taskid, and optional type code
+	parts := strings.Fields(strings.TrimSpace(line))
+	if len(parts) < 2 {
+		return fmt.Errorf("parse task header: expected at least 2 fields, got %d from %q", len(parts), line)
+	}
+
+	// If there's a third part, it's the type code for suspend value
+	if len(parts) >= 3 {
+		typeCode, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return fmt.Errorf("parse suspend value type: %w", err)
+		}
+		// Read the rest of the suspend value (type code already parsed)
+		if err := db.skipValueAfterType(r, typeCode); err != nil {
+			return fmt.Errorf("read suspend value: %w", err)
+		}
+	}
+
+	// Read VM local var
+	if _, err := readValue(r, db.Version); err != nil {
+		return fmt.Errorf("read VM local: %w", err)
+	}
+
+	// Read VM header: "<top_activ_stack> <root_activ_vector> <func_id>[ <max_stack_size>]"
+	line, err = r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read VM header: %w", err)
+	}
+
+	var topActivStack, rootActivVector, funcID int
+	n, _ := fmt.Sscanf(line, "%d %d %d", &topActivStack, &rootActivVector, &funcID)
+	if n < 3 {
+		return fmt.Errorf("parse VM header: got %d fields from %q", n, line)
+	}
+
+	// Read activations: indices 0 through topActivStack (inclusive)
+	numActivations := topActivStack + 1
+	for a := 0; a < numActivations; a++ {
+		if err := db.skipActivation(r); err != nil {
+			return fmt.Errorf("skip activation %d: %w", a, err)
+		}
+	}
+
+	return nil
+}
+
+// skipActivation skips over a single activation (stack frame) in a suspended task.
+func (db *Database) skipActivation(r *bufio.Reader) error {
+	// "language version N"
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read language version: %w", err)
+	}
+	if !strings.HasPrefix(line, "language version") {
+		return fmt.Errorf("expected 'language version', got %q", line)
+	}
+
+	// Read verb code until "."
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read verb code: %w", err)
+		}
+		if strings.TrimSpace(line) == "." {
+			break
+		}
+	}
+
+	// "N variables"
+	line, err = r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read variables header: %w", err)
+	}
+	var numVars int
+	if _, err := fmt.Sscanf(line, "%d variables", &numVars); err != nil {
+		return fmt.Errorf("parse variables count from %q: %w", line, err)
+	}
+
+	// Skip variable definitions (type names and values)
+	// Format is complex: type names like "NUM", "OBJ", etc followed by var name and value
+	// We need to read until we hit "N rt_stack slots in use"
+	for {
+		line, err = r.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read variable data: %w", err)
+		}
+		if strings.HasSuffix(strings.TrimSpace(line), "rt_stack slots in use") {
+			break
+		}
+	}
+
+	// Parse rt_stack count from the line we just read
+	var numStackSlots int
+	fmt.Sscanf(line, "%d rt_stack slots in use", &numStackSlots)
+
+	// Skip stack slot values
+	for i := 0; i < numStackSlots; i++ {
+		if _, err := readValue(r, db.Version); err != nil {
+			return fmt.Errorf("read stack slot %d: %w", i, err)
+		}
+	}
+
+	// Skip activation info (activ_as_pi)
+	// Format from Toast write_activ_as_pi:
+	// 1. dummy value (INT -111)
+	// 2. _this value
+	// 3. vloc value
+	// 4. threaded number
+	// 5. verbref line: "recv -7 -8 player -9 progr vloc -10 debug"
+	// 6. 4 strings (No, More, Parse, Infos)
+	// 7. verb name string
+	// 8. verb aliases string
+
+	// Read 3 MOO values (dummy, _this, vloc)
+	for i := 0; i < 3; i++ {
+		if _, err := readValue(r, db.Version); err != nil {
+			return fmt.Errorf("read activ value %d: %w", i, err)
+		}
+	}
+
+	// Read threaded number
+	if _, err = r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read threaded: %w", err)
+	}
+
+	// Read verbref line
+	if _, err = r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read verbref: %w", err)
+	}
+
+	// Read 4 placeholder strings (No, More, Parse, Infos)
+	for i := 0; i < 4; i++ {
+		if _, err = r.ReadString('\n'); err != nil {
+			return fmt.Errorf("read placeholder string %d: %w", i, err)
+		}
+	}
+
+	// Read verb name and aliases (2 strings)
+	if _, err = r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read verb name: %w", err)
+	}
+	if _, err = r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read verb aliases: %w", err)
+	}
+
+	// Read temp value
+	if _, err := readValue(r, db.Version); err != nil {
+		return fmt.Errorf("read temp value: %w", err)
+	}
+
+	// Read PC info line
+	if _, err = r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read PC info: %w", err)
+	}
+
 	return nil
 }
 
@@ -374,28 +537,71 @@ func (db *Database) readInterruptedTasks(r *bufio.Reader) error {
 
 	// Skip interrupted task data
 	for i := 0; i < count; i++ {
-		for {
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(line) == "." {
-				break
-			}
+		if err := db.skipInterruptedTask(r); err != nil {
+			return fmt.Errorf("skip interrupted task %d: %w", i, err)
 		}
 	}
 	return nil
 }
 
+// skipInterruptedTask skips over a complete interrupted task.
+// Format: "<task_id> <status_string>\n" followed by a VM.
+func (db *Database) skipInterruptedTask(r *bufio.Reader) error {
+	// Task header: "<task_id> <status_string>"
+	// e.g., "1638619699 interrupted reading task"
+	if _, err := r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read task header: %w", err)
+	}
+
+	// Read VM (same as suspended task VM, but no suspend value)
+	// VM local var
+	if _, err := readValue(r, db.Version); err != nil {
+		return fmt.Errorf("read VM local: %w", err)
+	}
+
+	// VM header
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read VM header: %w", err)
+	}
+
+	var topActivStack int
+	if n, _ := fmt.Sscanf(line, "%d", &topActivStack); n < 1 {
+		return fmt.Errorf("parse VM header from %q", line)
+	}
+
+	// Read activations
+	numActivations := topActivStack + 1
+	for a := 0; a < numActivations; a++ {
+		if err := db.skipActivation(r); err != nil {
+			return fmt.Errorf("skip activation %d: %w", a, err)
+		}
+	}
+
+	return nil
+}
+
 // readActiveConnections reads active connections
 func (db *Database) readActiveConnections(r *bufio.Reader) error {
-	// Format: "N active connections" (always 0 on load)
+	// Format: "N active connections" or "N active connections with listeners"
 	line, err := r.ReadString('\n')
 	if err != nil {
 		return err
 	}
-	// We just skip this line - always 0 on database load
-	_ = line
+
+	// Parse count - handle both "N active connections" and "N active connections with listeners"
+	var count int
+	if _, err := fmt.Sscanf(line, "%d active connections", &count); err != nil {
+		return fmt.Errorf("parse active connections count from %q: %w", line, err)
+	}
+
+	// Skip connection data lines (one per connection)
+	for i := 0; i < count; i++ {
+		if _, err := r.ReadString('\n'); err != nil {
+			return fmt.Errorf("read connection %d: %w", i, err)
+		}
+	}
+
 	return nil
 }
 
@@ -834,7 +1040,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 		// Value
 		prop.Value, err = readValue(r, db.Version)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("prop %d (%s) value: %w", i, propName, err)
 		}
 
 		// If value is nil, this is a CLEAR property (type code 5)
@@ -863,15 +1069,26 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 }
 
 // readAnonymousObjects reads anonymous objects section (v17)
+// Anonymous objects are stored in batches, terminated by a 0 count
 func (db *Database) readAnonymousObjects(r *bufio.Reader) error {
-	count, err := readInt(r)
-	if err != nil {
-		return err
-	}
-	// Skip anonymous objects for now
-	for i := 0; i < count; i++ {
-		if _, err := db.readObject(r); err != nil {
+	for {
+		count, err := readInt(r)
+		if err != nil {
 			return err
+		}
+		if count == 0 {
+			// End of anonymous objects
+			break
+		}
+		for i := 0; i < count; i++ {
+			obj, err := db.readObject(r)
+			if err != nil {
+				return err
+			}
+			if obj != nil {
+				obj.Anonymous = true
+				db.Objects[obj.ID] = obj
+			}
 		}
 	}
 	return nil
@@ -981,6 +1198,20 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 	case 6: // NONE
 		return types.NewInt(0), nil // None becomes 0
 
+	case 7: // CATCH (stack marker)
+		val, err := readInt(r)
+		if err != nil {
+			return nil, err
+		}
+		return types.NewInt(int64(val)), nil
+
+	case 8: // FINALLY (stack marker)
+		val, err := readInt(r)
+		if err != nil {
+			return nil, err
+		}
+		return types.NewInt(int64(val)), nil
+
 	case 9: // FLOAT
 		line, err := r.ReadString('\n')
 		if err != nil {
@@ -1014,6 +1245,66 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 		}
 		return types.NewMap(pairs), nil
 
+	case 12: // ANON (anonymous object)
+		// Just read the object ID
+		objID, err := readInt(r)
+		if err != nil {
+			return nil, err
+		}
+		return types.NewObj(types.ObjID(objID)), nil
+
+	case 13: // WAIF
+		// WAIFs are saved as references ('r') or creations ('c')
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimSpace(line)
+		if len(line) < 1 {
+			return nil, fmt.Errorf("empty WAIF marker")
+		}
+		marker := line[0]
+		if marker == 'r' {
+			// Reference to previously read waif - just read terminator string
+			if _, err := r.ReadString('\n'); err != nil {
+				return nil, err
+			}
+		} else if marker == 'c' {
+			// Creation - read full waif structure
+			// class ObjID
+			if _, err := readObjID(r); err != nil {
+				return nil, err
+			}
+			// owner ObjID
+			if _, err := readObjID(r); err != nil {
+				return nil, err
+			}
+			// propdefs_length (skip, not used)
+			if _, err := readInt(r); err != nil {
+				return nil, err
+			}
+			// Read property values until -1 marker
+			for {
+				propIdx, err := readInt(r)
+				if err != nil {
+					return nil, err
+				}
+				if propIdx < 0 {
+					break
+				}
+				// Read the property value
+				if _, err := readValue(r, version); err != nil {
+					return nil, err
+				}
+			}
+			// Read the "." terminator line
+			if _, err := r.ReadString('\n'); err != nil {
+				return nil, fmt.Errorf("read WAIF terminator: %w", err)
+			}
+		}
+		// Return nil for WAIFs - we don't store them
+		return types.NewInt(0), nil
+
 	case 14: // BOOL (v17)
 		if version < 17 {
 			return nil, fmt.Errorf("BOOL type requires version 17+")
@@ -1026,6 +1317,129 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 
 	default:
 		return nil, fmt.Errorf("unsupported type code: %d", typeCode)
+	}
+}
+
+// skipValueAfterType skips a value when the type code is already known.
+// Used when the type code appears on the same line as other data.
+func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
+	switch typeCode {
+	case 0: // INT
+		_, err := readInt(r)
+		return err
+
+	case 1: // OBJ
+		_, err := readObjID(r)
+		return err
+
+	case 2: // STR
+		_, err := r.ReadString('\n')
+		return err
+
+	case 3: // ERR
+		_, err := readInt(r)
+		return err
+
+	case 4: // LIST
+		count, err := readInt(r)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < count; i++ {
+			if _, err := readValue(r, db.Version); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case 5: // CLEAR
+		return nil
+
+	case 6: // NONE
+		return nil
+
+	case 7: // CATCH (stack marker)
+		_, err := readInt(r)
+		return err
+
+	case 8: // FINALLY (stack marker)
+		_, err := readInt(r)
+		return err
+
+	case 9: // FLOAT
+		_, err := r.ReadString('\n')
+		return err
+
+	case 10: // MAP
+		count, err := readInt(r)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < count; i++ {
+			if _, err := readValue(r, db.Version); err != nil {
+				return err
+			}
+			if _, err := readValue(r, db.Version); err != nil {
+				return err
+			}
+		}
+		return nil
+
+	case 12: // ANON
+		_, err := readInt(r)
+		return err
+
+	case 13: // WAIF
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		line = strings.TrimSpace(line)
+		if len(line) < 1 {
+			return fmt.Errorf("empty WAIF marker")
+		}
+		marker := line[0]
+		if marker == 'r' {
+			_, err := r.ReadString('\n')
+			return err
+		} else if marker == 'c' {
+			if _, err := readObjID(r); err != nil {
+				return err
+			}
+			if _, err := readObjID(r); err != nil {
+				return err
+			}
+			propdefsLen, err := readInt(r)
+			if err != nil {
+				return err
+			}
+			for {
+				propIdx, err := readInt(r)
+				if err != nil {
+					return err
+				}
+				if propIdx < 0 {
+					break
+				}
+				if _, err := readValue(r, db.Version); err != nil {
+					return err
+				}
+			}
+			const N_MAPPABLE_PROPS = 32
+			for i := N_MAPPABLE_PROPS; i < propdefsLen; i++ {
+				if _, err := readValue(r, db.Version); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+
+	case 14: // BOOL
+		_, err := readInt(r)
+		return err
+
+	default:
+		return fmt.Errorf("unsupported type code in skipValueAfterType: %d", typeCode)
 	}
 }
 
