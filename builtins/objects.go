@@ -75,6 +75,10 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 		return builtinPlayers(ctx, args, store)
 	})
 
+	r.Register("occupants", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinOccupants(ctx, args, store)
+	})
+
 	r.Register("renumber", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinRenumber(ctx, args, store)
 	})
@@ -1262,6 +1266,139 @@ func builtinPlayers(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	result := make([]types.Value, len(playerIDs))
 	for i, id := range playerIDs {
 		result[i] = types.NewObj(id)
+	}
+
+	return types.Ok(types.NewList(result))
+}
+
+// builtinOccupants implements occupants(objects [, parent [, player_flag [, inverse]]])
+// Filters a list of objects by parent inheritance and optionally player flag.
+// - objects: LIST of objects to filter
+// - parent: OBJ or LIST of OBJs - only return objects that isa() one of these parents
+// - player_flag: INT - if true, only return objects with player flag set
+// - inverse: INT - if true, return objects that are NOT isa() the parent(s)
+//
+// With 1 arg: returns all valid objects from the list
+// With 2+ args: filters by parent (isa check)
+// With 3+ args: also filters by player flag
+// With 4 args: inverts the parent check
+func builtinOccupants(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) < 1 || len(args) > 4 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// First arg must be a list of objects
+	objectList, ok := args[0].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Validate all items are objects (but allow invalid/recycled - they'll be skipped)
+	for i := 1; i <= objectList.Len(); i++ {
+		item := objectList.Get(i)
+		if _, ok := item.(types.ObjValue); !ok {
+			return types.Err(types.E_INVARG)
+		}
+	}
+
+	// Parse optional args
+	checkParent := len(args) >= 2
+	var parents []types.ObjID
+	if checkParent {
+		// Second arg can be OBJ or LIST of OBJs
+		switch v := args[1].(type) {
+		case types.ObjValue:
+			parents = []types.ObjID{v.ID()}
+		case types.ListValue:
+			for i := 1; i <= v.Len(); i++ {
+				item := v.Get(i)
+				objVal, ok := item.(types.ObjValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				parents = append(parents, objVal.ID())
+			}
+		default:
+			return types.Err(types.E_TYPE)
+		}
+	}
+
+	// Player flag filter (default: true if only 1 arg, otherwise use arg)
+	checkPlayerFlag := len(args) == 1 || (len(args) > 2 && args[2].Truthy())
+
+	// Inverse match (default: false)
+	inverseMatch := len(args) > 3 && args[3].Truthy()
+
+	// Helper to check if object isa any of the parents
+	isaAnyParent := func(objID types.ObjID) bool {
+		obj := store.Get(objID)
+		if obj == nil {
+			return false
+		}
+
+		for _, parentID := range parents {
+			// Object is always its own ancestor
+			if objID == parentID {
+				return true
+			}
+
+			// BFS through ancestry chain
+			seen := make(map[types.ObjID]bool)
+			queue := obj.Parents[:]
+
+			for len(queue) > 0 {
+				currentID := queue[0]
+				queue = queue[1:]
+
+				if seen[currentID] {
+					continue
+				}
+				seen[currentID] = true
+
+				if currentID == parentID {
+					return true
+				}
+
+				current := store.Get(currentID)
+				if current != nil {
+					queue = append(queue, current.Parents...)
+				}
+			}
+		}
+		return false
+	}
+
+	// Filter objects
+	var result []types.Value
+	for i := 1; i <= objectList.Len(); i++ {
+		item := objectList.Get(i)
+		objVal := item.(types.ObjValue) // Already validated
+		objID := objVal.ID()
+
+		// Skip invalid objects (already validated, but check in case of recycling)
+		obj := store.Get(objID)
+		if obj == nil || obj.Recycled {
+			continue
+		}
+
+		// Check parent filter
+		parentMatches := true
+		if checkParent {
+			matches := isaAnyParent(objID)
+			if inverseMatch {
+				parentMatches = !matches
+			} else {
+				parentMatches = matches
+			}
+		}
+
+		// Check player flag filter
+		playerMatches := !checkPlayerFlag || obj.Flags.Has(db.FlagUser)
+
+		// Add to results if both conditions pass
+		if parentMatches && playerMatches {
+			result = append(result, types.NewObj(objID))
+		}
 	}
 
 	return types.Ok(types.NewList(result))

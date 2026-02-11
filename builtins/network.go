@@ -246,6 +246,7 @@ func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Resul
 
 	// Switch player
 	if err := globalConnManager.SwitchPlayer(oldPlayer, newPlayer); err != nil {
+		fmt.Printf("[SWITCH_PLAYER DEBUG] SwitchPlayer failed: old=#%d new=#%d error=%v\n", oldPlayer, newPlayer, err)
 		return types.Err(types.E_INVARG)
 	}
 
@@ -298,6 +299,69 @@ func builtinConnectedSeconds(ctx *types.TaskContext, args []types.Value) types.R
 	connectedSeconds := 0
 
 	return types.Ok(types.NewInt(int64(connectedSeconds)))
+}
+
+// connection_info(player) -> MAP
+// Returns detailed connection information
+func builtinConnectionInfo(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Get player
+	playerVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	player := playerVal.ID()
+
+	// Get connection
+	conn := globalConnManager.GetConnection(player)
+	if conn == nil {
+		fmt.Printf("[CONNECTION_INFO DEBUG] No connection for player #%d\n", player)
+		return types.Err(types.E_INVARG)
+	}
+
+	// Parse remote address to extract IP and port
+	remoteAddr := conn.RemoteAddr()
+	destIP := remoteAddr
+	destPort := int64(0)
+	// remoteAddr format is typically "IP:port" or "[IPv6]:port"
+	if idx := len(remoteAddr) - 1; idx >= 0 {
+		for i := idx; i >= 0; i-- {
+			if remoteAddr[i] == ':' {
+				destIP = remoteAddr[:i]
+				if p, err := fmt.Sscanf(remoteAddr[i+1:], "%d", &destPort); err != nil || p != 1 {
+					destPort = 0
+				}
+				break
+			}
+		}
+	}
+	// Strip brackets from IPv6 addresses
+	if len(destIP) > 2 && destIP[0] == '[' && destIP[len(destIP)-1] == ']' {
+		destIP = destIP[1 : len(destIP)-1]
+	}
+
+	// Build result map with connection info matching Toast's format:
+	// source_* = server side, destination_* = client side
+	// For incoming connections, source is the server's listening port
+	result := types.NewMap([][2]types.Value{
+		{types.NewStr("source_address"), types.NewStr("localhost")}, // Server hostname
+		{types.NewStr("source_ip"), types.NewStr("127.0.0.1")},      // Server IP
+		{types.NewStr("source_port"), types.NewInt(9450)},           // TODO: Get actual listening port
+		{types.NewStr("destination_address"), types.NewStr(destIP)}, // Client hostname
+		{types.NewStr("destination_ip"), types.NewStr(destIP)},      // Client IP
+		{types.NewStr("destination_port"), types.NewInt(destPort)},  // Client port
+		{types.NewStr("protocol"), types.NewStr("IPv4")},            // TODO: Detect actual protocol
+		{types.NewStr("outbound"), types.NewInt(0)},                 // 0 = incoming connection
+	})
+
+	return types.Ok(result)
 }
 
 // connection_name_lookup(player) -> 0

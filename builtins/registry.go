@@ -70,6 +70,7 @@ func NewRegistry() *Registry {
 	r.Register("sort", builtinSort)
 	r.Register("reverse", builtinReverse)
 	r.Register("unique", builtinUnique)
+	r.Register("slice", builtinSlice)
 
 	// Register math builtins (Layer 7.3)
 	r.Register("abs", builtinAbs)
@@ -115,6 +116,7 @@ func NewRegistry() *Registry {
 	r.Register("switch_player", builtinSwitchPlayer)
 	r.Register("idle_seconds", builtinIdleSeconds)
 	r.Register("connected_seconds", builtinConnectedSeconds)
+	r.Register("connection_info", builtinConnectionInfo)
 	r.Register("set_connection_option", builtinSetConnectionOption)
 	r.Register("connection_option", builtinConnectionOption)
 	r.Register("read_http", builtinReadHTTP)
@@ -150,6 +152,7 @@ func NewRegistry() *Registry {
 	r.Register("server_log", builtinServerLog)
 	r.Register("server_version", builtinServerVersion)
 	r.Register("time", builtinTime)
+	r.Register("ftime", builtinFtime)
 	r.Register("ctime", builtinCtime)
 
 	// GC builtins
@@ -166,6 +169,7 @@ func NewRegistry() *Registry {
 	r.Register("set_task_perms", builtinSetTaskPerms)
 	r.Register("caller_perms", builtinCallerPerms)
 	r.Register("raise", builtinRaise)
+	r.Register("yin", builtinYin)
 
 	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
 	// to avoid circular dependencies (eval needs parser which needs eval)

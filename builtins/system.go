@@ -397,6 +397,27 @@ func builtinTime(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(time.Now().Unix()))
 }
 
+// builtinFtime implements ftime([time])
+// Returns current time as float (seconds since epoch with fractional seconds)
+// If time is provided, returns that time as a float
+func builtinFtime(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) == 0 {
+		now := time.Now()
+		secs := float64(now.Unix()) + float64(now.Nanosecond())/1e9
+		return types.Ok(types.NewFloat(secs))
+	} else if len(args) == 1 {
+		switch v := args[0].(type) {
+		case types.IntValue:
+			return types.Ok(types.NewFloat(float64(v.Val)))
+		case types.FloatValue:
+			return types.Ok(types.NewFloat(v.Val))
+		default:
+			return types.Err(types.E_TYPE)
+		}
+	}
+	return types.Err(types.E_ARGS)
+}
+
 // builtinCtime implements ctime([time])
 // Converts a Unix timestamp to a human-readable string
 func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {

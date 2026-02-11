@@ -117,6 +117,41 @@ func (r *Registry) RegisterVerbBuiltins(store *db.Store) {
 	r.Register("disassemble", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinDisassemble(ctx, args, store)
 	})
+
+	r.Register("respond_to", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinRespondTo(ctx, args, store)
+	})
+}
+
+// builtinRespondTo: respond_to(object, verb_name) → INT
+// Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
+func builtinRespondTo(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	nameVal, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	objID := objVal.ID()
+	if !store.Valid(objID) {
+		return types.Err(types.E_INVIND)
+	}
+
+	// Try to find the verb
+	_, _, err := store.FindVerb(objID, nameVal.Value())
+	if err != nil {
+		return types.Ok(types.NewInt(0))
+	}
+
+	return types.Ok(types.NewInt(1))
 }
 
 // builtinVerbs: verbs(object) → LIST

@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"barn/types"
+	"fmt"
 	"sort"
 )
 
@@ -413,4 +414,135 @@ func compareValues(a, b types.Value) int {
 		}
 		return 0
 	}
+}
+
+// builtinSlice: slice(list [, index] [, default_value]) → LIST
+// Extracts elements from each item in a list of lists, strings, or maps.
+func builtinSlice(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// First arg must be a list
+	list, ok := args[0].(types.ListValue)
+	if !ok {
+		fmt.Printf("[SLICE DEBUG] First arg not a list: %T = %v\n", args[0], args[0])
+		return types.Err(types.E_TYPE)
+	}
+
+	// Default index is 1
+	var index types.Value = types.NewInt(1)
+	if len(args) >= 2 {
+		index = args[1]
+	}
+
+	// Optional default value (only for map key lookups)
+	var defaultValue types.Value
+	hasDefault := len(args) >= 3
+	if hasDefault {
+		defaultValue = args[2]
+	}
+
+	result := make([]types.Value, 0, list.Len())
+
+	switch idx := index.(type) {
+	case types.IntValue:
+		// Single integer index
+		i := int(idx.Val)
+		if i < 1 {
+			return types.Err(types.E_RANGE)
+		}
+
+		for j := 1; j <= list.Len(); j++ {
+			elem := list.Get(j)
+			switch e := elem.(type) {
+			case types.ListValue:
+				if i > e.Len() {
+					return types.Err(types.E_RANGE)
+				}
+				result = append(result, e.Get(i))
+			case types.StrValue:
+				runes := []rune(e.Value())
+				if i > len(runes) {
+					return types.Err(types.E_RANGE)
+				}
+				result = append(result, types.NewStr(string(runes[i-1])))
+			default:
+				fmt.Printf("[SLICE DEBUG] E_INVARG: element not list/str: %T = %v\n", elem, elem)
+				return types.Err(types.E_INVARG)
+			}
+		}
+
+	case types.ListValue:
+		// List of indices
+		if idx.Len() == 0 {
+			return types.Err(types.E_RANGE)
+		}
+
+		// Validate all indices are positive integers
+		indices := make([]int, idx.Len())
+		for k := 1; k <= idx.Len(); k++ {
+			idxVal := idx.Get(k)
+			intIdx, ok := idxVal.(types.IntValue)
+			if !ok {
+				return types.Err(types.E_INVARG)
+			}
+			if intIdx.Val < 1 {
+				return types.Err(types.E_RANGE)
+			}
+			indices[k-1] = int(intIdx.Val)
+		}
+
+		for j := 1; j <= list.Len(); j++ {
+			elem := list.Get(j)
+			subResult := make([]types.Value, 0, len(indices))
+
+			switch e := elem.(type) {
+			case types.ListValue:
+				for _, i := range indices {
+					if i > e.Len() {
+						return types.Err(types.E_RANGE)
+					}
+					subResult = append(subResult, e.Get(i))
+				}
+			case types.StrValue:
+				runes := []rune(e.Value())
+				for _, i := range indices {
+					if i > len(runes) {
+						return types.Err(types.E_RANGE)
+					}
+					subResult = append(subResult, types.NewStr(string(runes[i-1])))
+				}
+			default:
+				return types.Err(types.E_INVARG)
+			}
+
+			result = append(result, types.NewList(subResult))
+		}
+
+	case types.StrValue:
+		// String key for map lookups
+		key := idx.Value()
+
+		for j := 1; j <= list.Len(); j++ {
+			elem := list.Get(j)
+			m, ok := elem.(types.MapValue)
+			if !ok {
+				return types.Err(types.E_INVARG)
+			}
+
+			val, found := m.Get(types.NewStr(key))
+			if found {
+				result = append(result, val)
+			} else if hasDefault {
+				result = append(result, defaultValue)
+			}
+			// If not found and no default, skip (don't append anything)
+		}
+
+	default:
+		return types.Err(types.E_TYPE)
+	}
+
+	return types.Ok(types.NewList(result))
 }
