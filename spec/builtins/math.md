@@ -435,6 +435,22 @@ cbrt(-8.0)  => -2.0
 
 ---
 
+### 5.2 simplex_noise (ToastStunt)
+
+**Signature:** `simplex_noise(coords) → FLOAT`
+
+**Description:** Returns simplex noise for 1D to 4D coordinates.
+
+**Parameters:**
+- `coords`: LIST of 1 to 4 FLOAT values
+
+**Returns:** FLOAT in approximately the range [-1.0, 1.0].
+
+**Errors:**
+- E_TYPE: `coords` is not a list of 1 to 4 floats
+
+---
+
 ## 6. Error Handling
 
 **Type Errors (E_TYPE):**

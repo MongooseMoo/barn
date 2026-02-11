@@ -84,15 +84,15 @@ set_task_perms(#wizard);  // Run as wizard
 **Examples:**
 ```moo
 callers()
-  => {{#room, "look", #wizard, #room, #player, 1},
-      {#thing, "describe", #wizard, #thing, #player, 5}}
-
-callers(0)
   => {{#room, "look", #wizard, #room, #player},
       {#thing, "describe", #wizard, #thing, #player}}
+
+callers(1)
+  => {{#room, "look", #wizard, #room, #player, 1},
+      {#thing, "describe", #wizard, #thing, #player, 5}}
 ```
 
-**Note:** By default, `callers()` includes line numbers (6-element frames). To omit line numbers, explicitly pass `0` as the argument.
+**Note:** By default, `callers()` returns 5-element frames (without line numbers). Pass `1` (or any true value) to include line numbers (6-element frames).
 
 ---
 
@@ -146,7 +146,9 @@ endfor
 
 **Description:** Returns list of recently completed tasks, if task history is enabled.
 
-**Note:** Server must be configured to track finished tasks. Returns empty list if disabled.
+**Notes:**
+- Only available when compiled with `SAVE_FINISHED_TASKS`. Otherwise, the builtin does not exist.
+- Server must be configured to track finished tasks. Returns empty list if disabled.
 
 **Returns:** List of completed task information, similar format to `queued_tasks()`.
 
@@ -287,14 +289,69 @@ endfor
 
 **Signature:** `set_thread_mode([mode]) → INT`
 
-**Description:** Controls threading behavior for task execution.
+**Description:** Controls whether certain builtins run in background threads for the current task activation.
 
 **Parameters:**
-- `mode` (INT, optional): Threading mode value. If omitted, returns current mode without changing it.
+- `mode` (INT, optional): If omitted, returns the current mode. If provided, sets the mode to `mode != 0`.
 
-**Returns:** Previous or current threading mode value.
+**Returns:**
+- No arguments: current mode (INT)
+- With argument: returns 0
 
-**Wizard only.**
+**Notes:**
+- Default mode is `DEFAULT_THREAD_MODE` (true in the reference build).
+- This affects builtins implemented via the background thread system, such as `sort`, `all_members`, `locate_by_name`, `occupants`, `connection_name_lookup`, `curl`, `argon2`, `argon2_verify`, `sqlite_query`, and `sqlite_execute`.
+
+---
+
+### 4.5 threads (ToastStunt)
+
+**Signature:** `threads() → LIST`
+
+**Description:** Returns a list of background thread handles for queued/active background tasks.
+
+**Notes:**
+- Order is unspecified.
+- Wizard only.
+
+**Errors:**
+- E_PERM: Not a wizard
+
+---
+
+### 4.6 thread_pool (ToastStunt)
+
+**Signature:** `thread_pool(function, pool [, value]) → INT`
+
+**Description:** Controls background thread pools.
+
+**Parameters:**
+- `function` (STR): Only `"INIT"` is accepted.
+- `pool` (STR): Only `"MAIN"` is accepted in the reference implementation.
+- `value` (INT, optional): Thread count for `"INIT"`. If omitted, uses 0.
+
+**Semantics:**
+- `value <= 0` disables the pool.
+- `value > 0` recreates the pool with that many threads.
+
+**Returns:** 1 on success.
+
+**Errors:**
+- E_PERM: Not a wizard
+- E_INVARG (raise): Invalid function, pool, or thread count
+
+---
+
+### 4.7 background_test (ToastStunt, optional)
+
+**Signature:** `background_test([message [, seconds]]) → STR`
+
+**Description:** Demonstration builtin that sleeps in a background thread and returns a string.
+
+**Notes:**
+- Only available when compiled with `BACKGROUND_TEST`.
+- Defaults: `message` is "Hello, world.", `seconds` is 5.
+- Uses the background thread system and may suspend.
 
 ---
 

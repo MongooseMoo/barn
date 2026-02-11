@@ -47,7 +47,7 @@ strsub("aaa", "a", "bb")             => "bbbbbb"
 ```
 
 **Errors:**
-- E_TYPE: Non-string arguments
+- E_TYPE: Non-string string/delimiter or non-integer `adjacent_delim`
 - E_INVARG: Empty `old` string
 
 ---
@@ -158,20 +158,23 @@ str[start..$]     // To end of string
 
 ### 2.2 explode (ToastStunt)
 
-**Signature:** `explode(string [, delimiter]) → LIST`
+**Signature:** `explode(string [, delimiter [, adjacent_delim]]) → LIST`
 
-**Description:** Splits string into list of substrings.
+**Description:** Splits a string on a single-character delimiter.
 
 **Parameters:**
 - `string`: String to split
-- `delimiter`: Separator (default: any whitespace)
+- `delimiter`: Optional delimiter string; only the first character is used. If omitted or empty, defaults to a space.
+- `adjacent_delim`: If truthy, keep empty fields between adjacent delimiters. If falsey or omitted, adjacent delimiters are treated as one.
 
 **Examples:**
 ```moo
-explode("hello world")       => {"hello", "world"}
-explode("a,b,c", ",")        => {"a", "b", "c"}
-explode("a,,b", ",")         => {"a", "", "b"}
-explode("  hello  world  ")  => {"hello", "world"}
+explode("hello world")            => {"hello", "world"}
+explode("a,b,c", ",")             => {"a", "b", "c"}
+explode("a,,b", ",")              => {"a", "b"}
+explode("a,,b", ",", 1)           => {"a", "", "b"}
+explode(",a,", ",", 1)            => {"", "a", ""}
+explode("  hello  world  ")       => {"hello", "world"}
 ```
 
 **Errors:**
@@ -235,18 +238,24 @@ string_hash("hello", "SHA256")    => "2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1F
 
 ### 4.1 chr (ToastStunt)
 
-**Signature:** `chr(code) → STR`
+**Signature:** `chr(args...) → STR`
 
-**Description:** Returns character for Unicode code point.
+**Description:** Builds a string from byte values, strings, or lists. This is not Unicode-aware; values are raw bytes.
+
+**Semantics:**
+- Each argument may be an INT (byte), STR, or LIST (recursively processed).
+- Non-wizards may only emit bytes in the range 32..254.
+- Wizards may emit bytes in the range 0..255.
 
 **Examples:**
 ```moo
-chr(65)      => "A"
-chr(8364)    => "€"
+chr(65)                    => "A"
+chr({65, 66}, "CD")        => "ABCD"
 ```
 
 **Errors:**
-- E_INVARG: Invalid code point
+- E_INVARG: Non-int/string/list element, or int outside allowed byte range
+- E_QUOTA: Result exceeds allocation limits
 
 ---
 
@@ -256,13 +265,23 @@ chr(8364)    => "€"
 
 **Signature:** `encode_binary(args...) → STR`
 
-**Description:** Creates binary string from integers.
+**Description:** Creates a binary string from integers, strings, or lists (recursively).
+
+**Semantics:**
+- INT values must be in 0..255.
+- STR values are appended as raw bytes.
+- LIST values are traversed recursively.
 
 **Examples:**
 ```moo
-encode_binary(65, 66, 67)   => "ABC"
-encode_binary(0, 255)       => binary string with bytes 0, 255
+encode_binary(65, 66, 67)     => "ABC"
+encode_binary({0, 255})       => binary string with bytes 0, 255
+encode_binary({"A", {66}})    => "AB"
 ```
+
+**Errors:**
+- E_INVARG: Invalid type or byte outside 0..255
+- E_QUOTA: Result exceeds allocation limits
 
 ---
 
@@ -270,42 +289,91 @@ encode_binary(0, 255)       => binary string with bytes 0, 255
 
 **Signature:** `decode_binary(string [, fully]) → LIST`
 
-**Description:** Converts binary string to list of integers.
+**Description:** Converts a binary string to a list of integers or mixed values.
+
+**Semantics:**
+- If `fully` is truthy, returns a list of integers (one per byte).
+- Otherwise, returns a list where printable runs (isgraph, space, tab) are STR and non-printable bytes are INT.
 
 **Examples:**
 ```moo
-decode_binary("ABC")        => {65, 66, 67}
-decode_binary("AB\x00C")    => {65, 66, 0, 67}
+decode_binary("ABC", 1)     => {65, 66, 67}
+decode_binary("AB\x00C")    => {"AB", 0, "C"}
 ```
+
+**Errors:**
+- E_INVARG: Not a binary string
+- E_QUOTA: Result exceeds allocation limits
 
 ---
 
 ### 5.3 encode_base64 (ToastStunt)
 
-**Signature:** `encode_base64(string) → STR`
+**Signature:** `encode_base64(string [, url_safe]) → STR`
 
-**Description:** Encodes string as base64.
+**Description:** Encodes a binary string as base64.
+
+**Semantics:**
+- `string` must be a binary string (as produced by `encode_binary`).
+- If `url_safe` is truthy, uses "-" and "_" and omits "=" padding.
 
 **Examples:**
 ```moo
-encode_base64("hello")   => "aGVsbG8="
+encode_base64(encode_binary("hello"))   => "aGVsbG8="
+encode_base64(encode_binary("hi"), 1)   => "aGk"
 ```
+
+**Errors:**
+- E_INVARG: Invalid binary string
+- E_QUOTA: Result exceeds allocation limits
 
 ---
 
 ### 5.4 decode_base64 (ToastStunt)
 
-**Signature:** `decode_base64(string) → STR`
+**Signature:** `decode_base64(string [, url_safe]) → STR`
 
-**Description:** Decodes base64 string.
+**Description:** Decodes base64 into a binary string.
+
+**Semantics:**
+- If `url_safe` is truthy, accepts "-" and "_" and does not require padding.
 
 **Examples:**
 ```moo
-decode_base64("aGVsbG8=")   => "hello"
+decode_base64("aGVsbG8=")     => encode_binary("hello")
+decode_base64("aGk", 1)       => encode_binary("hi")
 ```
 
 **Errors:**
-- E_INVARG: Invalid base64
+- E_INVARG: Invalid character, invalid padding, or invalid length
+- E_QUOTA: Result exceeds allocation limits
+
+---
+
+### 5.5 parse_ansi (ToastStunt)
+
+**Signature:** `parse_ansi(string) → STR`
+
+**Description:** Replaces ANSI tag tokens with ANSI escape sequences.
+
+**Supported tags (case-insensitive):**
+- `[red]`, `[green]`, `[yellow]`, `[blue]`, `[purple]`, `[cyan]`
+- `[normal]`, `[inverse]`, `[underline]`, `[bold]`, `[bright]`, `[unbold]`
+- `[blink]`, `[unblink]`, `[magenta]`, `[unbright]`, `[white]`, `[gray]`, `[grey]`
+- `[black]`, `[b:black]`, `[b:red]`, `[b:green]`, `[b:yellow]`, `[b:blue]`, `[b:magenta]`, `[b:purple]`, `[b:cyan]`, `[b:white]`
+- `[beep]` (bell), `[random]` (random color), `[null]` (removed)
+
+**Notes:**
+- `[random]` selects from a fixed set of color codes (red/green/yellow/blue/purple).
+- `[null]` is removed from the output.
+
+---
+
+### 5.6 remove_ansi (ToastStunt)
+
+**Signature:** `remove_ansi(string) → STR`
+
+**Description:** Removes the ANSI tag tokens recognized by `parse_ansi()`. This does not strip raw ANSI escape codes.
 
 ---
 

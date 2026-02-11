@@ -356,25 +356,36 @@ locations(ball)   => {#box, #room}
 
 ### 5.4 occupants (ToastStunt)
 
-**Signature:** `occupants(locations [, fully_recursive [, include_locations [, player_only]]]) → LIST`
+**Signature:** `occupants(objects [, parent [, player_flag [, inverse]]]) → LIST`
 
-**Description:** Returns all objects inside locations (recursive).
+**Description:** Filters a list of objects by parent inheritance and optionally player flag.
 
 **Parameters:**
-- `locations`: LIST of location objects to search
-- `fully_recursive`: If true, recurse into all nested containers (default: false)
-- `include_locations`: If true, include the location objects themselves (default: false)
-- `player_only`: If true, only return player objects (default: false)
+- `objects`: LIST of objects to filter (must all be valid objects)
+- `parent`: OBJ or LIST of OBJs - filter to objects that `isa()` one of these parents
+- `player_flag`: INT - if true, only return objects with the player flag set
+- `inverse`: INT - if true, invert the parent check (return objects NOT descended from parent)
+
+**Behavior by argument count:**
+- 1 arg: returns all valid objects from the list (player flag check enabled)
+- 2 args: filters by parent (isa check), player flag check enabled
+- 3 args: filters by parent, uses explicit player_flag setting
+- 4 args: filters by parent with optional inverse, uses explicit player_flag
 
 **Examples:**
 ```moo
-occupants({#room})              // All objects directly in room
-occupants({#room}, 1)           // All objects in room and nested containers
-occupants({#room1, #room2})     // All objects in multiple rooms
-occupants({#room}, 1, 0, 1)     // Only players in room (recursive)
+occupants(connected_players())           // All connected players
+occupants(connected_players(), $prog)    // Connected players descended from $prog
+occupants({#10, #20, #30}, $thing)       // Objects in list descended from $thing
+occupants({#10, #20}, $thing, 0)         // Descended from $thing, any player flag
+occupants({#10, #20}, $thing, 0, 1)      // NOT descended from $thing
 ```
 
-**Note:** There is no `contents()` function. Use `object.contents` property to get direct contents.
+**Returns:** E_TYPE if first arg not a list, or parent arg wrong type. E_INVARG if list contains non-objects or invalid objects.
+
+**Notes:**
+- Uses the background thread system when threading is enabled and may suspend.
+- There is no `contents()` function. Use `object.contents` property to get direct contents.
 
 ---
 
@@ -496,6 +507,8 @@ wizard_objects = owned_objects(#2);
 obj = locate_by_name("System");           // Substring search
 obj = locate_by_name("System Object", 1); // Exact match
 ```
+
+**Note:** Uses the background thread system when threading is enabled and may suspend.
 
 ---
 

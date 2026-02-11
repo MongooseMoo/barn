@@ -400,6 +400,35 @@ eval("syntax error")         => {0, "compile error..."}
 
 ---
 
+## 12. Verb Cache (ToastStunt)
+
+### 12.1 verb_cache_stats
+
+**Signature:** `verb_cache_stats() → LIST`
+
+**Description:** Returns statistics for the verb cache.
+
+**Returns:** `{hits, negative_hits, misses, generation, histogram}`
+- `hits`: Cache hits
+- `negative_hits`: Negative cache hits
+- `misses`: Cache misses
+- `generation`: Current verb generation counter
+- `histogram`: List of counts by bucket depth (length 17; index 1 is depth 0, index 17 is depth >= 16)
+
+**Wizard only.**
+
+---
+
+### 12.2 log_cache_stats
+
+**Signature:** `log_cache_stats() → INT`
+
+**Description:** Logs verb cache statistics to the server log and returns 0.
+
+**Wizard only.**
+
+---
+
 ## Go Implementation Notes
 
 ```go

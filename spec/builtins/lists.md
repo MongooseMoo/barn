@@ -10,19 +10,20 @@ List manipulation functions. All list indices are 1-based. Lists are copy-on-wri
 
 ### 1.1 length
 
-**Signature:** `length(list) → INT`
+**Signature:** `length(value) → INT`
 
-**Description:** Returns number of elements.
+**Description:** Returns the length of a list, map, or string.
 
 **Examples:**
 ```moo
-length({})           => 0
-length({1, 2, 3})    => 3
-length({{1}, {2}})   => 2
+length({})                 => 0
+length({1, 2, 3})          => 3
+length("hello")            => 5
+length(["a" -> 1])         => 1
 ```
 
 **Errors:**
-- E_TYPE: Not a list
+- E_TYPE: Not a list, map, or string
 
 ---
 
@@ -278,31 +279,36 @@ indexc({"Hello", "World"}, "WORLD")   => 2
 
 **Signature:** `sort(list [, keys] [, natural] [, reverse]) → LIST`
 
-**Description:** Returns sorted list.
+**Description:** Returns a list sorted by its own values or by a parallel list of keys.
 
 **Parameters:**
-- `list`: List to sort
-- `keys`: List of indices to sort by (for list of lists)
-- `natural`: Natural string sorting (default: false)
+- `list`: List to return in sorted order
+- `keys`: Optional list of sort keys. If provided and non-empty, it must be the same length as `list`. Ordering is based on `keys` but the returned list is from `list`.
+- `natural`: Natural string ordering (default: false). Comparisons are case-insensitive in both modes.
 - `reverse`: Reverse order (default: false)
+
+**Type constraints:**
+- The list used for comparisons (`keys` if non-empty, otherwise `list`) must contain only one scalar type: INT, FLOAT, OBJ, ERR, or STR.
+- Lists, maps, waifs, and anonymous objects are not sortable and raise E_TYPE.
 
 **Examples:**
 ```moo
-sort({3, 1, 2})                  => {1, 2, 3}
-sort({"b", "a", "c"})            => {"a", "b", "c"}
-sort({3, 1, 2}, {}, 0, 1)        => {3, 2, 1}  (reversed)
-sort({"a10", "a2", "a1"}, {}, 1) => {"a1", "a2", "a10"}  (natural)
+sort({3, 1, 2})                    => {1, 2, 3}
+sort({"b", "a", "c"})              => {"a", "b", "c"}
+sort({3, 1, 2}, {}, 0, 1)          => {3, 2, 1}  (reversed)
+sort({"a10", "a2", "a1"}, {}, 1)   => {"a1", "a2", "a10"}  (natural)
+
+data = {{"Alice", 30}, {"Bob", 25}, {"Carol", 35}};
+keys = {30, 25, 35};
+sort(data, keys)                   => {{"Bob", 25}, {"Alice", 30}, {"Carol", 35}}
 ```
 
-**For list of lists:**
-```moo
-data = {{"Alice", 30}, {"Bob", 25}, {"Carol", 35}};
-sort(data, {2})                   => sorted by age
-sort(data, {1})                   => sorted by name
-```
+**Notes:**
+- This runs in a background thread when threading is enabled; the task may suspend.
 
 **Errors:**
-- E_TYPE: Not a list
+- E_TYPE: Not a list, mixed element types, or unsupported element type
+- E_INVARG: `keys` length does not match `list`
 
 ---
 
@@ -310,51 +316,59 @@ sort(data, {1})                   => sorted by name
 
 ### 4.1 reverse (ToastStunt)
 
-**Signature:** `reverse(list) → LIST`
+**Signature:** `reverse(value) → VALUE`
 
-**Description:** Returns list in reverse order.
+**Description:** Reverses a list or string.
 
 **Examples:**
 ```moo
 reverse({1, 2, 3})       => {3, 2, 1}
-reverse({})              => {}
+reverse("abc")           => "cba"
 ```
+
+**Errors:**
+- E_INVARG: Not a list or string
 
 ---
 
 ### 4.2 slice (ToastStunt)
 
-**Signature:** `slice(list [, index] [, default_value]) → ANY`
+**Signature:** `slice(list [, index] [, default_value]) → LIST`
 
-**Description:** Extracts elements from a list. This is a builtin in ToastStunt.
+**Description:** Extracts elements from each item in a list of lists, strings, or maps.
 
 **Parameters:**
-- `list`: Source list
-- `index`: Optional index specification (INT, LIST, or STR)
-  - INT: Extract single element at that index
-  - LIST: Extract elements at multiple indices (must be positive, non-zero)
-  - STR: Extract by key (for associative lists/maps)
-  - Default: returns first element (index 1)
-- `default_value`: Value to return for missing indices (default: no default)
+- `list`: Source list whose elements will be indexed
+- `index`: Optional index specification (INT, LIST of INT, or STR). Default is 1.
+- `default_value`: Only used when `index` is STR and a map key is missing
+
+**Semantics:**
+- If `index` is INT: for each element, return the item at that index (1-based). Strings yield 1-character strings.
+- If `index` is LIST of INT: for each element, return a list of those positions (1-character strings for string elements).
+- If `index` is STR: each element must be a MAP. For each map, return the value for that key. If the key is missing and `default_value` is provided, append `default_value`. If the key is missing and no default is provided, nothing is appended for that map.
+
+**Type requirements:**
+- When `index` is INT or LIST, each element must be a LIST or STR.
+- When `index` is STR, each element must be a MAP.
 
 **Index validation:**
 - Empty index list returns E_RANGE
-- Zero or negative indices in list return E_RANGE
-- Non-integer indices in list return E_INVARG
+- Zero or negative indices in index list return E_RANGE
+- Non-integer indices in index list return E_INVARG
+- Any out-of-range index for any element returns E_RANGE
 
 **Examples:**
 ```moo
-slice({10, 20, 30, 40})              => 10           // Default: first element
-slice({10, 20, 30, 40}, 2)           => 20           // Single index
-slice({10, 20, 30, 40}, {2, 4})      => {20, 40}     // Multiple indices
-slice({10, 20, 30}, {1, 1, 1})       => {10, 10, 10} // Repeated indices
-slice({10, 20}, {5}, "default")      => {"default"}  // Out of range with default
+slice({{10, 20}, {30, 40}}, 2)          => {20, 40}
+slice({"ab", "cd"}, {2, 1})            => {{"b", "a"}, {"d", "c"}}
+slice({["a" -> 1], ["a" -> 2]}, "a")   => {1, 2}
+slice({["a" -> 1], ["b" -> 2]}, "a", 0) => {1, 0}
 ```
 
 **Errors:**
 - E_TYPE: First arg not a list
-- E_RANGE: Empty index list, or zero/negative indices
-- E_INVARG: Non-integer values in index list
+- E_INVARG: Element types do not match index type, or non-int in index list
+- E_RANGE: Empty index list, zero/negative indices, or out-of-range index
 
 ---
 
