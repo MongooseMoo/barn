@@ -197,6 +197,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		// Could be:
 		// 1. $ as index marker (last) - when used in indexing: list[$]
 		// 2. $identifier as system object property: $name => #0.name
+		// 3. $identifier(args) as verb call on #0: $name(args) => #0:name(args)
 		pos := p.current.Position
 		p.nextToken()
 
@@ -204,14 +205,52 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		if p.current.Type == TOKEN_IDENTIFIER {
 			propName := p.current.Value
 			p.nextToken()
-			// $name => #0.name
-			left = &PropertyExpr{
-				Pos: pos,
-				Expr: &LiteralExpr{
-					Pos:   pos,
-					Value: types.NewObj(0), // #0 (system object)
-				},
-				Property: propName,
+
+			// Check if followed by '(' - this is a verb call on #0
+			// $name(args) => #0:name(args)
+			if p.current.Type == TOKEN_LPAREN {
+				p.nextToken() // consume '('
+
+				// Parse arguments
+				args := []Expr{}
+				for p.current.Type != TOKEN_RPAREN && p.current.Type != TOKEN_EOF {
+					arg, err := p.ParseExpression(PREC_LOWEST)
+					if err != nil {
+						return nil, err
+					}
+					args = append(args, arg)
+
+					if p.current.Type == TOKEN_COMMA {
+						p.nextToken()
+					} else if p.current.Type != TOKEN_RPAREN {
+						return nil, fmt.Errorf("expected ',' or ')' in verb arguments, got %s", p.current.Type)
+					}
+				}
+
+				if p.current.Type != TOKEN_RPAREN {
+					return nil, fmt.Errorf("expected ')' after verb arguments, got %s", p.current.Type)
+				}
+				p.nextToken() // consume ')'
+
+				left = &VerbCallExpr{
+					Pos: pos,
+					Expr: &LiteralExpr{
+						Pos:   pos,
+						Value: types.NewObj(0), // #0 (system object)
+					},
+					Verb: propName,
+					Args: args,
+				}
+			} else {
+				// $name => #0.name (property access)
+				left = &PropertyExpr{
+					Pos: pos,
+					Expr: &LiteralExpr{
+						Pos:   pos,
+						Value: types.NewObj(0), // #0 (system object)
+					},
+					Property: propName,
+				}
 			}
 		} else {
 			// Just $ alone - index marker (last)
@@ -255,9 +294,10 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 	case TOKEN_AT:
 		// Parse splice operator: @expr
+		// Use PREC_TERNARY so splice captures ternary expressions like @(cond) ? a | b
 		pos := p.current.Position
 		p.nextToken()
-		operand, err := p.ParseExpression(PREC_SPLICE)
+		operand, err := p.ParseExpression(PREC_TERNARY)
 		if err != nil {
 			return nil, err
 		}
