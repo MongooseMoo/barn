@@ -141,14 +141,36 @@ func builtinRespondTo(ctx *types.TaskContext, args []types.Value, store *db.Stor
 	}
 
 	objID := objVal.ID()
-	if !store.Valid(objID) {
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Err(types.E_INVIND)
 	}
 
 	// Try to find the verb
-	_, _, err := store.FindVerb(objID, nameVal.Value())
+	verb, definingObj, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
 		return types.Ok(types.NewInt(0))
+	}
+
+	// Non-executable verbs always return 0
+	if !verb.Perms.Has(db.VerbExecute) {
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Check if caller can see details: wizard, owner, or verb readable, or object readable
+	hasRead := verb.Perms.Has(db.VerbRead)
+	isOwner := verb.Owner == ctx.Player
+	objReadable := obj.Flags.Has(db.FlagRead)
+
+	if ctx.IsWizard || isOwner || hasRead || objReadable {
+		// Return {defining_object, verb_name}
+		return types.Ok(types.NewList([]types.Value{
+			types.NewObj(definingObj),
+			types.NewStr(verb.Name),
+		}))
 	}
 
 	return types.Ok(types.NewInt(1))
@@ -774,15 +796,25 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_TYPE)
 	}
 
-	// Wizard only
-	if !ctx.IsWizard {
-		return types.Err(types.E_PERM)
+	objID := objVal.ID()
+	obj := store.Get(objID)
+	if obj == nil {
+		if store.IsRecycled(objID) {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_INVIND)
 	}
 
-	objID := objVal.ID()
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
+	}
+
+	// Check read permission: wizard, owner, or verb has 'r' flag
+	hasRead := verb.Perms.Has(db.VerbRead)
+	isOwner := verb.Owner == ctx.Player
+	if !ctx.IsWizard && !isOwner && !hasRead {
+		return types.Err(types.E_PERM)
 	}
 
 	// If verb has no compiled program, return empty list
