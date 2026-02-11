@@ -33,7 +33,35 @@ func main() {
 	verbLookup := flag.String("verb-lookup", "", "Show where a verb would be found (e.g., #39:find_exact)")
 	ancestry := flag.String("ancestry", "", "Show full parent chain for an object (e.g., #39)")
 
+	// Database operations
+	dumpPath := flag.String("dump", "", "Dump database to path and exit")
+	checkpointInterval := flag.Int("checkpoint-interval", 3600, "Checkpoint interval in seconds (0=disabled)")
+
 	flag.Parse()
+
+	// Handle -dump flag: dump database and exit
+	if *dumpPath != "" {
+		database, err := db.LoadDatabase(*dbPath)
+		if err != nil {
+			log.Fatalf("Failed to load database: %v", err)
+		}
+		store := database.NewStoreFromDatabase()
+
+		f, err := os.Create(*dumpPath)
+		if err != nil {
+			log.Fatalf("Failed to create dump file: %v", err)
+		}
+
+		writer := db.NewWriter(f, store)
+		if err := writer.WriteDatabase(); err != nil {
+			f.Close()
+			log.Fatalf("Failed to write database: %v", err)
+		}
+		f.Close()
+
+		log.Printf("Database dumped to %s", *dumpPath)
+		return
+	}
 
 	// Check if any inspection flag is set
 	isInspection := *verbCode != "" || *listVerbs != "" || *objInfo != "" || *evalExpr != "" ||
@@ -91,7 +119,7 @@ func main() {
 		trace.Init(false, nil, nil)
 	}
 
-	srv, err := server.NewServer(*dbPath, *port)
+	srv, err := server.NewServer(*dbPath, *port, *checkpointInterval)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
