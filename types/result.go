@@ -21,14 +21,15 @@ const (
 // ForkInfo contains information needed to create a forked task
 // Note: Body is []interface{} to avoid circular dependency with parser package
 type ForkInfo struct {
-	Body      interface{}       // []parser.Stmt - Fork body to execute
-	Delay     time.Duration     // Delay before execution
-	VarName   string            // Variable to store task ID (empty = anonymous)
-	Variables map[string]Value  // Deep copy of variable environment
-	ThisObj   ObjID             // this context
-	Player    ObjID             // player context
-	Caller    ObjID             // caller context
-	Verb      string            // verb context
+	Body        interface{}       // []parser.Stmt - Fork body to execute
+	SourceLines []string          // Original source lines (for database serialization)
+	Delay       time.Duration     // Delay before execution
+	VarName     string            // Variable to store task ID (empty = anonymous)
+	Variables   map[string]Value  // Deep copy of variable environment
+	ThisObj     ObjID             // this context
+	Player      ObjID             // player context
+	Caller      ObjID             // caller context
+	Verb        string            // verb context
 }
 
 // Result represents the outcome of evaluating an expression or statement
