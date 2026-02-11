@@ -361,6 +361,7 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	fn, ok := e.builtins.Get(node.Name)
 	if !ok {
 		// Builtin not found
+		fmt.Printf("[BUILTIN NOT FOUND] %s\n", node.Name)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -394,7 +395,11 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	}
 
 	// Call the builtin function
-	return fn(ctx, args)
+	result := fn(ctx, args)
+	if result.Flow == types.FlowException && result.Error == types.E_INVARG {
+		fmt.Printf("[BUILTIN E_INVARG] %s returned E_INVARG\n", node.Name)
+	}
+	return result
 }
 
 // indexMarker evaluates an index marker (^ or $)

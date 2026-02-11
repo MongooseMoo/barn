@@ -19,10 +19,17 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	var primitiveValue types.Value
 	isPrimitive := false
 
-	// Check if target is an object or a primitive with a prototype
+	// Check if target is an object, waif, or a primitive with a prototype
+	var isWaif bool
+	var waifValue types.WaifValue
 	objVal, ok := objResult.Val.(types.ObjValue)
 	if ok {
 		objID = objVal.ID()
+	} else if waif, ok := objResult.Val.(types.WaifValue); ok {
+		// Waif - look up verb on class, but 'this' will be the waif
+		objID = waif.Class()
+		isWaif = true
+		waifValue = waif
 	} else {
 		// Not an object - check if it's a primitive with a prototype
 		protoID := e.getPrimitivePrototype(objResult.Val)
@@ -88,6 +95,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	// Look up the verb (in EvalVerbCall - handles expr:verb(args))
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
+		fmt.Printf("[VERB NOT FOUND] #%d:%s\n", objID, verbName)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -118,11 +126,16 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	var framePushed bool
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
-			// For primitives, 'This' should be the primitive object ID (the prototype)
-			// but ThisValue should hold the actual primitive value for callers() and queued_tasks()
+			// For primitives and waifs, ThisValue should hold the actual value
+			var frameThisValue types.Value
+			if isPrimitive {
+				frameThisValue = primitiveValue
+			} else if isWaif {
+				frameThisValue = waifValue
+			}
 			frame := task.ActivationFrame{
 				This:            defObjID,
-				ThisValue:       primitiveValue, // Store primitive value for prototype calls
+				ThisValue:       frameThisValue, // Store primitive/waif value for callers() and queued_tasks()
 				Player:          ctx.Player,
 				Programmer:      ctx.Programmer,
 				Caller:          ctx.ThisObj, // The object that called this verb
@@ -141,9 +154,11 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	oldThis := ctx.ThisObj
 	oldThisValue := ctx.ThisValue
 	oldVerb := ctx.Verb
-	ctx.ThisObj = objID // this = object the verb was called on
+	ctx.ThisObj = objID // this = object the verb was called on (or class for waifs)
 	if isPrimitive {
 		ctx.ThisValue = primitiveValue
+	} else if isWaif {
+		ctx.ThisValue = waifValue
 	} else {
 		ctx.ThisValue = nil
 	}
@@ -157,9 +172,11 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	oldArgsEnv, _ := e.env.Get("args")
 
 	e.env.Set("verb", types.NewStr(verbName))
-	// For primitives, 'this' should be the primitive value itself, not the prototype object
+	// For primitives and waifs, 'this' should be the value itself, not the object
 	if isPrimitive {
 		e.env.Set("this", primitiveValue)
+	} else if isWaif {
+		e.env.Set("this", waifValue)
 	} else {
 		e.env.Set("this", types.NewObj(objID))
 	}

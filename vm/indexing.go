@@ -942,7 +942,14 @@ func (e *Evaluator) propertyIndexedAssign(propExpr *parser.PropertyExpr, indices
 	}
 
 	// Write the new value back to the property
-	return e.assignProperty(propExpr, newPropVal, ctx)
+	result := e.assignProperty(propExpr, newPropVal, ctx)
+	if !result.IsNormal() {
+		return result
+	}
+
+	// Return the assigned VALUE, not the modified list
+	// This matches Toast/LambdaMOO behavior where `y = obj.list[i] = value` sets y to value
+	return types.Ok(value)
 }
 
 // getPropertyValue retrieves a property value from an object
