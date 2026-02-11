@@ -311,7 +311,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 
 	// Create property (defined on this object via add_property)
-	obj.Properties[propName] = &db.Property{
+	prop := &db.Property{
 		Name:    propName,
 		Value:   value,
 		Owner:   owner,
@@ -319,6 +319,10 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 		Clear:   false,
 		Defined: true, // This property is defined on this object
 	}
+	obj.Properties[propName] = prop
+
+	// Propagate inherited copies to all existing descendants
+	propagatePropertyToDescendants(objID, prop, store)
 
 	// Invalidate anonymous children (parent schema changed)
 	for _, childID := range obj.AnonymousChildren {
@@ -360,15 +364,19 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 
 	propName := nameVal.Value()
 
-	// Check if property exists on this object
-	if _, exists := obj.Properties[propName]; !exists {
+	// Check if property is DEFINED on this object (not just inherited)
+	prop, exists := obj.Properties[propName]
+	if !exists || !prop.Defined {
 		return types.Err(types.E_PROPNF)
 	}
 
 	// TODO: Check permissions (owner or wizard)
 
-	// Delete property
+	// Delete property from this object
 	delete(obj.Properties, propName)
+
+	// Also remove inherited copies from all descendants
+	removeInheritedProperty(objID, propName, store)
 
 	// Invalidate anonymous children (parent schema changed)
 	for _, childID := range obj.AnonymousChildren {
@@ -621,4 +629,75 @@ func hasPropertyInDescendants(objID types.ObjID, name string, store *db.Store) b
 	}
 
 	return false
+}
+
+// propagatePropertyToDescendants adds an inherited copy of a property to all descendants
+// Called when add_property adds a new property to an object with existing children
+func propagatePropertyToDescendants(objID types.ObjID, prop *db.Property, store *db.Store) {
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := store.Get(currentID)
+		if current == nil {
+			continue
+		}
+
+		for _, childID := range current.Children {
+			child := store.Get(childID)
+			if child == nil {
+				continue
+			}
+			// Add inherited copy (Clear=true, Defined=false)
+			child.Properties[prop.Name] = &db.Property{
+				Name:  prop.Name,
+				Value: prop.Value,
+				Owner: prop.Owner,
+				Perms: prop.Perms,
+				Clear: true,
+			}
+			queue = append(queue, childID)
+		}
+	}
+}
+
+// removeInheritedProperty removes inherited copies of a property from all descendants
+// Called when delete_property removes a defined property
+func removeInheritedProperty(objID types.ObjID, name string, store *db.Store) {
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := store.Get(currentID)
+		if current == nil {
+			continue
+		}
+
+		for _, childID := range current.Children {
+			child := store.Get(childID)
+			if child == nil {
+				continue
+			}
+			if prop, ok := child.Properties[name]; ok && !prop.Defined {
+				delete(child.Properties, name)
+			}
+			queue = append(queue, childID)
+		}
+	}
 }
