@@ -17,31 +17,33 @@ import (
 
 // Server represents the MOO server
 type Server struct {
-	store          *db.Store
-	database       *db.Database
-	scheduler      *Scheduler
-	connManager    *ConnectionManager
-	dbPath         string
-	port           int
-	running        bool
-	mu             sync.Mutex
-	shutdownChan   chan struct{}
-	checkpointChan chan struct{}
-	ctx            context.Context
-	cancel         context.CancelFunc
+	store              *db.Store
+	database           *db.Database
+	scheduler          *Scheduler
+	connManager        *ConnectionManager
+	dbPath             string
+	port               int
+	checkpointInterval time.Duration
+	running            bool
+	mu                 sync.Mutex
+	shutdownChan       chan struct{}
+	checkpointChan     chan struct{}
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 // NewServer creates a new MOO server
-func NewServer(dbPath string, port int) (*Server, error) {
+func NewServer(dbPath string, port int, checkpointIntervalSec int) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
-		dbPath:         dbPath,
-		port:           port,
-		shutdownChan:   make(chan struct{}),
-		checkpointChan: make(chan struct{}),
-		ctx:            ctx,
-		cancel:         cancel,
+		dbPath:             dbPath,
+		port:               port,
+		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
+		shutdownChan:       make(chan struct{}),
+		checkpointChan:     make(chan struct{}),
+		ctx:                ctx,
+		cancel:             cancel,
 	}, nil
 }
 
@@ -140,7 +142,10 @@ func (s *Server) handleSignals() {
 
 // checkpointLoop runs periodic checkpoints
 func (s *Server) checkpointLoop() {
-	ticker := time.NewTicker(1 * time.Hour) // Default checkpoint interval
+	if s.checkpointInterval <= 0 {
+		return // Checkpointing disabled
+	}
+	ticker := time.NewTicker(s.checkpointInterval)
 	defer ticker.Stop()
 
 	for {
@@ -162,17 +167,47 @@ func (s *Server) checkpoint() error {
 		log.Printf("Warning: #0:checkpoint_started() failed: %v", err)
 	}
 
-	// TODO: Implement database writer
-	// For now, just log
-	log.Println("Checkpoint would write database here")
+	start := time.Now()
+
+	// Write to temp file
+	tempPath := s.dbPath + ".tmp"
+	tempFile, err := os.Create(tempPath)
+	if err != nil {
+		s.callCheckpointFinished(false)
+		return fmt.Errorf("create temp file: %w", err)
+	}
+
+	writer := db.NewWriter(tempFile, s.store)
+	writer.SetTaskSource(s.scheduler) // Provide tasks for serialization
+	if err := writer.WriteDatabase(); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		s.callCheckpointFinished(false)
+		return fmt.Errorf("write database: %w", err)
+	}
+
+	if err := tempFile.Close(); err != nil {
+		os.Remove(tempPath)
+		s.callCheckpointFinished(false)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	// Atomic rename temp -> main database
+	if err := os.Rename(tempPath, s.dbPath); err != nil {
+		// On Windows, need to remove dest first
+		os.Remove(s.dbPath)
+		if err := os.Rename(tempPath, s.dbPath); err != nil {
+			s.callCheckpointFinished(false)
+			return fmt.Errorf("rename temp to main: %w", err)
+		}
+	}
 
 	// Call #0:checkpoint_finished(success)
-	success := true
-	if err := s.callCheckpointFinished(success); err != nil {
+	if err := s.callCheckpointFinished(true); err != nil {
 		log.Printf("Warning: #0:checkpoint_finished() failed: %v", err)
 	}
 
-	log.Println("Checkpoint complete")
+	log.Printf("Checkpoint complete in %v", time.Since(start))
 	return nil
 }
 

@@ -591,6 +591,20 @@ func (s *Scheduler) QueuedTasks() []*task.Task {
 	return tasks
 }
 
+// SuspendedTasks returns list of suspended tasks
+func (s *Scheduler) SuspendedTasks() []*task.Task {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tasks := make([]*task.Task, 0)
+	for _, t := range s.tasks {
+		if t.GetState() == task.TaskSuspended {
+			tasks = append(tasks, t)
+		}
+	}
+	return tasks
+}
+
 // isWizard checks if an object has wizard permissions
 func (s *Scheduler) isWizard(objID types.ObjID) bool {
 	obj := s.store.Get(objID)
