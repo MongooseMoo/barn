@@ -136,6 +136,13 @@ func (e *Evaluator) ifStmt(stmt *parser.IfStmt, ctx *types.TaskContext) types.Re
 
 	// Try elseif clauses
 	for _, elseIf := range stmt.ElseIfs {
+		// Update line number for elseif clause before evaluating condition
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.UpdateLineNumber(elseIf.Pos.Line)
+			}
+		}
+
 		elseIfCondResult := e.Eval(elseIf.Condition, ctx)
 		if !elseIfCondResult.IsNormal() {
 			return elseIfCondResult
@@ -158,6 +165,13 @@ func (e *Evaluator) ifStmt(stmt *parser.IfStmt, ctx *types.TaskContext) types.Re
 // whileStmt evaluates while loops
 func (e *Evaluator) whileStmt(stmt *parser.WhileStmt, ctx *types.TaskContext) types.Result {
 	for {
+		// Update line number to while condition before each iteration
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.UpdateLineNumber(stmt.Pos.Line)
+			}
+		}
+
 		// Evaluate condition
 		condResult := e.Eval(stmt.Condition, ctx)
 		if !condResult.IsNormal() {
@@ -238,6 +252,13 @@ func (e *Evaluator) forRange(stmt *parser.ForStmt, ctx *types.TaskContext) types
 
 	// Iterate from start to end (inclusive)
 	for i := startInt.Val; i <= endInt.Val; i++ {
+		// Update line number to for statement before each iteration
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.UpdateLineNumber(stmt.Pos.Line)
+			}
+		}
+
 		// Bind loop variable
 		e.env.Set(stmt.Value, types.NewInt(i))
 
@@ -321,6 +342,13 @@ func (e *Evaluator) forList(stmt *parser.ForStmt, list *types.ListValue, ctx *ty
 	elements := list.Elements()
 
 	for i, elem := range elements {
+		// Update line number to for statement before each iteration
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.UpdateLineNumber(stmt.Pos.Line)
+			}
+		}
+
 		// Bind value
 		e.env.Set(stmt.Value, elem)
 
@@ -364,6 +392,13 @@ func (e *Evaluator) forMap(stmt *parser.ForStmt, mapVal *types.MapValue, ctx *ty
 	sortForMapPairs(pairs)
 
 	for _, pair := range pairs {
+		// Update line number to for statement before each iteration
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.UpdateLineNumber(stmt.Pos.Line)
+			}
+		}
+
 		key := pair[0]
 		value := pair[1]
 
@@ -409,6 +444,13 @@ func (e *Evaluator) forString(stmt *parser.ForStmt, strVal *types.StrValue, ctx 
 	runes := []rune(s)
 
 	for i, r := range runes {
+		// Update line number to for statement before each iteration
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.UpdateLineNumber(stmt.Pos.Line)
+			}
+		}
+
 		// Bind value (character as string)
 		e.env.Set(stmt.Value, types.NewStr(string(r)))
 
@@ -510,6 +552,35 @@ func (e *Evaluator) EvalProgram(source string) (types.Value, error) {
 	return result.Val, nil
 }
 
+// buildExceptionList creates a MOO exception list from an error result
+// Format: {E_CODE, "message", value, traceback}
+// traceback is a list of frames: {{this, verb, programmer, verb_loc, player, line_no}, ...}
+func (e *Evaluator) buildExceptionList(errorCode types.ErrorCode, ctx *types.TaskContext) types.Value {
+	// Element 1: error code
+	errVal := types.NewErr(errorCode)
+
+	// Element 2: error message
+	msgVal := types.NewStr(errorCode.Message())
+
+	// Element 3: error value (0 if not specified)
+	valVal := types.NewInt(0)
+
+	// Element 4: traceback (list of stack frames)
+	var traceback []types.Value
+	if ctx.Task != nil {
+		if t, ok := ctx.Task.(*task.Task); ok {
+			frames := t.GetCallStack()
+			for _, frame := range frames {
+				// Each frame is {this, verb, programmer, verb_loc, player, line_no}
+				traceback = append(traceback, frame.ToList())
+			}
+		}
+	}
+	traceVal := types.NewList(traceback)
+
+	return types.NewList([]types.Value{errVal, msgVal, valVal, traceVal})
+}
+
 // tryExceptStmt evaluates try/except statements
 func (e *Evaluator) tryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.TaskContext) types.Result {
 	// Execute try body
@@ -527,7 +598,9 @@ func (e *Evaluator) tryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.TaskCon
 		if except.IsAny || e.matchesErrorCode(errorCode, except.Codes) {
 			// Bind error to variable if specified
 			if except.Variable != "" {
-				e.env.Set(except.Variable, types.NewErr(errorCode))
+				// Build proper exception list: {E_CODE, "message", value, traceback}
+				exceptionList := e.buildExceptionList(errorCode, ctx)
+				e.env.Set(except.Variable, exceptionList)
 			}
 
 			// Execute except body
@@ -568,7 +641,9 @@ func (e *Evaluator) tryExceptFinallyStmt(stmt *parser.TryExceptFinallyStmt, ctx 
 			if except.IsAny || e.matchesErrorCode(errorCode, except.Codes) {
 				// Bind error to variable if specified
 				if except.Variable != "" {
-					e.env.Set(except.Variable, types.NewErr(errorCode))
+					// Build proper exception list: {E_CODE, "message", value, traceback}
+					exceptionList := e.buildExceptionList(errorCode, ctx)
+					e.env.Set(except.Variable, exceptionList)
 				}
 
 				// Execute except body
@@ -788,20 +863,148 @@ func (e *Evaluator) forkStmt(stmt *parser.ForkStmt, ctx *types.TaskContext) type
 		}
 	}
 
-	// 5. Build fork info
+	// 5. Extract source lines for the fork body
+	sourceLines := e.extractForkSourceLines(stmt, ctx)
+
+	// 6. Build fork info
 	forkInfo := &types.ForkInfo{
-		Body:      stmt.Body, // []parser.Stmt
-		Delay:     delay,
-		VarName:   stmt.VarName,
-		Variables: varEnv,
-		ThisObj:   ctx.ThisObj,
-		Player:    ctx.Player,
-		Caller:    caller,
-		Verb:      ctx.Verb,
+		Body:        stmt.Body, // []parser.Stmt
+		SourceLines: sourceLines,
+		Delay:       delay,
+		VarName:     stmt.VarName,
+		Variables:   varEnv,
+		ThisObj:     ctx.ThisObj,
+		Player:      ctx.Player,
+		Caller:      caller,
+		Verb:        ctx.Verb,
 	}
 
-	// 5. Return fork flow - scheduler will handle task creation
+	// 7. Return fork flow - scheduler will handle task creation
 	return types.Fork(forkInfo)
+}
+
+// extractForkSourceLines extracts source code lines for the fork body
+// Returns the lines from the current verb's source that correspond to the fork body
+func (e *Evaluator) extractForkSourceLines(stmt *parser.ForkStmt, ctx *types.TaskContext) []string {
+	// If we don't have verb context, we can't extract source
+	if ctx.Verb == "" || ctx.ThisObj < 0 {
+		return nil
+	}
+
+	// Look up the verb to get its source code
+	verb, _, err := e.store.FindVerb(ctx.ThisObj, ctx.Verb)
+	if err != nil || verb == nil || len(verb.Code) == 0 {
+		return nil
+	}
+
+	// Get the line range for the fork body
+	// The fork statement starts at stmt.Pos.Line
+	// We need to find the start and end lines of the body
+	if len(stmt.Body) == 0 {
+		// Empty fork body - just return a minimal representation
+		return []string{""}
+	}
+
+	// Get the line number of the first statement in the fork body
+	startLine := stmt.Body[0].Position().Line
+
+	// Find the line number of the last statement in the fork body
+	endLine := startLine
+	for _, bodyStmt := range stmt.Body {
+		stmtLine := bodyStmt.Position().Line
+		if stmtLine > endLine {
+			endLine = stmtLine
+		}
+		// For compound statements, find the maximum line used
+		endLine = maxLineInStmt(bodyStmt, endLine)
+	}
+
+	// Extract source lines (convert from 1-based to 0-based indexing)
+	// MOO databases use 1-based line numbers
+	if startLine < 1 || endLine < 1 || startLine > len(verb.Code) {
+		return nil
+	}
+
+	// Clamp endLine to available code
+	if endLine > len(verb.Code) {
+		endLine = len(verb.Code)
+	}
+
+	// Extract the lines (1-based to 0-based conversion)
+	result := make([]string, 0, endLine-startLine+1)
+	for i := startLine; i <= endLine; i++ {
+		result = append(result, verb.Code[i-1])
+	}
+
+	return result
+}
+
+// maxLineInStmt recursively finds the maximum line number used in a statement
+func maxLineInStmt(stmt parser.Stmt, currentMax int) int {
+	switch s := stmt.(type) {
+	case *parser.IfStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+		for _, elseIf := range s.ElseIfs {
+			for _, bodyStmt := range elseIf.Body {
+				currentMax = maxLineInStmt(bodyStmt, currentMax)
+			}
+		}
+		if s.Else != nil {
+			for _, bodyStmt := range s.Else {
+				currentMax = maxLineInStmt(bodyStmt, currentMax)
+			}
+		}
+	case *parser.WhileStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+	case *parser.ForStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+	case *parser.TryExceptStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+		for _, except := range s.Excepts {
+			for _, bodyStmt := range except.Body {
+				currentMax = maxLineInStmt(bodyStmt, currentMax)
+			}
+		}
+	case *parser.TryFinallyStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+		for _, bodyStmt := range s.Finally {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+	case *parser.TryExceptFinallyStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+		for _, except := range s.Excepts {
+			for _, bodyStmt := range except.Body {
+				currentMax = maxLineInStmt(bodyStmt, currentMax)
+			}
+		}
+		for _, bodyStmt := range s.Finally {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+	case *parser.ForkStmt:
+		for _, bodyStmt := range s.Body {
+			currentMax = maxLineInStmt(bodyStmt, currentMax)
+		}
+	}
+
+	// Check if this statement's position is beyond current max
+	stmtLine := stmt.Position().Line
+	if stmtLine > currentMax {
+		currentMax = stmtLine
+	}
+
+	return currentMax
 }
 
 // deepCopyValue creates a deep copy of a value
