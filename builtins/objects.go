@@ -701,7 +701,7 @@ func builtinChildren(ctx *types.TaskContext, args []types.Value, store *db.Store
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
 func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -713,6 +713,13 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 	newParentVal, ok := args[1].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+
+	// Validate 3rd arg type if present (must be a list of parents)
+	if len(args) == 3 {
+		if _, ok := args[2].(types.ListValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
 	}
 
 	// Check for invalid object references
@@ -1052,7 +1059,7 @@ func builtinAncestors(ctx *types.TaskContext, args []types.Value, store *db.Stor
 
 	obj := store.Get(objVal.ID())
 	if obj == nil {
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	includeSelf := false
@@ -1109,7 +1116,7 @@ func builtinDescendants(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	obj := store.Get(objVal.ID())
 	if obj == nil {
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	includeSelf := false

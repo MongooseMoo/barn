@@ -84,12 +84,9 @@ func builtinDecodeBase64(ctx *types.TaskContext, args []types.Value) types.Resul
 	var decoded []byte
 	var err error
 	if urlSafe {
-		// URL-safe can be with or without padding
-		decoded, err = base64.RawURLEncoding.DecodeString(str.Value())
-		if err != nil {
-			// Try with padding
-			decoded, err = base64.URLEncoding.DecodeString(str.Value())
-		}
+		// URL-safe can be with or without padding, or partial padding
+		input := strings.TrimRight(str.Value(), "=")
+		decoded, err = base64.RawURLEncoding.DecodeString(input)
 	} else {
 		decoded, err = base64.StdEncoding.DecodeString(str.Value())
 	}
