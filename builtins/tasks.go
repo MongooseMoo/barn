@@ -192,7 +192,9 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	includeLineNumbers := true
+	// Default: do NOT include line numbers (5-element frames)
+	// Pass true/1 to include line numbers (6-element frames)
+	includeLineNumbers := false
 	if len(args) == 1 {
 		val, ok := args[0].(types.IntValue)
 		if !ok {
@@ -215,9 +217,16 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Get the call stack
 	stack := t.GetCallStack()
 
-	// Convert to MOO list format, filtering out server-initiated frames
+	// callers() returns the call stack EXCLUDING the current frame
+	// The current frame is the top of the stack (last element)
+	// So we skip the last frame and return all others (except server-initiated)
 	result := make([]types.Value, 0, len(stack))
-	for _, frame := range stack {
+	for i, frame := range stack {
+		// Skip the last frame (current frame - the one calling callers())
+		if i == len(stack)-1 {
+			continue
+		}
+
 		// Skip server-initiated frames (do_login_command, user_connected, etc.)
 		if frame.ServerInitiated {
 			continue
@@ -227,10 +236,11 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 			result = append(result, frame.ToList())
 		} else {
 			// Omit line number (last element)
+			// ListValue.Get() is 1-based, so we get elements 1 through Len()-1
 			frameList := frame.ToList().(types.ListValue)
 			truncated := make([]types.Value, frameList.Len()-1)
-			for i := 1; i < frameList.Len(); i++ {
-				truncated[i-1] = frameList.Get(i)
+			for i := 0; i < frameList.Len()-1; i++ {
+				truncated[i] = frameList.Get(i + 1) // 1-based indexing
 			}
 			result = append(result, types.NewList(truncated))
 		}
@@ -320,4 +330,25 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewList(result))
+}
+
+// builtinYin: yin([threshold [, ticks [, seconds]]]) → none
+// Yields execution if resources are low.
+// Currently implemented as a no-op since we don't have tick-based execution.
+func builtinYin(ctx *types.TaskContext, args []types.Value) types.Result {
+	// Args: optional threshold, ticks, seconds - all INT
+	// For now, just accept 0-3 arguments and return 0 (no-op)
+	if len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+
+	// Validate args are INTs if provided
+	for _, arg := range args {
+		if _, ok := arg.(types.IntValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
+	}
+
+	// No-op - just return 0
+	return types.Ok(types.NewInt(0))
 }
