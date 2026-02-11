@@ -1,5 +1,30 @@
 # Barn - Go MOO Server
 
+## RULE ZERO: WHEN SOMETHING FAILS ON BARN
+
+**STOP. DO NOT DEBUG. DO NOT MAKE TOOL CALLS.**
+
+Before ANY debugging action, you MUST:
+
+1. **SAY WORDS FIRST** - Explain to Q what failed and what you will test against Toast
+2. **TEST AGAINST TOAST** - Run the exact same operation on Toast to see correct behavior
+3. **COMPARE** - Only after seeing Toast's behavior, identify where Barn diverges
+
+**PRE-DEBUG CHECKLIST (must complete before any Barn debugging):**
+```
+□ Did I test this exact operation against Toast?
+□ Do I know what Toast returns/does?
+□ Have I explained to Q what I'm about to verify?
+```
+
+If any box is unchecked: **DO NOT PROCEED WITH DEBUGGING.**
+
+Your instinct on failure is to immediately start investigating Barn code. **THAT INSTINCT IS WRONG.** Override it. Test Toast first. Every single time.
+
+**If you catch yourself debugging Barn without having tested Toast: STOP IMMEDIATELY.**
+
+---
+
 ## CRITICAL: What The Spec Is
 
 **The spec documents ToastStunt behavior. Period.**
@@ -44,6 +69,8 @@ The path format workaround works. Bash workarounds do not. Try paths first, then
 
 ## CRITICAL: Test Against Toast Before Blaming External Code
 
+**SEE RULE ZERO ABOVE. This is not optional.**
+
 When Barn produces an error running MOO code from toastcore.db or other reference databases:
 
 **ASSUME YOUR CODE IS WRONG.** That MOO code has worked for years/decades.
@@ -57,7 +84,20 @@ Before concluding external code is broken:
 # If Toast returns a value and Barn returns an error, YOUR CODE IS WRONG
 ```
 
-The toast_oracle tool exists for exactly this purpose. Use it.
+For server-level testing (login flows, connections, etc.):
+```bash
+# Start Toast with the database
+./test/moo.exe -l mongoose.db 9451 &
+sleep 3
+
+# Test against Toast
+./moo_client.exe -port 9451 -cmd "..."
+
+# Compare with Barn on different port
+./moo_client.exe -port 9450 -cmd "..."
+```
+
+The toast_oracle tool exists for expression testing. For server behavior, run Toast as a server and compare.
 
 ---
 
@@ -78,6 +118,32 @@ Stop making excuses. Fix Barn's code.
 
 ---
 
+## CRITICAL: Fix Tooling First
+
+When a tool doesn't work, **fix the tool** - don't work around it with debug logging or manual inspection. Time spent fixing tooling pays dividends. Time spent on workarounds compounds into more workarounds.
+
+Examples:
+- dump_verb doesn't load mongoose.db → Fix dump_verb, don't add printf debugging
+- cow_py fails to parse database → Fix the parser or use barn's own loader
+- Test harness unreliable → Fix harness, don't run tests manually
+
+---
+
+## CRITICAL: Bash Commands on MSYS/Windows
+
+This environment runs MSYS (Git Bash). Common gotchas:
+
+**sleep**: Takes `NUMBER[SUFFIX]`, not flags.
+```bash
+sleep 3      # Correct - sleeps 3 seconds
+sleep 3s     # Correct - explicit seconds
+sleep -3     # WRONG - "-3" interpreted as invalid flag
+```
+
+When a command fails with "unknown option", STOP and figure out the correct syntax before proceeding.
+
+---
+
 ## Project Overview
 
 Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in **spec-first phase** - no Go code until spec + tests are complete.
@@ -90,7 +156,7 @@ Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in 
 
 | Name | Path | Description |
 |------|------|-------------|
-| ToastStunt | `~/src/toaststunt/` | C++ MOO server (primary reference) |
+| ToastStunt | `~/src/toaststunt/` | C++ MOO server (primary reference), binary at `test/moo.exe` |
 | moo-conformance-tests | `~/code/moo-conformance-tests/` | YAML-based conformance test suite |
 | moo_interp | `~/code/moo_interp/` | Python MOO interpreter |
 | cow_py | `~/code/cow_py/` | Python MOO server (no longer has conformance tests) |
