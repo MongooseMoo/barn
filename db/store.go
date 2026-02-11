@@ -226,6 +226,20 @@ func (s *Store) Players() []types.ObjID {
 	return result
 }
 
+// GetAnonymousObjects returns all anonymous (non-recycled) objects
+func (s *Store) GetAnonymousObjects() []*Object {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*Object, 0)
+	for _, obj := range s.objects {
+		if !obj.Recycled && obj.Anonymous {
+			result = append(result, obj)
+		}
+	}
+	return result
+}
+
 // LowestFreeID finds the lowest available object ID
 // Checks recycled slots and gaps in the ID sequence
 func (s *Store) LowestFreeID() types.ObjID {
@@ -366,11 +380,22 @@ func matchVerbName(verbPattern, searchName string) bool {
 	pattern := strings.ToLower(verbPattern)
 	search := strings.ToLower(searchName)
 
+	// Strip leading colon from pattern if present
+	// Verbs like ":initialize" should match "initialize" when called as obj:initialize()
+	if strings.HasPrefix(pattern, ":") {
+		pattern = pattern[1:]
+	}
+
 	// Find the wildcard position
 	starPos := strings.Index(pattern, "*")
 	if starPos == -1 {
 		// No wildcard, exact match required
 		return pattern == search
+	}
+
+	// Special case: catch-all "*" verb matches any verb name
+	if pattern == "*" {
+		return true
 	}
 
 	// MOO wildcard semantics:
@@ -424,6 +449,10 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 		// Check if verb exists on this object
 		// Try exact name match first
 		if verb, ok := obj.Verbs[verbName]; ok {
+			return verb, current, nil
+		}
+		// Also try with colon prefix for method-only verbs
+		if verb, ok := obj.Verbs[":"+verbName]; ok {
 			return verb, current, nil
 		}
 

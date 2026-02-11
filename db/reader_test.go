@@ -2,7 +2,9 @@ package db
 
 import (
 	"barn/types"
+	"bufio"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +112,146 @@ func TestVerbCount(t *testing.T) {
 	if !hasFinexact {
 		t.Error("Object #37 should have find_exact verb")
 	}
+}
+
+func TestReadSuspendedTasksMultipleActivations(t *testing.T) {
+	// This tests the bug where a suspended task with 2 activations
+	// (2 period terminators) was being parsed incorrectly.
+	// The parser was stopping at the first period, not realizing
+	// the task had more activations.
+
+	// Task 1: 1 activation (top_activ_stack=0)
+	// Task 2: 2 activations (top_activ_stack=1)
+	// Total: 3 periods
+	taskData := `2 suspended tasks
+1000 1001 0
+0
+10
+0
+0 -1 0 50
+language version 17
+return 1;
+.
+1 variables
+NUM
+0
+0
+0 rt_stack slots in use
+0
+-111
+1
+1
+1
+1
+1
+1 -7 -8 1 -9 1 1 -10 1
+No
+More
+Parse
+Infos
+test_verb
+test_verb
+6
+0 0 0
+1000 1002 0
+0
+10
+0
+1 0 0 50
+language version 17
+return 2;
+.
+1 variables
+NUM
+0
+0
+0 rt_stack slots in use
+0
+-111
+1
+2
+1
+2
+1
+2 -7 -8 2 -9 2 2 -10 1
+No
+More
+Parse
+Infos
+outer_verb
+outer_verb
+6
+0 0 0
+language version 17
+return 3;
+.
+1 variables
+NUM
+0
+0
+0 rt_stack slots in use
+0
+-111
+1
+2
+1
+2
+1
+2 -7 -8 2 -9 2 2 -10 1
+No
+More
+Parse
+Infos
+inner_verb
+inner_verb
+6
+0 0 0
+`
+	// After reading 2 suspended tasks, we should be able to read the next section
+	taskData += "1 interrupted tasks\n"
+
+	r := bufio.NewReader(strings.NewReader(taskData))
+	db := &Database{
+		Version: 17,
+		Objects: make(map[types.ObjID]*Object),
+	}
+
+	err := db.readSuspendedTasks(r)
+	if err != nil {
+		t.Fatalf("readSuspendedTasks failed: %v", err)
+	}
+
+	// Now try to read what should be "1 interrupted tasks"
+	line, err := r.ReadString('\n')
+	if err != nil {
+		t.Fatalf("Failed to read next line after suspended tasks: %v", err)
+	}
+
+	expected := "1 interrupted tasks\n"
+	if line != expected {
+		t.Errorf("After reading suspended tasks, expected %q but got %q", expected, line)
+	}
+}
+
+func TestLoadMongooseSnapshot(t *testing.T) {
+	// Test loading the mongoose7_snapshot.db
+	dbPath := "mongoose7_snapshot.db"
+
+	db, err := LoadDatabase(filepath.Join("..", dbPath))
+	if err != nil {
+		t.Fatalf("Failed to load database: %v", err)
+	}
+
+	// Basic sanity checks
+	if db == nil {
+		t.Fatal("Database is nil")
+	}
+
+	if db.Version != 17 {
+		t.Errorf("Expected version 17, got %d", db.Version)
+	}
+
+	t.Logf("Loaded database version %d with %d objects", db.Version, len(db.Objects))
 }
 
 func TestVerbInheritance(t *testing.T) {
