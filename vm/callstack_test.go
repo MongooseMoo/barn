@@ -144,3 +144,171 @@ func TestCallStackPreservedOnError(t *testing.T) {
 		}
 	}
 }
+
+// TestLineNumbersInElseIf verifies that line numbers are updated correctly
+// when executing elseif branches. The line number should reflect the current
+// elseif being evaluated, not the original if statement line.
+func TestLineNumbersInElseIf(t *testing.T) {
+	store := db.NewStore()
+	evaluator := NewEvaluatorWithStore(store)
+
+	// Create test object
+	obj1 := &db.Object{
+		ID:         1,
+		Parents:    []types.ObjID{},
+		Properties: make(map[string]*db.Property),
+		Verbs:      make(map[string]*db.Verb),
+		VerbList:   []*db.Verb{},
+		Flags:      0,
+	}
+	store.Add(obj1)
+
+	// Create a verb with if/elseif that has an error in elseif condition
+	// Line 1: if (0)
+	// Line 2:   return 1;
+	// Line 3: elseif (1/0)     <- error here, should report line 3
+	// Line 4:   return 2;
+	// Line 5: endif
+	verb := &db.Verb{
+		Name:  "test_elseif_line",
+		Names: []string{"test_elseif_line"},
+		Owner: 1,
+		Perms: db.VerbExecute | db.VerbRead,
+		ArgSpec: db.VerbArgs{
+			This: "any",
+			Prep: "any",
+			That: "any",
+		},
+	}
+	verbCode := []string{
+		"if (0)",
+		"  return 1;",
+		"elseif (1/0)",
+		"  return 2;",
+		"endif",
+	}
+	verbProgram, errors := db.CompileVerb(verbCode)
+	if len(errors) > 0 {
+		t.Fatalf("Failed to compile verb: %v", errors)
+	}
+	verb.Code = verbCode
+	verb.Program = verbProgram
+	obj1.Verbs["test_elseif_line"] = verb
+	obj1.VerbList = append(obj1.VerbList, verb)
+
+	// Create a task for call stack tracking
+	testTask := task.NewTask(1, 1, 100000, 5.0)
+
+	// Set up execution context
+	ctx := types.NewTaskContext()
+	ctx.Player = 1
+	ctx.Programmer = 1
+	ctx.ThisObj = 1
+	ctx.Task = testTask
+
+	// Call the verb - should error with E_DIV at line 3
+	result := evaluator.CallVerb(1, "test_elseif_line", []types.Value{}, ctx)
+
+	// Verify we got a division by zero error
+	if result.Flow != types.FlowException {
+		t.Fatalf("Expected FlowException, got %v", result.Flow)
+	}
+	if result.Error != types.E_DIV {
+		t.Errorf("Expected E_DIV error, got %v", result.Error)
+	}
+
+	// The critical test: verify the line number is 3 (the elseif line), not 1 (the if line)
+	stack := testTask.GetCallStack()
+	if len(stack) != 1 {
+		t.Fatalf("Expected 1 frame in call stack, got %d", len(stack))
+	}
+
+	frame := stack[0]
+	if frame.LineNumber != 3 {
+		t.Errorf("Expected line number 3 (elseif line), got %d", frame.LineNumber)
+	}
+}
+
+// TestLineNumbersInWhileLoop verifies that line numbers are reset to the while
+// line at the start of each iteration, so errors in the condition are correctly
+// attributed to the while line.
+func TestLineNumbersInWhileLoop(t *testing.T) {
+	store := db.NewStore()
+	evaluator := NewEvaluatorWithStore(store)
+
+	// Create test object
+	obj1 := &db.Object{
+		ID:         1,
+		Parents:    []types.ObjID{},
+		Properties: make(map[string]*db.Property),
+		Verbs:      make(map[string]*db.Verb),
+		VerbList:   []*db.Verb{},
+		Flags:      0,
+	}
+	store.Add(obj1)
+
+	// Create a verb where while condition fails on 2nd iteration
+	// Line 1: x = 0;
+	// Line 2: y = 1;
+	// Line 3: while ((y / x) > 0)   <- error on 2nd iteration when x=0
+	// Line 4:   x = x - 1;
+	// Line 5: endwhile
+	verb := &db.Verb{
+		Name:  "test_while_line",
+		Names: []string{"test_while_line"},
+		Owner: 1,
+		Perms: db.VerbExecute | db.VerbRead,
+		ArgSpec: db.VerbArgs{
+			This: "any",
+			Prep: "any",
+			That: "any",
+		},
+	}
+	verbCode := []string{
+		"x = 1;",
+		"y = 1;",
+		"while ((y / x) > 0)",
+		"  x = x - 1;",
+		"endwhile",
+	}
+	verbProgram, errors := db.CompileVerb(verbCode)
+	if len(errors) > 0 {
+		t.Fatalf("Failed to compile verb: %v", errors)
+	}
+	verb.Code = verbCode
+	verb.Program = verbProgram
+	obj1.Verbs["test_while_line"] = verb
+	obj1.VerbList = append(obj1.VerbList, verb)
+
+	// Create a task for call stack tracking
+	testTask := task.NewTask(1, 1, 100000, 5.0)
+
+	// Set up execution context
+	ctx := types.NewTaskContext()
+	ctx.Player = 1
+	ctx.Programmer = 1
+	ctx.ThisObj = 1
+	ctx.Task = testTask
+
+	// Call the verb - should error with E_DIV at line 3
+	result := evaluator.CallVerb(1, "test_while_line", []types.Value{}, ctx)
+
+	// Verify we got a division by zero error
+	if result.Flow != types.FlowException {
+		t.Fatalf("Expected FlowException, got %v", result.Flow)
+	}
+	if result.Error != types.E_DIV {
+		t.Errorf("Expected E_DIV error, got %v", result.Error)
+	}
+
+	// The critical test: verify the line number is 3 (the while line), not 4 (last body line)
+	stack := testTask.GetCallStack()
+	if len(stack) != 1 {
+		t.Fatalf("Expected 1 frame in call stack, got %d", len(stack))
+	}
+
+	frame := stack[0]
+	if frame.LineNumber != 3 {
+		t.Errorf("Expected line number 3 (while line), got %d", frame.LineNumber)
+	}
+}
