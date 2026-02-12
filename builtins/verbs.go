@@ -11,21 +11,21 @@ import (
 // Preposition list matching ToastStunt's prep_list
 // Index corresponds to PrepSpec value
 var prepList = []string{
-	"with/using",                          // 0
-	"at/to",                               // 1
-	"in front of",                         // 2
-	"in/inside/into",                      // 3
-	"on top of/on/onto/upon",              // 4
-	"out of/from inside/from",             // 5
-	"over",                                // 6
-	"through",                             // 7
-	"under/underneath/beneath",            // 8
-	"behind",                              // 9
-	"beside",                              // 10
-	"for/about",                           // 11
-	"is",                                  // 12
-	"as",                                  // 13
-	"off/off of",                          // 14
+	"with/using",               // 0
+	"at/to",                    // 1
+	"in front of",              // 2
+	"in/inside/into",           // 3
+	"on top of/on/onto/upon",   // 4
+	"out of/from inside/from",  // 5
+	"over",                     // 6
+	"through",                  // 7
+	"under/underneath/beneath", // 8
+	"behind",                   // 9
+	"beside",                   // 10
+	"for/about",                // 11
+	"is",                       // 12
+	"as",                       // 13
+	"off/off of",               // 14
 }
 
 // matchArgSpec validates argument spec string (this/none/any)
@@ -482,13 +482,6 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		}
 	}
 
-	// Check if any name already exists
-	for _, name := range names {
-		if _, ok := obj.Verbs[name]; ok {
-			return types.Err(types.E_INVARG)
-		}
-	}
-
 	// Parse permissions
 	perms := parseVerbPerms(permsStr.Value())
 
@@ -507,7 +500,8 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value, store *db.Store)
 		Program: nil,
 	}
 
-	// Add verb to object (use first name as key)
+	// Add verb to object (use first name as key).
+	// MOO allows same-name verbs on the same object; newest definition shadows older ones.
 	obj.Verbs[names[0]] = verb
 	// Add to VerbList for indexing
 	obj.VerbList = append(obj.VerbList, verb)
@@ -545,11 +539,39 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value, store *db.Sto
 	// TODO: Check permissions (must be owner or wizard)
 
 	name := nameVal.Value()
-	if _, ok := obj.Verbs[name]; !ok {
+	verb, _, err := store.FindVerb(objID, name)
+	if err != nil || verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
 
-	delete(obj.Verbs, name)
+	// Remove the verb from the map (one or more keys can point at the same verb)
+	keysToRefresh := make([]string, 0, 1)
+	for key, entry := range obj.Verbs {
+		if entry == verb {
+			keysToRefresh = append(keysToRefresh, key)
+			delete(obj.Verbs, key)
+		}
+	}
+
+	// Remove one occurrence from VerbList (preserve list ordering otherwise)
+	for i, entry := range obj.VerbList {
+		if entry == verb {
+			obj.VerbList = append(obj.VerbList[:i], obj.VerbList[i+1:]...)
+			break
+		}
+	}
+
+	// If older verbs with the same primary key still exist, restore the newest one.
+	for _, key := range keysToRefresh {
+		for i := len(obj.VerbList) - 1; i >= 0; i-- {
+			candidate := obj.VerbList[i]
+			if candidate.Name == key {
+				obj.Verbs[key] = candidate
+				break
+			}
+		}
+	}
+
 	return types.Ok(types.NewInt(0))
 }
 
@@ -609,11 +631,20 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 
 	// Update verb
+	oldName := verb.Name
 	verb.Owner = owner.ID()
 	verb.Perms = parseVerbPerms(permsStr.Value())
 	verb.Names = strings.Fields(namesStr.Value())
 	if len(verb.Names) > 0 {
 		verb.Name = verb.Names[0]
+	}
+
+	// Keep object verb map in sync if the primary name changed.
+	if oldName != verb.Name {
+		if current, ok := obj.Verbs[oldName]; ok && current == verb {
+			delete(obj.Verbs, oldName)
+		}
+		obj.Verbs[verb.Name] = verb
 	}
 
 	return types.Ok(types.NewInt(0))

@@ -17,18 +17,18 @@ import (
 
 // Connection represents a player connection
 type Connection struct {
-	ID            int64
-	transport     Transport
-	player        types.ObjID
-	loggedIn      bool
-	outputBuffer  []string
-	outputPrefix  string // PREFIX/OUTPUTPREFIX command sets this
-	outputSuffix  string // SUFFIX/OUTPUTSUFFIX command sets this
-	connectedAt   time.Time
-	lastInput     time.Time
-	mu            sync.Mutex
-	ctx           context.Context
-	cancel        context.CancelFunc
+	ID           int64
+	transport    Transport
+	player       types.ObjID
+	loggedIn     bool
+	outputBuffer []string
+	outputPrefix string // PREFIX/OUTPUTPREFIX command sets this
+	outputSuffix string // SUFFIX/OUTPUTSUFFIX command sets this
+	connectedAt  time.Time
+	lastInput    time.Time
+	mu           sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NewConnection creates a new connection with a transport
@@ -381,6 +381,7 @@ func (cm *ConnectionManager) loginPlayer(conn *Connection, player types.ObjID) {
 	// Call hooks outside the lock
 	if alreadyLoggedIn {
 		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
+		_ = conn.Send("*** Connected ***")
 		cm.callUserConnected(player)
 		return
 	}
@@ -390,6 +391,7 @@ func (cm *ConnectionManager) loginPlayer(conn *Connection, player types.ObjID) {
 		existingConn.Close()
 		cm.callUserReconnected(player)
 	} else {
+		_ = conn.Send("*** Connected ***")
 		cm.callUserConnected(player)
 	}
 
@@ -412,7 +414,8 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	}
 
 	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX, EVAL)
-	// These are server-level commands that set output delimiters or evaluate code
+	// These are server-level commands that set output delimiters or evaluate code.
+	// They intentionally bypass do_command to keep transport framing stable.
 	verbUpper := strings.ToUpper(cmd.Verb)
 	switch verbUpper {
 	case "PREFIX", "OUTPUTPREFIX":
@@ -438,11 +441,24 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	}
 
 	// Raw command response framing for conformance transport.
-	// PREFIX/SUFFIX are emitted around the entire command output.
+	// PREFIX/SUFFIX are emitted around the entire command output, including do_command hooks.
 	outputPrefix := conn.GetOutputPrefix()
 	outputSuffix := conn.GetOutputSuffix()
 	if outputPrefix != "" {
 		_ = conn.Send(outputPrefix)
+	}
+
+	// Call #0:do_command(command) before normal parsing.
+	// If it returns a truthy value, the command is considered handled.
+	handled, err := cm.callDoCommand(player, line)
+	if err != nil {
+		return err
+	}
+	if handled {
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return nil
 	}
 
 	// Resolve direct object
@@ -566,7 +582,7 @@ func (cm *ConnectionManager) sendTracebackToPlayer(player types.ObjID, err types
 	if conn == nil {
 		// Connection not found (player disconnected or not mapped yet)
 		// Log to server so the traceback isn't lost
-		log.Printf("Traceback for player %s (connection not found):", player)
+		log.Printf("Traceback for player %v (connection not found):", player)
 		for _, line := range lines {
 			log.Printf("  %s", line)
 		}
@@ -579,11 +595,42 @@ func (cm *ConnectionManager) sendTracebackToPlayer(player types.ObjID, err types
 	}
 }
 
+// callDoCommand calls #0:do_command(command) and returns whether command was handled.
+func (cm *ConnectionManager) callDoCommand(player types.ObjID, line string) (bool, error) {
+	args := []types.Value{types.NewStr(line)}
+	result := cm.server.scheduler.CallVerb(0, "do_command", args, player)
+	if result.Flow == types.FlowException {
+		// Missing do_command is expected on many databases.
+		if result.Error == types.E_VERBNF {
+			return false, nil
+		}
+
+		log.Printf("do_command error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = s
+			}
+		}
+		cm.sendTracebackToPlayer(player, result.Error, stack)
+		// Treat exceptions as handled so we don't continue normal parsing.
+		return true, nil
+	}
+
+	if result.Val == nil {
+		return false, nil
+	}
+	return result.Val.Truthy(), nil
+}
+
 // callUserConnected calls #0:user_connected(player)
 func (cm *ConnectionManager) callUserConnected(player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
 	result := cm.server.scheduler.CallVerb(0, "user_connected", args, player)
 	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
 		log.Printf("user_connected error: %v", result.Error)
 		// Extract call stack from result if available
 		var stack []task.ActivationFrame
@@ -601,6 +648,9 @@ func (cm *ConnectionManager) callUserReconnected(player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
 	result := cm.server.scheduler.CallVerb(0, "user_reconnected", args, player)
 	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
 		log.Printf("user_reconnected error: %v", result.Error)
 		// Extract call stack from result if available
 		var stack []task.ActivationFrame
@@ -618,6 +668,9 @@ func (cm *ConnectionManager) callUserDisconnected(player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
 	result := cm.server.scheduler.CallVerb(0, "user_disconnected", args, player)
 	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
 		log.Printf("user_disconnected error: %v", result.Error)
 		// Extract call stack from result if available
 		var stack []task.ActivationFrame

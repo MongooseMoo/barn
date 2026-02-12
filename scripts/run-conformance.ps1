@@ -44,6 +44,48 @@ function Wait-ForTcpPort {
     return $false
 }
 
+function Get-ListeningProcessIds {
+    param([int]$ListenPort)
+
+    try {
+        return @(Get-NetTCPConnection -LocalPort $ListenPort -State Listen -ErrorAction Stop |
+            Select-Object -ExpandProperty OwningProcess -Unique)
+    } catch {
+        return @()
+    }
+}
+
+function Stop-PortListeners {
+    param([int]$ListenPort)
+
+    $listenerPids = @(Get-ListeningProcessIds -ListenPort $ListenPort)
+    if ($listenerPids.Count -eq 0) {
+        return
+    }
+
+    Write-Host "Stopping existing listeners on port $ListenPort : $($listenerPids -join ', ')"
+    foreach ($listenerPid in $listenerPids) {
+        try {
+            Stop-Process -Id $listenerPid -Force -ErrorAction Stop
+        } catch {
+            Write-Warning "Failed to stop PID ${listenerPid}: $($_.Exception.Message)"
+        }
+    }
+
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline) {
+        if ((Get-ListeningProcessIds -ListenPort $ListenPort).Count -eq 0) {
+            return
+        }
+        Start-Sleep -Milliseconds 200
+    }
+
+    $remaining = @(Get-ListeningProcessIds -ListenPort $ListenPort)
+    if ($remaining.Count -gt 0) {
+        throw "Port $ListenPort is still in use by PID(s): $($remaining -join ', ')"
+    }
+}
+
 function Write-Section {
     param([string]$Text)
     Write-Host ""
@@ -105,14 +147,29 @@ Write-Host "Server:  $Binary -db $RunDb -port $Port"
 Write-Host "Pytest:  $pytestCmdText"
 
 try {
+    Stop-PortListeners -ListenPort $Port
+
     $server = Start-Process -FilePath $Binary `
         -ArgumentList @("-db", $RunDb, "-port", $Port.ToString()) `
         -RedirectStandardOutput $serverOutLog `
         -RedirectStandardError $serverErrLog `
         -PassThru
 
+    Start-Sleep -Milliseconds 300
+    if ($server.HasExited) {
+        throw "Server exited early with code $($server.ExitCode). See $serverErrLog"
+    }
+
     if (-not (Wait-ForTcpPort -WaitHost $ServerHost -WaitPort $Port -TimeoutSec $StartupTimeoutSec)) {
         throw "Server failed to accept TCP connections on $ServerHost`:$Port within $StartupTimeoutSec seconds."
+    }
+
+    $owners = @(Get-ListeningProcessIds -ListenPort $Port)
+    if ($owners.Count -eq 0) {
+        throw "No active listener found on port $Port after startup."
+    }
+    if ($owners -notcontains $server.Id) {
+        throw "Port $Port listener PID(s) $($owners -join ', ') do not include started server PID $($server.Id)."
     }
 
     & uv @pytestArgs 2>&1 | Tee-Object -FilePath $pytestLog
