@@ -6,6 +6,7 @@ import (
 	"barn/parser"
 	"barn/types"
 	"fmt"
+	"log"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
@@ -112,7 +113,7 @@ func (e *Evaluator) registerVerbCaller() {
 func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result {
 	// Tick counting - protect against infinite loops
 	if !ctx.ConsumeTick() {
-		return types.Err(types.E_MAXREC)
+		return types.Err(types.E_QUOTA)
 	}
 
 	// Dispatch based on node type
@@ -365,7 +366,7 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	fn, ok := e.builtins.Get(node.Name)
 	if !ok {
 		// Builtin not found
-		fmt.Printf("[BUILTIN NOT FOUND] %s\n", node.Name)
+		log.Printf("[BUILTIN NOT FOUND] %s", node.Name)
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -399,11 +400,8 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	}
 
 	// Call the builtin function
-	result := fn(ctx, args)
-	if result.Flow == types.FlowException && result.Error == types.E_INVARG {
-		fmt.Printf("[BUILTIN E_INVARG] %s returned E_INVARG\n", node.Name)
-	}
-	return result
+	// Call the builtin function
+	return fn(ctx, args)
 }
 
 // indexMarker evaluates an index marker (^ or $)
@@ -492,7 +490,7 @@ func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result
 		errorMsg := fmt.Sprintf("Line 1:  %s", err.Error())
 		return types.Result{
 			Flow: types.FlowParseError,
-			Val: types.NewList([]types.Value{types.NewStr(errorMsg)}),
+			Val:  types.NewList([]types.Value{types.NewStr(errorMsg)}),
 		}
 	}
 

@@ -5,7 +5,7 @@ import (
 	"barn/parser"
 	"barn/task"
 	"barn/types"
-	"fmt"
+	"log"
 )
 
 func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) types.Result {
@@ -18,6 +18,8 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	var objID types.ObjID
 	var primitiveValue types.Value
 	isPrimitive := false
+	isAnonymousTarget := false
+	var anonymousThis types.ObjValue
 
 	// Check if target is an object, waif, or a primitive with a prototype
 	var isWaif bool
@@ -25,6 +27,10 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	objVal, ok := objResult.Val.(types.ObjValue)
 	if ok {
 		objID = objVal.ID()
+		if objVal.IsAnonymous() {
+			isAnonymousTarget = true
+			anonymousThis = objVal
+		}
 	} else if waif, ok := objResult.Val.(types.WaifValue); ok {
 		// Waif - look up verb on class, but 'this' will be the waif
 		objID = waif.Class()
@@ -44,6 +50,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Check if object is valid
 	if !e.store.Valid(objID) {
+		e.store.NoteVerbCacheMiss()
 		return types.Err(types.E_INVIND)
 	}
 
@@ -95,7 +102,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	// Look up the verb (in EvalVerbCall - handles expr:verb(args))
 	verb, defObjID, err := e.store.FindVerb(objID, verbName)
 	if err != nil {
-		fmt.Printf("[VERB NOT FOUND] #%d:%s\n", objID, verbName)
+		e.store.NoteVerbCacheMiss()
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -110,9 +117,9 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 		program, errors := db.CompileVerb(verb.Code)
 		if len(errors) > 0 {
 			// Compilation error - return E_VERBNF (verb is broken)
-			fmt.Printf("[COMPILE FAIL] verbCall: #%d:%s compile errors:\n", objID, verbName)
+			log.Printf("[COMPILE FAIL] verbCall: #%d:%s compile errors:", objID, verbName)
 			for i, err := range errors {
-				fmt.Printf("[COMPILE FAIL]   %d: %v\n", i, err)
+				log.Printf("[COMPILE FAIL]   %d: %v", i, err)
 			}
 			return types.Err(types.E_VERBNF)
 		}
@@ -132,9 +139,11 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 				frameThisValue = primitiveValue
 			} else if isWaif {
 				frameThisValue = waifValue
+			} else if isAnonymousTarget {
+				frameThisValue = anonymousThis
 			}
 			frame := task.ActivationFrame{
-				This:            defObjID,
+				This:            objID,
 				ThisValue:       frameThisValue, // Store primitive/waif value for callers() and queued_tasks()
 				Player:          ctx.Player,
 				Programmer:      ctx.Programmer,
@@ -159,6 +168,8 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 		ctx.ThisValue = primitiveValue
 	} else if isWaif {
 		ctx.ThisValue = waifValue
+	} else if isAnonymousTarget {
+		ctx.ThisValue = anonymousThis
 	} else {
 		ctx.ThisValue = nil
 	}
@@ -177,6 +188,8 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 		e.env.Set("this", primitiveValue)
 	} else if isWaif {
 		e.env.Set("this", waifValue)
+	} else if isAnonymousTarget {
+		e.env.Set("this", anonymousThis)
 	} else {
 		e.env.Set("this", types.NewObj(objID))
 	}
@@ -250,6 +263,15 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		return types.Err(types.E_INVIND)
 	}
 
+	obj := e.store.Get(objID)
+	callThis := types.Value(types.NewObj(objID))
+	var frameThisValue types.Value
+	if obj != nil && obj.Anonymous {
+		anon := types.NewAnon(objID)
+		callThis = anon
+		frameThisValue = anon
+	}
+
 	// Push activation frame EARLY, before verb lookup, so errors get proper traceback
 	// We'll update VerbLoc after we find where the verb is defined
 	// NOTE: We do NOT use defer PopFrame() because we want to keep the frame on error
@@ -259,14 +281,15 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
 			frame := task.ActivationFrame{
-				This:            objID,              // The object we're calling on
+				This:            objID, // The object we're calling on
+				ThisValue:       frameThisValue,
 				Player:          ctx.Player,
 				Programmer:      ctx.Programmer,
-				Caller:          ctx.ThisObj,        // The object that called this verb
+				Caller:          ctx.ThisObj, // The object that called this verb
 				Verb:            verbName,
-				VerbLoc:         objID,              // Will be updated if verb found
+				VerbLoc:         objID, // Will be updated if verb found
 				Args:            args,
-				LineNumber:      1,                  // Line 1 for verb call
+				LineNumber:      1,                   // Line 1 for verb call
 				ServerInitiated: ctx.ServerInitiated, // Mark server-initiated frames
 			}
 			t.PushFrame(frame)
@@ -307,13 +330,13 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		program, errors := db.CompileVerb(verb.Code)
 		if len(errors) > 0 {
 			// Compilation error - return E_VERBNF (verb is broken)
-			fmt.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d:\n", verbName, defObjID)
+			log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d:", verbName, defObjID)
 			for i, err := range errors {
-				fmt.Printf("[COMPILE ERROR]   %d: %v\n", i, err)
+				log.Printf("[COMPILE ERROR]   %d: %v", i, err)
 			}
-			fmt.Printf("[COMPILE ERROR] Verb code:\n")
+			log.Printf("[COMPILE ERROR] Verb code:")
 			for i, line := range verb.Code {
-				fmt.Printf("[COMPILE ERROR]   %d: %s\n", i, line)
+				log.Printf("[COMPILE ERROR]   %d: %s", i, line)
 			}
 			return types.Err(types.E_VERBNF)
 		}
@@ -322,8 +345,10 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 
 	// Set up verb call context
 	oldThis := ctx.ThisObj
+	oldThisValue := ctx.ThisValue
 	oldVerb := ctx.Verb
 	ctx.ThisObj = objID // this = object the verb was called on
+	ctx.ThisValue = frameThisValue
 	ctx.Verb = verbName
 
 	// Update environment variables for the verb call
@@ -334,7 +359,7 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	oldPlayerEnv, _ := e.env.Get("player")
 
 	e.env.Set("verb", types.NewStr(verbName))
-	e.env.Set("this", types.NewObj(objID))    // this = object the verb was called ON (not where defined)
+	e.env.Set("this", callThis)                // this = object/anonymous value the verb was called ON
 	e.env.Set("caller", types.NewObj(oldThis)) // caller = previous this
 	e.env.Set("args", types.NewList(args))
 	e.env.Set("player", types.NewObj(ctx.Player)) // player from context
@@ -361,6 +386,7 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 
 	// Restore context
 	ctx.ThisObj = oldThis
+	ctx.ThisValue = oldThisValue
 	ctx.Verb = oldVerb
 
 	// If the verb returned, extract the value

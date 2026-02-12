@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -123,8 +124,7 @@ func (s *Scheduler) processReadyTasks() {
 		go func(t *task.Task) {
 			err := s.runTask(t)
 			if err != nil {
-				// Log error (in real implementation)
-				_ = err
+				log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
 			}
 
 			// Flush output buffer for the player
@@ -257,6 +257,8 @@ func (s *Scheduler) runTask(t *task.Task) error {
 		if result.Flow == types.FlowReturn || result.Flow == types.FlowException {
 			if result.Flow == types.FlowException {
 				t.SetState(task.TaskKilled)
+				// Log traceback to server log
+				s.logTraceback(t, result.Error)
 				// Send traceback to player
 				s.sendTraceback(t, result.Error)
 				// Clean up call stack after traceback has been sent
@@ -420,6 +422,8 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		// Extract call stack BEFORE popping frames
 		if result.Flow == types.FlowException {
 			result.CallStack = t.GetCallStack()
+			// Log traceback to server log
+			s.logCallVerbTraceback(objID, verbName, result.Error, t.GetCallStack(), player)
 			// Trace exception
 			trace.Exception(objID, verbName, result.Error)
 		}
@@ -448,6 +452,8 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// If there was an exception, attach the call stack to the result
 	if result.Flow == types.FlowException {
 		result.CallStack = t.GetCallStack()
+		// Log traceback to server log
+		s.logCallVerbTraceback(objID, verbName, result.Error, t.GetCallStack(), player)
 		// Trace exception
 		trace.Exception(objID, verbName, result.Error)
 	} else {
@@ -625,6 +631,31 @@ func (s *Scheduler) isWizard(objID types.ObjID) bool {
 		return false
 	}
 	return obj.Flags.Has(db.FlagWizard)
+}
+
+// logTraceback logs a formatted traceback to the server log for a task
+func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode) {
+	stack := t.GetCallStack()
+	lines := task.FormatTraceback(stack, err, t.Owner)
+	log.Printf("TRACEBACK: Task %d (#%d:%s) uncaught exception %s",
+		t.ID, t.This, t.VerbName, types.NewErr(err).String())
+	for _, line := range lines {
+		log.Printf("TRACEBACK:   %s", line)
+	}
+}
+
+// logCallVerbTraceback logs a formatted traceback to the server log for a synchronous verb call
+// E_VERBNF is not logged because it's the normal case for optional hook verbs
+func (s *Scheduler) logCallVerbTraceback(objID types.ObjID, verbName string, err types.ErrorCode, stack []task.ActivationFrame, player types.ObjID) {
+	if err == types.E_VERBNF {
+		return // Verb not found is expected for optional hooks
+	}
+	lines := task.FormatTraceback(stack, err, player)
+	log.Printf("TRACEBACK: #%d:%s uncaught exception %s (player #%d)",
+		objID, verbName, types.NewErr(err).String(), player)
+	for _, line := range lines {
+		log.Printf("TRACEBACK:   %s", line)
+	}
 }
 
 // sendTraceback sends a formatted traceback to the player
