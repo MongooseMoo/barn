@@ -131,6 +131,10 @@ func (s *Scheduler) processReadyTasks() {
 			if s.connManager != nil {
 				if conn := s.connManager.GetConnection(t.Owner); conn != nil {
 					conn.Flush()
+					// For raw command execution, emit framing suffix after task output.
+					if t.CommandOutputSuffix != "" {
+						_ = conn.Send(t.CommandOutputSuffix)
+					}
 				}
 			}
 		}(t)
@@ -181,6 +185,9 @@ func (s *Scheduler) runTask(t *task.Task) error {
 			Prepstr: t.Prepstr,
 		})
 		// Also update TaskContext for permissions and builtins
+		ctx.Player = t.Owner
+		ctx.Programmer = t.Programmer
+		ctx.IsWizard = s.isWizard(t.Programmer)
 		ctx.ThisObj = t.This
 		ctx.Verb = t.VerbName
 
@@ -294,15 +301,17 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 }
 
 // CreateVerbTask creates a task to execute a verb
-func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand) int64 {
+func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
 	t.StartTime = time.Now()
-	// Set wizard flag based on player
-	t.Context.IsWizard = s.isWizard(player)
+	// Task runs with verb owner permissions (MOO programmer semantics).
+	t.Programmer = match.Verb.Owner
+	t.Context.Programmer = match.Verb.Owner
+	t.Context.IsWizard = s.isWizard(match.Verb.Owner)
 
 	// Set up verb context
-	t.VerbName = match.Verb.Name
+	t.VerbName = cmd.Verb
 	t.VerbLoc = match.VerbLoc
 	t.This = match.This
 	t.Caller = player
@@ -313,6 +322,7 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 	t.Prepstr = cmd.Prepstr
 	t.Iobjstr = cmd.Iobjstr
 	t.Iobj = cmd.Iobj
+	t.CommandOutputSuffix = outputSuffix
 	t.ForkCreator = s // Give task access to scheduler for forks
 
 	return s.QueueTask(t)

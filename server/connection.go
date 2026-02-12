@@ -437,6 +437,14 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 		return nil
 	}
 
+	// Raw command response framing for conformance transport.
+	// PREFIX/SUFFIX are emitted around the entire command output.
+	outputPrefix := conn.GetOutputPrefix()
+	outputSuffix := conn.GetOutputSuffix()
+	if outputPrefix != "" {
+		_ = conn.Send(outputPrefix)
+	}
+
 	// Resolve direct object
 	if cmd.Dobjstr != "" {
 		cmd.Dobj = MatchObject(cm.server.store, player, location, cmd.Dobjstr)
@@ -450,16 +458,44 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	// Find the verb
 	match := FindVerb(cm.server.store, player, location, cmd)
 	if match == nil {
-		// Try #0:do_command as fallback
-		systemObj := cm.server.store.Get(0)
-		if systemObj != nil {
-			if verb := systemObj.Verbs["do_command"]; verb != nil {
-				// TODO: Call #0:do_command(verb, argstr, dobj, iobj, ...)
-				conn.Send(fmt.Sprintf("I don't understand that. (verb=%s)", cmd.Verb))
+		// Try player.location:huh fallback before generic "couldn't understand".
+		if huhVerb, huhVerbLoc, err := cm.server.store.FindVerb(location, "huh"); err == nil && huhVerb != nil {
+			huhMatch := &VerbMatch{
+				Verb:    huhVerb,
+				This:    location,
+				VerbLoc: huhVerbLoc,
+			}
+
+			// Compile huh verb if needed (lazy compilation).
+			if huhMatch.Verb.Program == nil && len(huhMatch.Verb.Code) > 0 {
+				program, errors := db.CompileVerb(huhMatch.Verb.Code)
+				if len(errors) > 0 {
+					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
+					if outputSuffix != "" {
+						_ = conn.Send(outputSuffix)
+					}
+					return nil
+				}
+				huhMatch.Verb.Program = program
+			}
+
+			// If huh has no executable code, fall back to standard error message.
+			if huhMatch.Verb.Program == nil || len(huhMatch.Verb.Program.Statements) == 0 {
+				conn.Send("I couldn't understand that.")
+				if outputSuffix != "" {
+					_ = conn.Send(outputSuffix)
+				}
 				return nil
 			}
+
+			// Execute huh() code, but preserve attempted verb/arg parsing context.
+			cm.server.scheduler.CreateVerbTask(player, huhMatch, cmd, outputSuffix)
+			return nil
 		}
-		conn.Send(fmt.Sprintf("I don't understand that."))
+		conn.Send("I couldn't understand that.")
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
 		return nil
 	}
 
@@ -468,6 +504,9 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 		program, errors := db.CompileVerb(match.Verb.Code)
 		if len(errors) > 0 {
 			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
+			if outputSuffix != "" {
+				_ = conn.Send(outputSuffix)
+			}
 			return nil
 		}
 		match.Verb.Program = program
@@ -476,11 +515,14 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	// Execute the verb
 	if match.Verb.Program == nil || len(match.Verb.Program.Statements) == 0 {
 		conn.Send(fmt.Sprintf("[%s has no code]", match.Verb.Name))
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
 		return nil
 	}
 
 	// Create task to execute the verb
-	cm.server.scheduler.CreateVerbTask(player, match, cmd)
+	cm.server.scheduler.CreateVerbTask(player, match, cmd, outputSuffix)
 
 	return nil
 }

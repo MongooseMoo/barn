@@ -142,6 +142,7 @@ type Task struct {
 	Prepstr      string      // Preposition string
 	Iobjstr      string      // Indirect object string
 	Iobj         types.ObjID // Indirect object
+	CommandOutputSuffix string // Connection output suffix for raw command framing
 
 	// For compatibility with old server.Task
 	Programmer   types.ObjID // Permission context (usually same as Owner)

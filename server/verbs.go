@@ -40,6 +40,11 @@ func verbNameMatches(verbName, searchName string) bool {
 	// The remainder (after prefix) must match the beginning of the suffix
 	remainder := searchLower[len(prefix):]
 
+	// Pattern like "l*" means any continuation after the prefix.
+	if suffix == "" {
+		return true
+	}
+
 	// If no remainder, that's fine (abbreviation used)
 	if len(remainder) == 0 {
 		return true

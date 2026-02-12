@@ -37,6 +37,36 @@ When Barn diverges from expected behavior, the same test case runs against Toast
 
 See [moo-conformance-tests documentation](https://github.com/mongoosemoo/moo-conformance-tests) for test structure and contributing tests.
 
+## Conformance Runner Script
+
+Use `scripts/run-conformance.ps1` to run Barn + conformance tests with automatic lifecycle management:
+
+- Creates a fresh run DB copy (default from `Test_conf.db`)
+- Starts `barn_parity.exe` on a chosen port
+- Runs `uv run pytest --pyargs moo_conformance ...`
+- Stops server automatically
+- Captures per-run logs in `reports/runs/<timestamp>/`
+
+Examples:
+
+```powershell
+# Full suite on port 7788
+.\scripts\run-conformance.ps1 -Port 7788
+
+# Targeted run with pytest filter
+.\scripts\run-conformance.ps1 -Port 7788 -K "parser::"
+
+# Build first, keep run DB for inspection, pass extra pytest args
+.\scripts\run-conformance.ps1 -Build -KeepRunDb -ExtraPytestArgs "--tb=short","-x"
+```
+
+Per-run artifacts include:
+- `pytest.log` (full test output)
+- `server.stdout.log`, `server.stderr.log` (server output)
+- `server-alerts.txt` (panic/runtime/traceback signal lines)
+- `failed-tests.txt` (failed test IDs)
+- `summary.json` (machine-readable run summary)
+
 ## Getting Started
 
 ```bash
