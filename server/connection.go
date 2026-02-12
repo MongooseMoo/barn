@@ -159,6 +159,11 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 	}
 }
 
+// GetListenPort returns the port the server is listening on
+func (cm *ConnectionManager) GetListenPort() int {
+	return cm.listenPort
+}
+
 // Listen starts listening for connections
 func (cm *ConnectionManager) Listen() error {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cm.listenPort))

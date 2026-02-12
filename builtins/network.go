@@ -12,6 +12,7 @@ type ConnectionManager interface {
 	ConnectedPlayers() []types.ObjID
 	BootPlayer(player types.ObjID) error
 	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
+	GetListenPort() int
 }
 
 // Connection interface to avoid import cycle
@@ -353,7 +354,7 @@ func builtinConnectionInfo(ctx *types.TaskContext, args []types.Value) types.Res
 	result := types.NewMap([][2]types.Value{
 		{types.NewStr("source_address"), types.NewStr("localhost")}, // Server hostname
 		{types.NewStr("source_ip"), types.NewStr("127.0.0.1")},      // Server IP
-		{types.NewStr("source_port"), types.NewInt(9450)},           // TODO: Get actual listening port
+		{types.NewStr("source_port"), types.NewInt(int64(globalConnManager.GetListenPort()))},
 		{types.NewStr("destination_address"), types.NewStr(destIP)}, // Client hostname
 		{types.NewStr("destination_ip"), types.NewStr(destIP)},      // Client IP
 		{types.NewStr("destination_port"), types.NewInt(destPort)},  // Client port
