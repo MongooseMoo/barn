@@ -410,10 +410,8 @@ func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.
 			}
 			if intVal.Val != 0 {
 				obj.Flags = obj.Flags.Set(db.FlagAnonymous)
-				obj.Anonymous = true
 			} else {
 				obj.Flags = obj.Flags.Clear(db.FlagAnonymous)
-				obj.Anonymous = false
 			}
 			return true, types.E_NONE
 		}

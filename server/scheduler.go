@@ -520,6 +520,9 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	// Create evaluator for execution
 	eval := vm.NewEvaluatorWithStore(s.store)
 	result := eval.EvalStatements(stmts, ctx)
+	// Match anonymous-object lifecycle behavior: any anonymous values that no
+	// longer have persistent references are recycled at command boundary.
+	eval.AutoRecycleOrphanAnonymous(ctx)
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}

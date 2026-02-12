@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+const parseJSONTabSentinel = "\uE000"
+
 // builtinGenerateJson converts MOO value to JSON string
 // Signature: generate_json(value [, options]) → STR
 func builtinGenerateJson(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -146,6 +148,11 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 			key := pair[0]
 			value := pair[1]
 
+			// Anonymous objects as map keys are invalid for JSON encoding.
+			if objKey, ok := key.(types.ObjValue); ok && objKey.IsAnonymous() {
+				return nil, types.E_INVARG
+			}
+
 			// Convert key to string
 			var keyStr string
 			if embeddedTypes {
@@ -204,6 +211,10 @@ func builtinParseJson(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	jsonStr := strVal.Value()
+	// Preserve distinction between JSON "\t" escapes and "\u0009":
+	// - "\t" should decode to a literal tab character
+	// - "\u0009" should round-trip to MOO binary escape ~09
+	jsonStr = strings.ReplaceAll(jsonStr, "\\t", "\\uE000")
 
 	// Use json.Decoder to parse just one JSON value, ignoring trailing chars
 	// This matches ToastStunt behavior where parse_json("12abc") returns 12
@@ -237,6 +248,11 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 		return types.NewFloat(val)
 
 	case string:
+		// Keep literal tabs for explicit "\t" escapes (tagged with sentinel).
+		if strings.Contains(val, parseJSONTabSentinel) {
+			val = strings.ReplaceAll(val, parseJSONTabSentinel, "\t")
+			return types.NewStr(val)
+		}
 		if embeddedTypes {
 			// Check for type annotations
 			if parsed, ok := parseEmbeddedType(val); ok {
