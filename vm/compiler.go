@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/builtins"
 	"barn/parser"
 	"barn/types"
 	"fmt"
@@ -9,11 +10,12 @@ import (
 // Compiler compiles AST nodes to bytecode
 type Compiler struct {
 	program   *Program
-	constants map[string]int // Constant deduplication (Value.String() -> index)
-	variables map[string]int // Variable name -> index mapping
-	loops     []LoopContext  // Loop context stack for break/continue
-	scopes    []Scope        // Variable scope stack
-	tempCount int            // Counter for unique temporary variable names
+	constants map[string]int       // Constant deduplication (Value.String() -> index)
+	variables map[string]int       // Variable name -> index mapping
+	loops     []LoopContext        // Loop context stack for break/continue
+	scopes    []Scope              // Variable scope stack
+	tempCount int                  // Counter for unique temporary variable names
+	registry  *builtins.Registry   // Builtin function registry for name->ID resolution
 }
 
 // LoopContext tracks loop compilation state
@@ -45,6 +47,14 @@ func NewCompiler() *Compiler {
 		loops:     make([]LoopContext, 0, 8),
 		scopes:    make([]Scope, 0, 8),
 	}
+}
+
+// NewCompilerWithRegistry creates a new compiler with a builtins registry
+// for resolving builtin function names to IDs at compile time.
+func NewCompilerWithRegistry(registry *builtins.Registry) *Compiler {
+	c := NewCompiler()
+	c.registry = registry
+	return c
 }
 
 // Compile compiles a node to a Program
@@ -511,8 +521,33 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 // These will be completed based on the actual requirements
 
 func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
-	// TODO: Implement builtin call compilation
-	return fmt.Errorf("builtin call compilation not yet implemented")
+	if c.registry == nil {
+		return fmt.Errorf("builtin call compilation requires a builtins registry")
+	}
+
+	// Resolve function name to numeric ID at compile time
+	funcID, ok := c.registry.GetID(n.Name)
+	if !ok {
+		return fmt.Errorf("unknown builtin function: %s", n.Name)
+	}
+
+	// Compile each argument expression (push onto stack in order)
+	for _, arg := range n.Args {
+		// Splice expressions in builtin args are not yet supported in bytecode
+		if _, isSplice := arg.(*parser.SpliceExpr); isSplice {
+			return fmt.Errorf("splice in builtin call arguments not yet implemented")
+		}
+		if err := c.compileNode(arg); err != nil {
+			return err
+		}
+	}
+
+	// Emit OP_CALL_BUILTIN with funcID and argument count
+	c.emit(OP_CALL_BUILTIN)
+	c.emitByte(byte(funcID))
+	c.emitByte(byte(len(n.Args)))
+
+	return nil
 }
 
 func (c *Compiler) compileIndex(n *parser.IndexExpr) error {

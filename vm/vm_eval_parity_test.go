@@ -1,11 +1,27 @@
 package vm
 
 import (
+	"barn/builtins"
+	"barn/db"
 	"barn/parser"
 	"barn/types"
 	"fmt"
 	"testing"
 )
+
+// newTestRegistry creates a builtins registry suitable for parity tests.
+// Both the VM and tree-walker paths should use the same registry so builtins
+// resolve identically.
+func newTestRegistry() *builtins.Registry {
+	store := db.NewStore()
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
+	registry.RegisterVerbBuiltins(store)
+	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
+	return registry
+}
 
 // vmEvalExpr compiles and runs an expression through the bytecode VM.
 // Returns (value, error). The value is nil if execution fails.
@@ -20,13 +36,15 @@ func vmEvalExpr(t *testing.T, input string) (types.Value, error) {
 	// Wrap expression in a return statement so the VM yields the value
 	retStmt := &parser.ReturnStmt{Value: expr}
 
-	c := NewCompiler()
+	registry := newTestRegistry()
+	c := NewCompilerWithRegistry(registry)
 	prog, err := c.Compile(retStmt)
 	if err != nil {
 		return nil, fmt.Errorf("compile error: %w", err)
 	}
 
-	vm := NewVM(nil, nil)
+	vm := NewVM(nil, registry)
+	vm.Context = types.NewTaskContext()
 	return vm.Run(prog)
 }
 
@@ -274,7 +292,8 @@ func vmEvalProgram(t *testing.T, code string) (types.Value, error) {
 		t.Fatalf("Parse error: %v", err)
 	}
 
-	c := NewCompiler()
+	registry := newTestRegistry()
+	c := NewCompilerWithRegistry(registry)
 	// Compile statements one by one into the same program
 	c.beginScope()
 	for _, stmt := range stmts {
@@ -285,7 +304,8 @@ func vmEvalProgram(t *testing.T, code string) (types.Value, error) {
 	c.emit(OP_RETURN_NONE)
 	c.endScope()
 
-	vm := NewVM(nil, nil)
+	vm := NewVM(nil, registry)
+	vm.Context = types.NewTaskContext()
 	return vm.Run(c.program)
 }
 
@@ -1084,6 +1104,69 @@ func TestParity_ScatterComplex(t *testing.T) {
 			return s;`,
 		"scatter_single": `{a} = {42}; return a;`,
 		"rest_only": `{@rest} = {1, 2, 3}; return rest;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_BuiltinCalls(t *testing.T) {
+	cases := []string{
+		// length - list
+		`length({1, 2, 3})`,
+		// length - string
+		`length("hello")`,
+		// length - empty list
+		`length({})`,
+		// length - empty string
+		`length("")`,
+		// typeof - integer returns 0 (TYPE_INT)
+		`typeof(1)`,
+		// typeof - string returns 2 (TYPE_STR)
+		`typeof("hello")`,
+		// typeof - float returns 9 (TYPE_FLOAT)
+		`typeof(1.5)`,
+		// typeof - list returns 4 (TYPE_LIST)
+		`typeof({1, 2})`,
+		// tostr - integer to string
+		`tostr(42)`,
+		// tostr - multiple args
+		`tostr("hello", " ", "world")`,
+		// toint - string to int
+		`toint("42")`,
+		// tofloat - int to float
+		`tofloat(42)`,
+		// tofloat - string to float
+		`tofloat("3.14")`,
+		// nested builtin calls
+		`length({1, 2, length({3, 4, 5})})`,
+		// builtin result in arithmetic
+		`length({1, 2, 3}) + 10`,
+		// builtin in conditional
+		`typeof(1) == 0`,
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_BuiltinCallsInPrograms(t *testing.T) {
+	cases := map[string]string{
+		"length_in_assign": `x = length({1, 2, 3}); return x;`,
+		"tostr_in_concat":  `return tostr(1) + tostr(2);`,
+		"builtin_in_loop": `
+			s = 0;
+			for x in ({"a", "bb", "ccc"})
+				s = s + length(x);
+			endfor
+			return s;`,
+		"builtin_in_if": `
+			x = {1, 2, 3};
+			if (length(x) == 3)
+				return 1;
+			endif
+			return 0;`,
+		"nested_builtins": `return tostr(typeof(42));`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
