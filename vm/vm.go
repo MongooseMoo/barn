@@ -179,6 +179,12 @@ func (vm *VM) Execute(op OpCode) error {
 		idx := vm.ReadByte()
 		vm.CurrentFrame().Locals[idx] = vm.Pop()
 
+	// Property operations
+	case OP_GET_PROP:
+		return vm.executeGetProp()
+	case OP_SET_PROP:
+		return vm.executeSetProp()
+
 	// Arithmetic operations
 	case OP_ADD:
 		return vm.executeAdd()

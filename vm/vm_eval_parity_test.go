@@ -1207,3 +1207,138 @@ func TestParity_IndexAssignErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- Property access parity tests ---
+// Property tests need a shared store with test objects so both paths
+// (tree-walker and bytecode VM) resolve properties identically.
+
+// newPropertyTestStore creates a store with test objects for property parity tests.
+// Object #0: name="Root", properties: {foo: 42, bar: "hello"}
+// Object #1: parent=#0, name="Child", properties: {baz: 99} (inherits foo, bar from #0)
+func newPropertyTestStore() *db.Store {
+	store := db.NewStore()
+
+	root := db.NewObject(0, 0)
+	root.Name = "Root"
+	root.Properties["foo"] = &db.Property{Name: "foo", Value: types.NewInt(42), Defined: true}
+	root.Properties["bar"] = &db.Property{Name: "bar", Value: types.NewStr("hello"), Defined: true}
+	store.Add(root)
+
+	child := db.NewObject(1, 0)
+	child.Name = "Child"
+	child.Parents = []types.ObjID{0}
+	child.Properties["baz"] = &db.Property{Name: "baz", Value: types.NewInt(99), Defined: true}
+	store.Add(child)
+
+	return store
+}
+
+// vmEvalProgramWithStore compiles and runs a MOO program through the bytecode VM,
+// using a shared store for property access.
+func vmEvalProgramWithStore(t *testing.T, code string, store *db.Store) (types.Value, error) {
+	t.Helper()
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
+	registry.RegisterVerbBuiltins(store)
+	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
+
+	c := NewCompilerWithRegistry(registry)
+	c.beginScope()
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			return nil, fmt.Errorf("compile error: %w", err)
+		}
+	}
+	c.emit(OP_RETURN_NONE)
+	c.endScope()
+
+	v := NewVM(store, registry)
+	v.Context = types.NewTaskContext()
+	return v.Run(c.program)
+}
+
+// treeEvalProgramWithStore evaluates a MOO program through the tree-walker,
+// using a shared store for property access.
+func treeEvalProgramWithStore(t *testing.T, code string, store *db.Store) types.Result {
+	t.Helper()
+	evaluator := NewEvaluatorWithStore(store)
+	ctx := types.NewTaskContext()
+	return evaluator.EvalString(code, ctx)
+}
+
+// compareProgramsWithStore runs a MOO program through both paths with a shared store.
+func compareProgramsWithStore(t *testing.T, code string, store *db.Store) {
+	t.Helper()
+
+	treeResult := treeEvalProgramWithStore(t, code, store)
+	vmVal, vmErr := vmEvalProgramWithStore(t, code, store)
+
+	if treeResult.IsError() {
+		if vmErr == nil {
+			t.Errorf("tree-walker returned error %v, but VM succeeded with %v", treeResult.Error, vmVal)
+		}
+		return
+	}
+
+	if vmErr != nil {
+		t.Errorf("tree-walker returned %v, but VM errored: %v", treeResult.Val, vmErr)
+		return
+	}
+
+	if !valuesEqual(treeResult.Val, vmVal) {
+		t.Errorf("MISMATCH: tree-walker=%v (%T), VM=%v (%T)",
+			treeResult.Val, treeResult.Val, vmVal, vmVal)
+	}
+}
+
+func TestParity_PropertyRead(t *testing.T) {
+	store := newPropertyTestStore()
+	cases := map[string]string{
+		"read_defined_int":    `return #0.foo;`,
+		"read_defined_str":    `return #0.bar;`,
+		"read_builtin_name":   `return #0.name;`,
+		"read_builtin_owner":  `return #0.owner;`,
+		"read_child_own_prop": `return #1.baz;`,
+		"read_inherited_prop": `return #1.foo;`,
+		"read_inherited_str":  `return #1.bar;`,
+		"read_child_name":     `return #1.name;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_PropertyWrite(t *testing.T) {
+	cases := map[string]string{
+		"write_defined_prop": `#0.foo = 100; return #0.foo;`,
+		"write_builtin_name": `#0.name = "NewName"; return #0.name;`,
+		"write_inherited_creates_local": `#1.foo = 999; return #1.foo;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Each write test gets a fresh store to avoid cross-test mutation
+			store := newPropertyTestStore()
+			compareProgramsWithStore(t, code, store)
+		})
+	}
+}
+
+func TestParity_PropertyErrors(t *testing.T) {
+	store := newPropertyTestStore()
+	cases := map[string]string{
+		"prop_not_found":     `return #0.nonexistent;`,
+		"invalid_object":     `return #99.foo;`,
+		"type_error":         `return 42.foo;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}

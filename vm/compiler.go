@@ -530,7 +530,27 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		c.emitByte(byte(varIdx))
 	case *parser.PropertyExpr:
 		// Property assignment: obj.prop = value
-		return fmt.Errorf("property assignment not yet implemented")
+		// Stack currently: [value, value_copy]
+		// Compile the object expression -> [value, value_copy, obj]
+		if err := c.compileNode(target.Expr); err != nil {
+			return err
+		}
+
+		if target.Property != "" {
+			// Static property: obj.prop = value
+			propIdx := c.addConstant(types.NewStr(target.Property))
+			c.emit(OP_SET_PROP)
+			c.emitByte(byte(propIdx))
+		} else if target.PropertyExpr != nil {
+			// Dynamic property: obj.(expr) = value
+			if err := c.compileNode(target.PropertyExpr); err != nil {
+				return err
+			}
+			c.emit(OP_SET_PROP)
+			c.emitByte(0xFF) // dynamic property name on stack
+		} else {
+			return fmt.Errorf("property expression has neither static name nor dynamic expression")
+		}
 	default:
 		return fmt.Errorf("invalid assignment target: %T", target)
 	}
@@ -620,8 +640,31 @@ func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
 }
 
 func (c *Compiler) compileProperty(n *parser.PropertyExpr) error {
-	// TODO: Implement property access compilation
-	return fmt.Errorf("property access compilation not yet implemented")
+	// Compile the object expression (pushes object onto stack)
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	if n.Property != "" {
+		// Static property: obj.prop
+		// Push property name as a string constant, then emit OP_GET_PROP
+		propIdx := c.addConstant(types.NewStr(n.Property))
+		c.emit(OP_GET_PROP)
+		c.emitByte(byte(propIdx))
+	} else if n.PropertyExpr != nil {
+		// Dynamic property: obj.(expr)
+		// Compile the property name expression (pushes string onto stack)
+		if err := c.compileNode(n.PropertyExpr); err != nil {
+			return err
+		}
+		// Use 0xFF to signal "property name is on top of stack"
+		c.emit(OP_GET_PROP)
+		c.emitByte(0xFF)
+	} else {
+		return fmt.Errorf("property expression has neither static name nor dynamic expression")
+	}
+
+	return nil
 }
 
 func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
