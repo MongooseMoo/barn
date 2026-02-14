@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/task"
 	"barn/types"
@@ -18,8 +19,11 @@ func (vm *VM) executeAdd() error {
 	// Handle string concatenation
 	if _, ok := a.(types.StrValue); ok {
 		if _, ok := b.(types.StrValue); ok {
-			result := types.NewStr(a.(types.StrValue).Value() + b.(types.StrValue).Value())
-			vm.Push(result)
+			resultStr := a.(types.StrValue).Value() + b.(types.StrValue).Value()
+			if errCode := builtins.CheckStringLimit(resultStr); errCode != types.E_NONE {
+				return fmt.Errorf("E_QUOTA: string too long")
+			}
+			vm.Push(types.NewStr(resultStr))
 			return nil
 		}
 	}
@@ -781,6 +785,22 @@ func (vm *VM) executeRangeSet() error {
 		return fmt.Errorf("E_TYPE: cannot range-assign to %s", coll.Type().String())
 	}
 
+	// Check size limits on the result
+	switch result := newColl.(type) {
+	case types.ListValue:
+		if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
+			return fmt.Errorf("E_QUOTA: list too large")
+		}
+	case types.StrValue:
+		if errCode := builtins.CheckStringLimit(result.Value()); errCode != types.E_NONE {
+			return fmt.Errorf("E_QUOTA: string too long")
+		}
+	case types.MapValue:
+		if errCode := builtins.CheckMapLimit(result); errCode != types.E_NONE {
+			return fmt.Errorf("E_QUOTA: map too large")
+		}
+	}
+
 	// Write modified collection back to variable slot
 	vm.CurrentFrame().Locals[varIdx] = newColl
 
@@ -953,7 +973,12 @@ func (vm *VM) executeListAppend() error {
 	}
 	newElems[list.Len()] = elem
 
-	vm.Push(types.NewList(newElems))
+	result := types.NewList(newElems)
+	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
+		return fmt.Errorf("E_QUOTA: list too large")
+	}
+
+	vm.Push(result)
 	return nil
 }
 
@@ -982,7 +1007,12 @@ func (vm *VM) executeListExtend() error {
 		newElems[list.Len()+i-1] = src.Get(i)
 	}
 
-	vm.Push(types.NewList(newElems))
+	result := types.NewList(newElems)
+	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
+		return fmt.Errorf("E_QUOTA: list too large")
+	}
+
+	vm.Push(result)
 	return nil
 }
 

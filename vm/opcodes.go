@@ -77,12 +77,12 @@ const (
 // Looping
 const (
 	OP_LOOP      OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
-	OP_FOR_RANGE                                     // Start range loop [var, end_offset]
-	OP_FOR_LIST                                      // Start list loop [var, end_offset]
-	OP_FOR_MAP                                       // Start map loop [key_var, val_var, end_offset]
-	OP_FOR_NEXT                                      // Next iteration [start_offset]
-	OP_BREAK                                         // Exit loop
-	OP_CONTINUE                                      // Next iteration
+	OP_FOR_RANGE                                     // DEAD: replaced by while-loop pattern (never emitted by compiler)
+	OP_FOR_LIST                                      // DEAD: replaced by OP_ITER_PREP pattern (never emitted by compiler)
+	OP_FOR_MAP                                       // DEAD: replaced by OP_ITER_PREP runtime dispatch (never emitted by compiler)
+	OP_FOR_NEXT                                      // DEAD: replaced by explicit GET_VAR/ADD/SET_VAR (never emitted by compiler)
+	OP_BREAK                                         // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
+	OP_CONTINUE                                      // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
 )
 
 // Exception Handling
@@ -91,8 +91,8 @@ const (
 	OP_END_EXCEPT                                  // Pop exception handler
 	OP_TRY_FINALLY                                 // Push finally handler [finally_offset]
 	OP_END_FINALLY                                 // Execute finally
-	OP_CATCH                                       // Inline catch expression [offset, codes]
-	OP_RAISE                                       // Raise error
+	OP_CATCH                                       // DEAD: replaced by OP_TRY_EXCEPT/OP_END_EXCEPT pattern (never emitted by compiler)
+	OP_RAISE                                       // DEAD: replaced by Go error returns (never emitted by compiler)
 )
 
 // Function/Verb Calls
@@ -111,7 +111,7 @@ const (
 	OP_RANGE                                     // Pop end, start, coll; push slice
 	OP_RANGE_SET                                 // Pop end, start, val; range-assign locals[var] [varIdx]
 	OP_LENGTH                                    // Pop coll; push length
-	OP_SPLICE                                    // Splice list (unused - splice handled by LIST_APPEND/LIST_EXTEND)
+	OP_SPLICE                                    // DEAD: splice handled by OP_LIST_APPEND/OP_LIST_EXTEND (not handled in VM dispatch)
 	OP_ITER_PREP                                 // Pop container; push normalized list + isPairs flag [hasIndex:byte]
 	OP_LIST_RANGE                                // Pop end, start; push {start..end} list
 	OP_LIST_APPEND                               // Pop elem, list; push list with elem appended
@@ -161,18 +161,18 @@ var OpCodeNames = map[OpCode]string{
 	OP_RETURN:       "RETURN",
 	OP_RETURN_NONE:  "RETURN_NONE",
 	OP_LOOP:         "LOOP",
-	OP_FOR_RANGE:    "FOR_RANGE",
-	OP_FOR_LIST:     "FOR_LIST",
-	OP_FOR_MAP:      "FOR_MAP",
-	OP_FOR_NEXT:     "FOR_NEXT",
-	OP_BREAK:        "BREAK",
-	OP_CONTINUE:     "CONTINUE",
+	OP_FOR_RANGE:    "DEAD_FOR_RANGE",
+	OP_FOR_LIST:     "DEAD_FOR_LIST",
+	OP_FOR_MAP:      "DEAD_FOR_MAP",
+	OP_FOR_NEXT:     "DEAD_FOR_NEXT",
+	OP_BREAK:        "DEAD_BREAK",
+	OP_CONTINUE:     "DEAD_CONTINUE",
 	OP_TRY_EXCEPT:   "TRY_EXCEPT",
 	OP_END_EXCEPT:   "END_EXCEPT",
 	OP_TRY_FINALLY:  "TRY_FINALLY",
 	OP_END_FINALLY:  "END_FINALLY",
-	OP_CATCH:        "CATCH",
-	OP_RAISE:        "RAISE",
+	OP_CATCH:        "DEAD_CATCH",
+	OP_RAISE:        "DEAD_RAISE",
 	OP_CALL_BUILTIN: "CALL_BUILTIN",
 	OP_CALL_VERB:    "CALL_VERB",
 	OP_SCATTER:      "SCATTER",
@@ -183,7 +183,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_RANGE:        "RANGE",
 	OP_RANGE_SET:    "RANGE_SET",
 	OP_LENGTH:       "LENGTH",
-	OP_SPLICE:       "SPLICE",
+	OP_SPLICE:       "DEAD_SPLICE",
 	OP_ITER_PREP:    "ITER_PREP",
 	OP_LIST_RANGE:   "LIST_RANGE",
 	OP_LIST_APPEND:  "LIST_APPEND",
