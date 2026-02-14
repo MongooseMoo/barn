@@ -1,0 +1,11 @@
+[project]
+name = "barn-conformance"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "moo-conformance-tests",
+]
+
+[tool.uv.sources]
+moo-conformance-tests = { path = "../moo-conformance-tests" }
