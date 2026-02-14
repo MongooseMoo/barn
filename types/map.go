@@ -26,8 +26,8 @@ type mapEntry struct {
 // Key is stringified Value (since Go maps need comparable keys)
 // Maintains insertion order via the 'order' slice
 type goMap struct {
-	order []string             // Key hashes in insertion order
-	pairs map[string]mapEntry  // key hash -> entry
+	order []string            // Key hashes in insertion order
+	pairs map[string]mapEntry // key hash -> entry
 }
 
 // keyHash converts a value to a string key for Go map lookup
@@ -316,5 +316,5 @@ func (m MapValue) KeyPosition(key Value) int64 {
 // IsValidMapKey checks if a value type is valid as a map key
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
-	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ERR
+	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR
 }

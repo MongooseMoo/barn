@@ -5,7 +5,7 @@ import "strings"
 // MooList abstracts list storage - allows swapping implementation later
 type MooList interface {
 	Len() int
-	Get(index int) Value          // 1-based MOO index
+	Get(index int) Value            // 1-based MOO index
 	Set(index int, v Value) MooList // Returns new list (COW)
 	Append(v Value) MooList
 	Slice(start, end int) MooList

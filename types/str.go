@@ -26,6 +26,9 @@ func (s StrValue) String() string {
 			result.WriteString("\\\"")
 		} else if b == '\\' {
 			result.WriteString("\\\\")
+		} else if b == '\t' {
+			// Preserve tabs as literal tab characters for protocol compatibility.
+			result.WriteByte(b)
 		} else if b >= 32 && b <= 126 {
 			// Printable ASCII
 			result.WriteByte(b)
