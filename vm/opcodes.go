@@ -76,7 +76,8 @@ const (
 
 // Looping
 const (
-	OP_FOR_RANGE OpCode = OP_RETURN_NONE + 1 + iota // Start range loop [var, end_offset]
+	OP_LOOP      OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
+	OP_FOR_RANGE                                     // Start range loop [var, end_offset]
 	OP_FOR_LIST                                      // Start list loop [var, end_offset]
 	OP_FOR_MAP                                       // Start map loop [key_var, val_var, end_offset]
 	OP_FOR_NEXT                                      // Next iteration [start_offset]
@@ -110,6 +111,7 @@ const (
 	OP_RANGE                                     // Pop end, start, coll; push slice
 	OP_LENGTH                                    // Pop coll; push length
 	OP_SPLICE                                    // Splice list
+	OP_ITER_PREP                                 // Pop container; push normalized list + isPairs flag [hasIndex:byte]
 )
 
 // OpCodeNames maps opcodes to their string names for debugging
@@ -149,6 +151,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_JUMP_IF_TRUE: "JUMP_IF_TRUE",
 	OP_RETURN:       "RETURN",
 	OP_RETURN_NONE:  "RETURN_NONE",
+	OP_LOOP:         "LOOP",
 	OP_FOR_RANGE:    "FOR_RANGE",
 	OP_FOR_LIST:     "FOR_LIST",
 	OP_FOR_MAP:      "FOR_MAP",
@@ -171,6 +174,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_RANGE:        "RANGE",
 	OP_LENGTH:       "LENGTH",
 	OP_SPLICE:       "SPLICE",
+	OP_ITER_PREP:    "ITER_PREP",
 }
 
 // String returns the name of an opcode

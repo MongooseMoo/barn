@@ -285,6 +285,10 @@ func (vm *VM) Execute(op OpCode) error {
 	case OP_SCATTER:
 		return vm.executeScatter()
 
+	// Iteration preparation
+	case OP_ITER_PREP:
+		return vm.executeIterPrep()
+
 	// Builtin calls
 	case OP_CALL_BUILTIN:
 		return vm.executeCallBuiltin()

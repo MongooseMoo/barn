@@ -981,18 +981,37 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 }
 
 // compileForList compiles: for x in (expr) ... endfor
-// Compiles to equivalent while loop with index counter.
+// Handles lists, maps, and strings via OP_ITER_PREP runtime type dispatch.
+// When an index/key variable is present (for v, k in ...), OP_ITER_PREP wraps
+// elements as {value, key/index} pairs and the loop extracts both components.
 func (c *Compiler) compileForList(n *parser.ForStmt) error {
+	hasIndex := n.Index != ""
+
 	// Hidden variables (unique per loop to support nesting)
 	listVar := c.declareVariable(c.tempVar("list"))
+	isPairsVar := c.declareVariable(c.tempVar("pairs"))
 	idxVar := c.declareVariable(c.tempVar("idx"))
 	lenVar := c.declareVariable(c.tempVar("len"))
 	valueVar := c.declareVariable(n.Value)
+	var indexVar int
+	if hasIndex {
+		indexVar = c.declareVariable(n.Index)
+	}
 
-	// Evaluate container and store
+	// Evaluate container, then OP_ITER_PREP normalizes it
 	if err := c.compileNode(n.Container); err != nil {
 		return err
 	}
+	c.emit(OP_ITER_PREP)
+	if hasIndex {
+		c.emitByte(1)
+	} else {
+		c.emitByte(0)
+	}
+	// Stack now has: [normalizedList, isPairsFlag]
+	// Store isPairs flag, then store list
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(isPairsVar))
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(listVar))
 
@@ -1022,14 +1041,53 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	c.emit(OP_LE)
 	exitJump := c.emitJump(OP_JUMP_IF_FALSE)
 
-	// x = list[idx]
+	// Get current element: elem = list[idx]
 	c.emit(OP_GET_VAR)
 	c.emitByte(byte(listVar))
 	c.emit(OP_GET_VAR)
 	c.emitByte(byte(idxVar))
 	c.emit(OP_INDEX)
-	c.emit(OP_SET_VAR)
-	c.emitByte(byte(valueVar))
+	// Stack: [elem]
+
+	if hasIndex {
+		// isPairs is always 1 when hasIndex is true (OP_ITER_PREP guarantees this)
+		// elem is {value, key/index} pair
+		// Store the pair temporarily via DUP
+		c.emit(OP_DUP)
+		// Stack: [elem, elem]
+		// Extract value = elem[1]
+		if op, ok := MakeImmediateOpcode(1); ok {
+			c.emit(op)
+		}
+		c.emit(OP_INDEX)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(valueVar))
+		// Stack: [elem]
+		// Extract key/index = elem[2]
+		if op, ok := MakeImmediateOpcode(2); ok {
+			c.emit(op)
+		}
+		c.emit(OP_INDEX)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(indexVar))
+	} else {
+		// Check isPairs at runtime: if pairs, extract elem[1]; else use elem directly
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(isPairsVar))
+		noPairsJump := c.emitJump(OP_JUMP_IF_FALSE)
+		// isPairs == true: elem is {value, key}, extract value = elem[1]
+		if op, ok := MakeImmediateOpcode(1); ok {
+			c.emit(op)
+		}
+		c.emit(OP_INDEX)
+		assignJump := c.emitJump(OP_JUMP)
+		// isPairs == false: elem is already the value
+		c.patchJump(noPairsJump)
+		// No-op: elem is already on stack
+		c.patchJump(assignJump)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(valueVar))
+	}
 
 	// Body
 	if err := c.compileBlock(n.Body); err != nil {

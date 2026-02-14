@@ -1443,3 +1443,155 @@ func TestParity_VerbCallErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
 	}
 }
+
+// --- For-string and for-map parity tests ---
+
+func TestParity_ForString(t *testing.T) {
+	cases := map[string]string{
+		"iterate_chars": `
+			s = "";
+			for c in ("abc")
+				s = s + c + ",";
+			endfor
+			return s;`,
+		"empty_string": `
+			s = "";
+			for c in ("")
+				s = s + "x";
+			endfor
+			return s;`,
+		"single_char": `
+			s = "";
+			for c in ("X")
+				s = s + c;
+			endfor
+			return s;`,
+		"build_reversed": `
+			s = "";
+			for c in ("hello")
+				s = c + s;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForStringWithIndex(t *testing.T) {
+	cases := map[string]string{
+		"index_and_char": `
+			s = "";
+			for c, i in ("ab")
+				s = s + tostr(i) + c;
+			endfor
+			return s;`,
+		"index_starts_at_1": `
+			s = "";
+			for c, i in ("xyz")
+				s = s + tostr(i) + ",";
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForMap(t *testing.T) {
+	cases := map[string]string{
+		"iterate_values": `
+			s = "";
+			for v in (["x" -> 1])
+				s = s + tostr(v);
+			endfor
+			return s;`,
+		"empty_map": `
+			s = "ok";
+			for v in ([])
+				s = "bad";
+			endfor
+			return s;`,
+		"multiple_values": `
+			s = 0;
+			for v in (["a" -> 10, "b" -> 20])
+				s = s + v;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForMapWithKey(t *testing.T) {
+	cases := map[string]string{
+		"key_and_value": `
+			s = "";
+			for v, k in (["x" -> 1])
+				s = k + "=" + tostr(v);
+			endfor
+			return s;`,
+		"multiple_pairs": `
+			s = "";
+			for v, k in (["a" -> 1, "b" -> 2])
+				s = s + k + tostr(v);
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForStringBreakContinue(t *testing.T) {
+	cases := map[string]string{
+		"break_in_string": `
+			s = "";
+			for c in ("abcde")
+				if (c == "c")
+					break;
+				endif
+				s = s + c;
+			endfor
+			return s;`,
+		"continue_in_string": `
+			s = "";
+			for c in ("abcde")
+				if (c == "c")
+					continue;
+				endif
+				s = s + c;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForMapBreakContinue(t *testing.T) {
+	cases := map[string]string{
+		"break_in_map": `
+			s = 0;
+			for v in ([1 -> 10, 2 -> 20, 3 -> 30])
+				if (v == 20)
+					break;
+				endif
+				s = s + v;
+			endfor
+			return s;`,
+		"continue_in_map": `
+			s = 0;
+			for v in ([1 -> 10, 2 -> 20, 3 -> 30])
+				if (v == 20)
+					continue;
+				endif
+				s = s + v;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
