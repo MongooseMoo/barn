@@ -1640,3 +1640,61 @@ func TestParity_SpliceInList(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- Range assignment parity tests ---
+
+func TestParity_RangeAssignString(t *testing.T) {
+	cases := map[string]string{
+		"replace_prefix":       `s = "hello"; s[1..3] = "HEL"; return s;`,
+		"replace_middle":       `s = "abcdef"; s[2..4] = "XY"; return s;`,
+		"replace_suffix":       `s = "hello"; s[4..5] = "LO"; return s;`,
+		"replace_single_char":  `s = "hello"; s[3..3] = "X"; return s;`,
+		"replace_all":          `s = "abc"; s[1..3] = "XYZ"; return s;`,
+		"longer_replacement":   `s = "abc"; s[2..2] = "XYZ"; return s;`,
+		"shorter_replacement":  `s = "abcde"; s[2..4] = "X"; return s;`,
+		"assign_returns_value": `s = "hello"; x = (s[1..3] = "HEL"); return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_RangeAssignList(t *testing.T) {
+	cases := map[string]string{
+		"replace_middle":       `l = {1, 2, 3, 4, 5}; l[2..4] = {20, 30, 40}; return l;`,
+		"replace_start":        `l = {1, 2, 3}; l[1..2] = {10, 20}; return l;`,
+		"replace_end":          `l = {1, 2, 3}; l[2..3] = {20, 30}; return l;`,
+		"replace_single":       `l = {1, 2, 3}; l[2..2] = {99}; return l;`,
+		"replace_all":          `l = {1, 2, 3}; l[1..3] = {10, 20, 30}; return l;`,
+		"longer_replacement":   `l = {1, 2, 3}; l[2..2] = {20, 30, 40}; return l;`,
+		"shorter_replacement":  `l = {1, 2, 3, 4, 5}; l[2..4] = {99}; return l;`,
+		"empty_replacement":    `l = {1, 2, 3, 4, 5}; l[2..4] = {}; return l;`,
+		"assign_returns_value": `l = {1, 2, 3}; x = (l[2..3] = {20, 30}); return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_RangeAssignDollar(t *testing.T) {
+	cases := map[string]string{
+		"string_dollar_end":   `s = "hello"; s[2..$] = "ELLO"; return s;`,
+		"list_dollar_end":     `l = {1, 2, 3, 4}; l[2..$] = {20, 30, 40}; return l;`,
+		"string_full_range":   `s = "hello"; s[1..$] = "WORLD"; return s;`,
+		"list_full_range":     `l = {1, 2, 3}; l[1..$] = {10, 20, 30}; return l;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_RangeAssignErrors(t *testing.T) {
+	cases := map[string]string{
+		"string_type_mismatch": `s = "hello"; s[1..3] = 42; return s;`,
+		"list_type_mismatch":   `l = {1, 2, 3}; l[1..2] = "ab"; return l;`,
+		"int_range_assign":     `x = 42; x[1..2] = 3; return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

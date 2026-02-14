@@ -622,6 +622,117 @@ func (vm *VM) executeIndexSet() error {
 	return nil
 }
 
+func (vm *VM) executeRangeSet() error {
+	// Bytecode: OP_RANGE_SET <varIdx:byte>
+	// Stack: [... value_copy start end] (end on top)
+	// After: modifies collection in locals[varIdx], pops end, start, and value_copy
+	varIdx := vm.ReadByte()
+	end := vm.Pop()
+	start := vm.Pop()
+	value := vm.Pop()
+
+	// Read the collection from the variable slot
+	coll := vm.CurrentFrame().Locals[varIdx]
+
+	// Resolve start and end to integers
+	startInt, startOk := start.(types.IntValue)
+	endInt, endOk := end.(types.IntValue)
+	if !startOk || !endOk {
+		return fmt.Errorf("E_TYPE: range indices must be integers")
+	}
+	startIdx := startInt.Val
+	endIdx := endInt.Val
+
+	// Perform range assignment based on collection type
+	var newColl types.Value
+	switch c := coll.(type) {
+	case types.ListValue:
+		// Value must be a list
+		newVals, ok := value.(types.ListValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: list range assignment requires a list value")
+		}
+
+		length := c.Len()
+		isInverted := startIdx > endIdx+1
+
+		// Bounds check
+		if !isInverted {
+			if startIdx < 1 || startIdx > int64(length)+1 {
+				return fmt.Errorf("E_RANGE: list range start out of bounds")
+			}
+			if endIdx < 0 || endIdx > int64(length) {
+				return fmt.Errorf("E_RANGE: list range end out of bounds")
+			}
+		} else {
+			if startIdx < 1 || startIdx > int64(length)+1 {
+				return fmt.Errorf("E_RANGE: list range start out of bounds")
+			}
+			if endIdx < 0 || endIdx > int64(length) {
+				return fmt.Errorf("E_RANGE: list range end out of bounds")
+			}
+		}
+
+		// Build new list: [1..start-1] + newVals + [end+1..$]
+		result := make([]types.Value, 0)
+		for i := 1; i < int(startIdx); i++ {
+			result = append(result, c.Get(i))
+		}
+		for i := 1; i <= newVals.Len(); i++ {
+			result = append(result, newVals.Get(i))
+		}
+		for i := int(endIdx) + 1; i <= length; i++ {
+			result = append(result, c.Get(i))
+		}
+		newColl = types.NewList(result)
+
+	case types.StrValue:
+		// Value must be a string
+		newStr, ok := value.(types.StrValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: string range assignment requires a string value")
+		}
+
+		s := c.Value()
+		strLen := int64(len(s))
+		isInverted := startIdx > endIdx+1
+
+		// Bounds check
+		if !isInverted {
+			if startIdx < 1 || startIdx > strLen+1 {
+				return fmt.Errorf("E_RANGE: string range start out of bounds")
+			}
+			if endIdx < 0 {
+				return fmt.Errorf("E_RANGE: string range end out of bounds")
+			}
+		} else {
+			if startIdx < 1 || startIdx > strLen+1 {
+				return fmt.Errorf("E_RANGE: string range start out of bounds")
+			}
+			if endIdx < 0 {
+				return fmt.Errorf("E_RANGE: string range end out of bounds")
+			}
+		}
+
+		// Clamp endIdx to actual string length for slicing
+		effectiveEnd := endIdx
+		if effectiveEnd > strLen {
+			effectiveEnd = strLen
+		}
+
+		// Build new string: s[1..start-1] + newStr + s[end+1..$]
+		newColl = types.NewStr(s[:startIdx-1] + newStr.Value() + s[effectiveEnd:])
+
+	default:
+		return fmt.Errorf("E_TYPE: cannot range-assign to %s", coll.Type().String())
+	}
+
+	// Write modified collection back to variable slot
+	vm.CurrentFrame().Locals[varIdx] = newColl
+
+	return nil
+}
+
 func (vm *VM) executeRange() error {
 	end := vm.Pop()
 	start := vm.Pop()

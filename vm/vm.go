@@ -274,6 +274,8 @@ func (vm *VM) Execute(op OpCode) error {
 		return vm.executeIndexSet()
 	case OP_RANGE:
 		return vm.executeRange()
+	case OP_RANGE_SET:
+		return vm.executeRangeSet()
 	case OP_MAKE_LIST:
 		return vm.executeMakeList()
 	case OP_MAKE_MAP:

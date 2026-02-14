@@ -551,11 +551,62 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		} else {
 			return fmt.Errorf("property expression has neither static name nor dynamic expression")
 		}
+	case *parser.RangeExpr:
+		// Range assignment: coll[start..end] = value
+		// Find the base variable
+		baseIdent, ok := target.Expr.(*parser.IdentifierExpr)
+		if !ok {
+			return fmt.Errorf("range assignment target must be a variable")
+		}
+
+		// Ensure the base variable is declared
+		varIdx := c.declareVariable(baseIdent.Name)
+
+		// Stack currently: [value, value_copy]
+		// Compile start index, resolving $ to collection length
+		if err := c.compileRangeIndex(target.Start, varIdx); err != nil {
+			return err
+		}
+		// Stack: [value, value_copy, start]
+
+		// Compile end index, resolving $ to collection length
+		if err := c.compileRangeIndex(target.End, varIdx); err != nil {
+			return err
+		}
+		// Stack: [value, value_copy, start, end]
+
+		// Emit OP_RANGE_SET with variable index
+		// VM will: pop end, start, value_copy; read coll from locals[varIdx];
+		// replace coll[start..end] with value_copy; store back to locals[varIdx]
+		// The original 'value' remains on stack as expression result
+		c.emit(OP_RANGE_SET)
+		c.emitByte(byte(varIdx))
 	default:
 		return fmt.Errorf("invalid assignment target: %T", target)
 	}
 
 	return nil
+}
+
+// compileRangeIndex compiles a range index expression, resolving $ and ^ markers
+// to the collection length or 1 respectively.
+func (c *Compiler) compileRangeIndex(expr parser.Expr, varIdx int) error {
+	if marker, ok := expr.(*parser.IndexMarkerExpr); ok {
+		if marker.Marker == parser.TOKEN_CARET {
+			// ^ resolves to 1
+			c.emitConstant(types.IntValue{Val: 1})
+		} else if marker.Marker == parser.TOKEN_DOLLAR {
+			// $ resolves to length of the collection variable
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(varIdx))
+			c.emit(OP_LENGTH)
+		} else {
+			return fmt.Errorf("unknown index marker")
+		}
+		return nil
+	}
+	// Normal expression
+	return c.compileNode(expr)
 }
 
 // Stub implementations for other compile methods

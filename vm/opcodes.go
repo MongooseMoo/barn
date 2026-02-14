@@ -109,6 +109,7 @@ const (
 	OP_INDEX                                     // Pop idx, coll; push coll[idx]
 	OP_INDEX_SET                                 // Pop val, idx, coll; set coll[idx]
 	OP_RANGE                                     // Pop end, start, coll; push slice
+	OP_RANGE_SET                                 // Pop end, start, val; range-assign locals[var] [varIdx]
 	OP_LENGTH                                    // Pop coll; push length
 	OP_SPLICE                                    // Splice list (unused - splice handled by LIST_APPEND/LIST_EXTEND)
 	OP_ITER_PREP                                 // Pop container; push normalized list + isPairs flag [hasIndex:byte]
@@ -175,6 +176,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_INDEX:        "INDEX",
 	OP_INDEX_SET:    "INDEX_SET",
 	OP_RANGE:        "RANGE",
+	OP_RANGE_SET:    "RANGE_SET",
 	OP_LENGTH:       "LENGTH",
 	OP_SPLICE:       "SPLICE",
 	OP_ITER_PREP:    "ITER_PREP",
