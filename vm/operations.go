@@ -4,6 +4,7 @@ import (
 	"barn/types"
 	"fmt"
 	"math"
+	"strings"
 )
 
 // Arithmetic operations
@@ -131,7 +132,12 @@ func (vm *VM) executeDiv() error {
 	bFloat, bIsFloat := b.(types.FloatValue)
 
 	if aIsInt && bIsInt {
-		vm.Push(types.IntValue{Val: aInt.Val / bInt.Val})
+		// Toast special case: MININT / -1 returns MININT to prevent overflow
+		if aInt.Val == MININT && bInt.Val == -1 {
+			vm.Push(types.IntValue{Val: MININT})
+		} else {
+			vm.Push(types.IntValue{Val: aInt.Val / bInt.Val})
+		}
 		return nil
 	}
 
@@ -163,16 +169,49 @@ func (vm *VM) executeMod() error {
 
 	aInt, aIsInt := a.(types.IntValue)
 	bInt, bIsInt := b.(types.IntValue)
+	aFloat, aIsFloat := a.(types.FloatValue)
+	bFloat, bIsFloat := b.(types.FloatValue)
 
-	if !aIsInt || !bIsInt {
+	if !(aIsInt || aIsFloat) || !(bIsInt || bIsFloat) {
 		return fmt.Errorf("E_TYPE: invalid operands for %%")
 	}
 
-	if bInt.Val == 0 {
+	// Check for division by zero
+	if bIsInt && bInt.Val == 0 {
+		return fmt.Errorf("E_DIV: modulo by zero")
+	}
+	if bIsFloat && bFloat.Val == 0 {
 		return fmt.Errorf("E_DIV: modulo by zero")
 	}
 
-	vm.Push(types.IntValue{Val: aInt.Val % bInt.Val})
+	// If either is float, result is float
+	if aIsFloat || bIsFloat {
+		var af, bf float64
+		if aIsInt {
+			af = float64(aInt.Val)
+		} else {
+			af = aFloat.Val
+		}
+		if bIsInt {
+			bf = float64(bInt.Val)
+		} else {
+			bf = bFloat.Val
+		}
+		result := math.Mod(af, bf)
+		// Floored modulo: result sign matches divisor
+		if result != 0 && (result < 0) != (bf < 0) {
+			result += bf
+		}
+		vm.Push(types.FloatValue{Val: result})
+		return nil
+	}
+
+	// Both ints — floored modulo
+	result := aInt.Val % bInt.Val
+	if result != 0 && (result < 0) != (bInt.Val < 0) {
+		result += bInt.Val
+	}
+	vm.Push(types.IntValue{Val: result})
 	return nil
 }
 
@@ -185,25 +224,34 @@ func (vm *VM) executePow() error {
 	aFloat, aIsFloat := a.(types.FloatValue)
 	bFloat, bIsFloat := b.(types.FloatValue)
 
-	var result float64
+	var af, bf float64
 	if aIsInt {
-		if bIsInt {
-			result = math.Pow(float64(aInt.Val), float64(bInt.Val))
-		} else if bIsFloat {
-			result = math.Pow(float64(aInt.Val), bFloat.Val)
-		} else {
-			return fmt.Errorf("E_TYPE: invalid operands for ^")
-		}
+		af = float64(aInt.Val)
 	} else if aIsFloat {
-		if bIsInt {
-			result = math.Pow(aFloat.Val, float64(bInt.Val))
-		} else if bIsFloat {
-			result = math.Pow(aFloat.Val, bFloat.Val)
-		} else {
-			return fmt.Errorf("E_TYPE: invalid operands for ^")
-		}
+		af = aFloat.Val
 	} else {
 		return fmt.Errorf("E_TYPE: invalid operands for ^")
+	}
+	if bIsInt {
+		bf = float64(bInt.Val)
+	} else if bIsFloat {
+		bf = bFloat.Val
+	} else {
+		return fmt.Errorf("E_TYPE: invalid operands for ^")
+	}
+
+	result := math.Pow(af, bf)
+
+	if math.IsNaN(result) || math.IsInf(result, 0) {
+		return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+	}
+
+	// If both operands were int, try to return int
+	if aIsInt && bIsInt {
+		if result == math.Floor(result) && result >= float64(math.MinInt64) && result <= float64(math.MaxInt64) {
+			vm.Push(types.IntValue{Val: int64(result)})
+			return nil
+		}
 	}
 
 	vm.Push(types.FloatValue{Val: result})
@@ -231,14 +279,22 @@ func (vm *VM) executeNeg() error {
 func (vm *VM) executeEq() error {
 	b := vm.Pop()
 	a := vm.Pop()
-	vm.Push(types.BoolValue{Val: a.Equal(b)})
+	if a.Equal(b) {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
 func (vm *VM) executeNe() error {
 	b := vm.Pop()
 	a := vm.Pop()
-	vm.Push(types.BoolValue{Val: !a.Equal(b)})
+	if !a.Equal(b) {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
@@ -252,7 +308,11 @@ func (vm *VM) executeLt() error {
 		return err
 	}
 
-	vm.Push(types.BoolValue{Val: result < 0})
+	if result < 0 {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
@@ -265,7 +325,11 @@ func (vm *VM) executeLe() error {
 		return err
 	}
 
-	vm.Push(types.BoolValue{Val: result <= 0})
+	if result <= 0 {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
@@ -278,7 +342,11 @@ func (vm *VM) executeGt() error {
 		return err
 	}
 
-	vm.Push(types.BoolValue{Val: result > 0})
+	if result > 0 {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
@@ -291,7 +359,11 @@ func (vm *VM) executeGe() error {
 		return err
 	}
 
-	vm.Push(types.BoolValue{Val: result >= 0})
+	if result >= 0 {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
@@ -302,9 +374,9 @@ func (vm *VM) executeIn() error {
 	// Check if element is in collection
 	switch coll := collection.(type) {
 	case types.ListValue:
-		for i := 0; i < coll.Len(); i++ {
-			if element.Equal(coll.Get(i + 1)) {
-				vm.Push(types.IntValue{Val: int64(i + 1)})
+		for i := 1; i <= coll.Len(); i++ {
+			if element.Equal(coll.Get(i)) {
+				vm.Push(types.IntValue{Val: int64(i)})
 				return nil
 			}
 		}
@@ -313,22 +385,30 @@ func (vm *VM) executeIn() error {
 
 	case types.StrValue:
 		if elem, ok := element.(types.StrValue); ok {
-			// Check if substring
-			result := false
-			// Simple substring check (TODO: use proper algorithm)
-			for i := 0; i <= len(coll.Value())-len(elem.Value()); i++ {
-				if coll.Value()[i:i+len(elem.Value())] == elem.Value() {
-					result = true
-					break
-				}
+			if strings.Contains(coll.Value(), elem.Value()) {
+				vm.Push(types.IntValue{Val: 1})
+			} else {
+				vm.Push(types.IntValue{Val: 0})
 			}
-			vm.Push(types.BoolValue{Val: result})
 			return nil
 		}
 		return fmt.Errorf("E_TYPE: invalid element type for 'in' with string")
 
+	case types.MapValue:
+		// For maps, `in` checks if element is a VALUE and returns the position
+		pairs := coll.Pairs()
+		sortMapPairsForIn(pairs)
+		for i, pair := range pairs {
+			if pair[1].Equal(element) {
+				vm.Push(types.IntValue{Val: int64(i + 1)})
+				return nil
+			}
+		}
+		vm.Push(types.IntValue{Val: 0})
+		return nil
+
 	default:
-		return fmt.Errorf("E_TYPE: 'in' requires list or string")
+		return fmt.Errorf("E_TYPE: 'in' requires list, string, or map")
 	}
 }
 
@@ -336,7 +416,11 @@ func (vm *VM) executeIn() error {
 
 func (vm *VM) executeNot() error {
 	a := vm.Pop()
-	vm.Push(types.BoolValue{Val: !a.Truthy()})
+	if !a.Truthy() {
+		vm.Push(types.IntValue{Val: 1})
+	} else {
+		vm.Push(types.IntValue{Val: 0})
+	}
 	return nil
 }
 
@@ -467,7 +551,9 @@ func (vm *VM) executeShr() error {
 		return fmt.Errorf("E_INVARG: negative shift count")
 	}
 
-	vm.Push(types.IntValue{Val: aInt.Val >> uint(bInt.Val)})
+	// Use unsigned cast for logical right shift (zero-fill, not sign-extending)
+	result := int64(uint64(aInt.Val) >> uint(bInt.Val))
+	vm.Push(types.IntValue{Val: result})
 	return nil
 }
 
@@ -586,6 +672,22 @@ func (vm *VM) executeMakeMap() error {
 	return nil
 }
 
+func (vm *VM) executeLength() error {
+	coll := vm.Pop()
+
+	switch c := coll.(type) {
+	case types.ListValue:
+		vm.Push(types.IntValue{Val: int64(c.Len())})
+	case types.StrValue:
+		vm.Push(types.IntValue{Val: int64(len(c.Value()))})
+	case types.MapValue:
+		vm.Push(types.IntValue{Val: int64(c.Len())})
+	default:
+		return fmt.Errorf("E_TYPE: cannot get length of %s", coll.Type().String())
+	}
+	return nil
+}
+
 func (vm *VM) executeCallBuiltin() error {
 	funcID := vm.ReadByte()
 	argc := vm.ReadByte()
@@ -660,4 +762,36 @@ func compareValues(a, b types.Value) (int, error) {
 	}
 
 	return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
+}
+
+// executeScatter handles OP_SCATTER: validate that the top of stack is a list
+// with the right number of elements for the scatter pattern.
+//
+// Bytecode format: OP_SCATTER <numRequired:byte> <numOptional:byte> <hasRest:byte>
+//
+// Pops the list value from the stack.
+// Validates:
+//   - Value is a list (E_TYPE if not)
+//   - length >= numRequired (E_ARGS if too few)
+//   - If !hasRest: length <= numRequired + numOptional (E_ARGS if too many)
+func (vm *VM) executeScatter() error {
+	numRequired := int(vm.ReadByte())
+	numOptional := int(vm.ReadByte())
+	hasRest := vm.ReadByte() != 0
+
+	val := vm.Pop()
+	listVal, ok := val.(types.ListValue)
+	if !ok {
+		return fmt.Errorf("E_TYPE: scatter assignment requires a list")
+	}
+
+	length := listVal.Len()
+	if length < numRequired {
+		return fmt.Errorf("E_ARGS: too few elements for scatter assignment")
+	}
+	if !hasRest && length > numRequired+numOptional {
+		return fmt.Errorf("E_ARGS: too many elements for scatter assignment")
+	}
+
+	return nil
 }

@@ -1197,8 +1197,149 @@ func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error
 }
 
 func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
-	// TODO: Implement scatter assignment compilation
-	return fmt.Errorf("scatter assignment compilation not yet implemented")
+	// Scatter assignment: {a, ?b, @rest} = list
+	//
+	// Strategy:
+	//   1. Compile RHS and store in temp variable
+	//   2. Emit OP_SCATTER to validate type and length
+	//   3. For each target, emit index/default/range assignment using existing opcodes
+	//
+	// OP_SCATTER pops the list from stack, validates:
+	//   - Value is a list (E_TYPE if not)
+	//   - Length >= numRequired (E_ARGS if too few)
+	//   - If no @rest: length <= numRequired + numOptional (E_ARGS if too many)
+	// Then pushes nothing (list is accessed via temp var for assignments).
+
+	// Count required, optional, and rest targets
+	numRequired := 0
+	numOptional := 0
+	hasRest := false
+	for _, target := range n.Targets {
+		if target.Rest {
+			hasRest = true
+		} else if target.Optional {
+			numOptional++
+		} else {
+			numRequired++
+		}
+	}
+
+	// Compile and store RHS in a temp variable
+	listVar := c.declareVariable(c.tempVar("scatter_list"))
+	if err := c.compileNode(n.Value); err != nil {
+		return err
+	}
+	c.emit(OP_DUP) // OP_SCATTER will pop one copy; temp var gets the other
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(listVar))
+
+	// Emit OP_SCATTER for validation (pops the list from stack)
+	c.emit(OP_SCATTER)
+	c.emitByte(byte(numRequired))
+	c.emitByte(byte(numOptional))
+	if hasRest {
+		c.emitByte(1)
+	} else {
+		c.emitByte(0)
+	}
+
+	// Now emit assignment code for each target
+	// elemIdx tracks the 1-based index into the list (matching tree-walker's elemIdx + 1)
+	elemIdx := 1
+	for _, target := range n.Targets {
+		if target.Rest {
+			// Rest is handled after all other targets
+			continue
+		}
+
+		targetVar := c.declareVariable(target.Name)
+
+		if target.Optional {
+			// Optional target: check if list has enough elements
+			// if length(list) >= elemIdx then list[elemIdx] else default
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emit(OP_LENGTH)
+			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
+			c.emit(OP_GE) // length >= elemIdx?
+			elseJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+			// Has value: list[elemIdx]
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
+			c.emit(OP_INDEX)
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(targetVar))
+			endJump := c.emitJump(OP_JUMP)
+
+			// Default branch
+			c.patchJump(elseJump)
+			if target.Default != nil {
+				if err := c.compileNode(target.Default); err != nil {
+					return err
+				}
+			} else {
+				c.emitConstant(types.IntValue{Val: 0})
+			}
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(targetVar))
+
+			c.patchJump(endJump)
+		} else {
+			// Required target: list[elemIdx]
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
+			c.emit(OP_INDEX)
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(targetVar))
+		}
+
+		elemIdx++
+	}
+
+	// Handle @rest target
+	if hasRest {
+		for _, target := range n.Targets {
+			if !target.Rest {
+				continue
+			}
+			restVar := c.declareVariable(target.Name)
+			// if elemIdx > length(list): rest = {}
+			// else: rest = list[elemIdx..length(list)]
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emit(OP_LENGTH)
+			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
+			c.emit(OP_GE) // length >= elemIdx?
+			elseJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+			// Has remaining elements: rest = list[elemIdx..length(list)]
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emit(OP_LENGTH)
+			c.emit(OP_RANGE)
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(restVar))
+			endJump := c.emitJump(OP_JUMP)
+
+			// No remaining elements: rest = {}
+			c.patchJump(elseJump)
+			c.emit(OP_MAKE_LIST)
+			c.emitByte(0) // empty list
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(restVar))
+
+			c.patchJump(endJump)
+			break // only one @rest allowed
+		}
+	}
+
+	return nil
 }
 
 func (c *Compiler) compileBlock(stmts []parser.Stmt) error {

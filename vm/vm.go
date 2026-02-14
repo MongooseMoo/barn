@@ -273,6 +273,10 @@ func (vm *VM) Execute(op OpCode) error {
 	case OP_LENGTH:
 		return vm.executeLength()
 
+	// Scatter assignment
+	case OP_SCATTER:
+		return vm.executeScatter()
+
 	// Builtin calls
 	case OP_CALL_BUILTIN:
 		return vm.executeCallBuiltin()

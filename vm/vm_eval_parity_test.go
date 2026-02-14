@@ -1020,3 +1020,72 @@ func TestParity_CatchExprInProgram(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+func TestParity_ScatterBasic(t *testing.T) {
+	cases := map[string]string{
+		"scatter_first":  `{a, b} = {1, 2}; return a;`,
+		"scatter_second": `{a, b} = {1, 2}; return b;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ScatterOptional(t *testing.T) {
+	cases := map[string]string{
+		"optional_with_value":     `{a, ?b} = {1, 2}; return b;`,
+		"optional_without_value":  `{a, ?b} = {1}; return b;`,
+		"optional_with_default":   `{a, ?b = 5} = {1}; return b;`,
+		"optional_default_unused": `{a, ?b = 5} = {1, 2}; return b;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ScatterRest(t *testing.T) {
+	cases := map[string]string{
+		"rest_basic":       `{a, @rest} = {1, 2, 3}; return rest;`,
+		"rest_single":      `{a, @rest} = {1, 2}; return rest;`,
+		"rest_empty":       `{a, @rest} = {1}; return rest;`,
+		"rest_first_elem":  `{a, @rest} = {1, 2, 3}; return a;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ScatterErrors(t *testing.T) {
+	cases := map[string]string{
+		"too_few_elements":  `{a, b, c} = {1, 2}; return a;`,
+		"too_many_elements": `{a, b} = {1, 2, 3}; return a;`,
+		"not_a_list":        `{a, b} = 42; return a;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ScatterComplex(t *testing.T) {
+	cases := map[string]string{
+		"three_required": `{a, b, c} = {10, 20, 30}; return a + b + c;`,
+		"mixed_optional_required": `{a, ?b, ?c} = {1}; return {a, b, c};`,
+		"mixed_optional_required_2": `{a, ?b, ?c} = {1, 2}; return {a, b, c};`,
+		"mixed_optional_required_3": `{a, ?b, ?c} = {1, 2, 3}; return {a, b, c};`,
+		"rest_with_multiple_required": `{a, b, @rest} = {1, 2, 3, 4, 5}; return rest;`,
+		"rest_with_optional": `{a, ?b, @rest} = {1}; return {b, rest};`,
+		"optional_default_expr": `{a, ?b = 10 + 5} = {1}; return b;`,
+		"scatter_in_loop": `
+			s = 0;
+			for x in ({{1, 2}, {3, 4}, {5, 6}})
+				{a, b} = x;
+				s = s + a * b;
+			endfor
+			return s;`,
+		"scatter_single": `{a} = {42}; return a;`,
+		"rest_only": `{@rest} = {1, 2, 3}; return rest;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
