@@ -68,7 +68,7 @@ func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) 
 func (e *Evaluator) EvalStmt(stmt parser.Stmt, ctx *types.TaskContext) types.Result {
 	// Tick counting
 	if !ctx.ConsumeTick() {
-		return types.Err(types.E_MAXREC)
+		return types.Err(types.E_QUOTA)
 	}
 
 	// Update line number in current activation frame
