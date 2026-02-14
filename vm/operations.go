@@ -1049,6 +1049,11 @@ func (vm *VM) executeGetProp() error {
 	// Pop the object
 	objVal := vm.Pop()
 
+	// Check if it's a waif (must check before ObjValue since waifs are a different type)
+	if waifVal, ok := objVal.(types.WaifValue); ok {
+		return vm.vmGetWaifProp(waifVal, propName)
+	}
+
 	// Check if it's an object reference
 	objRef, ok := objVal.(types.ObjValue)
 	if !ok {
@@ -1070,6 +1075,10 @@ func (vm *VM) executeGetProp() error {
 	// Look up defined property first (with inheritance via breadth-first search)
 	prop, errCode := vmFindProperty(vm.Store, obj, propName)
 	if errCode == types.E_NONE {
+		// Check read permission
+		if err := vm.checkPropertyReadPerm(prop); err != nil {
+			return err
+		}
 		vm.Push(prop.Value)
 		return nil
 	}
@@ -1082,6 +1091,56 @@ func (vm *VM) executeGetProp() error {
 
 	// Property not found
 	return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+}
+
+// vmGetWaifProp handles property read on a waif value.
+// Mirrors the tree-walker's waifProperty() logic.
+func (vm *VM) vmGetWaifProp(waif types.WaifValue, propName string) error {
+	// Special waif properties
+	switch propName {
+	case "owner":
+		vm.Push(types.NewObj(waif.Owner()))
+		return nil
+	case "class":
+		classID := waif.Class()
+		// Check if class object has been recycled
+		if vm.Store != nil {
+			classObj := vm.Store.Get(classID)
+			if classObj == nil {
+				// Class has been recycled - return #-1
+				vm.Push(types.NewObj(types.ObjNothing))
+				return nil
+			}
+		}
+		vm.Push(types.NewObj(classID))
+		return nil
+	}
+
+	// Check waif's own properties first
+	if val, ok := waif.GetProperty(propName); ok {
+		vm.Push(val)
+		return nil
+	}
+
+	// Fall back to class object's properties
+	if vm.Store == nil {
+		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+	}
+
+	classID := waif.Class()
+	classObj := vm.Store.Get(classID)
+	if classObj == nil {
+		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+	}
+
+	// Look up property on class object
+	prop, errCode := vmFindProperty(vm.Store, classObj, propName)
+	if errCode != types.E_NONE {
+		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+	}
+
+	vm.Push(prop.Value)
+	return nil
 }
 
 func (vm *VM) executeSetProp() error {
@@ -1113,6 +1172,11 @@ func (vm *VM) executeSetProp() error {
 	// Pop the value to assign
 	value := vm.Pop()
 
+	// Check if it's a waif (must check before ObjValue since waifs are a different type)
+	if waifVal, ok := objVal.(types.WaifValue); ok {
+		return vm.vmSetWaifProp(waifVal, propName, value)
+	}
+
 	// Check if it's an object reference
 	objRef, ok := objVal.(types.ObjValue)
 	if !ok {
@@ -1142,6 +1206,10 @@ func (vm *VM) executeSetProp() error {
 	// Check if property exists directly on this object
 	prop, ok := obj.Properties[propName]
 	if ok {
+		// Check write permission
+		if err := vm.checkPropertyWritePerm(prop); err != nil {
+			return err
+		}
 		// Property exists locally - update it
 		prop.Clear = false
 		prop.Value = value
@@ -1152,6 +1220,11 @@ func (vm *VM) executeSetProp() error {
 	inheritedProp, errCode := vmFindProperty(vm.Store, obj, propName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+	}
+
+	// Check write permission on the inherited property
+	if err := vm.checkPropertyWritePerm(inheritedProp); err != nil {
+		return err
 	}
 
 	// Property is inherited - create a local copy with the new value
@@ -1165,6 +1238,65 @@ func (vm *VM) executeSetProp() error {
 	}
 	obj.Properties[propName] = newProp
 
+	return nil
+}
+
+// vmSetWaifProp handles property assignment on a waif value.
+// Mirrors the tree-walker's assignWaifProperty() logic.
+func (vm *VM) vmSetWaifProp(waif types.WaifValue, propName string, value types.Value) error {
+	// These properties cannot be set on waifs
+	switch propName {
+	case "owner", "class", "wizard", "programmer":
+		return fmt.Errorf("E_PERM: cannot set .%s on a waif", propName)
+	}
+
+	// Check for self-reference (circular reference)
+	if containsWaif(value, waif) {
+		return fmt.Errorf("E_RECMOVE: value contains the waif itself")
+	}
+
+	// Set property on waif (creates a new waif with the property set)
+	// Note: Waifs use copy-on-write semantics. The VM does not currently
+	// propagate the new waif back to the source variable. This matches
+	// the tree-walker's limitation for non-simple-identifier cases.
+	_ = waif.SetProperty(propName, value)
+
+	return nil
+}
+
+// checkPropertyReadPerm checks if the current programmer has read permission on a property.
+// Wizards and property owners always have access.
+func (vm *VM) checkPropertyReadPerm(prop *db.Property) error {
+	if vm.Context == nil {
+		return nil // No context = no permission check
+	}
+	if vm.Context.IsWizard {
+		return nil
+	}
+	if vm.Context.Programmer == prop.Owner {
+		return nil
+	}
+	if !prop.Perms.Has(db.PropRead) {
+		return fmt.Errorf("E_PERM: property not readable")
+	}
+	return nil
+}
+
+// checkPropertyWritePerm checks if the current programmer has write permission on a property.
+// Wizards and property owners always have access.
+func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
+	if vm.Context == nil {
+		return nil // No context = no permission check
+	}
+	if vm.Context.IsWizard {
+		return nil
+	}
+	if vm.Context.Programmer == prop.Owner {
+		return nil
+	}
+	if !prop.Perms.Has(db.PropWrite) {
+		return fmt.Errorf("E_PERM: property not writable")
+	}
 	return nil
 }
 

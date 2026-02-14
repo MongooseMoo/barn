@@ -1220,14 +1220,14 @@ func newPropertyTestStore() *db.Store {
 
 	root := db.NewObject(0, 0)
 	root.Name = "Root"
-	root.Properties["foo"] = &db.Property{Name: "foo", Value: types.NewInt(42), Defined: true}
-	root.Properties["bar"] = &db.Property{Name: "bar", Value: types.NewStr("hello"), Defined: true}
+	root.Properties["foo"] = &db.Property{Name: "foo", Value: types.NewInt(42), Perms: db.PropRead | db.PropWrite, Defined: true}
+	root.Properties["bar"] = &db.Property{Name: "bar", Value: types.NewStr("hello"), Perms: db.PropRead | db.PropWrite, Defined: true}
 	store.Add(root)
 
 	child := db.NewObject(1, 0)
 	child.Name = "Child"
 	child.Parents = []types.ObjID{0}
-	child.Properties["baz"] = &db.Property{Name: "baz", Value: types.NewInt(99), Defined: true}
+	child.Properties["baz"] = &db.Property{Name: "baz", Value: types.NewInt(99), Perms: db.PropRead | db.PropWrite, Defined: true}
 	store.Add(child)
 
 	return store
@@ -2839,4 +2839,242 @@ func TestParity_VerbCallDeepFinallyUnwind(t *testing.T) {
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
 	}
+}
+
+// --- Waif property parity tests ---
+
+// newWaifTestStore creates a store with an object suitable for waif testing.
+// Object #0: name="WaifClass", properties: {data: "class_data"} (readable/writable)
+// This object serves as the class for waifs created with new_waif().
+func newWaifTestStore() *db.Store {
+	store := db.NewStore()
+
+	classObj := db.NewObject(0, 0)
+	classObj.Name = "WaifClass"
+	classObj.Properties["data"] = &db.Property{
+		Name:    "data",
+		Value:   types.NewStr("class_data"),
+		Perms:   db.PropRead | db.PropWrite,
+		Defined: true,
+	}
+	classObj.Properties["extra"] = &db.Property{
+		Name:    "extra",
+		Value:   types.NewInt(100),
+		Perms:   db.PropRead | db.PropWrite,
+		Defined: true,
+	}
+	store.Add(classObj)
+
+	return store
+}
+
+// waifTestContext creates a task context suitable for new_waif() calls.
+// Sets ThisObj=0 (the class object) and Programmer=0 (owner).
+func waifTestContext() *types.TaskContext {
+	ctx := types.NewTaskContext()
+	ctx.ThisObj = 0
+	ctx.Programmer = 0
+	ctx.IsWizard = true // Wizard so property permissions don't interfere
+	return ctx
+}
+
+// vmEvalProgramWithStoreAndCtx compiles and runs a MOO program through the bytecode VM,
+// using a shared store and custom context.
+func vmEvalProgramWithStoreAndCtx(t *testing.T, code string, store *db.Store, ctx *types.TaskContext) (types.Value, error) {
+	t.Helper()
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
+	registry.RegisterVerbBuiltins(store)
+	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
+
+	c := NewCompilerWithRegistry(registry)
+	c.beginScope()
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			return nil, fmt.Errorf("compile error: %w", err)
+		}
+	}
+	c.emit(OP_RETURN_NONE)
+	c.endScope()
+
+	v := NewVM(store, registry)
+	v.Context = ctx
+	return v.Run(c.program)
+}
+
+// treeEvalProgramWithStoreAndCtx evaluates a MOO program through the tree-walker,
+// using a shared store and custom context.
+func treeEvalProgramWithStoreAndCtx(t *testing.T, code string, store *db.Store, ctx *types.TaskContext) types.Result {
+	t.Helper()
+	evaluator := NewEvaluatorWithStore(store)
+	return evaluator.EvalString(code, ctx)
+}
+
+// compareProgramsWithStoreAndCtx runs a MOO program through both paths with a shared store and context.
+func compareProgramsWithStoreAndCtx(t *testing.T, code string, store *db.Store, ctx *types.TaskContext) {
+	t.Helper()
+
+	treeResult := treeEvalProgramWithStoreAndCtx(t, code, store, ctx)
+	vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, code, store, ctx)
+
+	if treeResult.IsError() {
+		if vmErr == nil {
+			t.Errorf("tree-walker returned error %v, but VM succeeded with %v", treeResult.Error, vmVal)
+		}
+		return
+	}
+
+	if vmErr != nil {
+		t.Errorf("tree-walker returned %v, but VM errored: %v", treeResult.Val, vmErr)
+		return
+	}
+
+	if !valuesEqual(treeResult.Val, vmVal) {
+		t.Errorf("MISMATCH: tree-walker=%v (%T), VM=%v (%T)",
+			treeResult.Val, treeResult.Val, vmVal, vmVal)
+	}
+}
+
+func TestParity_WaifPropertyRead(t *testing.T) {
+	cases := map[string]string{
+		// Read .owner special property
+		"read_owner": `w = new_waif(); return w.owner;`,
+		// Read .class special property
+		"read_class": `w = new_waif(); return w.class;`,
+		// Read property that falls back to class object
+		"read_class_fallback": `w = new_waif(); return w.data;`,
+		// Read another class fallback property
+		"read_class_fallback_extra": `w = new_waif(); return w.extra;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newWaifTestStore()
+			ctx := waifTestContext()
+			compareProgramsWithStoreAndCtx(t, code, store, ctx)
+		})
+	}
+}
+
+func TestParity_WaifPropertyWrite(t *testing.T) {
+	cases := map[string]string{
+		// Write to .owner should fail with E_PERM
+		"write_owner_eperm": `w = new_waif(); w.owner = #1; return 0;`,
+		// Write to .class should fail with E_PERM
+		"write_class_eperm": `w = new_waif(); w.class = #1; return 0;`,
+		// Write to .wizard should fail with E_PERM
+		"write_wizard_eperm": `w = new_waif(); w.wizard = 1; return 0;`,
+		// Write to .programmer should fail with E_PERM
+		"write_programmer_eperm": `w = new_waif(); w.programmer = 1; return 0;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newWaifTestStore()
+			ctx := waifTestContext()
+			compareProgramsWithStoreAndCtx(t, code, store, ctx)
+		})
+	}
+}
+
+func TestParity_PropertyPermissions(t *testing.T) {
+	// Create a store with a property that has NO read permission
+	store := db.NewStore()
+	obj := db.NewObject(0, 0)
+	obj.Name = "PermTest"
+	obj.Properties["secret"] = &db.Property{
+		Name:    "secret",
+		Value:   types.NewStr("hidden"),
+		Owner:   99, // Owned by #99, not the programmer
+		Perms:   0,  // No read, no write
+		Defined: true,
+	}
+	obj.Properties["readable"] = &db.Property{
+		Name:    "readable",
+		Value:   types.NewStr("visible"),
+		Owner:   99,
+		Perms:   db.PropRead, // Read only, no write
+		Defined: true,
+	}
+	store.Add(obj)
+
+	// Non-wizard, non-owner context
+	ctx := types.NewTaskContext()
+	ctx.Programmer = 1 // Not #99 (the owner)
+	ctx.IsWizard = false
+
+	t.Run("non_wizard_read_non_readable_eperm", func(t *testing.T) {
+		// VM should return E_PERM for non-wizard reading a non-readable property
+		_, vmErr := vmEvalProgramWithStoreAndCtx(t, `return #0.secret;`, store, ctx)
+		if vmErr == nil {
+			t.Errorf("expected E_PERM error, but VM succeeded")
+		} else if !containsStr(vmErr.Error(), "E_PERM") {
+			t.Errorf("expected E_PERM, got: %v", vmErr)
+		}
+	})
+
+	t.Run("non_wizard_read_readable_ok", func(t *testing.T) {
+		// VM should allow reading a readable property even as non-wizard non-owner
+		vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, `return #0.readable;`, store, ctx)
+		if vmErr != nil {
+			t.Errorf("expected success, but VM errored: %v", vmErr)
+		} else if vmVal == nil || vmVal.String() != `"visible"` {
+			t.Errorf("expected \"visible\", got: %v", vmVal)
+		}
+	})
+
+	t.Run("non_wizard_write_non_writable_eperm", func(t *testing.T) {
+		// VM should return E_PERM for non-wizard writing a non-writable property
+		_, vmErr := vmEvalProgramWithStoreAndCtx(t, `#0.readable = "new"; return 0;`, store, ctx)
+		if vmErr == nil {
+			t.Errorf("expected E_PERM error, but VM succeeded")
+		} else if !containsStr(vmErr.Error(), "E_PERM") {
+			t.Errorf("expected E_PERM, got: %v", vmErr)
+		}
+	})
+
+	t.Run("wizard_reads_anything", func(t *testing.T) {
+		// Wizard should be able to read non-readable properties
+		wizCtx := types.NewTaskContext()
+		wizCtx.IsWizard = true
+		vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, `return #0.secret;`, store, wizCtx)
+		if vmErr != nil {
+			t.Errorf("expected success for wizard, but VM errored: %v", vmErr)
+		} else if vmVal == nil || vmVal.String() != `"hidden"` {
+			t.Errorf("expected \"hidden\", got: %v", vmVal)
+		}
+	})
+
+	t.Run("owner_reads_own_property", func(t *testing.T) {
+		// Property owner should be able to read their own non-readable property
+		ownerCtx := types.NewTaskContext()
+		ownerCtx.Programmer = 99 // Same as property owner
+		ownerCtx.IsWizard = false
+		vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, `return #0.secret;`, store, ownerCtx)
+		if vmErr != nil {
+			t.Errorf("expected success for owner, but VM errored: %v", vmErr)
+		} else if vmVal == nil || vmVal.String() != `"hidden"` {
+			t.Errorf("expected \"hidden\", got: %v", vmVal)
+		}
+	})
+}
+
+// containsStr checks if s contains substr (simple helper for error message checking)
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsSubstr(s, substr))
+}
+
+func containsSubstr(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
