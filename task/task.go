@@ -23,9 +23,9 @@ const (
 type TaskKind int
 
 const (
-	TaskInput TaskKind = iota  // User command input task
-	TaskForked                 // Background forked task
-	TaskSuspendedTask          // Suspended task (for resume)
+	TaskInput         TaskKind = iota // User command input task
+	TaskForked                        // Background forked task
+	TaskSuspendedTask                 // Suspended task (for resume)
 )
 
 // ForkCreator interface allows tasks to create forked children without importing server
@@ -69,12 +69,15 @@ type ActivationFrame struct {
 
 // ToList converts an activation frame to a MOO list for callers()
 // Format: {this, verb_name, programmer, verb_loc, player, line_number}
-// Note: For primitive prototype calls, 'this' in callers() is #-1 (matching Toast).
-// The actual primitive value is stored in ThisValue and used for the 'this' variable
-// inside the verb, but callers() shows the object ID (which is #-1 for primitives).
+// For primitive/anonymous targets, ThisValue carries the real "this" value.
 func (a *ActivationFrame) ToList() types.Value {
+	thisVal := types.Value(types.NewObj(a.This))
+	if a.ThisValue != nil {
+		thisVal = a.ThisValue
+	}
+
 	return types.NewList([]types.Value{
-		types.NewObj(a.This), // Always use object ID (#-1 for primitives)
+		thisVal,
 		types.NewStr(a.Verb),
 		types.NewObj(a.Programmer),
 		types.NewObj(a.VerbLoc),
@@ -101,7 +104,7 @@ func (a *ActivationFrame) ToMap() types.Value {
 type Task struct {
 	ID           int64
 	Owner        types.ObjID
-	Kind         TaskKind    // Type of task (input, forked, suspended)
+	Kind         TaskKind // Type of task (input, forked, suspended)
 	State        TaskState
 	StartTime    time.Time
 	QueueTime    time.Time // When task was queued
@@ -113,41 +116,41 @@ type Task struct {
 	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
-	WakeTime     time.Time
-	WakeValue    types.Value // Value to return when resumed
-	IsExecSuspended bool     // True if suspended by exec() (can't resume, only kill)
+	WakeTime        time.Time
+	WakeValue       types.Value // Value to return when resumed
+	IsExecSuspended bool        // True if suspended by exec() (can't resume, only kill)
 
 	// For forked tasks
-	ForkInfo     *types.ForkInfo // Fork information (only for forked tasks)
-	IsForked     bool            // True if this is a forked task
+	ForkInfo *types.ForkInfo // Fork information (only for forked tasks)
+	IsForked bool            // True if this is a forked task
 
 	// Execution fields (use interface{} to avoid circular imports)
-	Code         interface{}    // []parser.Stmt - actual code to execute
-	Evaluator    interface{}    // *vm.Evaluator - evaluator for execution
-	Context      *types.TaskContext // Task execution context
-	Result       types.Result    // Last execution result
-	ForkCreator  ForkCreator    // For creating forked tasks
-	CancelFunc   context.CancelFunc // For cancellation (exported for scheduler)
-	StmtIndex    int            // Current statement index (for suspend/resume)
+	Code        interface{}        // []parser.Stmt - actual code to execute
+	Evaluator   interface{}        // *vm.Evaluator - evaluator for execution
+	Context     *types.TaskContext // Task execution context
+	Result      types.Result       // Last execution result
+	ForkCreator ForkCreator        // For creating forked tasks
+	CancelFunc  context.CancelFunc // For cancellation (exported for scheduler)
+	StmtIndex   int                // Current statement index (for suspend/resume)
 
 	// Verb context (set for verb tasks)
-	VerbName     string
-	VerbLoc      types.ObjID // Object where verb is defined (for traceback)
-	This         types.ObjID // Object this verb is called on
-	Caller       types.ObjID // Object that invoked the verb
-	Argstr       string      // Full argument string
-	Args         []string    // Arguments as word list
-	Dobjstr      string      // Direct object string
-	Dobj         types.ObjID // Direct object
-	Prepstr      string      // Preposition string
-	Iobjstr      string      // Indirect object string
-	Iobj         types.ObjID // Indirect object
-	CommandOutputSuffix string // Connection output suffix for raw command framing
+	VerbName            string
+	VerbLoc             types.ObjID // Object where verb is defined (for traceback)
+	This                types.ObjID // Object this verb is called on
+	Caller              types.ObjID // Object that invoked the verb
+	Argstr              string      // Full argument string
+	Args                []string    // Arguments as word list
+	Dobjstr             string      // Direct object string
+	Dobj                types.ObjID // Direct object
+	Prepstr             string      // Preposition string
+	Iobjstr             string      // Indirect object string
+	Iobj                types.ObjID // Indirect object
+	CommandOutputSuffix string      // Connection output suffix for raw command framing
 
 	// For compatibility with old server.Task
-	Programmer   types.ObjID // Permission context (usually same as Owner)
+	Programmer types.ObjID // Permission context (usually same as Owner)
 
-	mu           sync.RWMutex
+	mu sync.RWMutex
 }
 
 // NewTask creates a new task
@@ -156,7 +159,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 	return &Task{
 		ID:           id,
 		Owner:        owner,
-		Programmer:   owner, // Default programmer is owner
+		Programmer:   owner,     // Default programmer is owner
 		Kind:         TaskInput, // Default to input task
 		State:        TaskCreated,
 		StartTime:    now,
@@ -167,7 +170,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 		SecondsLimit: secondsLimit,
 		CallStack:    make([]ActivationFrame, 0),
 		TaskLocal:    types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
-		WakeValue:    types.NewInt(0), // Default wake value is 0 (matches LambdaMOO)
+		WakeValue:    types.NewInt(0),     // Default wake value is 0 (matches LambdaMOO)
 	}
 }
 
@@ -367,15 +370,15 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 	bytes := int64(0)
 
 	return types.NewList([]types.Value{
-		types.NewInt(t.ID),                    // [1] task_id
-		types.NewInt(t.QueueTime.Unix()),      // [2] start_time
-		types.NewInt(0),                        // [3] obsolete clock ID
-		types.NewInt(30000),                    // [4] DEFAULT_BG_TICKS (obsolete)
-		types.NewObj(programmer),               // [5] programmer
-		types.NewObj(verbLoc),                  // [6] verb_loc
-		types.NewStr(verbName),                 // [7] verb_name
-		types.NewInt(int64(lineNumber)),        // [8] line_number
-		types.NewObj(thisObj),                  // [9] this (always OBJ, #-1 for primitives)
-		types.NewInt(bytes),                    // [10] bytes
+		types.NewInt(t.ID),               // [1] task_id
+		types.NewInt(t.QueueTime.Unix()), // [2] start_time
+		types.NewInt(0),                  // [3] obsolete clock ID
+		types.NewInt(30000),              // [4] DEFAULT_BG_TICKS (obsolete)
+		types.NewObj(programmer),         // [5] programmer
+		types.NewObj(verbLoc),            // [6] verb_loc
+		types.NewStr(verbName),           // [7] verb_name
+		types.NewInt(int64(lineNumber)),  // [8] line_number
+		types.NewObj(thisObj),            // [9] this (always OBJ, #-1 for primitives)
+		types.NewInt(bytes),              // [10] bytes
 	})
 }
