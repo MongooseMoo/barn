@@ -28,6 +28,7 @@ type LoopContext struct {
 	ContinueJumps []int // Patch locations for continue jumps (forward jumps to increment)
 	ContinueIP    int   // Target IP for continue (0 = use ContinueJumps for forward patching)
 	StartIP       int   // Loop condition start (for backward jump at end of body)
+	ResultVar     int   // Variable slot holding loop result (from break expr or default 0)
 }
 
 // Scope tracks variables in a lexical scope
@@ -71,8 +72,13 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 		return nil, err
 	}
 
-	// Implicit return 0 if no explicit return
-	c.emit(OP_RETURN_NONE)
+	// If the node is a loop statement (which pushes its result), use OP_RETURN
+	// to return the loop value. Otherwise use implicit return 0.
+	if stmt, ok := node.(parser.Stmt); ok && isLoopStmt(stmt) {
+		c.emit(OP_RETURN)
+	} else {
+		c.emit(OP_RETURN_NONE)
+	}
 
 	// End global scope
 	c.endScope()
@@ -82,16 +88,37 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 
 // CompileStatements compiles a slice of statements (e.g. a verb body) to a Program.
 // An implicit "return 0" is appended if no explicit return is present (MOO verbs
-// return 0 by default). VarNames is populated from the compiler's variable table.
+// return 0 by default). When the last statement is a loop, its result value
+// (from break expr or default 0) is used as the implicit return value, matching
+// tree-walker EvalStatements behavior.
+// VarNames is populated from the compiler's variable table.
 func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 	c.beginScope()
 
-	if err := c.compileBlock(stmts); err != nil {
-		return nil, err
-	}
+	if len(stmts) > 0 {
+		// Compile all but the last statement using compileBlock (which pops loop results)
+		if len(stmts) > 1 {
+			if err := c.compileBlock(stmts[:len(stmts)-1]); err != nil {
+				return nil, err
+			}
+		}
 
-	// Implicit return 0 (MOO verb default)
-	c.emit(OP_RETURN_NONE)
+		// Compile the last statement directly (without auto-pop for loops)
+		last := stmts[len(stmts)-1]
+		if err := c.compileNode(last); err != nil {
+			return nil, err
+		}
+
+		// If the last statement is a loop, it pushed its result onto the stack.
+		// Use OP_RETURN to return that value (matches tree-walker lastResult behavior).
+		if isLoopStmt(last) {
+			c.emit(OP_RETURN)
+		} else {
+			c.emit(OP_RETURN_NONE)
+		}
+	} else {
+		c.emit(OP_RETURN_NONE)
+	}
 
 	c.endScope()
 
@@ -261,14 +288,16 @@ func (c *Compiler) resolveVariable(name string) (int, bool) {
 	return idx, ok
 }
 
-// beginLoop starts a new loop context
-func (c *Compiler) beginLoop(label string) {
+// beginLoop starts a new loop context.
+// resultVar is the local slot that holds the loop's result value (from break expr or default 0).
+func (c *Compiler) beginLoop(label string, resultVar int) {
 	c.loops = append(c.loops, LoopContext{
 		Label:         label,
 		StartIP:       c.currentOffset(),
 		ContinueIP:    0, // 0 = not set yet; will use ContinueJumps for forward patching
 		BreakJumps:    make([]int, 0, 4),
 		ContinueJumps: make([]int, 0, 4),
+		ResultVar:     resultVar,
 	})
 }
 
@@ -1190,8 +1219,17 @@ func (c *Compiler) compileIf(n *parser.IfStmt) error {
 }
 
 func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
+	// Declare temp variable for loop result (break expr value or default 0)
+	resultVar := c.declareVariable(c.tempVar("loop_result"))
+	// Initialize to 0 (default loop result when no break expr)
+	if op, ok := MakeImmediateOpcode(0); ok {
+		c.emit(op)
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(resultVar))
+
 	// Start loop
-	c.beginLoop(n.Label)
+	c.beginLoop(n.Label, resultVar)
 	loopStart := c.currentOffset()
 	// For while loops, continue jumps back to condition check
 	c.currentLoop().ContinueIP = loopStart
@@ -1219,8 +1257,10 @@ func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
 	// Patch exit jump
 	c.patchJump(exitJump)
 
-	// End loop
+	// End loop and push result
 	c.endLoop()
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(resultVar))
 	return nil
 }
 
@@ -1263,6 +1303,14 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	endVar := c.declareVariable(c.tempVar("end"))
 	valueVar := c.declareVariable(n.Value)
 
+	// Declare temp variable for loop result (break expr value or default 0)
+	resultVar := c.declareVariable(c.tempVar("loop_result"))
+	if op, ok := MakeImmediateOpcode(0); ok {
+		c.emit(op)
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(resultVar))
+
 	// Evaluate end and store
 	if err := c.compileNode(n.RangeEnd); err != nil {
 		return err
@@ -1278,7 +1326,7 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	c.emitByte(byte(valueVar))
 
 	// Loop start
-	c.beginLoop(n.Label)
+	c.beginLoop(n.Label, resultVar)
 	loopStart := c.currentOffset()
 
 	// Condition: x <= end
@@ -1318,6 +1366,9 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	// Patch exit
 	c.patchJump(exitJump)
 	c.endLoop()
+	// Push loop result onto stack
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(resultVar))
 	return nil
 }
 
@@ -1338,6 +1389,14 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	if hasIndex {
 		indexVar = c.declareVariable(n.Index)
 	}
+
+	// Declare temp variable for loop result (break expr value or default 0)
+	resultVar := c.declareVariable(c.tempVar("loop_result"))
+	if op, ok := MakeImmediateOpcode(0); ok {
+		c.emit(op)
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(resultVar))
 
 	// Evaluate container, then OP_ITER_PREP normalizes it
 	if err := c.compileNode(n.Container); err != nil {
@@ -1371,7 +1430,7 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	c.emitByte(byte(lenVar))
 
 	// Loop start
-	c.beginLoop(n.Label)
+	c.beginLoop(n.Label, resultVar)
 	loopStart := c.currentOffset()
 
 	// Condition: idx <= len
@@ -1459,6 +1518,9 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	// Patch exit
 	c.patchJump(exitJump)
 	c.endLoop()
+	// Push loop result onto stack
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(resultVar))
 	return nil
 }
 
@@ -1466,6 +1528,16 @@ func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
 	loop := c.findLoop(n.Label)
 	if loop == nil {
 		return fmt.Errorf("break outside of loop")
+	}
+
+	// If break has a value expression, compile it and store to loop result variable.
+	// Otherwise the result variable already holds the default (0).
+	if n.Value != nil {
+		if err := c.compileNode(n.Value); err != nil {
+			return err
+		}
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(loop.ResultVar))
 	}
 
 	// Emit a forward jump past the loop end (will be patched by endLoop)
@@ -1922,10 +1994,25 @@ func (c *Compiler) compileFork(n *parser.ForkStmt) error {
 	return nil
 }
 
+// isLoopStmt returns true if a statement node is a loop (pushes a result value).
+func isLoopStmt(stmt parser.Stmt) bool {
+	switch stmt.(type) {
+	case *parser.WhileStmt, *parser.ForStmt:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
 	for _, stmt := range stmts {
 		if err := c.compileNode(stmt); err != nil {
 			return err
+		}
+		// Loop statements push their result value onto the stack.
+		// In block context (if/try/loop bodies), discard it to keep the stack clean.
+		if isLoopStmt(stmt) {
+			c.emit(OP_POP)
 		}
 	}
 	return nil

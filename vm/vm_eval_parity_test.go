@@ -296,19 +296,14 @@ func vmEvalProgram(t *testing.T, code string) (types.Value, error) {
 
 	registry := newTestRegistry()
 	c := NewCompilerWithRegistry(registry)
-	// Compile statements one by one into the same program
-	c.beginScope()
-	for _, stmt := range stmts {
-		if err := c.compileNode(stmt); err != nil {
-			return nil, fmt.Errorf("compile error: %w", err)
-		}
+	prog, err := c.CompileStatements(stmts)
+	if err != nil {
+		return nil, fmt.Errorf("compile error: %w", err)
 	}
-	c.emit(OP_RETURN_NONE)
-	c.endScope()
 
 	vm := NewVM(nil, registry)
 	vm.Context = types.NewTaskContext()
-	return vm.Run(c.program)
+	return vm.Run(prog)
 }
 
 // treeEvalProgram evaluates a MOO program through the tree-walking Evaluator.
@@ -842,6 +837,111 @@ func TestParity_NestedBreak(t *testing.T) {
 	}
 }
 
+func TestParity_BreakWithExprValue(t *testing.T) {
+	cases := map[string]string{
+		"while_break_42": `while (1) break 42; endwhile`,
+		"while_break_expr": `
+			x = 10;
+			while (1)
+				x = x + 5;
+				break x * 2;
+			endwhile`,
+		"while_break_string": `while (1) break "done"; endwhile`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_BreakWithoutExprValue(t *testing.T) {
+	cases := map[string]string{
+		"while_break_no_val": `while (1) break; endwhile`,
+		"while_break_no_val_with_body": `
+			x = 0;
+			while (1)
+				x = x + 1;
+				if (x == 3)
+					break;
+				endif
+			endwhile`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForLoopBreakExpr(t *testing.T) {
+	cases := map[string]string{
+		"for_list_break_expr": `for x in ({1, 2, 3}) break x * 10; endfor`,
+		"for_range_break_expr": `for x in [1..5] break x * 100; endfor`,
+		"for_list_break_conditional": `
+			for x in ({10, 20, 30, 40})
+				if (x == 30)
+					break x + 5;
+				endif
+			endfor`,
+		"for_range_break_conditional": `
+			for x in [1..10]
+				if (x == 7)
+					break x * x;
+				endif
+			endfor`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_NestedLoopBreakExpr(t *testing.T) {
+	cases := map[string]string{
+		// Inner loop break value becomes inner loop's result.
+		// Since loops are statements (not expressions), inner loop result
+		// is only observable as the last statement's implicit return.
+		// Here the inner loop is the LAST statement, so its break value
+		// is the program's implicit return.
+		"inner_break_expr_is_last": `
+			for x in [1..3]
+				for y in [1..3]
+					if (y == 2)
+						break 99;
+					endif
+				endfor
+			endfor`,
+		// Outer loop with break expr, inner loop runs to completion
+		"outer_break_after_inner": `
+			for x in [1..3]
+				for y in [1..2]
+				endfor
+				break x * 100;
+			endfor`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_BreakExprSideEffects(t *testing.T) {
+	// Verify that break expr evaluates the expression (observable via side effects)
+	// even though the value itself is only accessible via implicit return.
+	cases := map[string]string{
+		"break_expr_side_effect": `
+			x = 0;
+			while (1)
+				x = 10;
+				break x + 5;
+			endwhile`,
+		// Loop not at end, break value is discarded by subsequent return
+		"break_value_discarded_by_return": `
+			while (1)
+				break 42;
+			endwhile
+			return 99;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
 func TestParity_TryExceptBasic(t *testing.T) {
 	cases := map[string]string{
 		"catch_E_DIV": `
@@ -1253,18 +1353,14 @@ func vmEvalProgramWithStore(t *testing.T, code string, store *db.Store) (types.V
 	registry.RegisterSystemBuiltins(store)
 
 	c := NewCompilerWithRegistry(registry)
-	c.beginScope()
-	for _, stmt := range stmts {
-		if err := c.compileNode(stmt); err != nil {
-			return nil, fmt.Errorf("compile error: %w", err)
-		}
+	prog, err := c.CompileStatements(stmts)
+	if err != nil {
+		return nil, fmt.Errorf("compile error: %w", err)
 	}
-	c.emit(OP_RETURN_NONE)
-	c.endScope()
 
 	v := NewVM(store, registry)
 	v.Context = types.NewTaskContext()
-	return v.Run(c.program)
+	return v.Run(prog)
 }
 
 // treeEvalProgramWithStore evaluates a MOO program through the tree-walker,
@@ -2898,18 +2994,14 @@ func vmEvalProgramWithStoreAndCtx(t *testing.T, code string, store *db.Store, ct
 	registry.RegisterSystemBuiltins(store)
 
 	c := NewCompilerWithRegistry(registry)
-	c.beginScope()
-	for _, stmt := range stmts {
-		if err := c.compileNode(stmt); err != nil {
-			return nil, fmt.Errorf("compile error: %w", err)
-		}
+	prog, err := c.CompileStatements(stmts)
+	if err != nil {
+		return nil, fmt.Errorf("compile error: %w", err)
 	}
-	c.emit(OP_RETURN_NONE)
-	c.endScope()
 
 	v := NewVM(store, registry)
 	v.Context = ctx
-	return v.Run(c.program)
+	return v.Run(prog)
 }
 
 // treeEvalProgramWithStoreAndCtx evaluates a MOO program through the tree-walker,
