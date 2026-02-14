@@ -509,29 +509,122 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(idx))
 	case *parser.IndexExpr:
-		// Index assignment: coll[idx] = value
-		// Walk the IndexExpr to find the base variable (only single-level supported)
-		baseIdent, ok := target.Expr.(*parser.IdentifierExpr)
+		// Index assignment: coll[idx] = value  OR  nested: coll[i][j]... = value
+		// Walk the IndexExpr chain to find the base variable and collect indices
+		var indices []parser.Expr
+		var baseExpr parser.Expr = target
+		for {
+			ie, ok := baseExpr.(*parser.IndexExpr)
+			if !ok {
+				break
+			}
+			indices = append(indices, ie.Index)
+			baseExpr = ie.Expr
+		}
+
+		baseIdent, ok := baseExpr.(*parser.IdentifierExpr)
 		if !ok {
-			// Nested index assignment (l[1][2] = val) not yet supported
-			return fmt.Errorf("nested index assignment not yet implemented")
+			return fmt.Errorf("index assignment target must be a variable")
+		}
+		baseVarIdx := c.declareVariable(baseIdent.Name)
+
+		// indices are collected outermost-first: for x[i][j], indices = [j, i]
+		// Reverse to get base-to-deepest order: [i, j]
+		for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
+			indices[left], indices[right] = indices[right], indices[left]
 		}
 
-		// Ensure the base variable is declared
-		varIdx := c.declareVariable(baseIdent.Name)
+		depth := len(indices)
 
-		// Stack currently: [value, value_copy]
-		// Compile the index expression -> [value, value_copy, index]
-		if err := c.compileNode(target.Index); err != nil {
-			return err
+		if depth == 1 {
+			// Single-level index assignment (original fast path)
+			// Stack currently: [value, value_copy]
+			// Compile the index expression -> [value, value_copy, index]
+			if err := c.compileNode(indices[0]); err != nil {
+				return err
+			}
+			// VM will: pop index, pop value_copy, read coll from locals[baseVarIdx],
+			// set coll[index] = value_copy, store modified coll back
+			c.emit(OP_INDEX_SET)
+			c.emitByte(byte(baseVarIdx))
+		} else {
+			// Nested index assignment: x[i1][i2]...[iN] = val
+			// Desugar into temp variables using existing opcodes.
+			//
+			// Stack currently: [value, value_copy]
+
+			// 1. Store value_copy into a temp variable
+			tmpVal := c.declareVariable("__nested_val")
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(tmpVal))
+			// Stack: [value]
+
+			// 2. Evaluate each index into a temp variable
+			tmpIndices := make([]int, depth)
+			for k := 0; k < depth; k++ {
+				if err := c.compileNode(indices[k]); err != nil {
+					return err
+				}
+				tmpIndices[k] = c.declareVariable(fmt.Sprintf("__nested_idx_%d", k))
+				c.emit(OP_SET_VAR)
+				c.emitByte(byte(tmpIndices[k]))
+			}
+			// Stack: [value]
+
+			// 3. Traverse down: read intermediate collections
+			// For x[i][j][k], we need intermediates:
+			//   inter_0 = x[i]          (depth-2 intermediates needed)
+			//   inter_1 = inter_0[j]
+			// Then set: inter_1[k] = val, inter_0[j] = inter_1, x[i] = inter_0
+			tmpInter := make([]int, depth-1)
+			for k := 0; k < depth-1; k++ {
+				if k == 0 {
+					// Read from base variable
+					c.emit(OP_GET_VAR)
+					c.emitByte(byte(baseVarIdx))
+				} else {
+					// Read from previous intermediate
+					c.emit(OP_GET_VAR)
+					c.emitByte(byte(tmpInter[k-1]))
+				}
+				c.emit(OP_GET_VAR)
+				c.emitByte(byte(tmpIndices[k]))
+				c.emit(OP_INDEX)
+				tmpInter[k] = c.declareVariable(fmt.Sprintf("__nested_inter_%d", k))
+				c.emit(OP_SET_VAR)
+				c.emitByte(byte(tmpInter[k]))
+			}
+			// Stack: [value]
+
+			// 4. Set at deepest level: lastIntermediate[lastIndex] = val
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(tmpVal))
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(tmpIndices[depth-1]))
+			c.emit(OP_INDEX_SET)
+			c.emitByte(byte(tmpInter[depth-2]))
+			// Stack: [value]
+
+			// 5. Rebuild going back up
+			for k := depth - 2; k >= 1; k-- {
+				// tmpInter[k-1][tmpIndices[k]] = tmpInter[k]
+				c.emit(OP_GET_VAR)
+				c.emitByte(byte(tmpInter[k]))
+				c.emit(OP_GET_VAR)
+				c.emitByte(byte(tmpIndices[k]))
+				c.emit(OP_INDEX_SET)
+				c.emitByte(byte(tmpInter[k-1]))
+			}
+
+			// 6. Set base: x[tmpIndices[0]] = tmpInter[0]
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(tmpInter[0]))
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(tmpIndices[0]))
+			c.emit(OP_INDEX_SET)
+			c.emitByte(byte(baseVarIdx))
+			// Stack: [value] (the original value remains as expression result)
 		}
-
-		// Emit OP_INDEX_SET with variable index
-		// VM will: pop index, pop value_copy, read coll from locals[varIdx],
-		// set coll[index] = value_copy, store modified coll back to locals[varIdx]
-		// The original 'value' remains on stack as expression result
-		c.emit(OP_INDEX_SET)
-		c.emitByte(byte(varIdx))
 	case *parser.PropertyExpr:
 		// Property assignment: obj.prop = value
 		// Stack currently: [value, value_copy]

@@ -1883,3 +1883,123 @@ func TestParity_SpliceInVerbArgs(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- Tick counting parity tests (E2) ---
+
+func TestParity_TickCountingInfiniteWhile(t *testing.T) {
+	// Test that infinite loops in the VM are caught by tick limit.
+	// The VM uses OP_LOOP which now counts ticks via CountsTick().
+	// We create a VM with a small tick limit to make the test fast.
+	code := `i = 0; while (1) i = i + 1; endwhile return i;`
+
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := newTestRegistry()
+	c := NewCompilerWithRegistry(registry)
+	c.beginScope()
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			t.Fatalf("compile error: %v", err)
+		}
+	}
+	c.emit(OP_RETURN_NONE)
+	c.endScope()
+
+	vm := NewVM(nil, registry)
+	vm.TickLimit = 100 // Small limit for fast test
+	vm.Context = types.NewTaskContext()
+	_, vmErr := vm.Run(c.program)
+
+	if vmErr == nil {
+		t.Errorf("expected VM to hit tick limit on infinite while loop, but it succeeded")
+	}
+	if vmErr != nil && !containsAny(vmErr.Error(), "E_MAXREC", "tick limit") {
+		t.Errorf("expected tick limit error, got: %v", vmErr)
+	}
+}
+
+func TestParity_TickCountingInfiniteFor(t *testing.T) {
+	// Verify that a for loop with many iterations is also bounded.
+	// This uses OP_LOOP for the back-edge, so it should count ticks.
+	code := `s = 0; for x in [1..999999] s = s + x; endfor return s;`
+
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := newTestRegistry()
+	c := NewCompilerWithRegistry(registry)
+	c.beginScope()
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			t.Fatalf("compile error: %v", err)
+		}
+	}
+	c.emit(OP_RETURN_NONE)
+	c.endScope()
+
+	vm := NewVM(nil, registry)
+	vm.TickLimit = 50 // Very small limit
+	vm.Context = types.NewTaskContext()
+	_, vmErr := vm.Run(c.program)
+
+	if vmErr == nil {
+		t.Errorf("expected VM to hit tick limit on long for loop, but it succeeded")
+	}
+}
+
+// helper for tick tests
+func containsAny(s string, substrs ...string) bool {
+	for _, sub := range substrs {
+		if len(s) >= len(sub) {
+			for i := 0; i <= len(s)-len(sub); i++ {
+				if s[i:i+len(sub)] == sub {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// --- Nested index assignment parity tests (A3) ---
+
+func TestParity_NestedIndexAssign(t *testing.T) {
+	cases := map[string]string{
+		"nested_2d_first": `l = {{1, 2}, {3, 4}}; l[1][2] = 99; return l;`,
+		"nested_2d_second": `l = {{1, 2}, {3, 4}}; l[2][1] = 99; return l;`,
+		"nested_3elem_middle": `l = {{"a", "b"}, {"c", "d"}, {"e", "f"}}; l[2][2] = "Z"; return l;`,
+		"nested_3d": `l = {{{1}}}; l[1][1][1] = 42; return l;`,
+		"nested_string_char": `l = {"hello", "world"}; l[1][2] = "a"; return l;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_NestedIndexAssignExprResult(t *testing.T) {
+	// Verify the assignment expression returns the assigned value
+	cases := map[string]string{
+		"assign_returns_value": `l = {{1, 2}, {3, 4}}; x = (l[1][2] = 99); return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_NestedIndexAssignErrors(t *testing.T) {
+	// Out of range errors should match between tree-walker and VM
+	cases := map[string]string{
+		"out_of_range_outer": `l = {{1, 2}}; l[3][1] = 99; return l;`,
+		"out_of_range_inner": `l = {{1, 2}}; l[1][3] = 99; return l;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

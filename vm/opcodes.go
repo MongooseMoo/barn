@@ -227,7 +227,7 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 // CountsTick reports whether an opcode counts toward tick limit
 func CountsTick(op OpCode) bool {
 	switch op {
-	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_FOR_RANGE, OP_FOR_LIST, OP_FOR_MAP, OP_FOR_NEXT:
+	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_LOOP:
 		return true
 	default:
 		return false
