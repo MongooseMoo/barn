@@ -232,7 +232,6 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	propName := nameVal.Value()
 
-
 	// Check if property name is built-in
 	if isBuiltinProperty(propName) {
 		return types.Err(types.E_INVARG)
@@ -324,14 +323,8 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 	// Propagate inherited copies to all existing descendants
 	propagatePropertyToDescendants(objID, prop, store)
 
-	// Invalidate anonymous children (parent schema changed)
-	for _, childID := range obj.AnonymousChildren {
-		child := store.Get(childID)
-		if child != nil && child.Anonymous {
-			child.Flags = child.Flags.Set(db.FlagInvalid)
-		}
-	}
-	obj.AnonymousChildren = nil
+	// Invalidate anonymous children in descendant hierarchy (parent schema changed).
+	store.InvalidateAnonymousChildren(objID)
 
 	return types.Ok(types.NewInt(0))
 }
@@ -378,14 +371,8 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 	// Also remove inherited copies from all descendants
 	removeInheritedProperty(objID, propName, store)
 
-	// Invalidate anonymous children (parent schema changed)
-	for _, childID := range obj.AnonymousChildren {
-		child := store.Get(childID)
-		if child != nil && child.Anonymous {
-			child.Flags = child.Flags.Set(db.FlagInvalid)
-		}
-	}
-	obj.AnonymousChildren = nil
+	// Invalidate anonymous children in descendant hierarchy (parent schema changed).
+	store.InvalidateAnonymousChildren(objID)
 
 	return types.Ok(types.NewInt(0))
 }
