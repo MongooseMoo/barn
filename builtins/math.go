@@ -38,24 +38,34 @@ func builtinMin(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	minVal := args[0]
-	minFloat := toNumericFloat(minVal)
-	if math.IsNaN(minFloat) {
+	switch first := args[0].(type) {
+	case types.IntValue:
+		minVal := first
+		for i := 1; i < len(args); i++ {
+			v, ok := args[i].(types.IntValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			if v.Val < minVal.Val {
+				minVal = v
+			}
+		}
+		return types.Ok(minVal)
+	case types.FloatValue:
+		minVal := first
+		for i := 1; i < len(args); i++ {
+			v, ok := args[i].(types.FloatValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			if v.Val < minVal.Val {
+				minVal = v
+			}
+		}
+		return types.Ok(minVal)
+	default:
 		return types.Err(types.E_TYPE)
 	}
-
-	for i := 1; i < len(args); i++ {
-		f := toNumericFloat(args[i])
-		if math.IsNaN(f) {
-			return types.Err(types.E_TYPE)
-		}
-		if f < minFloat {
-			minFloat = f
-			minVal = args[i]
-		}
-	}
-
-	return types.Ok(minVal)
 }
 
 // builtinMax returns the largest value
@@ -65,24 +75,34 @@ func builtinMax(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	maxVal := args[0]
-	maxFloat := toNumericFloat(maxVal)
-	if math.IsNaN(maxFloat) {
+	switch first := args[0].(type) {
+	case types.IntValue:
+		maxVal := first
+		for i := 1; i < len(args); i++ {
+			v, ok := args[i].(types.IntValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			if v.Val > maxVal.Val {
+				maxVal = v
+			}
+		}
+		return types.Ok(maxVal)
+	case types.FloatValue:
+		maxVal := first
+		for i := 1; i < len(args); i++ {
+			v, ok := args[i].(types.FloatValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			if v.Val > maxVal.Val {
+				maxVal = v
+			}
+		}
+		return types.Ok(maxVal)
+	default:
 		return types.Err(types.E_TYPE)
 	}
-
-	for i := 1; i < len(args); i++ {
-		f := toNumericFloat(args[i])
-		if math.IsNaN(f) {
-			return types.Err(types.E_TYPE)
-		}
-		if f > maxFloat {
-			maxFloat = f
-			maxVal = args[i]
-		}
-	}
-
-	return types.Ok(maxVal)
 }
 
 // builtinRandom returns a random integer
@@ -116,7 +136,7 @@ func builtinRandom(ctx *types.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		if minV.Val > maxV.Val {
-			return types.Err(types.E_RANGE)
+			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.IntValue{Val: minV.Val + rand.Int63n(maxV.Val-minV.Val+1)})
 
@@ -132,12 +152,13 @@ func builtinSqrt(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	if f < 0 {
-		return types.Err(types.E_FLOAT)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.FloatValue{Val: math.Sqrt(f)})
@@ -150,10 +171,11 @@ func builtinSin(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Sin(f)})
 }
@@ -165,10 +187,11 @@ func builtinCos(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Cos(f)})
 }
@@ -180,10 +203,11 @@ func builtinTan(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	result := math.Tan(f)
 	if math.IsInf(result, 0) {
@@ -200,12 +224,13 @@ func builtinAsin(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	if f < -1 || f > 1 {
-		return types.Err(types.E_FLOAT)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.FloatValue{Val: math.Asin(f)})
@@ -218,12 +243,13 @@ func builtinAcos(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	if f < -1 || f > 1 {
-		return types.Err(types.E_FLOAT)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.FloatValue{Val: math.Acos(f)})
@@ -238,21 +264,24 @@ func builtinAtan(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	if len(args) == 1 {
-		f := toNumericFloat(args[0])
-		if math.IsNaN(f) {
+		fv, ok := args[0].(types.FloatValue)
+		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		return types.Ok(types.FloatValue{Val: math.Atan(f)})
+		return types.Ok(types.FloatValue{Val: math.Atan(fv.Val)})
 	}
 
 	// Two-argument form
-	y := toNumericFloat(args[0])
-	x := toNumericFloat(args[1])
-	if math.IsNaN(y) || math.IsNaN(x) {
+	yv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	xv, ok := args[1].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Atan2(y, x)})
+	return types.Ok(types.FloatValue{Val: math.Atan2(yv.Val, xv.Val)})
 }
 
 // builtinSinh returns hyperbolic sine
@@ -262,10 +291,11 @@ func builtinSinh(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Sinh(f)})
 }
@@ -277,10 +307,11 @@ func builtinCosh(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Cosh(f)})
 }
@@ -292,10 +323,11 @@ func builtinTanh(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Tanh(f)})
 }
@@ -307,10 +339,11 @@ func builtinExp(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	result := math.Exp(f)
 	if math.IsInf(result, 0) {
@@ -327,12 +360,16 @@ func builtinLog(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	if f <= 0 {
-		return types.Err(types.E_FLOAT)
+		if f == 0 {
+			return types.Err(types.E_FLOAT)
+		}
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.FloatValue{Val: math.Log(f)})
@@ -345,12 +382,16 @@ func builtinLog10(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	if f <= 0 {
-		return types.Err(types.E_FLOAT)
+		if f == 0 {
+			return types.Err(types.E_FLOAT)
+		}
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.FloatValue{Val: math.Log10(f)})
@@ -363,10 +404,11 @@ func builtinCeil(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Ceil(f)})
 }
@@ -378,10 +420,11 @@ func builtinFloor(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Floor(f)})
 }
@@ -393,10 +436,11 @@ func builtinTrunc(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	return types.Ok(types.FloatValue{Val: math.Trunc(f)})
 }
@@ -408,10 +452,11 @@ func builtinFloatstr(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 
 	precV, ok := args[1].(types.IntValue)
 	if !ok {
