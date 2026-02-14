@@ -988,7 +988,22 @@ func (vm *VM) executeListExtend() error {
 func (vm *VM) executeCallBuiltin() error {
 	funcID := vm.ReadByte()
 	argc := vm.ReadByte()
-	args := vm.PopN(int(argc))
+
+	var args []types.Value
+	if argc == 0xFF {
+		// Splice mode: args list is on top of stack
+		listVal := vm.Pop()
+		list, ok := listVal.(types.ListValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: expected list for spliced builtin args")
+		}
+		args = make([]types.Value, list.Len())
+		for i := 1; i <= list.Len(); i++ {
+			args[i-1] = list.Get(i)
+		}
+	} else {
+		args = vm.PopN(int(argc))
+	}
 
 	// Call builtin
 	result := vm.Builtins.CallByID(int(funcID), vm.Context, args)
@@ -1571,8 +1586,22 @@ func (vm *VM) executeCallVerb() error {
 		verbName = strVal.Value()
 	}
 
-	// Pop arguments (in reverse order since stack is LIFO)
-	args := vm.PopN(argc)
+	// Pop arguments
+	var args []types.Value
+	if argc == 0xFF {
+		// Splice mode: args list is on top of stack
+		listVal := vm.Pop()
+		list, ok := listVal.(types.ListValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: expected list for spliced verb args")
+		}
+		args = make([]types.Value, list.Len())
+		for i := 1; i <= list.Len(); i++ {
+			args[i-1] = list.Get(i)
+		}
+	} else {
+		args = vm.PopN(argc)
+	}
 
 	// Pop the object
 	objVal := vm.Pop()

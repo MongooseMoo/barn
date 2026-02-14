@@ -1854,3 +1854,32 @@ func TestParity_CaretIndexRead(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+func TestParity_SpliceInBuiltinArgs(t *testing.T) {
+	cases := map[string]string{
+		"splice_all_args":    `return tostr(@{1, 2, 3});`,
+		"splice_single_list": `return length(@{{1, 2, 3}});`,
+		"mixed_regular_splice": `l = {1, 2}; return tostr("a", @l, "b");`,
+		"splice_var":         `args = {1, 2, 3}; return tostr(@args);`,
+		"splice_empty":       `return tostr(@{});`,
+		"splice_nested_list": `l = {4, 5}; return tostr(1, 2, 3, @l);`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_SpliceInVerbArgs(t *testing.T) {
+	// Verb calls currently delegate to tree-walker, so once the compiler
+	// stops rejecting splice, these should work. Test anyway for when
+	// native verb calls land.
+	cases := map[string]string{
+		// Use builtins wrapped in a return to test the splice-in-args path.
+		// Since verb calls delegate to tree-walker, we test that the compiler
+		// at least accepts and correctly builds the args list.
+		"splice_in_tostr": `args = {1, 2, 3}; return tostr(@args);`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

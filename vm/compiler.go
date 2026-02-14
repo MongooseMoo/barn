@@ -627,21 +627,47 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 		return fmt.Errorf("unknown builtin function: %s", n.Name)
 	}
 
-	// Compile each argument expression (push onto stack in order)
+	// Check if any argument is a splice expression
+	hasSplice := false
 	for _, arg := range n.Args {
-		// Splice expressions in builtin args are not yet supported in bytecode
-		if _, isSplice := arg.(*parser.SpliceExpr); isSplice {
-			return fmt.Errorf("splice in builtin call arguments not yet implemented")
-		}
-		if err := c.compileNode(arg); err != nil {
-			return err
+		if _, ok := arg.(*parser.SpliceExpr); ok {
+			hasSplice = true
+			break
 		}
 	}
 
-	// Emit OP_CALL_BUILTIN with funcID and argument count
-	c.emit(OP_CALL_BUILTIN)
-	c.emitByte(byte(funcID))
-	c.emitByte(byte(len(n.Args)))
+	if hasSplice {
+		// Splice path: build args list incrementally using OP_LIST_APPEND/EXTEND
+		c.emit(OP_MAKE_LIST)
+		c.emitByte(0)
+		for _, arg := range n.Args {
+			if splice, ok := arg.(*parser.SpliceExpr); ok {
+				if err := c.compileNode(splice.Expr); err != nil {
+					return err
+				}
+				c.emit(OP_LIST_EXTEND)
+			} else {
+				if err := c.compileNode(arg); err != nil {
+					return err
+				}
+				c.emit(OP_LIST_APPEND)
+			}
+		}
+		// argc=0xFF signals that args list is on top of stack
+		c.emit(OP_CALL_BUILTIN)
+		c.emitByte(byte(funcID))
+		c.emitByte(0xFF)
+	} else {
+		// Fast path: no splices, push args directly
+		for _, arg := range n.Args {
+			if err := c.compileNode(arg); err != nil {
+				return err
+			}
+		}
+		c.emit(OP_CALL_BUILTIN)
+		c.emitByte(byte(funcID))
+		c.emitByte(byte(len(n.Args)))
+	}
 
 	return nil
 }
@@ -770,13 +796,38 @@ func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
 		return err
 	}
 
-	// Compile each argument expression (push onto stack in order)
+	// Check if any argument is a splice expression
+	hasSplice := false
 	for _, arg := range n.Args {
-		if _, isSplice := arg.(*parser.SpliceExpr); isSplice {
-			return fmt.Errorf("splice in verb call arguments not yet implemented")
+		if _, ok := arg.(*parser.SpliceExpr); ok {
+			hasSplice = true
+			break
 		}
-		if err := c.compileNode(arg); err != nil {
-			return err
+	}
+
+	if hasSplice {
+		// Splice path: build args list incrementally using OP_LIST_APPEND/EXTEND
+		c.emit(OP_MAKE_LIST)
+		c.emitByte(0)
+		for _, arg := range n.Args {
+			if splice, ok := arg.(*parser.SpliceExpr); ok {
+				if err := c.compileNode(splice.Expr); err != nil {
+					return err
+				}
+				c.emit(OP_LIST_EXTEND)
+			} else {
+				if err := c.compileNode(arg); err != nil {
+					return err
+				}
+				c.emit(OP_LIST_APPEND)
+			}
+		}
+	} else {
+		// Fast path: no splices, push args directly
+		for _, arg := range n.Args {
+			if err := c.compileNode(arg); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -792,6 +843,7 @@ func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
 	// Emit OP_CALL_VERB with verb name index and argument count
 	// Format: OP_CALL_VERB <verb_name_idx:byte> <argc:byte>
 	// verb_name_idx = 0xFF means dynamic (verb name on top of stack)
+	// argc = 0xFF means args list is on top of stack (splice mode)
 	c.emit(OP_CALL_VERB)
 
 	if isDynamic {
@@ -803,7 +855,11 @@ func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
 		return fmt.Errorf("verb call has neither static name nor dynamic expression")
 	}
 
-	c.emitByte(byte(len(n.Args)))
+	if hasSplice {
+		c.emitByte(0xFF) // signal: args list is on stack
+	} else {
+		c.emitByte(byte(len(n.Args)))
+	}
 
 	return nil
 }
