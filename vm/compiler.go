@@ -506,7 +506,28 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		c.emitByte(byte(idx))
 	case *parser.IndexExpr:
 		// Index assignment: coll[idx] = value
-		return fmt.Errorf("index assignment not yet implemented")
+		// Walk the IndexExpr to find the base variable (only single-level supported)
+		baseIdent, ok := target.Expr.(*parser.IdentifierExpr)
+		if !ok {
+			// Nested index assignment (l[1][2] = val) not yet supported
+			return fmt.Errorf("nested index assignment not yet implemented")
+		}
+
+		// Ensure the base variable is declared
+		varIdx := c.declareVariable(baseIdent.Name)
+
+		// Stack currently: [value, value_copy]
+		// Compile the index expression -> [value, value_copy, index]
+		if err := c.compileNode(target.Index); err != nil {
+			return err
+		}
+
+		// Emit OP_INDEX_SET with variable index
+		// VM will: pop index, pop value_copy, read coll from locals[varIdx],
+		// set coll[index] = value_copy, store modified coll back to locals[varIdx]
+		// The original 'value' remains on stack as expression result
+		c.emit(OP_INDEX_SET)
+		c.emitByte(byte(varIdx))
 	case *parser.PropertyExpr:
 		// Property assignment: obj.prop = value
 		return fmt.Errorf("property assignment not yet implemented")

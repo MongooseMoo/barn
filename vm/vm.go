@@ -264,6 +264,8 @@ func (vm *VM) Execute(op OpCode) error {
 	// Collection operations
 	case OP_INDEX:
 		return vm.executeIndex()
+	case OP_INDEX_SET:
+		return vm.executeIndexSet()
 	case OP_RANGE:
 		return vm.executeRange()
 	case OP_MAKE_LIST:

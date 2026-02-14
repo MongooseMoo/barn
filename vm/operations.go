@@ -588,6 +588,39 @@ func (vm *VM) executeIndex() error {
 	}
 }
 
+func (vm *VM) executeIndexSet() error {
+	// Bytecode: OP_INDEX_SET <varIdx:byte>
+	// Stack: [... value_copy index] (value_copy and index on top)
+	// After: modifies collection in locals[varIdx], pops index and value_copy
+	varIdx := vm.ReadByte()
+	index := vm.Pop()
+	value := vm.Pop()
+
+	// Read the collection from the variable slot
+	coll := vm.CurrentFrame().Locals[varIdx]
+
+	// Perform the index assignment using the shared setAtIndex helper
+	newColl, errCode := setAtIndex(coll, index, value)
+	if errCode != types.E_NONE {
+		// Map error codes to error strings for the VM error handler
+		switch errCode {
+		case types.E_TYPE:
+			return fmt.Errorf("E_TYPE: invalid index assignment")
+		case types.E_RANGE:
+			return fmt.Errorf("E_RANGE: index out of range")
+		case types.E_INVARG:
+			return fmt.Errorf("E_INVARG: invalid argument for index assignment")
+		default:
+			return fmt.Errorf("E_%d: index assignment error", errCode)
+		}
+	}
+
+	// Write the modified collection back to the variable slot
+	vm.CurrentFrame().Locals[varIdx] = newColl
+
+	return nil
+}
+
 func (vm *VM) executeRange() error {
 	end := vm.Pop()
 	start := vm.Pop()

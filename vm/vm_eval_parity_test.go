@@ -1172,3 +1172,38 @@ func TestParity_BuiltinCallsInPrograms(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+func TestParity_IndexAssignList(t *testing.T) {
+	cases := map[string]string{
+		"set_middle_element": `l = {1, 2, 3}; l[2] = 99; return l;`,
+		"set_first_element":  `l = {1, 2, 3}; l[1] = 10; return l[1];`,
+		"set_last_element":   `l = {1, 2, 3}; l[3] = 30; return l;`,
+		"assign_returns_value": `l = {1, 2, 3}; x = (l[2] = 99); return x;`,
+		"multiple_assigns":   `l = {1, 2, 3}; l[1] = 10; l[2] = 20; l[3] = 30; return l;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_IndexAssignString(t *testing.T) {
+	cases := map[string]string{
+		"set_first_char":     `s = "hello"; s[1] = "H"; return s;`,
+		"set_last_char":      `s = "hello"; s[5] = "O"; return s;`,
+		"set_middle_char":    `s = "hello"; s[3] = "L"; return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_IndexAssignErrors(t *testing.T) {
+	cases := map[string]string{
+		"list_out_of_range_high": `l = {1, 2, 3}; l[4] = 99; return l;`,
+		"list_out_of_range_zero": `l = {1, 2, 3}; l[0] = 99; return l;`,
+		"string_out_of_range":    `s = "hi"; s[3] = "x"; return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
