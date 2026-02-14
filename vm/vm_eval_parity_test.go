@@ -2003,3 +2003,461 @@ func TestParity_NestedIndexAssignErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- CompileStatements unit tests ---
+
+func TestCompileStatements(t *testing.T) {
+	t.Run("simple_program", func(t *testing.T) {
+		// Parse a simple MOO program
+		p := parser.NewParser("x = 1 + 2; return x;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		// Compile using CompileStatements
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("CompileStatements error: %v", err)
+		}
+
+		// Verify the program is not nil and has bytecode
+		if prog == nil {
+			t.Fatal("CompileStatements returned nil program")
+		}
+		if len(prog.Code) == 0 {
+			t.Fatal("CompileStatements produced empty bytecode")
+		}
+
+		// Run the program in a VM
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result, err := vm.Run(prog)
+		if err != nil {
+			t.Fatalf("VM.Run error: %v", err)
+		}
+
+		// Verify result is 3
+		expected := types.IntValue{Val: 3}
+		if !valuesEqual(result, expected) {
+			t.Errorf("expected %v, got %v", expected, result)
+		}
+
+		// Verify VarNames contains "x"
+		foundX := false
+		for _, name := range prog.VarNames {
+			if name == "x" {
+				foundX = true
+				break
+			}
+		}
+		if !foundX {
+			t.Errorf("VarNames %v does not contain 'x'", prog.VarNames)
+		}
+	})
+
+	t.Run("implicit_return_zero", func(t *testing.T) {
+		// A program with no explicit return should return 0
+		p := parser.NewParser("x = 42;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("CompileStatements error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result, err := vm.Run(prog)
+		if err != nil {
+			t.Fatalf("VM.Run error: %v", err)
+		}
+
+		expected := types.IntValue{Val: 0}
+		if !valuesEqual(result, expected) {
+			t.Errorf("expected %v (implicit return 0), got %v", expected, result)
+		}
+	})
+
+	t.Run("multiple_variables", func(t *testing.T) {
+		// Test that VarNames captures all variables
+		p := parser.NewParser("a = 1; b = 2; c = a + b; return c;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("CompileStatements error: %v", err)
+		}
+
+		// Verify VarNames contains a, b, c
+		varSet := make(map[string]bool)
+		for _, name := range prog.VarNames {
+			varSet[name] = true
+		}
+		for _, expected := range []string{"a", "b", "c"} {
+			if !varSet[expected] {
+				t.Errorf("VarNames %v does not contain '%s'", prog.VarNames, expected)
+			}
+		}
+
+		// Verify result
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result, err := vm.Run(prog)
+		if err != nil {
+			t.Fatalf("VM.Run error: %v", err)
+		}
+		if !valuesEqual(result, types.IntValue{Val: 3}) {
+			t.Errorf("expected 3, got %v", result)
+		}
+	})
+
+	t.Run("with_loops_and_conditionals", func(t *testing.T) {
+		// More complex program to stress-test CompileStatements
+		code := `
+			s = 0;
+			for x in [1..5]
+				if (x % 2 == 1)
+					s = s + x;
+				endif
+			endfor
+			return s;`
+		p := parser.NewParser(code)
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("CompileStatements error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result, err := vm.Run(prog)
+		if err != nil {
+			t.Fatalf("VM.Run error: %v", err)
+		}
+
+		// 1 + 3 + 5 = 9
+		if !valuesEqual(result, types.IntValue{Val: 9}) {
+			t.Errorf("expected 9, got %v", result)
+		}
+	})
+}
+
+// --- CompileVerbBytecode unit tests ---
+
+func TestCompileVerbBytecode(t *testing.T) {
+	t.Run("basic_verb", func(t *testing.T) {
+		verb := &db.Verb{
+			Name:  "test",
+			Names: []string{"test"},
+			Code:  []string{"return 42;"},
+		}
+
+		registry := newTestRegistry()
+		prog, err := CompileVerbBytecode(verb, registry)
+		if err != nil {
+			t.Fatalf("CompileVerbBytecode error: %v", err)
+		}
+
+		// Should have cached the bytecode
+		if verb.BytecodeCache == nil {
+			t.Error("BytecodeCache should be set after compilation")
+		}
+
+		// Run the program
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result, err := vm.Run(prog)
+		if err != nil {
+			t.Fatalf("VM.Run error: %v", err)
+		}
+		if !valuesEqual(result, types.IntValue{Val: 42}) {
+			t.Errorf("expected 42, got %v", result)
+		}
+	})
+
+	t.Run("cache_hit", func(t *testing.T) {
+		verb := &db.Verb{
+			Name:  "test",
+			Names: []string{"test"},
+			Code:  []string{"return 99;"},
+		}
+
+		registry := newTestRegistry()
+		prog1, err := CompileVerbBytecode(verb, registry)
+		if err != nil {
+			t.Fatalf("first compile error: %v", err)
+		}
+
+		// Second call should return cached result
+		prog2, err := CompileVerbBytecode(verb, registry)
+		if err != nil {
+			t.Fatalf("second compile error: %v", err)
+		}
+
+		if prog1 != prog2 {
+			t.Error("second call should return same *Program pointer (cache hit)")
+		}
+	})
+
+	t.Run("pre_parsed_verb", func(t *testing.T) {
+		// Verb already has parsed AST
+		verb := &db.Verb{
+			Name:  "test",
+			Names: []string{"test"},
+			Code:  []string{"return 10 + 20;"},
+		}
+		// Pre-parse
+		vp, errs := db.CompileVerb(verb.Code)
+		if errs != nil {
+			t.Fatalf("pre-parse error: %v", errs)
+		}
+		verb.Program = vp
+
+		registry := newTestRegistry()
+		prog, err := CompileVerbBytecode(verb, registry)
+		if err != nil {
+			t.Fatalf("CompileVerbBytecode error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result, err := vm.Run(prog)
+		if err != nil {
+			t.Fatalf("VM.Run error: %v", err)
+		}
+		if !valuesEqual(result, types.IntValue{Val: 30}) {
+			t.Errorf("expected 30, got %v", result)
+		}
+	})
+}
+
+// --- Cross-frame exception unwinding tests ---
+
+func TestCrossFrameExceptionUnwinding(t *testing.T) {
+	t.Run("error_caught_by_outer_frame", func(t *testing.T) {
+		// Simulate: outer frame has try/except, inner frame raises an error.
+		// Outer: try { <call inner> } except (E_DIV) { return 99; }
+		// Inner: 1 / 0 (raises E_DIV)
+		//
+		// We manually create two programs and push frames.
+
+		registry := newTestRegistry()
+
+		// Compile the "inner" program: raises E_DIV
+		innerParser := parser.NewParser("return 1 / 0;")
+		innerStmts, err := innerParser.ParseProgram()
+		if err != nil {
+			t.Fatalf("inner parse error: %v", err)
+		}
+		innerCompiler := NewCompilerWithRegistry(registry)
+		innerProg, err := innerCompiler.CompileStatements(innerStmts)
+		if err != nil {
+			t.Fatalf("inner compile error: %v", err)
+		}
+
+		// Compile the "outer" program: try { <placeholder> } except (E_DIV) { x = 99; }
+		// Since we can't easily compile a "call inner" instruction, we test HandleError
+		// directly by setting up frames manually.
+		outerParser := parser.NewParser(`
+			try
+				x = 0;
+			except e (E_DIV)
+				x = 99;
+			endtry
+			return x;`)
+		outerStmts, err := outerParser.ParseProgram()
+		if err != nil {
+			t.Fatalf("outer parse error: %v", err)
+		}
+		outerCompiler := NewCompilerWithRegistry(registry)
+		outerProg, err := outerCompiler.CompileStatements(outerStmts)
+		if err != nil {
+			t.Fatalf("outer compile error: %v", err)
+		}
+
+		// Create VM with outer frame, step through try setup
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+
+		// Push outer frame
+		outerFrame := &StackFrame{
+			Program:     outerProg,
+			IP:          0,
+			BasePointer: vm.SP,
+			Locals:      make([]types.Value, outerProg.NumLocals),
+			LoopStack:   make([]LoopState, 0),
+			ExceptStack: make([]Handler, 0),
+		}
+		for i := range outerFrame.Locals {
+			outerFrame.Locals[i] = types.IntValue{Val: 0}
+		}
+		vm.Frames = append(vm.Frames, outerFrame)
+
+		// Step through the outer program until the try/except handler is registered
+		// (we need to execute OP_TRY_EXCEPT to get the handler onto ExceptStack)
+		for outerFrame.IP < len(outerFrame.Program.Code) {
+			op := OpCode(outerFrame.Program.Code[outerFrame.IP])
+			outerFrame.IP++
+			if CountsTick(op) {
+				vm.Ticks++
+			}
+			if err := vm.Execute(op); err != nil {
+				t.Fatalf("unexpected error during outer setup: %v", err)
+			}
+			// Once we've set up the try handler, stop
+			if len(outerFrame.ExceptStack) > 0 {
+				break
+			}
+		}
+
+		if len(outerFrame.ExceptStack) == 0 {
+			t.Fatal("outer frame should have an except handler after OP_TRY_EXCEPT")
+		}
+
+		// Now push the inner frame (simulating a verb call)
+		innerFrame := &StackFrame{
+			Program:     innerProg,
+			IP:          0,
+			BasePointer: vm.SP,
+			Locals:      make([]types.Value, innerProg.NumLocals),
+			LoopStack:   make([]LoopState, 0),
+			ExceptStack: make([]Handler, 0),
+		}
+		for i := range innerFrame.Locals {
+			innerFrame.Locals[i] = types.IntValue{Val: 0}
+		}
+		vm.Frames = append(vm.Frames, innerFrame)
+
+		// Step the inner frame — it should raise E_DIV
+		var divErr error
+		for innerFrame.IP < len(innerFrame.Program.Code) && len(vm.Frames) > 1 {
+			frame := vm.CurrentFrame()
+			if frame.IP >= len(frame.Program.Code) {
+				break
+			}
+			op := OpCode(frame.Program.Code[frame.IP])
+			frame.IP++
+			if CountsTick(op) {
+				vm.Ticks++
+			}
+			divErr = vm.Execute(op)
+			if divErr != nil {
+				break
+			}
+		}
+
+		if divErr == nil {
+			t.Fatal("inner frame should have raised E_DIV")
+		}
+
+		// HandleError should unwind the inner frame and find the outer's handler
+		handled := vm.HandleError(divErr)
+		if !handled {
+			t.Fatal("HandleError should have found the outer frame's E_DIV handler")
+		}
+
+		// The inner frame should have been popped
+		if len(vm.Frames) != 1 {
+			t.Errorf("expected 1 frame after unwinding, got %d", len(vm.Frames))
+		}
+
+		// Continue executing the outer frame (the handler body)
+		for len(vm.Frames) > 0 {
+			if err := vm.Step(); err != nil {
+				if !vm.HandleError(err) {
+					t.Fatalf("unhandled error during outer execution: %v", err)
+				}
+			}
+		}
+
+		// The result should be on the stack: 99
+		if vm.SP == 0 {
+			t.Fatal("expected result on stack")
+		}
+		result := vm.Stack[vm.SP-1]
+		if !valuesEqual(result, types.IntValue{Val: 99}) {
+			t.Errorf("expected 99, got %v", result)
+		}
+	})
+
+	t.Run("error_no_handler_anywhere", func(t *testing.T) {
+		// Two frames, neither has a handler. HandleError should return false.
+		registry := newTestRegistry()
+
+		prog1Parser := parser.NewParser("x = 1;")
+		prog1Stmts, _ := prog1Parser.ParseProgram()
+		c1 := NewCompilerWithRegistry(registry)
+		prog1, _ := c1.CompileStatements(prog1Stmts)
+
+		prog2Parser := parser.NewParser("y = 2;")
+		prog2Stmts, _ := prog2Parser.ParseProgram()
+		c2 := NewCompilerWithRegistry(registry)
+		prog2, _ := c2.CompileStatements(prog2Stmts)
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+
+		// Push two frames, neither with handlers
+		frame1 := &StackFrame{
+			Program:     prog1,
+			IP:          0,
+			BasePointer: 0,
+			Locals:      make([]types.Value, prog1.NumLocals),
+			LoopStack:   make([]LoopState, 0),
+			ExceptStack: make([]Handler, 0),
+		}
+		frame2 := &StackFrame{
+			Program:     prog2,
+			IP:          0,
+			BasePointer: 0,
+			Locals:      make([]types.Value, prog2.NumLocals),
+			LoopStack:   make([]LoopState, 0),
+			ExceptStack: make([]Handler, 0),
+		}
+		vm.Frames = append(vm.Frames, frame1)
+		vm.Frames = append(vm.Frames, frame2)
+
+		testErr := MooError{Code: types.E_DIV}
+		handled := vm.HandleError(testErr)
+		if handled {
+			t.Error("HandleError should return false when no frame has a handler")
+		}
+	})
+
+	t.Run("single_frame_still_works", func(t *testing.T) {
+		// Existing single-frame behavior should be preserved
+		code := `
+			try
+				x = 1 / 0;
+			except (E_DIV)
+				x = 42;
+			endtry
+			return x;`
+		val, err := vmEvalProgram(t, code)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !valuesEqual(val, types.IntValue{Val: 42}) {
+			t.Errorf("expected 42, got %v", val)
+		}
+	})
+}

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
+	"barn/db"
 	"barn/parser"
 	"barn/types"
 	"fmt"
@@ -76,6 +77,63 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 	c.endScope()
 
 	return c.program, nil
+}
+
+// CompileStatements compiles a slice of statements (e.g. a verb body) to a Program.
+// An implicit "return 0" is appended if no explicit return is present (MOO verbs
+// return 0 by default). VarNames is populated from the compiler's variable table.
+func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
+	c.beginScope()
+
+	if err := c.compileBlock(stmts); err != nil {
+		return nil, err
+	}
+
+	// Implicit return 0 (MOO verb default)
+	c.emit(OP_RETURN_NONE)
+
+	c.endScope()
+
+	// VarNames is already populated by declareVariable via compileBlock,
+	// but ensure the mapping is complete by building from the variables map.
+	// The compiler's declareVariable already appends to program.VarNames in order,
+	// so program.VarNames[idx] == name for all entries in c.variables.
+	// No extra work needed here — VarNames is populated incrementally.
+
+	return c.program, nil
+}
+
+// CompileVerbBytecode compiles a verb's AST to bytecode, caching the result on the verb.
+// If the verb already has cached bytecode, returns it immediately.
+// If the verb has no parsed AST, parses the source code first via db.CompileVerb.
+// Returns the compiled *Program or an error.
+func CompileVerbBytecode(verb *db.Verb, registry *builtins.Registry) (*Program, error) {
+	// Check cache first
+	if verb.BytecodeCache != nil {
+		if prog, ok := verb.BytecodeCache.(*Program); ok {
+			return prog, nil
+		}
+	}
+
+	// Ensure verb has parsed AST
+	if verb.Program == nil {
+		vp, errs := db.CompileVerb(verb.Code)
+		if errs != nil {
+			return nil, fmt.Errorf("parse error: %v", errs[0])
+		}
+		verb.Program = vp
+	}
+
+	// Compile AST to bytecode
+	c := NewCompilerWithRegistry(registry)
+	prog, err := c.CompileStatements(verb.Program.Statements)
+	if err != nil {
+		return nil, fmt.Errorf("bytecode compile error: %w", err)
+	}
+
+	// Cache the result
+	verb.BytecodeCache = prog
+	return prog, nil
 }
 
 // emit adds an opcode to the bytecode

@@ -402,7 +402,10 @@ func (vm *VM) Return(value types.Value) {
 	vm.Push(value)
 }
 
-// HandleError handles an error by looking for exception handlers
+// HandleError handles an error by looking for exception handlers.
+// Searches the current frame's ExceptStack first, then unwinds through caller
+// frames if no handler is found. This supports cross-frame exception propagation
+// for native verb calls.
 func (vm *VM) HandleError(err error) bool {
 	// Extract error code
 	errCode := types.E_NONE
@@ -413,40 +416,56 @@ func (vm *VM) HandleError(err error) bool {
 		errCode = extractErrorCode(err)
 	}
 
-	frame := vm.CurrentFrame()
-	if frame == nil {
-		return false
-	}
-
-	// Search for handler (innermost first)
-	for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
-		handler := frame.ExceptStack[i]
-
-		if handler.Type == HandlerFinally {
-			// Finally handler: run the finally block, then re-raise the error.
-			// Pop this handler and everything above it.
-			frame.ExceptStack = frame.ExceptStack[:i]
-			// Save the pending error so after finally runs, we re-raise it
-			frame.PendingError = err
-			frame.IP = handler.HandlerIP
-			return true
+	// Search through frames from top (current) to bottom (initial)
+	for len(vm.Frames) > 0 {
+		frame := vm.CurrentFrame()
+		if frame == nil {
+			return false
 		}
 
-		if handler.Type == HandlerExcept && handler.Matches(errCode) {
-			// Found matching except handler - jump to it
-			frame.ExceptStack = frame.ExceptStack[:i]
-			frame.IP = handler.HandlerIP
+		// Search this frame's ExceptStack (innermost handler first)
+		for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
+			handler := frame.ExceptStack[i]
 
-			// Store error in variable if specified
-			if handler.VarIndex >= 0 {
-				frame.Locals[handler.VarIndex] = types.NewErr(errCode)
+			if handler.Type == HandlerFinally {
+				// Finally handler: run the finally block, then re-raise the error.
+				// Pop this handler and everything above it.
+				frame.ExceptStack = frame.ExceptStack[:i]
+				// Save the pending error so after finally runs, we re-raise it
+				frame.PendingError = err
+				frame.IP = handler.HandlerIP
+				return true
 			}
 
-			return true
+			if handler.Type == HandlerExcept && handler.Matches(errCode) {
+				// Found matching except handler - jump to it
+				frame.ExceptStack = frame.ExceptStack[:i]
+				frame.IP = handler.HandlerIP
+
+				// Store error in variable if specified
+				if handler.VarIndex >= 0 {
+					frame.Locals[handler.VarIndex] = types.NewErr(errCode)
+				}
+
+				return true
+			}
 		}
+
+		// No handler in this frame. If there are caller frames, pop this frame
+		// and continue searching. This implements cross-frame exception unwinding.
+		if len(vm.Frames) <= 1 {
+			// This is the bottom frame — no more frames to unwind into
+			return false
+		}
+
+		// Pop the current frame (unwind): reset SP to BasePointer, remove frame.
+		// Do NOT push a return value — we're unwinding due to an error.
+		vm.SP = frame.BasePointer
+		vm.Frames = vm.Frames[:len(vm.Frames)-1]
+		// Continue searching in the caller frame
 	}
 
-	// No handler found
+	// No frames left
 	return false
 }
 

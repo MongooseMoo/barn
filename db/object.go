@@ -57,6 +57,11 @@ type Verb struct {
 	ArgSpec VerbArgs
 	Code    []string        // Source lines
 	Program *VerbProgram    // Compiled AST (added in Layer 9.2)
+
+	// BytecodeCache holds compiled bytecode (*vm.Program) for the bytecode VM.
+	// Typed as any to avoid circular import between db and vm packages.
+	// This field is NOT serialized — it's a runtime cache populated on first execution.
+	BytecodeCache any
 }
 
 // VerbProgram holds compiled verb code
