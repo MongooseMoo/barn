@@ -30,14 +30,14 @@ var ansiTags = map[string]string{
 	"b:yellow": "\x1b[43m",
 	"b:blue":   "\x1b[44m",
 	"b:purple": "\x1b[45m",
-	"b:magenta":"\x1b[45m",
+	"b:magenta": "\x1b[45m",
 	"b:cyan":   "\x1b[46m",
 	"b:white":  "\x1b[47m",
 	"bold":     "\x1b[1m",
 	"unbold":   "\x1b[22m",
 	"bright":   "\x1b[1m",
 	"unbright": "\x1b[22m",
-	"underline":"\x1b[4m",
+	"underline": "\x1b[4m",
 	"inverse":  "\x1b[7m",
 	"blink":    "\x1b[5m",
 	"unblink":  "\x1b[25m",
@@ -51,12 +51,13 @@ func builtinAcosh(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	if f < 1 {
-		return types.Err(types.E_FLOAT)
+		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewFloat(math.Acosh(f)))
 }
@@ -65,10 +66,11 @@ func builtinAsinh(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	f := fv.Val
 	return types.Ok(types.NewFloat(math.Asinh(f)))
 }
 
@@ -76,12 +78,16 @@ func builtinAtanh(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if f <= -1 || f >= 1 {
+	f := fv.Val
+	if f == -1 || f == 1 {
 		return types.Err(types.E_FLOAT)
+	}
+	if f < -1 || f > 1 {
+		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewFloat(math.Atanh(f)))
 }
@@ -90,67 +96,76 @@ func builtinAtan2(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	y := toNumericFloat(args[0])
-	x := toNumericFloat(args[1])
-	if math.IsNaN(y) || math.IsNaN(x) {
+	yv, ok := args[0].(types.FloatValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewFloat(math.Atan2(y, x)))
+	xv, ok := args[1].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.NewFloat(math.Atan2(yv.Val, xv.Val)))
 }
 
 func builtinCbrt(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
-		return types.Err(types.E_TYPE)
-	}
-	return types.Ok(types.NewFloat(math.Cbrt(f)))
-}
-
-func builtinRound(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
-		return types.Err(types.E_ARGS)
-	}
-	f := toNumericFloat(args[0])
-	if math.IsNaN(f) {
-		return types.Err(types.E_TYPE)
-	}
-	if len(args) == 1 {
-		return types.Ok(types.NewInt(int64(math.Round(f))))
-	}
-	places, ok := args[1].(types.IntValue)
+	fv, ok := args[0].(types.FloatValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if places.Val < 0 || places.Val > 15 {
-		return types.Err(types.E_RANGE)
+	return types.Ok(types.NewFloat(math.Cbrt(fv.Val)))
+}
+
+func builtinRound(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
 	}
-	scale := math.Pow(10, float64(places.Val))
-	return types.Ok(types.NewFloat(math.Round(f*scale) / scale))
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.NewFloat(math.Round(fv.Val)))
 }
 
 func builtinFrandom(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 0 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Ok(types.NewFloat(mathrand.Float64()))
-}
-
-func builtinReseedRandom(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) > 1 {
-		return types.Err(types.E_ARGS)
-	}
-	seed := time.Now().UnixNano()
+	var min float64
+	var max float64
 	if len(args) == 1 {
-		v, ok := args[0].(types.IntValue)
+		maxArg, ok := args[0].(types.FloatValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		seed = v.Val
+		min = 0.0
+		max = maxArg.Val
+	} else {
+		minArg, ok := args[0].(types.FloatValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		maxArg, ok := args[1].(types.FloatValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		min = minArg.Val
+		max = maxArg.Val
 	}
-	mathrand.Seed(seed)
+	f := mathrand.Float64()
+	return types.Ok(types.NewFloat(min + f*(max-min)))
+}
+
+func builtinReseedRandom(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	mathrand.Seed(time.Now().UnixNano())
 	return types.Ok(types.NewInt(0))
 }
 
@@ -228,43 +243,100 @@ func builtinAllMembers(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinDistance(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 2 && len(args) != 4 {
+	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	if len(args) == 2 {
-		x := toNumericFloat(args[0])
-		y := toNumericFloat(args[1])
-		if math.IsNaN(x) || math.IsNaN(y) {
-			return types.Err(types.E_TYPE)
-		}
-		return types.Ok(types.NewFloat(math.Hypot(x, y)))
-	}
-	x1 := toNumericFloat(args[0])
-	y1 := toNumericFloat(args[1])
-	x2 := toNumericFloat(args[2])
-	y2 := toNumericFloat(args[3])
-	if math.IsNaN(x1) || math.IsNaN(y1) || math.IsNaN(x2) || math.IsNaN(y2) {
+	a, ok := args[0].(types.ListValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewFloat(math.Hypot(x2-x1, y2-y1)))
+	b, ok := args[1].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	if a.Len() != b.Len() || a.Len() == 0 {
+		return types.Err(types.E_INVARG)
+	}
+	total := 0.0
+	for i := 1; i <= a.Len(); i++ {
+		var av float64
+		switch v := a.Get(i).(type) {
+		case types.IntValue:
+			av = float64(v.Val)
+		case types.FloatValue:
+			av = v.Val
+		default:
+			return types.Err(types.E_TYPE)
+		}
+		var bv float64
+		switch v := b.Get(i).(type) {
+		case types.IntValue:
+			bv = float64(v.Val)
+		case types.FloatValue:
+			bv = v.Val
+		default:
+			return types.Err(types.E_TYPE)
+		}
+		d := bv - av
+		total += d * d
+	}
+	return types.Ok(types.NewFloat(math.Sqrt(total)))
 }
 
 func builtinRelativeHeading(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 4 {
+	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	x1 := toNumericFloat(args[0])
-	y1 := toNumericFloat(args[1])
-	x2 := toNumericFloat(args[2])
-	y2 := toNumericFloat(args[3])
-	if math.IsNaN(x1) || math.IsNaN(y1) || math.IsNaN(x2) || math.IsNaN(y2) {
+	a, ok := args[0].(types.ListValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	deg := math.Atan2(y2-y1, x2-x1) * 180 / math.Pi
-	if deg < 0 {
-		deg += 360
+	b, ok := args[1].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewFloat(deg))
+	if a.Len() != 3 || b.Len() != 3 {
+		return types.Err(types.E_INVARG)
+	}
+	ax, ok := a.Get(1).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	ay, ok := a.Get(2).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	az, ok := a.Get(3).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	bx, ok := b.Get(1).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	by, ok := b.Get(2).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	bz, ok := b.Get(3).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	dx := bx.Val - ax.Val
+	dy := by.Val - ay.Val
+	dz := bz.Val - az.Val
+
+	xy := math.Atan2(dy, dx) * 57.2957795130823
+	if xy < 0.0 {
+		xy += 360.0
+	}
+	z := math.Atan2(dz, math.Sqrt((dx*dx)+(dy*dy))) * 57.2957795130823
+
+	return types.Ok(types.NewList([]types.Value{
+		types.NewInt(int64(xy)),
+		types.NewInt(int64(z)),
+	}))
 }
 
 func builtinSimplexNoise(ctx *types.TaskContext, args []types.Value) types.Result {
