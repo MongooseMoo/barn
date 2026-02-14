@@ -1192,3 +1192,87 @@ func (vm *VM) executeScatter() error {
 
 	return nil
 }
+
+// executeCallVerb handles OP_CALL_VERB: call a verb on an object.
+//
+// Bytecode format: OP_CALL_VERB <verb_name_idx:byte> <argc:byte>
+// verb_name_idx = 0xFF means dynamic (verb name string is on top of stack, above args).
+//
+// Stack layout (top to bottom):
+//   [verb_name_str] (only if dynamic, i.e. verb_name_idx == 0xFF)
+//   arg_N
+//   ...
+//   arg_1
+//   obj
+//
+// Delegates to the tree-walker Evaluator for verb body execution.
+// This avoids duplicating the complex verb resolution, frame management,
+// and environment setup logic. The VM and Evaluator share the same store.
+func (vm *VM) executeCallVerb() error {
+	verbNameIdx := vm.ReadByte()
+	argc := int(vm.ReadByte())
+
+	// Resolve verb name
+	var verbName string
+	if verbNameIdx == 0xFF {
+		// Dynamic verb name: pop from stack (above args)
+		nameVal := vm.Pop()
+		strVal, ok := nameVal.(types.StrValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: dynamic verb name must be a string")
+		}
+		verbName = strVal.Value()
+	} else {
+		// Static verb name: from constant pool
+		nameVal := vm.CurrentFrame().Program.Constants[verbNameIdx]
+		strVal, ok := nameVal.(types.StrValue)
+		if !ok {
+			return fmt.Errorf("internal error: verb name constant is not a string")
+		}
+		verbName = strVal.Value()
+	}
+
+	// Pop arguments (in reverse order since stack is LIFO)
+	args := vm.PopN(argc)
+
+	// Pop the object
+	objVal := vm.Pop()
+
+	// Resolve the object ID
+	objRef, ok := objVal.(types.ObjValue)
+	if !ok {
+		return fmt.Errorf("E_TYPE: verb call requires an object")
+	}
+	objID := objRef.ID()
+
+	if vm.Store == nil {
+		return fmt.Errorf("E_INVIND: no object store available")
+	}
+
+	// Create an Evaluator that shares the same store, and delegate verb execution.
+	// This is the recommended approach: the tree-walker already handles all the
+	// complexity (activation frames, env vars, permissions, verb lookup/compilation).
+	evaluator := NewEvaluatorWithStore(vm.Store)
+
+	// Use the VM's task context if available, otherwise create a fresh one
+	ctx := vm.Context
+	if ctx == nil {
+		ctx = types.NewTaskContext()
+	}
+
+	// Call the verb via the Evaluator's CallVerb method
+	result := evaluator.CallVerb(objID, verbName, args, ctx)
+
+	if result.Flow == types.FlowException {
+		// Convert MOO error to Go error for the VM's error handling
+		mooErr := MooError{Code: result.Error}
+		if !vm.HandleError(mooErr) {
+			return mooErr
+		}
+		return nil
+	}
+
+	// Push the return value onto the stack
+	vm.Push(result.Val)
+	return nil
+}

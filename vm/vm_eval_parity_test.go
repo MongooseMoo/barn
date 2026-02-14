@@ -1342,3 +1342,104 @@ func TestParity_PropertyErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
 	}
 }
+
+// --- Verb call parity tests ---
+// Verb tests need a shared store with test objects that have verbs defined,
+// so both paths (tree-walker and bytecode VM) can find and execute them.
+
+// newVerbTestStore creates a store with test objects that have verbs.
+// Object #0: name="Root", verbs:
+//
+//	test_return: "return 42;"
+//	test_args:   "return args;"
+//	test_add:    "return args[1] + args[2];"
+//	test_builtin: "return length(args);"
+func newVerbTestStore() *db.Store {
+	store := db.NewStore()
+
+	root := db.NewObject(0, 0)
+	root.Name = "Root"
+	root.Flags = db.FlagRead | db.FlagWrite
+
+	// Verb: test_return - returns a constant
+	root.Verbs["test_return"] = &db.Verb{
+		Name:  "test_return",
+		Names: []string{"test_return"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return 42;"},
+	}
+
+	// Verb: test_args - returns args list
+	root.Verbs["test_args"] = &db.Verb{
+		Name:  "test_args",
+		Names: []string{"test_args"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return args;"},
+	}
+
+	// Verb: test_add - adds first two args
+	root.Verbs["test_add"] = &db.Verb{
+		Name:  "test_add",
+		Names: []string{"test_add"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return args[1] + args[2];"},
+	}
+
+	// Verb: test_builtin - calls length() on args
+	root.Verbs["test_builtin"] = &db.Verb{
+		Name:  "test_builtin",
+		Names: []string{"test_builtin"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return length(args);"},
+	}
+
+	store.Add(root)
+
+	return store
+}
+
+func TestParity_VerbCallSimple(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"call_return_constant": `return #0:test_return();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallWithArgs(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"call_with_args":   `return #0:test_args(1, 2, 3);`,
+		"call_add_two":     `return #0:test_add(10, 20);`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallWithBuiltin(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"call_verb_uses_builtin": `return #0:test_builtin(1, 2, 3);`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallErrors(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"verb_not_found":   `return #0:nonexistent();`,
+		"invalid_object":   `return #99:test_return();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}

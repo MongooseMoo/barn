@@ -289,6 +289,10 @@ func (vm *VM) Execute(op OpCode) error {
 	case OP_CALL_BUILTIN:
 		return vm.executeCallBuiltin()
 
+	// Verb calls
+	case OP_CALL_VERB:
+		return vm.executeCallVerb()
+
 	// Exception handling
 	case OP_TRY_EXCEPT:
 		return vm.executeTryExcept()

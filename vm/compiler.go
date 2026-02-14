@@ -668,8 +668,47 @@ func (c *Compiler) compileProperty(n *parser.PropertyExpr) error {
 }
 
 func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
-	// TODO: Implement verb call compilation
-	return fmt.Errorf("verb call compilation not yet implemented")
+	// Compile the object expression (pushes object onto stack)
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	// Compile each argument expression (push onto stack in order)
+	for _, arg := range n.Args {
+		if _, isSplice := arg.(*parser.SpliceExpr); isSplice {
+			return fmt.Errorf("splice in verb call arguments not yet implemented")
+		}
+		if err := c.compileNode(arg); err != nil {
+			return err
+		}
+	}
+
+	// For dynamic verb names, compile the verb name expression onto the stack
+	// before emitting the opcode (so the VM can pop it)
+	isDynamic := n.Verb == "" && n.VerbExpr != nil
+	if isDynamic {
+		if err := c.compileNode(n.VerbExpr); err != nil {
+			return err
+		}
+	}
+
+	// Emit OP_CALL_VERB with verb name index and argument count
+	// Format: OP_CALL_VERB <verb_name_idx:byte> <argc:byte>
+	// verb_name_idx = 0xFF means dynamic (verb name on top of stack)
+	c.emit(OP_CALL_VERB)
+
+	if isDynamic {
+		c.emitByte(0xFF) // signal: verb name is on stack
+	} else if n.Verb != "" {
+		verbIdx := c.addConstant(types.NewStr(n.Verb))
+		c.emitByte(byte(verbIdx))
+	} else {
+		return fmt.Errorf("verb call has neither static name nor dynamic expression")
+	}
+
+	c.emitByte(byte(len(n.Args)))
+
+	return nil
 }
 
 func (c *Compiler) compileSplice(n *parser.SpliceExpr) error {
