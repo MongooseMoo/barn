@@ -1800,7 +1800,7 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Look up verb via store (with inheritance)
-	verb, _, err := vm.Store.FindVerb(objID, verbName)
+	verb, defObjID, err := vm.Store.FindVerb(objID, verbName)
 	if err != nil {
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
@@ -1876,10 +1876,10 @@ func (vm *VM) executeCallVerb() error {
 			actFrame := task.ActivationFrame{
 				This:       objID,
 				Player:     player,
-				Programmer: player, // TODO: use verb owner for programmer
+				Programmer: verb.Owner,
 				Caller:     callerObj,
 				Verb:       verbName,
-				VerbLoc:    objID, // TODO: use defObjID from FindVerb
+				VerbLoc:    defObjID,
 				Args:       args,
 				LineNumber: 0,
 			}
