@@ -1767,3 +1767,90 @@ func TestParity_RangeAssignErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- Map indexing parity tests (B2) ---
+
+func TestParity_MapIndexRead(t *testing.T) {
+	cases := []string{
+		`["a" -> 1, "b" -> 2]["a"]`,    // string key -> int value
+		`["a" -> 1, "b" -> 2]["b"]`,    // second key
+		`[1 -> "x", 2 -> "y"][1]`,      // int key -> string value
+		`[1 -> "x", 2 -> "y"][2]`,      // second int key
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_MapIndexReadProgram(t *testing.T) {
+	cases := map[string]string{
+		"map_read_string_key": `m = ["a" -> 1, "b" -> 2]; return m["a"];`,
+		"map_read_int_key":    `m = [1 -> "x", 2 -> "y"]; return m[1];`,
+		"map_read_missing":    `m = ["a" -> 1, "b" -> 2]; return m["c"];`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+// --- Map index assignment parity tests (B3) ---
+
+func TestParity_MapIndexAssign(t *testing.T) {
+	cases := map[string]string{
+		"map_assign_existing": `m = ["a" -> 1]; m["a"] = 99; return m["a"];`,
+		"map_assign_new_key":  `m = ["a" -> 1]; m["b"] = 2; return m;`,
+		"map_assign_int_key":  `m = [1 -> 10]; m[1] = 20; return m[1];`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+// --- Map range assignment parity tests (B4) ---
+// The tree-walker DOES support map range assignment (key-position-based slicing).
+// This is complex behavior, so for now we just test that both paths agree on errors
+// when map range assignment is attempted with integer indices.
+
+func TestParity_MapRangeAssign(t *testing.T) {
+	cases := map[string]string{
+		"map_range_assign": `m = ["a" -> 1, "b" -> 2]; m[1..2] = ["c" -> 3]; return m;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+// --- Dollar marker in read expressions parity tests (B1) ---
+
+func TestParity_DollarIndexRead(t *testing.T) {
+	cases := map[string]string{
+		"list_dollar_last":    `l = {1, 2, 3}; return l[$];`,
+		"string_dollar_last":  `s = "hello"; return s[$];`,
+		"list_dollar_arith":   `l = {10, 20, 30}; return l[$ - 1];`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_DollarRangeRead(t *testing.T) {
+	cases := map[string]string{
+		"list_range_dollar":    `l = {1, 2, 3, 4, 5}; return l[2..$];`,
+		"string_range_dollar":  `s = "hello"; return s[2..$];`,
+		"list_range_full":      `l = {1, 2, 3}; return l[1..$];`,
+		"string_range_full":    `s = "hello"; return s[1..$];`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_CaretIndexRead(t *testing.T) {
+	cases := map[string]string{
+		"list_caret_first":  `l = {10, 20, 30}; return l[^];`,
+		"string_caret_first": `s = "hello"; return s[^];`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

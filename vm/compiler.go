@@ -9,13 +9,14 @@ import (
 
 // Compiler compiles AST nodes to bytecode
 type Compiler struct {
-	program   *Program
-	constants map[string]int       // Constant deduplication (Value.String() -> index)
-	variables map[string]int       // Variable name -> index mapping
-	loops     []LoopContext        // Loop context stack for break/continue
-	scopes    []Scope              // Variable scope stack
-	tempCount int                  // Counter for unique temporary variable names
-	registry  *builtins.Registry   // Builtin function registry for name->ID resolution
+	program        *Program
+	constants      map[string]int       // Constant deduplication (Value.String() -> index)
+	variables      map[string]int       // Variable name -> index mapping
+	loops          []LoopContext        // Loop context stack for break/continue
+	scopes         []Scope              // Variable scope stack
+	tempCount      int                  // Counter for unique temporary variable names
+	registry       *builtins.Registry   // Builtin function registry for name->ID resolution
+	indexContextVar int                 // Variable slot holding collection length for $ resolution (-1 = none)
 }
 
 // LoopContext tracks loop compilation state
@@ -42,10 +43,11 @@ func NewCompiler() *Compiler {
 			VarNames:  make([]string, 0, 16),
 			LineInfo:  make([]LineEntry, 0, 32),
 		},
-		constants: make(map[string]int),
-		variables: make(map[string]int),
-		loops:     make([]LoopContext, 0, 8),
-		scopes:    make([]Scope, 0, 8),
+		constants:       make(map[string]int),
+		variables:       make(map[string]int),
+		loops:           make([]LoopContext, 0, 8),
+		scopes:          make([]Scope, 0, 8),
+		indexContextVar: -1,
 	}
 }
 
@@ -650,10 +652,26 @@ func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
 		return err
 	}
 
+	// If the index contains $, set up an index context variable with the collection length.
+	// Stack: [coll] -> DUP -> [coll, coll] -> LENGTH -> [coll, len] -> SET_VAR -> [coll]
+	hasDollar := containsDollarMarker(n.Index)
+	oldContextVar := c.indexContextVar
+	if hasDollar {
+		tempIdx := c.declareVariable(c.tempVar("idxctx"))
+		c.emit(OP_DUP)
+		c.emit(OP_LENGTH)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(tempIdx))
+		c.indexContextVar = tempIdx
+	}
+
 	// Compile index
 	if err := c.compileNode(n.Index); err != nil {
 		return err
 	}
+
+	// Restore previous context
+	c.indexContextVar = oldContextVar
 
 	// Emit index operation
 	c.emit(OP_INDEX)
@@ -666,6 +684,19 @@ func (c *Compiler) compileRange(n *parser.RangeExpr) error {
 		return err
 	}
 
+	// If start or end contains $, set up an index context variable.
+	// Stack: [coll] -> DUP -> [coll, coll] -> LENGTH -> [coll, len] -> SET_VAR -> [coll]
+	hasDollar := containsDollarMarker(n.Start) || containsDollarMarker(n.End)
+	oldContextVar := c.indexContextVar
+	if hasDollar {
+		tempIdx := c.declareVariable(c.tempVar("rngctx"))
+		c.emit(OP_DUP)
+		c.emit(OP_LENGTH)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(tempIdx))
+		c.indexContextVar = tempIdx
+	}
+
 	// Compile start
 	if err := c.compileNode(n.Start); err != nil {
 		return err
@@ -676,18 +707,31 @@ func (c *Compiler) compileRange(n *parser.RangeExpr) error {
 		return err
 	}
 
+	// Restore previous context
+	c.indexContextVar = oldContextVar
+
 	// Emit range operation
 	c.emit(OP_RANGE)
 	return nil
 }
 
 func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
-	// Index markers (^ and $) are special constants
-	// ^ = 1, $ = -1 (or length when evaluated)
 	if n.Marker == parser.TOKEN_CARET {
+		// ^ always resolves to 1 for lists/strings
 		c.emitConstant(types.IntValue{Val: 1})
+	} else if n.Marker == parser.TOKEN_DOLLAR {
+		// $ resolves to collection length
+		if c.indexContextVar >= 0 {
+			// Read context: length was pre-computed and stored in a temp variable
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(c.indexContextVar))
+		} else {
+			// No index context (shouldn't happen for well-formed index/range expressions)
+			// Fall back to literal -1 (will produce E_RANGE at runtime)
+			c.emitConstant(types.IntValue{Val: -1})
+		}
 	} else {
-		c.emitConstant(types.IntValue{Val: -1})
+		return fmt.Errorf("unknown index marker type")
 	}
 	return nil
 }
@@ -966,6 +1010,25 @@ func (c *Compiler) compileFor(n *parser.ForStmt) error {
 func (c *Compiler) tempVar(prefix string) string {
 	c.tempCount++
 	return fmt.Sprintf("__%s_%d__", prefix, c.tempCount)
+}
+
+// containsDollarMarker checks if an expression tree contains a $ index marker.
+// Used to determine if compileIndex/compileRange needs to set up an index context.
+func containsDollarMarker(expr parser.Expr) bool {
+	switch n := expr.(type) {
+	case *parser.IndexMarkerExpr:
+		return n.Marker == parser.TOKEN_DOLLAR
+	case *parser.BinaryExpr:
+		return containsDollarMarker(n.Left) || containsDollarMarker(n.Right)
+	case *parser.UnaryExpr:
+		return containsDollarMarker(n.Operand)
+	case *parser.ParenExpr:
+		return containsDollarMarker(n.Expr)
+	case *parser.TernaryExpr:
+		return containsDollarMarker(n.Condition) || containsDollarMarker(n.ThenExpr) || containsDollarMarker(n.ElseExpr)
+	default:
+		return false
+	}
 }
 
 // compileForRange compiles: for x in [start..end] ... endfor

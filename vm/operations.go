@@ -564,13 +564,12 @@ func (vm *VM) executeIndex() error {
 	index := vm.Pop()
 	collection := vm.Pop()
 
-	indexInt, indexOk := index.(types.IntValue)
-	if !indexOk {
-		return fmt.Errorf("E_TYPE: index must be integer")
-	}
-
 	switch coll := collection.(type) {
 	case types.ListValue:
+		indexInt, indexOk := index.(types.IntValue)
+		if !indexOk {
+			return fmt.Errorf("E_TYPE: list index must be integer")
+		}
 		if indexInt.Val < 1 || indexInt.Val > int64(coll.Len()) {
 			return fmt.Errorf("E_RANGE: list index out of range")
 		}
@@ -578,10 +577,27 @@ func (vm *VM) executeIndex() error {
 		return nil
 
 	case types.StrValue:
+		indexInt, indexOk := index.(types.IntValue)
+		if !indexOk {
+			return fmt.Errorf("E_TYPE: string index must be integer")
+		}
 		if indexInt.Val < 1 || indexInt.Val > int64(len(coll.Value())) {
 			return fmt.Errorf("E_RANGE: string index out of range")
 		}
 		vm.Push(types.NewStr(string(coll.Value()[indexInt.Val-1])))
+		return nil
+
+	case types.MapValue:
+		// Map keys must be scalar types (not list or map)
+		switch index.(type) {
+		case types.ListValue, types.MapValue:
+			return fmt.Errorf("E_TYPE: invalid map key type")
+		}
+		val, ok := coll.Get(index)
+		if !ok {
+			return fmt.Errorf("E_RANGE: map key not found")
+		}
+		vm.Push(val)
 		return nil
 
 	default:
@@ -722,6 +738,43 @@ func (vm *VM) executeRangeSet() error {
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
 		newColl = types.NewStr(s[:startIdx-1] + newStr.Value() + s[effectiveEnd:])
+
+	case types.MapValue:
+		// Value must be a map
+		newMap, ok := value.(types.MapValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: map range assignment requires a map value")
+		}
+
+		length := c.Len()
+		isInverted := startIdx > endIdx
+
+		// Bounds check
+		if startIdx < 1 || startIdx > int64(length)+1 {
+			return fmt.Errorf("E_RANGE: map range start out of bounds")
+		}
+		if endIdx < 0 || endIdx > int64(length) {
+			return fmt.Errorf("E_RANGE: map range end out of bounds")
+		}
+		if isInverted {
+			if startIdx > int64(length) || endIdx < 1 {
+				return fmt.Errorf("E_RANGE: map range inverted out of bounds")
+			}
+		}
+
+		// Build new map: pairs[1..start-1] + newMap + pairs[end+1..$]
+		pairs := c.Pairs()
+		result := make([][2]types.Value, 0)
+		for i := 0; i < int(startIdx)-1; i++ {
+			result = append(result, pairs[i])
+		}
+		for _, pair := range newMap.Pairs() {
+			result = append(result, pair)
+		}
+		for i := int(endIdx); i < length; i++ {
+			result = append(result, pairs[i])
+		}
+		newColl = types.NewMap(result)
 
 	default:
 		return fmt.Errorf("E_TYPE: cannot range-assign to %s", coll.Type().String())
