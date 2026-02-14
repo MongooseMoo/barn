@@ -347,9 +347,9 @@ func builtinCapitalize(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 // builtinExplode splits a string into a list of substrings
-// explode(str [, delimiter]) -> list
+// explode(str [, delimiter [, adjacent]]) -> list
 func builtinExplode(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -360,17 +360,31 @@ func builtinExplode(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	s := str.Value()
 
-	var parts []string
-	if len(args) == 1 {
-		// No delimiter - split on whitespace
-		parts = strings.Fields(s)
-	} else {
-		// Delimiter provided
-		delim, ok := args[1].(types.StrValue)
+	delim := " "
+	if len(args) >= 2 {
+		delimVal, ok := args[1].(types.StrValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		parts = strings.Split(s, delim.Value())
+		if delimVal.Value() != "" {
+			delim = string([]byte{delimVal.Value()[0]})
+		}
+	}
+
+	adjacent := false
+	if len(args) == 3 {
+		adjacent = args[2].Truthy()
+	}
+
+	rawParts := strings.Split(s, delim)
+	parts := rawParts
+	if !adjacent {
+		parts = make([]string, 0, len(rawParts))
+		for _, part := range rawParts {
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
 	}
 
 	// Convert to list of string values
@@ -630,7 +644,7 @@ func replaceAllCaseInsensitive(s, old, new string) string {
 // MOO-style regex matching. Returns {start, end, subs, subject} or {} if no match.
 // For now, implements a simplified version that handles basic patterns.
 func builtinMatch(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -646,8 +660,8 @@ func builtinMatch(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 	pattern := patternVal.Value()
 
-	// Case matters (default true)
-	caseSensitive := true
+	// Case-insensitive by default; truthy third argument enables case-sensitive matching.
+	caseSensitive := false
 	if len(args) > 2 {
 		caseSensitive = args[2].Truthy()
 	}
@@ -658,37 +672,28 @@ func builtinMatch(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Compile and match
-	var re *regexp.Regexp
-	if caseSensitive {
-		re, err = regexp.Compile(goPattern)
-	} else {
-		re, err = regexp.Compile("(?i)" + goPattern)
+	pat := goPattern
+	if !caseSensitive {
+		pat = "(?i)" + goPattern
 	}
+	re, err := regexp.Compile(pat)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
 
-	loc := re.FindStringIndex(subject)
+	loc := re.FindStringSubmatchIndex(subject)
 	if loc == nil {
 		// No match - return empty list
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	// Return {start, end, substitutions, subject}
-	// MOO uses 1-based indexing
-	start := types.NewInt(int64(loc[0] + 1))
-	end := types.NewInt(int64(loc[1]))
-	subs := types.NewList([]types.Value{}) // TODO: capture groups
-	subj := types.NewStr(subject)
-
-	return types.Ok(types.NewList([]types.Value{start, end, subs, subj}))
+	return types.Ok(buildMatchResult(subject, loc))
 }
 
 // builtinRmatch implements rmatch(subject, pattern [, case_matters]) -> list
 // Like match but finds the last occurrence.
 func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -704,8 +709,8 @@ func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 	pattern := patternVal.Value()
 
-	// Case matters (default true)
-	caseSensitive := true
+	// Case-insensitive by default; truthy third argument enables case-sensitive matching.
+	caseSensitive := false
 	if len(args) > 2 {
 		caseSensitive = args[2].Truthy()
 	}
@@ -716,33 +721,35 @@ func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Compile and match
-	var re *regexp.Regexp
-	if caseSensitive {
-		re, err = regexp.Compile(goPattern)
-	} else {
-		re, err = regexp.Compile("(?i)" + goPattern)
+	pat := goPattern
+	if !caseSensitive {
+		pat = "(?i)" + goPattern
 	}
+	re, err := regexp.Compile("^(?:" + pat + ")")
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Find all matches and return the last one
-	allLocs := re.FindAllStringIndex(subject, -1)
-	if len(allLocs) == 0 {
-		// No match - return empty list
+	best := []int(nil)
+	for i := 0; i <= len(subject); i++ {
+		loc := re.FindStringSubmatchIndex(subject[i:])
+		if loc == nil {
+			continue
+		}
+		best = make([]int, len(loc))
+		for j, idx := range loc {
+			if idx < 0 {
+				best[j] = -1
+			} else {
+				best[j] = idx + i
+			}
+		}
+	}
+	if best == nil {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	loc := allLocs[len(allLocs)-1]
-
-	// Return {start, end, substitutions, subject}
-	start := types.NewInt(int64(loc[0] + 1))
-	end := types.NewInt(int64(loc[1]))
-	subs := types.NewList([]types.Value{}) // TODO: capture groups
-	subj := types.NewStr(subject)
-
-	return types.Ok(types.NewList([]types.Value{start, end, subs, subj}))
+	return types.Ok(buildMatchResult(subject, best))
 }
 
 // builtinSubstitute implements substitute(template, match_result) -> str
@@ -770,22 +777,39 @@ func builtinSubstitute(ctx *types.TaskContext, args []types.Value) types.Result 
 		return types.Ok(templateVal)
 	}
 
-	// Extract subs (3rd element) and subject (4th element)
+	// Match result must be {start, end, subs, subject}.
 	if matchResult.Len() < 4 {
+		return types.Err(types.E_INVARG)
+	}
+
+	startVal, ok := matchResult.Get(1).(types.IntValue)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+	endVal, ok := matchResult.Get(2).(types.IntValue)
+	if !ok {
 		return types.Err(types.E_INVARG)
 	}
 
 	subs, ok := matchResult.Get(3).(types.ListValue)
 	if !ok {
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
 
 	subject, ok := matchResult.Get(4).(types.StrValue)
 	if !ok {
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
 
-	// Process template and substitute %N with captured groups
+	subjectText := subject.Value()
+	extract := func(start, end int) string {
+		if start <= 0 || end < 0 || start-1 > len(subjectText) || end > len(subjectText) || start-1 > end {
+			return ""
+		}
+		return subjectText[start-1 : end]
+	}
+
+	// Process template and substitute %N with captured groups.
 	var result strings.Builder
 	i := 0
 	for i < len(template) {
@@ -798,62 +822,28 @@ func builtinSubstitute(ctx *types.TaskContext, args []types.Value) types.Result 
 				// %N -> captured group N
 				groupNum := int(template[i+1] - '0')
 				if groupNum == 0 {
-					// %0 is the entire match (original subject from start to end)
-					startVal, ok := matchResult.Get(1).(types.IntValue)
-					if !ok {
-						return types.Err(types.E_TYPE)
-					}
-					endVal, ok := matchResult.Get(2).(types.IntValue)
-					if !ok {
-						return types.Err(types.E_TYPE)
-					}
-					start := int(startVal.Val) - 1 // Convert from 1-based to 0-based
-					end := int(endVal.Val)          // end is already exclusive in 1-based
-					if start < 0 {
-						start = 0
-					}
-					if end > len(subject.Value()) {
-						end = len(subject.Value())
-					}
-					if start <= end {
-						result.WriteString(subject.Value()[start:end])
-					}
+					result.WriteString(extract(int(startVal.Val), int(endVal.Val)))
 				} else {
-					// %N for N >= 1 -> captured group N
 					if groupNum <= subs.Len() {
 						groupRange, ok := subs.Get(groupNum).(types.ListValue)
-						if ok && groupRange.Len() >= 2 {
-							startVal, ok := groupRange.Get(1).(types.IntValue)
-							if !ok {
-								return types.Err(types.E_TYPE)
-							}
-							endVal, ok := groupRange.Get(2).(types.IntValue)
-							if !ok {
-								return types.Err(types.E_TYPE)
-							}
-							start := int(startVal.Val)
-							end := int(endVal.Val)
-							// Negative values mean no capture
-							if start > 0 && end > 0 {
-								start-- // Convert from 1-based to 0-based
-								if start < 0 {
-									start = 0
-								}
-								if end > len(subject.Value()) {
-									end = len(subject.Value())
-								}
-								if start <= end {
-									result.WriteString(subject.Value()[start:end])
-								}
-							}
+						if !ok || groupRange.Len() < 2 {
+							return types.Err(types.E_INVARG)
 						}
+						gStart, ok := groupRange.Get(1).(types.IntValue)
+						if !ok {
+							return types.Err(types.E_INVARG)
+						}
+						gEnd, ok := groupRange.Get(2).(types.IntValue)
+						if !ok {
+							return types.Err(types.E_INVARG)
+						}
+						result.WriteString(extract(int(gStart.Val), int(gEnd.Val)))
 					}
 				}
 				i += 2
 			} else {
-				// % followed by non-digit, non-% -> treat as literal %
-				result.WriteByte('%')
-				i++
+				// Any other % escape is invalid.
+				return types.Err(types.E_INVARG)
 			}
 		} else {
 			result.WriteByte(template[i])
@@ -869,6 +859,28 @@ func builtinSubstitute(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 
 	return types.Ok(types.NewStr(resultStr))
+}
+
+func buildMatchResult(subject string, loc []int) types.Value {
+	start := types.NewInt(int64(loc[0] + 1))
+	end := types.NewInt(int64(loc[1]))
+	subs := make([]types.Value, 9)
+	for i := 0; i < 9; i++ {
+		subStart := int64(0)
+		subEnd := int64(-1)
+		subIdx := i + 1
+		if subIdx*2+1 < len(loc) && loc[subIdx*2] >= 0 {
+			subStart = int64(loc[subIdx*2] + 1)
+			subEnd = int64(loc[subIdx*2+1])
+		}
+		subs[i] = types.NewList([]types.Value{types.NewInt(subStart), types.NewInt(subEnd)})
+	}
+	return types.NewList([]types.Value{
+		start,
+		end,
+		types.NewList(subs),
+		types.NewStr(subject),
+	})
 }
 
 // mooPatternToGoRegex converts MOO regex patterns to Go regex
