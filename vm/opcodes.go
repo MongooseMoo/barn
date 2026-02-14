@@ -118,6 +118,11 @@ const (
 	OP_LIST_EXTEND                               // Pop src, list; push list with all elements of src appended
 )
 
+// Fork
+const (
+	OP_FORK OpCode = OP_LIST_EXTEND + 1 + iota // Fork statement [varIdx:byte, bodyLen:short]
+)
+
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
 	OP_PUSH:         "PUSH",
@@ -183,6 +188,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_LIST_RANGE:   "LIST_RANGE",
 	OP_LIST_APPEND:  "LIST_APPEND",
 	OP_LIST_EXTEND:  "LIST_EXTEND",
+	OP_FORK:         "FORK",
 }
 
 // String returns the name of an opcode

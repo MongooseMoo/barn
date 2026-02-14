@@ -1688,6 +1688,75 @@ func TestParity_RangeAssignDollar(t *testing.T) {
 	}
 }
 
+// --- Fork statement parity tests ---
+
+func TestParity_ForkBasic(t *testing.T) {
+	cases := map[string]string{
+		"fork_body_not_executed": `
+			x = 1;
+			fork (0)
+				x = 2;
+			endfork
+			return x;`,
+		"fork_code_after_executes": `
+			x = 1;
+			fork (0)
+			endfork
+			x = x + 1;
+			return x;`,
+		"fork_delay_evaluated": `
+			d = 5;
+			fork (d)
+			endfork
+			return d;`,
+		"fork_empty_body": `
+			fork (0)
+			endfork
+			return 42;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForkWithVariable(t *testing.T) {
+	cases := map[string]string{
+		"fork_var_anonymous": `
+			fork (0)
+			endfork
+			return 1;`,
+		"fork_var_named": `
+			fork id (0)
+			endfork
+			return 1;`,
+		"fork_var_code_after": `
+			x = 10;
+			fork id (0)
+				x = 99;
+			endfork
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForkDelayErrors(t *testing.T) {
+	cases := map[string]string{
+		"fork_negative_delay": `
+			fork (-1)
+			endfork
+			return 1;`,
+		"fork_string_delay": `
+			fork ("hello")
+			endfork
+			return 1;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
 func TestParity_RangeAssignErrors(t *testing.T) {
 	cases := map[string]string{
 		"string_type_mismatch": `s = "hello"; s[1..3] = 42; return s;`,

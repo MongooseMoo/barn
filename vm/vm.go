@@ -305,6 +305,10 @@ func (vm *VM) Execute(op OpCode) error {
 	case OP_CALL_VERB:
 		return vm.executeCallVerb()
 
+	// Fork
+	case OP_FORK:
+		return vm.executeFork()
+
 	// Exception handling
 	case OP_TRY_EXCEPT:
 		return vm.executeTryExcept()
@@ -444,6 +448,46 @@ func (vm *VM) HandleError(err error) bool {
 
 	// No handler found
 	return false
+}
+
+// executeFork handles OP_FORK: evaluate delay, skip fork body, optionally set fork variable.
+//
+// Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short>
+// Stack: [delay] (delay value on top)
+//
+// In the current parity-test context (no scheduler), the fork body is always
+// skipped and the fork variable (if any) is set to 0.
+// This matches the tree-walker behavior where forkStmt returns FlowFork and
+// EvalStatements continues execution without running the fork body.
+func (vm *VM) executeFork() error {
+	varIdx := int(vm.ReadByte())
+	bodyLen := vm.ReadShort()
+
+	// Pop and validate the delay value
+	delay := vm.Pop()
+
+	switch v := delay.(type) {
+	case types.IntValue:
+		if v.Val < 0 {
+			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
+		}
+	case types.FloatValue:
+		if v.Val < 0 {
+			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
+		}
+	default:
+		return fmt.Errorf("E_TYPE: fork delay must be numeric")
+	}
+
+	// If there's a fork variable, assign it 0 (no scheduler = no real task ID)
+	if varIdx > 0 {
+		vm.CurrentFrame().Locals[varIdx-1] = types.IntValue{Val: 0}
+	}
+
+	// Skip over the fork body
+	vm.CurrentFrame().IP += int(bodyLen)
+
+	return nil
 }
 
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack

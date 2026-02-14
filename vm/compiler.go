@@ -295,6 +295,8 @@ func (c *Compiler) compileNode(node parser.Node) error {
 		return c.compileTryExceptFinally(n)
 	case *parser.ScatterStmt:
 		return c.compileScatter(n)
+	case *parser.ForkStmt:
+		return c.compileFork(n)
 
 	default:
 		return fmt.Errorf("unknown node type: %T", node)
@@ -1585,6 +1587,49 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 			break // only one @rest allowed
 		}
 	}
+
+	return nil
+}
+
+func (c *Compiler) compileFork(n *parser.ForkStmt) error {
+	// Fork statement: fork [name] (delay) body endfork
+	//
+	// Bytecode layout:
+	//   [delay expression]         -- evaluates delay, pushes onto stack
+	//   OP_FORK <varIdx> <bodyLen:short>  -- pops delay, validates, sets var=0, jumps over body
+	//   [body statements]          -- compiled but skipped at runtime (for future scheduling)
+	//
+	// varIdx: 0 = anonymous fork, idx+1 = store task ID (0) in locals[idx]
+	// bodyLen: number of bytes to skip past the fork body
+
+	// Compile the delay expression
+	if err := c.compileNode(n.Delay); err != nil {
+		return err
+	}
+
+	// Determine variable index
+	var varIdx int
+	if n.VarName != "" {
+		varIdx = c.declareVariable(n.VarName) + 1 // +1 so 0 means "no variable"
+	}
+
+	// Emit OP_FORK with variable index and placeholder body length
+	c.emit(OP_FORK)
+	c.emitByte(byte(varIdx))
+	bodyLenPatch := len(c.program.Code)
+	c.emitShort(0xFFFF) // placeholder for body length
+
+	// Compile the fork body (will be skipped at runtime but compiled for future use)
+	bodyStart := c.currentOffset()
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+	bodyEnd := c.currentOffset()
+
+	// Patch body length
+	bodyLen := bodyEnd - bodyStart
+	c.program.Code[bodyLenPatch] = byte(bodyLen >> 8)
+	c.program.Code[bodyLenPatch+1] = byte(bodyLen)
 
 	return nil
 }
