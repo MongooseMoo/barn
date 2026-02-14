@@ -3,6 +3,8 @@ package builtins
 import (
 	"barn/db"
 	"barn/types"
+	"sort"
+	"sync"
 )
 
 // RegisterObjectBuiltins registers object management builtins
@@ -13,7 +15,7 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 	})
 
 	r.Register("recycle", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinRecycle(ctx, args, store)
+		return builtinRecycle(ctx, args, store, r)
 	})
 
 	r.Register("valid", func(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -101,6 +103,7 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 //   - OBJ or negative INT → owner (must come before anonymous flag)
 //   - Non-negative INT → anonymous flag (0 or 1)
 //   - LIST → init args for :initialize verb (must come last)
+//
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
 func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, registry *Registry) types.Result {
@@ -428,9 +431,52 @@ func copyInheritedProperties(obj *db.Object, store *db.Store) map[string]*db.Pro
 	return result
 }
 
+var recycleState struct {
+	mu  sync.Mutex
+	ids map[types.ObjID]int
+}
+
+func init() {
+	recycleState.ids = make(map[types.ObjID]int)
+}
+
+func beginRecycle(id types.ObjID) bool {
+	recycleState.mu.Lock()
+	defer recycleState.mu.Unlock()
+	if recycleState.ids[id] > 0 {
+		return false
+	}
+	recycleState.ids[id] = 1
+	return true
+}
+
+func endRecycle(id types.ObjID) {
+	recycleState.mu.Lock()
+	defer recycleState.mu.Unlock()
+	delete(recycleState.ids, id)
+}
+
+func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.ObjValue) {
+	switch val := v.(type) {
+	case types.ObjValue:
+		if val.IsAnonymous() {
+			out[val.ID()] = val
+		}
+	case types.ListValue:
+		for _, elem := range val.Elements() {
+			collectAnonymousRefs(elem, out)
+		}
+	case types.MapValue:
+		for _, pair := range val.Pairs() {
+			collectAnonymousRefs(pair[0], out)
+			collectAnonymousRefs(pair[1], out)
+		}
+	}
+}
+
 // builtinRecycle implements recycle(object)
-// Destroys an object
-func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+// Destroys an object and invokes :recycle lifecycle hooks.
+func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store, registry *Registry) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -441,14 +487,53 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	}
 
 	objID := objVal.ID()
+	if !beginRecycle(objID) {
+		// Recursive recycle(this) on the same target fails.
+		return types.Err(types.E_INVARG)
+	}
+	defer endRecycle(objID)
+
 	obj := store.Get(objID)
 	if obj == nil {
-		// Object doesn't exist or was already recycled - both are E_INVARG
+		// Object doesn't exist or was already recycled - both are E_INVARG.
 		return types.Err(types.E_INVARG)
 	}
 
 	// TODO: Check permissions (Layer 8.5)
-	// TODO: Call :recycle verb if it exists (Phase 9)
+
+	// Invoke :recycle hook if present. Missing hook and hook errors are ignored.
+	// This matches lifecycle behavior: recycle should proceed even if hook throws.
+	if registry != nil {
+		_ = registry.CallVerb(objID, "recycle", []types.Value{}, ctx)
+	}
+
+	// Recycle anonymous objects reachable via property values (including nested
+	// list/map values) before this object is destroyed.
+	anonRefs := make(map[types.ObjID]types.ObjValue)
+	for _, prop := range obj.Properties {
+		if prop == nil {
+			continue
+		}
+		collectAnonymousRefs(prop.Value, anonRefs)
+	}
+
+	if len(anonRefs) > 0 {
+		ids := make([]int64, 0, len(anonRefs))
+		for id := range anonRefs {
+			if id != objID {
+				ids = append(ids, int64(id))
+			}
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		for _, id := range ids {
+			ref := anonRefs[types.ObjID(id)]
+			// Ignore errors while cascading anonymous recycling.
+			_ = builtinRecycle(ctx, []types.Value{ref}, store, registry)
+		}
+	}
+
+	// Parent hierarchy is changing; invalidate anonymous children on descendants.
+	store.InvalidateAnonymousChildren(objID)
 
 	// Reparent children to this object's parent(s)
 	// Per MOO semantics: when an object is recycled, its children
@@ -537,6 +622,7 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store)
 	if err := store.Recycle(objID); err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	store.NoteVerbCacheClear()
 
 	return types.Ok(types.NewInt(0))
 }
@@ -782,15 +868,8 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 
 	// TODO: Check permissions and fertile flag (Layer 8.5)
 
-	// Invalidate anonymous children of the object being reparented
-	// (its hierarchy is changing, so its anonymous children become invalid)
-	for _, childID := range obj.AnonymousChildren {
-		child := store.Get(childID)
-		if child != nil && child.Anonymous {
-			child.Flags = child.Flags.Set(db.FlagInvalid)
-		}
-	}
-	obj.AnonymousChildren = nil
+	// Invalidate anonymous children in descendant hierarchy.
+	store.InvalidateAnonymousChildren(objVal.ID())
 
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
@@ -832,7 +911,7 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 	}
 	obj.Properties = newProps
 
-	return types.Ok(types.NewInt(1))
+	return types.Ok(types.NewInt(0))
 }
 
 // builtinChparents implements chparents(object, parents_list)
@@ -939,15 +1018,8 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 
 	// TODO: Check permissions and fertile flags (Layer 8.5)
 
-	// Invalidate anonymous children of the object being reparented
-	// (its hierarchy is changing, so its anonymous children become invalid)
-	for _, childID := range obj.AnonymousChildren {
-		child := store.Get(childID)
-		if child != nil && child.Anonymous {
-			child.Flags = child.Flags.Set(db.FlagInvalid)
-		}
-	}
-	obj.AnonymousChildren = nil
+	// Invalidate anonymous children in descendant hierarchy.
+	store.InvalidateAnonymousChildren(objVal.ID())
 
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
