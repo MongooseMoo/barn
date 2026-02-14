@@ -25,6 +25,24 @@ Your instinct on failure is to immediately start investigating Barn code. **THAT
 
 ---
 
+## CRITICAL: NEVER Touch The Conformance Tests
+
+**The moo-conformance-tests are SACRED. They are the spec. They define correct behavior.**
+
+- **NEVER add skip markers** to conformance test YAML files
+- **NEVER modify test expectations** to match Barn's broken behavior
+- **NEVER weaken assertions** in any test
+- **NEVER remove tests** that Barn fails
+- **NEVER celebrate "0 failures"** if tests are being skipped that shouldn't be
+
+**When a conformance test fails, there is exactly ONE correct response: FIX BARN.**
+
+Not "skip it." Not "it needs complex infrastructure." Not "legitimate skip." **FIX. BARN.**
+
+The conformance tests live in `~/code/moo-conformance-tests/`. They are a **read-only dependency**. If you find yourself editing files in that directory, you are doing the wrong thing.
+
+---
+
 ## CRITICAL: What The Spec Is
 
 **The spec documents ToastStunt behavior. Period.**
