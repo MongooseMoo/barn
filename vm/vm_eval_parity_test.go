@@ -1595,3 +1595,48 @@ func TestParity_ForMapBreakContinue(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- List range expression parity tests ---
+
+func TestParity_ListRangeExpr(t *testing.T) {
+	cases := []string{
+		"{1..5}",       // ascending: {1, 2, 3, 4, 5}
+		"{3..1}",       // descending: {3, 2, 1}
+		"{1..1}",       // single element: {1}
+		"{0..0}",       // single zero: {0}
+		"{-2..2}",      // negative to positive: {-2, -1, 0, 1, 2}
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_ListRangeExprProgram(t *testing.T) {
+	cases := map[string]string{
+		"variable_endpoint": `x = 3; return {1..x};`,
+		"variable_both":     `a = 2; b = 5; return {a..b};`,
+		"range_in_for":      `s = 0; for x in ({1..3}) s = s + x; endfor return s;`,
+		"descending_range":  `return {5..1};`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+// --- Splice in list construction parity tests ---
+
+func TestParity_SpliceInList(t *testing.T) {
+	cases := map[string]string{
+		"splice_at_end":      `l = {1, 2}; return {@l, 3};`,
+		"splice_at_start":    `l = {2, 3}; return {1, @l};`,
+		"splice_in_middle":   `l = {1, 2}; return {0, @l, 3};`,
+		"splice_two_lists":   `l = {1, 2}; m = {3, 4}; return {@l, @m};`,
+		"splice_inline":      `return {@{1, 2}, 3};`,
+		"splice_empty_list":  `l = {}; return {1, @l, 2};`,
+		"splice_only":        `l = {1, 2, 3}; return {@l};`,
+		"no_splice_unchanged": `return {1, 2, 3};`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

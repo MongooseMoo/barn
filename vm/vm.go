@@ -280,6 +280,12 @@ func (vm *VM) Execute(op OpCode) error {
 		return vm.executeMakeMap()
 	case OP_LENGTH:
 		return vm.executeLength()
+	case OP_LIST_RANGE:
+		return vm.executeListRange()
+	case OP_LIST_APPEND:
+		return vm.executeListAppend()
+	case OP_LIST_EXTEND:
+		return vm.executeListExtend()
 
 	// Scatter assignment
 	case OP_SCATTER:

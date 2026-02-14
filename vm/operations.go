@@ -722,6 +722,105 @@ func (vm *VM) executeLength() error {
 	return nil
 }
 
+// executeListRange handles OP_LIST_RANGE: pop end, start; push {start..end} list.
+// Matches tree-walker behavior: ascending if start <= end, descending if start > end.
+// Accepts INT and OBJ types (OBJ treated as its ID value).
+func (vm *VM) executeListRange() error {
+	endVal := vm.Pop()
+	startVal := vm.Pop()
+
+	// Extract integer values (accept both INT and OBJ types, matching tree-walker)
+	var start, end int64
+
+	switch v := startVal.(type) {
+	case types.IntValue:
+		start = v.Val
+	case types.ObjValue:
+		start = int64(v.ID())
+	default:
+		return fmt.Errorf("E_TYPE: list range requires integer start")
+	}
+
+	switch v := endVal.(type) {
+	case types.IntValue:
+		end = v.Val
+	case types.ObjValue:
+		end = int64(v.ID())
+	default:
+		return fmt.Errorf("E_TYPE: list range requires integer end")
+	}
+
+	// Build the list
+	var elements []types.Value
+	if start <= end {
+		// Ascending range
+		elements = make([]types.Value, 0, end-start+1)
+		for i := start; i <= end; i++ {
+			elements = append(elements, types.NewInt(i))
+		}
+	} else {
+		// Descending range
+		elements = make([]types.Value, 0, start-end+1)
+		for i := start; i >= end; i-- {
+			elements = append(elements, types.NewInt(i))
+		}
+	}
+
+	vm.Push(types.NewList(elements))
+	return nil
+}
+
+// executeListAppend handles OP_LIST_APPEND: pop elem, pop list; push list with elem appended.
+// Used for building lists with splices (non-splice elements).
+func (vm *VM) executeListAppend() error {
+	elem := vm.Pop()
+	listVal := vm.Pop()
+
+	list, ok := listVal.(types.ListValue)
+	if !ok {
+		return fmt.Errorf("E_TYPE: LIST_APPEND requires a list")
+	}
+
+	// Build new list with element appended
+	newElems := make([]types.Value, list.Len()+1)
+	for i := 1; i <= list.Len(); i++ {
+		newElems[i-1] = list.Get(i)
+	}
+	newElems[list.Len()] = elem
+
+	vm.Push(types.NewList(newElems))
+	return nil
+}
+
+// executeListExtend handles OP_LIST_EXTEND: pop src, pop list; push list with all elements of src appended.
+// Used for building lists with splices (splice elements -- @list extends the accumulator).
+func (vm *VM) executeListExtend() error {
+	srcVal := vm.Pop()
+	listVal := vm.Pop()
+
+	list, ok := listVal.(types.ListValue)
+	if !ok {
+		return fmt.Errorf("E_TYPE: LIST_EXTEND requires a list base")
+	}
+
+	src, ok := srcVal.(types.ListValue)
+	if !ok {
+		return fmt.Errorf("E_TYPE: splice requires a list operand")
+	}
+
+	// Build new list with all elements of src appended
+	newElems := make([]types.Value, list.Len()+src.Len())
+	for i := 1; i <= list.Len(); i++ {
+		newElems[i-1] = list.Get(i)
+	}
+	for i := 1; i <= src.Len(); i++ {
+		newElems[list.Len()+i-1] = src.Get(i)
+	}
+
+	vm.Push(types.NewList(newElems))
+	return nil
+}
+
 func (vm *VM) executeCallBuiltin() error {
 	funcID := vm.ReadByte()
 	argc := vm.ReadByte()

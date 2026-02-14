@@ -1548,23 +1548,73 @@ func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
 }
 
 // compileList compiles a list literal: {expr, expr, ...}
+// If no splice (@) elements are present, uses the fast path: push all elements
+// then OP_MAKE_LIST <count>.
+// If splices are present, builds incrementally: start with empty list, then
+// OP_LIST_APPEND for each regular element and OP_LIST_EXTEND for each splice.
 func (c *Compiler) compileList(n *parser.ListExpr) error {
-	// Compile each element (in order)
+	// Check if any element is a splice expression
+	hasSplice := false
 	for _, elem := range n.Elements {
-		if err := c.compileNode(elem); err != nil {
-			return err
+		if _, ok := elem.(*parser.SpliceExpr); ok {
+			hasSplice = true
+			break
 		}
 	}
-	// Emit MAKE_LIST with element count
+
+	if !hasSplice {
+		// Fast path: no splices, use existing OP_MAKE_LIST
+		for _, elem := range n.Elements {
+			if err := c.compileNode(elem); err != nil {
+				return err
+			}
+		}
+		c.emit(OP_MAKE_LIST)
+		c.emitByte(byte(len(n.Elements)))
+		return nil
+	}
+
+	// Splice path: build list incrementally
+	// Start with an empty list on the stack
 	c.emit(OP_MAKE_LIST)
-	c.emitByte(byte(len(n.Elements)))
+	c.emitByte(0)
+
+	for _, elem := range n.Elements {
+		if splice, ok := elem.(*parser.SpliceExpr); ok {
+			// Splice: compile inner expression, then extend
+			if err := c.compileNode(splice.Expr); err != nil {
+				return err
+			}
+			c.emit(OP_LIST_EXTEND)
+		} else {
+			// Regular element: compile, then append
+			if err := c.compileNode(elem); err != nil {
+				return err
+			}
+			c.emit(OP_LIST_APPEND)
+		}
+	}
+
 	return nil
 }
 
 // compileListRange compiles a range list: {start..end}
+// Emits: [start] [end] OP_LIST_RANGE
+// VM handler builds the list at runtime.
 func (c *Compiler) compileListRange(n *parser.ListRangeExpr) error {
-	// This requires a runtime loop — not yet supported in bytecode.
-	return fmt.Errorf("list range expression compilation not yet implemented")
+	// Compile start expression
+	if err := c.compileNode(n.Start); err != nil {
+		return err
+	}
+
+	// Compile end expression
+	if err := c.compileNode(n.End); err != nil {
+		return err
+	}
+
+	// Emit OP_LIST_RANGE: pops end, start; pushes {start..end} list
+	c.emit(OP_LIST_RANGE)
+	return nil
 }
 
 // compileMap compiles a map literal: [key -> value, ...]

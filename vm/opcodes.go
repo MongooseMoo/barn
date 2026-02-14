@@ -110,8 +110,11 @@ const (
 	OP_INDEX_SET                                 // Pop val, idx, coll; set coll[idx]
 	OP_RANGE                                     // Pop end, start, coll; push slice
 	OP_LENGTH                                    // Pop coll; push length
-	OP_SPLICE                                    // Splice list
+	OP_SPLICE                                    // Splice list (unused - splice handled by LIST_APPEND/LIST_EXTEND)
 	OP_ITER_PREP                                 // Pop container; push normalized list + isPairs flag [hasIndex:byte]
+	OP_LIST_RANGE                                // Pop end, start; push {start..end} list
+	OP_LIST_APPEND                               // Pop elem, list; push list with elem appended
+	OP_LIST_EXTEND                               // Pop src, list; push list with all elements of src appended
 )
 
 // OpCodeNames maps opcodes to their string names for debugging
@@ -175,6 +178,9 @@ var OpCodeNames = map[OpCode]string{
 	OP_LENGTH:       "LENGTH",
 	OP_SPLICE:       "SPLICE",
 	OP_ITER_PREP:    "ITER_PREP",
+	OP_LIST_RANGE:   "LIST_RANGE",
+	OP_LIST_APPEND:  "LIST_APPEND",
+	OP_LIST_EXTEND:  "LIST_EXTEND",
 }
 
 // String returns the name of an opcode
