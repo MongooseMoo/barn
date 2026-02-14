@@ -13,14 +13,16 @@ type Compiler struct {
 	variables map[string]int // Variable name -> index mapping
 	loops     []LoopContext  // Loop context stack for break/continue
 	scopes    []Scope        // Variable scope stack
+	tempCount int            // Counter for unique temporary variable names
 }
 
 // LoopContext tracks loop compilation state
 type LoopContext struct {
-	Label     string
-	BreakIP   int // Patch location for break jumps
-	ContinueIP int // Patch location for continue jumps
-	StartIP   int // Loop body start
+	Label         string
+	BreakJumps    []int // Patch locations for break jumps (forward jumps past loop end)
+	ContinueJumps []int // Patch locations for continue jumps (forward jumps to increment)
+	ContinueIP    int   // Target IP for continue (0 = use ContinueJumps for forward patching)
+	StartIP       int   // Loop condition start (for backward jump at end of body)
 }
 
 // Scope tracks variables in a lexical scope
@@ -177,14 +179,22 @@ func (c *Compiler) resolveVariable(name string) (int, bool) {
 // beginLoop starts a new loop context
 func (c *Compiler) beginLoop(label string) {
 	c.loops = append(c.loops, LoopContext{
-		Label:   label,
-		StartIP: c.currentOffset(),
+		Label:         label,
+		StartIP:       c.currentOffset(),
+		ContinueIP:    0, // 0 = not set yet; will use ContinueJumps for forward patching
+		BreakJumps:    make([]int, 0, 4),
+		ContinueJumps: make([]int, 0, 4),
 	})
 }
 
-// endLoop ends the current loop context
+// endLoop ends the current loop context and patches all break jumps to current location
 func (c *Compiler) endLoop() {
 	if len(c.loops) > 0 {
+		loop := &c.loops[len(c.loops)-1]
+		// Patch all break jumps to point to current location (after the loop)
+		for _, offset := range loop.BreakJumps {
+			c.patchJump(offset)
+		}
 		c.loops = c.loops[:len(c.loops)-1]
 	}
 }
@@ -245,6 +255,12 @@ func (c *Compiler) compileNode(node parser.Node) error {
 		return c.compileSplice(n)
 	case *parser.CatchExpr:
 		return c.compileCatch(n)
+	case *parser.ListExpr:
+		return c.compileList(n)
+	case *parser.ListRangeExpr:
+		return c.compileListRange(n)
+	case *parser.MapExpr:
+		return c.compileMap(n)
 
 	// Statements
 	case *parser.ExprStmt:
@@ -641,6 +657,8 @@ func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
 	// Start loop
 	c.beginLoop(n.Label)
 	loopStart := c.currentOffset()
+	// For while loops, continue jumps back to condition check
+	c.currentLoop().ContinueIP = loopStart
 
 	// Compile condition
 	if err := c.compileNode(n.Condition); err != nil {
@@ -655,9 +673,11 @@ func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
 		return err
 	}
 
-	// Jump back to start
-	c.emit(OP_JUMP)
-	offset := c.currentOffset() - loopStart
+	// Jump back to start (backward jump)
+	c.emit(OP_LOOP)
+	// After reading opcode + short, IP = currentOffset + 2
+	// We want IP - offset = loopStart, so offset = currentOffset + 2 - loopStart
+	offset := c.currentOffset() + 2 - loopStart
 	c.emitShort(uint16(offset))
 
 	// Patch exit jump
@@ -669,17 +689,196 @@ func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
 }
 
 func (c *Compiler) compileFor(n *parser.ForStmt) error {
-	// TODO: Implement for loop compilation (range, list, map variants)
-	return fmt.Errorf("for loop compilation not yet implemented")
+	if n.RangeStart != nil {
+		return c.compileForRange(n)
+	}
+	return c.compileForList(n)
+}
+
+// tempVar generates a unique temporary variable name
+func (c *Compiler) tempVar(prefix string) string {
+	c.tempCount++
+	return fmt.Sprintf("__%s_%d__", prefix, c.tempCount)
+}
+
+// compileForRange compiles: for x in [start..end] ... endfor
+// Compiles to equivalent while loop pattern.
+func (c *Compiler) compileForRange(n *parser.ForStmt) error {
+	// Hidden variable for end bound
+	endVar := c.declareVariable(c.tempVar("end"))
+	valueVar := c.declareVariable(n.Value)
+
+	// Evaluate end and store
+	if err := c.compileNode(n.RangeEnd); err != nil {
+		return err
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(endVar))
+
+	// Evaluate start and store as loop variable
+	if err := c.compileNode(n.RangeStart); err != nil {
+		return err
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(valueVar))
+
+	// Loop start
+	c.beginLoop(n.Label)
+	loopStart := c.currentOffset()
+
+	// Condition: x <= end
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(valueVar))
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(endVar))
+	c.emit(OP_LE)
+	exitJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+	// Body
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// Patch continue jumps to point here (the increment section)
+	// continue in a for-range should increment before re-checking condition
+	for _, offset := range c.currentLoop().ContinueJumps {
+		c.patchJump(offset)
+	}
+
+	// Increment: x = x + 1
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(valueVar))
+	if op, ok := MakeImmediateOpcode(1); ok {
+		c.emit(op)
+	}
+	c.emit(OP_ADD)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(valueVar))
+
+	// Loop back
+	c.emit(OP_LOOP)
+	offset := c.currentOffset() + 2 - loopStart
+	c.emitShort(uint16(offset))
+
+	// Patch exit
+	c.patchJump(exitJump)
+	c.endLoop()
+	return nil
+}
+
+// compileForList compiles: for x in (expr) ... endfor
+// Compiles to equivalent while loop with index counter.
+func (c *Compiler) compileForList(n *parser.ForStmt) error {
+	// Hidden variables (unique per loop to support nesting)
+	listVar := c.declareVariable(c.tempVar("list"))
+	idxVar := c.declareVariable(c.tempVar("idx"))
+	lenVar := c.declareVariable(c.tempVar("len"))
+	valueVar := c.declareVariable(n.Value)
+
+	// Evaluate container and store
+	if err := c.compileNode(n.Container); err != nil {
+		return err
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(listVar))
+
+	// idx = 1
+	if op, ok := MakeImmediateOpcode(1); ok {
+		c.emit(op)
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(idxVar))
+
+	// len = length(list)
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(listVar))
+	c.emit(OP_LENGTH)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(lenVar))
+
+	// Loop start
+	c.beginLoop(n.Label)
+	loopStart := c.currentOffset()
+
+	// Condition: idx <= len
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(idxVar))
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(lenVar))
+	c.emit(OP_LE)
+	exitJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+	// x = list[idx]
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(listVar))
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(idxVar))
+	c.emit(OP_INDEX)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(valueVar))
+
+	// Body
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// Patch continue jumps to point here (the increment section)
+	// continue in a for-list should increment before re-checking condition
+	for _, offset := range c.currentLoop().ContinueJumps {
+		c.patchJump(offset)
+	}
+
+	// Increment: idx = idx + 1
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(idxVar))
+	if op, ok := MakeImmediateOpcode(1); ok {
+		c.emit(op)
+	}
+	c.emit(OP_ADD)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(idxVar))
+
+	// Loop back
+	c.emit(OP_LOOP)
+	offset := c.currentOffset() + 2 - loopStart
+	c.emitShort(uint16(offset))
+
+	// Patch exit
+	c.patchJump(exitJump)
+	c.endLoop()
+	return nil
 }
 
 func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
-	c.emit(OP_BREAK)
+	loop := c.findLoop(n.Label)
+	if loop == nil {
+		return fmt.Errorf("break outside of loop")
+	}
+
+	// Emit a forward jump past the loop end (will be patched by endLoop)
+	patchOffset := c.emitJump(OP_JUMP)
+	loop.BreakJumps = append(loop.BreakJumps, patchOffset)
 	return nil
 }
 
 func (c *Compiler) compileContinue(n *parser.ContinueStmt) error {
-	c.emit(OP_CONTINUE)
+	loop := c.findLoop(n.Label)
+	if loop == nil {
+		return fmt.Errorf("continue outside of loop")
+	}
+
+	if loop.ContinueIP > 0 {
+		// ContinueIP is known (while loops) -- emit backward jump directly
+		c.emit(OP_LOOP)
+		// After reading opcode + short, IP = currentOffset + 2
+		// We want IP - offset = ContinueIP, so offset = currentOffset + 2 - ContinueIP
+		offset := c.currentOffset() + 2 - loop.ContinueIP
+		c.emitShort(uint16(offset))
+	} else {
+		// ContinueIP not yet known (for loops) -- emit forward jump, patch later
+		patchOffset := c.emitJump(OP_JUMP)
+		loop.ContinueJumps = append(loop.ContinueJumps, patchOffset)
+	}
 	return nil
 }
 
@@ -723,5 +922,42 @@ func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// compileList compiles a list literal: {expr, expr, ...}
+func (c *Compiler) compileList(n *parser.ListExpr) error {
+	// Compile each element (in order)
+	for _, elem := range n.Elements {
+		if err := c.compileNode(elem); err != nil {
+			return err
+		}
+	}
+	// Emit MAKE_LIST with element count
+	c.emit(OP_MAKE_LIST)
+	c.emitByte(byte(len(n.Elements)))
+	return nil
+}
+
+// compileListRange compiles a range list: {start..end}
+func (c *Compiler) compileListRange(n *parser.ListRangeExpr) error {
+	// This requires a runtime loop — not yet supported in bytecode.
+	return fmt.Errorf("list range expression compilation not yet implemented")
+}
+
+// compileMap compiles a map literal: [key -> value, ...]
+func (c *Compiler) compileMap(n *parser.MapExpr) error {
+	// Compile each key-value pair (in order)
+	for _, pair := range n.Pairs {
+		if err := c.compileNode(pair.Key); err != nil {
+			return err
+		}
+		if err := c.compileNode(pair.Value); err != nil {
+			return err
+		}
+	}
+	// Emit MAKE_MAP with pair count
+	c.emit(OP_MAKE_MAP)
+	c.emitByte(byte(len(n.Pairs)))
 	return nil
 }

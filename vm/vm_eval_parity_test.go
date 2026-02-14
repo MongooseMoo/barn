@@ -1,0 +1,821 @@
+package vm
+
+import (
+	"barn/parser"
+	"barn/types"
+	"fmt"
+	"testing"
+)
+
+// vmEvalExpr compiles and runs an expression through the bytecode VM.
+// Returns (value, error). The value is nil if execution fails.
+func vmEvalExpr(t *testing.T, input string) (types.Value, error) {
+	t.Helper()
+	p := parser.NewParser(input)
+	expr, err := p.ParseExpression(0)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	// Wrap expression in a return statement so the VM yields the value
+	retStmt := &parser.ReturnStmt{Value: expr}
+
+	c := NewCompiler()
+	prog, err := c.Compile(retStmt)
+	if err != nil {
+		return nil, fmt.Errorf("compile error: %w", err)
+	}
+
+	vm := NewVM(nil, nil)
+	return vm.Run(prog)
+}
+
+// treeEvalExpr evaluates an expression through the tree-walking Evaluator.
+func treeEvalExpr(t *testing.T, input string) types.Result {
+	t.Helper()
+	p := parser.NewParser(input)
+	expr, err := p.ParseExpression(0)
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	evaluator := NewEvaluator()
+	ctx := types.NewTaskContext()
+	return evaluator.Eval(expr, ctx)
+}
+
+// comparePaths runs an expression through both the tree-walker and the bytecode
+// VM and asserts they produce the same result.
+func comparePaths(t *testing.T, input string) {
+	t.Helper()
+
+	treeResult := treeEvalExpr(t, input)
+	vmVal, vmErr := vmEvalExpr(t, input)
+
+	if treeResult.IsError() {
+		// Tree-walker returned an error — VM should also error
+		if vmErr == nil {
+			t.Errorf("tree-walker returned error %v, but VM succeeded with %v", treeResult.Error, vmVal)
+			return
+		}
+		// Both errored — that's parity (we could check error codes match, but
+		// the VM uses Go errors while the evaluator uses ErrorCode, so for now
+		// just confirming both error is sufficient)
+		return
+	}
+
+	// Tree-walker succeeded
+	if vmErr != nil {
+		t.Errorf("tree-walker returned %v, but VM errored: %v", treeResult.Val, vmErr)
+		return
+	}
+
+	// Both succeeded — compare values
+	if !valuesEqual(treeResult.Val, vmVal) {
+		t.Errorf("MISMATCH: tree-walker=%v (%T), VM=%v (%T)",
+			treeResult.Val, treeResult.Val, vmVal, vmVal)
+	}
+}
+
+// valuesEqual compares two MOO values, treating IntValue(1) and BoolValue(true)
+// as NOT equal (they are different types — this is intentional to surface bugs).
+func valuesEqual(a, b types.Value) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// Strict type + value check
+	if a.Type() != b.Type() {
+		return false
+	}
+	return a.Equal(b)
+}
+
+// --- Parity Tests ---
+
+func TestParity_IntLiterals(t *testing.T) {
+	cases := []string{
+		"0", "1", "42", "-1", "-10", "143", "144", "1000",
+		"9223372036854775807", // max int64
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_FloatLiterals(t *testing.T) {
+	cases := []string{"0.0", "1.5", "3.14", "-2.5"}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_StringLiterals(t *testing.T) {
+	cases := []string{`""`, `"hello"`, `"hello world"`, `"tab\there"`}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_Arithmetic(t *testing.T) {
+	cases := []string{
+		// Basic ops
+		"1 + 2", "10 - 3", "4 * 5", "20 / 4", "17 % 5", "2 ^ 3",
+		// Negation
+		"-5", "-0", "--5",
+		// Precedence
+		"1 + 2 * 3", "(1 + 2) * 3", "2 ^ 3 + 1",
+		// Float arithmetic
+		"1.5 + 2.5", "3.0 - 1.5", "2.0 * 3.0", "7.0 / 2.0",
+		// Mixed int/float
+		"1 + 2.0", "3.0 - 1", "2 * 3.0", "7 / 2.0",
+		// String concatenation
+		`"hello" + " " + "world"`,
+		// Negative modulo (floored division semantics)
+		"-7 % 3", "7 % -3",
+		// Power edge cases
+		"2 ^ 0", "0 ^ 0", "2 ^ -1",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_ArithmeticErrors(t *testing.T) {
+	cases := []string{
+		"1 / 0",        // E_DIV
+		"1 % 0",        // E_DIV
+		`"a" + 1`,      // E_TYPE
+		`"a" - "b"`,    // E_TYPE
+		`"a" * 2`,      // E_TYPE
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_Comparison(t *testing.T) {
+	cases := []string{
+		"1 == 1", "1 == 2",
+		"1 != 2", "1 != 1",
+		"1 < 2", "2 < 1", "1 < 1",
+		"1 <= 1", "1 <= 2", "2 <= 1",
+		"2 > 1", "1 > 2", "1 > 1",
+		"1 >= 1", "2 >= 1", "1 >= 2",
+		// Float comparison
+		"1.0 == 1.0", "1.0 < 2.0",
+		// Mixed int/float
+		"1 == 1.0", "1 < 2.0",
+		// String comparison
+		`"abc" == "abc"`, `"abc" < "def"`,
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_Logical(t *testing.T) {
+	cases := []string{
+		"1 && 2", "0 && 2",
+		"1 || 2", "0 || 2",
+		"!0", "!1", "!42",
+		"1 && 2 && 3", "0 || 0 || 5",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_Bitwise(t *testing.T) {
+	cases := []string{
+		"5 & 3",   // AND → 1
+		"5 | 3",   // OR → 7
+		"5 ^ 3",   // XOR → 6 -- NOTE: ^ is power in MOO, not XOR
+		"~0",      // NOT → -1
+		"1 << 4",  // left shift → 16
+		"16 >> 4", // right shift → 1
+		// Edge cases
+		"~-1",       // NOT of -1 → 0
+		"-1 >> 1",   // logical right shift of -1
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_Ternary(t *testing.T) {
+	cases := []string{
+		"1 ? 100 | 200",
+		"0 ? 100 | 200",
+		"1 ? 2 ? 10 | 20 | 30",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_ListConstruction(t *testing.T) {
+	cases := []string{
+		"{}",
+		"{1, 2, 3}",
+		`{1, "two", 3.0}`,
+		"{{1, 2}, {3, 4}}",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_MapConstruction(t *testing.T) {
+	cases := []string{
+		"[]",
+		`["a" -> 1, "b" -> 2]`,
+		"[1 -> 100, 2 -> 200]",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_In(t *testing.T) {
+	cases := []string{
+		"2 in {1, 2, 3}",    // found at index 2
+		"5 in {1, 2, 3}",    // not found → 0
+		`"ll" in "hello"`,   // substring → 1
+		`"xyz" in "hello"`,  // not found → 0
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_DivisionEdgeCases(t *testing.T) {
+	cases := []string{
+		"0 / 1",           // zero divided by something
+		"1.0 / 0.0",       // float division by zero
+		"0.0 / 0.0",       // zero/zero float
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+// --- Statement-level parity ---
+
+// vmEvalProgram compiles and runs a MOO program (multiple statements) through
+// the bytecode VM. The program must use `return expr;` to produce a value.
+func vmEvalProgram(t *testing.T, code string) (types.Value, error) {
+	t.Helper()
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	c := NewCompiler()
+	// Compile statements one by one into the same program
+	c.beginScope()
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			return nil, fmt.Errorf("compile error: %w", err)
+		}
+	}
+	c.emit(OP_RETURN_NONE)
+	c.endScope()
+
+	vm := NewVM(nil, nil)
+	return vm.Run(c.program)
+}
+
+// treeEvalProgram evaluates a MOO program through the tree-walking Evaluator.
+func treeEvalProgram(t *testing.T, code string) types.Result {
+	t.Helper()
+	evaluator := NewEvaluator()
+	ctx := types.NewTaskContext()
+	return evaluator.EvalString(code, ctx)
+}
+
+// comparePrograms runs a MOO program through both paths and compares results.
+func comparePrograms(t *testing.T, code string) {
+	t.Helper()
+
+	treeResult := treeEvalProgram(t, code)
+	vmVal, vmErr := vmEvalProgram(t, code)
+
+	if treeResult.IsError() {
+		if vmErr == nil {
+			t.Errorf("tree-walker returned error %v, but VM succeeded with %v", treeResult.Error, vmVal)
+		}
+		return
+	}
+
+	if vmErr != nil {
+		t.Errorf("tree-walker returned %v, but VM errored: %v", treeResult.Val, vmErr)
+		return
+	}
+
+	if !valuesEqual(treeResult.Val, vmVal) {
+		t.Errorf("MISMATCH: tree-walker=%v (%T), VM=%v (%T)",
+			treeResult.Val, treeResult.Val, vmVal, vmVal)
+	}
+}
+
+func TestParity_ReturnStatements(t *testing.T) {
+	cases := map[string]string{
+		"return_int":    "return 42;",
+		"return_float":  "return 3.14;",
+		"return_string": `return "hello";`,
+		"return_expr":   "return 1 + 2 * 3;",
+		"return_list":   "return {1, 2, 3};",
+		"return_nested": "return {{1}, {2, 3}};",
+		"return_none":   "return;",
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_Variables(t *testing.T) {
+	cases := map[string]string{
+		"assign_return":     "x = 42; return x;",
+		"assign_expr":       "x = 1 + 2; return x;",
+		"multi_assign":      "x = 10; y = 20; return x + y;",
+		"reassign":          "x = 1; x = x + 1; return x;",
+		"assign_is_expr":    "return x = 42;",
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_IfStatements(t *testing.T) {
+	cases := map[string]string{
+		"if_true":         "if (1) return 10; endif return 20;",
+		"if_false":        "if (0) return 10; endif return 20;",
+		"if_else_true":    "if (1) return 10; else return 20; endif",
+		"if_else_false":   "if (0) return 10; else return 20; endif",
+		"if_elseif":       "if (0) return 1; elseif (1) return 2; else return 3; endif",
+		"if_elseif_chain": "if (0) return 1; elseif (0) return 2; elseif (1) return 3; else return 4; endif",
+		"if_no_return":    "x = 0; if (1) x = 42; endif return x;",
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_WhileLoops(t *testing.T) {
+	cases := map[string]string{
+		"count_to_5":    "x = 0; while (x < 5) x = x + 1; endwhile return x;",
+		"sum_1_to_10":   "s = 0; i = 1; while (i <= 10) s = s + i; i = i + 1; endwhile return s;",
+		"while_false":   "x = 99; while (0) x = 0; endwhile return x;",
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ComplexExpressions(t *testing.T) {
+	cases := map[string]string{
+		"nested_ternary":     "return 1 ? (2 ? 10 | 20) | 30;",
+		"list_in_expr":       "return 2 in {1, 2, 3};",
+		"comparison_chain":   "return (1 < 2) && (3 > 2);",
+		"mixed_arithmetic":   "return (10 + 5) * 2 - 3;",
+		"string_concat":      `return "a" + "b" + "c";`,
+		"negative_power":     "return 2 ^ 10;",
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ListIndexing(t *testing.T) {
+	cases := []string{
+		"{1, 2, 3}[1]",     // first element (1-based)
+		"{1, 2, 3}[2]",     // middle
+		"{1, 2, 3}[3]",     // last
+		`{"a", "b", "c"}[2]`, // string elements
+		"{{1, 2}, {3, 4}}[1]", // nested list
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_StringIndexing(t *testing.T) {
+	cases := []string{
+		`"hello"[1]`,   // first char
+		`"hello"[3]`,   // middle
+		`"hello"[5]`,   // last
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_ListSlicing(t *testing.T) {
+	cases := []string{
+		"{1, 2, 3, 4, 5}[2..4]",   // middle slice
+		"{1, 2, 3}[1..3]",         // whole list
+		"{1, 2, 3}[1..1]",         // single element
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_StringSlicing(t *testing.T) {
+	cases := []string{
+		`"hello"[2..4]`,   // "ell"
+		`"hello"[1..5]`,   // whole string
+		`"hello"[3..3]`,   // single char
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_NestedWhileLoops(t *testing.T) {
+	cases := map[string]string{
+		"nested_count": `
+			s = 0;
+			i = 1;
+			while (i <= 3)
+				j = 1;
+				while (j <= 3)
+					s = s + 1;
+					j = j + 1;
+				endwhile
+				i = i + 1;
+			endwhile
+			return s;`,
+		"multiplication_table": `
+			result = 0;
+			i = 1;
+			while (i <= 4)
+				j = 1;
+				while (j <= 4)
+					result = result + i * j;
+					j = j + 1;
+				endwhile
+				i = i + 1;
+			endwhile
+			return result;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ComplexPrograms(t *testing.T) {
+	cases := map[string]string{
+		"fibonacci": `
+			a = 0;
+			b = 1;
+			i = 0;
+			while (i < 10)
+				c = a + b;
+				a = b;
+				b = c;
+				i = i + 1;
+			endwhile
+			return a;`,
+		"factorial_5": `
+			n = 5;
+			result = 1;
+			while (n > 0)
+				result = result * n;
+				n = n - 1;
+			endwhile
+			return result;`,
+		"nested_if_while": `
+			s = 0;
+			i = 1;
+			while (i <= 20)
+				if (i % 2 == 0)
+					s = s + i;
+				endif
+				i = i + 1;
+			endwhile
+			return s;`,
+		"build_list": `
+			return {1 + 1, 2 * 3, 10 - 4};`,
+		"index_expr_result": `
+			x = {10, 20, 30};
+			return x[2];`,
+		"computed_index": `
+			x = {10, 20, 30};
+			i = 1;
+			return x[i + 1];`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForRangeLoops(t *testing.T) {
+	cases := map[string]string{
+		"sum_1_to_5": `
+			s = 0;
+			for x in [1..5]
+				s = s + x;
+			endfor
+			return s;`,
+		"count_down": `
+			s = 0;
+			for x in [1..3]
+				s = s + x * 10;
+			endfor
+			return s;`,
+		"empty_range": `
+			s = 99;
+			for x in [5..1]
+				s = 0;
+			endfor
+			return s;`,
+		"single_iteration": `
+			for x in [42..42]
+				return x;
+			endfor
+			return 0;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForListLoops(t *testing.T) {
+	cases := map[string]string{
+		"sum_list": `
+			s = 0;
+			for x in ({10, 20, 30})
+				s = s + x;
+			endfor
+			return s;`,
+		"concat_strings": `
+			s = "";
+			for x in ({"a", "b", "c"})
+				s = s + x;
+			endfor
+			return s;`,
+		"empty_list": `
+			s = 99;
+			for x in ({})
+				s = 0;
+			endfor
+			return s;`,
+		"nested_for": `
+			s = 0;
+			for x in ({1, 2, 3})
+				for y in ({10, 20})
+					s = s + x * y;
+				endfor
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ForMixedLoops(t *testing.T) {
+	cases := map[string]string{
+		"for_range_with_if": `
+			evens = 0;
+			for x in [1..10]
+				if (x % 2 == 0)
+					evens = evens + 1;
+				endif
+			endfor
+			return evens;`,
+		"for_in_while": `
+			total = 0;
+			rounds = 0;
+			while (rounds < 3)
+				for x in [1..3]
+					total = total + x;
+				endfor
+				rounds = rounds + 1;
+			endwhile
+			return total;`,
+		"for_with_list_build": `
+			s = 0;
+			nums = {5, 10, 15, 20};
+			for x in (nums)
+				s = s + x;
+			endfor
+			return s;`,
+		"for_range_computed_bounds": `
+			a = 3;
+			b = 7;
+			s = 0;
+			for x in [a..b]
+				s = s + x;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_AssignmentExpressions(t *testing.T) {
+	cases := map[string]string{
+		"assign_in_if": `
+			if (x = 42)
+				return x;
+			endif
+			return 0;`,
+		"chain_assign": `
+			a = b = c = 10;
+			return a + b + c;`,
+		"assign_in_while": `
+			x = 5;
+			while (x = x - 1)
+			endwhile
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_EdgeCases(t *testing.T) {
+	cases := map[string]string{
+		"empty_while": `
+			x = 0;
+			while (x < 3)
+				x = x + 1;
+			endwhile
+			return x;`,
+		"deep_nesting": `
+			s = 0;
+			for x in [1..3]
+				for y in [1..3]
+					if (x == y)
+						s = s + x;
+					endif
+				endfor
+			endfor
+			return s;`,
+		"list_of_results": `
+			return {1 + 1, 2 * 2, 3 ^ 2};`,
+		"multiple_returns": `
+			if (1)
+				return 42;
+			endif
+			return 0;`,
+		"ternary_in_assign": `
+			x = 1 ? 100 | 200;
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_IndexErrors(t *testing.T) {
+	cases := []string{
+		"{1, 2, 3}[0]",   // out of range (MOO is 1-based)
+		"{1, 2, 3}[4]",   // out of range
+		`"hello"[0]`,      // out of range
+		`"hello"[6]`,      // out of range
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_BreakWhile(t *testing.T) {
+	cases := map[string]string{
+		"break_exits_early": `
+			x = 0;
+			while (1)
+				x = x + 1;
+				if (x == 3)
+					break;
+				endif
+			endwhile
+			return x;`,
+		"break_in_condition_loop": `
+			x = 0;
+			while (x < 100)
+				x = x + 1;
+				if (x == 5)
+					break;
+				endif
+			endwhile
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ContinueWhile(t *testing.T) {
+	cases := map[string]string{
+		"continue_skips_body": `
+			s = 0;
+			x = 0;
+			while (x < 10)
+				x = x + 1;
+				if (x % 2 == 0)
+					continue;
+				endif
+				s = s + x;
+			endwhile
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_BreakForRange(t *testing.T) {
+	cases := map[string]string{
+		"break_range_early": `
+			s = 0;
+			for x in [1..10]
+				if (x == 4)
+					break;
+				endif
+				s = s + x;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ContinueForRange(t *testing.T) {
+	cases := map[string]string{
+		"continue_range_skip_evens": `
+			s = 0;
+			for x in [1..10]
+				if (x % 2 == 0)
+					continue;
+				endif
+				s = s + x;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_BreakForList(t *testing.T) {
+	cases := map[string]string{
+		"break_list_early": `
+			s = 0;
+			for x in ({10, 20, 30, 40, 50})
+				if (x == 30)
+					break;
+				endif
+				s = s + x;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_ContinueForList(t *testing.T) {
+	cases := map[string]string{
+		"continue_list_skip": `
+			s = 0;
+			for x in ({1, 2, 3, 4, 5})
+				if (x == 3)
+					continue;
+				endif
+				s = s + x;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_NestedBreak(t *testing.T) {
+	cases := map[string]string{
+		"inner_break_doesnt_exit_outer": `
+			s = 0;
+			for x in [1..3]
+				for y in [1..3]
+					if (y == 2)
+						break;
+					endif
+					s = s + 1;
+				endfor
+				s = s + 10;
+			endfor
+			return s;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
