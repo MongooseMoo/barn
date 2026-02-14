@@ -985,3 +985,38 @@ func TestParity_TryExceptNested(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+func TestParity_CatchExpressions(t *testing.T) {
+	cases := []string{
+		// Catch with default: error matches, return default
+		"`1/0 ! E_DIV => 99'",
+		// Catch with default: error doesn't match, propagates
+		"`1/0 ! E_TYPE => 99'",
+		// Catch with default: no error, return expression value
+		"`1 + 2 ! E_DIV => 99'",
+		// Catch ANY with default
+		"`1/0 ! ANY => -1'",
+		// Catch without default: error matches, return error value
+		"`1/0 ! E_DIV'",
+		// Multiple error codes with default
+		"`1/0 ! E_DIV, E_TYPE => 0'",
+		// Catch E_TYPE with default
+		"`\"hello\" + 1 ! E_TYPE => 42'",
+		// No error with ANY, return expression value
+		"`5 + 3 ! ANY => -1'",
+	}
+	for _, c := range cases {
+		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
+	}
+}
+
+func TestParity_CatchExprInProgram(t *testing.T) {
+	cases := map[string]string{
+		"catch_in_assign": "x = `1/0 ! E_DIV => 99'; return x;",
+		"catch_no_error":  "x = `10 + 5 ! E_DIV => 0'; return x;",
+		"catch_in_expr":   "return `1/0 ! E_DIV => 99' + 1;",
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

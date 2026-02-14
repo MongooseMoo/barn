@@ -585,8 +585,84 @@ func (c *Compiler) compileSplice(n *parser.SpliceExpr) error {
 }
 
 func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
-	// TODO: Implement catch expression compilation
-	return fmt.Errorf("catch expression compilation not yet implemented")
+	// Catch expressions (`expr ! codes => default`) are compiled as a
+	// single-clause try/except that leaves the result on the stack.
+	//
+	// With default:
+	//   OP_TRY_EXCEPT 1 [codes...] [0 = no var] [handler_ip:short]
+	//   [expr]
+	//   OP_END_EXCEPT
+	//   OP_JUMP [end]
+	//   handler_ip: [default expr]
+	//   end:
+	//
+	// Without default (return the error value):
+	//   OP_TRY_EXCEPT 1 [codes...] [var+1] [handler_ip:short]
+	//   [expr]
+	//   OP_END_EXCEPT
+	//   OP_JUMP [end]
+	//   handler_ip: OP_GET_VAR [var]   (error was stored by HandleError)
+	//   end:
+
+	// For the no-default case, we need a temp variable to receive the error
+	var errVarIdx int
+	if n.Default == nil {
+		errVarIdx = c.declareVariable(c.tempVar("catch_err"))
+	}
+
+	// Emit OP_TRY_EXCEPT with 1 clause
+	c.emit(OP_TRY_EXCEPT)
+	c.emitByte(1) // 1 clause
+
+	// Emit catch codes
+	c.emitByte(byte(len(n.Codes)))
+	for _, code := range n.Codes {
+		c.emitByte(byte(code))
+	}
+
+	// Variable index: 0 means no variable, idx+1 means store in local[idx]
+	if n.Default == nil {
+		c.emitByte(byte(errVarIdx + 1))
+	} else {
+		c.emitByte(0) // no variable needed
+	}
+
+	// Handler IP placeholder (absolute)
+	handlerIPPatch := len(c.program.Code)
+	c.emitShort(0xFFFF)
+
+	// Compile the main expression
+	if err := c.compileNode(n.Expr); err != nil {
+		return err
+	}
+
+	// Normal path: pop the except handler
+	c.emit(OP_END_EXCEPT)
+
+	// Jump past the handler body
+	endJump := c.emitJump(OP_JUMP)
+
+	// Patch handler IP to point here
+	handlerIP := c.currentOffset()
+	c.program.Code[handlerIPPatch] = byte(handlerIP >> 8)
+	c.program.Code[handlerIPPatch+1] = byte(handlerIP)
+
+	// Handler body
+	if n.Default != nil {
+		// Evaluate default expression
+		if err := c.compileNode(n.Default); err != nil {
+			return err
+		}
+	} else {
+		// No default: push the captured error value
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(errVarIdx))
+	}
+
+	// Patch end jump
+	c.patchJump(endJump)
+
+	return nil
 }
 
 func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
