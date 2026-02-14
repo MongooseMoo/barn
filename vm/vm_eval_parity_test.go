@@ -3606,3 +3606,131 @@ func TestParity_CommandEnvVarsInVerbFrame(t *testing.T) {
 		})
 	}
 }
+
+// --- Waif, Primitive, and Anonymous verb target tests ---
+
+// newWaifVerbTestStore creates a store for testing waif verb calls.
+// #0 has verb "get_this" (returns this) and property "waif_ref" holding a waif with class=#0.
+func newWaifVerbTestStore() *db.Store {
+	store := db.NewStore()
+
+	root := db.NewObject(0, 0)
+	root.Name = "WaifClass"
+	root.Flags = db.FlagRead | db.FlagWrite
+
+	root.Verbs["get_this"] = &db.Verb{
+		Name:  "get_this",
+		Names: []string{"get_this"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return this;"},
+	}
+
+	// Store a waif value as a property so MOO code can retrieve it
+	waif := types.NewWaif(0, 0)
+	root.Properties["waif_ref"] = &db.Property{
+		Name:    "waif_ref",
+		Value:   waif,
+		Owner:   0,
+		Perms:   db.PropRead | db.PropWrite,
+		Defined: true,
+	}
+
+	store.Add(root)
+	return store
+}
+
+func TestParity_WaifVerbCall(t *testing.T) {
+	store := newWaifVerbTestStore()
+	// Call get_this on the waif. The waif's class is #0 which has verb get_this.
+	// Inside the verb, "this" should be the waif, not #0.
+	code := `return #0.waif_ref:get_this();`
+	compareProgramsWithStore(t, code, store)
+}
+
+// newPrimitiveProtoTestStore creates a store for testing primitive prototype verb calls.
+// #0 has str_proto property pointing to #1. #1 has verb "get_this" that returns this.
+func newPrimitiveProtoTestStore() *db.Store {
+	store := db.NewStore()
+
+	root := db.NewObject(0, 0)
+	root.Name = "Root"
+	root.Flags = db.FlagRead | db.FlagWrite
+
+	proto := db.NewObject(1, 0)
+	proto.Name = "StrProto"
+	proto.Flags = db.FlagRead | db.FlagWrite
+
+	proto.Verbs["get_this"] = &db.Verb{
+		Name:  "get_this",
+		Names: []string{"get_this"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return this;"},
+	}
+
+	// Set #0.str_proto = #1
+	root.Properties["str_proto"] = &db.Property{
+		Name:    "str_proto",
+		Value:   types.NewObj(1),
+		Owner:   0,
+		Perms:   db.PropRead | db.PropWrite,
+		Defined: true,
+	}
+
+	store.Add(root)
+	store.Add(proto)
+	return store
+}
+
+func TestParity_PrimitivePrototypeVerbCall(t *testing.T) {
+	store := newPrimitiveProtoTestStore()
+	// Call get_this on a string literal. The str_proto (#1) has verb get_this.
+	// Inside the verb, "this" should be the string "hello", not #1.
+	code := `return "hello":get_this();`
+	compareProgramsWithStore(t, code, store)
+}
+
+// newAnonVerbTestStore creates a store for testing anonymous object verb calls.
+// #0 is root (has anon_ref property pointing to *#1). #1 is anonymous with verb get_this.
+func newAnonVerbTestStore() *db.Store {
+	store := db.NewStore()
+
+	root := db.NewObject(0, 0)
+	root.Name = "Root"
+	root.Flags = db.FlagRead | db.FlagWrite
+
+	anon := db.NewObject(1, 0)
+	anon.Name = "AnonObj"
+	anon.Flags = db.FlagRead | db.FlagWrite
+	anon.Anonymous = true
+
+	anon.Verbs["get_this"] = &db.Verb{
+		Name:  "get_this",
+		Names: []string{"get_this"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return this;"},
+	}
+
+	// Store an anonymous ObjValue so MOO code can reference it
+	root.Properties["anon_ref"] = &db.Property{
+		Name:    "anon_ref",
+		Value:   types.NewAnon(1),
+		Owner:   0,
+		Perms:   db.PropRead | db.PropWrite,
+		Defined: true,
+	}
+
+	store.Add(root)
+	store.Add(anon)
+	return store
+}
+
+func TestParity_AnonymousObjectVerbCall(t *testing.T) {
+	store := newAnonVerbTestStore()
+	// Call get_this on an anonymous object. Inside the verb, "this" should be
+	// the anonymous ObjValue (*#1), not a regular ObjValue (#1).
+	code := `return #0.anon_ref:get_this();`
+	compareProgramsWithStore(t, code, store)
+}

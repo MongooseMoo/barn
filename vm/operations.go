@@ -1782,13 +1782,34 @@ func (vm *VM) executeCallVerb() error {
 	// Pop the object
 	objVal := vm.Pop()
 
-	// Resolve the object ID — for now, only handle ObjValue.
-	// Waif/primitive support comes in Task 7.
-	objRef, ok := objVal.(types.ObjValue)
-	if !ok {
-		return fmt.Errorf("E_TYPE: verb call requires an object")
+	// Resolve the object ID from the target value.
+	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
+	var objID types.ObjID
+	var thisValue types.Value // Non-nil for waif, primitive, and anonymous targets
+
+	switch target := objVal.(type) {
+	case types.ObjValue:
+		objID = target.ID()
+		if target.IsAnonymous() {
+			thisValue = target // "this" = the anonymous ObjValue itself
+		}
+	case types.WaifValue:
+		objID = target.Class() // Verb lookup goes to the waif's class
+		thisValue = target     // "this" = the waif itself
+	default:
+		// Check for primitive prototype dispatch (str, int, float, list, map, err, bool)
+		if vm.Store != nil {
+			protoID := getPrimitivePrototypeFromStore(vm.Store, objVal)
+			if protoID != types.ObjNothing {
+				objID = protoID
+				thisValue = objVal // "this" = the primitive value itself
+			} else {
+				return fmt.Errorf("E_TYPE: verb call requires an object")
+			}
+		} else {
+			return fmt.Errorf("E_TYPE: verb call requires an object")
+		}
 	}
-	objID := objRef.ID()
 
 	if vm.Store == nil {
 		return fmt.Errorf("E_INVIND: no object store available")
@@ -1860,8 +1881,13 @@ func (vm *VM) executeCallVerb() error {
 		frame.Locals[i] = types.IntValue{Val: 0}
 	}
 
-	// Pre-populate built-in variables using VarNames
-	setLocalByName(frame, prog, "this", types.NewObj(objID))
+	// Pre-populate built-in variables using VarNames.
+	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
+	if thisValue != nil {
+		setLocalByName(frame, prog, "this", thisValue)
+	} else {
+		setLocalByName(frame, prog, "this", types.NewObj(objID))
+	}
 	setLocalByName(frame, prog, "verb", types.NewStr(verbName))
 	setLocalByName(frame, prog, "caller", types.NewObj(callerObj))
 	setLocalByName(frame, prog, "args", types.NewList(args))
@@ -1886,6 +1912,7 @@ func (vm *VM) executeCallVerb() error {
 	// Update shared context for builtins
 	if vm.Context != nil {
 		vm.Context.ThisObj = objID
+		vm.Context.ThisValue = thisValue // waif/primitive/anonymous value, or nil for normal
 		vm.Context.Verb = verbName
 	}
 
@@ -1894,6 +1921,7 @@ func (vm *VM) executeCallVerb() error {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
 			actFrame := task.ActivationFrame{
 				This:       objID,
+				ThisValue:  thisValue, // Store waif/primitive/anonymous value for callers()/queued_tasks()
 				Player:     player,
 				Programmer: verb.Owner,
 				Caller:     callerObj,
@@ -1934,4 +1962,49 @@ func (vm *VM) executeCallVerbTreeWalker(objID types.ObjID, verbName string, args
 
 	vm.Push(result.Val)
 	return nil
+}
+
+// getPrimitivePrototypeFromStore returns the prototype object ID for a primitive value
+// by reading the appropriate property (str_proto, int_proto, etc.) from #0.
+// Returns ObjNothing if no prototype is configured for this type.
+// This mirrors Evaluator.getPrimitivePrototype() but takes a *db.Store directly.
+func getPrimitivePrototypeFromStore(store *db.Store, val types.Value) types.ObjID {
+	sysObj := store.Get(0)
+	if sysObj == nil {
+		return types.ObjNothing
+	}
+
+	var propName string
+	switch val.(type) {
+	case types.IntValue:
+		propName = "int_proto"
+	case types.FloatValue:
+		propName = "float_proto"
+	case types.StrValue:
+		propName = "str_proto"
+	case types.ListValue:
+		propName = "list_proto"
+	case types.MapValue:
+		propName = "map_proto"
+	case types.ErrValue:
+		propName = "err_proto"
+	case types.BoolValue:
+		propName = "bool_proto"
+	default:
+		return types.ObjNothing
+	}
+
+	prop, ok := sysObj.Properties[propName]
+	if !ok || prop == nil {
+		return types.ObjNothing
+	}
+
+	if objVal, ok := prop.Value.(types.ObjValue); ok {
+		protoID := objVal.ID()
+		if store.Valid(protoID) {
+			return protoID
+		}
+	}
+
+	return types.ObjNothing
 }
