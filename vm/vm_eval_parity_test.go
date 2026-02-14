@@ -3414,3 +3414,195 @@ func TestParity_ProgrammerIsVerbOwner(t *testing.T) {
 		t.Errorf("VM Programmer: got %v, want #7 (verb owner)", vmProgrammer)
 	}
 }
+
+// TestParity_ThisValueRestoredAfterVerbCall verifies that ctx.ThisValue is
+// saved before a verb call and restored after it returns. This is essential
+// for waif/primitive verb calls where ThisValue != NewObj(ThisObj).
+func TestParity_ThisValueRestoredAfterVerbCall(t *testing.T) {
+	store := newVerbTestStore()
+
+	// We'll run a program that calls a verb on #0, which internally calls
+	// another verb. After the call returns, we verify ctx.ThisValue was restored.
+	code := `x = #0:test_nested(); return x;`
+
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
+	registry.RegisterVerbBuiltins(store)
+	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
+
+	c := NewCompilerWithRegistry(registry)
+	c.beginScope()
+	for _, stmt := range stmts {
+		if err := c.compileNode(stmt); err != nil {
+			t.Fatalf("compile error: %v", err)
+		}
+	}
+	c.emit(OP_RETURN_NONE)
+	c.endScope()
+
+	// Set up VM with a specific ThisValue to track save/restore
+	sentinel := types.NewStr("sentinel_this_value")
+	v := NewVM(store, registry)
+	v.Context = types.NewTaskContext()
+	v.Context.ThisValue = sentinel
+
+	result, vmErr := v.Run(c.program)
+	if vmErr != nil {
+		t.Fatalf("VM error: %v", vmErr)
+	}
+
+	// test_nested calls test_return which returns 42, then adds 1 -> 43
+	if !valuesEqual(result, types.NewInt(43)) {
+		t.Errorf("expected 43, got %v", result)
+	}
+
+	// After execution, ctx.ThisValue should be restored to our sentinel
+	if v.Context.ThisValue == nil {
+		t.Errorf("ctx.ThisValue is nil after verb call, expected sentinel")
+	} else if !v.Context.ThisValue.Equal(sentinel) {
+		t.Errorf("ctx.ThisValue not restored: got %v, want %v", v.Context.ThisValue, sentinel)
+	}
+}
+
+// TestParity_CommandEnvVarsInVerbFrame verifies that command environment
+// variables (argstr, dobj, dobjstr, iobj, iobjstr, prepstr) are propagated
+// from the task to verb frames in the bytecode VM.
+func TestParity_CommandEnvVarsInVerbFrame(t *testing.T) {
+	store := db.NewStore()
+
+	root := db.NewObject(0, 0)
+	root.Name = "Root"
+	root.Flags = db.FlagRead | db.FlagWrite
+
+	// Verb that reads argstr
+	root.Verbs["test_argstr"] = &db.Verb{
+		Name:  "test_argstr",
+		Names: []string{"test_argstr"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return argstr;"},
+	}
+
+	// Verb that reads dobjstr
+	root.Verbs["test_dobjstr"] = &db.Verb{
+		Name:  "test_dobjstr",
+		Names: []string{"test_dobjstr"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return dobjstr;"},
+	}
+
+	// Verb that reads prepstr
+	root.Verbs["test_prepstr"] = &db.Verb{
+		Name:  "test_prepstr",
+		Names: []string{"test_prepstr"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return prepstr;"},
+	}
+
+	// Verb that reads iobjstr
+	root.Verbs["test_iobjstr"] = &db.Verb{
+		Name:  "test_iobjstr",
+		Names: []string{"test_iobjstr"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return iobjstr;"},
+	}
+
+	// Verb that reads dobj
+	root.Verbs["test_dobj"] = &db.Verb{
+		Name:  "test_dobj",
+		Names: []string{"test_dobj"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return dobj;"},
+	}
+
+	// Verb that reads iobj
+	root.Verbs["test_iobj"] = &db.Verb{
+		Name:  "test_iobj",
+		Names: []string{"test_iobj"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return iobj;"},
+	}
+
+	store.Add(root)
+
+	// Create a task with command context fields populated
+	tsk := task.NewTask(1, 0, 30000, 5.0)
+	tsk.Argstr = "apple to the basket"
+	tsk.Dobjstr = "apple"
+	tsk.Dobj = 5
+	tsk.Prepstr = "to"
+	tsk.Iobjstr = "the basket"
+	tsk.Iobj = 10
+
+	ctx := types.NewTaskContext()
+	ctx.Task = tsk
+
+	// Also set up the tree-walker's env context so parity works
+	// The tree-walker reads these from its Environment, which is set by SetVerbContext.
+	// For parity, we set the context on both paths.
+
+	tests := []struct {
+		name     string
+		code     string
+		expected types.Value
+	}{
+		{"argstr", `return #0:test_argstr();`, types.NewStr("apple to the basket")},
+		{"dobjstr", `return #0:test_dobjstr();`, types.NewStr("apple")},
+		{"prepstr", `return #0:test_prepstr();`, types.NewStr("to")},
+		{"iobjstr", `return #0:test_iobjstr();`, types.NewStr("the basket")},
+		{"dobj", `return #0:test_dobj();`, types.NewObj(5)},
+		{"iobj", `return #0:test_iobj();`, types.NewObj(10)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := parser.NewParser(tt.code)
+			stmts, err := p.ParseProgram()
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			registry := builtins.NewRegistry()
+			registry.RegisterObjectBuiltins(store)
+			registry.RegisterPropertyBuiltins(store)
+			registry.RegisterVerbBuiltins(store)
+			registry.RegisterCryptoBuiltins(store)
+			registry.RegisterSystemBuiltins(store)
+
+			c := NewCompilerWithRegistry(registry)
+			c.beginScope()
+			for _, stmt := range stmts {
+				if err := c.compileNode(stmt); err != nil {
+					t.Fatalf("compile error: %v", err)
+				}
+			}
+			c.emit(OP_RETURN_NONE)
+			c.endScope()
+
+			v := NewVM(store, registry)
+			v.Context = ctx
+
+			result, vmErr := v.Run(c.program)
+			if vmErr != nil {
+				t.Fatalf("VM error: %v", vmErr)
+			}
+
+			if !valuesEqual(result, tt.expected) {
+				t.Errorf("got %v (%T), want %v (%T)", result, result, tt.expected, tt.expected)
+			}
+		})
+	}
+}

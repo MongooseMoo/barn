@@ -66,9 +66,10 @@ type StackFrame struct {
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
-	IsVerbCall    bool          // True if this frame was pushed by executeCallVerb
-	SavedThisObj  types.ObjID   // ctx.ThisObj before verb call
-	SavedVerb     string        // ctx.Verb before verb call
+	IsVerbCall     bool          // True if this frame was pushed by executeCallVerb
+	SavedThisObj   types.ObjID   // ctx.ThisObj before verb call
+	SavedThisValue types.Value   // ctx.ThisValue before verb call
+	SavedVerb      string        // ctx.Verb before verb call
 }
 
 // NewVM creates a new virtual machine
@@ -436,6 +437,7 @@ func (vm *VM) Return(value types.Value) {
 	// If this was a verb-call frame, restore context and pop activation frame
 	if frame.IsVerbCall && vm.Context != nil {
 		vm.Context.ThisObj = frame.SavedThisObj
+		vm.Context.ThisValue = frame.SavedThisValue
 		vm.Context.Verb = frame.SavedVerb
 
 		// Pop activation frame from task call stack
@@ -512,6 +514,7 @@ func (vm *VM) HandleError(err error) bool {
 		// If this was a verb-call frame, restore context and pop activation frame.
 		if frame.IsVerbCall && vm.Context != nil {
 			vm.Context.ThisObj = frame.SavedThisObj
+			vm.Context.ThisValue = frame.SavedThisValue
 			vm.Context.Verb = frame.SavedVerb
 
 			if vm.Context.Task != nil {

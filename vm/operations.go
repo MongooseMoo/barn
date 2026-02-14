@@ -1829,27 +1829,30 @@ func (vm *VM) executeCallVerb() error {
 
 	// Save current context fields for restore on return/unwind
 	var savedThisObj types.ObjID
+	var savedThisValue types.Value
 	var savedVerb string
 	if vm.Context != nil {
 		savedThisObj = vm.Context.ThisObj
+		savedThisValue = vm.Context.ThisValue
 		savedVerb = vm.Context.Verb
 	}
 
 	// Push new stack frame
 	frame := &StackFrame{
-		Program:      prog,
-		IP:           0,
-		BasePointer:  vm.SP,
-		Locals:       make([]types.Value, prog.NumLocals),
-		This:         objID,
-		Player:       player,
-		Verb:         verbName,
-		Caller:       callerObj,
-		LoopStack:    make([]LoopState, 0, 4),
-		ExceptStack:  make([]Handler, 0, 4),
-		IsVerbCall:   true,
-		SavedThisObj: savedThisObj,
-		SavedVerb:    savedVerb,
+		Program:        prog,
+		IP:             0,
+		BasePointer:    vm.SP,
+		Locals:         make([]types.Value, prog.NumLocals),
+		This:           objID,
+		Player:         player,
+		Verb:           verbName,
+		Caller:         callerObj,
+		LoopStack:      make([]LoopState, 0, 4),
+		ExceptStack:    make([]Handler, 0, 4),
+		IsVerbCall:     true,
+		SavedThisObj:   savedThisObj,
+		SavedThisValue: savedThisValue,
+		SavedVerb:      savedVerb,
 	}
 
 	// Initialize locals to 0
@@ -1863,6 +1866,22 @@ func (vm *VM) executeCallVerb() error {
 	setLocalByName(frame, prog, "caller", types.NewObj(callerObj))
 	setLocalByName(frame, prog, "args", types.NewList(args))
 	setLocalByName(frame, prog, "player", types.NewObj(player))
+
+	// Propagate command environment variables from the task's parsed command context.
+	// These are set by the scheduler for command-dispatched verbs and should be
+	// available in nested verb calls. setLocalByName silently skips if the verb
+	// code doesn't reference the variable, so there's no overhead for verbs that
+	// don't use them.
+	if vm.Context != nil && vm.Context.Task != nil {
+		if t, ok := vm.Context.Task.(*task.Task); ok {
+			setLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
+			setLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
+			setLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
+			setLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
+			setLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
+			setLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
+		}
+	}
 
 	// Update shared context for builtins
 	if vm.Context != nil {
