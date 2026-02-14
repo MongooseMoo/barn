@@ -63,7 +63,7 @@ func valueToStr(val types.Value) string {
 		return fmt.Sprintf("#%d", v.ID())
 
 	case types.ErrValue:
-		return v.String()
+		return v.Code().Message()
 
 	case types.BoolValue:
 		if v.Val {
