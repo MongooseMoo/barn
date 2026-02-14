@@ -3905,3 +3905,46 @@ func TestParity_SuspendContinuesExecution(t *testing.T) {
 			treeResult.Val, treeResult.Val, vmVal, vmVal)
 	}
 }
+
+// --- Property-indexed assignment parity tests ---
+
+func TestParity_PropertyIndexAssign(t *testing.T) {
+	cases := map[string]string{
+		"list_single_index": `#0.foo = {10, 20, 30}; #0.foo[2] = 99; return #0.foo;`,
+		"list_first_index":  `#0.foo = {10, 20, 30}; #0.foo[1] = 99; return #0.foo;`,
+		"list_last_index":   `#0.foo = {10, 20, 30}; #0.foo[3] = 99; return #0.foo;`,
+		"returns_value":     `#0.foo = {10, 20, 30}; x = (#0.foo[2] = 99); return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newPropertyTestStore()
+			compareProgramsWithStore(t, code, store)
+		})
+	}
+}
+
+func TestParity_PropertyNestedIndexAssign(t *testing.T) {
+	cases := map[string]string{
+		"nested_2d": `#0.foo = {{1, 2}, {3, 4}}; #0.foo[1][2] = 99; return #0.foo;`,
+		"nested_2d_second": `#0.foo = {{1, 2}, {3, 4}}; #0.foo[2][1] = 99; return #0.foo;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newPropertyTestStore()
+			compareProgramsWithStore(t, code, store)
+		})
+	}
+}
+
+func TestParity_PropertyMapIndexAssign(t *testing.T) {
+	cases := map[string]string{
+		"map_assign_existing": `#0.foo = ["a" -> 1, "b" -> 2]; #0.foo["a"] = 99; return #0.foo["a"];`,
+		"map_assign_new_key":  `#0.foo = ["a" -> 1]; #0.foo["b"] = 2; return #0.foo;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newPropertyTestStore()
+			compareProgramsWithStore(t, code, store)
+		})
+	}
+}

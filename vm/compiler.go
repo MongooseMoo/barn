@@ -627,11 +627,58 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			baseExpr = ie.Expr
 		}
 
-		baseIdent, ok := baseExpr.(*parser.IdentifierExpr)
-		if !ok {
-			return fmt.Errorf("index assignment target must be a variable")
+		// Determine base type: variable or property
+		var baseVarIdx int
+		var basePropExpr *parser.PropertyExpr
+
+		if baseIdent, ok := baseExpr.(*parser.IdentifierExpr); ok {
+			// Variable-based: x[i] = val
+			baseVarIdx = c.declareVariable(baseIdent.Name)
+		} else if propExpr, ok := baseExpr.(*parser.PropertyExpr); ok {
+			// Property-based: obj.prop[i] = val
+			// Read the property value into a temp variable, use it as the base,
+			// then write the modified temp back to the property after index ops.
+			basePropExpr = propExpr
+
+			// Stack currently: [value, value_copy]
+			// Store value_copy into temp so we can use the stack for GET_PROP
+			tmpValHold := c.declareVariable("__prop_idx_val")
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(tmpValHold))
+			// Stack: [value]
+
+			// Compile obj expression, emit GET_PROP to read current property value
+			if err := c.compileNode(propExpr.Expr); err != nil {
+				return err
+			}
+			if propExpr.Property != "" {
+				propIdx := c.addConstant(types.NewStr(propExpr.Property))
+				c.emit(OP_GET_PROP)
+				c.emitByte(byte(propIdx))
+			} else if propExpr.PropertyExpr != nil {
+				if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+					return err
+				}
+				c.emit(OP_GET_PROP)
+				c.emitByte(0xFF)
+			} else {
+				return fmt.Errorf("property expression has neither static name nor dynamic expression")
+			}
+			// Stack: [value, prop_value]
+
+			// Store property value into a temp that acts as the "base variable"
+			baseVarIdx = c.declareVariable("__prop_idx_base")
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(baseVarIdx))
+			// Stack: [value]
+
+			// Restore the value_copy onto the stack for the index assignment code below
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(tmpValHold))
+			// Stack: [value, value_copy]
+		} else {
+			return fmt.Errorf("index assignment target must be a variable or property")
 		}
-		baseVarIdx := c.declareVariable(baseIdent.Name)
 
 		// indices are collected outermost-first: for x[i][j], indices = [j, i]
 		// Reverse to get base-to-deepest order: [i, j]
@@ -729,6 +776,35 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			c.emit(OP_INDEX_SET)
 			c.emitByte(byte(baseVarIdx))
 			// Stack: [value] (the original value remains as expression result)
+		}
+
+		// If the base was a property, write the modified temp back to the property
+		if basePropExpr != nil {
+			// Stack: [value]
+			// Load the modified base temp (now has the updated collection)
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(baseVarIdx))
+			// Stack: [value, modified_collection]
+
+			// Compile the object expression again
+			if err := c.compileNode(basePropExpr.Expr); err != nil {
+				return err
+			}
+			// Stack: [value, modified_collection, obj]
+
+			// Emit SET_PROP: pops obj, pops modified_collection, writes property
+			if basePropExpr.Property != "" {
+				propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+				c.emit(OP_SET_PROP)
+				c.emitByte(byte(propIdx))
+			} else if basePropExpr.PropertyExpr != nil {
+				if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+					return err
+				}
+				c.emit(OP_SET_PROP)
+				c.emitByte(0xFF)
+			}
+			// Stack: [value] (original assigned value remains as expression result)
 		}
 	case *parser.PropertyExpr:
 		// Property assignment: obj.prop = value
