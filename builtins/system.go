@@ -417,8 +417,6 @@ func builtinFtime(ctx *types.TaskContext, args []types.Value) types.Result {
 		switch v := args[0].(type) {
 		case types.IntValue:
 			return types.Ok(types.NewFloat(float64(v.Val)))
-		case types.FloatValue:
-			return types.Ok(types.NewFloat(v.Val))
 		default:
 			return types.Err(types.E_TYPE)
 		}
@@ -429,21 +427,16 @@ func builtinFtime(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinCtime implements ctime([time])
 // Converts a Unix timestamp to a human-readable string
 func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {
-	var timestamp int64
-	if len(args) == 0 {
-		timestamp = time.Now().Unix()
-	} else if len(args) == 1 {
-		switch v := args[0].(type) {
-		case types.IntValue:
-			timestamp = v.Val
-		case types.FloatValue:
-			timestamp = int64(v.Val)
-		default:
-			return types.Err(types.E_TYPE)
-		}
-	} else {
+	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
+	if len(args) == 1 {
+		if _, ok := args[0].(types.IntValue); ok {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Err(types.E_TYPE)
+	}
+	timestamp := time.Now().Unix()
 	t := time.Unix(timestamp, 0)
 	// MOO format: "Sun Dec 26 22:30:00 2025" (24 chars, no timezone)
 	// Go's _2 gives space-padded day: " 1" for day 1, "28" for day 28
