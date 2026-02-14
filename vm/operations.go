@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 )
 
 // Arithmetic operations
@@ -1044,6 +1045,23 @@ func (vm *VM) executeCallBuiltin() error {
 		if !vm.HandleError(mooErr) {
 			return mooErr
 		}
+		return nil
+	}
+
+	// Handle FlowSuspend: sleep for the specified duration, push 0 as return value.
+	// This matches the tree-walker's behavior in EvalStatements().
+	// Full scheduler integration (yield-to-scheduler) is out of scope.
+	if result.Flow == types.FlowSuspend {
+		var seconds float64
+		if fv, ok := result.Val.(types.FloatValue); ok {
+			seconds = fv.Val
+		} else if iv, ok := result.Val.(types.IntValue); ok {
+			seconds = float64(iv.Val)
+		}
+		if seconds > 0 {
+			time.Sleep(time.Duration(seconds * float64(time.Second)))
+		}
+		vm.Push(types.NewInt(0)) // suspend() returns 0 in MOO
 		return nil
 	}
 

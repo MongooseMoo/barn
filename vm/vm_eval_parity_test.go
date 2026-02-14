@@ -3734,3 +3734,82 @@ func TestParity_AnonymousObjectVerbCall(t *testing.T) {
 	code := `return #0.anon_ref:get_this();`
 	compareProgramsWithStore(t, code, store)
 }
+
+// --- FlowSuspend parity tests ---
+// These verify that the bytecode VM handles FlowSuspend from suspend() correctly.
+// suspend(0) should: sleep 0 seconds, push 0 onto the stack, and continue execution.
+
+// suspendTestCtx creates a task context with a real task so suspend() doesn't return E_INVARG.
+func suspendTestCtx() *types.TaskContext {
+	ctx := types.NewTaskContext()
+	ctx.Task = task.NewTask(1, 0, 100000, 5.0)
+	return ctx
+}
+
+func TestParity_SuspendDoesNotCorruptStack(t *testing.T) {
+	// suspend(0) should not push a float onto the stack; execution should continue normally.
+	// Before the fix, suspend(0) would push a float value, corrupting the stack.
+	code := `suspend(0); return 42;`
+
+	store := db.NewStore()
+	treeCtx := suspendTestCtx()
+	treeResult := treeEvalProgramWithStoreAndCtx(t, code, store, treeCtx)
+
+	vmCtx := suspendTestCtx()
+	vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, code, store, vmCtx)
+
+	if treeResult.IsError() {
+		t.Fatalf("tree-walker errored: %v", treeResult.Error)
+	}
+	if vmErr != nil {
+		t.Fatalf("VM errored: %v (tree-walker returned %v)", vmErr, treeResult.Val)
+	}
+	if !valuesEqual(treeResult.Val, vmVal) {
+		t.Errorf("MISMATCH: tree-walker=%v (%T), VM=%v (%T)",
+			treeResult.Val, treeResult.Val, vmVal, vmVal)
+	}
+}
+
+func TestParity_SuspendReturnsZero(t *testing.T) {
+	// In the bytecode VM, suspend(0) should push integer 0 (not a float) as its return value.
+	// The tree-walker propagates FlowSuspend at the statement level so assignment never happens,
+	// but in the bytecode VM the value is pushed onto the stack and assignment proceeds.
+	// This test verifies the VM pushes int 0 (not float 0.0) for suspend().
+	code := `x = suspend(0); return x;`
+
+	store := db.NewStore()
+	vmCtx := suspendTestCtx()
+	vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, code, store, vmCtx)
+
+	if vmErr != nil {
+		t.Fatalf("VM errored: %v", vmErr)
+	}
+	// suspend() should return integer 0
+	expected := types.NewInt(0)
+	if !valuesEqual(expected, vmVal) {
+		t.Errorf("expected %v (%T), got %v (%T)", expected, expected, vmVal, vmVal)
+	}
+}
+
+func TestParity_SuspendContinuesExecution(t *testing.T) {
+	// After suspend(0), execution should continue to the next statement.
+	code := `suspend(0); return "after";`
+
+	store := db.NewStore()
+	treeCtx := suspendTestCtx()
+	treeResult := treeEvalProgramWithStoreAndCtx(t, code, store, treeCtx)
+
+	vmCtx := suspendTestCtx()
+	vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, code, store, vmCtx)
+
+	if treeResult.IsError() {
+		t.Fatalf("tree-walker errored: %v", treeResult.Error)
+	}
+	if vmErr != nil {
+		t.Fatalf("VM errored: %v (tree-walker returned %v)", vmErr, treeResult.Val)
+	}
+	if !valuesEqual(treeResult.Val, vmVal) {
+		t.Errorf("MISMATCH: tree-walker=%v (%T), VM=%v (%T)",
+			treeResult.Val, treeResult.Val, vmVal, vmVal)
+	}
+}
