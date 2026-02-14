@@ -446,15 +446,15 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	}
 
 	// Raw command response framing for conformance transport.
-	// PREFIX/SUFFIX are emitted around the entire command output, including do_command hooks.
+	// PREFIX/SUFFIX are emitted around command parser output.
 	outputPrefix := conn.GetOutputPrefix()
 	outputSuffix := conn.GetOutputSuffix()
 	if outputPrefix != "" {
 		_ = conn.Send(outputPrefix)
 	}
 
-	// Call #0:do_command(command) before normal parsing.
-	// If it returns a truthy value, the command is considered handled.
+	// Invoke #0:do_command for normal commands. If the verb is missing, the call
+	// is treated as unhandled and normal command parsing continues.
 	handled, err := cm.callDoCommand(player, line)
 	if err != nil {
 		return err
@@ -479,6 +479,16 @@ func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) erro
 	// Find the verb
 	match := FindVerb(cm.server.store, player, location, cmd)
 	if match == nil {
+		// If a verb name matched but arg/prep specs did not, report parse failure directly.
+		// :huh is reserved for unknown commands (no name match in dispatch targets).
+		if hasVerbNameMatch(cm.server.store, player, location, cmd) {
+			conn.Send("I couldn't understand that.")
+			if outputSuffix != "" {
+				_ = conn.Send(outputSuffix)
+			}
+			return nil
+		}
+
 		// Try player.location:huh fallback before generic "couldn't understand".
 		if huhVerb, huhVerbLoc, err := cm.server.store.FindVerb(location, "huh"); err == nil && huhVerb != nil {
 			huhMatch := &VerbMatch{

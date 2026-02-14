@@ -128,6 +128,58 @@ func verbMatches(verb *db.Verb, cmd *ParsedCommand, this types.ObjID) bool {
 	return true
 }
 
+// hasVerbNameOnObject reports whether cmdVerb matches any verb name/alias on objID or ancestors.
+// This ignores arg specs and is used to decide between generic parse failure and :huh fallback.
+func hasVerbNameOnObject(store *db.Store, objID types.ObjID, cmdVerb string) bool {
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] || currentID < 0 {
+			continue
+		}
+		visited[currentID] = true
+
+		obj := store.Get(currentID)
+		if obj == nil {
+			continue
+		}
+
+		for _, verb := range obj.Verbs {
+			for _, name := range verb.Names {
+				if verbNameMatches(name, cmdVerb) {
+					return true
+				}
+			}
+		}
+
+		queue = append(queue, obj.Parents...)
+	}
+
+	return false
+}
+
+// hasVerbNameMatch checks dispatch search targets for any matching verb name, ignoring arg specs.
+// Search order matches command dispatch: player -> location -> dobj -> iobj.
+func hasVerbNameMatch(store *db.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) bool {
+	if hasVerbNameOnObject(store, player, cmd.Verb) {
+		return true
+	}
+	if hasVerbNameOnObject(store, location, cmd.Verb) {
+		return true
+	}
+	if cmd.Dobj != types.ObjNothing && hasVerbNameOnObject(store, cmd.Dobj, cmd.Verb) {
+		return true
+	}
+	if cmd.Iobj != types.ObjNothing && hasVerbNameOnObject(store, cmd.Iobj, cmd.Verb) {
+		return true
+	}
+	return false
+}
+
 // findVerbOnObject finds a matching verb on an object or its ancestors
 // Uses breadth-first search through inheritance chain
 func findVerbOnObject(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
