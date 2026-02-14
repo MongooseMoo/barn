@@ -1397,6 +1397,65 @@ func newVerbTestStore() *db.Store {
 		Code:  []string{"return length(args);"},
 	}
 
+	// Verb: test_this - returns `this` variable
+	root.Verbs["test_this"] = &db.Verb{
+		Name:  "test_this",
+		Names: []string{"test_this"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return this;"},
+	}
+
+	// Verb: test_caller - returns `caller` variable
+	root.Verbs["test_caller"] = &db.Verb{
+		Name:  "test_caller",
+		Names: []string{"test_caller"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return caller;"},
+	}
+
+	// Verb: test_verb - returns `verb` variable
+	root.Verbs["test_verb"] = &db.Verb{
+		Name:  "test_verb",
+		Names: []string{"test_verb"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return verb;"},
+	}
+
+	// Verb: test_nested - calls test_return on the same object, returns result + 1
+	root.Verbs["test_nested"] = &db.Verb{
+		Name:  "test_nested",
+		Names: []string{"test_nested"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return this:test_return() + 1;"},
+	}
+
+	// Verb: test_recursive - recursive countdown: if args[1] <= 0, return 0; else return 1 + this:test_recursive(args[1] - 1)
+	root.Verbs["test_recursive"] = &db.Verb{
+		Name:  "test_recursive",
+		Names: []string{"test_recursive"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code: []string{
+			"if (args[1] <= 0)",
+			"  return 0;",
+			"endif",
+			"return 1 + this:test_recursive(args[1] - 1);",
+		},
+	}
+
+	// Verb: test_throw - raises E_DIV by dividing by zero
+	root.Verbs["test_throw"] = &db.Verb{
+		Name:  "test_throw",
+		Names: []string{"test_throw"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return 1 / 0;"},
+	}
+
 	store.Add(root)
 
 	return store
@@ -2460,4 +2519,65 @@ func TestCrossFrameExceptionUnwinding(t *testing.T) {
 			t.Errorf("expected 42, got %v", val)
 		}
 	})
+}
+
+// --- Native verb call parity tests (Task 5) ---
+
+func TestParity_VerbCallBuiltinVars(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"this_is_obj":     `return #0:test_this();`,
+		"verb_name":       `return #0:test_verb();`,
+		"caller_default":  `return #0:test_caller();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallNested(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"nested_call":     `return #0:test_nested();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallRecursive(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"recursive_base":  `return #0:test_recursive(0);`,
+		"recursive_one":   `return #0:test_recursive(1);`,
+		"recursive_five":  `return #0:test_recursive(5);`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallThrows(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"verb_throws_div":  `return #0:test_throw();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallThrowsCaught(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"caller_catches_verb_error": `
+			try
+				return #0:test_throw();
+			except (E_DIV)
+				return "caught";
+			endtry`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
 }

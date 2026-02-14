@@ -3,6 +3,7 @@ package vm
 import (
 	"barn/builtins"
 	"barn/db"
+	"barn/task"
 	"barn/types"
 	"fmt"
 )
@@ -62,6 +63,12 @@ type StackFrame struct {
 	LoopStack    []LoopState   // Nested loop state
 	ExceptStack  []Handler     // Exception handlers
 	PendingError error         // Error saved during finally execution
+
+	// Saved context fields — restored when this frame is popped (Return / HandleError).
+	// Only set for verb-call frames (not the initial frame).
+	IsVerbCall    bool          // True if this frame was pushed by executeCallVerb
+	SavedThisObj  types.ObjID   // ctx.ThisObj before verb call
+	SavedVerb     string        // ctx.Verb before verb call
 }
 
 // NewVM creates a new virtual machine
@@ -397,6 +404,20 @@ func (vm *VM) Return(value types.Value) {
 	}
 
 	frame := vm.Frames[len(vm.Frames)-1]
+
+	// If this was a verb-call frame, restore context and pop activation frame
+	if frame.IsVerbCall && vm.Context != nil {
+		vm.Context.ThisObj = frame.SavedThisObj
+		vm.Context.Verb = frame.SavedVerb
+
+		// Pop activation frame from task call stack
+		if vm.Context.Task != nil {
+			if t, ok := vm.Context.Task.(*task.Task); ok {
+				t.PopFrame()
+			}
+		}
+	}
+
 	vm.SP = frame.BasePointer
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
 	vm.Push(value)
@@ -460,6 +481,17 @@ func (vm *VM) HandleError(err error) bool {
 
 		// Pop the current frame (unwind): reset SP to BasePointer, remove frame.
 		// Do NOT push a return value — we're unwinding due to an error.
+		// If this was a verb-call frame, restore context and pop activation frame.
+		if frame.IsVerbCall && vm.Context != nil {
+			vm.Context.ThisObj = frame.SavedThisObj
+			vm.Context.Verb = frame.SavedVerb
+
+			if vm.Context.Task != nil {
+				if t, ok := vm.Context.Task.(*task.Task); ok {
+					t.PopFrame()
+				}
+			}
+		}
 		vm.SP = frame.BasePointer
 		vm.Frames = vm.Frames[:len(vm.Frames)-1]
 		// Continue searching in the caller frame

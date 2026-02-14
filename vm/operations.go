@@ -2,6 +2,7 @@ package vm
 
 import (
 	"barn/db"
+	"barn/task"
 	"barn/types"
 	"fmt"
 	"math"
@@ -1547,21 +1548,34 @@ func (vm *VM) executeScatter() error {
 	return nil
 }
 
+// setLocalByName sets a local variable in a stack frame by name.
+// Looks up the name in the program's VarNames table and sets the corresponding
+// slot in frame.Locals. If the name is not found (verb doesn't reference it),
+// silently does nothing.
+func setLocalByName(frame *StackFrame, prog *Program, name string, value types.Value) {
+	for i, varName := range prog.VarNames {
+		if varName == name {
+			frame.Locals[i] = value
+			return
+		}
+	}
+}
+
 // executeCallVerb handles OP_CALL_VERB: call a verb on an object.
 //
 // Bytecode format: OP_CALL_VERB <verb_name_idx:byte> <argc:byte>
 // verb_name_idx = 0xFF means dynamic (verb name string is on top of stack, above args).
 //
 // Stack layout (top to bottom):
-//   [verb_name_str] (only if dynamic, i.e. verb_name_idx == 0xFF)
-//   arg_N
-//   ...
-//   arg_1
-//   obj
 //
-// Delegates to the tree-walker Evaluator for verb body execution.
-// This avoids duplicating the complex verb resolution, frame management,
-// and environment setup logic. The VM and Evaluator share the same store.
+//	[verb_name_str] (only if dynamic, i.e. verb_name_idx == 0xFF)
+//	arg_N
+//	...
+//	arg_1
+//	obj
+//
+// Native frame push: compiles the verb to bytecode and pushes a new StackFrame.
+// Falls back to tree-walker delegation if bytecode compilation fails.
 func (vm *VM) executeCallVerb() error {
 	verbNameIdx := vm.ReadByte()
 	argc := int(vm.ReadByte())
@@ -1606,7 +1620,8 @@ func (vm *VM) executeCallVerb() error {
 	// Pop the object
 	objVal := vm.Pop()
 
-	// Resolve the object ID
+	// Resolve the object ID — for now, only handle ObjValue.
+	// Waif/primitive support comes in Task 7.
 	objRef, ok := objVal.(types.ObjValue)
 	if !ok {
 		return fmt.Errorf("E_TYPE: verb call requires an object")
@@ -1617,22 +1632,118 @@ func (vm *VM) executeCallVerb() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	// Create an Evaluator that shares the same store, and delegate verb execution.
-	// This is the recommended approach: the tree-walker already handles all the
-	// complexity (activation frames, env vars, permissions, verb lookup/compilation).
+	// Check object validity
+	if !vm.Store.Valid(objID) {
+		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
+	}
+
+	// Look up verb via store (with inheritance)
+	verb, _, err := vm.Store.FindVerb(objID, verbName)
+	if err != nil {
+		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
+	}
+
+	// Check execute permission
+	if !verb.Perms.Has(db.VerbExecute) {
+		return fmt.Errorf("E_PERM: verb %s is not executable", verbName)
+	}
+
+	// Try to compile verb to bytecode
+	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
+	if compileErr != nil {
+		// Fallback to tree-walker delegation for verbs the compiler can't handle
+		return vm.executeCallVerbTreeWalker(objID, verbName, args)
+	}
+
+	// --- Native frame push ---
+
+	// Get current frame's context for caller/player
+	currentFrame := vm.CurrentFrame()
+	callerObj := currentFrame.This
+	player := currentFrame.Player
+	if vm.Context != nil && vm.Context.Player != types.ObjNothing {
+		player = vm.Context.Player
+	}
+
+	// Save current context fields for restore on return/unwind
+	var savedThisObj types.ObjID
+	var savedVerb string
+	if vm.Context != nil {
+		savedThisObj = vm.Context.ThisObj
+		savedVerb = vm.Context.Verb
+	}
+
+	// Push new stack frame
+	frame := &StackFrame{
+		Program:      prog,
+		IP:           0,
+		BasePointer:  vm.SP,
+		Locals:       make([]types.Value, prog.NumLocals),
+		This:         objID,
+		Player:       player,
+		Verb:         verbName,
+		Caller:       callerObj,
+		LoopStack:    make([]LoopState, 0, 4),
+		ExceptStack:  make([]Handler, 0, 4),
+		IsVerbCall:   true,
+		SavedThisObj: savedThisObj,
+		SavedVerb:    savedVerb,
+	}
+
+	// Initialize locals to 0
+	for i := range frame.Locals {
+		frame.Locals[i] = types.IntValue{Val: 0}
+	}
+
+	// Pre-populate built-in variables using VarNames
+	setLocalByName(frame, prog, "this", types.NewObj(objID))
+	setLocalByName(frame, prog, "verb", types.NewStr(verbName))
+	setLocalByName(frame, prog, "caller", types.NewObj(callerObj))
+	setLocalByName(frame, prog, "args", types.NewList(args))
+	setLocalByName(frame, prog, "player", types.NewObj(player))
+
+	// Update shared context for builtins
+	if vm.Context != nil {
+		vm.Context.ThisObj = objID
+		vm.Context.Verb = verbName
+	}
+
+	// Push activation frame onto task call stack (if we have a task)
+	if vm.Context != nil && vm.Context.Task != nil {
+		if t, ok := vm.Context.Task.(*task.Task); ok {
+			actFrame := task.ActivationFrame{
+				This:       objID,
+				Player:     player,
+				Programmer: player, // TODO: use verb owner for programmer
+				Caller:     callerObj,
+				Verb:       verbName,
+				VerbLoc:    objID, // TODO: use defObjID from FindVerb
+				Args:       args,
+				LineNumber: 0,
+			}
+			t.PushFrame(actFrame)
+		}
+	}
+
+	vm.Frames = append(vm.Frames, frame)
+
+	// Return nil — Run() loop continues executing the new frame's bytecode
+	return nil
+}
+
+// executeCallVerbTreeWalker is the fallback path that delegates verb execution
+// to the tree-walker Evaluator. Used when bytecode compilation fails.
+func (vm *VM) executeCallVerbTreeWalker(objID types.ObjID, verbName string, args []types.Value) error {
 	evaluator := NewEvaluatorWithStore(vm.Store)
 
-	// Use the VM's task context if available, otherwise create a fresh one
 	ctx := vm.Context
 	if ctx == nil {
 		ctx = types.NewTaskContext()
 	}
 
-	// Call the verb via the Evaluator's CallVerb method
 	result := evaluator.CallVerb(objID, verbName, args, ctx)
 
 	if result.Flow == types.FlowException {
-		// Convert MOO error to Go error for the VM's error handling
 		mooErr := MooError{Code: result.Error}
 		if !vm.HandleError(mooErr) {
 			return mooErr
@@ -1640,7 +1751,6 @@ func (vm *VM) executeCallVerb() error {
 		return nil
 	}
 
-	// Push the return value onto the stack
 	vm.Push(result.Val)
 	return nil
 }
