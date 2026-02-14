@@ -112,15 +112,18 @@ func (vm *VM) Run(prog *Program) (types.Value, error) {
 	// Execute until done
 	for len(vm.Frames) > 0 {
 		if err := vm.Step(); err != nil {
+			// Capture line number before HandleError may pop frames
+			line := vm.CurrentLine()
 			// Handle error
 			if !vm.HandleError(err) {
-				return nil, err
+				return nil, vm.annotateError(err, line)
 			}
 		}
 
 		// Check tick limit
 		if vm.Ticks >= vm.TickLimit {
-			return nil, fmt.Errorf("E_MAXREC: tick limit exceeded")
+			line := vm.CurrentLine()
+			return nil, vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
 		}
 	}
 
@@ -339,6 +342,31 @@ func (vm *VM) CurrentFrame() *StackFrame {
 		return nil
 	}
 	return vm.Frames[len(vm.Frames)-1]
+}
+
+// CurrentLine returns the source line number for the current instruction pointer.
+// Returns 0 if no line information is available.
+func (vm *VM) CurrentLine() int {
+	frame := vm.CurrentFrame()
+	if frame == nil || frame.Program == nil {
+		return 0
+	}
+	// IP has already been incremented past the opcode, so use IP-1
+	// to find the line for the instruction being executed.
+	ip := frame.IP - 1
+	if ip < 0 {
+		ip = 0
+	}
+	return frame.Program.LineForIP(ip)
+}
+
+// annotateError wraps an error with source line information if available.
+// If the line is 0 (no line info), the original error is returned unchanged.
+func (vm *VM) annotateError(err error, line int) error {
+	if line > 0 {
+		return fmt.Errorf("%w (line %d)", err, line)
+	}
+	return err
 }
 
 // Push pushes a value onto the stack

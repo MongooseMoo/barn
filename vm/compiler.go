@@ -18,6 +18,7 @@ type Compiler struct {
 	tempCount      int                  // Counter for unique temporary variable names
 	registry       *builtins.Registry   // Builtin function registry for name->ID resolution
 	indexContextVar int                 // Variable slot holding collection length for $ resolution (-1 = none)
+	lastLine       int                  // Last emitted line number for LineInfo deduplication
 }
 
 // LoopContext tracks loop compilation state
@@ -197,6 +198,20 @@ func (c *Compiler) currentOffset() int {
 	return len(c.program.Code)
 }
 
+// trackLine records a line number entry if the given AST node's line differs
+// from the last recorded line. This populates Program.LineInfo so that runtime
+// errors can include source line numbers.
+func (c *Compiler) trackLine(node parser.Node) {
+	line := node.Position().Line
+	if line > 0 && line != c.lastLine {
+		c.program.LineInfo = append(c.program.LineInfo, LineEntry{
+			StartIP: len(c.program.Code),
+			Line:    line,
+		})
+		c.lastLine = line
+	}
+}
+
 // beginScope starts a new variable scope
 func (c *Compiler) beginScope() {
 	scope := Scope{
@@ -293,6 +308,9 @@ func (c *Compiler) findLoop(label string) *LoopContext {
 
 // compileNode dispatches compilation based on node type
 func (c *Compiler) compileNode(node parser.Node) error {
+	// Track source line for runtime error reporting
+	c.trackLine(node)
+
 	switch n := node.(type) {
 	// Expressions
 	case *parser.LiteralExpr:

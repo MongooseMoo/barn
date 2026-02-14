@@ -6,6 +6,7 @@ import (
 	"barn/parser"
 	"barn/types"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -3077,4 +3078,128 @@ func containsSubstr(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// --- Line number tracking tests ---
+
+func TestLineInfoPopulated(t *testing.T) {
+	// Multi-line program: 3 statements on separate lines
+	code := "x = 1;\ny = 2;\nz = x + y;\nreturn z;"
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := newTestRegistry()
+	c := NewCompilerWithRegistry(registry)
+	prog, err := c.CompileStatements(stmts)
+	if err != nil {
+		t.Fatalf("CompileStatements error: %v", err)
+	}
+
+	// LineInfo should have entries (at least one per line)
+	if len(prog.LineInfo) == 0 {
+		t.Fatal("LineInfo is empty; expected entries for multi-line program")
+	}
+
+	// Verify we have entries for lines 1 through 4
+	linesPresent := make(map[int]bool)
+	for _, entry := range prog.LineInfo {
+		linesPresent[entry.Line] = true
+	}
+	for _, expectedLine := range []int{1, 2, 3, 4} {
+		if !linesPresent[expectedLine] {
+			t.Errorf("LineInfo missing entry for line %d; entries: %v", expectedLine, prog.LineInfo)
+		}
+	}
+
+	// Verify entries are sorted by StartIP (ascending)
+	for i := 1; i < len(prog.LineInfo); i++ {
+		if prog.LineInfo[i].StartIP < prog.LineInfo[i-1].StartIP {
+			t.Errorf("LineInfo not sorted by StartIP: entry[%d]=%v, entry[%d]=%v",
+				i-1, prog.LineInfo[i-1], i, prog.LineInfo[i])
+		}
+	}
+
+	// Verify the program still produces the correct result
+	vm := NewVM(nil, registry)
+	vm.Context = types.NewTaskContext()
+	result, err := vm.Run(prog)
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if intVal, ok := result.(types.IntValue); !ok || intVal.Val != 3 {
+		t.Errorf("Expected 3, got %v", result)
+	}
+}
+
+func TestErrorIncludesLineNumber(t *testing.T) {
+	// Division by zero on line 3
+	code := "x = 1;\ny = 0;\nz = x / y;\nreturn z;"
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	registry := newTestRegistry()
+	c := NewCompilerWithRegistry(registry)
+	prog, err := c.CompileStatements(stmts)
+	if err != nil {
+		t.Fatalf("CompileStatements error: %v", err)
+	}
+
+	vm := NewVM(nil, registry)
+	vm.Context = types.NewTaskContext()
+	_, err = vm.Run(prog)
+	if err == nil {
+		t.Fatal("Expected E_DIV error, got nil")
+	}
+
+	errMsg := err.Error()
+	// Verify error mentions E_DIV
+	if !strings.Contains(errMsg, "E_DIV") {
+		t.Errorf("Expected error to contain E_DIV, got: %s", errMsg)
+	}
+	// Verify error includes line 3 (where the division happens)
+	if !strings.Contains(errMsg, "line 3") {
+		t.Errorf("Expected error to mention 'line 3', got: %s", errMsg)
+	}
+}
+
+func TestLineForIP(t *testing.T) {
+	// Test the Program.LineForIP lookup directly
+	prog := &Program{
+		LineInfo: []LineEntry{
+			{StartIP: 0, Line: 1},
+			{StartIP: 5, Line: 2},
+			{StartIP: 12, Line: 3},
+		},
+	}
+
+	tests := []struct {
+		ip       int
+		expected int
+	}{
+		{0, 1},  // Exactly at line 1 start
+		{3, 1},  // Within line 1's range
+		{5, 2},  // Exactly at line 2 start
+		{10, 2}, // Within line 2's range
+		{12, 3}, // Exactly at line 3 start
+		{99, 3}, // Past all entries, should return last line
+	}
+
+	for _, tt := range tests {
+		got := prog.LineForIP(tt.ip)
+		if got != tt.expected {
+			t.Errorf("LineForIP(%d) = %d, want %d", tt.ip, got, tt.expected)
+		}
+	}
+
+	// Empty LineInfo should return 0
+	emptyProg := &Program{}
+	if got := emptyProg.LineForIP(5); got != 0 {
+		t.Errorf("LineForIP on empty program = %d, want 0", got)
+	}
 }
