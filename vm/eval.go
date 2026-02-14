@@ -25,7 +25,6 @@ func NewEvaluator() *Evaluator {
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
 	registry.RegisterSystemBuiltins(store)
-	registry.RegisterStubBuiltins()
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
@@ -46,7 +45,6 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
 	registry.RegisterSystemBuiltins(store)
-	registry.RegisterStubBuiltins()
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -66,7 +64,6 @@ func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
 	registry.RegisterSystemBuiltins(store)
-	registry.RegisterStubBuiltins()
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -86,7 +83,6 @@ func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 	registry.RegisterVerbBuiltins(store)
 	registry.RegisterCryptoBuiltins(store)
 	registry.RegisterSystemBuiltins(store)
-	registry.RegisterStubBuiltins()
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
