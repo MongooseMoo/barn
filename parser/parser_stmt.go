@@ -673,47 +673,47 @@ func (p *Parser) looksLikeScatter() bool {
 func (p *Parser) parseScatterStatement() (Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume '{'
-	
+
 	// Parse scatter targets
 	var targets []ScatterTarget
-	
+
 	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
 		target, err := p.parseScatterTarget()
 		if err != nil {
 			return nil, err
 		}
 		targets = append(targets, target)
-		
+
 		if p.current.Type == TOKEN_COMMA {
 			p.nextToken() // consume ','
 		} else if p.current.Type != TOKEN_RBRACE {
 			return nil, fmt.Errorf("expected ',' or '}' in scatter")
 		}
 	}
-	
+
 	if p.current.Type != TOKEN_RBRACE {
 		return nil, fmt.Errorf("expected '}' after scatter targets")
 	}
 	p.nextToken() // consume '}'
-	
+
 	// Must be followed by =
 	if p.current.Type != TOKEN_ASSIGN {
 		return nil, fmt.Errorf("scatter must be followed by '='")
 	}
 	p.nextToken() // consume '='
-	
+
 	// Parse value expression
 	value, err := p.ParseExpression(PREC_LOWEST)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Consume semicolon
 	if p.current.Type != TOKEN_SEMICOLON {
 		return nil, fmt.Errorf("expected ';' after scatter assignment")
 	}
 	p.nextToken() // consume ';'
-	
+
 	return &ScatterStmt{
 		Pos:     pos,
 		Targets: targets,
@@ -726,7 +726,7 @@ func (p *Parser) parseScatterTarget() (ScatterTarget, error) {
 	target := ScatterTarget{
 		Pos: p.current.Position,
 	}
-	
+
 	// Check for optional (?) or rest (@)
 	if p.current.Type == TOKEN_QUESTION {
 		target.Optional = true
@@ -735,14 +735,14 @@ func (p *Parser) parseScatterTarget() (ScatterTarget, error) {
 		target.Rest = true
 		p.nextToken() // consume '@'
 	}
-	
+
 	// Parse identifier
 	if p.current.Type != TOKEN_IDENTIFIER {
 		return target, fmt.Errorf("expected identifier in scatter target")
 	}
 	target.Name = p.current.Value
 	p.nextToken()
-	
+
 	// Check for default value (only for optional)
 	if target.Optional && p.current.Type == TOKEN_ASSIGN {
 		p.nextToken() // consume '='
@@ -752,6 +752,6 @@ func (p *Parser) parseScatterTarget() (ScatterTarget, error) {
 		}
 		target.Default = defaultExpr
 	}
-	
+
 	return target, nil
 }
