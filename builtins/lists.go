@@ -288,25 +288,31 @@ func builtinSort(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList(elements))
 }
 
-// builtinReverse reverses a list
+// builtinReverse reverses a list or string
 // reverse(list) -> list
+// reverse(str) -> str
 func builtinReverse(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
+	switch v := args[0].(type) {
+	case types.ListValue:
+		// Copy and reverse list elements.
+		elements := make([]types.Value, v.Len())
+		for i := 1; i <= v.Len(); i++ {
+			elements[v.Len()-i] = v.Get(i)
+		}
+		return types.Ok(types.NewList(elements))
+	case types.StrValue:
+		runes := []rune(v.Value())
+		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+			runes[i], runes[j] = runes[j], runes[i]
+		}
+		return types.Ok(types.NewStr(string(runes)))
+	default:
+		return types.Err(types.E_INVARG)
 	}
-
-	// Copy and reverse
-	elements := make([]types.Value, list.Len())
-	for i := 1; i <= list.Len(); i++ {
-		elements[list.Len()-i] = list.Get(i)
-	}
-
-	return types.Ok(types.NewList(elements))
 }
 
 // builtinUnique removes duplicate elements
