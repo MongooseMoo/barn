@@ -1456,6 +1456,96 @@ func newVerbTestStore() *db.Store {
 		Code:  []string{"return 1 / 0;"},
 	}
 
+	// Verb: test_args_access - returns args[2] (second argument)
+	root.Verbs["test_args_access"] = &db.Verb{
+		Name:  "test_args_access",
+		Names: []string{"test_args_access"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return args[2];"},
+	}
+
+	// Verb: test_return_string - returns a string
+	root.Verbs["test_return_string"] = &db.Verb{
+		Name:  "test_return_string",
+		Names: []string{"test_return_string"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return "hello world";`},
+	}
+
+	// Verb: test_return_list - returns a list
+	root.Verbs["test_return_list"] = &db.Verb{
+		Name:  "test_return_list",
+		Names: []string{"test_return_list"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return {1, 2, 3};"},
+	}
+
+	// Verb: test_return_float - returns a float
+	root.Verbs["test_return_float"] = &db.Verb{
+		Name:  "test_return_float",
+		Names: []string{"test_return_float"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return 3.14;"},
+	}
+
+	// Verb: test_return_map - returns a map
+	root.Verbs["test_return_map"] = &db.Verb{
+		Name:  "test_return_map",
+		Names: []string{"test_return_map"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return ["x" -> 1, "y" -> 2];`},
+	}
+
+	// Verb: test_player - returns `player` variable
+	root.Verbs["test_player"] = &db.Verb{
+		Name:  "test_player",
+		Names: []string{"test_player"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return player;"},
+	}
+
+	// Verb: test_no_exec - verb WITHOUT execute permission (for E_PERM tests)
+	root.Verbs["test_no_exec"] = &db.Verb{
+		Name:  "test_no_exec",
+		Names: []string{"test_no_exec"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite, // no VerbExecute
+		Code:  []string{"return 1;"},
+	}
+
+	// Verb: test_chain_c - throws an error (for deep unwinding tests)
+	root.Verbs["test_chain_c"] = &db.Verb{
+		Name:  "test_chain_c",
+		Names: []string{"test_chain_c"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return 1 / 0;"},
+	}
+
+	// Verb: test_chain_b - calls test_chain_c (no handler, for deep unwinding)
+	root.Verbs["test_chain_b"] = &db.Verb{
+		Name:  "test_chain_b",
+		Names: []string{"test_chain_b"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return this:test_chain_c();"},
+	}
+
+	// Verb: test_finally_normal - returns normally (for finally tests)
+	root.Verbs["test_finally_normal"] = &db.Verb{
+		Name:  "test_finally_normal",
+		Names: []string{"test_finally_normal"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{"return 99;"},
+	}
+
 	store.Add(root)
 
 	return store
@@ -2575,6 +2665,175 @@ func TestParity_VerbCallThrowsCaught(t *testing.T) {
 				return #0:test_throw();
 			except (E_DIV)
 				return "caught";
+			endtry`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallArgsAccess(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"args_second_element": `return #0:test_args_access(10, 20, 30);`,
+		"args_full_list":      `return #0:test_args(100, 200);`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallReturnTypes(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"return_string": `return #0:test_return_string();`,
+		"return_list":   `return #0:test_return_list();`,
+		"return_float":  `return #0:test_return_float();`,
+		"return_map":    `return #0:test_return_map();`,
+		"return_int":    `return #0:test_return();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallVerbnfCaught(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"catch_verbnf": `
+			try
+				return #0:nonexistent();
+			except (E_VERBNF)
+				return "no such verb";
+			endtry`,
+		"catch_invind": `
+			try
+				return #99:test_return();
+			except (E_INVIND)
+				return "bad object";
+			endtry`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallPermission(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"no_exec_perm": `return #0:test_no_exec();`,
+		"catch_perm": `
+			try
+				return #0:test_no_exec();
+			except (E_PERM)
+				return "no permission";
+			endtry`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallPlayer(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		"player_propagated": `return #0:test_player();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallUnhandledException(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		// B calls C, C throws, B has no handler -> error propagates out
+		"unhandled_through_chain": `return #0:test_chain_b();`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallDeepUnwind(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		// A calls B, B calls C, C throws E_DIV.
+		// B has no handler. A catches the error from C.
+		"a_catches_c_error_through_b": `
+			try
+				return #0:test_chain_b();
+			except (E_DIV)
+				return "caught from C";
+			endtry`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallCrossFrameFinally(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		// Called verb returns normally -> finally block executes
+		"finally_normal_return": `
+			x = 0;
+			try
+				x = #0:test_finally_normal();
+			finally
+				x = x + 1;
+			endtry
+			return x;`,
+		// Called verb throws -> finally block executes, then error propagates.
+		// Wrap in outer try/except to catch the propagated error.
+		"finally_on_error": `
+			x = 0;
+			try
+				try
+					#0:test_throw();
+				finally
+					x = 1;
+				endtry
+			except (E_DIV)
+				return x;
+			endtry`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
+	}
+}
+
+func TestParity_VerbCallDeepFinallyUnwind(t *testing.T) {
+	store := newVerbTestStore()
+	cases := map[string]string{
+		// A has try/finally, A calls B, B calls C, C throws.
+		// A's finally must execute during unwinding.
+		// Outer try/except catches the error so we can observe the finally side-effect.
+		"finally_through_nested_verbs": `
+			x = 0;
+			try
+				try
+					#0:test_chain_b();
+				finally
+					x = 42;
+				endtry
+			except (E_DIV)
+				return x;
+			endtry`,
+		// Same but with finally in try that also has except for a DIFFERENT error.
+		// E_DIV should NOT match E_VERBNF, so it continues unwinding through finally.
+		"finally_mismatched_except": `
+			x = 0;
+			try
+				try
+					#0:test_chain_b();
+				except (E_VERBNF)
+					x = -1;
+				finally
+					x = x + 100;
+				endtry
+			except (E_DIV)
+				return x;
 			endtry`,
 	}
 	for name, code := range cases {
