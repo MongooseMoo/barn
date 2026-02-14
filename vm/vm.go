@@ -16,6 +16,26 @@ func (e MooError) Error() string {
 	return fmt.Sprintf("E_%d", e.Code)
 }
 
+// extractErrorCode parses an error code from an error message string.
+// Handles messages like "E_DIV: division by zero" or "E_TYPE: ..."
+func extractErrorCode(err error) types.ErrorCode {
+	msg := err.Error()
+	// Look for "E_XXX" at the start or after a space
+	for _, prefix := range []string{
+		"E_TYPE", "E_DIV", "E_PERM", "E_PROPNF", "E_VERBNF", "E_VARNF",
+		"E_INVIND", "E_RECMOVE", "E_MAXREC", "E_RANGE", "E_ARGS",
+		"E_NACC", "E_INVARG", "E_QUOTA", "E_FLOAT", "E_FILE", "E_EXEC",
+		"E_INTRPT",
+	} {
+		if len(msg) >= len(prefix) && msg[:len(prefix)] == prefix {
+			if code, ok := types.ErrorFromString(prefix); ok {
+				return code
+			}
+		}
+	}
+	return types.E_NONE
+}
+
 // VM represents the bytecode virtual machine
 type VM struct {
 	Stack     []types.Value         // Operand stack
@@ -31,16 +51,17 @@ type VM struct {
 
 // StackFrame represents a call frame
 type StackFrame struct {
-	Program     *Program      // Bytecode program
-	IP          int           // Instruction pointer
-	BasePointer int           // Stack base for this frame
-	Locals      []types.Value // Local variables
-	This        types.ObjID   // Current object
-	Player      types.ObjID   // Player context
-	Verb        string        // Verb name
-	Caller      types.ObjID   // Calling object
-	LoopStack   []LoopState   // Nested loop state
-	ExceptStack []Handler     // Exception handlers
+	Program      *Program      // Bytecode program
+	IP           int           // Instruction pointer
+	BasePointer  int           // Stack base for this frame
+	Locals       []types.Value // Local variables
+	This         types.ObjID   // Current object
+	Player       types.ObjID   // Player context
+	Verb         string        // Verb name
+	Caller       types.ObjID   // Calling object
+	LoopStack    []LoopState   // Nested loop state
+	ExceptStack  []Handler     // Exception handlers
+	PendingError error         // Error saved during finally execution
 }
 
 // NewVM creates a new virtual machine
@@ -233,6 +254,10 @@ func (vm *VM) Execute(op OpCode) error {
 		val := vm.Pop()
 		vm.Return(val)
 
+	case OP_LOOP:
+		offset := vm.ReadShort()
+		vm.CurrentFrame().IP -= int(offset)
+
 	case OP_RETURN_NONE:
 		vm.Return(types.IntValue{Val: 0})
 
@@ -245,10 +270,22 @@ func (vm *VM) Execute(op OpCode) error {
 		return vm.executeMakeList()
 	case OP_MAKE_MAP:
 		return vm.executeMakeMap()
+	case OP_LENGTH:
+		return vm.executeLength()
 
 	// Builtin calls
 	case OP_CALL_BUILTIN:
 		return vm.executeCallBuiltin()
+
+	// Exception handling
+	case OP_TRY_EXCEPT:
+		return vm.executeTryExcept()
+	case OP_END_EXCEPT:
+		vm.executeEndExcept()
+	case OP_TRY_FINALLY:
+		return vm.executeTryFinally()
+	case OP_END_FINALLY:
+		return vm.executeEndFinally()
 
 	default:
 		return fmt.Errorf("unknown opcode: %s (%d)", op.String(), op)
@@ -339,6 +376,9 @@ func (vm *VM) HandleError(err error) bool {
 	errCode := types.E_NONE
 	if mooErr, ok := err.(MooError); ok {
 		errCode = mooErr.Code
+	} else {
+		// Try to parse error code from error message (e.g. "E_DIV: division by zero")
+		errCode = extractErrorCode(err)
 	}
 
 	frame := vm.CurrentFrame()
@@ -346,11 +386,22 @@ func (vm *VM) HandleError(err error) bool {
 		return false
 	}
 
-	// Search for handler
+	// Search for handler (innermost first)
 	for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
 		handler := frame.ExceptStack[i]
+
+		if handler.Type == HandlerFinally {
+			// Finally handler: run the finally block, then re-raise the error.
+			// Pop this handler and everything above it.
+			frame.ExceptStack = frame.ExceptStack[:i]
+			// Save the pending error so after finally runs, we re-raise it
+			frame.PendingError = err
+			frame.IP = handler.HandlerIP
+			return true
+		}
+
 		if handler.Type == HandlerExcept && handler.Matches(errCode) {
-			// Found handler - jump to it
+			// Found matching except handler - jump to it
 			frame.ExceptStack = frame.ExceptStack[:i]
 			frame.IP = handler.HandlerIP
 
@@ -365,4 +416,97 @@ func (vm *VM) HandleError(err error) bool {
 
 	// No handler found
 	return false
+}
+
+// executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
+func (vm *VM) executeTryExcept() error {
+	frame := vm.CurrentFrame()
+	numClauses := int(vm.ReadByte())
+
+	for i := 0; i < numClauses; i++ {
+		numCodes := int(vm.ReadByte())
+		codes := make([]types.ErrorCode, numCodes)
+		for j := 0; j < numCodes; j++ {
+			codes[j] = types.ErrorCode(vm.ReadByte())
+		}
+
+		varByte := vm.ReadByte()
+		varIndex := int(varByte) - 1 // 0 = no variable -> -1
+
+		// Read handler IP (absolute)
+		hi := frame.Program.Code[frame.IP]
+		lo := frame.Program.Code[frame.IP+1]
+		frame.IP += 2
+		handlerIP := int(uint16(hi)<<8 | uint16(lo))
+
+		handler := Handler{
+			Type:      HandlerExcept,
+			HandlerIP: handlerIP,
+			Codes:     codes,
+			VarIndex:  varIndex,
+		}
+		frame.ExceptStack = append(frame.ExceptStack, handler)
+	}
+
+	return nil
+}
+
+// executeEndExcept handles OP_END_EXCEPT: pop all except handlers for current try block
+func (vm *VM) executeEndExcept() {
+	frame := vm.CurrentFrame()
+	// Pop all except handlers from the stack (they were pushed by the most recent OP_TRY_EXCEPT)
+	// We pop from the end until we hit a non-Except handler or empty
+	for len(frame.ExceptStack) > 0 {
+		top := frame.ExceptStack[len(frame.ExceptStack)-1]
+		if top.Type != HandlerExcept {
+			break
+		}
+		frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
+	}
+}
+
+// executeTryFinally handles OP_TRY_FINALLY: push a finally handler
+func (vm *VM) executeTryFinally() error {
+	frame := vm.CurrentFrame()
+
+	// Read finally IP (absolute)
+	hi := frame.Program.Code[frame.IP]
+	lo := frame.Program.Code[frame.IP+1]
+	frame.IP += 2
+	finallyIP := int(uint16(hi)<<8 | uint16(lo))
+
+	handler := Handler{
+		Type:      HandlerFinally,
+		HandlerIP: finallyIP,
+		VarIndex:  -1,
+	}
+	frame.ExceptStack = append(frame.ExceptStack, handler)
+
+	return nil
+}
+
+// executeEndFinally handles OP_END_FINALLY.
+// This opcode appears twice in try/finally bytecode:
+// 1. After the try body (normal path): pop handler from ExceptStack
+// 2. After the finally block: re-raise PendingError if set
+func (vm *VM) executeEndFinally() error {
+	frame := vm.CurrentFrame()
+
+	// If there's a finally handler on top of the stack, pop it (normal path)
+	if len(frame.ExceptStack) > 0 {
+		top := frame.ExceptStack[len(frame.ExceptStack)-1]
+		if top.Type == HandlerFinally {
+			frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
+			return nil
+		}
+	}
+
+	// No finally handler to pop. Check for pending error to re-raise.
+	if frame.PendingError != nil {
+		err := frame.PendingError
+		frame.PendingError = nil
+		return err
+	}
+
+	return nil
 }

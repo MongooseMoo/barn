@@ -819,3 +819,169 @@ func TestParity_NestedBreak(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+func TestParity_TryExceptBasic(t *testing.T) {
+	cases := map[string]string{
+		"catch_E_DIV": `
+			try
+				x = 1 / 0;
+			except (E_DIV)
+				x = 99;
+			endtry
+			return x;`,
+		"catch_E_TYPE": `
+			try
+				x = "hello" + 1;
+			except (E_TYPE)
+				x = 42;
+			endtry
+			return x;`,
+		"no_error_skip_except": `
+			try
+				x = 10 + 5;
+			except (E_DIV)
+				x = 99;
+			endtry
+			return x;`,
+		"catch_ANY": `
+			try
+				x = 1 / 0;
+			except (ANY)
+				x = 100;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_TryExceptNoMatch(t *testing.T) {
+	cases := map[string]string{
+		"wrong_error_code_propagates": `
+			try
+				x = 1 / 0;
+			except (E_TYPE)
+				x = 99;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_TryExceptMultipleClauses(t *testing.T) {
+	cases := map[string]string{
+		"second_clause_matches": `
+			try
+				x = "hello" + 1;
+			except (E_DIV)
+				x = 1;
+			except (E_TYPE)
+				x = 2;
+			except (E_RANGE)
+				x = 3;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_TryFinallyNormalPath(t *testing.T) {
+	cases := map[string]string{
+		"finally_runs_on_success": `
+			x = 0;
+			try
+				x = 10;
+			finally
+				x = x + 1;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_TryFinallyErrorPath(t *testing.T) {
+	cases := map[string]string{
+		"finally_runs_on_error": `
+			x = 0;
+			try
+				try
+					y = 1 / 0;
+				finally
+					x = 99;
+				endtry
+			except (E_DIV)
+				x = x;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_TryExceptFinallyCombined(t *testing.T) {
+	cases := map[string]string{
+		"except_and_finally": `
+			x = 0;
+			try
+				y = 1 / 0;
+			except (E_DIV)
+				x = 10;
+			finally
+				x = x + 1;
+			endtry
+			return x;`,
+		"finally_runs_no_error": `
+			x = 0;
+			try
+				x = 5;
+			except (E_DIV)
+				x = 99;
+			finally
+				x = x + 1;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}
+
+func TestParity_TryExceptNested(t *testing.T) {
+	cases := map[string]string{
+		"nested_try_inner_catches": `
+			x = 0;
+			try
+				try
+					y = 1 / 0;
+				except (E_DIV)
+					x = 42;
+				endtry
+			except (E_DIV)
+				x = 99;
+			endtry
+			return x;`,
+		"nested_try_outer_catches": `
+			x = 0;
+			try
+				try
+					y = 1 / 0;
+				except (E_TYPE)
+					x = 42;
+				endtry
+			except (E_DIV)
+				x = 99;
+			endtry
+			return x;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

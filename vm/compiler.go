@@ -897,18 +897,227 @@ func (c *Compiler) compileReturn(n *parser.ReturnStmt) error {
 }
 
 func (c *Compiler) compileTryExcept(n *parser.TryExceptStmt) error {
-	// TODO: Implement try/except compilation
-	return fmt.Errorf("try/except compilation not yet implemented")
+	// Bytecode layout:
+	//   OP_TRY_EXCEPT <num_clauses>
+	//     per clause: <num_codes> <code1> <code2>... <var_index+1> <handler_offset:short>
+	//   [body]
+	//   OP_END_EXCEPT
+	//   OP_JUMP <end_offset>  (skip past handler blocks on normal path)
+	//   [handler 1 body]
+	//   OP_JUMP <end_offset>
+	//   [handler 2 body]
+	//   OP_JUMP <end_offset>
+	//   ...
+	//   <end>
+
+	numClauses := len(n.Excepts)
+
+	// Emit OP_TRY_EXCEPT with clause count
+	c.emit(OP_TRY_EXCEPT)
+	c.emitByte(byte(numClauses))
+
+	// Emit clause metadata with placeholder handler offsets
+	clauseOffsetPatches := make([]int, numClauses)
+	clauseVarIndices := make([]int, numClauses)
+
+	for i, except := range n.Excepts {
+		if except.IsAny {
+			c.emitByte(0) // 0 codes = catch any
+		} else {
+			c.emitByte(byte(len(except.Codes)))
+			for _, code := range except.Codes {
+				c.emitByte(byte(code))
+			}
+		}
+
+		// Variable index (0 = no variable, 1+ = index+1)
+		if except.Variable != "" {
+			idx := c.declareVariable(except.Variable)
+			clauseVarIndices[i] = idx
+			c.emitByte(byte(idx + 1)) // +1 so 0 means "no variable"
+		} else {
+			clauseVarIndices[i] = -1
+			c.emitByte(0) // no variable
+		}
+
+		// Placeholder for handler IP (absolute offset in code)
+		clauseOffsetPatches[i] = len(c.program.Code)
+		c.emitShort(0xFFFF)
+	}
+
+	// Compile try body
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// OP_END_EXCEPT pops handlers from ExceptStack
+	c.emit(OP_END_EXCEPT)
+
+	// Jump past all handler blocks (normal path)
+	endJump := c.emitJump(OP_JUMP)
+
+	// Compile each handler clause body
+	handlerEndJumps := make([]int, 0, numClauses)
+	for i, except := range n.Excepts {
+		// Patch the handler offset to point here
+		handlerIP := c.currentOffset()
+		c.program.Code[clauseOffsetPatches[i]] = byte(handlerIP >> 8)
+		c.program.Code[clauseOffsetPatches[i]+1] = byte(handlerIP)
+
+		_ = except // metadata already handled above
+
+		// Compile handler body
+		if err := c.compileBlock(except.Body); err != nil {
+			return err
+		}
+
+		// Jump to end (past remaining handlers)
+		if i < numClauses-1 {
+			hEndJump := c.emitJump(OP_JUMP)
+			handlerEndJumps = append(handlerEndJumps, hEndJump)
+		}
+	}
+
+	// Patch all end jumps
+	c.patchJump(endJump)
+	for _, j := range handlerEndJumps {
+		c.patchJump(j)
+	}
+
+	return nil
 }
 
 func (c *Compiler) compileTryFinally(n *parser.TryFinallyStmt) error {
-	// TODO: Implement try/finally compilation
-	return fmt.Errorf("try/finally compilation not yet implemented")
+	// Bytecode layout:
+	//   OP_TRY_FINALLY <finally_ip:short>
+	//   [body]
+	//   OP_END_FINALLY  (normal path: pop handler, fall through to finally code)
+	//   <finally_ip>:   (error path entry point)
+	//   [finally block]
+	//   OP_END_FINALLY  (re-raise PendingError if set)
+
+	// Emit OP_TRY_FINALLY with placeholder for finally IP
+	c.emit(OP_TRY_FINALLY)
+	finallyIPPatch := len(c.program.Code)
+	c.emitShort(0xFFFF)
+
+	// Compile try body
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// OP_END_FINALLY on normal path: pop the handler
+	c.emit(OP_END_FINALLY)
+
+	// Patch finally IP to point here (the finally block entry for error path)
+	finallyIP := c.currentOffset()
+	c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
+	c.program.Code[finallyIPPatch+1] = byte(finallyIP)
+
+	// Compile finally block
+	if err := c.compileBlock(n.Finally); err != nil {
+		return err
+	}
+
+	// OP_END_FINALLY at end of finally block: re-raise pending error if any
+	c.emit(OP_END_FINALLY)
+
+	return nil
 }
 
 func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error {
-	// TODO: Implement try/except/finally compilation
-	return fmt.Errorf("try/except/finally compilation not yet implemented")
+	// This is a combination: wrap try/except inside try/finally.
+	// Desugar to: try { try { body } except ... endtry } finally { ... } endtry
+	//
+	// Bytecode layout:
+	//   OP_TRY_FINALLY <finally_ip:short>
+	//   OP_TRY_EXCEPT <num_clauses> [clause metadata...]
+	//   [body]
+	//   OP_END_EXCEPT
+	//   OP_JUMP <past_handlers>
+	//   [handler bodies...]
+	//   <past_handlers>:
+	//   OP_END_FINALLY
+	//   [finally block]
+
+	// Outer: try/finally
+	c.emit(OP_TRY_FINALLY)
+	finallyIPPatch := len(c.program.Code)
+	c.emitShort(0xFFFF)
+
+	// Inner: try/except (reuse compileTryExcept logic inline)
+	numClauses := len(n.Excepts)
+	c.emit(OP_TRY_EXCEPT)
+	c.emitByte(byte(numClauses))
+
+	clauseOffsetPatches := make([]int, numClauses)
+	for i, except := range n.Excepts {
+		if except.IsAny {
+			c.emitByte(0)
+		} else {
+			c.emitByte(byte(len(except.Codes)))
+			for _, code := range except.Codes {
+				c.emitByte(byte(code))
+			}
+		}
+		if except.Variable != "" {
+			idx := c.declareVariable(except.Variable)
+			c.emitByte(byte(idx + 1))
+		} else {
+			c.emitByte(0)
+		}
+		clauseOffsetPatches[i] = len(c.program.Code)
+		c.emitShort(0xFFFF)
+	}
+
+	// Compile try body
+	if err := c.compileBlock(n.Body); err != nil {
+		return err
+	}
+
+	// End except handlers (normal path)
+	c.emit(OP_END_EXCEPT)
+	endExceptJump := c.emitJump(OP_JUMP)
+
+	// Compile handler bodies
+	handlerEndJumps := make([]int, 0, numClauses)
+	for i, except := range n.Excepts {
+		handlerIP := c.currentOffset()
+		c.program.Code[clauseOffsetPatches[i]] = byte(handlerIP >> 8)
+		c.program.Code[clauseOffsetPatches[i]+1] = byte(handlerIP)
+
+		if err := c.compileBlock(except.Body); err != nil {
+			return err
+		}
+
+		if i < numClauses-1 {
+			hEndJump := c.emitJump(OP_JUMP)
+			handlerEndJumps = append(handlerEndJumps, hEndJump)
+		}
+	}
+
+	c.patchJump(endExceptJump)
+	for _, j := range handlerEndJumps {
+		c.patchJump(j)
+	}
+
+	// OP_END_FINALLY on normal path: pop handler
+	c.emit(OP_END_FINALLY)
+
+	// Patch finally IP
+	finallyIP := c.currentOffset()
+	c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
+	c.program.Code[finallyIPPatch+1] = byte(finallyIP)
+
+	// Compile finally block
+	if err := c.compileBlock(n.Finally); err != nil {
+		return err
+	}
+
+	// OP_END_FINALLY at end: re-raise pending error if any
+	c.emit(OP_END_FINALLY)
+
+	return nil
 }
 
 func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
