@@ -850,11 +850,12 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// If verb has no compiled program, return empty list
 	if verb.Program == nil || len(verb.Program.Statements) == 0 {
-		return types.Ok(types.NewList([]types.Value{}))
+		return types.Ok(types.NewList([]types.Value{types.NewStr("Main code vector:")}))
 	}
 
-	// Walk AST to produce pseudo-disassembly with opcode names
-	var lines []string
+	// Walk AST to produce pseudo-disassembly with opcode names.
+	// ToastStunt includes this header in disassembly output.
+	lines := []string{"Main code vector:"}
 	for _, stmt := range verb.Program.Statements {
 		lines = append(lines, disassembleStmt(stmt)...)
 	}
