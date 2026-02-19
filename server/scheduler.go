@@ -1,6 +1,7 @@
 package server
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/parser"
 	"barn/task"
@@ -23,6 +24,7 @@ type Scheduler struct {
 	waiting     *TaskQueue
 	nextTaskID  int64
 	evaluator   *vm.Evaluator
+	registry    *builtins.Registry // Shared builtins registry for bytecode VMs
 	store       *db.Store
 	connManager *ConnectionManager
 	mu          sync.Mutex
@@ -40,6 +42,7 @@ func NewScheduler(store *db.Store) *Scheduler {
 		waiting:    NewTaskQueue(),
 		nextTaskID: 1,
 		evaluator:  vm.NewEvaluatorWithStore(store),
+		registry:   vm.BuildVMRegistry(store),
 		store:      store,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -107,8 +110,8 @@ func (s *Scheduler) processReadyTasks() {
 	for _, t := range s.tasks {
 		// TaskQueued state means it was resumed and is ready to run again
 		// We need to check if it's not already in readyTasks and not in waiting queue
-		if t.GetState() == task.TaskQueued && t.StmtIndex > 0 {
-			// This is a resumed task (StmtIndex > 0 means it was partially executed)
+		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVM != nil) {
+			// This is a resumed task (StmtIndex > 0 or BytecodeVM saved means it was partially executed)
 			// Check if wake time has passed (or no wake time was set)
 			if t.WakeTime.IsZero() || !t.WakeTime.After(now) {
 				readyTasks = append(readyTasks, t)
@@ -141,16 +144,18 @@ func (s *Scheduler) processReadyTasks() {
 	}
 }
 
-// runTask executes a task's code
-func (s *Scheduler) runTask(t *task.Task) error {
-	t.SetState(task.TaskRunning)
+// runTask executes a task's code using the bytecode VM
+func (s *Scheduler) runTask(t *task.Task) (retErr error) {
+	// Recover from panics to avoid crashing the server
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC in runTask(%d): %v", t.ID, r)
+			t.SetState(task.TaskKilled)
+			retErr = fmt.Errorf("internal panic: %v", r)
+		}
+	}()
 
-	// Get code and context
-	code, ok := t.Code.([]parser.Stmt)
-	if !ok || code == nil {
-		t.SetState(task.TaskKilled)
-		return errors.New("task has no code")
-	}
+	t.SetState(task.TaskRunning)
 
 	ctx := t.Context
 	if ctx == nil {
@@ -161,118 +166,153 @@ func (s *Scheduler) runTask(t *task.Task) error {
 	// Attach task to context so builtins can access task_local
 	ctx.Task = t
 
-	// Get or create evaluator
-	evaluator := s.evaluator
-	if t.Evaluator != nil {
-		if eval, ok := t.Evaluator.(*vm.Evaluator); ok {
-			evaluator = eval
-		}
-	}
-
-	// Set up verb context if this is a verb task
-	if t.VerbName != "" {
-		evaluator.SetVerbContext(&vm.VerbContext{
-			Player:  t.Owner,
-			This:    t.This,
-			Caller:  t.Caller,
-			Verb:    t.VerbName,
-			Args:    t.Args,
-			Argstr:  t.Argstr,
-			Dobj:    t.Dobj,
-			Dobjstr: t.Dobjstr,
-			Iobj:    t.Iobj,
-			Iobjstr: t.Iobjstr,
-			Prepstr: t.Prepstr,
-		})
-		// Also update TaskContext for permissions and builtins
-		ctx.Player = t.Owner
-		ctx.Programmer = t.Programmer
-		ctx.IsWizard = s.isWizard(t.Programmer)
-		ctx.ThisObj = t.This
-		ctx.Verb = t.VerbName
-
-		// Push initial activation frame for traceback support
-		t.PushFrame(task.ActivationFrame{
-			This:       t.This,
-			Player:     t.Owner,
-			Programmer: t.Programmer,
-			Caller:     t.Caller,
-			Verb:       t.VerbName,
-			VerbLoc:    t.VerbLoc, // Object where verb is defined
-			LineNumber: 1,
-		})
-	}
-
 	// Set up cancellation with deadline
 	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
 	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
 	t.CancelFunc = cancel
 	defer cancel()
 
-	// Execute code starting from current statement index (for suspend/resume)
-	for i := t.StmtIndex; i < len(code); i++ {
-		stmt := code[i]
-		t.StmtIndex = i // Update current statement index
+	var result types.Result
+	var bcVM *vm.VM
 
-		select {
-		case <-taskCtx.Done():
+	if t.BytecodeVM != nil {
+		// Retrieve saved VM -- could be resuming after suspend or running a forked child
+		var ok bool
+		bcVM, ok = t.BytecodeVM.(*vm.VM)
+		if !ok {
 			t.SetState(task.TaskKilled)
-			return taskCtx.Err()
-		default:
+			return errors.New("invalid saved VM state")
 		}
-
-		// Check tick limit
-		if ctx.TicksRemaining <= 0 {
+		// Attach task context (may have been updated since VM was created)
+		bcVM.Context = ctx
+		if bcVM.IsYielded() {
+			// Resume after suspend
+			result = bcVM.Resume()
+		} else {
+			// First run for forked child task (VM was pre-configured by CreateForkedTask)
+			result = bcVM.ExecuteLoop()
+		}
+	} else {
+		// First run - compile and execute
+		code, ok := t.Code.([]parser.Stmt)
+		if !ok || code == nil {
 			t.SetState(task.TaskKilled)
-			return ErrTicksExceeded
+			return errors.New("task has no code")
 		}
 
-		// Execute statement
-		result := evaluator.EvalStmt(stmt, ctx)
-		t.Result = result
+		// Compile AST to bytecode
+		compiler := vm.NewCompilerWithRegistry(s.registry)
+		prog, compileErr := compiler.CompileStatements(code)
+		if compileErr != nil {
+			t.SetState(task.TaskKilled)
+			return fmt.Errorf("compile error: %w", compileErr)
+		}
 
-		// Handle control flow
-		if result.Flow == types.FlowFork {
-			// Fork statement - create child task via ForkCreator
-			if t.ForkCreator != nil && result.ForkInfo != nil {
-				childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
+		// Update TaskContext for permissions and builtins
+		if t.VerbName != "" {
+			ctx.Player = t.Owner
+			ctx.Programmer = t.Programmer
+			ctx.IsWizard = s.isWizard(t.Programmer)
+			ctx.ThisObj = t.This
+			ctx.Verb = t.VerbName
 
-				// If named fork, store child ID in parent's variable
-				if result.ForkInfo.VarName != "" {
-					evaluator.GetEnvironment().Set(result.ForkInfo.VarName, types.NewInt(childID))
-				}
+			// Push initial activation frame for traceback support
+			t.PushFrame(task.ActivationFrame{
+				This:       t.This,
+				Player:     t.Owner,
+				Programmer: t.Programmer,
+				Caller:     t.Caller,
+				Verb:       t.VerbName,
+				VerbLoc:    t.VerbLoc,
+				LineNumber: 1,
+			})
+		}
+
+		// Create bytecode VM
+		bcVM = vm.NewVM(s.store, s.registry)
+		bcVM.Context = ctx
+		bcVM.TickLimit = t.TicksLimit
+
+		if t.VerbName != "" {
+			// Convert string args to Value list for verb context
+			argList := make([]types.Value, len(t.Args))
+			for i, arg := range t.Args {
+				argList[i] = types.NewStr(arg)
 			}
-			// Parent continues execution
-			continue
-		}
 
-		if result.Flow == types.FlowSuspend {
-			// Task is suspending - advance to next statement for when it resumes
-			t.StmtIndex = i + 1
-			// The task manager has already been notified via builtinSuspend
-			// Just return without setting state to Completed
-			return nil
-		}
+			// Prepare frame first, then set ALL variables before execution
+			frame := bcVM.PrepareVerbFrame(prog, t.This, t.Owner, t.Caller, t.VerbName, t.VerbLoc, argList)
 
-		if result.Flow == types.FlowReturn || result.Flow == types.FlowException {
-			if result.Flow == types.FlowException {
-				t.SetState(task.TaskKilled)
-				// Log traceback to server log
-				s.logTraceback(t, result.Error)
-				// Send traceback to player
-				s.sendTraceback(t, result.Error)
-				// Clean up call stack after traceback has been sent
-				for len(t.CallStack) > 0 {
-					t.PopFrame()
-				}
-			} else {
-				t.SetState(task.TaskCompleted)
-			}
-			return nil
+			// Set verb context variables
+			vm.SetLocalByNamePublic(frame, prog, "this", types.NewObj(t.This))
+			vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(t.Owner))
+			vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(t.Caller))
+			vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(t.VerbName))
+			vm.SetLocalByNamePublic(frame, prog, "args", types.NewList(argList))
+
+			// Set command-specific variables
+			vm.SetLocalByNamePublic(frame, prog, "argstr", types.NewStr(t.Argstr))
+			vm.SetLocalByNamePublic(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
+			vm.SetLocalByNamePublic(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
+			vm.SetLocalByNamePublic(frame, prog, "prepstr", types.NewStr(t.Prepstr))
+			vm.SetLocalByNamePublic(frame, prog, "dobj", types.NewObj(t.Dobj))
+			vm.SetLocalByNamePublic(frame, prog, "iobj", types.NewObj(t.Iobj))
+
+			// Start execution
+			result = bcVM.ExecuteLoop()
+		} else {
+			// Simple eval task (no verb context)
+			result = bcVM.Run(prog)
 		}
 	}
 
-	t.SetState(task.TaskCompleted)
+	t.Result = result
+
+	// Handle fork: create child task, set fork variable, resume parent
+	for result.Flow == types.FlowFork {
+		if t.ForkCreator != nil && result.ForkInfo != nil {
+			childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
+			bcVM.SetForkResult(childID)
+		}
+		// Resume the parent after handling the fork
+		result = bcVM.Resume()
+		t.Result = result
+	}
+
+	// Check context deadline
+	select {
+	case <-taskCtx.Done():
+		t.SetState(task.TaskKilled)
+		t.BytecodeVM = nil
+		return taskCtx.Err()
+	default:
+	}
+
+	// Handle suspend
+	if result.Flow == types.FlowSuspend {
+		// Save VM state for later Resume()
+		t.BytecodeVM = bcVM
+		// The task manager has already been notified via builtinSuspend
+		// Just return without setting state to Completed
+		return nil
+	}
+
+	// Handle completion
+	if result.Flow == types.FlowException {
+		t.SetState(task.TaskKilled)
+		// Log traceback to server log
+		s.logTraceback(t, result.Error)
+		// Send traceback to player
+		s.sendTraceback(t, result.Error)
+		// Clean up call stack after traceback has been sent
+		for len(t.CallStack) > 0 {
+			t.PopFrame()
+		}
+	} else {
+		t.SetState(task.TaskCompleted)
+	}
+
+	t.BytecodeVM = nil // Release VM after completion
 	return nil
 }
 
@@ -348,18 +388,62 @@ func (s *Scheduler) Fork(ctx *types.TaskContext, code []parser.Stmt, delay time.
 
 // CreateForkedTask creates a forked child task from fork statement
 // Implements task.ForkCreator interface
+// Handles both bytecode VM forks (Body is [3]interface{}{*Program, IP, Len})
+// and tree-walker forks (Body is []parser.Stmt).
 func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 
-	// Cast Body back to []parser.Stmt
-	body, ok := forkInfo.Body.([]parser.Stmt)
-	if !ok {
-		// Should not happen - return 0 as error indicator
-		return 0
+	// Determine the fork body type
+	var t *task.Task
+
+	if bcFork, ok := forkInfo.Body.([3]interface{}); ok {
+		// Bytecode VM fork: Body is [3]interface{}{*Program, bodyIP, bodyLen}
+		parentProg, ok1 := bcFork[0].(*vm.Program)
+		bodyIP, ok2 := bcFork[1].(int)
+		bodyLen, ok3 := bcFork[2].(int)
+		if !ok1 || !ok2 || !ok3 {
+			return 0 // Invalid fork info
+		}
+
+		// Extract the fork body as a sub-program
+		forkProg := parentProg.ExtractForkBody(bodyIP, bodyLen)
+
+		// Create child task -- Code stays nil since we'll use BytecodeVM path
+		t = task.NewTaskFull(taskID, forkInfo.Player, nil, 300000, 3.0)
+
+		// Create a pre-configured VM for the child
+		childVM := vm.NewVM(s.store, s.registry)
+		childVM.TickLimit = 300000
+
+		// Set up the child frame with inherited variables
+		frame := childVM.PrepareVerbFrame(forkProg,
+			forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
+			forkInfo.Verb, types.ObjNothing, nil)
+
+		// Copy inherited variable values from the parent
+		for varName, varVal := range forkInfo.Variables {
+			vm.SetLocalByNamePublic(frame, forkProg, varName, varVal)
+		}
+
+		// The child VM is stored on the task and will be executed via ExecuteLoop
+		// when runTask picks it up. We need a special code path for this.
+		// Store the VM as BytecodeVM so runTask's resume path handles it.
+		t.BytecodeVM = childVM
+
+	} else if body, ok := forkInfo.Body.([]parser.Stmt); ok {
+		// Tree-walker fork: Body is []parser.Stmt
+		t = task.NewTaskFull(taskID, forkInfo.Player, body, 300000, 3.0)
+
+		// Create evaluator with copied variable environment
+		childEnv := vm.NewEnvironment()
+		for k, v := range forkInfo.Variables {
+			childEnv.Set(k, v)
+		}
+		t.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
+	} else {
+		return 0 // Unknown fork body type
 	}
 
-	// Create child task with forked task limits
-	t := task.NewTaskFull(taskID, forkInfo.Player, body, 300000, 3.0)
 	t.StartTime = time.Now().Add(forkInfo.Delay)
 	t.Kind = task.TaskForked
 	t.IsForked = true
@@ -379,20 +463,21 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Context.IsWizard = s.isWizard(parent.Programmer)
 	t.Context.Task = t // Attach task to context for task_local access
 
-	// Create evaluator with copied variable environment
-	childEnv := vm.NewEnvironment()
-	for k, v := range forkInfo.Variables {
-		childEnv.Set(k, v)
-	}
-	t.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
-
 	return s.QueueTask(t)
 }
 
 // CallVerb synchronously executes a verb on an object and returns the result
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
-func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) types.Result {
+func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (result types.Result) {
+	// Recover from panics in compile/execute to avoid crashing the server
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC in CallVerb(%v:%s): %v", objID, verbName, r)
+			result = types.Err(types.E_NONE)
+		}
+	}()
+
 	// Trace verb call
 	trace.VerbCall(objID, verbName, args, player, player)
 
@@ -406,32 +491,25 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	}
 
 	// Look up the verb to get its owner for programmer permissions
-	verb, _, err := s.store.FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.FindVerb(objID, verbName)
 	if err != nil || verb == nil {
-		// Verb not found - but we still want to track the attempted call
-		ctx := types.NewTaskContext()
-		ctx.Player = player
-		ctx.Programmer = player
-		ctx.IsWizard = s.isWizard(player)
-		ctx.ThisObj = objID
-		ctx.Verb = verbName
-		ctx.ServerInitiated = true // Mark as server-initiated
-		ctx.Task = t // Attach task so CallVerb can track the failed call
-
-		result := s.evaluator.CallVerb(objID, verbName, args, ctx)
-		// Extract call stack BEFORE popping frames
-		if result.Flow == types.FlowException {
-			result.CallStack = t.GetCallStack()
-			// Log traceback to server log
-			s.logCallVerbTraceback(objID, verbName, result.Error, t.GetCallStack(), player)
-			// Trace exception
-			trace.Exception(objID, verbName, result.Error)
+		// Verb not found
+		result := types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_VERBNF,
 		}
-		// Clean up call stack
-		if len(t.CallStack) > 0 {
-			t.PopFrame()
-		}
+		// Don't log E_VERBNF for optional hooks
 		return result
+	}
+
+	// Compile verb to bytecode
+	prog, compileErr := vm.CompileVerbBytecode(verb, s.registry)
+	if compileErr != nil {
+		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %v", verbName, defObjID, compileErr)
+		return types.Result{
+			Flow:  types.FlowException,
+			Error: types.E_VERBNF,
+		}
 	}
 
 	// Update programmer to verb owner now that we found the verb
@@ -444,12 +522,31 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	ctx.ThisObj = objID
 	ctx.Verb = verbName
 	ctx.ServerInitiated = true // Mark as server-initiated
-	ctx.Task = t // Attach task so CallVerb can track frames
+	ctx.Task = t // Attach task so VM can track frames
 
-	result := s.evaluator.CallVerb(objID, verbName, args, ctx)
+	// Push activation frame for traceback support
+	t.PushFrame(task.ActivationFrame{
+		This:            objID,
+		Player:          player,
+		Programmer:      verb.Owner,
+		Caller:          player, // For server hooks, caller is the player
+		Verb:            verbName,
+		VerbLoc:         defObjID,
+		Args:            args,
+		LineNumber:      1,
+		ServerInitiated: true,
+	})
+
+	// Create bytecode VM and set up initial frame variables
+	bcVM := vm.NewVM(s.store, s.registry)
+	bcVM.Context = ctx
+	bcVM.TickLimit = 300000
+
+	// Run the compiled bytecode -- Run() creates the initial frame.
+	// After Run() creates the frame, we set verb context variables.
+	result = bcVM.RunWithVerbContext(prog, objID, player, player, verbName, defObjID, args)
 
 	// Extract call stack BEFORE popping frames
-	// If there was an exception, attach the call stack to the result
 	if result.Flow == types.FlowException {
 		result.CallStack = t.GetCallStack()
 		// Log traceback to server log
@@ -461,8 +558,7 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		trace.VerbReturn(objID, verbName, result.Val)
 	}
 
-	// Now clean up the call stack for successful calls
-	// For errors, we've already extracted the stack, so popping is safe
+	// Clean up call stack
 	if len(t.CallStack) > 0 {
 		t.PopFrame()
 	}
@@ -480,15 +576,31 @@ type evalConnection interface {
 // EvalCommand evaluates MOO code directly (for ; commands)
 // Executes synchronously and sends the result back to the connection
 func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{}) {
-	// Parse the code
-	p := parser.NewParser(code)
-	stmts, err := p.ParseProgram()
-
 	// Type assert to get full eval connection interface
 	c, ok := conn.(evalConnection)
 	if !ok {
 		return // Can't send output without proper connection
 	}
+
+	// Recover from panics in compile/execute to avoid crashing the server
+	defer func() {
+		if r := recover(); r != nil {
+			prefix := c.GetOutputPrefix()
+			suffix := c.GetOutputSuffix()
+			if prefix != "" {
+				c.Send(prefix)
+			}
+			c.Send(fmt.Sprintf("{0, {\"Internal error: %v\"}}", r))
+			if suffix != "" {
+				c.Send(suffix)
+			}
+			log.Printf("PANIC in EvalCommand: %v", r)
+		}
+	}()
+
+	// Parse the code
+	p := parser.NewParser(code)
+	stmts, err := p.ParseProgram()
 
 	// Get prefix/suffix for response framing
 	prefix := c.GetOutputPrefix()
@@ -523,12 +635,28 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.Task = t
 
-	// Create evaluator for execution
-	eval := vm.NewEvaluatorWithStore(s.store)
-	result := eval.EvalStatements(stmts, ctx)
-	// Match anonymous-object lifecycle behavior: any anonymous values that no
-	// longer have persistent references are recycled at command boundary.
-	eval.AutoRecycleOrphanAnonymous(ctx)
+	// Compile AST to bytecode
+	compiler := vm.NewCompilerWithRegistry(s.registry)
+	prog, compileErr := compiler.CompileStatements(stmts)
+	if compileErr != nil {
+		// Compilation failed - send error
+		if prefix != "" {
+			c.Send(prefix)
+		}
+		errMsg := fmt.Sprintf("{0, {\"Compile error: %s\"}}", compileErr)
+		c.Send(errMsg)
+		if suffix != "" {
+			c.Send(suffix)
+		}
+		return
+	}
+
+	// Create bytecode VM and execute
+	bcVM := vm.NewVM(s.store, s.registry)
+	bcVM.Context = ctx
+	bcVM.TickLimit = 300000
+
+	result := bcVM.Run(prog)
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}

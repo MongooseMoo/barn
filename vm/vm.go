@@ -122,6 +122,68 @@ func (vm *VM) Run(prog *Program) types.Result {
 	return vm.executeLoop()
 }
 
+// RunWithVerbContext executes a program with verb context variables pre-populated
+// in the initial frame. This is used by the scheduler for top-level verb execution
+// (command verbs and server hooks like do_login_command).
+func (vm *VM) RunWithVerbContext(prog *Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) types.Result {
+	frame := vm.PrepareVerbFrame(prog, thisObj, player, caller, verbName, verbLoc, args)
+
+	// Pre-populate verb context variables
+	setLocalByName(frame, prog, "this", types.NewObj(thisObj))
+	setLocalByName(frame, prog, "player", types.NewObj(player))
+	setLocalByName(frame, prog, "caller", types.NewObj(caller))
+	setLocalByName(frame, prog, "verb", types.NewStr(verbName))
+	setLocalByName(frame, prog, "args", types.NewList(args))
+
+	return vm.executeLoop()
+}
+
+// PrepareVerbFrame creates and pushes an initial frame for a verb without starting
+// execution. Returns the frame so the caller can set additional local variables
+// (e.g. argstr, dobjstr, etc.) before calling ExecuteLoop().
+func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) *StackFrame {
+	frame := &StackFrame{
+		Program:     prog,
+		IP:          0,
+		BasePointer: vm.SP,
+		Locals:      make([]types.Value, prog.NumLocals),
+		This:        thisObj,
+		Player:      player,
+		Verb:        verbName,
+		Caller:      caller,
+		VerbLoc:     verbLoc,
+		Args:        args,
+		LoopStack:   make([]LoopState, 0, 4),
+		ExceptStack: make([]Handler, 0, 4),
+	}
+
+	// Initialize locals to 0
+	for i := range frame.Locals {
+		frame.Locals[i] = types.IntValue{Val: 0}
+	}
+
+	vm.Frames = append(vm.Frames, frame)
+	vm.FP = 0
+	return frame
+}
+
+// ExecuteLoop starts the VM's execution loop. Use this after PrepareVerbFrame
+// to begin execution after setting up initial variables.
+func (vm *VM) ExecuteLoop() types.Result {
+	return vm.executeLoop()
+}
+
+// SetLocalByNamePublic is a public wrapper for setLocalByName, allowing the scheduler
+// to set local variables in a frame before execution starts.
+func SetLocalByNamePublic(frame *StackFrame, prog *Program, name string, value types.Value) {
+	setLocalByName(frame, prog, name, value)
+}
+
+// IsYielded returns whether the VM has yielded (suspended or forked) and needs Resume().
+func (vm *VM) IsYielded() bool {
+	return vm.yielded
+}
+
 // Resume continues execution after a yield (suspend or fork).
 // The VM's PC and stack are still intact from the yield point.
 func (vm *VM) Resume() types.Result {
@@ -152,9 +214,15 @@ func (vm *VM) executeLoop() types.Result {
 			line := vm.CurrentLine()
 			// Handle error
 			if !vm.HandleError(err) {
-				errCode := extractErrorCode(err)
-				if errCode == types.E_NONE {
-					errCode = types.E_EXEC
+				// Extract error code, preferring the typed MooError
+				var errCode types.ErrorCode
+				if mooErr, ok := err.(MooError); ok {
+					errCode = mooErr.Code
+				} else {
+					errCode = extractErrorCode(err)
+					if errCode == types.E_NONE {
+						errCode = types.E_EXEC
+					}
 				}
 				return types.Result{
 					Flow:  types.FlowException,
@@ -645,11 +713,42 @@ func (vm *VM) executeFork() error {
 	// Skip over the fork body — the parent continues after the fork
 	frame.IP += forkBodyLen
 
-	// Build ForkInfo for the scheduler
+	// Build ForkInfo for the scheduler.
+	// Include the parent program and a locals snapshot so the scheduler can
+	// create a child VM with the forked bytecode range and variable state.
+	localsCopy := make([]types.Value, len(frame.Locals))
+	copy(localsCopy, frame.Locals)
+
+	// Populate context fields from the current frame
+	var thisObj types.ObjID = types.ObjNothing
+	var playerObj types.ObjID = types.ObjNothing
+	var callerObj types.ObjID = types.ObjNothing
+	var verbStr string
+	thisObj = frame.This
+	playerObj = frame.Player
+	callerObj = frame.Caller
+	verbStr = frame.Verb
+	if vm.Context != nil {
+		if vm.Context.Player != types.ObjNothing {
+			playerObj = vm.Context.Player
+		}
+	}
+
 	forkInfo := &types.ForkInfo{
 		Delay:   time.Duration(delaySeconds * float64(time.Second)),
 		VarName: varName,
-		Body:    [2]int{forkBodyIP, forkBodyLen}, // bytecode offset and length
+		Body:    [3]interface{}{frame.Program, forkBodyIP, forkBodyLen}, // parent program, offset, length
+		ThisObj: thisObj,
+		Player:  playerObj,
+		Caller:  callerObj,
+		Verb:    verbStr,
+	}
+	// Store locals snapshot in Variables map for the scheduler
+	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))
+	for i, name := range frame.Program.VarNames {
+		if i < len(localsCopy) {
+			forkInfo.Variables[name] = localsCopy[i]
+		}
 	}
 
 	// Yield to the scheduler

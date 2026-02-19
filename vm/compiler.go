@@ -378,6 +378,11 @@ func (c *Compiler) compileNode(node parser.Node) error {
 		return c.err
 	}
 
+	// Guard against nil nodes (e.g. empty ExprStmt from parser)
+	if node == nil {
+		return fmt.Errorf("nil AST node")
+	}
+
 	// Track source line for runtime error reporting
 	c.trackLine(node)
 
@@ -467,8 +472,30 @@ func (c *Compiler) compileLiteral(n *parser.LiteralExpr) error {
 	return nil
 }
 
+// builtinConstants maps MOO type constant names to their integer values.
+// These are always available in any scope without explicit declaration.
+var builtinConstants = map[string]types.Value{
+	"INT":   types.NewInt(int64(types.TYPE_INT)),
+	"NUM":   types.NewInt(int64(types.TYPE_INT)), // alias for INT
+	"OBJ":   types.NewInt(int64(types.TYPE_OBJ)),
+	"STR":   types.NewInt(int64(types.TYPE_STR)),
+	"ERR":   types.NewInt(int64(types.TYPE_ERR)),
+	"LIST":  types.NewInt(int64(types.TYPE_LIST)),
+	"FLOAT": types.NewInt(int64(types.TYPE_FLOAT)),
+	"MAP":   types.NewInt(int64(types.TYPE_MAP)),
+	"ANON":  types.NewInt(int64(types.TYPE_ANON)),
+	"WAIF":  types.NewInt(int64(types.TYPE_WAIF)),
+	"BOOL":  types.NewInt(int64(types.TYPE_BOOL)),
+}
+
 // compileIdentifier compiles a variable reference
 func (c *Compiler) compileIdentifier(n *parser.IdentifierExpr) error {
+	// Check for built-in type constants (OBJ, STR, INT, etc.)
+	if val, ok := builtinConstants[n.Name]; ok {
+		c.emitConstant(val)
+		return nil
+	}
+
 	idx, ok := c.resolveVariable(n.Name)
 	if !ok {
 		// Variable not found - this will be a runtime error (E_VARNF)
@@ -1361,6 +1388,10 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 }
 
 func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
+	// Guard against nil expression (e.g. bare semicolons)
+	if n.Expr == nil {
+		return nil
+	}
 	// Compile expression
 	if err := c.compileNode(n.Expr); err != nil {
 		return err

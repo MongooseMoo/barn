@@ -65,6 +65,35 @@ type Handler struct {
 	VarIndex  int               // Variable for error (except, -1 if none)
 }
 
+// ExtractForkBody creates a new sub-program from a bytecode range within an
+// existing program. The sub-program shares the same constants and variable
+// names but has its own code slice (the fork body + OP_RETURN_NONE).
+func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
+	// Extract the fork body bytecode
+	code := make([]byte, bodyLen+1) // +1 for OP_RETURN_NONE
+	copy(code, p.Code[bodyIP:bodyIP+bodyLen])
+	code[bodyLen] = byte(OP_RETURN_NONE) // Implicit return at end of fork body
+
+	// Adjust line info for the sub-program
+	var lineInfo []LineEntry
+	for _, entry := range p.LineInfo {
+		if entry.StartIP >= bodyIP && entry.StartIP < bodyIP+bodyLen {
+			lineInfo = append(lineInfo, LineEntry{
+				StartIP: entry.StartIP - bodyIP,
+				Line:    entry.Line,
+			})
+		}
+	}
+
+	return &Program{
+		Code:      code,
+		Constants: p.Constants,  // Share constants
+		VarNames:  p.VarNames,   // Share variable names
+		LineInfo:  lineInfo,
+		NumLocals: p.NumLocals,  // Same local count (inherit all vars)
+	}
+}
+
 // Matches checks if a handler matches an error code
 func (h *Handler) Matches(errCode types.ErrorCode) bool {
 	if h.Type != HandlerExcept {

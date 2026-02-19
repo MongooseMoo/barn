@@ -127,6 +127,7 @@ type Task struct {
 	// Execution fields (use interface{} to avoid circular imports)
 	Code        interface{}        // []parser.Stmt - actual code to execute
 	Evaluator   interface{}        // *vm.Evaluator - evaluator for execution
+	BytecodeVM  interface{}        // *vm.VM - bytecode VM for execution (saved across suspend/resume)
 	Context     *types.TaskContext // Task execution context
 	Result      types.Result       // Last execution result
 	ForkCreator ForkCreator        // For creating forked tasks

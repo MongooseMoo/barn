@@ -94,6 +94,121 @@ func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 	return e
 }
 
+// GetRegistry returns the evaluator's builtins registry
+func (e *Evaluator) GetRegistry() *builtins.Registry {
+	return e.builtins
+}
+
+// BuildVMRegistry creates a builtins registry suitable for the bytecode VM.
+// It registers all standard builtins (objects, properties, verbs, crypto, system)
+// and a VM-aware eval() builtin. pass() is handled natively by OP_PASS in the VM
+// but is still registered so the compiler can resolve its function ID.
+func BuildVMRegistry(store *db.Store) *builtins.Registry {
+	registry := builtins.NewRegistry()
+	registry.RegisterObjectBuiltins(store)
+	registry.RegisterPropertyBuiltins(store)
+	registry.RegisterVerbBuiltins(store)
+	registry.RegisterCryptoBuiltins(store)
+	registry.RegisterSystemBuiltins(store)
+
+	// Register VM-aware eval() builtin
+	registry.Register("eval", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		if len(args) < 1 {
+			return types.Err(types.E_ARGS)
+		}
+
+		// eval() requires programmer permissions
+		progObj := store.Get(ctx.Programmer)
+		if progObj == nil || !progObj.Flags.Has(db.FlagProgrammer) {
+			return types.Err(types.E_PERM)
+		}
+
+		// All arguments must be strings
+		var lines []string
+		for _, arg := range args {
+			strVal, ok := arg.(types.StrValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			lines = append(lines, strVal.Value())
+		}
+
+		// Join with newlines
+		code := fmt.Sprintf("%s", joinLines(lines))
+
+		// Parse the code
+		p := parser.NewParser(code)
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			errorMsg := fmt.Sprintf("Line 1:  %s", err.Error())
+			return types.Ok(types.NewList([]types.Value{
+				types.NewInt(0),
+				types.NewList([]types.Value{types.NewStr(errorMsg)}),
+			}))
+		}
+
+		// Compile to bytecode
+		c := NewCompilerWithRegistry(registry)
+		prog, compileErr := c.CompileStatements(stmts)
+		if compileErr != nil {
+			errorMsg := fmt.Sprintf("Line 1:  %s", compileErr.Error())
+			return types.Ok(types.NewList([]types.Value{
+				types.NewInt(0),
+				types.NewList([]types.Value{types.NewStr(errorMsg)}),
+			}))
+		}
+
+		// Create a fresh VM for eval execution
+		evalVM := NewVM(store, registry)
+		evalVM.Context = ctx
+		evalVM.TickLimit = 30000
+
+		result := evalVM.Run(prog)
+
+		// Handle results in eval() format: {success, value}
+		if result.Flow == types.FlowException {
+			if result.Error == types.E_QUOTA {
+				return types.Err(types.E_QUOTA)
+			}
+			return types.Ok(types.NewList([]types.Value{
+				types.NewInt(0),
+				types.NewErr(result.Error),
+			}))
+		}
+
+		if result.Val == nil {
+			result.Val = types.NewInt(0)
+		}
+		return types.Ok(types.NewList([]types.Value{
+			types.NewInt(1),
+			result.Val,
+		}))
+	})
+
+	// Register pass() as a stub -- the VM handles pass() natively via OP_PASS.
+	// This stub is needed so the compiler can resolve "pass" to a function ID.
+	// The builtin is never actually called in the bytecode VM path.
+	registry.Register("pass", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		// This should never be called in the VM path (OP_PASS handles it natively).
+		// But if it is, return E_INVIND as a safety fallback.
+		return types.Err(types.E_INVIND)
+	})
+
+	return registry
+}
+
+// joinLines joins string slices with newlines (helper for eval builtin)
+func joinLines(lines []string) string {
+	result := ""
+	for i, line := range lines {
+		if i > 0 {
+			result += "\n"
+		}
+		result += line
+	}
+	return result
+}
+
 // registerVerbCaller registers the verb caller callback on the builtin registry
 func (e *Evaluator) registerVerbCaller() {
 	e.builtins.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
