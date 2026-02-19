@@ -60,6 +60,8 @@ type StackFrame struct {
 	Player       types.ObjID   // Player context
 	Verb         string        // Verb name
 	Caller       types.ObjID   // Calling object
+	VerbLoc      types.ObjID   // Object where the current verb is defined (for pass())
+	Args         []types.Value // Original args passed to this verb (for pass() inheritance)
 	LoopStack    []LoopState   // Nested loop state
 	ExceptStack  []Handler     // Exception handlers
 	PendingError error         // Error saved during finally execution
@@ -321,6 +323,10 @@ func (vm *VM) Execute(op OpCode) error {
 	// Fork
 	case OP_FORK:
 		return vm.executeFork()
+
+	// Pass (parent verb call)
+	case OP_PASS:
+		return vm.executePass()
 
 	// Exception handling
 	case OP_TRY_EXCEPT:

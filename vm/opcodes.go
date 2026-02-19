@@ -123,6 +123,11 @@ const (
 	OP_FORK OpCode = OP_LIST_EXTEND + 1 + iota // Fork statement [varIdx:byte, bodyLen:short]
 )
 
+// Pass (parent verb call)
+const (
+	OP_PASS OpCode = OP_FORK + 1 + iota // Native pass() [argc:byte] — call parent verb
+)
+
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
 	OP_PUSH:         "PUSH",
@@ -189,6 +194,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_LIST_APPEND:  "LIST_APPEND",
 	OP_LIST_EXTEND:  "LIST_EXTEND",
 	OP_FORK:         "FORK",
+	OP_PASS:         "PASS",
 }
 
 // String returns the name of an opcode
@@ -227,7 +233,7 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 // CountsTick reports whether an opcode counts toward tick limit
 func CountsTick(op OpCode) bool {
 	switch op {
-	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_LOOP:
+	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_LOOP, OP_PASS:
 		return true
 	default:
 		return false

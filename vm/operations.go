@@ -1898,6 +1898,8 @@ func (vm *VM) executeCallVerb() error {
 		Player:         player,
 		Verb:           verbName,
 		Caller:         callerObj,
+		VerbLoc:        defObjID,
+		Args:           args,
 		LoopStack:      make([]LoopState, 0, 4),
 		ExceptStack:    make([]Handler, 0, 4),
 		IsVerbCall:     true,
@@ -1981,6 +1983,235 @@ func (vm *VM) executeCallVerbTreeWalker(objID types.ObjID, verbName string, args
 	}
 
 	result := evaluator.CallVerb(objID, verbName, args, ctx)
+
+	if result.Flow == types.FlowException {
+		mooErr := MooError{Code: result.Error}
+		if !vm.HandleError(mooErr) {
+			return mooErr
+		}
+		return nil
+	}
+
+	vm.Push(result.Val)
+	return nil
+}
+
+// executePass handles OP_PASS: call the same verb on the parent object.
+//
+// Bytecode format: OP_PASS <argc:byte>
+// argc = 0: inherit current frame's args
+// argc > 0: pop argc args from stack
+//
+// Looks up the parent of VerbLoc (where the current verb is defined),
+// finds the same verb name on an ancestor, compiles it to bytecode,
+// and pushes a new frame. Preserves `this` (original target).
+func (vm *VM) executePass() error {
+	argc := int(vm.ReadByte())
+
+	frame := vm.CurrentFrame()
+	if frame == nil {
+		return fmt.Errorf("E_INVIND: no active frame for pass()")
+	}
+
+	verbName := frame.Verb
+	if verbName == "" {
+		return fmt.Errorf("E_INVIND: pass() called outside of a verb")
+	}
+
+	verbLoc := frame.VerbLoc
+	if verbLoc == types.ObjNothing {
+		return fmt.Errorf("E_INVIND: pass() has no defining object")
+	}
+
+	// Get pass-through args
+	var passArgs []types.Value
+	if argc > 0 {
+		passArgs = vm.PopN(argc)
+	} else {
+		// Inherit args from current frame's stored Args
+		if frame.Args != nil {
+			passArgs = frame.Args
+		} else {
+			passArgs = []types.Value{}
+		}
+	}
+
+	if vm.Store == nil {
+		return fmt.Errorf("E_INVIND: no object store available")
+	}
+
+	// Get the object where the current verb is defined
+	verbLocObj := vm.Store.Get(verbLoc)
+	if verbLocObj == nil {
+		return fmt.Errorf("E_INVIND: defining object #%d not found", verbLoc)
+	}
+
+	// No parents = no parent verb to call
+	if len(verbLocObj.Parents) == 0 {
+		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
+	}
+
+	// Search for the verb on parent(s), starting from verbLoc's parents
+	// Uses the store's FindVerb for each parent to do BFS through ancestors
+	var verb *db.Verb
+	var defObjID types.ObjID
+
+	visited := make(map[types.ObjID]bool)
+	queue := make([]types.ObjID, len(verbLocObj.Parents))
+	copy(queue, verbLocObj.Parents)
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		obj := vm.Store.Get(current)
+		if obj == nil || obj.Recycled {
+			continue
+		}
+
+		// Check if verb exists on this object (exact name or alias match)
+		if v, ok := obj.Verbs[verbName]; ok {
+			verb = v
+			defObjID = current
+			break
+		}
+		// Check aliases
+		for _, v := range obj.Verbs {
+			for _, alias := range v.Names {
+				if alias == verbName {
+					verb = v
+					defObjID = current
+					break
+				}
+			}
+			if verb != nil {
+				break
+			}
+		}
+		if verb != nil {
+			break
+		}
+
+		queue = append(queue, obj.Parents...)
+	}
+
+	if verb == nil {
+		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
+	}
+
+	// Check execute permission
+	if !verb.Perms.Has(db.VerbExecute) {
+		return fmt.Errorf("E_PERM: parent verb %s is not executable", verbName)
+	}
+
+	// Compile the parent verb to bytecode
+	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
+	if compileErr != nil {
+		// Fallback to tree-walker for the parent verb
+		return vm.executePassTreeWalker(frame, verbName, verbLoc, defObjID, passArgs)
+	}
+
+	// --- Native frame push ---
+
+	// Save current context fields for restore on return/unwind
+	var savedThisObj types.ObjID
+	var savedThisValue types.Value
+	var savedVerb string
+	if vm.Context != nil {
+		savedThisObj = vm.Context.ThisObj
+		savedThisValue = vm.Context.ThisValue
+		savedVerb = vm.Context.Verb
+	}
+
+	// Push new stack frame with parent verb's bytecode
+	// this = current frame's this (preserve original target)
+	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
+	newFrame := &StackFrame{
+		Program:        prog,
+		IP:             0,
+		BasePointer:    vm.SP,
+		Locals:         make([]types.Value, prog.NumLocals),
+		This:           frame.This,
+		Player:         frame.Player,
+		Verb:           verbName,
+		Caller:         verbLoc,
+		VerbLoc:        defObjID,
+		Args:           passArgs,
+		LoopStack:      make([]LoopState, 0, 4),
+		ExceptStack:    make([]Handler, 0, 4),
+		IsVerbCall:     true,
+		SavedThisObj:   savedThisObj,
+		SavedThisValue: savedThisValue,
+		SavedVerb:      savedVerb,
+	}
+
+	// Initialize locals to 0
+	for i := range newFrame.Locals {
+		newFrame.Locals[i] = types.IntValue{Val: 0}
+	}
+
+	// Pre-populate built-in variables
+	setLocalByName(newFrame, prog, "this", types.NewObj(frame.This))
+	setLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
+	setLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
+	setLocalByName(newFrame, prog, "args", types.NewList(passArgs))
+	setLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
+
+	// Update shared context for builtins
+	if vm.Context != nil {
+		vm.Context.ThisObj = frame.This
+		vm.Context.Verb = verbName
+	}
+
+	// Push activation frame onto task call stack (if we have a task)
+	if vm.Context != nil && vm.Context.Task != nil {
+		if t, ok := vm.Context.Task.(*task.Task); ok {
+			actFrame := task.ActivationFrame{
+				This:       frame.This,
+				Player:     frame.Player,
+				Programmer: verb.Owner,
+				Caller:     verbLoc,
+				Verb:       verbName,
+				VerbLoc:    defObjID,
+				Args:       passArgs,
+				LineNumber: 0,
+			}
+			t.PushFrame(actFrame)
+		}
+	}
+
+	vm.Frames = append(vm.Frames, newFrame)
+
+	// Return nil — Run() loop continues executing the new frame's bytecode
+	return nil
+}
+
+// executePassTreeWalker is the fallback path for pass() when bytecode compilation
+// of the parent verb fails. Delegates to the tree-walker Evaluator.
+func (vm *VM) executePassTreeWalker(frame *StackFrame, verbName string, verbLoc types.ObjID, defObjID types.ObjID, args []types.Value) error {
+	evaluator := NewEvaluatorWithStore(vm.Store)
+
+	ctx := vm.Context
+	if ctx == nil {
+		ctx = types.NewTaskContext()
+	}
+
+	// Set up context for the parent verb call
+	oldThis := ctx.ThisObj
+	oldVerb := ctx.Verb
+	ctx.ThisObj = frame.This
+	ctx.Verb = verbName
+
+	result := evaluator.CallVerb(defObjID, verbName, args, ctx)
+
+	// Restore context
+	ctx.ThisObj = oldThis
+	ctx.Verb = oldVerb
 
 	if result.Flow == types.FlowException {
 		mooErr := MooError{Code: result.Error}

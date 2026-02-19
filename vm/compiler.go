@@ -966,6 +966,21 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 		return fmt.Errorf("builtin call compilation requires a builtins registry")
 	}
 
+	// Special-case pass(): emit OP_PASS instead of OP_CALL_BUILTIN.
+	// OP_PASS is handled natively by the VM — looks up the parent verb,
+	// compiles it to bytecode, and pushes a new frame.
+	if n.Name == "pass" {
+		// Compile arguments onto the stack
+		for _, arg := range n.Args {
+			if err := c.compileNode(arg); err != nil {
+				return err
+			}
+		}
+		c.emit(OP_PASS)
+		c.emitByte(byte(len(n.Args)))
+		return nil
+	}
+
 	// Resolve function name to numeric ID at compile time
 	funcID, ok := c.registry.GetID(n.Name)
 	if !ok {

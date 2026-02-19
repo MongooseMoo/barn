@@ -3981,3 +3981,178 @@ func TestParitySpliceExpression(t *testing.T) {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
 	}
 }
+
+// --- pass() parity tests (Phase 5 Task 3) ---
+
+// newPassTestStore creates a store with parent-child objects for testing pass().
+//
+// Object #0 (grandparent): verb "greet" returns "grandparent"
+// Object #1 (parent): parent=#0, verb "greet" returns "parent:" + pass()
+// Object #2 (child): parent=#1, verb "greet" returns "child:" + pass()
+//
+// Additional verbs:
+//   - #0:test_args returns args
+//   - #1:test_args returns {"parent", @pass(42)}
+//   - #0:test_this returns this
+//   - #1:test_this returns pass()
+//   - #0:pass_inherit returns args
+//   - #1:pass_inherit calls pass() with no args (inherits current args)
+func newPassTestStore() *db.Store {
+	store := db.NewStore()
+
+	// Object #0 (grandparent / root)
+	grandparent := db.NewObject(0, 0)
+	grandparent.Name = "Grandparent"
+	grandparent.Flags = db.FlagRead | db.FlagWrite
+
+	grandparent.Verbs["greet"] = &db.Verb{
+		Name:  "greet",
+		Names: []string{"greet"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return "grandparent";`},
+	}
+
+	grandparent.Verbs["test_args"] = &db.Verb{
+		Name:  "test_args",
+		Names: []string{"test_args"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return args;`},
+	}
+
+	grandparent.Verbs["test_this"] = &db.Verb{
+		Name:  "test_this",
+		Names: []string{"test_this"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return this;`},
+	}
+
+	grandparent.Verbs["pass_inherit"] = &db.Verb{
+		Name:  "pass_inherit",
+		Names: []string{"pass_inherit"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return args;`},
+	}
+
+	store.Add(grandparent)
+
+	// Object #1 (parent) — parent is #0
+	parent := db.NewObject(1, 0)
+	parent.Name = "Parent"
+	parent.Parents = []types.ObjID{0}
+	parent.Flags = db.FlagRead | db.FlagWrite
+
+	parent.Verbs["greet"] = &db.Verb{
+		Name:  "greet",
+		Names: []string{"greet"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return "parent:" + pass();`},
+	}
+
+	parent.Verbs["test_args"] = &db.Verb{
+		Name:  "test_args",
+		Names: []string{"test_args"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return pass(42);`},
+	}
+
+	parent.Verbs["test_this"] = &db.Verb{
+		Name:  "test_this",
+		Names: []string{"test_this"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return pass();`},
+	}
+
+	parent.Verbs["pass_inherit"] = &db.Verb{
+		Name:  "pass_inherit",
+		Names: []string{"pass_inherit"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return pass();`},
+	}
+
+	store.Add(parent)
+
+	// Add #0 -> children contains #1
+	grandparent.Children = append(grandparent.Children, 1)
+
+	// Object #2 (child) — parent is #1
+	child := db.NewObject(2, 0)
+	child.Name = "Child"
+	child.Parents = []types.ObjID{1}
+	child.Flags = db.FlagRead | db.FlagWrite
+
+	child.Verbs["greet"] = &db.Verb{
+		Name:  "greet",
+		Names: []string{"greet"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return "child:" + pass();`},
+	}
+
+	store.Add(child)
+
+	// Add #1 -> children contains #2
+	parent.Children = append(parent.Children, 2)
+
+	return store
+}
+
+// newPassTestCtx creates a task context with a Task for pass() tests.
+// pass() needs a Task on the context to read activation frames.
+func newPassTestCtx() *types.TaskContext {
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+	ctx.Task = task.NewTask(1, 0, 100000, 5.0)
+	return ctx
+}
+
+func TestParityPassBuiltin(t *testing.T) {
+	store := newPassTestStore()
+
+	t.Run("basic_pass", func(t *testing.T) {
+		// Parent has verb "greet" returning "parent".
+		// Child inherits from parent.
+		// When called on #1 (which has parent #0):
+		// #1:greet() -> "parent:" + pass() -> "parent:" + "grandparent" -> "parent:grandparent"
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:greet();`, store, ctx)
+	})
+
+	t.Run("pass_with_args", func(t *testing.T) {
+		// #1:test_args() calls pass(42), parent #0:test_args returns args
+		// So pass(42) calls #0:test_args with args={42} -> {42}
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:test_args();`, store, ctx)
+	})
+
+	t.Run("pass_inherits_current_args", func(t *testing.T) {
+		// #1:pass_inherit(10, 20) calls pass() with no args -> inherits {10, 20}
+		// Parent #0:pass_inherit returns args -> {10, 20}
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:pass_inherit(10, 20);`, store, ctx)
+	})
+
+	t.Run("this_preservation", func(t *testing.T) {
+		// #1:test_this() calls pass() -> #0:test_this returns this
+		// "this" should be #1 (the object it was called on), not #0
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:test_this();`, store, ctx)
+	})
+
+	t.Run("three_level_chain", func(t *testing.T) {
+		// #2:greet() -> "child:" + pass()
+		//   -> #1:greet() -> "parent:" + pass()
+		//     -> #0:greet() -> "grandparent"
+		//   -> "parent:grandparent"
+		// -> "child:parent:grandparent"
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #2:greet();`, store, ctx)
+	})
+}
