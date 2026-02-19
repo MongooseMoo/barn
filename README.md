@@ -21,51 +21,33 @@ Tests run against any MOO server via telnet, enabling direct comparison:
 
 ```bash
 # Test Barn
-uv run pytest --pyargs moo_conformance --moo-port=9500 -v
+uv tool run ..\moo-conformance-tests --moo-port=9500
 
 # Test ToastStunt for reference
-uv run pytest --pyargs moo_conformance --moo-port=9501 -v
-
-# Run specific category
-uv run pytest --pyargs moo_conformance -k "arithmetic" --moo-port=9500 -v
-
-# Stop on first failure
-uv run pytest --pyargs moo_conformance --moo-port=9500 -x -v
+uv tool run ..\moo-conformance-tests --moo-port=9501
 ```
 
 When Barn diverges from expected behavior, the same test case runs against ToastStunt to determine the correct interpretation. This methodology catches subtle semantic differences that manual testing misses.
 
 See [moo-conformance-tests documentation](https://github.com/mongoosemoo/moo-conformance-tests) for test structure and contributing tests.
 
-## Conformance Runner Script
+## Conformance Runbook
 
-Use `scripts/run-conformance.ps1` to run Barn + conformance tests with automatic lifecycle management:
+Preferred workflow:
 
-- Creates a fresh run DB copy (default from `Test_conf.db`)
-- Starts `barn_parity.exe` on a chosen port
-- Runs `uv run pytest --pyargs moo_conformance ...`
-- Stops server automatically
-- Captures per-run logs in `reports/runs/<timestamp>/`
+1. Start Barn with `Test.db` on a free port.
+2. Run `uv tool run ..\moo-conformance-tests --moo-port=<same port>`.
 
-Examples:
+Example:
 
 ```powershell
-# Full suite on port 7788
-.\scripts\run-conformance.ps1 -Port 7788
+# Terminal 1
+go build -o barn.exe ./cmd/barn/
+.\barn.exe -db Test.db -port 9500
 
-# Targeted run with pytest filter
-.\scripts\run-conformance.ps1 -Port 7788 -K "parser::"
-
-# Build first, keep run DB for inspection, pass extra pytest args
-.\scripts\run-conformance.ps1 -Build -KeepRunDb -ExtraPytestArgs "--tb=short","-x"
+# Terminal 2
+uv tool run ..\moo-conformance-tests --moo-port=9500
 ```
-
-Per-run artifacts include:
-- `pytest.log` (full test output)
-- `server.stdout.log`, `server.stderr.log` (server output)
-- `server-alerts.txt` (panic/runtime/traceback signal lines)
-- `failed-tests.txt` (failed test IDs)
-- `summary.json` (machine-readable run summary)
 
 ## Getting Started
 

@@ -53,8 +53,8 @@ func bitwiseNot(operand types.Value) types.Result {
 // ============================================================================
 
 // add implements addition: left + right
-// Supports INT + INT, FLOAT + FLOAT, INT + FLOAT (promotes to FLOAT)
-// Also supports string concatenation: STR + STR
+// Supports INT + INT and FLOAT + FLOAT (no cross-type numeric promotion).
+// Also supports string concatenation: STR + STR.
 func add(left, right types.Value) types.Result {
 	// String concatenation
 	if leftStr, ok := left.(types.StrValue); ok {
@@ -79,7 +79,11 @@ func add(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		// Float addition
 		result := toFloat64(leftNum) + toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
@@ -101,7 +105,11 @@ func subtract(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		result := toFloat64(leftNum) - toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
@@ -121,7 +129,11 @@ func multiply(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		result := toFloat64(leftNum) * toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
@@ -143,7 +155,11 @@ func divide(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		rightFloat := toFloat64(rightNum)
 		if rightFloat == 0.0 {
 			return types.Err(types.E_DIV)
@@ -178,6 +194,10 @@ func modulo(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
 	// Check for division by zero
 	if rightIsFloat {
 		if rightNum.(float64) == 0 {
@@ -189,8 +209,8 @@ func modulo(left, right types.Value) types.Result {
 		}
 	}
 
-	// If either is float, result is float
-	if leftIsFloat || rightIsFloat {
+	// Both are floats
+	if leftIsFloat {
 		leftFloat := toFloat64(leftNum)
 		rightFloat := toFloat64(rightNum)
 		// Use floored modulo (MOO/Python semantics): result sign matches divisor
@@ -212,8 +232,9 @@ func modulo(left, right types.Value) types.Result {
 	return types.Ok(types.IntValue{Val: result})
 }
 
-// power implements exponentiation: left ^ right
-// Supports INT and FLOAT operands
+// power implements exponentiation: left ^ right.
+// Supports INT ^ INT, FLOAT ^ INT, FLOAT ^ FLOAT.
+// INT ^ FLOAT is E_TYPE (no promotion from int base to float base).
 func power(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
@@ -222,38 +243,72 @@ func power(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Convert to float64 for math.Pow
-	var leftFloat, rightFloat float64
+	if !leftIsFloat && rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Floating-base power.
 	if leftIsFloat {
-		leftFloat = leftNum.(float64)
-	} else {
-		leftFloat = float64(leftNum.(int64))
-	}
-	if rightIsFloat {
-		rightFloat = rightNum.(float64)
-	} else {
-		rightFloat = float64(rightNum.(int64))
-	}
-
-	result := math.Pow(leftFloat, rightFloat)
-
-	// Check for NaN/Inf
-	if math.IsNaN(result) || math.IsInf(result, 0) {
-		return types.Err(types.E_FLOAT)
-	}
-
-	// Return as float if either operand was float, otherwise try to return as int
-	if leftIsFloat || rightIsFloat {
+		result := math.Pow(toFloat64(leftNum), toFloat64(rightNum))
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return types.Err(types.E_FLOAT)
+		}
 		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	// For integer inputs, return int if result is whole number
-	if result == math.Floor(result) && result >= float64(math.MinInt64) && result <= float64(math.MaxInt64) {
+	// Integer-base power (both operands are ints at this point).
+	leftInt := leftNum.(int64)
+	rightInt := rightNum.(int64)
+
+	// Toast semantics: 0 ^ negative is division by zero.
+	if leftInt == 0 && rightInt < 0 {
+		return types.Err(types.E_DIV)
+	}
+
+	// Negative exponents with integer operands truncate toward zero.
+	if rightInt < 0 {
+		result := math.Pow(float64(leftInt), float64(rightInt))
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return types.Err(types.E_FLOAT)
+		}
 		return types.Ok(types.IntValue{Val: int64(result)})
 	}
 
-	// Result doesn't fit in int64 or is not whole, return as float
-	return types.Ok(types.FloatValue{Val: result})
+	// Non-negative exponent: compute integer power directly.
+	result := int64(1)
+	base := leftInt
+	exp := rightInt
+	for exp > 0 {
+		if exp&1 == 1 {
+			result *= base
+		}
+		exp >>= 1
+		if exp > 0 {
+			base *= base
+		}
+	}
+	return types.Ok(types.IntValue{Val: result})
+}
+
+func boolIntEqual(left, right types.Value) (bool, bool) {
+	leftBool, leftIsBool := left.(types.BoolValue)
+	rightBool, rightIsBool := right.(types.BoolValue)
+	leftInt, leftIsInt := left.(types.IntValue)
+	rightInt, rightIsInt := right.(types.IntValue)
+
+	if leftIsBool && rightIsInt {
+		if leftBool.Val {
+			return rightInt.Val == 1, true
+		}
+		return rightInt.Val == 0, true
+	}
+	if leftIsInt && rightIsBool {
+		if rightBool.Val {
+			return leftInt.Val == 1, true
+		}
+		return leftInt.Val == 0, true
+	}
+	return false, false
 }
 
 // ============================================================================
@@ -263,6 +318,12 @@ func power(left, right types.Value) types.Result {
 // equal implements equality: left == right
 // Deep equality for all types
 func equal(left, right types.Value) types.Result {
+	if eq, ok := boolIntEqual(left, right); ok {
+		if eq {
+			return types.Ok(types.IntValue{Val: 1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+	}
 	if left.Equal(right) {
 		return types.Ok(types.IntValue{Val: 1})
 	}
@@ -271,6 +332,12 @@ func equal(left, right types.Value) types.Result {
 
 // notEqual implements inequality: left != right
 func notEqual(left, right types.Value) types.Result {
+	if eq, ok := boolIntEqual(left, right); ok {
+		if eq {
+			return types.Ok(types.IntValue{Val: 0})
+		}
+		return types.Ok(types.IntValue{Val: 1})
+	}
 	if left.Equal(right) {
 		return types.Ok(types.IntValue{Val: 0})
 	}
@@ -512,25 +579,39 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 	rightNum, rightIsFloat := toNumeric(right)
 
 	if leftNum != nil && rightNum != nil {
-		// Both are numeric - convert to float64 for comparison
-		var leftFloat, rightFloat float64
-		if leftIsFloat {
-			leftFloat = leftNum.(float64)
-		} else {
-			leftFloat = float64(leftNum.(int64))
-		}
-		if rightIsFloat {
-			rightFloat = rightNum.(float64)
-		} else {
-			rightFloat = float64(rightNum.(int64))
+		// Numeric cross-type comparison is not supported.
+		if leftIsFloat != rightIsFloat {
+			return 0, types.E_TYPE
 		}
 
-		if leftFloat < rightFloat {
+		if leftIsFloat {
+			leftFloat := leftNum.(float64)
+			rightFloat := rightNum.(float64)
+			if leftFloat < rightFloat {
+				return -1, types.E_NONE
+			} else if leftFloat > rightFloat {
+				return 1, types.E_NONE
+			}
+			return 0, types.E_NONE
+		}
+
+		leftInt := leftNum.(int64)
+		rightInt := rightNum.(int64)
+		if leftInt < rightInt {
 			return -1, types.E_NONE
-		} else if leftFloat > rightFloat {
+		} else if leftInt > rightInt {
 			return 1, types.E_NONE
 		}
 		return 0, types.E_NONE
+	}
+
+	// BOOL comparison support is limited to equality operators.
+	// Ordering comparisons on bools are invalid in MOO.
+	if _, ok := left.(types.BoolValue); ok {
+		return 0, types.E_TYPE
+	}
+	if _, ok := right.(types.BoolValue); ok {
+		return 0, types.E_TYPE
 	}
 
 	// String comparison

@@ -37,7 +37,7 @@ type Scheduler struct {
 func NewScheduler(store *db.Store) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &Scheduler{
+	s := &Scheduler{
 		tasks:      make(map[int64]*task.Task),
 		waiting:    NewTaskQueue(),
 		nextTaskID: 1,
@@ -47,6 +47,21 @@ func NewScheduler(store *db.Store) *Scheduler {
 		ctx:        ctx,
 		cancel:     cancel,
 	}
+
+	// Builtins like create()/recycle() need verb callbacks in VM mode.
+	// Route builtin CallVerb() through scheduler CallVerb().
+	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *types.TaskContext) types.Result {
+		player := types.ObjNothing
+		if tc != nil {
+			player = tc.Player
+			if player == types.ObjNothing {
+				player = tc.Programmer
+			}
+		}
+		return s.CallVerb(objID, verbName, args, player)
+	})
+
+	return s
 }
 
 // Start begins the scheduler loop
@@ -656,7 +671,30 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	bcVM.Context = ctx
 	bcVM.TickLimit = 300000
 
-	result := bcVM.Run(prog)
+	// Top-level eval still has intrinsic command variables in Toast:
+	// player/caller/this/verb/args and command parser placeholders.
+	frame := bcVM.PrepareVerbFrame(
+		prog,
+		types.ObjNothing,
+		player,
+		player,
+		"",
+		types.ObjNothing,
+		[]types.Value{},
+	)
+	vm.SetLocalByNamePublic(frame, prog, "this", types.NewObj(types.ObjNothing))
+	vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(player))
+	vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(player))
+	vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "args", types.NewList([]types.Value{}))
+	vm.SetLocalByNamePublic(frame, prog, "argstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "dobjstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "iobjstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "prepstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+	vm.SetLocalByNamePublic(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+
+	result := bcVM.ExecuteLoop()
 
 	// Handle fork: create child task, set fork variable, resume parent
 	for result.Flow == types.FlowFork {

@@ -135,6 +135,35 @@ func (c *Connection) GetOutputSuffix() string {
 	return c.outputSuffix
 }
 
+// BufferedOutputLength returns the number of queued output lines.
+func (c *Connection) BufferedOutputLength() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.outputBuffer)
+}
+
+// ConnectedSeconds returns how long the connection has been active.
+func (c *Connection) ConnectedSeconds() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	seconds := time.Since(c.connectedAt).Seconds()
+	if seconds < 0 {
+		return 0
+	}
+	return int64(seconds)
+}
+
+// IdleSeconds returns how long since the last input was received.
+func (c *Connection) IdleSeconds() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	seconds := time.Since(c.lastInput).Seconds()
+	if seconds < 0 {
+		return 0
+	}
+	return int64(seconds)
+}
+
 // ConnectionManager manages all active connections
 type ConnectionManager struct {
 	connections    map[int64]*Connection

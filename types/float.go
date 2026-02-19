@@ -56,10 +56,10 @@ func (f FloatValue) Equal(other Value) bool {
 	return f.Val == otherFloat.Val
 }
 
-// Truthy returns the MOO truthiness
-// In MOO, floats are never truthy (only non-zero ints and non-empty strings)
+// Truthy returns the MOO truthiness.
+// Non-zero floats are truthy, zero is falsy.
 func (f FloatValue) Truthy() bool {
-	return false
+	return f.Val != 0
 }
 
 // NewFloat creates a new FloatValue

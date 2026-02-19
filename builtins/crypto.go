@@ -115,8 +115,8 @@ func builtinDecodeBase64(ctx *types.TaskContext, args []types.Value) types.Resul
 // encode_binary(list of strings/ints) -> str
 // encode_binary(val1, val2, ...) -> str (varargs)
 func builtinEncodeBinary(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 {
-		return types.Err(types.E_ARGS)
+	if len(args) == 0 {
+		return types.Ok(types.NewStr(""))
 	}
 
 	var result strings.Builder
@@ -142,7 +142,7 @@ func builtinEncodeBinary(ctx *types.TaskContext, args []types.Value) types.Resul
 				}
 			}
 		default:
-			return types.E_TYPE
+			return types.E_INVARG
 		}
 		return 0
 	}

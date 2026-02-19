@@ -193,7 +193,7 @@ barn/
 
 ## Conformance Tests
 
-Tests live in `~/code/moo-conformance-tests/` as a standalone pytest plugin package.
+Tests live in `~/code/moo-conformance-tests/` and are run via its CLI tool.
 
 **Test YAML files:** `~/code/moo-conformance-tests/src/moo_conformance/_tests/`
 
@@ -204,19 +204,10 @@ Tests live in `~/code/moo-conformance-tests/` as a standalone pytest plugin pack
 cd ~/code/barn
 
 # Run against Toast (port 9501)
-uv run pytest --pyargs moo_conformance --moo-port=9501 -v
+uv tool run ..\moo-conformance-tests --moo-port=9501
 
 # Run against Barn (port 9500)
-uv run pytest --pyargs moo_conformance --moo-port=9500 -v
-
-# Stop on first failure
-uv run pytest --pyargs moo_conformance --moo-port=9501 -x -v
-
-# Run specific test by name
-uv run pytest --pyargs moo_conformance -k "arithmetic::addition" --moo-port=9501 -v
-
-# Run specific category
-uv run pytest --pyargs moo_conformance -k "arithmetic" --moo-port=9501 -v
+uv tool run ..\moo-conformance-tests --moo-port=9500
 ```
 
 ### Test Options
@@ -225,10 +216,6 @@ uv run pytest --pyargs moo_conformance -k "arithmetic" --moo-port=9501 -v
 |--------|-------------|
 | `--moo-port PORT` | Port to connect to (required) |
 | `--moo-host HOST` | Host to connect to (default: localhost) |
-| `-x` | Stop on first failure |
-| `-v` | Verbose output |
-| `-k "pattern"` | Filter tests by name pattern |
-| `--tb=long` | Show full tracebacks |
 
 ### Test Database
 

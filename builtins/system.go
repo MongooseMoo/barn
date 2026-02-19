@@ -448,11 +448,44 @@ func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {
 // With no args: returns version string like "1.0.0"
 // With arg: returns specific version info (not fully implemented yet)
 func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) == 0 {
-		return types.Ok(types.NewStr("1.0.0-barn"))
+	const versionString = "1.0.0-barn"
+	versionInfo := []types.Value{
+		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(1)}),
+		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(0)}),
+		types.NewList([]types.Value{types.NewStr("patch"), types.NewInt(0)}),
+		types.NewList([]types.Value{types.NewStr("prerelease"), types.NewStr("barn")}),
+		types.NewList([]types.Value{types.NewStr("string"), types.NewStr(versionString)}),
+		types.NewList([]types.Value{types.NewStr("features"), types.NewList([]types.Value{})}),
 	}
-	// For now, just return version string for any argument
-	return types.Ok(types.NewStr("1.0.0-barn"))
+
+	if len(args) == 0 {
+		return types.Ok(types.NewStr(versionString))
+	}
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	keyVal, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	switch keyVal.Value() {
+	case "":
+		return types.Ok(types.NewList(versionInfo))
+	case "major":
+		return types.Ok(types.NewInt(1))
+	case "minor":
+		return types.Ok(types.NewInt(0))
+	case "patch":
+		return types.Ok(types.NewInt(0))
+	case "string":
+		return types.Ok(types.NewStr(versionString))
+	case "features":
+		return types.Ok(types.NewList([]types.Value{}))
+	default:
+		return types.Err(types.E_INVARG)
+	}
 }
 
 // builtinServerLog implements server_log(message)
@@ -467,15 +500,13 @@ func builtinServerLog(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Convert all args to strings and concatenate
-	var msg string
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case types.StrValue:
-			msg += v.Value()
-		default:
-			msg += arg.String()
-		}
+	first, ok := args[0].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	msg := first.Value()
+	for _, arg := range args[1:] {
+		msg += arg.String()
 	}
 
 	// Log to server output

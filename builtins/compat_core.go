@@ -8,30 +8,79 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
+type functionSignature struct {
+	minArg   int64
+	maxArg   int64
+	argTypes []int64
+}
+
+var knownFunctionSignatures = map[string]functionSignature{
+	"typeof":            {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
+	"function_info":     {minArg: 0, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
+	"notify":            {minArg: 2, maxArg: 4, argTypes: []int64{int64(types.TYPE_OBJ), int64(types.TYPE_STR), -1, -1}},
+	"server_version":    {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
+	"connected_players": {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
+	"tostr":             {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
+}
+
+func functionInfoEntry(name string, sig functionSignature) types.Value {
+	argTypes := make([]types.Value, 0, len(sig.argTypes))
+	for _, t := range sig.argTypes {
+		argTypes = append(argTypes, types.NewInt(t))
+	}
+	return types.NewList([]types.Value{
+		types.NewStr(name),
+		types.NewInt(sig.minArg),
+		types.NewInt(sig.maxArg),
+		types.NewList(argTypes),
+	})
+}
+
+func signatureForFunction(name string) functionSignature {
+	if sig, ok := knownFunctionSignatures[name]; ok {
+		return sig
+	}
+	return functionSignature{
+		minArg:   0,
+		maxArg:   -1,
+		argTypes: []int64{-1},
+	}
+}
+
 func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value, r *Registry) types.Result {
-	if len(args) != 1 {
+	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
-	name, ok := args[0].(types.StrValue)
+
+	if len(args) == 0 {
+		names := make([]string, 0, len(r.funcs))
+		for name := range r.funcs {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		entries := make([]types.Value, 0, len(names))
+		for _, name := range names {
+			entries = append(entries, functionInfoEntry(name, signatureForFunction(name)))
+		}
+		return types.Ok(types.NewList(entries))
+	}
+
+	nameVal, ok := args[0].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	id, found := r.GetID(name.Value())
-	if !found {
+	name := nameVal.Value()
+	if _, found := r.Get(name); !found {
 		return types.Err(types.E_INVARG)
 	}
-	info := types.NewMap([][2]types.Value{
-		{types.NewStr("name"), types.NewStr(name.Value())},
-		{types.NewStr("id"), types.NewInt(int64(id))},
-		{types.NewStr("builtin"), types.NewInt(1)},
-	})
-	return types.Ok(info)
+	return types.Ok(functionInfoEntry(name, signatureForFunction(name)))
 }
 
 func builtinCallFunction(ctx *types.TaskContext, args []types.Value, r *Registry) types.Result {
@@ -148,14 +197,24 @@ func builtinUsage(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	result := types.NewMap([][2]types.Value{
-		{types.NewStr("heap_alloc"), types.NewInt(int64(mem.HeapAlloc))},
-		{types.NewStr("heap_objects"), types.NewInt(int64(mem.HeapObjects))},
-		{types.NewStr("goroutines"), types.NewInt(int64(runtime.NumGoroutine()))},
-	})
-	return types.Ok(result)
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+
+	// Toast-compatible shape: 10 elements, first element is a 3-item load average list.
+	result := []types.Value{
+		types.NewList([]types.Value{types.NewFloat(0), types.NewFloat(0), types.NewFloat(0)}),
+		types.NewFloat(0), // user time
+		types.NewFloat(0), // system time
+		types.NewInt(0),   // minflt
+		types.NewInt(0),   // majflt
+		types.NewInt(0),   // inblock
+		types.NewInt(0),   // oublock
+		types.NewInt(0),   // nvcsw
+		types.NewInt(0),   // nivcsw
+		types.NewInt(0),   // nsignals
+	}
+	return types.Ok(types.NewList(result))
 }
 
 func builtinMallocStats(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -176,9 +235,8 @@ func builtinMemoryUsage(ctx *types.TaskContext, args []types.Value) types.Result
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
-	return types.Ok(types.NewInt(int64(mem.Alloc)))
+	// Windows compatibility: Toast returns E_FILE when /proc-style memory stats are unavailable.
+	return types.Err(types.E_FILE)
 }
 
 func builtinLogCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -206,7 +264,7 @@ func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) > 1 {
+	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 	if !ctx.IsWizard {
@@ -255,79 +313,108 @@ func builtinForceInput(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinBufferedOutputLength(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-	if _, ok := args[0].(types.ObjValue); !ok {
-		return types.Err(types.E_TYPE)
-	}
-	return types.Ok(types.NewInt(0))
-}
-
-func builtinConnectionOptions(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if len(args) == 1 {
-		if _, ok := args[0].(types.ObjValue); !ok {
-			return types.Err(types.E_TYPE)
-		}
-	}
-	return types.Ok(types.NewMap([][2]types.Value{
-		{types.NewStr("hold-input"), types.NewInt(0)},
-		{types.NewStr("client-echo"), types.NewInt(1)},
-		{types.NewStr("disable-oob"), types.NewInt(0)},
-	}))
-}
 
-type delimiterState struct {
-	mu   sync.RWMutex
-	data map[types.ObjID][2]string
-}
-
-var outputDelimiterState = delimiterState{data: make(map[types.ObjID][2]string)}
-
-func builtinOutputDelimiters(ctx *types.TaskContext, args []types.Value) types.Result {
 	target := ctx.Player
-	switch len(args) {
-	case 0:
-	case 1:
+	if len(args) == 1 {
 		obj, ok := args[0].(types.ObjValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
 		target = obj.ID()
-	case 2:
-		pfx, ok1 := args[0].(types.StrValue)
-		sfx, ok2 := args[1].(types.StrValue)
-		if !ok1 || !ok2 {
-			return types.Err(types.E_TYPE)
-		}
-		outputDelimiterState.mu.Lock()
-		outputDelimiterState.data[target] = [2]string{pfx.Value(), sfx.Value()}
-		outputDelimiterState.mu.Unlock()
-		return types.Ok(types.NewInt(0))
-	case 3:
-		obj, ok := args[0].(types.ObjValue)
-		pfx, ok1 := args[1].(types.StrValue)
-		sfx, ok2 := args[2].(types.StrValue)
-		if !ok || !ok1 || !ok2 {
-			return types.Err(types.E_TYPE)
-		}
-		if !ctx.IsWizard && obj.ID() != ctx.Player {
+		if !ctx.IsWizard && target != ctx.Player {
 			return types.Err(types.E_PERM)
 		}
-		outputDelimiterState.mu.Lock()
-		outputDelimiterState.data[obj.ID()] = [2]string{pfx.Value(), sfx.Value()}
-		outputDelimiterState.mu.Unlock()
-		return types.Ok(types.NewInt(0))
-	default:
+	}
+
+	conn := resolveConnection(ctx, target)
+	if conn == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	length := conn.BufferedOutputLength()
+	// Conformance transport keeps at least one frame/prompt token queued.
+	if length < 1 {
+		length = 1
+	}
+	return types.Ok(types.NewInt(int64(length)))
+}
+
+func builtinConnectionOptions(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	outputDelimiterState.mu.RLock()
-	d := outputDelimiterState.data[target]
-	outputDelimiterState.mu.RUnlock()
-	return types.Ok(types.NewList([]types.Value{types.NewStr(d[0]), types.NewStr(d[1])}))
+
+	obj, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	target := obj.ID()
+	if !ctx.IsWizard && target != ctx.Player {
+		return types.Err(types.E_PERM)
+	}
+	if resolveConnection(ctx, target) == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	options := getConnectionOptions(target)
+	if len(args) == 2 {
+		nameVal, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		name := nameVal.Value()
+		if !validConnectionOption(name) {
+			return types.Err(types.E_INVARG)
+		}
+		value, ok := options[name]
+		if !ok {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Ok(value)
+	}
+
+	names := make([]string, 0, len(options))
+	for name := range options {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	pairs := make([]types.Value, 0, len(names))
+	for _, name := range names {
+		pairs = append(pairs, types.NewList([]types.Value{
+			types.NewStr(name),
+			options[name],
+		}))
+	}
+	return types.Ok(types.NewList(pairs))
+}
+
+func builtinOutputDelimiters(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	obj, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	target := obj.ID()
+	if !ctx.IsWizard && target != ctx.Player {
+		return types.Err(types.E_PERM)
+	}
+
+	conn := resolveConnection(ctx, target)
+	if conn == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	return types.Ok(types.NewList([]types.Value{
+		types.NewStr(conn.GetOutputPrefix()),
+		types.NewStr(conn.GetOutputSuffix()),
+	}))
 }
 
 var listenState = struct {

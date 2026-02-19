@@ -107,15 +107,28 @@ func builtinToint(ctx *types.TaskContext, args []types.Value) types.Result {
 		// Object ID as int
 		return types.Ok(types.IntValue{Val: int64(v.ID())})
 
+	case types.ErrValue:
+		// Error code ordinal as int
+		return types.Ok(types.IntValue{Val: int64(v.Code())})
+
+	case types.BoolValue:
+		if v.Val {
+			return types.Ok(types.IntValue{Val: 1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+
 	case types.StrValue:
-		// Parse string as integer
-		// Per MOO semantics: returns 0 for unparseable strings (not E_INVARG)
+		// Parse string as integer first. If that fails, parse as float and truncate.
+		// Per MOO semantics: returns 0 for unparseable strings (not E_INVARG).
 		str := strings.TrimSpace(v.Value())
 		i, err := strconv.ParseInt(str, 10, 64)
-		if err != nil {
-			return types.Ok(types.IntValue{Val: 0})
+		if err == nil {
+			return types.Ok(types.IntValue{Val: i})
 		}
-		return types.Ok(types.IntValue{Val: i})
+		if f, ferr := strconv.ParseFloat(str, 64); ferr == nil {
+			return types.Ok(types.IntValue{Val: int64(f)})
+		}
+		return types.Ok(types.IntValue{Val: 0})
 
 	default:
 		// Cannot convert this type to int
@@ -142,6 +155,14 @@ func builtinTofloat(ctx *types.TaskContext, args []types.Value) types.Result {
 	case types.IntValue:
 		// Convert int to float
 		return types.Ok(types.FloatValue{Val: float64(v.Val)})
+
+	case types.ObjValue:
+		// Object ID as float
+		return types.Ok(types.FloatValue{Val: float64(v.ID())})
+
+	case types.ErrValue:
+		// Error code ordinal as float
+		return types.Ok(types.FloatValue{Val: float64(v.Code())})
 
 	case types.StrValue:
 		// Parse string as float
@@ -193,6 +214,18 @@ func builtinToobj(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	case types.IntValue:
 		return types.Ok(types.NewObj(types.ObjID(v.Val)))
+
+	case types.FloatValue:
+		return types.Ok(types.NewObj(types.ObjID(int64(v.Val))))
+
+	case types.ErrValue:
+		return types.Ok(types.NewObj(types.ObjID(v.Code())))
+
+	case types.BoolValue:
+		if v.Val {
+			return types.Ok(types.NewObj(1))
+		}
+		return types.Ok(types.NewObj(0))
 
 	case types.StrValue:
 		str := strings.TrimSpace(v.Value())

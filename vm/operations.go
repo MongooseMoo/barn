@@ -39,18 +39,9 @@ func (vm *VM) executeAdd() error {
 		return nil
 	}
 
-	if (aIsInt || aIsFloat) && (bIsInt || bIsFloat) {
-		var af, bf float64
-		if aIsInt {
-			af = float64(aInt.Val)
-		} else {
-			af = aFloat.Val
-		}
-		if bIsInt {
-			bf = float64(bInt.Val)
-		} else {
-			bf = bFloat.Val
-		}
+	if aIsFloat && bIsFloat {
+		af := aFloat.Val
+		bf := bFloat.Val
 		vm.Push(types.FloatValue{Val: af + bf})
 		return nil
 	}
@@ -72,18 +63,9 @@ func (vm *VM) executeSub() error {
 		return nil
 	}
 
-	if (aIsInt || aIsFloat) && (bIsInt || bIsFloat) {
-		var af, bf float64
-		if aIsInt {
-			af = float64(aInt.Val)
-		} else {
-			af = aFloat.Val
-		}
-		if bIsInt {
-			bf = float64(bInt.Val)
-		} else {
-			bf = bFloat.Val
-		}
+	if aIsFloat && bIsFloat {
+		af := aFloat.Val
+		bf := bFloat.Val
 		vm.Push(types.FloatValue{Val: af - bf})
 		return nil
 	}
@@ -105,18 +87,9 @@ func (vm *VM) executeMul() error {
 		return nil
 	}
 
-	if (aIsInt || aIsFloat) && (bIsInt || bIsFloat) {
-		var af, bf float64
-		if aIsInt {
-			af = float64(aInt.Val)
-		} else {
-			af = aFloat.Val
-		}
-		if bIsInt {
-			bf = float64(bInt.Val)
-		} else {
-			bf = bFloat.Val
-		}
+	if aIsFloat && bIsFloat {
+		af := aFloat.Val
+		bf := bFloat.Val
 		vm.Push(types.FloatValue{Val: af * bf})
 		return nil
 	}
@@ -147,18 +120,9 @@ func (vm *VM) executeDiv() error {
 		return nil
 	}
 
-	if (aIsInt || aIsFloat) && (bIsInt || bIsFloat) {
-		var af, bf float64
-		if aIsInt {
-			af = float64(aInt.Val)
-		} else {
-			af = aFloat.Val
-		}
-		if bIsInt {
-			bf = float64(bInt.Val)
-		} else {
-			bf = bFloat.Val
-		}
+	if aIsFloat && bIsFloat {
+		af := aFloat.Val
+		bf := bFloat.Val
 		if bf == 0 {
 			return fmt.Errorf("E_DIV: division by zero")
 		}
@@ -181,6 +145,9 @@ func (vm *VM) executeMod() error {
 	if !(aIsInt || aIsFloat) || !(bIsInt || bIsFloat) {
 		return fmt.Errorf("E_TYPE: invalid operands for %%")
 	}
+	if aIsInt != bIsInt {
+		return fmt.Errorf("E_TYPE: invalid operands for %%")
+	}
 
 	// Check for division by zero
 	if bIsInt && bInt.Val == 0 {
@@ -190,19 +157,10 @@ func (vm *VM) executeMod() error {
 		return fmt.Errorf("E_DIV: modulo by zero")
 	}
 
-	// If either is float, result is float
-	if aIsFloat || bIsFloat {
-		var af, bf float64
-		if aIsInt {
-			af = float64(aInt.Val)
-		} else {
-			af = aFloat.Val
-		}
-		if bIsInt {
-			bf = float64(bInt.Val)
-		} else {
-			bf = bFloat.Val
-		}
+	// Both are floats.
+	if aIsFloat {
+		af := aFloat.Val
+		bf := bFloat.Val
 		result := math.Mod(af, bf)
 		// Floored modulo: result sign matches divisor
 		if result != 0 && (result < 0) != (bf < 0) {
@@ -246,18 +204,42 @@ func (vm *VM) executePow() error {
 		return fmt.Errorf("E_TYPE: invalid operands for ^")
 	}
 
+	if aIsInt && bIsFloat {
+		return fmt.Errorf("E_TYPE: invalid operands for ^")
+	}
+
+	if aIsInt && bIsInt {
+		// Toast semantics: 0 ^ negative is division by zero.
+		if aInt.Val == 0 && bInt.Val < 0 {
+			return fmt.Errorf("E_DIV: division by zero")
+		}
+		// Negative exponents with integer operands truncate toward zero.
+		if bInt.Val < 0 {
+			vm.Push(types.IntValue{Val: int64(math.Pow(af, bf))})
+			return nil
+		}
+
+		// Non-negative exponent: integer exponentiation.
+		result := int64(1)
+		base := aInt.Val
+		exp := bInt.Val
+		for exp > 0 {
+			if exp&1 == 1 {
+				result *= base
+			}
+			exp >>= 1
+			if exp > 0 {
+				base *= base
+			}
+		}
+		vm.Push(types.IntValue{Val: result})
+		return nil
+	}
+
 	result := math.Pow(af, bf)
 
 	if math.IsNaN(result) || math.IsInf(result, 0) {
 		return fmt.Errorf("E_FLOAT: result is NaN or Inf")
-	}
-
-	// If both operands were int, try to return int
-	if aIsInt && bIsInt {
-		if result == math.Floor(result) && result >= float64(math.MinInt64) && result <= float64(math.MaxInt64) {
-			vm.Push(types.IntValue{Val: int64(result)})
-			return nil
-		}
 	}
 
 	vm.Push(types.FloatValue{Val: result})
@@ -285,6 +267,14 @@ func (vm *VM) executeNeg() error {
 func (vm *VM) executeEq() error {
 	b := vm.Pop()
 	a := vm.Pop()
+	if eq, ok := boolIntEqual(a, b); ok {
+		if eq {
+			vm.Push(types.IntValue{Val: 1})
+		} else {
+			vm.Push(types.IntValue{Val: 0})
+		}
+		return nil
+	}
 	if a.Equal(b) {
 		vm.Push(types.IntValue{Val: 1})
 	} else {
@@ -296,6 +286,14 @@ func (vm *VM) executeEq() error {
 func (vm *VM) executeNe() error {
 	b := vm.Pop()
 	a := vm.Pop()
+	if eq, ok := boolIntEqual(a, b); ok {
+		if eq {
+			vm.Push(types.IntValue{Val: 0})
+		} else {
+			vm.Push(types.IntValue{Val: 1})
+		}
+		return nil
+	}
 	if !a.Equal(b) {
 		vm.Push(types.IntValue{Val: 1})
 	} else {
@@ -1588,25 +1586,17 @@ func compareValues(a, b types.Value) (int, error) {
 	aFloat, aIsFloat := a.(types.FloatValue)
 	bFloat, bIsFloat := b.(types.FloatValue)
 
-	if (aIsInt || aIsFloat) && (bIsInt || bIsFloat) {
-		var af, bf float64
-		if aIsInt {
-			af = float64(aInt.Val)
-		} else {
-			af = aFloat.Val
-		}
-		if bIsInt {
-			bf = float64(bInt.Val)
-		} else {
-			bf = bFloat.Val
-		}
-
-		if af < bf {
+	if aIsFloat && bIsFloat {
+		if aFloat.Val < bFloat.Val {
 			return -1, nil
-		} else if af > bf {
+		} else if aFloat.Val > bFloat.Val {
 			return 1, nil
 		}
 		return 0, nil
+	}
+
+	if (aIsInt && bIsFloat) || (aIsFloat && bIsInt) {
+		return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
 	}
 
 	// String comparison
@@ -1963,7 +1953,6 @@ func (vm *VM) executeCallVerb() error {
 	// Return nil — Run() loop continues executing the new frame's bytecode
 	return nil
 }
-
 
 // executePass handles OP_PASS: call the same verb on the parent object.
 //
