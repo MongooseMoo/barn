@@ -3949,6 +3949,25 @@ func TestParity_PropertyMapIndexAssign(t *testing.T) {
 	}
 }
 
+// --- Property range assignment parity tests ---
+
+func TestParityPropertyRangeAssignment(t *testing.T) {
+	cases := map[string]string{
+		// String property range assignment
+		"string_range": `#0.bar = "hello"; #0.bar[2..3] = "EL"; return #0.bar;`,
+		// List property range assignment
+		"list_range": `#0.foo = {1, 2, 3, 4}; #0.foo[2..3] = {8, 9}; return #0.foo;`,
+		// String property range with $ marker
+		"string_range_dollar": `#0.bar = "abcde"; #0.bar[2..$] = "X"; return #0.bar;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := newPropertyTestStore()
+			compareProgramsWithStore(t, code, store)
+		})
+	}
+}
+
 func TestParitySpliceExpression(t *testing.T) {
 	cases := map[string]string{
 		// Standalone @list evaluates to the list itself

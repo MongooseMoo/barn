@@ -533,6 +533,11 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 		return e.nestedRangeAssign(indexExpr, target.Start, target.End, value, ctx)
 	}
 
+	// Check if this is a property-based range assignment (e.g., obj.prop[2..3] = val)
+	if propExpr, ok := target.Expr.(*parser.PropertyExpr); ok {
+		return e.propertyRangeAssign(propExpr, target, value, ctx)
+	}
+
 	// Get the collection (must be a variable reference)
 	varName, ok := getBaseVariableFromRange(target)
 	if !ok {
@@ -787,6 +792,45 @@ func (e *Evaluator) assignRange(target *parser.RangeExpr, value types.Value, ctx
 
 	// Store the new collection back to the variable
 	e.env.Set(varName, newColl)
+	return types.Ok(value)
+}
+
+// propertyRangeAssign handles property-based range assignment: obj.prop[start..end] = value
+// Reads the property into a temp variable, performs range set, writes back via assignProperty.
+func (e *Evaluator) propertyRangeAssign(propExpr *parser.PropertyExpr, target *parser.RangeExpr, value types.Value, ctx *types.TaskContext) types.Result {
+	// Read the current property value via the normal property evaluation path
+	propResult := e.property(propExpr, ctx)
+	if !propResult.IsNormal() {
+		return propResult
+	}
+
+	// Store the property value in a temp env variable so the existing
+	// range assignment logic can operate on it
+	const tempVarName = "__prop_range_tmp"
+	e.env.Set(tempVarName, propResult.Val)
+
+	// Create a synthetic RangeExpr with an IdentifierExpr base pointing to our temp
+	synthTarget := &parser.RangeExpr{
+		Expr:  &parser.IdentifierExpr{Name: tempVarName},
+		Start: target.Start,
+		End:   target.End,
+	}
+
+	// Call the core range assignment logic on the temp variable
+	result := e.assignRange(synthTarget, value, ctx)
+	if !result.IsNormal() {
+		return result
+	}
+
+	// Read the modified collection from the temp variable
+	newColl, _ := e.env.Get(tempVarName)
+
+	// Write the modified collection back to the property
+	writeResult := e.assignProperty(propExpr, newColl, ctx)
+	if !writeResult.IsNormal() {
+		return writeResult
+	}
+
 	return types.Ok(value)
 }
 

@@ -831,14 +831,56 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		}
 	case *parser.RangeExpr:
 		// Range assignment: coll[start..end] = value
-		// Find the base variable
-		baseIdent, ok := target.Expr.(*parser.IdentifierExpr)
-		if !ok {
-			return fmt.Errorf("range assignment target must be a variable")
-		}
+		var varIdx int
+		var basePropExpr *parser.PropertyExpr
 
-		// Ensure the base variable is declared
-		varIdx := c.declareVariable(baseIdent.Name)
+		if baseIdent, ok := target.Expr.(*parser.IdentifierExpr); ok {
+			// Variable-based: x[2..3] = val
+			varIdx = c.declareVariable(baseIdent.Name)
+		} else if propExpr, ok := target.Expr.(*parser.PropertyExpr); ok {
+			// Property-based: obj.prop[2..3] = val
+			// Read the property into a temp, do range-set on temp, write back.
+			basePropExpr = propExpr
+
+			// Stack currently: [value, value_copy]
+			// Store value_copy into temp so we can use the stack for GET_PROP
+			tmpValHold := c.declareVariable("__prop_range_val")
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(tmpValHold))
+			// Stack: [value]
+
+			// Compile obj expression, emit GET_PROP to read current property value
+			if err := c.compileNode(propExpr.Expr); err != nil {
+				return err
+			}
+			if propExpr.Property != "" {
+				propIdx := c.addConstant(types.NewStr(propExpr.Property))
+				c.emit(OP_GET_PROP)
+				c.emitByte(byte(propIdx))
+			} else if propExpr.PropertyExpr != nil {
+				if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+					return err
+				}
+				c.emit(OP_GET_PROP)
+				c.emitByte(0xFF)
+			} else {
+				return fmt.Errorf("property expression has neither static name nor dynamic expression")
+			}
+			// Stack: [value, prop_value]
+
+			// Store property value into a temp that acts as the "base variable"
+			varIdx = c.declareVariable("__prop_range_base")
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(varIdx))
+			// Stack: [value]
+
+			// Restore the value_copy onto the stack for the range assignment code below
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(tmpValHold))
+			// Stack: [value, value_copy]
+		} else {
+			return fmt.Errorf("range assignment target must be a variable or property")
+		}
 
 		// Stack currently: [value, value_copy]
 		// Compile start index, resolving $ to collection length
@@ -859,6 +901,35 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		// The original 'value' remains on stack as expression result
 		c.emit(OP_RANGE_SET)
 		c.emitByte(byte(varIdx))
+
+		// If the base was a property, write the modified temp back to the property
+		if basePropExpr != nil {
+			// Stack: [value]
+			// Load the modified base temp (now has the updated collection)
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(varIdx))
+			// Stack: [value, modified_collection]
+
+			// Compile the object expression again
+			if err := c.compileNode(basePropExpr.Expr); err != nil {
+				return err
+			}
+			// Stack: [value, modified_collection, obj]
+
+			// Emit SET_PROP: pops obj, pops modified_collection, writes property
+			if basePropExpr.Property != "" {
+				propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+				c.emit(OP_SET_PROP)
+				c.emitByte(byte(propIdx))
+			} else if basePropExpr.PropertyExpr != nil {
+				if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+					return err
+				}
+				c.emit(OP_SET_PROP)
+				c.emitByte(0xFF)
+			}
+			// Stack: [value] (original assigned value remains as expression result)
+		}
 	default:
 		return fmt.Errorf("invalid assignment target: %T", target)
 	}
