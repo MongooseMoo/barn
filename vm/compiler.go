@@ -10,17 +10,27 @@ import (
 
 // Compiler compiles AST nodes to bytecode
 type Compiler struct {
-	program        *Program
-	constants      map[string]int       // Constant deduplication (Value.String() -> index)
-	variables      map[string]int       // Variable name -> index mapping
-	loops          []LoopContext        // Loop context stack for break/continue
-	scopes         []Scope              // Variable scope stack
-	tempCount      int                  // Counter for unique temporary variable names
-	registry       *builtins.Registry   // Builtin function registry for name->ID resolution
-	indexContextVar int                 // Variable slot holding collection length for $ resolution (-1 = none)
-	lastLine       int                  // Last emitted line number for LineInfo deduplication
-	err            error                // First overflow/limit error; checked at Compile boundaries
+	program         *Program
+	constants       map[string]int     // Constant deduplication (Value.String() -> index)
+	variables       map[string]int     // Variable name -> index mapping
+	loops           []LoopContext      // Loop context stack for break/continue
+	scopes          []Scope            // Variable scope stack
+	tempCount       int                // Counter for unique temporary variable names
+	registry        *builtins.Registry // Builtin function registry for name->ID resolution
+	indexContextVar int                // Variable slot used by index-marker compilation (-1 = none)
+	indexMarkerMode indexMarkerMode    // Controls ^/$ compilation semantics in current context
+	lastLine        int                // Last emitted line number for LineInfo deduplication
+	err             error              // First overflow/limit error; checked at Compile boundaries
 }
+
+type indexMarkerMode int
+
+const (
+	// ^ => 1, $ => collection length from indexContextVar.
+	indexMarkerModeLength indexMarkerMode = iota
+	// ^/$ => first/last for maps, 1/length for list/string using collection in indexContextVar.
+	indexMarkerModeCollection
+)
 
 // LoopContext tracks loop compilation state
 type LoopContext struct {
@@ -52,6 +62,7 @@ func NewCompiler() *Compiler {
 		loops:           make([]LoopContext, 0, 8),
 		scopes:          make([]Scope, 0, 8),
 		indexContextVar: -1,
+		indexMarkerMode: indexMarkerModeLength,
 	}
 }
 
@@ -760,9 +771,22 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// Single-level index assignment (original fast path)
 			// Stack currently: [value, value_copy]
 			// Compile the index expression -> [value, value_copy, index]
+			oldContextVar := c.indexContextVar
+			oldMarkerMode := c.indexMarkerMode
+			if containsIndexMarker(indices[0]) {
+				tempIdx := c.declareVariable(c.tempVar("idxsetctx"))
+				c.emit(OP_GET_VAR)
+				c.emitByte(byte(baseVarIdx))
+				c.emit(OP_SET_VAR)
+				c.emitByte(byte(tempIdx))
+				c.indexContextVar = tempIdx
+				c.indexMarkerMode = indexMarkerModeCollection
+			}
 			if err := c.compileNode(indices[0]); err != nil {
 				return err
 			}
+			c.indexContextVar = oldContextVar
+			c.indexMarkerMode = oldMarkerMode
 			// VM will: pop index, pop value_copy, read coll from locals[baseVarIdx],
 			// set coll[index] = value_copy, store modified coll back
 			c.emit(OP_INDEX_SET)
@@ -782,9 +806,22 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// 2. Evaluate each index into a temp variable
 			tmpIndices := make([]int, depth)
 			for k := 0; k < depth; k++ {
+				oldContextVar := c.indexContextVar
+				oldMarkerMode := c.indexMarkerMode
+				if containsIndexMarker(indices[k]) {
+					tempIdx := c.declareVariable(c.tempVar("nestedidxctx"))
+					c.emit(OP_GET_VAR)
+					c.emitByte(byte(baseVarIdx))
+					c.emit(OP_SET_VAR)
+					c.emitByte(byte(tempIdx))
+					c.indexContextVar = tempIdx
+					c.indexMarkerMode = indexMarkerModeCollection
+				}
 				if err := c.compileNode(indices[k]); err != nil {
 					return err
 				}
+				c.indexContextVar = oldContextVar
+				c.indexMarkerMode = oldMarkerMode
 				tmpIndices[k] = c.declareVariable(fmt.Sprintf("__nested_idx_%d", k))
 				c.emit(OP_SET_VAR)
 				c.emitByte(byte(tmpIndices[k]))
@@ -899,6 +936,10 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		}
 	case *parser.RangeExpr:
 		// Range assignment: coll[start..end] = value
+		if nestedIndex, ok := target.Expr.(*parser.IndexExpr); ok {
+			return c.compileNestedRangeAssign(nestedIndex, target.Start, target.End)
+		}
+
 		var varIdx int
 		var basePropExpr *parser.PropertyExpr
 
@@ -1005,25 +1046,173 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 	return nil
 }
 
-// compileRangeIndex compiles a range index expression, resolving $ and ^ markers
-// to the collection length or 1 respectively.
+// compileRangeIndex compiles a range index expression with numeric marker semantics.
+// In range context, ^ means 1 and $ means collection length.
 func (c *Compiler) compileRangeIndex(expr parser.Expr, varIdx int) error {
-	if marker, ok := expr.(*parser.IndexMarkerExpr); ok {
-		if marker.Marker == parser.TOKEN_CARET {
-			// ^ resolves to 1
-			c.emitConstant(types.IntValue{Val: 1})
-		} else if marker.Marker == parser.TOKEN_DOLLAR {
-			// $ resolves to length of the collection variable
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(varIdx))
-			c.emit(OP_LENGTH)
-		} else {
-			return fmt.Errorf("unknown index marker")
-		}
-		return nil
+	if !containsIndexMarker(expr) {
+		return c.compileNode(expr)
 	}
-	// Normal expression
-	return c.compileNode(expr)
+
+	oldContextVar := c.indexContextVar
+	oldMarkerMode := c.indexMarkerMode
+
+	tempIdx := c.declareVariable(c.tempVar("rngsetctx"))
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(varIdx))
+	c.emit(OP_LENGTH)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(tempIdx))
+
+	c.indexContextVar = tempIdx
+	c.indexMarkerMode = indexMarkerModeLength
+
+	err := c.compileNode(expr)
+
+	c.indexContextVar = oldContextVar
+	c.indexMarkerMode = oldMarkerMode
+
+	return err
+}
+
+// compileNestedRangeAssign compiles one-level nested range assignment:
+//
+//	outer[idx][start..end] = value
+//
+// by desugaring through temporary variables and existing INDEX/RANGE_SET opcodes.
+func (c *Compiler) compileNestedRangeAssign(indexExpr *parser.IndexExpr, start, end parser.Expr) error {
+	// For now, support one nested index level (x[i][a..b]); deeper forms can be added later.
+	if _, deeper := indexExpr.Expr.(*parser.IndexExpr); deeper {
+		return fmt.Errorf("range assignment target nesting depth > 1 is not supported")
+	}
+
+	var baseVarIdx int
+	var basePropExpr *parser.PropertyExpr
+
+	// If the base is a property, load it into a temp base variable.
+	if baseIdent, ok := indexExpr.Expr.(*parser.IdentifierExpr); ok {
+		baseVarIdx = c.declareVariable(baseIdent.Name)
+	} else if propExpr, ok := indexExpr.Expr.(*parser.PropertyExpr); ok {
+		basePropExpr = propExpr
+
+		// Stack currently: [value, value_copy]
+		tmpValHold := c.declareVariable("__prop_nested_range_val")
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(tmpValHold))
+		// Stack: [value]
+
+		if err := c.compileNode(propExpr.Expr); err != nil {
+			return err
+		}
+		if propExpr.Property != "" {
+			propIdx := c.addConstant(types.NewStr(propExpr.Property))
+			c.emit(OP_GET_PROP)
+			c.emitByte(byte(propIdx))
+		} else if propExpr.PropertyExpr != nil {
+			if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+				return err
+			}
+			c.emit(OP_GET_PROP)
+			c.emitByte(0xFF)
+		} else {
+			return fmt.Errorf("property expression has neither static name nor dynamic expression")
+		}
+		// Stack: [value, prop_value]
+
+		baseVarIdx = c.declareVariable("__prop_nested_range_base")
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(baseVarIdx))
+		// Stack: [value]
+
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(tmpValHold))
+		// Stack: [value, value_copy]
+	} else {
+		return fmt.Errorf("range assignment target must be a variable or property")
+	}
+
+	// Preserve value_copy for RANGE_SET while keeping original assigned value on stack.
+	tmpAssignedVal := c.declareVariable("__nested_range_assigned")
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(tmpAssignedVal))
+	// Stack: [value]
+
+	// Resolve outer index once and store it.
+	oldContextVar := c.indexContextVar
+	oldMarkerMode := c.indexMarkerMode
+	if containsIndexMarker(indexExpr.Index) {
+		tempIdx := c.declareVariable(c.tempVar("nestedrangectx"))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(baseVarIdx))
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(tempIdx))
+		c.indexContextVar = tempIdx
+		c.indexMarkerMode = indexMarkerModeCollection
+	}
+	if err := c.compileNode(indexExpr.Index); err != nil {
+		return err
+	}
+	c.indexContextVar = oldContextVar
+	c.indexMarkerMode = oldMarkerMode
+
+	tmpOuterIndex := c.declareVariable("__nested_range_index")
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(tmpOuterIndex))
+	// Stack: [value]
+
+	// Load outer[idx] into a temp inner collection.
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(baseVarIdx))
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(tmpOuterIndex))
+	c.emit(OP_INDEX)
+	tmpInnerVar := c.declareVariable("__nested_range_inner")
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(tmpInnerVar))
+	// Stack: [value]
+
+	// Perform inner range assignment.
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(tmpAssignedVal))
+	if err := c.compileRangeIndex(start, tmpInnerVar); err != nil {
+		return err
+	}
+	if err := c.compileRangeIndex(end, tmpInnerVar); err != nil {
+		return err
+	}
+	c.emit(OP_RANGE_SET)
+	c.emitByte(byte(tmpInnerVar))
+	// Stack: [value]
+
+	// Write modified inner collection back to outer[idx].
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(tmpInnerVar))
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(tmpOuterIndex))
+	c.emit(OP_INDEX_SET)
+	c.emitByte(byte(baseVarIdx))
+	// Stack: [value]
+
+	// If base was a property, persist modified base temp back onto the object property.
+	if basePropExpr != nil {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(baseVarIdx))
+		if err := c.compileNode(basePropExpr.Expr); err != nil {
+			return err
+		}
+		if basePropExpr.Property != "" {
+			propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+			c.emit(OP_SET_PROP)
+			c.emitByte(byte(propIdx))
+		} else if basePropExpr.PropertyExpr != nil {
+			if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+				return err
+			}
+			c.emit(OP_SET_PROP)
+			c.emitByte(0xFF)
+		}
+	}
+
+	return nil
 }
 
 // Stub implementations for other compile methods
@@ -1110,17 +1299,18 @@ func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
 		return err
 	}
 
-	// If the index contains $, set up an index context variable with the collection length.
-	// Stack: [coll] -> DUP -> [coll, coll] -> LENGTH -> [coll, len] -> SET_VAR -> [coll]
-	hasDollar := containsDollarMarker(n.Index)
+	// If the index contains ^ or $, set up an index context variable with the collection.
+	// Stack: [coll] -> DUP -> [coll, coll] -> SET_VAR -> [coll]
+	hasIndexMarker := containsIndexMarker(n.Index)
 	oldContextVar := c.indexContextVar
-	if hasDollar {
+	oldMarkerMode := c.indexMarkerMode
+	if hasIndexMarker {
 		tempIdx := c.declareVariable(c.tempVar("idxctx"))
 		c.emit(OP_DUP)
-		c.emit(OP_LENGTH)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
+		c.indexMarkerMode = indexMarkerModeCollection
 	}
 
 	// Compile index
@@ -1130,6 +1320,7 @@ func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
 
 	// Restore previous context
 	c.indexContextVar = oldContextVar
+	c.indexMarkerMode = oldMarkerMode
 
 	// Emit index operation
 	c.emit(OP_INDEX)
@@ -1142,17 +1333,19 @@ func (c *Compiler) compileRange(n *parser.RangeExpr) error {
 		return err
 	}
 
-	// If start or end contains $, set up an index context variable.
+	// If start or end contains ^ or $, set up an index context variable with collection length.
 	// Stack: [coll] -> DUP -> [coll, coll] -> LENGTH -> [coll, len] -> SET_VAR -> [coll]
-	hasDollar := containsDollarMarker(n.Start) || containsDollarMarker(n.End)
+	hasIndexMarker := containsIndexMarker(n.Start) || containsIndexMarker(n.End)
 	oldContextVar := c.indexContextVar
-	if hasDollar {
+	oldMarkerMode := c.indexMarkerMode
+	if hasIndexMarker {
 		tempIdx := c.declareVariable(c.tempVar("rngctx"))
 		c.emit(OP_DUP)
 		c.emit(OP_LENGTH)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
+		c.indexMarkerMode = indexMarkerModeLength
 	}
 
 	// Compile start
@@ -1167,6 +1360,7 @@ func (c *Compiler) compileRange(n *parser.RangeExpr) error {
 
 	// Restore previous context
 	c.indexContextVar = oldContextVar
+	c.indexMarkerMode = oldMarkerMode
 
 	// Emit range operation
 	c.emit(OP_RANGE)
@@ -1174,23 +1368,37 @@ func (c *Compiler) compileRange(n *parser.RangeExpr) error {
 }
 
 func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
-	if n.Marker == parser.TOKEN_CARET {
-		// ^ always resolves to 1 for lists/strings
-		c.emitConstant(types.IntValue{Val: 1})
-	} else if n.Marker == parser.TOKEN_DOLLAR {
-		// $ resolves to collection length
-		if c.indexContextVar >= 0 {
-			// Read context: length was pre-computed and stored in a temp variable
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(c.indexContextVar))
-		} else {
-			// No index context (shouldn't happen for well-formed index/range expressions)
-			// Fall back to literal -1 (will produce E_RANGE at runtime)
-			c.emitConstant(types.IntValue{Val: -1})
-		}
-	} else {
+	if n.Marker != parser.TOKEN_CARET && n.Marker != parser.TOKEN_DOLLAR {
 		return fmt.Errorf("unknown index marker type")
 	}
+
+	if c.indexContextVar >= 0 && c.indexMarkerMode == indexMarkerModeCollection {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(c.indexContextVar))
+		c.emit(OP_INDEX_MARKER)
+		if n.Marker == parser.TOKEN_CARET {
+			c.emitByte(0)
+		} else {
+			c.emitByte(1)
+		}
+		return nil
+	}
+
+	if n.Marker == parser.TOKEN_CARET {
+		c.emitConstant(types.IntValue{Val: 1})
+		return nil
+	}
+
+	// $ resolves to collection length in length mode.
+	if c.indexContextVar >= 0 {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(c.indexContextVar))
+	} else {
+		// No index context (shouldn't happen for well-formed index/range expressions).
+		// Fall back to literal -1 (will produce E_RANGE at runtime).
+		c.emitConstant(types.IntValue{Val: -1})
+	}
+
 	return nil
 }
 
@@ -1524,20 +1732,19 @@ func hasSpliceArgs(args []parser.Expr) bool {
 	return false
 }
 
-// containsDollarMarker checks if an expression tree contains a $ index marker.
-// Used to determine if compileIndex/compileRange needs to set up an index context.
-func containsDollarMarker(expr parser.Expr) bool {
+// containsIndexMarker checks if an expression tree contains a ^ or $ index marker.
+func containsIndexMarker(expr parser.Expr) bool {
 	switch n := expr.(type) {
 	case *parser.IndexMarkerExpr:
-		return n.Marker == parser.TOKEN_DOLLAR
+		return n.Marker == parser.TOKEN_DOLLAR || n.Marker == parser.TOKEN_CARET
 	case *parser.BinaryExpr:
-		return containsDollarMarker(n.Left) || containsDollarMarker(n.Right)
+		return containsIndexMarker(n.Left) || containsIndexMarker(n.Right)
 	case *parser.UnaryExpr:
-		return containsDollarMarker(n.Operand)
+		return containsIndexMarker(n.Operand)
 	case *parser.ParenExpr:
-		return containsDollarMarker(n.Expr)
+		return containsIndexMarker(n.Expr)
 	case *parser.TernaryExpr:
-		return containsDollarMarker(n.Condition) || containsDollarMarker(n.ThenExpr) || containsDollarMarker(n.ElseExpr)
+		return containsIndexMarker(n.Condition) || containsIndexMarker(n.ThenExpr) || containsIndexMarker(n.ElseExpr)
 	default:
 		return false
 	}

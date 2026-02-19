@@ -40,18 +40,18 @@ func extractErrorCode(err error) types.ErrorCode {
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	Stack     []types.Value         // Operand stack
-	SP        int                   // Stack pointer
-	Frames    []*StackFrame         // Call stack
-	FP        int                   // Frame pointer
-	Store     *db.Store             // Object store
-	Builtins  *builtins.Registry    // Builtin function registry
-	Context   *types.TaskContext    // Task context for builtins
-	TickLimit int64                 // Maximum ticks before E_MAXREC
-	Ticks     int64                 // Current tick count
+	Stack     []types.Value      // Operand stack
+	SP        int                // Stack pointer
+	Frames    []*StackFrame      // Call stack
+	FP        int                // Frame pointer
+	Store     *db.Store          // Object store
+	Builtins  *builtins.Registry // Builtin function registry
+	Context   *types.TaskContext // Task context for builtins
+	TickLimit int64              // Maximum ticks before E_MAXREC
+	Ticks     int64              // Current tick count
 
-	yielded     bool           // VM has yielded control (suspend/fork)
-	yieldResult types.Result   // Why we yielded
+	yielded     bool         // VM has yielded control (suspend/fork)
+	yieldResult types.Result // Why we yielded
 }
 
 // StackFrame represents a call frame
@@ -72,10 +72,10 @@ type StackFrame struct {
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
-	IsVerbCall     bool          // True if this frame was pushed by executeCallVerb
-	SavedThisObj   types.ObjID   // ctx.ThisObj before verb call
-	SavedThisValue types.Value   // ctx.ThisValue before verb call
-	SavedVerb      string        // ctx.Verb before verb call
+	IsVerbCall     bool        // True if this frame was pushed by executeCallVerb
+	SavedThisObj   types.ObjID // ctx.ThisObj before verb call
+	SavedThisValue types.Value // ctx.ThisValue before verb call
+	SavedVerb      string      // ctx.Verb before verb call
 }
 
 // NewVM creates a new virtual machine
@@ -414,6 +414,8 @@ func (vm *VM) Execute(op OpCode) error {
 		return vm.executeMakeMap()
 	case OP_LENGTH:
 		return vm.executeLength()
+	case OP_INDEX_MARKER:
+		return vm.executeIndexMarker()
 	case OP_LIST_RANGE:
 		return vm.executeListRange()
 	case OP_LIST_APPEND:
@@ -666,9 +668,9 @@ func (vm *VM) HandleError(err error) bool {
 //
 // Yields a FlowFork result with ForkInfo containing the fork body location,
 // delay, and variable name. The scheduler should:
-//   1. Create the child task (fork body)
-//   2. Call SetForkResult(childTaskID) on the VM
-//   3. Call Resume() to continue execution after the fork
+//  1. Create the child task (fork body)
+//  2. Call SetForkResult(childTaskID) on the VM
+//  3. Call Resume() to continue execution after the fork
 //
 // The fork variable is NOT set here — it is set by SetForkResult() with the
 // actual child task ID assigned by the scheduler.

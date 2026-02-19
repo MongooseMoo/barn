@@ -7,6 +7,7 @@ import (
 	"barn/types"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 )
 
@@ -653,19 +654,18 @@ func (vm *VM) executeRangeSet() error {
 	// Read the collection from the variable slot
 	coll := vm.CurrentFrame().Locals[varIdx]
 
-	// Resolve start and end to integers
-	startInt, startOk := start.(types.IntValue)
-	endInt, endOk := end.(types.IntValue)
-	if !startOk || !endOk {
-		return fmt.Errorf("E_TYPE: range indices must be integers")
-	}
-	startIdx := startInt.Val
-	endIdx := endInt.Val
-
 	// Perform range assignment based on collection type
 	var newColl types.Value
 	switch c := coll.(type) {
 	case types.ListValue:
+		startInt, startOk := start.(types.IntValue)
+		endInt, endOk := end.(types.IntValue)
+		if !startOk || !endOk {
+			return fmt.Errorf("E_TYPE: range indices must be integers")
+		}
+		startIdx := startInt.Val
+		endIdx := endInt.Val
+
 		// Value must be a list
 		newVals, ok := value.(types.ListValue)
 		if !ok {
@@ -706,6 +706,14 @@ func (vm *VM) executeRangeSet() error {
 		newColl = types.NewList(result)
 
 	case types.StrValue:
+		startInt, startOk := start.(types.IntValue)
+		endInt, endOk := end.(types.IntValue)
+		if !startOk || !endOk {
+			return fmt.Errorf("E_TYPE: range indices must be integers")
+		}
+		startIdx := startInt.Val
+		endIdx := endInt.Val
+
 		// Value must be a string
 		newStr, ok := value.(types.StrValue)
 		if !ok {
@@ -743,6 +751,36 @@ func (vm *VM) executeRangeSet() error {
 		newColl = types.NewStr(s[:startIdx-1] + newStr.Value() + s[effectiveEnd:])
 
 	case types.MapValue:
+		var startIdx int64
+		startInt, startIsInt := start.(types.IntValue)
+		if startIsInt {
+			startIdx = startInt.Val
+		} else {
+			switch start.(type) {
+			case types.ListValue, types.MapValue:
+				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+			}
+			startIdx = c.KeyPosition(start)
+			if startIdx == 0 {
+				return fmt.Errorf("E_RANGE: map range start key not found")
+			}
+		}
+
+		var endIdx int64
+		endInt, endIsInt := end.(types.IntValue)
+		if endIsInt {
+			endIdx = endInt.Val
+		} else {
+			switch end.(type) {
+			case types.ListValue, types.MapValue:
+				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+			}
+			endIdx = c.KeyPosition(end)
+			if endIdx == 0 {
+				return fmt.Errorf("E_RANGE: map range end key not found")
+			}
+		}
+
 		// Value must be a map
 		newMap, ok := value.(types.MapValue)
 		if !ok {
@@ -819,48 +857,70 @@ func (vm *VM) executeRange() error {
 
 	switch coll := collection.(type) {
 	case types.ListValue:
-		// Handle range slicing
-		s := int(startInt.Val)
-		e := int(endInt.Val)
+		startIdx := startInt.Val
+		endIdx := endInt.Val
+		length := int64(coll.Len())
 
-		// Adjust for 1-based indexing
-		if s < 1 {
-			s = 1
+		if startIdx > endIdx {
+			vm.Push(types.NewList([]types.Value{}))
+			return nil
 		}
-		if e > coll.Len() {
-			e = coll.Len()
+		if startIdx < 1 || startIdx > length {
+			return fmt.Errorf("E_RANGE: list range start out of range")
+		}
+		if endIdx < 1 || endIdx > length {
+			return fmt.Errorf("E_RANGE: list range end out of range")
 		}
 
-		if s > e {
-			// Reverse range
-			elements := make([]types.Value, 0, s-e+1)
-			for i := s; i >= e; i-- {
-				elements = append(elements, coll.Get(i))
-			}
-			vm.Push(types.NewList(elements))
-		} else {
-			// Forward range
-			vm.Push(coll.Slice(s, e))
+		result := make([]types.Value, 0, endIdx-startIdx+1)
+		for i := startIdx; i <= endIdx; i++ {
+			result = append(result, coll.Get(int(i)))
 		}
+		vm.Push(types.NewList(result))
 		return nil
 
 	case types.StrValue:
-		// Handle substring
-		s := int(startInt.Val)
-		e := int(endInt.Val)
+		startIdx := startInt.Val
+		endIdx := endInt.Val
+		s := coll.Value()
+		length := int64(len(s))
 
-		if s < 1 {
-			s = 1
+		if startIdx > endIdx {
+			vm.Push(types.NewStr(""))
+			return nil
 		}
-		if e > len(coll.Value()) {
-			e = len(coll.Value())
+		if startIdx < 1 || startIdx > length {
+			return fmt.Errorf("E_RANGE: string range start out of range")
+		}
+		if endIdx < 1 || endIdx > length {
+			return fmt.Errorf("E_RANGE: string range end out of range")
 		}
 
-		if s > e {
-			return fmt.Errorf("E_INVARG: invalid string range")
+		vm.Push(types.NewStr(s[startIdx-1 : endIdx]))
+		return nil
+
+	case types.MapValue:
+		startIdx := startInt.Val
+		endIdx := endInt.Val
+		length := int64(coll.Len())
+
+		if startIdx > endIdx {
+			vm.Push(types.NewEmptyMap())
+			return nil
+		}
+		if startIdx < 1 || startIdx > length {
+			return fmt.Errorf("E_RANGE: map range start out of range")
+		}
+		if endIdx < 1 || endIdx > length {
+			return fmt.Errorf("E_RANGE: map range end out of range")
 		}
 
-		vm.Push(types.NewStr(coll.Value()[s-1 : e]))
+		pairs := coll.Pairs()
+		result := make([][2]types.Value, 0, endIdx-startIdx+1)
+		for i := startIdx; i <= endIdx; i++ {
+			result = append(result, pairs[i-1])
+		}
+		vm.Push(types.NewMap(result))
 		return nil
 
 	default:
@@ -906,6 +966,65 @@ func (vm *VM) executeLength() error {
 		return fmt.Errorf("E_TYPE: cannot get length of %s", coll.Type().String())
 	}
 	return nil
+}
+
+// executeIndexMarker resolves ^/$ markers against a collection.
+// Bytecode: OP_INDEX_MARKER <marker:byte> where 0 = ^ and 1 = $.
+func (vm *VM) executeIndexMarker() error {
+	marker := vm.ReadByte()
+	coll := vm.Pop()
+
+	switch c := coll.(type) {
+	case types.ListValue:
+		if marker == 0 {
+			vm.Push(types.NewInt(1))
+		} else if marker == 1 {
+			vm.Push(types.NewInt(int64(c.Len())))
+		} else {
+			return fmt.Errorf("E_INVARG: invalid index marker")
+		}
+		return nil
+
+	case types.StrValue:
+		if marker == 0 {
+			vm.Push(types.NewInt(1))
+		} else if marker == 1 {
+			vm.Push(types.NewInt(int64(len(c.Value()))))
+		} else {
+			return fmt.Errorf("E_INVARG: invalid index marker")
+		}
+		return nil
+
+	case types.MapValue:
+		keys := c.Keys()
+		if len(keys) == 0 {
+			// Preserve empty-collection marker shape; downstream index ops return E_RANGE.
+			if marker == 0 {
+				vm.Push(types.NewInt(1))
+			} else if marker == 1 {
+				vm.Push(types.NewInt(0))
+			} else {
+				return fmt.Errorf("E_INVARG: invalid index marker")
+			}
+			return nil
+		}
+
+		sort.Slice(keys, func(i, j int) bool {
+			return types.CompareMapKeys(keys[i], keys[j]) < 0
+		})
+
+		if marker == 0 {
+			vm.Push(keys[0])
+		} else if marker == 1 {
+			vm.Push(keys[len(keys)-1])
+		} else {
+			return fmt.Errorf("E_INVARG: invalid index marker")
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("E_TYPE: invalid index marker context")
+	}
 }
 
 // executeListRange handles OP_LIST_RANGE: pop end, start; push {start..end} list.
