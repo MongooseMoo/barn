@@ -165,13 +165,13 @@ func (m MapValue) String() string {
 // sortMapPairsForOutput sorts pairs by key in MOO order
 func sortMapPairsForOutput(pairs [][2]Value) {
 	sort.Slice(pairs, func(i, j int) bool {
-		return compareMapKeysForOutput(pairs[i][0], pairs[j][0]) < 0
+		return CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
 	})
 }
 
-// compareMapKeysForOutput compares two keys for MOO map output order
-// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
-func compareMapKeysForOutput(a, b Value) int {
+// CompareMapKeys compares two map keys in canonical MOO order.
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4).
+func CompareMapKeys(a, b Value) int {
 	typeOrder := func(v Value) int {
 		switch v.(type) {
 		case IntValue:
@@ -281,6 +281,28 @@ func (m MapValue) Get(key Value) (Value, bool) {
 	return m.data.Get(key)
 }
 
+// GetWithCase returns a map value with configurable string-key case handling.
+// Non-string keys always use exact typed lookup semantics.
+func (m MapValue) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
+	keyStr, isStringKey := key.(StrValue)
+	if !isStringKey || !caseSensitive {
+		return m.Get(key)
+	}
+
+	// Case-sensitive lookup uses stored key spellings.
+	for _, existing := range m.Keys() {
+		existingStr, ok := existing.(StrValue)
+		if !ok {
+			continue
+		}
+		if existingStr.Value() == keyStr.Value() {
+			return m.Get(existing)
+		}
+	}
+
+	return nil, false
+}
+
 // Set returns a new map with the key-value pair set (COW)
 func (m MapValue) Set(key, val Value) MapValue {
 	return MapValue{data: m.data.Set(key, val)}
@@ -316,5 +338,5 @@ func (m MapValue) KeyPosition(key Value) int64 {
 // IsValidMapKey checks if a value type is valid as a map key
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
-	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR
+	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ERR
 }

@@ -651,82 +651,13 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 // Within each type, sorted by value
 func sortMapKeysForIn(keys []types.Value) {
 	sort.Slice(keys, func(i, j int) bool {
-		return compareMapKeysForIn(keys[i], keys[j]) < 0
+		return types.CompareMapKeys(keys[i], keys[j]) < 0
 	})
 }
 
 // sortMapPairsForIn sorts map pairs by their keys in MOO canonical order
 func sortMapPairsForIn(pairs [][2]types.Value) {
 	sort.Slice(pairs, func(i, j int) bool {
-		return compareMapKeysForIn(pairs[i][0], pairs[j][0]) < 0
+		return types.CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
 	})
-}
-
-// compareMapKeysForIn returns negative if a < b, 0 if equal, positive if a > b
-// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
-// This matches MOO/ToastStunt map key ordering
-func compareMapKeysForIn(a, b types.Value) int {
-	typeOrder := func(v types.Value) int {
-		switch v.Type() {
-		case types.TYPE_INT:
-			return 0
-		case types.TYPE_OBJ:
-			return 1
-		case types.TYPE_FLOAT:
-			return 2
-		case types.TYPE_ERR:
-			return 3
-		case types.TYPE_STR:
-			return 4
-		default:
-			return 5
-		}
-	}
-
-	aOrder := typeOrder(a)
-	bOrder := typeOrder(b)
-	if aOrder != bOrder {
-		return aOrder - bOrder
-	}
-
-	// Same type, compare values
-	switch av := a.(type) {
-	case types.IntValue:
-		bv := b.(types.IntValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
-			return 1
-		}
-		return 0
-	case types.FloatValue:
-		bv := b.(types.FloatValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
-			return 1
-		}
-		return 0
-	case types.ObjValue:
-		bv := b.(types.ObjValue)
-		if av.ID() < bv.ID() {
-			return -1
-		} else if av.ID() > bv.ID() {
-			return 1
-		}
-		return 0
-	case types.ErrValue:
-		bv := b.(types.ErrValue)
-		if av.Code() < bv.Code() {
-			return -1
-		} else if av.Code() > bv.Code() {
-			return 1
-		}
-		return 0
-	case types.StrValue:
-		bv := b.(types.StrValue)
-		// Case-insensitive comparison for strings
-		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
-	}
-	return 0
 }

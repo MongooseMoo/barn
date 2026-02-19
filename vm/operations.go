@@ -882,6 +882,9 @@ func (vm *VM) executeMakeMap() error {
 	for i := int(count) - 1; i >= 0; i-- {
 		val := vm.Pop()
 		key := vm.Pop()
+		if !types.IsValidMapKey(key) {
+			return fmt.Errorf("E_TYPE: invalid map key type")
+		}
 		pairs[i] = [2]types.Value{key, val}
 	}
 
