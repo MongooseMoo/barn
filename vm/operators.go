@@ -81,7 +81,7 @@ func add(left, right types.Value) types.Result {
 
 	if leftIsFloat || rightIsFloat {
 		// Float addition
-		result := leftNum.(float64) + rightNum.(float64)
+		result := toFloat64(leftNum) + toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
@@ -102,7 +102,7 @@ func subtract(left, right types.Value) types.Result {
 	}
 
 	if leftIsFloat || rightIsFloat {
-		result := leftNum.(float64) - rightNum.(float64)
+		result := toFloat64(leftNum) - toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
@@ -122,7 +122,7 @@ func multiply(left, right types.Value) types.Result {
 	}
 
 	if leftIsFloat || rightIsFloat {
-		result := leftNum.(float64) * rightNum.(float64)
+		result := toFloat64(leftNum) * toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
@@ -144,11 +144,11 @@ func divide(left, right types.Value) types.Result {
 	}
 
 	if leftIsFloat || rightIsFloat {
-		rightFloat := rightNum.(float64)
+		rightFloat := toFloat64(rightNum)
 		if rightFloat == 0.0 {
 			return types.Err(types.E_DIV)
 		}
-		result := leftNum.(float64) / rightFloat
+		result := toFloat64(leftNum) / rightFloat
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
