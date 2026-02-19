@@ -82,9 +82,10 @@ func builtinKillTask(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 // builtinSuspend: suspend([seconds]) → value
-// Suspends the current task for the specified duration
-// Returns the value passed to resume() when the task is resumed
-// If no seconds specified or 0, suspends indefinitely
+// Suspends the current task for the specified duration.
+// Returns the value passed to resume() when the task is resumed.
+// If no seconds are specified, suspension is indefinite until resume().
+// suspend(0) yields and resumes on the next scheduler cycle.
 func builtinSuspend(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
@@ -101,8 +102,9 @@ func builtinSuspend(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Parse seconds argument
-	var seconds float64 = 0
+	// Parse seconds argument.
+	// -1 is our internal sentinel for indefinite suspension.
+	seconds := -1.0
 	if len(args) == 1 {
 		switch v := args[0].(type) {
 		case types.IntValue:

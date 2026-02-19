@@ -5,9 +5,9 @@ import "fmt"
 // WaifValue represents a MOO waif (lightweight object)
 // WAIFs are prototype-based lightweight objects with properties
 type WaifValue struct {
-	class      ObjID             // The waif's class object
-	owner      ObjID             // The waif's owner (programmer who created it)
-	properties map[string]Value  // Property values
+	class      ObjID            // The waif's class object
+	owner      ObjID            // The waif's owner (programmer who created it)
+	properties map[string]Value // Property values
 }
 
 // NewWaif creates a new waif with the given class and owner
@@ -66,17 +66,12 @@ func (w WaifValue) GetProperty(name string) (Value, bool) {
 
 // SetProperty sets a property value
 func (w WaifValue) SetProperty(name string, value Value) WaifValue {
-	// Copy-on-write semantics
-	newProps := make(map[string]Value, len(w.properties)+1)
-	for k, v := range w.properties {
-		newProps[k] = v
+	// Waifs behave like mutable lightweight objects for property updates.
+	if w.properties == nil {
+		w.properties = make(map[string]Value)
 	}
-	newProps[name] = value
-	return WaifValue{
-		class:      w.class,
-		owner:      w.owner,
-		properties: newProps,
-	}
+	w.properties[name] = value
+	return w
 }
 
 // equalMaps checks if two property maps are equal

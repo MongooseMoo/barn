@@ -6,6 +6,8 @@ import (
 	"barn/parser"
 	"barn/types"
 	"fmt"
+	"math"
+	"strconv"
 )
 
 // Compiler compiles AST nodes to bytecode
@@ -490,16 +492,48 @@ func (c *Compiler) compileNode(node parser.Node) error {
 func (c *Compiler) compileLiteral(n *parser.LiteralExpr) error {
 	// Check if it's a small integer that can use immediate opcode
 	if intVal, ok := n.Value.(types.IntValue); ok {
-		val := int(intVal.Val)
-		if op, ok := MakeImmediateOpcode(val); ok {
-			c.emit(op)
-			return nil
-		}
+		c.emitIntLiteral(intVal.Val)
+		return nil
 	}
 
 	// Otherwise push from constant pool
 	c.emitConstant(n.Value)
 	return nil
+}
+
+// emitIntLiteral emits bytecode for an integer literal without consuming
+// constant-pool slots for large integers.
+func (c *Compiler) emitIntLiteral(v int64) {
+	if op, ok := MakeImmediateOpcode(int(v)); ok {
+		c.emit(op)
+		return
+	}
+
+	// Avoid overflow when negating MinInt64.
+	if v == math.MinInt64 {
+		c.emitConstant(types.NewInt(v))
+		return
+	}
+	if v < 0 {
+		c.emitIntLiteral(-v)
+		c.emit(OP_NEG)
+		return
+	}
+
+	// Build positive integers from decimal digits:
+	// n = (((d0 * 10) + d1) * 10 + d2) ...
+	digits := strconv.FormatInt(v, 10)
+	c.emitIntLiteral(int64(digits[0] - '0'))
+	for i := 1; i < len(digits); i++ {
+		c.emitIntLiteral(10)
+		c.emit(OP_MUL)
+
+		d := int64(digits[i] - '0')
+		if d != 0 {
+			c.emitIntLiteral(d)
+			c.emit(OP_ADD)
+		}
+	}
 }
 
 // builtinConstants maps MOO type constant names to their integer values.
@@ -2641,39 +2675,10 @@ func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
 	return nil
 }
 
-// compileList compiles a list literal: {expr, expr, ...}
-// If no splice (@) elements are present, uses the fast path: push all elements
-// then OP_MAKE_LIST <count>.
-// If splices are present, builds incrementally: start with empty list, then
-// OP_LIST_APPEND for each regular element and OP_LIST_EXTEND for each splice.
+// compileList compiles a list literal incrementally:
+// start with {}, then append regular elements and extend splices.
 func (c *Compiler) compileList(n *parser.ListExpr) error {
-	// Check if any element is a splice expression
-	hasSplice := false
-	for _, elem := range n.Elements {
-		if _, ok := elem.(*parser.SpliceExpr); ok {
-			hasSplice = true
-			break
-		}
-	}
-
-	if !hasSplice {
-		// Check element count overflow (emitted as single byte)
-		if len(n.Elements) > 255 {
-			return fmt.Errorf("too many list elements (max 255)")
-		}
-		// Fast path: no splices, use existing OP_MAKE_LIST
-		for _, elem := range n.Elements {
-			if err := c.compileNode(elem); err != nil {
-				return err
-			}
-		}
-		c.emit(OP_MAKE_LIST)
-		c.emitByte(byte(len(n.Elements)))
-		return nil
-	}
-
-	// Splice path: build list incrementally
-	// Start with an empty list on the stack
+	// Start with an empty list on the stack.
 	c.emit(OP_MAKE_LIST)
 	c.emitByte(0)
 
@@ -2717,21 +2722,26 @@ func (c *Compiler) compileListRange(n *parser.ListRangeExpr) error {
 
 // compileMap compiles a map literal: [key -> value, ...]
 func (c *Compiler) compileMap(n *parser.MapExpr) error {
-	// Check pair count overflow (emitted as single byte)
-	if len(n.Pairs) > 255 {
-		return fmt.Errorf("too many map pairs (max 255)")
-	}
-	// Compile each key-value pair (in order)
+	// Build map incrementally in a temp local via OP_INDEX_SET.
+	tmp := c.declareVariable(c.tempVar("maplit"))
+	c.emit(OP_MAKE_MAP)
+	c.emitByte(0)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(tmp))
+
 	for _, pair := range n.Pairs {
-		if err := c.compileNode(pair.Key); err != nil {
-			return err
-		}
+		// OP_INDEX_SET pops index first, then value.
 		if err := c.compileNode(pair.Value); err != nil {
 			return err
 		}
+		if err := c.compileNode(pair.Key); err != nil {
+			return err
+		}
+		c.emit(OP_INDEX_SET)
+		c.emitByte(byte(tmp))
 	}
-	// Emit MAKE_MAP with pair count
-	c.emit(OP_MAKE_MAP)
-	c.emitByte(byte(len(n.Pairs)))
+
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(tmp))
 	return nil
 }

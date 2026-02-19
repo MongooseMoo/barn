@@ -48,12 +48,13 @@ This directory contains the formal specification for the MOO programming languag
 
 ## Conformance Tests
 
-Tests live in `cow_py/tests/conformance/` and are shared between Python and Go implementations.
+Conformance tests live in `../moo-conformance-tests/` and are executed via the
+`moo-conformance` CLI.
 
-```bash
-# Run all conformance tests
-cd ../cow_py
-uv run pytest tests/conformance/ -v
+```powershell
+# Run full suite with managed server lifecycle (recommended)
+go build -o barn.exe ./cmd/barn/
+uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"
 ```
 
 ## Sources

@@ -3,6 +3,7 @@ package builtins
 import (
 	"barn/db"
 	"barn/types"
+	"math"
 	"sync"
 )
 
@@ -12,16 +13,28 @@ import (
 
 // Global cache for server options (matches ToastStunt's _server_int_option_cache)
 // This is updated by load_server_options() and read by limit-checking functions
+const (
+	defaultMaxStringConcat   = 64537861
+	defaultMaxListValueBytes = 64537861
+	defaultMaxMapValueBytes  = 64537861
+	minStringConcatLimit     = 1021
+	minListValueBytesLimit   = 1021
+	minMapValueBytesLimit    = 1021
+	maxStringConcatLimit     = math.MaxInt32 - minStringConcatLimit
+	maxListValueBytesLimit   = math.MaxInt32 - minListValueBytesLimit
+	maxMapValueBytesLimit    = math.MaxInt32 - minMapValueBytesLimit
+)
+
 var (
 	serverOptionsCache = struct {
 		sync.RWMutex
-		maxStringConcat int // -1 means not set, use default
+		maxStringConcat   int
 		maxListValueBytes int
-		maxMapValueBytes int
+		maxMapValueBytes  int
 	}{
-		maxStringConcat: -1, // Not set initially
-		maxListValueBytes: -1,
-		maxMapValueBytes: -1,
+		maxStringConcat:   defaultMaxStringConcat,
+		maxListValueBytes: defaultMaxListValueBytes,
+		maxMapValueBytes:  defaultMaxMapValueBytes,
 	}
 )
 
@@ -69,33 +82,50 @@ func findPropertyInherited(objID types.ObjID, name string, store *db.Store) *db.
 // This is called by the load_server_options() builtin.
 // Returns the number of options successfully loaded.
 func LoadServerOptionsFromStore(store *db.Store) int {
+	// Reset to defaults on every load, matching Toast's cache refresh behavior.
+	nextString := defaultMaxStringConcat
+	nextList := defaultMaxListValueBytes
+	nextMap := defaultMaxMapValueBytes
+	loaded := 0
+
 	if store == nil {
+		serverOptionsCache.Lock()
+		serverOptionsCache.maxStringConcat = nextString
+		serverOptionsCache.maxListValueBytes = nextList
+		serverOptionsCache.maxMapValueBytes = nextMap
+		serverOptionsCache.Unlock()
 		return 0
 	}
 
 	// Look up the server_options property on #0 (searching inheritance chain)
 	serverOptsProp := findPropertyInherited(0, "server_options", store)
 	if serverOptsProp == nil {
+		serverOptionsCache.Lock()
+		serverOptionsCache.maxStringConcat = nextString
+		serverOptionsCache.maxListValueBytes = nextList
+		serverOptionsCache.maxMapValueBytes = nextMap
+		serverOptionsCache.Unlock()
 		return 0 // No server_options property
 	}
 
 	// The property value should be an object reference
 	serverOptsRef, ok := serverOptsProp.Value.(types.ObjValue)
 	if !ok {
+		serverOptionsCache.Lock()
+		serverOptionsCache.maxStringConcat = nextString
+		serverOptionsCache.maxListValueBytes = nextList
+		serverOptionsCache.maxMapValueBytes = nextMap
+		serverOptionsCache.Unlock()
 		return 0 // server_options is not an object
 	}
 
 	// Get the actual server_options object ID
 	serverOptsID := serverOptsRef.ID()
 
-	loaded := 0
-
 	// Read max_string_concat (searching inheritance chain)
 	if prop := findPropertyInherited(serverOptsID, "max_string_concat", store); prop != nil {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
-			serverOptionsCache.Lock()
-			serverOptionsCache.maxStringConcat = int(intVal.Val)
-			serverOptionsCache.Unlock()
+			nextString = canonicalizeLimit(int(intVal.Val), minStringConcatLimit, maxStringConcatLimit)
 			loaded++
 		}
 	}
@@ -103,9 +133,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	// Read max_list_value_bytes
 	if prop := findPropertyInherited(serverOptsID, "max_list_value_bytes", store); prop != nil {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
-			serverOptionsCache.Lock()
-			serverOptionsCache.maxListValueBytes = int(intVal.Val)
-			serverOptionsCache.Unlock()
+			nextList = canonicalizeLimit(int(intVal.Val), minListValueBytesLimit, maxListValueBytesLimit)
 			loaded++
 		}
 	}
@@ -113,14 +141,28 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	// Read max_map_value_bytes
 	if prop := findPropertyInherited(serverOptsID, "max_map_value_bytes", store); prop != nil {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
-			serverOptionsCache.Lock()
-			serverOptionsCache.maxMapValueBytes = int(intVal.Val)
-			serverOptionsCache.Unlock()
+			nextMap = canonicalizeLimit(int(intVal.Val), minMapValueBytesLimit, maxMapValueBytesLimit)
 			loaded++
 		}
 	}
 
+	serverOptionsCache.Lock()
+	serverOptionsCache.maxStringConcat = nextString
+	serverOptionsCache.maxListValueBytes = nextList
+	serverOptionsCache.maxMapValueBytes = nextMap
+	serverOptionsCache.Unlock()
+
 	return loaded
+}
+
+func canonicalizeLimit(value, min, max int) int {
+	if value > 0 && value < min {
+		return min
+	}
+	if value <= 0 || value > max {
+		return max
+	}
+	return value
 }
 
 // UpdateContextLimits updates a TaskContext with current cached limits from load_server_options().
@@ -195,25 +237,19 @@ func ValueBytes(v types.Value) int {
 }
 
 // GetMaxListValueBytes returns the cached max_list_value_bytes limit.
-// Returns 0 if not set (unlimited).
+// Returns the currently cached effective limit.
 func GetMaxListValueBytes() int {
 	serverOptionsCache.RLock()
 	defer serverOptionsCache.RUnlock()
-	if serverOptionsCache.maxListValueBytes > 0 {
-		return serverOptionsCache.maxListValueBytes
-	}
-	return 0 // 0 means unlimited
+	return serverOptionsCache.maxListValueBytes
 }
 
 // GetMaxMapValueBytes returns the cached max_map_value_bytes limit.
-// Returns 0 if not set (unlimited).
+// Returns the currently cached effective limit.
 func GetMaxMapValueBytes() int {
 	serverOptionsCache.RLock()
 	defer serverOptionsCache.RUnlock()
-	if serverOptionsCache.maxMapValueBytes > 0 {
-		return serverOptionsCache.maxMapValueBytes
-	}
-	return 0
+	return serverOptionsCache.maxMapValueBytes
 }
 
 // CheckListLimit checks if a list exceeds the max_list_value_bytes limit.

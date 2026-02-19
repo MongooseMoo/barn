@@ -138,8 +138,18 @@ func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.Ob
 
 // SuspendTask suspends a task for a duration
 func (m *Manager) SuspendTask(task *Task, seconds float64) {
-	duration := time.Duration(seconds * float64(time.Second))
-	task.Suspend(duration)
+	switch {
+	case seconds < 0:
+		// Indefinite suspension (requires explicit resume()).
+		task.Suspend(0)
+	case seconds == 0:
+		// suspend(0) is a scheduler yield point; queue immediately.
+		task.Suspend(0)
+		_ = task.Resume(types.NewInt(0))
+	default:
+		duration := time.Duration(seconds * float64(time.Second))
+		task.Suspend(duration)
+	}
 }
 
 // CleanupCompletedTasks removes completed and killed tasks

@@ -15,6 +15,7 @@ import (
 	"hash"
 	"strings"
 
+	cryptbcrypt "github.com/go-crypt/x/bcrypt"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -408,8 +409,14 @@ func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.
 		}
 		return result, 0
 	}
-	// Unknown prefix
-	return "", types.E_INVARG
+	// Unknown prefix falls through to traditional crypt behavior.
+	// Toast keeps the original two leading characters in the final output even
+	// when they are outside the canonical DES salt alphabet.
+	result, err := cryptDESUnknownPrefix(password, salt)
+	if err != nil {
+		return "", types.E_INVARG
+	}
+	return result, 0
 }
 
 // cryptPassword implements crypt with algorithm detection from salt (legacy, no perm check)
@@ -559,30 +566,22 @@ func cryptBcrypt(password, salt string) (string, error) {
 		return "", fmt.Errorf("invalid bcrypt salt: salt must be 16 or 22 characters")
 	}
 
-	// Limit cost for test performance
-	actualCost := cost
-	if actualCost > 12 {
-		actualCost = 12
+	rawSalt, err := cryptbcrypt.Base64Decode([]byte(saltEncoded))
+	if err != nil || len(rawSalt) != 16 {
+		return "", fmt.Errorf("invalid bcrypt salt")
 	}
 
-	// Generate bcrypt-like hash (simplified)
-	h := sha256.New()
-	h.Write([]byte(password))
-	h.Write([]byte(saltEncoded))
-	iterations := 1 << actualCost
-	if iterations > 4096 {
-		iterations = 4096
+	hash, err := cryptbcrypt.GenerateFromPasswordSalt([]byte(password), rawSalt, cost)
+	if err != nil {
+		return "", err
 	}
-	for j := 0; j < iterations; j++ {
-		h.Write(h.Sum(nil))
+
+	hashStr := string(hash)
+	// Preserve requested variant prefix when caller used 2b/2y.
+	if (prefix == "$2b$" || prefix == "$2y$") && strings.HasPrefix(hashStr, "$2a$") {
+		hashStr = prefix + hashStr[4:]
 	}
-	hashBytes := h.Sum(nil)
-	encoded := base64Encode(hashBytes)
-	// bcrypt hash portion is 31 characters
-	if len(encoded) > 31 {
-		encoded = encoded[:31]
-	}
-	return fmt.Sprintf("%s%02d$%s%s", prefix, cost, saltEncoded, encoded), nil
+	return hashStr, nil
 }
 
 // cryptDES implements traditional Unix DES crypt
@@ -607,6 +606,38 @@ func cryptDES(password, salt string) (string, error) {
 	// On Unix: calls system crypt(3)
 	// On Windows: returns error
 	return cryptDESPlatform(password, saltChars)
+}
+
+// cryptDESUnknownPrefix handles crypt fallback for unknown "$"-prefixed salts.
+// Compatibility behavior keeps the original two salt characters in output while
+// normalizing them for hashing.
+func cryptDESUnknownPrefix(password, salt string) (string, error) {
+	if len(salt) < 2 {
+		return cryptDES(password, salt)
+	}
+	original := salt[:2]
+	normalized := string([]byte{
+		normalizeDESSaltChar(original[0]),
+		normalizeDESSaltChar(original[1]),
+	})
+	hash, err := cryptDESPlatform(password, normalized)
+	if err != nil {
+		return "", err
+	}
+	if len(hash) >= 2 {
+		hash = original + hash[2:]
+	}
+	return hash, nil
+}
+
+func normalizeDESSaltChar(c byte) byte {
+	const alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	if strings.ContainsRune(alphabet, rune(c)) {
+		return c
+	}
+	// Legacy mapping used by old crypt implementations for out-of-alphabet bytes.
+	idx := (int(c) - int('.')) & 0x3f
+	return alphabet[idx]
 }
 
 // extractSalt extracts the salt value from a crypt-style salt string
@@ -1097,13 +1128,17 @@ func builtinSalt(ctx *types.TaskContext, args []types.Value) types.Result {
 		costStr := "05"
 		if len(prefixStr) > 4 {
 			parts := strings.SplitN(prefixStr, "$", 4)
-			if len(parts) >= 3 && len(parts[2]) == 2 {
+			if len(parts) >= 3 {
+				if len(parts[2]) == 0 || len(parts[2]) != 2 {
+					return types.Err(types.E_INVARG)
+				}
 				costStr = parts[2]
 				cost := 0
 				for _, c := range costStr {
-					if c >= '0' && c <= '9' {
-						cost = cost*10 + int(c-'0')
+					if c < '0' || c > '9' {
+						return types.Err(types.E_INVARG)
 					}
+					cost = cost*10 + int(c-'0')
 				}
 				if cost < 4 || cost > 31 {
 					return types.Err(types.E_INVARG)

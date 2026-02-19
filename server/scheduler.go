@@ -117,12 +117,24 @@ func (s *Scheduler) processReadyTasks() {
 			break // Tasks are ordered by start time
 		}
 		heap.Pop(s.waiting)
+		if t.GetState() != task.TaskQueued {
+			// Ignore tasks killed/suspended after enqueue.
+			continue
+		}
 		readyTasks = append(readyTasks, t)
 	}
 
-	// Check for resumed tasks that need to be re-run
+	// Check for suspended/resumed tasks that need to be re-run.
 	// These are tasks that were suspended and later resumed via resume() builtin
 	for _, t := range s.tasks {
+		// Timed suspension wake-up: suspend(seconds) resumes after deadline.
+		if t.WakeDue(now) {
+			if t.Resume(types.NewInt(0)) {
+				readyTasks = append(readyTasks, t)
+			}
+			continue
+		}
+
 		// TaskQueued state means it was resumed and is ready to run again
 		// We need to check if it's not already in readyTasks and not in waiting queue
 		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVM != nil) {
@@ -189,6 +201,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	var result types.Result
 	var bcVM *vm.VM
+	anonGCFloor := s.store.NextID()
 
 	if t.BytecodeVM != nil {
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
@@ -326,6 +339,10 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	} else {
 		t.SetState(task.TaskCompleted)
 	}
+
+	// Match Toast lifecycle semantics: orphan anonymous objects are collected
+	// when a task completes (locals and stack references are gone).
+	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
 
 	t.BytecodeVM = nil // Release VM after completion
 	return nil
@@ -467,7 +484,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.This = forkInfo.ThisObj
 	t.Caller = forkInfo.Caller
 	t.VerbName = forkInfo.Verb
-	t.ForkCreator = s // Give child access to scheduler for nested forks
+	t.ForkCreator = s                   // Give child access to scheduler for nested forks
 	t.TaskLocal = parent.GetTaskLocal() // Copy parent's task_local to child
 
 	// Set up child's context
@@ -530,18 +547,28 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// Update programmer to verb owner now that we found the verb
 	t.Programmer = verb.Owner
 
+	thisVal := types.Value(types.NewObj(objID))
+	var frameThisValue types.Value
+	if target := s.store.Get(objID); target != nil && target.Anonymous {
+		anon := types.NewAnon(objID)
+		thisVal = anon
+		frameThisValue = anon
+	}
+
 	ctx := types.NewTaskContext()
 	ctx.Player = player
-	ctx.Programmer = verb.Owner // Programmer is verb owner, not player
+	ctx.Programmer = verb.Owner           // Programmer is verb owner, not player
 	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner
 	ctx.ThisObj = objID
+	ctx.ThisValue = frameThisValue
 	ctx.Verb = verbName
 	ctx.ServerInitiated = true // Mark as server-initiated
-	ctx.Task = t // Attach task so VM can track frames
+	ctx.Task = t               // Attach task so VM can track frames
 
 	// Push activation frame for traceback support
 	t.PushFrame(task.ActivationFrame{
 		This:            objID,
+		ThisValue:       frameThisValue,
 		Player:          player,
 		Programmer:      verb.Owner,
 		Caller:          player, // For server hooks, caller is the player
@@ -557,9 +584,14 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	bcVM.Context = ctx
 	bcVM.TickLimit = 300000
 
-	// Run the compiled bytecode -- Run() creates the initial frame.
-	// After Run() creates the frame, we set verb context variables.
-	result = bcVM.RunWithVerbContext(prog, objID, player, player, verbName, defObjID, args)
+	// Build the initial verb frame explicitly so we can preserve ANON `this`.
+	frame := bcVM.PrepareVerbFrame(prog, objID, player, player, verbName, defObjID, args)
+	vm.SetLocalByNamePublic(frame, prog, "this", thisVal)
+	vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(player))
+	vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(player))
+	vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(verbName))
+	vm.SetLocalByNamePublic(frame, prog, "args", types.NewList(args))
+	result = bcVM.ExecuteLoop()
 
 	// Extract call stack BEFORE popping frames
 	if result.Flow == types.FlowException {
@@ -640,15 +672,15 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
 
-	// Create a task for call stack tracking and pass() support
-	t := &task.Task{
-		Owner:      player,
-		Programmer: player,
-		CallStack:  make([]task.ActivationFrame, 0),
-		TaskLocal:  types.NewEmptyMap(), // Initialize task_local to empty map
-	}
+	// Create and register a real task so task_id()/resume()/task_local()
+	// semantics match normal task execution.
+	mgr := task.GetManager()
+	t := mgr.CreateTask(player, 300000, 5.0)
+	defer mgr.RemoveTask(t.ID)
+	t.Programmer = player
 	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.Task = t
+	ctx.TaskID = t.ID
 
 	// Compile AST to bytecode
 	compiler := vm.NewCompilerWithRegistry(s.registry)
@@ -694,16 +726,56 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	vm.SetLocalByNamePublic(frame, prog, "dobj", types.NewObj(types.ObjNothing))
 	vm.SetLocalByNamePublic(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 
+	anonGCFloor := s.store.NextID()
 	result := bcVM.ExecuteLoop()
 
-	// Handle fork: create child task, set fork variable, resume parent
-	for result.Flow == types.FlowFork {
-		if t.ForkCreator != nil && result.ForkInfo != nil {
-			childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
-			bcVM.SetForkResult(childID)
+	// Handle yielded control flow (fork/suspend) until the eval completes.
+	for result.Flow == types.FlowFork || result.Flow == types.FlowSuspend {
+		for result.Flow == types.FlowFork {
+			if t.ForkCreator != nil && result.ForkInfo != nil {
+				childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
+				bcVM.SetForkResult(childID)
+			}
+			result = bcVM.Resume()
 		}
+
+		if result.Flow != types.FlowSuspend {
+			continue
+		}
+
+		// suspend(seconds): sleep for seconds then resume.
+		// suspend(0): scheduler-yield then resume quickly.
+		// suspend() (encoded as -1): wait for explicit resume(task_id, ...).
+		seconds := 0.0
+		switch v := result.Val.(type) {
+		case types.FloatValue:
+			seconds = v.Val
+		case types.IntValue:
+			seconds = float64(v.Val)
+		}
+
+		switch {
+		case seconds < 0:
+			deadline := time.Now().Add(10 * time.Second)
+			for t.GetState() != task.TaskQueued && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if t.GetState() != task.TaskQueued {
+				result = types.Result{Flow: types.FlowException, Error: types.E_INVARG}
+				break
+			}
+		case seconds == 0:
+			time.Sleep(10 * time.Millisecond)
+		default:
+			time.Sleep(time.Duration(seconds * float64(time.Second)))
+		}
+
 		result = bcVM.Resume()
 	}
+
+	// Match Toast lifecycle semantics for eval: orphan anonymous objects are
+	// collected once evaluation completes and locals are out of scope.
+	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}

@@ -30,6 +30,14 @@ var fileState = struct {
 	handles: make(map[int64]*mooFileHandle),
 }
 
+func resolveFilePath(rel string) string {
+	return filepath.Join("files", rel)
+}
+
+func ensureFilesRoot() error {
+	return os.MkdirAll("files", 0o755)
+}
+
 func sanitizeFilePath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("empty path")
@@ -107,11 +115,15 @@ func builtinFileOpen(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	if err := ensureFilesRoot(); err != nil {
+		return types.Err(types.E_FILE)
+	}
+	fullPath := resolveFilePath(path)
 	flags, binary, err := parseFileOpenMode(mode.Value())
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	f, err := os.OpenFile(path, flags, 0o666)
+	f, err := os.OpenFile(fullPath, flags, 0o666)
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -428,7 +440,7 @@ func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
 		if err != nil {
 			return nil, types.E_INVARG
 		}
-		st, err := os.Stat(path)
+		st, err := os.Stat(resolveFilePath(path))
 		if err != nil {
 			return nil, types.E_FILE
 		}
@@ -491,20 +503,20 @@ func builtinFileStat(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	st, err := os.Stat(path)
+	st, err := os.Stat(resolveFilePath(path))
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
-	kind := "file"
+	kind := "reg"
 	if st.IsDir() {
-		kind = "directory"
+		kind = "dir"
 	}
-	return types.Ok(types.NewMap([][2]types.Value{
-		{types.NewStr("name"), types.NewStr(st.Name())},
-		{types.NewStr("size"), types.NewInt(st.Size())},
-		{types.NewStr("mode"), types.NewInt(int64(st.Mode().Perm()))},
-		{types.NewStr("mtime"), types.NewInt(st.ModTime().Unix())},
-		{types.NewStr("type"), types.NewStr(kind)},
+	return types.Ok(types.NewList([]types.Value{
+		types.NewStr(st.Name()),
+		types.NewStr(kind),
+		types.NewInt(st.Size()),
+		types.NewInt(int64(st.Mode().Perm())),
+		types.NewInt(st.ModTime().Unix()),
 	}))
 }
 
@@ -520,7 +532,7 @@ func builtinFileType(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	st, err := os.Stat(path)
+	st, err := os.Stat(resolveFilePath(path))
 	if err != nil {
 		return types.Ok(types.NewInt(0))
 	}
@@ -542,7 +554,7 @@ func builtinFileRemove(ctx *types.TaskContext, args []types.Value) types.Result 
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if err := os.Remove(path); err != nil {
+	if err := os.Remove(resolveFilePath(path)); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
@@ -562,7 +574,7 @@ func builtinFileRename(ctx *types.TaskContext, args []types.Value) types.Result 
 	if err1 != nil || err2 != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if err := os.Rename(f, t); err != nil {
+	if err := os.Rename(resolveFilePath(f), resolveFilePath(t)); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
@@ -580,6 +592,9 @@ func builtinFileMkdir(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	if err := ensureFilesRoot(); err != nil {
+		return types.Err(types.E_FILE)
+	}
 	mode := os.FileMode(0o755)
 	if len(args) == 2 {
 		perm, ok := args[1].(types.IntValue)
@@ -588,7 +603,7 @@ func builtinFileMkdir(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 		mode = os.FileMode(perm.Val)
 	}
-	if err := os.Mkdir(path, mode); err != nil {
+	if err := os.Mkdir(resolveFilePath(path), mode); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
@@ -606,7 +621,7 @@ func builtinFileRmdir(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if err := os.Remove(path); err != nil {
+	if err := os.Remove(resolveFilePath(path)); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
@@ -625,7 +640,7 @@ func builtinFileChmod(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if err := os.Chmod(path, os.FileMode(permVal.Val)); err != nil {
+	if err := os.Chmod(resolveFilePath(path), os.FileMode(permVal.Val)); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
@@ -647,7 +662,7 @@ func builtinFileList(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	entries, err := os.ReadDir(path)
+	entries, err := os.ReadDir(resolveFilePath(path))
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -699,7 +714,7 @@ func builtinFileCountLines(ctx *types.TaskContext, args []types.Value) types.Res
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(resolveFilePath(path))
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -732,7 +747,7 @@ func builtinFileGrep(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(resolveFilePath(path))
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}

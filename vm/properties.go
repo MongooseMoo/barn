@@ -4,6 +4,7 @@ import (
 	"barn/db"
 	"barn/parser"
 	"barn/types"
+	"strings"
 )
 
 // property evaluates property access: obj.property or obj.(expr)
@@ -470,6 +471,9 @@ func (e *Evaluator) waifProperty(waif types.WaifValue, node *parser.PropertyExpr
 
 	// Look up property on class object
 	prop, errCode := e.findProperty(classObj, propName, ctx)
+	if errCode != types.E_NONE && !strings.HasPrefix(propName, ":") {
+		prop, errCode = e.findProperty(classObj, ":"+propName, ctx)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -582,6 +586,9 @@ func (e *Evaluator) waifPropertyIndexedAssign(waif types.WaifValue, propExpr *pa
 
 		// Look up property on class object
 		prop, errCode := e.findProperty(classObj, propName, ctx)
+		if errCode != types.E_NONE && !strings.HasPrefix(propName, ":") {
+			prop, errCode = e.findProperty(classObj, ":"+propName, ctx)
+		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}

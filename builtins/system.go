@@ -312,9 +312,10 @@ func validateAndResolvePath(program string) (string, error) {
 		}
 	}
 
-	// Prepend executables/ subdirectory
-	execDir := "executables"
-	fullPath := filepath.Join(execDir, program)
+	execDirs := []string{"executables"}
+	if exePath, err := os.Executable(); err == nil {
+		execDirs = append(execDirs, filepath.Join(filepath.Dir(exePath), "executables"))
+	}
 
 	// On Windows, try PATHEXT extensions
 	if runtime.GOOS == "windows" {
@@ -324,27 +325,33 @@ func validateAndResolvePath(program string) (string, error) {
 		}
 
 		extensions := strings.Split(pathExt, ";")
-		for _, ext := range extensions {
-			if ext == "" {
-				continue
+		for _, dir := range execDirs {
+			fullPath := filepath.Join(dir, program)
+			for _, ext := range extensions {
+				if ext == "" {
+					continue
+				}
+				tryPath := fullPath + ext
+				if info, err := os.Stat(tryPath); err == nil && !info.IsDir() {
+					return tryPath, nil
+				}
 			}
-			tryPath := fullPath + ext
-			if info, err := os.Stat(tryPath); err == nil && !info.IsDir() {
-				return tryPath, nil
-			}
-		}
 
-		// Try exact name as fallback
-		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
-			return fullPath, nil
+			// Try exact name as fallback
+			if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+				return fullPath, nil
+			}
 		}
 
 		return "", os.ErrNotExist
 	}
 
 	// Unix: check if file exists
-	if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
-		return fullPath, nil
+	for _, dir := range execDirs {
+		fullPath := filepath.Join(dir, program)
+		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
+			return fullPath, nil
+		}
 	}
 
 	return "", os.ErrNotExist

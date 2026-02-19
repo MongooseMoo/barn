@@ -633,6 +633,8 @@ func (vm *VM) executeIndexSet() error {
 			return fmt.Errorf("E_RANGE: index out of range")
 		case types.E_INVARG:
 			return fmt.Errorf("E_INVARG: invalid argument for index assignment")
+		case types.E_QUOTA:
+			return fmt.Errorf("E_QUOTA: value too large")
 		default:
 			return fmt.Errorf("E_%d: index assignment error", errCode)
 		}
@@ -933,7 +935,11 @@ func (vm *VM) executeRange() error {
 func (vm *VM) executeMakeList() error {
 	count := vm.ReadByte()
 	elements := vm.PopN(int(count))
-	vm.Push(types.NewList(elements))
+	result := types.NewList(elements)
+	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
+		return fmt.Errorf("E_QUOTA: list too large")
+	}
+	vm.Push(result)
 	return nil
 }
 
@@ -950,7 +956,11 @@ func (vm *VM) executeMakeMap() error {
 		pairs[i] = [2]types.Value{key, val}
 	}
 
-	vm.Push(types.NewMap(pairs))
+	result := types.NewMap(pairs)
+	if errCode := builtins.CheckMapLimit(result); errCode != types.E_NONE {
+		return fmt.Errorf("E_QUOTA: map too large")
+	}
+	vm.Push(result)
 	return nil
 }
 
@@ -1310,6 +1320,9 @@ func (vm *VM) vmGetWaifProp(waif types.WaifValue, propName string) error {
 
 	// Look up property on class object
 	prop, errCode := vmFindProperty(vm.Store, classObj, propName)
+	if errCode != types.E_NONE && !strings.HasPrefix(propName, ":") {
+		prop, errCode = vmFindProperty(vm.Store, classObj, ":"+propName)
+	}
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -1373,7 +1386,7 @@ func (vm *VM) executeSetProp() error {
 	// Check for built-in property assignment first
 	if isBuiltin, errCode := vmSetBuiltinProperty(obj, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
-			return fmt.Errorf("E_%s: cannot set built-in property %s", errCode, propName)
+			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
 		return nil
 	}
@@ -1954,12 +1967,14 @@ func (vm *VM) executeCallVerb() error {
 
 	// Check object validity
 	if !vm.Store.Valid(objID) {
+		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
 
 	// Look up verb via store (with inheritance)
 	verb, defObjID, err := vm.Store.FindVerb(objID, verbName)
 	if err != nil {
+		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
 
@@ -2209,6 +2224,14 @@ func (vm *VM) executePass() error {
 		savedVerb = vm.Context.Verb
 	}
 
+	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
+	passThis := types.Value(types.NewObj(frame.This))
+	var passThisValue types.Value
+	if vm.Context != nil && vm.Context.ThisValue != nil {
+		passThis = vm.Context.ThisValue
+		passThisValue = vm.Context.ThisValue
+	}
+
 	// Push new stack frame with parent verb's bytecode
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
@@ -2237,7 +2260,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Pre-populate built-in variables
-	setLocalByName(newFrame, prog, "this", types.NewObj(frame.This))
+	setLocalByName(newFrame, prog, "this", passThis)
 	setLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
 	setLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
 	setLocalByName(newFrame, prog, "args", types.NewList(passArgs))
@@ -2246,6 +2269,7 @@ func (vm *VM) executePass() error {
 	// Update shared context for builtins
 	if vm.Context != nil {
 		vm.Context.ThisObj = frame.This
+		vm.Context.ThisValue = passThisValue
 		vm.Context.Verb = verbName
 	}
 
@@ -2254,6 +2278,7 @@ func (vm *VM) executePass() error {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
 			actFrame := task.ActivationFrame{
 				This:       frame.This,
+				ThisValue:  passThisValue,
 				Player:     frame.Player,
 				Programmer: verb.Owner,
 				Caller:     verbLoc,

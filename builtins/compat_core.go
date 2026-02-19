@@ -4,6 +4,7 @@ import (
 	"barn/task"
 	"barn/types"
 	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -95,7 +96,13 @@ func builtinCallFunction(ctx *types.TaskContext, args []types.Value, r *Registry
 	if !found {
 		return types.Err(types.E_INVARG)
 	}
-	return fn(ctx, args[1:])
+	result := fn(ctx, args[1:])
+	if name.Value() == "max_object" && result.IsNormal() {
+		if intVal, ok := result.Val.(types.IntValue); ok {
+			return types.Ok(types.NewObj(types.ObjID(intVal.Val)))
+		}
+	}
+	return result
 }
 
 func builtinTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -304,6 +311,7 @@ func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Resul
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
+	log.Printf("CHECKPOINTING: dump_database() requested by #%d", ctx.Programmer)
 	return types.Ok(types.NewInt(0))
 }
 

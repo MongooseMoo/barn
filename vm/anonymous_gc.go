@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/types"
 	"sort"
@@ -28,7 +29,21 @@ func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 // AutoRecycleOrphanAnonymous recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
 func (e *Evaluator) AutoRecycleOrphanAnonymous(ctx *types.TaskContext) {
-	if ctx == nil {
+	AutoRecycleOrphanAnonymousWith(e.store, e.builtins, ctx)
+}
+
+// AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
+// from any persistent non-anonymous object's properties.
+func AutoRecycleOrphanAnonymousWith(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext) {
+	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0)
+}
+
+// AutoRecycleOrphanAnonymousSince performs orphan-anonymous collection but only
+// recycles anonymous objects with IDs >= minID. This lets task/eval callers
+// collect objects created during the current execution without sweeping
+// pre-existing database state.
+func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext, minID types.ObjID) {
+	if ctx == nil || store == nil || registry == nil {
 		return
 	}
 
@@ -44,7 +59,7 @@ func (e *Evaluator) AutoRecycleOrphanAnonymous(ctx *types.TaskContext) {
 		}
 	}
 
-	for _, obj := range e.store.All() {
+	for _, obj := range store.All() {
 		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || obj.Anonymous {
 			continue
 		}
@@ -65,7 +80,7 @@ func (e *Evaluator) AutoRecycleOrphanAnonymous(ctx *types.TaskContext) {
 			continue
 		}
 
-		obj := e.store.GetUnsafe(id)
+		obj := store.GetUnsafe(id)
 		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || !obj.Anonymous {
 			continue
 		}
@@ -81,8 +96,11 @@ func (e *Evaluator) AutoRecycleOrphanAnonymous(ctx *types.TaskContext) {
 
 	// Recycle all currently-valid anonymous objects that are unreachable.
 	candidates := make([]types.ObjID, 0)
-	for _, obj := range e.store.GetAnonymousObjects() {
+	for _, obj := range store.GetAnonymousObjects() {
 		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) {
+			continue
+		}
+		if obj.ID < minID {
 			continue
 		}
 		// Never auto-recycle player objects even if they carry the 'a' flag.
@@ -101,7 +119,7 @@ func (e *Evaluator) AutoRecycleOrphanAnonymous(ctx *types.TaskContext) {
 
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 
-	recycleFn, ok := e.builtins.Get("recycle")
+	recycleFn, ok := registry.Get("recycle")
 	if !ok {
 		return
 	}

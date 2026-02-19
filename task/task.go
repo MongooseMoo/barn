@@ -330,6 +330,13 @@ func (t *Task) Resume(value types.Value) bool {
 	return true
 }
 
+// WakeDue reports whether a suspended task has a timed wake deadline due.
+func (t *Task) WakeDue(now time.Time) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.State == TaskSuspended && !t.WakeTime.IsZero() && !t.WakeTime.After(now)
+}
+
 // Kill kills the task
 func (t *Task) Kill() {
 	t.mu.Lock()

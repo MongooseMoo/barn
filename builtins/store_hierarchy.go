@@ -178,11 +178,14 @@ func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value, store
 
 	start := types.ObjID(-1)
 	if len(args) == 1 {
-		startVal, ok := args[0].(types.ObjValue)
-		if !ok {
+		switch startArg := args[0].(type) {
+		case types.ObjValue:
+			start = startArg.ID()
+		case types.IntValue:
+			start = types.ObjID(startArg.Val)
+		default:
 			return types.Err(types.E_TYPE)
 		}
-		start = startVal.ID()
 		if start == types.ObjNothing {
 			return types.Err(types.E_INVARG)
 		}

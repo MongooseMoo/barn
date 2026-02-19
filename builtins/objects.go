@@ -666,7 +666,7 @@ func builtinMaxObject(ctx *types.TaskContext, args []types.Value, store *db.Stor
 	}
 
 	maxID := store.MaxObject()
-	return types.Ok(types.NewObj(maxID))
+	return types.Ok(types.NewInt(int64(maxID)))
 }
 
 // builtinParent implements parent(object)
@@ -1542,9 +1542,6 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if !ctx.IsWizard {
-		return types.Err(types.E_PERM)
-	}
 	if objVal.ID() == types.ObjNothing {
 		return types.Err(types.E_INVARG)
 	}
@@ -1557,6 +1554,10 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.
 	// Anonymous objects cannot have player flag set - E_TYPE per MOO spec
 	if obj.Anonymous {
 		return types.Err(types.E_TYPE)
+	}
+
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
 
 	// Set or clear the player flag
