@@ -3948,3 +3948,17 @@ func TestParity_PropertyMapIndexAssign(t *testing.T) {
 		})
 	}
 }
+
+func TestParitySpliceExpression(t *testing.T) {
+	cases := map[string]string{
+		// Standalone @list evaluates to the list itself
+		"splice_list_passthrough": `return @{1, 2, 3};`,
+		// Standalone @string raises E_TYPE
+		"splice_non_list_error": `return @"not a list";`,
+		// Splice in list context (regression — already works via OP_LIST_EXTEND)
+		"splice_in_list_context": `return {1, @{2, 3}, 4};`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
+}

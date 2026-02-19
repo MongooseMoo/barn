@@ -299,6 +299,8 @@ func (vm *VM) Execute(op OpCode) error {
 		return vm.executeListAppend()
 	case OP_LIST_EXTEND:
 		return vm.executeListExtend()
+	case OP_SPLICE:
+		return vm.executeSplice()
 
 	// Scatter assignment
 	case OP_SCATTER:

@@ -111,7 +111,7 @@ const (
 	OP_RANGE                                     // Pop end, start, coll; push slice
 	OP_RANGE_SET                                 // Pop end, start, val; range-assign locals[var] [varIdx]
 	OP_LENGTH                                    // Pop coll; push length
-	OP_SPLICE                                    // DEAD: splice handled by OP_LIST_APPEND/OP_LIST_EXTEND (not handled in VM dispatch)
+	OP_SPLICE                                    // Pop value; push back if list, raise E_TYPE otherwise
 	OP_ITER_PREP                                 // Pop container; push normalized list + isPairs flag [hasIndex:byte]
 	OP_LIST_RANGE                                // Pop end, start; push {start..end} list
 	OP_LIST_APPEND                               // Pop elem, list; push list with elem appended
@@ -183,7 +183,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_RANGE:        "RANGE",
 	OP_RANGE_SET:    "RANGE_SET",
 	OP_LENGTH:       "LENGTH",
-	OP_SPLICE:       "DEAD_SPLICE",
+	OP_SPLICE:       "SPLICE",
 	OP_ITER_PREP:    "ITER_PREP",
 	OP_LIST_RANGE:   "LIST_RANGE",
 	OP_LIST_APPEND:  "LIST_APPEND",

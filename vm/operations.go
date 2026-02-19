@@ -1017,6 +1017,18 @@ func (vm *VM) executeListExtend() error {
 	return nil
 }
 
+func (vm *VM) executeSplice() error {
+	val := vm.Pop()
+
+	// Standalone @expr: operand must be a list, otherwise E_TYPE.
+	if _, ok := val.(types.ListValue); !ok {
+		return fmt.Errorf("E_TYPE: splice (@) requires a list operand")
+	}
+
+	vm.Push(val)
+	return nil
+}
+
 func (vm *VM) executeCallBuiltin() error {
 	funcID := vm.ReadByte()
 	argc := vm.ReadByte()
