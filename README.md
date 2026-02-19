@@ -27,6 +27,8 @@ uv tool run ..\moo-conformance-tests --moo-port=9500
 uv tool run ..\moo-conformance-tests --moo-port=9501
 ```
 
+The conformance suite now supports managed server lifecycle (`--server-command`) in the local repo checkout, which can auto-start/stop Barn and isolate DB writes in a temp copy.
+
 When Barn diverges from expected behavior, the same test case runs against ToastStunt to determine the correct interpretation. This methodology catches subtle semantic differences that manual testing misses.
 
 See [moo-conformance-tests documentation](https://github.com/mongoosemoo/moo-conformance-tests) for test structure and contributing tests.
@@ -35,10 +37,15 @@ See [moo-conformance-tests documentation](https://github.com/mongoosemoo/moo-con
 
 Preferred workflow:
 
-1. Start Barn with `Test.db` on a free port.
-2. Run `uv tool run ..\moo-conformance-tests --moo-port=<same port>`.
+1. Build Barn.
+2. Run conformance in managed-server mode (auto start/stop, temp DB copy):
 
-Example:
+```powershell
+go build -o barn.exe ./cmd/barn/
+uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"
+```
+
+Manual mode still works:
 
 ```powershell
 # Terminal 1
@@ -48,6 +55,8 @@ go build -o barn.exe ./cmd/barn/
 # Terminal 2
 uv tool run ..\moo-conformance-tests --moo-port=9500
 ```
+
+Note: `uv tool run ..\moo-conformance-tests` uses the packaged tool version and may not include the newest CLI flags yet. Use `uv run --project ..\moo-conformance-tests moo-conformance ...` to use the local checkout's latest features.
 
 ## Getting Started
 

@@ -390,8 +390,10 @@ func (vm *VM) executeIn() error {
 
 	case types.StrValue:
 		if elem, ok := element.(types.StrValue); ok {
-			if strings.Contains(coll.Value(), elem.Value()) {
-				vm.Push(types.IntValue{Val: 1})
+			haystack := strings.ToLower(coll.Value())
+			needle := strings.ToLower(elem.Value())
+			if pos := strings.Index(haystack, needle); pos >= 0 {
+				vm.Push(types.IntValue{Val: int64(pos + 1)})
 			} else {
 				vm.Push(types.IntValue{Val: 0})
 			}

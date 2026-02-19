@@ -210,12 +210,27 @@ uv tool run ..\moo-conformance-tests --moo-port=9501
 uv tool run ..\moo-conformance-tests --moo-port=9500
 ```
 
+### Managed Server Lifecycle (Preferred With Local Checkout)
+
+Use the local `moo-conformance-tests` checkout to get the latest CLI features (`--server-command`, `--server-db`):
+
+```powershell
+go build -o barn.exe ./cmd/barn/
+uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"
+```
+
+This auto-starts/stops Barn and runs against a temp copy of `Test.db`.
+
+Note: `uv tool run ..\moo-conformance-tests ...` may point at a packaged version that does not yet expose new flags.
+
 ### Test Options
 
 | Option | Description |
 |--------|-------------|
 | `--moo-port PORT` | Port to connect to (required) |
 | `--moo-host HOST` | Host to connect to (default: localhost) |
+| `--server-command CMD` | Start/stop server automatically (`{port}` and `{db}` placeholders) |
+| `--server-db PATH` | DB file used in managed mode (defaults to bundled `Test.db`) |
 
 ### Test Database
 

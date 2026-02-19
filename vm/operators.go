@@ -412,8 +412,10 @@ func inOp(left, right types.Value) types.Result {
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		if strings.Contains(container.Value(), leftStr.Value()) {
-			return types.Ok(types.IntValue{Val: 1})
+		haystack := strings.ToLower(container.Value())
+		needle := strings.ToLower(leftStr.Value())
+		if pos := strings.Index(haystack, needle); pos >= 0 {
+			return types.Ok(types.IntValue{Val: int64(pos + 1)})
 		}
 		return types.Ok(types.IntValue{Val: 0})
 

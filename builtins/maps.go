@@ -62,7 +62,7 @@ func builtinMapvalues(ctx *types.TaskContext, args []types.Value) types.Result {
 		values := make([]types.Value, 0, len(args)-1)
 		for i := 1; i < len(args); i++ {
 			key := args[i]
-			if !types.IsValidMapKey(key) {
+			if !types.IsValidBuiltinMapKey(key) {
 				return types.Err(types.E_TYPE)
 			}
 			val, found := m.GetWithCase(key, true)
@@ -106,7 +106,7 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 	if keyList, ok := keyOrList.(types.ListValue); ok {
 		result := m
 		for _, key := range keyList.Elements() {
-			if !types.IsValidMapKey(key) {
+			if !types.IsValidBuiltinMapKey(key) {
 				return types.Err(types.E_TYPE)
 			}
 			if _, found := result.Get(key); !found {
@@ -121,7 +121,7 @@ func builtinMapdelete(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	key := keyOrList
-	if !types.IsValidMapKey(key) {
+	if !types.IsValidBuiltinMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -155,7 +155,7 @@ func builtinMaphaskey(ctx *types.TaskContext, args []types.Value) types.Result {
 	key := args[1]
 
 	// Map keys must be scalar types (not list/map/waif).
-	if !types.IsValidMapKey(key) {
+	if !types.IsValidBuiltinMapKey(key) {
 		return types.Err(types.E_TYPE)
 	}
 
