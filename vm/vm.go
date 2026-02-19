@@ -6,6 +6,7 @@ import (
 	"barn/task"
 	"barn/types"
 	"fmt"
+	"time"
 )
 
 // MooError wraps an ErrorCode as a Go error
@@ -48,6 +49,9 @@ type VM struct {
 	Context   *types.TaskContext    // Task context for builtins
 	TickLimit int64                 // Maximum ticks before E_MAXREC
 	Ticks     int64                 // Current tick count
+
+	yielded     bool           // VM has yielded control (suspend/fork)
+	yieldResult types.Result   // Why we yielded
 }
 
 // StackFrame represents a call frame
@@ -88,8 +92,11 @@ func NewVM(store *db.Store, registry *builtins.Registry) *VM {
 	}
 }
 
-// Run executes a program and returns the result
-func (vm *VM) Run(prog *Program) (types.Value, error) {
+// Run executes a program and returns the result.
+// The returned Result encodes the flow control: FlowReturn for normal completion,
+// FlowException for uncaught errors, FlowSuspend when a suspend() yields control,
+// and FlowFork when a fork statement yields control.
+func (vm *VM) Run(prog *Program) types.Result {
 	// Create initial frame
 	frame := &StackFrame{
 		Program:     prog,
@@ -112,30 +119,74 @@ func (vm *VM) Run(prog *Program) (types.Value, error) {
 	vm.Frames = append(vm.Frames, frame)
 	vm.FP = 0
 
-	// Execute until done
+	return vm.executeLoop()
+}
+
+// Resume continues execution after a yield (suspend or fork).
+// The VM's PC and stack are still intact from the yield point.
+func (vm *VM) Resume() types.Result {
+	vm.yielded = false
+	vm.yieldResult = types.Result{}
+	return vm.executeLoop()
+}
+
+// SetForkResult sets the fork variable in the current frame to the child task ID.
+// This should be called after the scheduler creates the child task, before Resume().
+func (vm *VM) SetForkResult(childTaskID int64) {
+	if vm.yieldResult.Flow == types.FlowFork && vm.yieldResult.ForkInfo != nil {
+		varName := vm.yieldResult.ForkInfo.VarName
+		if varName != "" {
+			frame := vm.CurrentFrame()
+			if frame != nil {
+				setLocalByName(frame, frame.Program, varName, types.NewInt(childTaskID))
+			}
+		}
+	}
+}
+
+// executeLoop is the core execution loop shared by Run() and Resume().
+func (vm *VM) executeLoop() types.Result {
 	for len(vm.Frames) > 0 {
 		if err := vm.Step(); err != nil {
 			// Capture line number before HandleError may pop frames
 			line := vm.CurrentLine()
 			// Handle error
 			if !vm.HandleError(err) {
-				return nil, vm.annotateError(err, line)
+				errCode := extractErrorCode(err)
+				if errCode == types.E_NONE {
+					errCode = types.E_EXEC
+				}
+				return types.Result{
+					Flow:  types.FlowException,
+					Error: errCode,
+					Val:   types.NewStr(vm.annotateError(err, line).Error()),
+				}
 			}
+		}
+
+		// Check if VM yielded (suspend/fork)
+		if vm.yielded {
+			return vm.yieldResult
 		}
 
 		// Check tick limit
 		if vm.Ticks >= vm.TickLimit {
 			line := vm.CurrentLine()
-			return nil, vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
+			_ = vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
+			return types.Result{
+				Flow:  types.FlowException,
+				Error: types.E_MAXREC,
+				Val:   types.NewStr("E_MAXREC: tick limit exceeded"),
+			}
 		}
 	}
 
 	// Return result
 	if vm.SP > 0 {
-		return vm.Pop(), nil
+		return types.Result{Flow: types.FlowReturn, Val: vm.Pop()}
 	}
 
-	return types.IntValue{Val: 0}, nil
+	return types.Result{Flow: types.FlowReturn, Val: types.IntValue{Val: 0}}
 }
 
 // Step executes a single instruction
@@ -540,15 +591,19 @@ func (vm *VM) HandleError(err error) bool {
 	return false
 }
 
-// executeFork handles OP_FORK: evaluate delay, skip fork body, optionally set fork variable.
+// executeFork handles OP_FORK: evaluate delay, yield control to the scheduler.
 //
 // Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short>
 // Stack: [delay] (delay value on top)
 //
-// In the current parity-test context (no scheduler), the fork body is always
-// skipped and the fork variable (if any) is set to 0.
-// This matches the tree-walker behavior where forkStmt returns FlowFork and
-// EvalStatements continues execution without running the fork body.
+// Yields a FlowFork result with ForkInfo containing the fork body location,
+// delay, and variable name. The scheduler should:
+//   1. Create the child task (fork body)
+//   2. Call SetForkResult(childTaskID) on the VM
+//   3. Call Resume() to continue execution after the fork
+//
+// The fork variable is NOT set here — it is set by SetForkResult() with the
+// actual child task ID assigned by the scheduler.
 func (vm *VM) executeFork() error {
 	varIdx := int(vm.ReadByte())
 	bodyLen := vm.ReadShort()
@@ -556,26 +611,53 @@ func (vm *VM) executeFork() error {
 	// Pop and validate the delay value
 	delay := vm.Pop()
 
+	var delaySeconds float64
 	switch v := delay.(type) {
 	case types.IntValue:
 		if v.Val < 0 {
 			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
 		}
+		delaySeconds = float64(v.Val)
 	case types.FloatValue:
 		if v.Val < 0 {
 			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
 		}
+		delaySeconds = v.Val
 	default:
 		return fmt.Errorf("E_TYPE: fork delay must be numeric")
 	}
 
-	// If there's a fork variable, assign it 0 (no scheduler = no real task ID)
+	// Resolve variable name from index
+	var varName string
 	if varIdx > 0 {
-		vm.CurrentFrame().Locals[varIdx-1] = types.IntValue{Val: 0}
+		frame := vm.CurrentFrame()
+		if varIdx-1 < len(frame.Program.VarNames) {
+			varName = frame.Program.VarNames[varIdx-1]
+		}
 	}
 
-	// Skip over the fork body
-	vm.CurrentFrame().IP += int(bodyLen)
+	// Record the fork body's bytecode position for the scheduler.
+	// The body starts at the current IP and runs for bodyLen bytes.
+	frame := vm.CurrentFrame()
+	forkBodyIP := frame.IP
+	forkBodyLen := int(bodyLen)
+
+	// Skip over the fork body — the parent continues after the fork
+	frame.IP += forkBodyLen
+
+	// Build ForkInfo for the scheduler
+	forkInfo := &types.ForkInfo{
+		Delay:   time.Duration(delaySeconds * float64(time.Second)),
+		VarName: varName,
+		Body:    [2]int{forkBodyIP, forkBodyLen}, // bytecode offset and length
+	}
+
+	// Yield to the scheduler
+	vm.yielded = true
+	vm.yieldResult = types.Result{
+		Flow:     types.FlowFork,
+		ForkInfo: forkInfo,
+	}
 
 	return nil
 }

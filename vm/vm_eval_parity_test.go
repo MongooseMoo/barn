@@ -25,6 +25,31 @@ func newTestRegistry() *builtins.Registry {
 	return registry
 }
 
+// vmRunToCompletion runs the VM to completion, auto-resuming on FlowSuspend
+// and FlowFork yields. This simulates a scheduler for parity tests.
+func vmRunToCompletion(vm *VM, prog *Program) (types.Value, error) {
+	result := vm.Run(prog)
+	for {
+		switch result.Flow {
+		case types.FlowReturn:
+			return result.Val, nil
+		case types.FlowException:
+			return nil, fmt.Errorf("E_%s: %v", result.Error, result.Val)
+		case types.FlowSuspend:
+			// Auto-resume after suspend (no real delay in tests)
+			result = vm.Resume()
+		case types.FlowFork:
+			// Auto-resume after fork (set fork var to 0 since no real scheduler)
+			if result.ForkInfo != nil && result.ForkInfo.VarName != "" {
+				vm.SetForkResult(0)
+			}
+			result = vm.Resume()
+		default:
+			return result.Val, nil
+		}
+	}
+}
+
 // vmEvalExpr compiles and runs an expression through the bytecode VM.
 // Returns (value, error). The value is nil if execution fails.
 func vmEvalExpr(t *testing.T, input string) (types.Value, error) {
@@ -47,7 +72,7 @@ func vmEvalExpr(t *testing.T, input string) (types.Value, error) {
 
 	vm := NewVM(nil, registry)
 	vm.Context = types.NewTaskContext()
-	return vm.Run(prog)
+	return vmRunToCompletion(vm, prog)
 }
 
 // treeEvalExpr evaluates an expression through the tree-walking Evaluator.
@@ -303,7 +328,7 @@ func vmEvalProgram(t *testing.T, code string) (types.Value, error) {
 
 	vm := NewVM(nil, registry)
 	vm.Context = types.NewTaskContext()
-	return vm.Run(prog)
+	return vmRunToCompletion(vm, prog)
 }
 
 // treeEvalProgram evaluates a MOO program through the tree-walking Evaluator.
@@ -1360,7 +1385,7 @@ func vmEvalProgramWithStore(t *testing.T, code string, store *db.Store) (types.V
 
 	v := NewVM(store, registry)
 	v.Context = types.NewTaskContext()
-	return v.Run(prog)
+	return vmRunToCompletion(v, prog)
 }
 
 // treeEvalProgramWithStore evaluates a MOO program through the tree-walker,
@@ -2159,13 +2184,13 @@ func TestParity_TickCountingInfiniteWhile(t *testing.T) {
 	vm := NewVM(nil, registry)
 	vm.TickLimit = 100 // Small limit for fast test
 	vm.Context = types.NewTaskContext()
-	_, vmErr := vm.Run(c.program)
+	runResult := vm.Run(c.program)
 
-	if vmErr == nil {
+	if runResult.Flow != types.FlowException {
 		t.Errorf("expected VM to hit tick limit on infinite while loop, but it succeeded")
 	}
-	if vmErr != nil && !containsAny(vmErr.Error(), "E_MAXREC", "tick limit") {
-		t.Errorf("expected tick limit error, got: %v", vmErr)
+	if runResult.Flow == types.FlowException && runResult.Error != types.E_MAXREC {
+		t.Errorf("expected E_MAXREC error, got: %v", runResult.Error)
 	}
 }
 
@@ -2194,9 +2219,9 @@ func TestParity_TickCountingInfiniteFor(t *testing.T) {
 	vm := NewVM(nil, registry)
 	vm.TickLimit = 50 // Very small limit
 	vm.Context = types.NewTaskContext()
-	_, vmErr := vm.Run(c.program)
+	runResult := vm.Run(c.program)
 
-	if vmErr == nil {
+	if runResult.Flow != types.FlowException {
 		t.Errorf("expected VM to hit tick limit on long for loop, but it succeeded")
 	}
 }
@@ -2281,15 +2306,15 @@ func TestCompileStatements(t *testing.T) {
 		// Run the program in a VM
 		vm := NewVM(nil, registry)
 		vm.Context = types.NewTaskContext()
-		result, err := vm.Run(prog)
-		if err != nil {
-			t.Fatalf("VM.Run error: %v", err)
+		runResult := vm.Run(prog)
+		if runResult.Flow == types.FlowException {
+			t.Fatalf("VM.Run error: %v", runResult.Error)
 		}
 
 		// Verify result is 3
 		expected := types.IntValue{Val: 3}
-		if !valuesEqual(result, expected) {
-			t.Errorf("expected %v, got %v", expected, result)
+		if !valuesEqual(runResult.Val, expected) {
+			t.Errorf("expected %v, got %v", expected, runResult.Val)
 		}
 
 		// Verify VarNames contains "x"
@@ -2322,14 +2347,14 @@ func TestCompileStatements(t *testing.T) {
 
 		vm := NewVM(nil, registry)
 		vm.Context = types.NewTaskContext()
-		result, err := vm.Run(prog)
-		if err != nil {
-			t.Fatalf("VM.Run error: %v", err)
+		runResult := vm.Run(prog)
+		if runResult.Flow == types.FlowException {
+			t.Fatalf("VM.Run error: %v", runResult.Error)
 		}
 
 		expected := types.IntValue{Val: 0}
-		if !valuesEqual(result, expected) {
-			t.Errorf("expected %v (implicit return 0), got %v", expected, result)
+		if !valuesEqual(runResult.Val, expected) {
+			t.Errorf("expected %v (implicit return 0), got %v", expected, runResult.Val)
 		}
 	})
 
@@ -2362,12 +2387,12 @@ func TestCompileStatements(t *testing.T) {
 		// Verify result
 		vm := NewVM(nil, registry)
 		vm.Context = types.NewTaskContext()
-		result, err := vm.Run(prog)
-		if err != nil {
-			t.Fatalf("VM.Run error: %v", err)
+		runResult := vm.Run(prog)
+		if runResult.Flow == types.FlowException {
+			t.Fatalf("VM.Run error: %v", runResult.Error)
 		}
-		if !valuesEqual(result, types.IntValue{Val: 3}) {
-			t.Errorf("expected 3, got %v", result)
+		if !valuesEqual(runResult.Val, types.IntValue{Val: 3}) {
+			t.Errorf("expected 3, got %v", runResult.Val)
 		}
 	})
 
@@ -2396,14 +2421,14 @@ func TestCompileStatements(t *testing.T) {
 
 		vm := NewVM(nil, registry)
 		vm.Context = types.NewTaskContext()
-		result, err := vm.Run(prog)
-		if err != nil {
-			t.Fatalf("VM.Run error: %v", err)
+		runResult := vm.Run(prog)
+		if runResult.Flow == types.FlowException {
+			t.Fatalf("VM.Run error: %v", runResult.Error)
 		}
 
 		// 1 + 3 + 5 = 9
-		if !valuesEqual(result, types.IntValue{Val: 9}) {
-			t.Errorf("expected 9, got %v", result)
+		if !valuesEqual(runResult.Val, types.IntValue{Val: 9}) {
+			t.Errorf("expected 9, got %v", runResult.Val)
 		}
 	})
 }
@@ -2432,12 +2457,12 @@ func TestCompileVerbBytecode(t *testing.T) {
 		// Run the program
 		vm := NewVM(nil, registry)
 		vm.Context = types.NewTaskContext()
-		result, err := vm.Run(prog)
-		if err != nil {
-			t.Fatalf("VM.Run error: %v", err)
+		runResult := vm.Run(prog)
+		if runResult.Flow == types.FlowException {
+			t.Fatalf("VM.Run error: %v", runResult.Error)
 		}
-		if !valuesEqual(result, types.IntValue{Val: 42}) {
-			t.Errorf("expected 42, got %v", result)
+		if !valuesEqual(runResult.Val, types.IntValue{Val: 42}) {
+			t.Errorf("expected 42, got %v", runResult.Val)
 		}
 	})
 
@@ -2487,12 +2512,12 @@ func TestCompileVerbBytecode(t *testing.T) {
 
 		vm := NewVM(nil, registry)
 		vm.Context = types.NewTaskContext()
-		result, err := vm.Run(prog)
-		if err != nil {
-			t.Fatalf("VM.Run error: %v", err)
+		runResult := vm.Run(prog)
+		if runResult.Flow == types.FlowException {
+			t.Fatalf("VM.Run error: %v", runResult.Error)
 		}
-		if !valuesEqual(result, types.IntValue{Val: 30}) {
-			t.Errorf("expected 30, got %v", result)
+		if !valuesEqual(runResult.Val, types.IntValue{Val: 30}) {
+			t.Errorf("expected 30, got %v", runResult.Val)
 		}
 	})
 }
@@ -3001,7 +3026,7 @@ func vmEvalProgramWithStoreAndCtx(t *testing.T, code string, store *db.Store, ct
 
 	v := NewVM(store, registry)
 	v.Context = ctx
-	return v.Run(prog)
+	return vmRunToCompletion(v, prog)
 }
 
 // treeEvalProgramWithStoreAndCtx evaluates a MOO program through the tree-walker,
@@ -3173,6 +3198,188 @@ func containsSubstr(s, sub string) bool {
 	return false
 }
 
+// --- VM.Run() returns types.Result tests ---
+
+func TestVMRunReturnsResult(t *testing.T) {
+	t.Run("FlowReturn_normal", func(t *testing.T) {
+		// return 42; → FlowReturn with value 42
+		p := parser.NewParser("return 42;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("Compile error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result := vm.Run(prog)
+
+		if result.Flow != types.FlowReturn {
+			t.Errorf("expected FlowReturn, got %v", result.Flow)
+		}
+		if !valuesEqual(result.Val, types.IntValue{Val: 42}) {
+			t.Errorf("expected 42, got %v", result.Val)
+		}
+	})
+
+	t.Run("FlowException_uncaught", func(t *testing.T) {
+		// 1/0 → FlowException with E_DIV
+		p := parser.NewParser("return 1 / 0;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("Compile error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result := vm.Run(prog)
+
+		if result.Flow != types.FlowException {
+			t.Errorf("expected FlowException, got %v", result.Flow)
+		}
+		if result.Error != types.E_DIV {
+			t.Errorf("expected E_DIV, got %v", result.Error)
+		}
+	})
+
+	t.Run("FlowSuspend_yields", func(t *testing.T) {
+		// suspend(0); return 1;
+		// First Run() should yield FlowSuspend.
+		// Then Resume() should return FlowReturn with value 1.
+		p := parser.NewParser("suspend(0); return 1;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("Compile error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		ctx := types.NewTaskContext()
+		// Create a minimal task for suspend() to work
+		tsk := task.NewTask(1, 0, 30000, 60.0)
+		ctx.Task = tsk
+		vm.Context = ctx
+
+		result := vm.Run(prog)
+
+		if result.Flow != types.FlowSuspend {
+			t.Fatalf("expected FlowSuspend, got %v (val=%v)", result.Flow, result.Val)
+		}
+
+		// Resume and check final result
+		result2 := vm.Resume()
+		if result2.Flow != types.FlowReturn {
+			t.Errorf("expected FlowReturn after resume, got %v", result2.Flow)
+		}
+		if !valuesEqual(result2.Val, types.IntValue{Val: 1}) {
+			t.Errorf("expected 1 after resume, got %v", result2.Val)
+		}
+	})
+
+	t.Run("FlowFork_yields", func(t *testing.T) {
+		// x = 0; fork (0) x = 1; endfork return x;
+		// First Run() should yield FlowFork with ForkInfo.
+		// Then SetForkResult(99) + Resume() should set x = 99 and return it.
+		p := parser.NewParser("x = 0; fork tid (0) x = 1; endfork return tid;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("Compile error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result := vm.Run(prog)
+
+		if result.Flow != types.FlowFork {
+			t.Fatalf("expected FlowFork, got %v (val=%v)", result.Flow, result.Val)
+		}
+		if result.ForkInfo == nil {
+			t.Fatal("expected ForkInfo to be set")
+		}
+		if result.ForkInfo.VarName != "tid" {
+			t.Errorf("expected VarName 'tid', got %q", result.ForkInfo.VarName)
+		}
+
+		// Set fork result (simulating scheduler assigning task ID 99)
+		vm.SetForkResult(99)
+
+		// Resume and check final result
+		result2 := vm.Resume()
+		if result2.Flow != types.FlowReturn {
+			t.Errorf("expected FlowReturn after resume, got %v", result2.Flow)
+		}
+		if !valuesEqual(result2.Val, types.IntValue{Val: 99}) {
+			t.Errorf("expected 99 (child task ID) after resume, got %v", result2.Val)
+		}
+	})
+
+	t.Run("FlowFork_anonymous", func(t *testing.T) {
+		// fork (0) x = 1; endfork return 42;
+		// Anonymous fork (no variable) should still yield FlowFork
+		p := parser.NewParser("fork (0) x = 1; endfork return 42;")
+		stmts, err := p.ParseProgram()
+		if err != nil {
+			t.Fatalf("Parse error: %v", err)
+		}
+
+		registry := newTestRegistry()
+		c := NewCompilerWithRegistry(registry)
+		prog, err := c.CompileStatements(stmts)
+		if err != nil {
+			t.Fatalf("Compile error: %v", err)
+		}
+
+		vm := NewVM(nil, registry)
+		vm.Context = types.NewTaskContext()
+		result := vm.Run(prog)
+
+		if result.Flow != types.FlowFork {
+			t.Fatalf("expected FlowFork, got %v", result.Flow)
+		}
+		if result.ForkInfo == nil {
+			t.Fatal("expected ForkInfo to be set")
+		}
+		if result.ForkInfo.VarName != "" {
+			t.Errorf("expected empty VarName for anonymous fork, got %q", result.ForkInfo.VarName)
+		}
+
+		// Resume (no SetForkResult needed for anonymous fork)
+		result2 := vm.Resume()
+		if result2.Flow != types.FlowReturn {
+			t.Errorf("expected FlowReturn after resume, got %v", result2.Flow)
+		}
+		if !valuesEqual(result2.Val, types.IntValue{Val: 42}) {
+			t.Errorf("expected 42 after resume, got %v", result2.Val)
+		}
+	})
+}
+
 // --- Line number tracking tests ---
 
 func TestLineInfoPopulated(t *testing.T) {
@@ -3218,12 +3425,12 @@ func TestLineInfoPopulated(t *testing.T) {
 	// Verify the program still produces the correct result
 	vm := NewVM(nil, registry)
 	vm.Context = types.NewTaskContext()
-	result, err := vm.Run(prog)
-	if err != nil {
-		t.Fatalf("Run error: %v", err)
+	runResult := vm.Run(prog)
+	if runResult.Flow == types.FlowException {
+		t.Fatalf("Run error: %v", runResult.Error)
 	}
-	if intVal, ok := result.(types.IntValue); !ok || intVal.Val != 3 {
-		t.Errorf("Expected 3, got %v", result)
+	if intVal, ok := runResult.Val.(types.IntValue); !ok || intVal.Val != 3 {
+		t.Errorf("Expected 3, got %v", runResult.Val)
 	}
 }
 
@@ -3245,17 +3452,20 @@ func TestErrorIncludesLineNumber(t *testing.T) {
 
 	vm := NewVM(nil, registry)
 	vm.Context = types.NewTaskContext()
-	_, err = vm.Run(prog)
-	if err == nil {
-		t.Fatal("Expected E_DIV error, got nil")
+	runResult := vm.Run(prog)
+	if runResult.Flow != types.FlowException {
+		t.Fatal("Expected E_DIV error, got normal result")
 	}
 
-	errMsg := err.Error()
-	// Verify error mentions E_DIV
-	if !strings.Contains(errMsg, "E_DIV") {
-		t.Errorf("Expected error to contain E_DIV, got: %s", errMsg)
+	// The error info is in runResult.Val (string) and runResult.Error (code)
+	if runResult.Error != types.E_DIV {
+		t.Errorf("Expected E_DIV error code, got: %v", runResult.Error)
 	}
 	// Verify error includes line 3 (where the division happens)
+	errMsg := ""
+	if sv, ok := runResult.Val.(types.StrValue); ok {
+		errMsg = sv.Value()
+	}
 	if !strings.Contains(errMsg, "line 3") {
 		t.Errorf("Expected error to mention 'line 3', got: %s", errMsg)
 	}
@@ -3546,14 +3756,14 @@ func TestParity_ThisValueRestoredAfterVerbCall(t *testing.T) {
 	v.Context = types.NewTaskContext()
 	v.Context.ThisValue = sentinel
 
-	result, vmErr := v.Run(c.program)
-	if vmErr != nil {
-		t.Fatalf("VM error: %v", vmErr)
+	runResult := v.Run(c.program)
+	if runResult.Flow == types.FlowException {
+		t.Fatalf("VM error: %v", runResult.Error)
 	}
 
 	// test_nested calls test_return which returns 42, then adds 1 -> 43
-	if !valuesEqual(result, types.NewInt(43)) {
-		t.Errorf("expected 43, got %v", result)
+	if !valuesEqual(runResult.Val, types.NewInt(43)) {
+		t.Errorf("expected 43, got %v", runResult.Val)
 	}
 
 	// After execution, ctx.ThisValue should be restored to our sentinel
@@ -3687,13 +3897,13 @@ func TestParity_CommandEnvVarsInVerbFrame(t *testing.T) {
 			v := NewVM(store, registry)
 			v.Context = ctx
 
-			result, vmErr := v.Run(c.program)
-			if vmErr != nil {
-				t.Fatalf("VM error: %v", vmErr)
+			runResult := v.Run(c.program)
+			if runResult.Flow == types.FlowException {
+				t.Fatalf("VM error: %v", runResult.Error)
 			}
 
-			if !valuesEqual(result, tt.expected) {
-				t.Errorf("got %v (%T), want %v (%T)", result, result, tt.expected, tt.expected)
+			if !valuesEqual(runResult.Val, tt.expected) {
+				t.Errorf("got %v (%T), want %v (%T)", runResult.Val, runResult.Val, tt.expected, tt.expected)
 			}
 		})
 	}
