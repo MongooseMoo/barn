@@ -18,6 +18,17 @@ func (e MooError) Error() string {
 	return fmt.Sprintf("E_%d", e.Code)
 }
 
+// VMException carries a structured exception value alongside an error code.
+// Used for propagating builtin raise() payloads into except variables.
+type VMException struct {
+	Code  types.ErrorCode
+	Value types.Value
+}
+
+func (e VMException) Error() string {
+	return e.Code.String()
+}
+
 // extractErrorCode parses an error code from an error message string.
 // Handles messages like "E_DIV: division by zero" or "E_TYPE: ..."
 func extractErrorCode(err error) types.ErrorCode {
@@ -231,6 +242,8 @@ func (vm *VM) executeLoop() types.Result {
 				var errCode types.ErrorCode
 				if mooErr, ok := err.(MooError); ok {
 					errCode = mooErr.Code
+				} else if vmErr, ok := err.(VMException); ok {
+					errCode = vmErr.Code
 				} else {
 					errCode = extractErrorCode(err)
 					if errCode == types.E_NONE {
@@ -319,7 +332,11 @@ func (vm *VM) Execute(op OpCode) error {
 	// Variable operations
 	case OP_GET_VAR:
 		idx := vm.ReadByte()
-		vm.Push(vm.CurrentFrame().Locals[idx])
+		val := vm.CurrentFrame().Locals[idx]
+		if _, unbound := val.(types.UnboundValue); unbound {
+			return MooError{Code: types.E_VARNF}
+		}
+		vm.Push(val)
 
 	case OP_SET_VAR:
 		idx := vm.ReadByte()
@@ -603,11 +620,22 @@ func (vm *VM) Return(value types.Value) {
 func (vm *VM) HandleError(err error) bool {
 	// Extract error code
 	errCode := types.E_NONE
-	if mooErr, ok := err.(MooError); ok {
+	var exceptionValue types.Value
+	if vmErr, ok := err.(VMException); ok {
+		errCode = vmErr.Code
+		exceptionValue = vmErr.Value
+	} else if mooErr, ok := err.(MooError); ok {
 		errCode = mooErr.Code
 	} else {
 		// Try to parse error code from error message (e.g. "E_DIV: division by zero")
 		errCode = extractErrorCode(err)
+	}
+	if exceptionValue == nil {
+		exceptionValue = types.NewList([]types.Value{
+			types.NewErr(errCode),
+			types.NewStr(errCode.Message()),
+			types.NewInt(0),
+		})
 	}
 
 	// Search through frames from top (current) to bottom (initial)
@@ -638,7 +666,7 @@ func (vm *VM) HandleError(err error) bool {
 
 				// Store error in variable if specified
 				if handler.VarIndex >= 0 {
-					frame.Locals[handler.VarIndex] = types.NewErr(errCode)
+					frame.Locals[handler.VarIndex] = exceptionValue
 				}
 
 				return true
@@ -781,6 +809,7 @@ func (vm *VM) executeFork() error {
 func (vm *VM) executeTryExcept() error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.ReadByte())
+	handlers := make([]Handler, numClauses)
 
 	for i := 0; i < numClauses; i++ {
 		numCodes := int(vm.ReadByte())
@@ -798,13 +827,18 @@ func (vm *VM) executeTryExcept() error {
 		frame.IP += 2
 		handlerIP := int(uint16(hi)<<8 | uint16(lo))
 
-		handler := Handler{
+		handlers[i] = Handler{
 			Type:      HandlerExcept,
 			HandlerIP: handlerIP,
 			Codes:     codes,
 			VarIndex:  varIndex,
 		}
-		frame.ExceptStack = append(frame.ExceptStack, handler)
+	}
+
+	// Push in reverse source order so reverse scan in HandleError honors
+	// "first matching except clause wins".
+	for i := numClauses - 1; i >= 0; i-- {
+		frame.ExceptStack = append(frame.ExceptStack, handlers[i])
 	}
 
 	return nil

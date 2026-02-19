@@ -319,11 +319,30 @@ func builtinRaise(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// For now, just return the error - message and value are TODO
-	// The FlowException flow type will cause the error to propagate
+	message := errVal.Code().Message()
+	if len(args) >= 2 {
+		msgVal, ok := args[1].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		message = msgVal.Value()
+	}
+
+	exceptionValue := types.Value(types.NewInt(0))
+	if len(args) == 3 {
+		exceptionValue = args[2]
+	}
+
+	exceptionList := types.NewList([]types.Value{
+		types.NewErr(errVal.Code()),
+		types.NewStr(message),
+		exceptionValue,
+	})
+
 	return types.Result{
 		Flow:  types.FlowException,
 		Error: errVal.Code(),
+		Val:   exceptionList,
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"barn/types"
 	"fmt"
 	"net"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -217,17 +216,19 @@ func builtinConnectedPlayers(ctx *types.TaskContext, args []types.Value) types.R
 		return types.Err(types.E_INVARG)
 	}
 
-	players := globalConnManager.ConnectedPlayers()
-	seen := make(map[types.ObjID]struct{}, len(players)+1)
-	for _, p := range players {
-		seen[p] = struct{}{}
-	}
+	players := make([]types.ObjID, 0, 8)
+	seen := make(map[types.ObjID]struct{}, 8)
 	if ctx != nil && ctx.Player > 0 {
-		if _, ok := seen[ctx.Player]; !ok {
-			players = append(players, ctx.Player)
-		}
+		seen[ctx.Player] = struct{}{}
+		players = append(players, ctx.Player)
 	}
-	sort.Slice(players, func(i, j int) bool { return players[i] < players[j] })
+	for _, p := range globalConnManager.ConnectedPlayers() {
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		players = append(players, p)
+	}
 
 	elements := make([]types.Value, 0, len(players))
 	for _, player := range players {
@@ -300,9 +301,9 @@ func builtinBootPlayer(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(0))
 }
 
-// switch_player(old_player, new_player) -> int.
+// switch_player(old_player, new_player [, silent]) -> int.
 func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 	if !ctx.IsWizard {
@@ -319,6 +320,11 @@ func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Resul
 	newPlayerVal, ok := args[1].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+	if len(args) == 3 {
+		if _, ok := args[2].(types.IntValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
 	}
 
 	if err := globalConnManager.SwitchPlayer(oldPlayerVal.ID(), newPlayerVal.ID()); err != nil {

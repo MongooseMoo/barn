@@ -35,6 +35,8 @@ const (
 // LoopContext tracks loop compilation state
 type LoopContext struct {
 	Label         string
+	ValueName     string
+	IndexName     string
 	BreakJumps    []int // Patch locations for break jumps (forward jumps past loop end)
 	ContinueJumps []int // Patch locations for continue jumps (forward jumps to increment)
 	ContinueIP    int   // Target IP for continue (0 = use ContinueJumps for forward patching)
@@ -337,9 +339,11 @@ func (c *Compiler) resolveVariable(name string) (int, bool) {
 
 // beginLoop starts a new loop context.
 // resultVar is the local slot that holds the loop's result value (from break expr or default 0).
-func (c *Compiler) beginLoop(label string, resultVar int) {
+func (c *Compiler) beginLoop(label string, resultVar int, valueName, indexName string) {
 	c.loops = append(c.loops, LoopContext{
 		Label:         label,
+		ValueName:     valueName,
+		IndexName:     indexName,
 		StartIP:       c.currentOffset(),
 		ContinueIP:    0, // 0 = not set yet; will use ContinueJumps for forward patching
 		BreakJumps:    make([]int, 0, 4),
@@ -377,6 +381,21 @@ func (c *Compiler) findLoop(label string) *LoopContext {
 	for i := len(c.loops) - 1; i >= 0; i-- {
 		if c.loops[i].Label == label {
 			return &c.loops[i]
+		}
+	}
+	return nil
+}
+
+// findLoopByTarget finds a loop by explicit label or by loop variable/index name.
+func (c *Compiler) findLoopByTarget(name string) *LoopContext {
+	if name == "" {
+		return c.currentLoop()
+	}
+
+	for i := len(c.loops) - 1; i >= 0; i-- {
+		loop := &c.loops[i]
+		if loop.Label == name || loop.ValueName == name || loop.IndexName == name {
+			return loop
 		}
 	}
 	return nil
@@ -692,6 +711,42 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		idx := c.declareVariable(target.Name)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(idx))
+	case *parser.ListExpr:
+		// Scatter-style assignment expression:
+		//   {a, b, c} = value
+		// Assignment expression result remains on stack (the RHS value).
+		names := make([]string, len(target.Elements))
+		for i, elem := range target.Elements {
+			id, ok := elem.(*parser.IdentifierExpr)
+			if !ok {
+				return fmt.Errorf("invalid assignment target: %T", target)
+			}
+			names[i] = id.Name
+		}
+
+		listVar := c.declareVariable(c.tempVar("scatter_assign_list"))
+		// Stack: [value, value_copy] -> store value_copy.
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(listVar))
+		// Stack: [value]
+
+		// Validate shape exactly matches required count.
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(listVar))
+		c.emit(OP_SCATTER)
+		c.emitByte(byte(len(names))) // required
+		c.emitByte(0)                // optional
+		c.emitByte(0)                // hasRest
+
+		for i, name := range names {
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(listVar))
+			c.emitConstant(types.IntValue{Val: int64(i + 1)})
+			c.emit(OP_INDEX)
+			idx := c.declareVariable(name)
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(idx))
+		}
 	case *parser.IndexExpr:
 		// Index assignment: coll[idx] = value  OR  nested: coll[i][j]... = value
 		// Walk the IndexExpr chain to find the base variable and collect indices
@@ -1584,9 +1639,13 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 			return err
 		}
 	} else {
-		// No default: push the captured error value
+		// No default: return the captured error code (first element of exception list).
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(errVarIdx))
+		if op, ok := MakeImmediateOpcode(1); ok {
+			c.emit(op)
+		}
+		c.emit(OP_INDEX)
 	}
 
 	// Patch end jump
@@ -1674,7 +1733,7 @@ func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
 	c.emitByte(byte(resultVar))
 
 	// Start loop
-	c.beginLoop(n.Label, resultVar)
+	c.beginLoop(n.Label, resultVar, "", "")
 	loopStart := c.currentOffset()
 	// For while loops, continue jumps back to condition check
 	c.currentLoop().ContinueIP = loopStart
@@ -1780,7 +1839,7 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	c.emitByte(byte(valueVar))
 
 	// Loop start
-	c.beginLoop(n.Label, resultVar)
+	c.beginLoop(n.Label, resultVar, n.Value, "")
 	loopStart := c.currentOffset()
 
 	// Condition: x <= end
@@ -1884,7 +1943,7 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	c.emitByte(byte(lenVar))
 
 	// Loop start
-	c.beginLoop(n.Label, resultVar)
+	c.beginLoop(n.Label, resultVar, n.Value, n.Index)
 	loopStart := c.currentOffset()
 
 	// Condition: idx <= len
@@ -1979,15 +2038,30 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 }
 
 func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
-	loop := c.findLoop(n.Label)
+	label := n.Label
+	valueExpr := n.Value
+
+	// "break ident;" is ambiguous between a loop target and a value expression.
+	// If a loop target (label/value/index name) with that identifier exists,
+	// treat it as a targeted break.
+	if label == "" && valueExpr != nil {
+		if ident, ok := valueExpr.(*parser.IdentifierExpr); ok {
+			if c.findLoopByTarget(ident.Name) != nil {
+				label = ident.Name
+				valueExpr = nil
+			}
+		}
+	}
+
+	loop := c.findLoopByTarget(label)
 	if loop == nil {
 		return fmt.Errorf("break outside of loop")
 	}
 
 	// If break has a value expression, compile it and store to loop result variable.
 	// Otherwise the result variable already holds the default (0).
-	if n.Value != nil {
-		if err := c.compileNode(n.Value); err != nil {
+	if valueExpr != nil {
+		if err := c.compileNode(valueExpr); err != nil {
 			return err
 		}
 		c.emit(OP_SET_VAR)
@@ -2001,7 +2075,12 @@ func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
 }
 
 func (c *Compiler) compileContinue(n *parser.ContinueStmt) error {
-	loop := c.findLoop(n.Label)
+	loop := c.findLoopByTarget(n.Label)
+	if loop == nil && n.Label != "" {
+		// "continue x;" where x is not a loop target is used as value-carrying continue
+		// in legacy code; treat it as an unlabeled continue.
+		loop = c.findLoopByTarget("")
+	}
 	if loop == nil {
 		return fmt.Errorf("continue outside of loop")
 	}
@@ -2262,41 +2341,40 @@ func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error
 func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 	// Scatter assignment: {a, ?b, @rest} = list
 	//
-	// Strategy:
-	//   1. Compile RHS and store in temp variable
-	//   2. Emit OP_SCATTER to validate type and length
-	//   3. For each target, emit index/default/range assignment using existing opcodes
-	//
-	// OP_SCATTER pops the list from stack, validates:
-	//   - Value is a list (E_TYPE if not)
-	//   - Length >= numRequired (E_ARGS if too few)
-	//   - If no @rest: length <= numRequired + numOptional (E_ARGS if too many)
-	// Then pushes nothing (list is accessed via temp var for assignments).
-
-	// Count required, optional, and rest targets
+	// Runtime strategy:
+	// 1. Validate list shape via OP_SCATTER.
+	// 2. Track two cursors (left/right) into the list.
+	// 3. Bind suffix targets (after @rest) from the right.
+	// 4. Bind prefix targets from the left.
+	// 5. Bind @rest to the remaining slice between left..right.
 	numRequired := 0
 	numOptional := 0
-	hasRest := false
-	for _, target := range n.Targets {
+	restIndex := -1
+	for i, target := range n.Targets {
 		if target.Rest {
-			hasRest = true
-		} else if target.Optional {
+			restIndex = i
+			continue
+		}
+		if target.Optional {
 			numOptional++
 		} else {
 			numRequired++
 		}
 	}
+	hasRest := restIndex >= 0
 
-	// Compile and store RHS in a temp variable
 	listVar := c.declareVariable(c.tempVar("scatter_list"))
+	lenVar := c.declareVariable(c.tempVar("scatter_len"))
+	leftVar := c.declareVariable(c.tempVar("scatter_left"))
+	rightVar := c.declareVariable(c.tempVar("scatter_right"))
+
 	if err := c.compileNode(n.Value); err != nil {
 		return err
 	}
-	c.emit(OP_DUP) // OP_SCATTER will pop one copy; temp var gets the other
+	c.emit(OP_DUP)
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(listVar))
 
-	// Emit OP_SCATTER for validation (pops the list from stack)
 	c.emit(OP_SCATTER)
 	c.emitByte(byte(numRequired))
 	c.emitByte(byte(numOptional))
@@ -2306,100 +2384,191 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 		c.emitByte(0)
 	}
 
-	// Now emit assignment code for each target
-	// elemIdx tracks the 1-based index into the list (matching tree-walker's elemIdx + 1)
-	elemIdx := 1
-	for _, target := range n.Targets {
+	// len = length(list)
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(listVar))
+	c.emit(OP_LENGTH)
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(lenVar))
+
+	// left = 1
+	if op, ok := MakeImmediateOpcode(1); ok {
+		c.emit(op)
+	}
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(leftVar))
+
+	// right = len
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(lenVar))
+	c.emit(OP_SET_VAR)
+	c.emitByte(byte(rightVar))
+
+	// countRequired returns number of required non-rest targets in [start, end].
+	countRequired := func(start, end int) int {
+		count := 0
+		for i := start; i <= end && i < len(n.Targets); i++ {
+			if i < 0 {
+				continue
+			}
+			target := n.Targets[i]
+			if !target.Rest && !target.Optional {
+				count++
+			}
+		}
+		return count
+	}
+
+	emitAssignFrom := func(targetVar, indexVar int) {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(listVar))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(indexVar))
+		c.emit(OP_INDEX)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(targetVar))
+	}
+
+	emitDec := func(varIdx int) {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(varIdx))
+		if op, ok := MakeImmediateOpcode(1); ok {
+			c.emit(op)
+		}
+		c.emit(OP_SUB)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(varIdx))
+	}
+
+	emitInc := func(varIdx int) {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(varIdx))
+		if op, ok := MakeImmediateOpcode(1); ok {
+			c.emit(op)
+		}
+		c.emit(OP_ADD)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(varIdx))
+	}
+
+	emitOptionalCondition := func(requiredReserve int) {
+		// (right - left + 1) > requiredReserve
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(rightVar))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(leftVar))
+		c.emit(OP_SUB)
+		if op, ok := MakeImmediateOpcode(1); ok {
+			c.emit(op)
+		}
+		c.emit(OP_ADD)
+		c.emitConstant(types.IntValue{Val: int64(requiredReserve)})
+		c.emit(OP_GT)
+	}
+
+	emitOptionalMissingValue := func(target parser.ScatterTarget, targetVar int) error {
+		if target.Default != nil {
+			if err := c.compileNode(target.Default); err != nil {
+				return err
+			}
+		} else {
+			c.emitConstant(types.UnboundValue{})
+		}
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(targetVar))
+		return nil
+	}
+
+	// Bind suffix targets from the right when @rest is present.
+	if hasRest {
+		for i := len(n.Targets) - 1; i > restIndex; i-- {
+			target := n.Targets[i]
+			if target.Rest {
+				continue
+			}
+			targetVar := c.declareVariable(target.Name)
+			if target.Optional {
+				requiredBefore := countRequired(0, i-1)
+				emitOptionalCondition(requiredBefore)
+				elseJump := c.emitJump(OP_JUMP_IF_FALSE)
+
+				emitAssignFrom(targetVar, rightVar)
+				emitDec(rightVar)
+				endJump := c.emitJump(OP_JUMP)
+
+				c.patchJump(elseJump)
+				if err := emitOptionalMissingValue(target, targetVar); err != nil {
+					return err
+				}
+				c.patchJump(endJump)
+			} else {
+				emitAssignFrom(targetVar, rightVar)
+				emitDec(rightVar)
+			}
+		}
+	}
+
+	// Bind prefix targets from the left.
+	prefixEnd := len(n.Targets) - 1
+	if hasRest {
+		prefixEnd = restIndex - 1
+	}
+	for i := 0; i <= prefixEnd; i++ {
+		target := n.Targets[i]
 		if target.Rest {
-			// Rest is handled after all other targets
 			continue
 		}
 
 		targetVar := c.declareVariable(target.Name)
-
 		if target.Optional {
-			// Optional target: check if list has enough elements
-			// if length(list) >= elemIdx then list[elemIdx] else default
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emit(OP_LENGTH)
-			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
-			c.emit(OP_GE) // length >= elemIdx?
+			requiredAfter := countRequired(i+1, prefixEnd)
+			emitOptionalCondition(requiredAfter)
 			elseJump := c.emitJump(OP_JUMP_IF_FALSE)
 
-			// Has value: list[elemIdx]
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
-			c.emit(OP_INDEX)
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(targetVar))
+			emitAssignFrom(targetVar, leftVar)
+			emitInc(leftVar)
 			endJump := c.emitJump(OP_JUMP)
 
-			// Default branch
 			c.patchJump(elseJump)
-			if target.Default != nil {
-				if err := c.compileNode(target.Default); err != nil {
-					return err
-				}
-			} else {
-				c.emitConstant(types.IntValue{Val: 0})
+			if err := emitOptionalMissingValue(target, targetVar); err != nil {
+				return err
 			}
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(targetVar))
-
 			c.patchJump(endJump)
 		} else {
-			// Required target: list[elemIdx]
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
-			c.emit(OP_INDEX)
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(targetVar))
+			emitAssignFrom(targetVar, leftVar)
+			emitInc(leftVar)
 		}
-
-		elemIdx++
 	}
 
-	// Handle @rest target
+	// Bind @rest to the remaining middle slice.
 	if hasRest {
-		for _, target := range n.Targets {
-			if !target.Rest {
-				continue
-			}
-			restVar := c.declareVariable(target.Name)
-			// if elemIdx > length(list): rest = {}
-			// else: rest = list[elemIdx..length(list)]
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emit(OP_LENGTH)
-			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
-			c.emit(OP_GE) // length >= elemIdx?
-			elseJump := c.emitJump(OP_JUMP_IF_FALSE)
+		restTarget := n.Targets[restIndex]
+		restVar := c.declareVariable(restTarget.Name)
 
-			// Has remaining elements: rest = list[elemIdx..length(list)]
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emitConstant(types.IntValue{Val: int64(elemIdx)})
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emit(OP_LENGTH)
-			c.emit(OP_RANGE)
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(restVar))
-			endJump := c.emitJump(OP_JUMP)
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(leftVar))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(rightVar))
+		c.emit(OP_LE)
+		elseJump := c.emitJump(OP_JUMP_IF_FALSE)
 
-			// No remaining elements: rest = {}
-			c.patchJump(elseJump)
-			c.emit(OP_MAKE_LIST)
-			c.emitByte(0) // empty list
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(restVar))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(listVar))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(leftVar))
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(rightVar))
+		c.emit(OP_RANGE)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(restVar))
+		endJump := c.emitJump(OP_JUMP)
 
-			c.patchJump(endJump)
-			break // only one @rest allowed
-		}
+		c.patchJump(elseJump)
+		c.emit(OP_MAKE_LIST)
+		c.emitByte(0)
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(restVar))
+		c.patchJump(endJump)
 	}
 
 	return nil

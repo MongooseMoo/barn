@@ -1174,9 +1174,9 @@ func (vm *VM) executeCallBuiltin() error {
 	result := vm.Builtins.CallByID(int(funcID), vm.Context, args)
 	if result.Flow == types.FlowException {
 		// Try to handle exception
-		mooErr := MooError{Code: result.Error}
-		if !vm.HandleError(mooErr) {
-			return mooErr
+		vmErr := VMException{Code: result.Error, Value: result.Val}
+		if !vm.HandleError(vmErr) {
+			return vmErr
 		}
 		return nil
 	}
