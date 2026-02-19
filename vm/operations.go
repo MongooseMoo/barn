@@ -1767,7 +1767,7 @@ func setLocalByName(frame *StackFrame, prog *Program, name string, value types.V
 //	obj
 //
 // Native frame push: compiles the verb to bytecode and pushes a new StackFrame.
-// Falls back to tree-walker delegation if bytecode compilation fails.
+// Returns a compile error if bytecode compilation fails.
 func (vm *VM) executeCallVerb() error {
 	verbNameIdx := vm.ReadByte()
 	argc := int(vm.ReadByte())
@@ -1864,8 +1864,7 @@ func (vm *VM) executeCallVerb() error {
 	// Try to compile verb to bytecode
 	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
 	if compileErr != nil {
-		// Fallback to tree-walker delegation for verbs the compiler can't handle
-		return vm.executeCallVerbTreeWalker(objID, verbName, args)
+		return fmt.Errorf("E_VERBNF: compile error in %s: %v", verbName, compileErr)
 	}
 
 	// --- Native frame push ---
@@ -1972,29 +1971,6 @@ func (vm *VM) executeCallVerb() error {
 	return nil
 }
 
-// executeCallVerbTreeWalker is the fallback path that delegates verb execution
-// to the tree-walker Evaluator. Used when bytecode compilation fails.
-func (vm *VM) executeCallVerbTreeWalker(objID types.ObjID, verbName string, args []types.Value) error {
-	evaluator := NewEvaluatorWithStore(vm.Store)
-
-	ctx := vm.Context
-	if ctx == nil {
-		ctx = types.NewTaskContext()
-	}
-
-	result := evaluator.CallVerb(objID, verbName, args, ctx)
-
-	if result.Flow == types.FlowException {
-		mooErr := MooError{Code: result.Error}
-		if !vm.HandleError(mooErr) {
-			return mooErr
-		}
-		return nil
-	}
-
-	vm.Push(result.Val)
-	return nil
-}
 
 // executePass handles OP_PASS: call the same verb on the parent object.
 //
@@ -2112,8 +2088,7 @@ func (vm *VM) executePass() error {
 	// Compile the parent verb to bytecode
 	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
 	if compileErr != nil {
-		// Fallback to tree-walker for the parent verb
-		return vm.executePassTreeWalker(frame, verbName, verbLoc, defObjID, passArgs)
+		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %v", verbName, compileErr)
 	}
 
 	// --- Native frame push ---
@@ -2188,40 +2163,6 @@ func (vm *VM) executePass() error {
 	vm.Frames = append(vm.Frames, newFrame)
 
 	// Return nil — Run() loop continues executing the new frame's bytecode
-	return nil
-}
-
-// executePassTreeWalker is the fallback path for pass() when bytecode compilation
-// of the parent verb fails. Delegates to the tree-walker Evaluator.
-func (vm *VM) executePassTreeWalker(frame *StackFrame, verbName string, verbLoc types.ObjID, defObjID types.ObjID, args []types.Value) error {
-	evaluator := NewEvaluatorWithStore(vm.Store)
-
-	ctx := vm.Context
-	if ctx == nil {
-		ctx = types.NewTaskContext()
-	}
-
-	// Set up context for the parent verb call
-	oldThis := ctx.ThisObj
-	oldVerb := ctx.Verb
-	ctx.ThisObj = frame.This
-	ctx.Verb = verbName
-
-	result := evaluator.CallVerb(defObjID, verbName, args, ctx)
-
-	// Restore context
-	ctx.ThisObj = oldThis
-	ctx.Verb = oldVerb
-
-	if result.Flow == types.FlowException {
-		mooErr := MooError{Code: result.Error}
-		if !vm.HandleError(mooErr) {
-			return mooErr
-		}
-		return nil
-	}
-
-	vm.Push(result.Val)
 	return nil
 }
 

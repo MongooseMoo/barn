@@ -19,6 +19,7 @@ type Compiler struct {
 	registry       *builtins.Registry   // Builtin function registry for name->ID resolution
 	indexContextVar int                 // Variable slot holding collection length for $ resolution (-1 = none)
 	lastLine       int                  // Last emitted line number for LineInfo deduplication
+	err            error                // First overflow/limit error; checked at Compile boundaries
 }
 
 // LoopContext tracks loop compilation state
@@ -72,6 +73,11 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 		return nil, err
 	}
 
+	// Check for accumulated overflow errors
+	if c.err != nil {
+		return nil, c.err
+	}
+
 	// If the node is a loop statement (which pushes its result), use OP_RETURN
 	// to return the loop value. Otherwise use implicit return 0.
 	if stmt, ok := node.(parser.Stmt); ok && isLoopStmt(stmt) {
@@ -107,6 +113,11 @@ func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 		last := stmts[len(stmts)-1]
 		if err := c.compileNode(last); err != nil {
 			return nil, err
+		}
+
+		// Check for accumulated overflow errors
+		if c.err != nil {
+			return nil, c.err
 		}
 
 		// If the last statement is a loop, it pushed its result onto the stack.
@@ -181,14 +192,17 @@ func (c *Compiler) emitShort(s uint16) {
 	c.program.Code = append(c.program.Code, byte(s>>8), byte(s))
 }
 
-// emitConstant adds a constant and emits OP_PUSH
+// emitConstant adds a constant and emits OP_PUSH.
+// If the constant pool overflows, c.err is set by addConstant.
 func (c *Compiler) emitConstant(v types.Value) {
 	idx := c.addConstant(v)
 	c.emit(OP_PUSH)
 	c.emitByte(byte(idx))
 }
 
-// addConstant adds a value to the constant pool (with deduplication)
+// addConstant adds a value to the constant pool (with deduplication).
+// If the constant pool exceeds 255 entries, sets c.err and returns 0
+// as a safe fallback index.
 func (c *Compiler) addConstant(v types.Value) int {
 	// Check if constant already exists
 	key := v.String()
@@ -196,8 +210,16 @@ func (c *Compiler) addConstant(v types.Value) int {
 		return idx
 	}
 
-	// Add new constant
+	// Check overflow before adding
 	idx := len(c.program.Constants)
+	if idx > 255 {
+		if c.err == nil {
+			c.err = fmt.Errorf("too many constants (max 255)")
+		}
+		return 0 // safe fallback; c.err will be checked at Compile boundary
+	}
+
+	// Add new constant
 	c.program.Constants = append(c.program.Constants, v)
 	c.constants[key] = idx
 	return idx
@@ -210,11 +232,15 @@ func (c *Compiler) emitJump(op OpCode) int {
 	return len(c.program.Code) - 2
 }
 
-// patchJump patches a jump instruction to jump to current location
+// patchJump patches a jump instruction to jump to current location.
+// If the jump offset exceeds 0xFFFF, sets c.err instead of panicking.
 func (c *Compiler) patchJump(offset int) {
 	jump := len(c.program.Code) - offset - 2
 	if jump > 0xFFFF {
-		panic("jump too large")
+		if c.err == nil {
+			c.err = fmt.Errorf("jump offset too large (max 65535, got %d)", jump)
+		}
+		return
 	}
 	c.program.Code[offset] = byte(jump >> 8)
 	c.program.Code[offset+1] = byte(jump)
@@ -257,15 +283,25 @@ func (c *Compiler) endScope() {
 	}
 }
 
-// declareVariable declares a variable in current scope
+// declareVariable declares a variable in current scope.
+// If the variable count exceeds 255 (the maximum addressable by a single byte),
+// sets c.err and returns 0 as a safe fallback index.
 func (c *Compiler) declareVariable(name string) int {
 	// Check if already exists in global variable table
 	if idx, ok := c.variables[name]; ok {
 		return idx
 	}
 
-	// Add to global variable table
+	// Check overflow before adding
 	idx := len(c.program.VarNames)
+	if idx > 255 {
+		if c.err == nil {
+			c.err = fmt.Errorf("too many local variables (max 255)")
+		}
+		return 0 // safe fallback; c.err will be checked at Compile boundary
+	}
+
+	// Add to global variable table
 	c.program.VarNames = append(c.program.VarNames, name)
 	c.variables[name] = idx
 
@@ -337,6 +373,11 @@ func (c *Compiler) findLoop(label string) *LoopContext {
 
 // compileNode dispatches compilation based on node type
 func (c *Compiler) compileNode(node parser.Node) error {
+	// Bail out early if an overflow error has been recorded
+	if c.err != nil {
+		return c.err
+	}
+
 	// Track source line for runtime error reporting
 	c.trackLine(node)
 
@@ -987,13 +1028,17 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 		return fmt.Errorf("unknown builtin function: %s", n.Name)
 	}
 
+	// Check builtin function ID overflow (emitted as single byte)
+	if funcID > 255 {
+		return fmt.Errorf("too many builtin functions (id %d exceeds max 255)", funcID)
+	}
+
 	// Check if any argument is a splice expression
-	hasSplice := false
-	for _, arg := range n.Args {
-		if _, ok := arg.(*parser.SpliceExpr); ok {
-			hasSplice = true
-			break
-		}
+	hasSplice := hasSpliceArgs(n.Args)
+
+	// Check argument count overflow (emitted as single byte, 0xFF reserved for splice)
+	if !hasSplice && len(n.Args) > 254 {
+		return fmt.Errorf("too many arguments (max 254)")
 	}
 
 	if hasSplice {
@@ -1157,12 +1202,11 @@ func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
 	}
 
 	// Check if any argument is a splice expression
-	hasSplice := false
-	for _, arg := range n.Args {
-		if _, ok := arg.(*parser.SpliceExpr); ok {
-			hasSplice = true
-			break
-		}
+	hasSplice := hasSpliceArgs(n.Args)
+
+	// Check argument count overflow (emitted as single byte, 0xFF reserved for splice)
+	if !hasSplice && len(n.Args) > 254 {
+		return fmt.Errorf("too many verb arguments (max 254)")
 	}
 
 	if hasSplice {
@@ -1437,6 +1481,16 @@ func (c *Compiler) compileFor(n *parser.ForStmt) error {
 func (c *Compiler) tempVar(prefix string) string {
 	c.tempCount++
 	return fmt.Sprintf("__%s_%d__", prefix, c.tempCount)
+}
+
+// hasSpliceArgs checks if any argument in a list is a splice expression.
+func hasSpliceArgs(args []parser.Expr) bool {
+	for _, arg := range args {
+		if _, ok := arg.(*parser.SpliceExpr); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // containsDollarMarker checks if an expression tree contains a $ index marker.
@@ -2196,6 +2250,10 @@ func (c *Compiler) compileList(n *parser.ListExpr) error {
 	}
 
 	if !hasSplice {
+		// Check element count overflow (emitted as single byte)
+		if len(n.Elements) > 255 {
+			return fmt.Errorf("too many list elements (max 255)")
+		}
 		// Fast path: no splices, use existing OP_MAKE_LIST
 		for _, elem := range n.Elements {
 			if err := c.compileNode(elem); err != nil {
@@ -2252,6 +2310,10 @@ func (c *Compiler) compileListRange(n *parser.ListRangeExpr) error {
 
 // compileMap compiles a map literal: [key -> value, ...]
 func (c *Compiler) compileMap(n *parser.MapExpr) error {
+	// Check pair count overflow (emitted as single byte)
+	if len(n.Pairs) > 255 {
+		return fmt.Errorf("too many map pairs (max 255)")
+	}
 	// Compile each key-value pair (in order)
 	for _, pair := range n.Pairs {
 		if err := c.compileNode(pair.Key); err != nil {
