@@ -11,77 +11,127 @@ func builtinLocateByName(ctx *types.TaskContext, args []types.Value, store *db.S
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	needle, ok := args[0].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	needleStr := strings.ToLower(strings.TrimSpace(needle.Value()))
+	needleStr := strings.TrimSpace(needle.Value())
 	if needleStr == "" {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	var ids []types.ObjID
+	caseSensitive := false
 	if len(args) == 2 {
-		list, ok := args[1].(types.ListValue)
+		cs, ok := args[1].(types.IntValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		for i := 1; i <= list.Len(); i++ {
-			obj, ok := list.Get(i).(types.ObjValue)
-			if !ok {
-				return types.Err(types.E_TYPE)
-			}
-			ids = append(ids, obj.ID())
-		}
-	} else {
-		for _, obj := range store.All() {
-			ids = append(ids, obj.ID)
-		}
+		caseSensitive = cs.Val != 0
+	}
+
+	searchNeedle := needleStr
+	if !caseSensitive {
+		searchNeedle = strings.ToLower(searchNeedle)
 	}
 
 	matches := make([]types.Value, 0)
-	for _, id := range ids {
-		obj := store.Get(id)
-		if obj == nil {
-			continue
+	for _, obj := range store.All() {
+		name := strings.TrimSpace(obj.Name)
+		if !caseSensitive {
+			name = strings.ToLower(name)
 		}
-		name := strings.ToLower(strings.TrimSpace(obj.Name))
-		if strings.HasPrefix(name, needleStr) {
-			matches = append(matches, types.NewObj(id))
+		if strings.Contains(name, searchNeedle) {
+			matches = append(matches, types.NewObj(obj.ID))
 		}
 	}
 	return types.Ok(types.NewList(matches))
 }
 
 func builtinLocations(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	switch v := args[0].(type) {
-	case types.ObjValue:
-		obj := store.Get(v.ID())
-		if obj == nil {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Ok(types.NewObj(obj.Location))
-	case types.ListValue:
-		out := make([]types.Value, 0, v.Len())
-		for i := 1; i <= v.Len(); i++ {
-			objVal, ok := v.Get(i).(types.ObjValue)
-			if !ok {
-				return types.Err(types.E_TYPE)
-			}
-			obj := store.Get(objVal.ID())
-			if obj == nil {
-				out = append(out, types.NewObj(types.ObjNothing))
-				continue
-			}
-			out = append(out, types.NewObj(obj.Location))
-		}
-		return types.Ok(types.NewList(out))
-	default:
+
+	objVal, ok := args[0].(types.ObjValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	obj := store.Get(objVal.ID())
+	if obj == nil {
+		return types.Err(types.E_INVIND)
+	}
+
+	var (
+		baseID      types.ObjID
+		hasBase     bool
+		checkParent bool
+	)
+	if len(args) >= 2 {
+		baseVal, ok := args[1].(types.ObjValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		baseID = baseVal.ID()
+		hasBase = true
+	}
+	if len(args) == 3 {
+		flag, ok := args[2].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		checkParent = flag.Val != 0
+	}
+
+	out := make([]types.Value, 0)
+	current := obj
+	for current != nil && current.Location != types.ObjNothing {
+		locID := current.Location
+
+		if hasBase {
+			if !checkParent && locID == baseID {
+				break
+			}
+			if checkParent && objectHasAncestor(store, locID, baseID) {
+				break
+			}
+		}
+
+		out = append(out, types.NewObj(locID))
+		current = store.Get(locID)
+	}
+
+	return types.Ok(types.NewList(out))
+}
+
+func objectHasAncestor(store *db.Store, objID, ancestorID types.ObjID) bool {
+	if objID == ancestorID {
+		return true
+	}
+	obj := store.Get(objID)
+	if obj == nil {
+		return false
+	}
+	visited := map[types.ObjID]bool{}
+	queue := append([]types.ObjID{}, obj.Parents...)
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if visited[id] {
+			continue
+		}
+		visited[id] = true
+		if id == ancestorID {
+			return true
+		}
+		parent := store.Get(id)
+		if parent != nil {
+			queue = append(queue, parent.Parents...)
+		}
+	}
+	return false
 }
 
 func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
@@ -91,6 +141,9 @@ func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value, store *db.S
 	owner, ok := args[0].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+	if !store.Valid(owner.ID()) {
+		return types.Err(types.E_INVIND)
 	}
 	out := make([]types.Value, 0)
 	for _, obj := range store.All() {
@@ -119,16 +172,32 @@ func builtinRecycledObjects(ctx *types.TaskContext, args []types.Value, store *d
 }
 
 func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
-	if len(args) != 0 {
+	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
+
+	start := types.ObjID(-1)
+	if len(args) == 1 {
+		startVal, ok := args[0].(types.ObjValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		start = startVal.ID()
+		if start == types.ObjNothing {
+			return types.Err(types.E_INVARG)
+		}
+		if start > store.MaxObject() {
+			return types.Err(types.E_INVARG)
+		}
+	}
+
 	upper := store.NextID()
-	for id := types.ObjID(0); id < upper; id++ {
+	for id := start + 1; id < upper; id++ {
 		if store.IsRecycled(id) {
 			return types.Ok(types.NewObj(id))
 		}
 	}
-	return types.Ok(types.NewObj(types.ObjNothing))
+	return types.Ok(types.NewInt(0))
 }
 
 func builtinRecreate(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {

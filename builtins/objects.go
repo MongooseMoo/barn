@@ -1372,10 +1372,15 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		return types.Err(types.E_TYPE)
 	}
 
-	// Validate all items are objects (but allow invalid/recycled - they'll be skipped)
+	// Validate all items are valid objects.
 	for i := 1; i <= objectList.Len(); i++ {
 		item := objectList.Get(i)
-		if _, ok := item.(types.ObjValue); !ok {
+		objVal, ok := item.(types.ObjValue)
+		if !ok {
+			return types.Err(types.E_INVARG)
+		}
+		obj := store.Get(objVal.ID())
+		if obj == nil || obj.Recycled {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -1454,7 +1459,7 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		objVal := item.(types.ObjValue) // Already validated
 		objID := objVal.ID()
 
-		// Skip invalid objects (already validated, but check in case of recycling)
+		// Skip objects that became invalid during this call.
 		obj := store.Get(objID)
 		if obj == nil || obj.Recycled {
 			continue
@@ -1500,10 +1505,13 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	if objVal.ID() == types.ObjNothing {
+		return types.Err(types.E_INVARG)
+	}
 
 	obj := store.Get(objVal.ID())
 	if obj == nil {
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot be players - E_TYPE per MOO spec
@@ -1534,18 +1542,22 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	if objVal.ID() == types.ObjNothing {
+		return types.Err(types.E_INVARG)
+	}
 
 	obj := store.Get(objVal.ID())
 	if obj == nil {
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot have player flag set - E_TYPE per MOO spec
 	if obj.Anonymous {
 		return types.Err(types.E_TYPE)
 	}
-
-	// TODO: Check wizard permissions (Layer 8.5)
 
 	// Set or clear the player flag
 	if args[1].Truthy() {
@@ -1782,6 +1794,9 @@ func builtinObjectBytes(ctx *types.TaskContext, args []types.Value, store *db.St
 
 	// Check if object is valid (not recycled)
 	objID := objVal.ID()
+	if objID == types.ObjNothing {
+		return types.Err(types.E_INVIND)
+	}
 	if !store.Valid(objID) {
 		// Check if recycled vs never existed
 		if store.IsRecycled(objID) {
