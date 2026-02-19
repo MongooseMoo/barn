@@ -658,6 +658,15 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 
 	result := bcVM.Run(prog)
 
+	// Handle fork: create child task, set fork variable, resume parent
+	for result.Flow == types.FlowFork {
+		if t.ForkCreator != nil && result.ForkInfo != nil {
+			childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
+			bcVM.SetForkResult(childID)
+		}
+		result = bcVM.Resume()
+	}
+
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}
 	// Runtime error: {2, {E_TYPE, "message", value}}
