@@ -118,6 +118,7 @@ func (vm *VM) Run(prog *Program) types.Result {
 
 	vm.Frames = append(vm.Frames, frame)
 	vm.FP = 0
+	vm.syncContextTicks()
 
 	return vm.executeLoop()
 }
@@ -134,8 +135,20 @@ func (vm *VM) RunWithVerbContext(prog *Program, thisObj types.ObjID, player type
 	setLocalByName(frame, prog, "caller", types.NewObj(caller))
 	setLocalByName(frame, prog, "verb", types.NewStr(verbName))
 	setLocalByName(frame, prog, "args", types.NewList(args))
+	vm.syncContextTicks()
 
 	return vm.executeLoop()
+}
+
+func (vm *VM) syncContextTicks() {
+	if vm.Context == nil {
+		return
+	}
+	left := vm.TickLimit - vm.Ticks
+	if left < 0 {
+		left = 0
+	}
+	vm.Context.TicksRemaining = left
 }
 
 // PrepareVerbFrame creates and pushes an initial frame for a verb without starting
@@ -276,6 +289,7 @@ func (vm *VM) Step() error {
 	// Count ticks for expensive operations
 	if CountsTick(op) {
 		vm.Ticks++
+		vm.syncContextTicks()
 	}
 
 	return vm.Execute(op)

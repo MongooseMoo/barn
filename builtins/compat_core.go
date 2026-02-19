@@ -95,13 +95,7 @@ func builtinCallFunction(ctx *types.TaskContext, args []types.Value, r *Registry
 	if !found {
 		return types.Err(types.E_INVARG)
 	}
-	callArgs := args[1:]
-	if len(args) == 2 {
-		if l, isList := args[1].(types.ListValue); isList {
-			callArgs = l.Elements()
-		}
-	}
-	return fn(ctx, callArgs)
+	return fn(ctx, args[1:])
 }
 
 func builtinTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -115,28 +109,68 @@ func builtinQueueInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
-	mgr := task.GetManager()
+
 	if len(args) == 0 {
-		info := types.NewMap([][2]types.Value{
-			{types.NewStr("queued"), types.NewInt(int64(len(mgr.GetQueuedTasks())))},
-			{types.NewStr("total"), types.NewInt(int64(len(mgr.GetAllTasks())))},
-		})
-		return types.Ok(info)
+		if !ctx.IsWizard {
+			return types.Err(types.E_PERM)
+		}
+		players := []types.ObjID{}
+		seen := map[types.ObjID]struct{}{}
+		if ctx.Player > 0 {
+			seen[ctx.Player] = struct{}{}
+			players = append(players, ctx.Player)
+		}
+		if globalConnManager != nil {
+			for _, p := range globalConnManager.ConnectedPlayers() {
+				if _, ok := seen[p]; ok {
+					continue
+				}
+				seen[p] = struct{}{}
+				players = append(players, p)
+			}
+		}
+		out := make([]types.Value, 0, len(players))
+		for _, p := range players {
+			out = append(out, types.NewObj(p))
+		}
+		return types.Ok(types.NewList(out))
 	}
-	id, ok := args[0].(types.IntValue)
+
+	target, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	t := mgr.GetTask(id.Val)
-	if t == nil {
-		return types.Err(types.E_INVARG)
+
+	if !ctx.IsWizard {
+		if target != ctx.Player {
+			return types.Err(types.E_PERM)
+		}
+		return types.Ok(types.NewInt(countBackgroundTasksFor(target)))
 	}
-	info := types.NewMap([][2]types.Value{
-		{types.NewStr("id"), types.NewInt(t.ID)},
-		{types.NewStr("owner"), types.NewObj(t.Owner)},
-		{types.NewStr("state"), types.NewStr(t.GetState().String())},
-	})
-	return types.Ok(info)
+
+	connected := 0
+	if resolveConnection(ctx, target) != nil {
+		connected = 1
+	} else if target != ctx.Player {
+		// Toast behavior for wizard querying non-connected/nonexistent player.
+		return types.Ok(types.NewInt(0))
+	}
+
+	return types.Ok(types.NewMap([][2]types.Value{
+		{types.NewStr("player"), types.NewObj(target)},
+		{types.NewStr("connected"), types.NewInt(int64(connected))},
+		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(target))},
+	}))
+}
+
+func countBackgroundTasksFor(player types.ObjID) int64 {
+	count := int64(0)
+	for _, t := range task.GetManager().GetQueuedTasks() {
+		if t.Owner == player {
+			count++
+		}
+	}
+	return count
 }
 
 func builtinFinishedTasks(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -288,13 +322,15 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFlushInput(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) > 1 {
+	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if len(args) == 1 {
-		if _, ok := args[0].(types.ObjValue); !ok {
-			return types.Err(types.E_TYPE)
-		}
+	target, ok := args[0].(types.ObjValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	if !ctx.IsWizard && target.ID() != ctx.Player {
+		return types.Err(types.E_PERM)
 	}
 	return types.Ok(types.NewInt(0))
 }
@@ -303,11 +339,15 @@ func builtinForceInput(ctx *types.TaskContext, args []types.Value) types.Result 
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	if _, ok := args[0].(types.ObjValue); !ok {
+	target, ok := args[0].(types.ObjValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	if _, ok := args[1].(types.StrValue); !ok {
 		return types.Err(types.E_TYPE)
+	}
+	if !ctx.IsWizard && target.ID() != ctx.Player {
+		return types.Err(types.E_PERM)
 	}
 	return types.Ok(types.NewInt(0))
 }

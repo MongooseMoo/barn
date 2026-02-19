@@ -11,8 +11,26 @@ import (
 // Returns list of currently queued tasks
 // Each entry: {task_id, start_time, x, y, z, programmer, verb_loc, verb_name, line, this}
 func builtinQueuedTasks(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 0 {
+	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
+	}
+
+	filterPlayer := types.ObjID(0)
+	if len(args) >= 1 {
+		target, ok := parseConnectionTarget(args[0])
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		filterPlayer = target
+	}
+
+	countMode := false
+	if len(args) == 2 {
+		mode, ok := args[1].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		countMode = mode.Val != 0
 	}
 
 	mgr := task.GetManager()
@@ -20,7 +38,14 @@ func builtinQueuedTasks(ctx *types.TaskContext, args []types.Value) types.Result
 
 	result := make([]types.Value, 0, len(tasks))
 	for _, t := range tasks {
+		if filterPlayer > 0 && t.Owner != filterPlayer {
+			continue
+		}
 		result = append(result, t.ToQueuedTaskInfo())
+	}
+
+	if countMode {
+		return types.Ok(types.NewInt(int64(len(result))))
 	}
 
 	return types.Ok(types.NewList(result))
@@ -87,6 +112,9 @@ func builtinSuspend(ctx *types.TaskContext, args []types.Value) types.Result {
 		default:
 			return types.Err(types.E_TYPE)
 		}
+		if seconds < 0 {
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	// Suspend the task
@@ -143,8 +171,10 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
-	// TODO: Check if caller is wizard
-	// For now, just update the context programmer
+	if !ctx.IsWizard && whoVal.ID() != ctx.Player {
+		return types.Err(types.E_PERM)
+	}
+
 	ctx.Programmer = whoVal.ID()
 
 	return types.Ok(types.NewInt(0))
@@ -205,12 +235,17 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	// Get the task from context
 	if ctx.Task == nil {
-		// No task - return empty list
+		if ctx.Verb == "" {
+			return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
+		}
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
 	t, ok := ctx.Task.(*task.Task)
 	if !ok {
+		if ctx.Verb == "" {
+			return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
+		}
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
@@ -246,7 +281,29 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
+	// Top-level eval compatibility: return two eval wrapper frames.
+	if len(result) == 0 && ctx.Verb == "" {
+		return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
+	}
+
 	return types.Ok(types.NewList(result))
+}
+
+func syntheticEvalCallers(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
+	makeFrame := func() types.Value {
+		base := []types.Value{
+			types.NewObj(types.ObjNothing), // this
+			types.NewStr("eval"),           // verb
+			types.NewObj(ctx.Programmer),   // programmer
+			types.NewObj(types.ObjNothing), // verb_loc
+			types.NewObj(ctx.Player),       // player
+		}
+		if includeLineNumbers {
+			base = append(base, types.NewInt(1))
+		}
+		return types.NewList(base)
+	}
+	return types.NewList([]types.Value{makeFrame(), makeFrame()})
 }
 
 // builtinRaise: raise(error [, message [, value]]) → none

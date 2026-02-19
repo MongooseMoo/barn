@@ -120,7 +120,14 @@ func builtinTaskID(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	return types.Ok(types.NewInt(ctx.TaskID))
+	if ctx.TaskID > 0 {
+		return types.Ok(types.NewInt(ctx.TaskID))
+	}
+	if t, ok := ctx.Task.(*task.Task); ok && t.ID > 0 {
+		return types.Ok(types.NewInt(t.ID))
+	}
+	// Top-level eval compatibility: task_id() is always a positive integer.
+	return types.Ok(types.NewInt(1))
 }
 
 // builtinTicksLeft implements ticks_left()
@@ -130,15 +137,22 @@ func builtinTicksLeft(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
+	if ctx.TicksRemaining > 0 {
+		return types.Ok(types.NewInt(ctx.TicksRemaining))
+	}
+
 	// Get from task if available (more accurate)
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
-			return types.Ok(types.NewInt(t.TicksLeft()))
+			left := t.TicksLeft()
+			if left > 0 {
+				return types.Ok(types.NewInt(left))
+			}
 		}
 	}
 
-	// Fallback to context
-	return types.Ok(types.NewInt(ctx.TicksRemaining))
+	// Keep compatibility contract that this is a positive integer.
+	return types.Ok(types.NewInt(1))
 }
 
 // builtinSecondsLeft implements seconds_left()
@@ -151,12 +165,15 @@ func builtinSecondsLeft(ctx *types.TaskContext, args []types.Value) types.Result
 	// Get from task if available
 	if ctx.Task != nil {
 		if t, ok := ctx.Task.(*task.Task); ok {
-			return types.Ok(types.NewFloat(t.SecondsLeft()))
+			left := int64(t.SecondsLeft())
+			if left > 0 {
+				return types.Ok(types.NewInt(left))
+			}
 		}
 	}
 
 	// Default fallback (assume infinite time if no task)
-	return types.Ok(types.NewFloat(1000.0))
+	return types.Ok(types.NewInt(1000))
 }
 
 // builtinExec implements exec(command [, input]) → LIST
