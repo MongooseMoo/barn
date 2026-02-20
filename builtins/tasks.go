@@ -254,15 +254,12 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Get the call stack
 	stack := t.GetCallStack()
 
-	// callers() returns the call stack EXCLUDING the current frame
-	// The current frame is the top of the stack (last element)
-	// So we skip the last frame and return all others (except server-initiated)
+	// callers() returns the call stack EXCLUDING the current frame,
+	// ordered most-recent-first (immediate caller first).
+	// The current frame is the top of the stack (last element).
 	result := make([]types.Value, 0, len(stack))
-	for i, frame := range stack {
-		// Skip the last frame (current frame - the one calling callers())
-		if i == len(stack)-1 {
-			continue
-		}
+	for i := len(stack) - 2; i >= 0; i-- {
+		frame := stack[i]
 
 		// Skip server-initiated frames (do_login_command, user_connected, etc.)
 		if frame.ServerInitiated {
@@ -273,11 +270,10 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 			result = append(result, frame.ToList())
 		} else {
 			// Omit line number (last element)
-			// ListValue.Get() is 1-based, so we get elements 1 through Len()-1
 			frameList := frame.ToList().(types.ListValue)
 			truncated := make([]types.Value, frameList.Len()-1)
-			for i := 0; i < frameList.Len()-1; i++ {
-				truncated[i] = frameList.Get(i + 1) // 1-based indexing
+			for j := 0; j < frameList.Len()-1; j++ {
+				truncated[j] = frameList.Get(j + 1) // 1-based indexing
 			}
 			result = append(result, types.NewList(truncated))
 		}
@@ -373,6 +369,11 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	taskID := taskIDVal.Val
 
+	// task_stack on the currently running task is invalid (task must be suspended)
+	if taskID == ctx.TaskID {
+		return types.Err(types.E_INVARG)
+	}
+
 	// Get the task from manager
 	mgr := task.GetManager()
 	t := mgr.GetTask(taskID)
@@ -388,22 +389,19 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Get call stack
 	callStack := t.GetCallStack()
 
-	// Convert to list of maps
+	// Convert to list of lists: {this, verb_name, programmer, verb_loc, player [, line]}
 	result := make([]types.Value, 0, len(callStack))
 	for _, frame := range callStack {
 		if includeLineNumbers {
-			result = append(result, frame.ToMap())
+			result = append(result, frame.ToList())
 		} else {
-			// Omit line_number from map
-			// Note: 'this' is always an object ID (#-1 for primitives, matching Toast)
-			frameMap := types.NewMap([][2]types.Value{
-				{types.NewStr("this"), types.NewObj(frame.This)},
-				{types.NewStr("verb"), types.NewStr(frame.Verb)},
-				{types.NewStr("programmer"), types.NewObj(frame.Programmer)},
-				{types.NewStr("verb_loc"), types.NewObj(frame.VerbLoc)},
-				{types.NewStr("player"), types.NewObj(frame.Player)},
-			})
-			result = append(result, frameMap)
+			// Omit line number (6th element) → 5-element list
+			frameList := frame.ToList().(types.ListValue)
+			truncated := make([]types.Value, frameList.Len()-1)
+			for j := 0; j < frameList.Len()-1; j++ {
+				truncated[j] = frameList.Get(j + 1)
+			}
+			result = append(result, types.NewList(truncated))
 		}
 	}
 

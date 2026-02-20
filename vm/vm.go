@@ -4,8 +4,10 @@ import (
 	"barn/builtins"
 	"barn/db"
 	"barn/task"
+	"barn/trace"
 	"barn/types"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -83,10 +85,12 @@ type StackFrame struct {
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
-	IsVerbCall     bool        // True if this frame was pushed by executeCallVerb
-	SavedThisObj   types.ObjID // ctx.ThisObj before verb call
-	SavedThisValue types.Value // ctx.ThisValue before verb call
-	SavedVerb      string      // ctx.Verb before verb call
+	IsVerbCall      bool        // True if this frame was pushed by executeCallVerb
+	SavedThisObj    types.ObjID // ctx.ThisObj before verb call
+	SavedThisValue  types.Value // ctx.ThisValue before verb call
+	SavedVerb       string      // ctx.Verb before verb call
+	SavedProgrammer types.ObjID // ctx.Programmer before verb call
+	SavedIsWizard   bool        // ctx.IsWizard before verb call
 }
 
 // NewVM creates a new virtual machine
@@ -236,6 +240,17 @@ func (vm *VM) executeLoop() types.Result {
 		if err := vm.Step(); err != nil {
 			// Capture line number before HandleError may pop frames
 			line := vm.CurrentLine()
+			// Snapshot activation stack before unwind so callers can inspect
+			// the full trace on uncaught exceptions.
+			var stackSnapshot interface{}
+			vmStack := vm.snapshotActivationFrames(line)
+			if len(vmStack) > 0 {
+				stackSnapshot = vmStack
+			} else if vm.Context != nil && vm.Context.Task != nil {
+				if t, ok := vm.Context.Task.(*task.Task); ok {
+					stackSnapshot = t.GetCallStack()
+				}
+			}
 			// Handle error
 			if !vm.HandleError(err) {
 				// Extract error code, preferring the typed MooError
@@ -251,9 +266,10 @@ func (vm *VM) executeLoop() types.Result {
 					}
 				}
 				return types.Result{
-					Flow:  types.FlowException,
-					Error: errCode,
-					Val:   types.NewStr(vm.annotateError(err, line).Error()),
+					Flow:      types.FlowException,
+					Error:     errCode,
+					Val:       types.NewStr(vm.annotateError(err, line).Error()),
+					CallStack: stackSnapshot,
 				}
 			}
 		}
@@ -281,6 +297,105 @@ func (vm *VM) executeLoop() types.Result {
 	}
 
 	return types.Result{Flow: types.FlowReturn, Val: types.IntValue{Val: 0}}
+}
+
+// syncTaskLineNumbers updates the task's CallStack line numbers from the VM's
+// current frame IPs.  This must be called before any code that reads
+// task.CallStack line numbers (callers(), task_stack(), traceback building).
+func (vm *VM) syncTaskLineNumbers() {
+	if vm.Context == nil || vm.Context.Task == nil {
+		return
+	}
+	t, ok := vm.Context.Task.(*task.Task)
+	if !ok {
+		return
+	}
+
+	// VM verb-call frames map 1:1 to task CallStack entries (the initial
+	// eval frame has IsVerbCall=false and is not in the task CallStack).
+	var lineNumbers []int
+	for _, frame := range vm.Frames {
+		if !frame.IsVerbCall {
+			continue
+		}
+		line := 1
+		if frame.Program != nil {
+			ip := frame.IP - 1
+			if ip < 0 {
+				ip = 0
+			}
+			line = frame.Program.LineForIP(ip)
+		}
+		if line < 1 {
+			line = 1
+		}
+		lineNumbers = append(lineNumbers, line)
+	}
+	t.UpdateCallStackLineNumbers(lineNumbers)
+}
+
+// buildTraceback returns a MOO list of stack frames suitable for the 4th
+// element of a caught exception value.  Frames are ordered innermost-first
+// (the verb where the error occurred comes first).  Only real verb frames
+// are included — eval infrastructure is excluded.
+func (vm *VM) buildTraceback() types.Value {
+	if vm.Context == nil || vm.Context.Task == nil {
+		return types.NewList([]types.Value{})
+	}
+	t, ok := vm.Context.Task.(*task.Task)
+	if !ok {
+		return types.NewList([]types.Value{})
+	}
+
+	stack := t.GetCallStack()
+	frames := make([]types.Value, 0, len(stack))
+	for i := len(stack) - 1; i >= 0; i-- {
+		f := stack[i]
+		if f.ServerInitiated {
+			continue
+		}
+		frames = append(frames, f.ToList())
+	}
+	return types.NewList(frames)
+}
+
+// snapshotActivationFrames captures the current VM call chain as activation
+// frames for traceback formatting.
+func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
+	if len(vm.Frames) == 0 {
+		return nil
+	}
+
+	stack := make([]task.ActivationFrame, 0, len(vm.Frames))
+	for i, frame := range vm.Frames {
+		line := 1
+		if i == len(vm.Frames)-1 {
+			line = topLine
+		} else if frame.Program != nil {
+			// For caller frames, IP points at the next instruction to execute.
+			// Use IP-1 so traceback lines point at the call site that led here.
+			ip := frame.IP - 1
+			if ip < 0 {
+				ip = 0
+			}
+			line = frame.Program.LineForIP(ip)
+		}
+
+		stack = append(stack, task.ActivationFrame{
+			This:       frame.This,
+			ThisValue:  nil,
+			Player:     frame.Player,
+			Programmer: types.ObjNothing,
+			Caller:     frame.Caller,
+			Verb:       frame.Verb,
+			VerbLoc:    frame.VerbLoc,
+			Args:       frame.Args,
+			LineNumber: line,
+			SourceLine: vm.sourceLineForFrame(frame, line),
+		})
+	}
+
+	return stack
 }
 
 // Step executes a single instruction
@@ -530,6 +645,16 @@ func (vm *VM) annotateError(err error, line int) error {
 	return err
 }
 
+func (vm *VM) sourceLineForFrame(frame *StackFrame, line int) string {
+	if frame == nil || frame.Program == nil || line <= 0 {
+		return ""
+	}
+	if line > len(frame.Program.Source) {
+		return ""
+	}
+	return strings.TrimSpace(frame.Program.Source[line-1])
+}
+
 // Push pushes a value onto the stack
 func (vm *VM) Push(v types.Value) {
 	if vm.SP >= len(vm.Stack) {
@@ -596,9 +721,12 @@ func (vm *VM) Return(value types.Value) {
 
 	// If this was a verb-call frame, restore context and pop activation frame
 	if frame.IsVerbCall && vm.Context != nil {
+		trace.VerbReturn(frame.This, frame.Verb, value)
 		vm.Context.ThisObj = frame.SavedThisObj
 		vm.Context.ThisValue = frame.SavedThisValue
 		vm.Context.Verb = frame.SavedVerb
+		vm.Context.Programmer = frame.SavedProgrammer
+		vm.Context.IsWizard = frame.SavedIsWizard
 
 		// Pop activation frame from task call stack
 		if vm.Context.Task != nil {
@@ -630,12 +758,31 @@ func (vm *VM) HandleError(err error) bool {
 		// Try to parse error code from error message (e.g. "E_DIV: division by zero")
 		errCode = extractErrorCode(err)
 	}
+
+	// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
+	// the traceback contains accurate call-site lines.
+	vm.syncTaskLineNumbers()
+	traceback := vm.buildTraceback()
+
+	// Build or augment the 4-element exception value: {code, message, value, traceback}
 	if exceptionValue == nil {
 		exceptionValue = types.NewList([]types.Value{
 			types.NewErr(errCode),
 			types.NewStr(errCode.Message()),
 			types.NewInt(0),
+			traceback,
 		})
+	} else if listVal, ok := exceptionValue.(types.ListValue); ok {
+		// raise() produces a 3-element list; append traceback as 4th element.
+		elems := make([]types.Value, 0, 4)
+		for i := 1; i <= listVal.Len() && i <= 3; i++ {
+			elems = append(elems, listVal.Get(i))
+		}
+		for len(elems) < 3 {
+			elems = append(elems, types.NewInt(0))
+		}
+		elems = append(elems, traceback)
+		exceptionValue = types.NewList(elems)
 	}
 
 	// Search through frames from top (current) to bottom (initial)
@@ -676,6 +823,9 @@ func (vm *VM) HandleError(err error) bool {
 		// No handler in this frame. If there are caller frames, pop this frame
 		// and continue searching. This implements cross-frame exception unwinding.
 		if len(vm.Frames) <= 1 {
+			if frame.IsVerbCall {
+				trace.Exception(frame.This, frame.Verb, errCode)
+			}
 			// This is the bottom frame — no more frames to unwind into
 			return false
 		}
@@ -684,9 +834,12 @@ func (vm *VM) HandleError(err error) bool {
 		// Do NOT push a return value — we're unwinding due to an error.
 		// If this was a verb-call frame, restore context and pop activation frame.
 		if frame.IsVerbCall && vm.Context != nil {
+			trace.Exception(frame.This, frame.Verb, errCode)
 			vm.Context.ThisObj = frame.SavedThisObj
 			vm.Context.ThisValue = frame.SavedThisValue
 			vm.Context.Verb = frame.SavedVerb
+			vm.Context.Programmer = frame.SavedProgrammer
+			vm.Context.IsWizard = frame.SavedIsWizard
 
 			if vm.Context.Task != nil {
 				if t, ok := vm.Context.Task.(*task.Task); ok {

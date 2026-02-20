@@ -4,6 +4,7 @@ import (
 	"barn/builtins"
 	"barn/db"
 	"barn/task"
+	"barn/trace"
 	"barn/types"
 	"fmt"
 	"math"
@@ -1180,15 +1181,16 @@ func (vm *VM) executeCallBuiltin() error {
 		args = vm.PopN(int(argc))
 	}
 
+	// Sync task call-stack line numbers so builtins like callers() see
+	// accurate values.
+	vm.syncTaskLineNumbers()
+
 	// Call builtin
 	result := vm.Builtins.CallByID(int(funcID), vm.Context, args)
 	if result.Flow == types.FlowException {
-		// Try to handle exception
-		vmErr := VMException{Code: result.Error, Value: result.Val}
-		if !vm.HandleError(vmErr) {
-			return vmErr
-		}
-		return nil
+		// Propagate builtin exceptions to executeLoop() so traceback capture
+		// happens before any stack unwinding.
+		return VMException{Code: result.Error, Value: result.Val}
 	}
 
 	// Handle FlowSuspend: yield control back to the caller (scheduler).
@@ -1999,34 +2001,43 @@ func (vm *VM) executeCallVerb() error {
 		player = vm.Context.Player
 	}
 
+	// Trace nested verb calls when tracing is enabled.
+	trace.VerbCall(objID, verbName, args, player, callerObj)
+
 	// Save current context fields for restore on return/unwind
 	var savedThisObj types.ObjID
 	var savedThisValue types.Value
 	var savedVerb string
+	var savedProgrammer types.ObjID
+	var savedIsWizard bool
 	if vm.Context != nil {
 		savedThisObj = vm.Context.ThisObj
 		savedThisValue = vm.Context.ThisValue
 		savedVerb = vm.Context.Verb
+		savedProgrammer = vm.Context.Programmer
+		savedIsWizard = vm.Context.IsWizard
 	}
 
 	// Push new stack frame
 	frame := &StackFrame{
-		Program:        prog,
-		IP:             0,
-		BasePointer:    vm.SP,
-		Locals:         make([]types.Value, prog.NumLocals),
-		This:           objID,
-		Player:         player,
-		Verb:           verbName,
-		Caller:         callerObj,
-		VerbLoc:        defObjID,
-		Args:           args,
-		LoopStack:      make([]LoopState, 0, 4),
-		ExceptStack:    make([]Handler, 0, 4),
-		IsVerbCall:     true,
-		SavedThisObj:   savedThisObj,
-		SavedThisValue: savedThisValue,
-		SavedVerb:      savedVerb,
+		Program:         prog,
+		IP:              0,
+		BasePointer:     vm.SP,
+		Locals:          make([]types.Value, prog.NumLocals),
+		This:            objID,
+		Player:          player,
+		Verb:            verbName,
+		Caller:          callerObj,
+		VerbLoc:         defObjID,
+		Args:            args,
+		LoopStack:       make([]LoopState, 0, 4),
+		ExceptStack:     make([]Handler, 0, 4),
+		IsVerbCall:      true,
+		SavedThisObj:    savedThisObj,
+		SavedThisValue:  savedThisValue,
+		SavedVerb:       savedVerb,
+		SavedProgrammer: savedProgrammer,
+		SavedIsWizard:   savedIsWizard,
 	}
 
 	// Initialize locals to 0
@@ -2064,9 +2075,17 @@ func (vm *VM) executeCallVerb() error {
 
 	// Update shared context for builtins
 	if vm.Context != nil {
+		isWizard := false
+		if vm.Store != nil {
+			if programmerObj := vm.Store.Get(verb.Owner); programmerObj != nil {
+				isWizard = programmerObj.Flags.Has(db.FlagWizard)
+			}
+		}
 		vm.Context.ThisObj = objID
 		vm.Context.ThisValue = thisValue // waif/primitive/anonymous value, or nil for normal
 		vm.Context.Verb = verbName
+		vm.Context.Programmer = verb.Owner
+		vm.Context.IsWizard = isWizard
 	}
 
 	// Push activation frame onto task call stack (if we have a task)
@@ -2097,6 +2116,7 @@ func (vm *VM) executeCallVerb() error {
 //
 // Bytecode format: OP_PASS <argc:byte>
 // argc = 0: inherit current frame's args
+// argc = 0xFF: splice mode, pop one args list and expand it
 // argc > 0: pop argc args from stack
 //
 // Looks up the parent of VerbLoc (where the current verb is defined),
@@ -2122,7 +2142,18 @@ func (vm *VM) executePass() error {
 
 	// Get pass-through args
 	var passArgs []types.Value
-	if argc > 0 {
+	if argc == 0xFF {
+		// Splice mode: args list is on top of stack
+		listVal := vm.Pop()
+		list, ok := listVal.(types.ListValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: expected list for spliced pass() args")
+		}
+		passArgs = make([]types.Value, list.Len())
+		for i := 1; i <= list.Len(); i++ {
+			passArgs[i-1] = list.Get(i)
+		}
+	} else if argc > 0 {
 		passArgs = vm.PopN(argc)
 	} else {
 		// Inherit args from current frame's stored Args
@@ -2218,10 +2249,14 @@ func (vm *VM) executePass() error {
 	var savedThisObj types.ObjID
 	var savedThisValue types.Value
 	var savedVerb string
+	var savedProgrammer types.ObjID
+	var savedIsWizard bool
 	if vm.Context != nil {
 		savedThisObj = vm.Context.ThisObj
 		savedThisValue = vm.Context.ThisValue
 		savedVerb = vm.Context.Verb
+		savedProgrammer = vm.Context.Programmer
+		savedIsWizard = vm.Context.IsWizard
 	}
 
 	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
@@ -2236,22 +2271,24 @@ func (vm *VM) executePass() error {
 	// this = current frame's this (preserve original target)
 	// VerbLoc = defObjID (where the parent verb was found, for chained pass())
 	newFrame := &StackFrame{
-		Program:        prog,
-		IP:             0,
-		BasePointer:    vm.SP,
-		Locals:         make([]types.Value, prog.NumLocals),
-		This:           frame.This,
-		Player:         frame.Player,
-		Verb:           verbName,
-		Caller:         verbLoc,
-		VerbLoc:        defObjID,
-		Args:           passArgs,
-		LoopStack:      make([]LoopState, 0, 4),
-		ExceptStack:    make([]Handler, 0, 4),
-		IsVerbCall:     true,
-		SavedThisObj:   savedThisObj,
-		SavedThisValue: savedThisValue,
-		SavedVerb:      savedVerb,
+		Program:         prog,
+		IP:              0,
+		BasePointer:     vm.SP,
+		Locals:          make([]types.Value, prog.NumLocals),
+		This:            frame.This,
+		Player:          frame.Player,
+		Verb:            verbName,
+		Caller:          verbLoc,
+		VerbLoc:         defObjID,
+		Args:            passArgs,
+		LoopStack:       make([]LoopState, 0, 4),
+		ExceptStack:     make([]Handler, 0, 4),
+		IsVerbCall:      true,
+		SavedThisObj:    savedThisObj,
+		SavedThisValue:  savedThisValue,
+		SavedVerb:       savedVerb,
+		SavedProgrammer: savedProgrammer,
+		SavedIsWizard:   savedIsWizard,
 	}
 
 	// Initialize locals to 0
@@ -2268,10 +2305,21 @@ func (vm *VM) executePass() error {
 
 	// Update shared context for builtins
 	if vm.Context != nil {
+		isWizard := false
+		if vm.Store != nil {
+			if programmerObj := vm.Store.Get(verb.Owner); programmerObj != nil {
+				isWizard = programmerObj.Flags.Has(db.FlagWizard)
+			}
+		}
 		vm.Context.ThisObj = frame.This
 		vm.Context.ThisValue = passThisValue
 		vm.Context.Verb = verbName
+		vm.Context.Programmer = verb.Owner
+		vm.Context.IsWizard = isWizard
 	}
+
+	// Trace pass() target call.
+	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, verbLoc)
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Context != nil && vm.Context.Task != nil {

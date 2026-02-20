@@ -64,6 +64,7 @@ type ActivationFrame struct {
 	VerbLoc         types.ObjID   // Object where verb is defined
 	Args            []types.Value // Arguments passed to verb
 	LineNumber      int           // Current line number in verb
+	SourceLine      string        // Source text at LineNumber (best-effort, for debugging/logging)
 	ServerInitiated bool          // True if this is a server-invoked call (do_login_command, etc.)
 }
 
@@ -264,6 +265,17 @@ func (t *Task) UpdateLineNumber(line int) {
 	defer t.mu.Unlock()
 	if len(t.CallStack) > 0 {
 		t.CallStack[len(t.CallStack)-1].LineNumber = line
+	}
+}
+
+// UpdateCallStackLineNumbers bulk-updates line numbers for all frames in the
+// call stack.  lineNumbers[0] corresponds to CallStack[0], etc.  Extra
+// entries in either slice are ignored.
+func (t *Task) UpdateCallStackLineNumbers(lineNumbers []int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := 0; i < len(lineNumbers) && i < len(t.CallStack); i++ {
+		t.CallStack[i].LineNumber = lineNumbers[i]
 	}
 }
 
