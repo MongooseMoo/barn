@@ -3,7 +3,6 @@ package db
 import (
 	"barn/types"
 	"fmt"
-	"sort"
 )
 
 // WriteDatabase writes a complete database to the writer
@@ -249,18 +248,13 @@ func (w *Writer) writeVerbMetadata(verb *Verb) error {
 	return w.writeInt(prepToInt(verb.ArgSpec.Prep))
 }
 
-// writeProperties writes property definitions and values
+// writeProperties writes property definitions and values.
+// Property order is recomputed from the parent chain at dump time to ensure
+// round-trip correctness even when properties are added/modified at runtime.
 func (w *Writer) writeProperties(obj *Object) error {
-	// Get property names in order
-	propNames := obj.PropOrder
-	if len(propNames) == 0 && len(obj.Properties) > 0 {
-		// Fallback: build ordered list from map if PropOrder wasn't set
-		propNames = make([]string, 0, len(obj.Properties))
-		for name := range obj.Properties {
-			propNames = append(propNames, name)
-		}
-		sort.Strings(propNames)
-	}
+	// Recompute property order from the parent chain.
+	// This mirrors the reader's collectPropertyNames logic so positions match on reload.
+	propNames := w.collectPropertyNames(obj)
 
 	// Write propdef count (properties defined on this object)
 	propDefsCount := obj.PropDefsCount
@@ -283,7 +277,7 @@ func (w *Writer) writeProperties(obj *Object) error {
 		return err
 	}
 
-	// Write all property values in order
+	// Write all property values in parent-chain order
 	for _, name := range propNames {
 		prop := obj.Properties[name]
 		if prop == nil {
@@ -306,6 +300,37 @@ func (w *Writer) writeProperties(obj *Object) error {
 	}
 
 	return nil
+}
+
+// collectPropertyNames builds the ordered list of property names for an object
+// by walking its parent chain. This mirrors the reader's resolvePropertyNames
+// logic: each object contributes its PropDefsCount defined property names,
+// then the process recurses to parents.
+func (w *Writer) collectPropertyNames(obj *Object) []string {
+	var names []string
+	visited := make(map[types.ObjID]bool)
+	w.collectPropNamesRecursive(obj, &names, visited)
+	return names
+}
+
+func (w *Writer) collectPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
+	if obj == nil || visited[obj.ID] {
+		return
+	}
+	visited[obj.ID] = true
+
+	// This object's defined properties (first PropDefsCount entries of PropOrder)
+	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
+		*names = append(*names, obj.PropOrder[i])
+	}
+
+	// Recurse to parents
+	for _, parentID := range obj.Parents {
+		parent := w.store.Get(parentID)
+		if parent != nil {
+			w.collectPropNamesRecursive(parent, names, visited)
+		}
+	}
 }
 
 // writeProperty writes a single property value, owner, and perms

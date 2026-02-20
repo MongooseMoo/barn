@@ -320,6 +320,17 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value, store *db.St
 	}
 	obj.Properties[propName] = prop
 
+	// Update PropOrder so the property is written during dump_database().
+	// Defined properties go at the PropDefsCount position (before inherited ones).
+	pos := obj.PropDefsCount
+	if pos > len(obj.PropOrder) {
+		pos = len(obj.PropOrder)
+	}
+	obj.PropOrder = append(obj.PropOrder, "")
+	copy(obj.PropOrder[pos+1:], obj.PropOrder[pos:])
+	obj.PropOrder[pos] = propName
+	obj.PropDefsCount++
+
 	// Propagate inherited copies to all existing descendants
 	propagatePropertyToDescendants(objID, prop, store)
 

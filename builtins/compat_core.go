@@ -304,6 +304,14 @@ func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(0))
 }
 
+// globalDumpFunc is set by the server to trigger a database checkpoint.
+var globalDumpFunc func() error
+
+// SetDumpFunc sets the function called by dump_database() to trigger a checkpoint.
+func SetDumpFunc(f func() error) {
+	globalDumpFunc = f
+}
+
 func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
@@ -312,6 +320,13 @@ func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 	log.Printf("CHECKPOINTING: dump_database() requested by #%d", ctx.Programmer)
+	if globalDumpFunc != nil {
+		if err := globalDumpFunc(); err != nil {
+			log.Printf("dump_database() error: %v", err)
+			// MOO spec: dump_database() returns 0 on success
+			// On error, still return 0 (Toast behavior)
+		}
+	}
 	return types.Ok(types.NewInt(0))
 }
 

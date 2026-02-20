@@ -65,6 +65,9 @@ func (s *Server) LoadDatabase() error {
 	// Wire notify() builtin to connection manager
 	builtins.SetConnectionManager(s.connManager)
 
+	// Wire dump_database() builtin to server checkpoint
+	builtins.SetDumpFunc(func() error { return s.checkpoint() })
+
 	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	return nil
 }
@@ -236,10 +239,14 @@ func (s *Server) shutdown() error {
 	// Stop scheduler
 	s.scheduler.Stop()
 
-	// Final checkpoint
-	log.Println("Performing final checkpoint...")
-	if err := s.checkpoint(); err != nil {
-		log.Printf("Warning: final checkpoint failed: %v", err)
+	// Final checkpoint (unless checkpointing was explicitly disabled)
+	if s.checkpointInterval > 0 {
+		log.Println("Performing final checkpoint...")
+		if err := s.checkpoint(); err != nil {
+			log.Printf("Warning: final checkpoint failed: %v", err)
+		}
+	} else {
+		log.Println("Final checkpoint skipped (checkpointing disabled)")
 	}
 
 	s.mu.Lock()
