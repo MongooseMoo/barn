@@ -124,9 +124,20 @@ func (s *Scheduler) processReadyTasks() {
 		readyTasks = append(readyTasks, t)
 	}
 
+	// Build set of tasks already collected from the waiting heap
+	// to avoid double-scheduling them in the resumed scan below.
+	heapReady := make(map[int64]bool, len(readyTasks))
+	for _, t := range readyTasks {
+		heapReady[t.ID] = true
+	}
+
 	// Check for suspended/resumed tasks that need to be re-run.
 	// These are tasks that were suspended and later resumed via resume() builtin
 	for _, t := range s.tasks {
+		if heapReady[t.ID] {
+			continue // Already collected from waiting heap
+		}
+
 		// Timed suspension wake-up: suspend(seconds) resumes after deadline.
 		if t.WakeDue(now) {
 			if t.Resume(types.NewInt(0)) {
@@ -140,7 +151,8 @@ func (s *Scheduler) processReadyTasks() {
 		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVM != nil) {
 			// This is a resumed task (StmtIndex > 0 or BytecodeVM saved means it was partially executed)
 			// Check if wake time has passed (or no wake time was set)
-			if t.WakeTime.IsZero() || !t.WakeTime.After(now) {
+			// Also check StartTime to avoid running delayed forks before their delay.
+			if (t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
 				readyTasks = append(readyTasks, t)
 			}
 		}
@@ -450,7 +462,10 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		// Set up the child frame with inherited variables
 		frame := childVM.PrepareVerbFrame(forkProg,
 			forkInfo.ThisObj, forkInfo.Player, forkInfo.Caller,
-			forkInfo.Verb, types.ObjNothing, nil)
+			forkInfo.Verb, forkInfo.VerbLoc, nil)
+		// Mark as verb-call so syncTaskLineNumbers includes this frame
+		// when syncing line numbers to the task's CallStack.
+		frame.IsVerbCall = true
 
 		// Copy inherited variable values from the parent
 		for varName, varVal := range forkInfo.Variables {
@@ -484,6 +499,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.This = forkInfo.ThisObj
 	t.Caller = forkInfo.Caller
 	t.VerbName = forkInfo.Verb
+	t.VerbLoc = forkInfo.VerbLoc
 	t.ForkCreator = s                   // Give child access to scheduler for nested forks
 	t.TaskLocal = parent.GetTaskLocal() // Copy parent's task_local to child
 
@@ -494,6 +510,19 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Context.Verb = forkInfo.Verb
 	t.Context.IsWizard = s.isWizard(parent.Programmer)
 	t.Context.Task = t // Attach task to context for task_local access
+
+	// Push initial activation frame for the fork body.
+	// This matches Toast: forked tasks include a frame for the verb
+	// context in which the fork statement appeared.
+	t.PushFrame(task.ActivationFrame{
+		This:       forkInfo.ThisObj,
+		Player:     forkInfo.Player,
+		Programmer: parent.Programmer,
+		Caller:     forkInfo.Caller,
+		Verb:       forkInfo.Verb,
+		VerbLoc:    forkInfo.VerbLoc,
+		LineNumber: 1,
+	})
 
 	return s.QueueTask(t)
 }
@@ -595,9 +624,15 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 
 	// Extract call stack BEFORE popping frames
 	if result.Flow == types.FlowException {
-		result.CallStack = t.GetCallStack()
+		stack := t.GetCallStack()
+		if result.CallStack != nil {
+			if captured, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = captured
+			}
+		}
+		result.CallStack = stack
 		// Log traceback to server log
-		s.logCallVerbTraceback(objID, verbName, result.Error, t.GetCallStack(), player)
+		s.logCallVerbTraceback(objID, verbName, result.Error, stack, player)
 		// Trace exception
 		trace.Exception(objID, verbName, result.Error)
 	} else {
@@ -889,6 +924,7 @@ func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode) {
 	for _, line := range lines {
 		log.Printf("TRACEBACK:   %s", line)
 	}
+	s.logTracebackSource(stack)
 }
 
 // logCallVerbTraceback logs a formatted traceback to the server log for a synchronous verb call
@@ -902,6 +938,18 @@ func (s *Scheduler) logCallVerbTraceback(objID types.ObjID, verbName string, err
 		objID, verbName, types.NewErr(err).String(), player)
 	for _, line := range lines {
 		log.Printf("TRACEBACK:   %s", line)
+	}
+	s.logTracebackSource(stack)
+}
+
+func (s *Scheduler) logTracebackSource(stack []task.ActivationFrame) {
+	for i := len(stack) - 1; i >= 0; i-- {
+		frame := stack[i]
+		if frame.SourceLine == "" {
+			continue
+		}
+		log.Printf("TRACEBACK:     #%d:%s line %d => %s",
+			frame.VerbLoc, frame.Verb, frame.LineNumber, frame.SourceLine)
 	}
 }
 

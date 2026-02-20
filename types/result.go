@@ -30,6 +30,7 @@ type ForkInfo struct {
 	Player      ObjID             // player context
 	Caller      ObjID             // caller context
 	Verb        string            // verb context
+	VerbLoc     ObjID             // object where the enclosing verb is defined
 }
 
 // Result represents the outcome of evaluating an expression or statement

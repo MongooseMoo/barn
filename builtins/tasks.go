@@ -357,8 +357,8 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Second arg (include_line_numbers) is optional, defaults to true
-	includeLineNumbers := true
+	// Second arg (include_line_numbers) is optional, defaults to false
+	includeLineNumbers := false
 	if len(args) == 2 {
 		includeVal, ok := args[1].(types.IntValue)
 		if !ok {
@@ -390,8 +390,10 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 	callStack := t.GetCallStack()
 
 	// Convert to list of lists: {this, verb_name, programmer, verb_loc, player [, line]}
+	// Order: innermost frame first (most recently called verb first), matching Toast.
 	result := make([]types.Value, 0, len(callStack))
-	for _, frame := range callStack {
+	for i := len(callStack) - 1; i >= 0; i-- {
+		frame := callStack[i]
 		if includeLineNumbers {
 			result = append(result, frame.ToList())
 		} else {

@@ -276,6 +276,9 @@ func (vm *VM) executeLoop() types.Result {
 
 		// Check if VM yielded (suspend/fork)
 		if vm.yielded {
+			// Sync line numbers so task_stack() reports accurate lines
+			// for suspended tasks.
+			vm.syncTaskLineNumbers()
 			return vm.yieldResult
 		}
 
@@ -939,6 +942,7 @@ func (vm *VM) executeFork() error {
 		Player:  playerObj,
 		Caller:  callerObj,
 		Verb:    verbStr,
+		VerbLoc: frame.VerbLoc,
 	}
 	// Store locals snapshot in Variables map for the scheduler
 	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))
