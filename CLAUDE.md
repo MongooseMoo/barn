@@ -105,8 +105,8 @@ Before concluding external code is broken:
 For server-level testing (login flows, connections, etc.):
 ```bash
 # Start Toast with the database
-./test/moo.exe -l mongoose.db 9451 &
-sleep 3
+C:/Users/Q/src/toaststunt/test/moo.exe mongoose.db mongoose.db.new 9451
+# (Toast syntax here is: input-db output-db port)
 
 # Test against Toast
 ./moo_client.exe -port 9451 -cmd "..."
