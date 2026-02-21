@@ -128,7 +128,7 @@ func builtinQueueInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 			players = append(players, ctx.Player)
 		}
 		if globalConnManager != nil {
-			for _, p := range globalConnManager.ConnectedPlayers() {
+			for _, p := range globalConnManager.ConnectedPlayers(false) {
 				if _, ok := seen[p]; ok {
 					continue
 				}

@@ -12,7 +12,7 @@ import (
 // ConnectionManager interface to avoid import cycle.
 type ConnectionManager interface {
 	GetConnection(player types.ObjID) Connection
-	ConnectedPlayers() []types.ObjID
+	ConnectedPlayers(showAll bool) []types.ObjID
 	BootPlayer(player types.ObjID) error
 	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
 	GetListenPort() int
@@ -67,7 +67,7 @@ func resolveConnection(ctx *types.TaskContext, player types.ObjID) Connection {
 	// Compatibility fallback: when running top-level eval with mismatched locals,
 	// resolving self should still find the active connection.
 	if ctx != nil && player == ctx.Player {
-		for _, p := range globalConnManager.ConnectedPlayers() {
+		for _, p := range globalConnManager.ConnectedPlayers(true) {
 			if conn := globalConnManager.GetConnection(p); conn != nil {
 				return conn
 			}
@@ -207,7 +207,7 @@ func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList([]types.Value{entry}))
 }
 
-// connected_players([include_queued]) -> list.
+// connected_players([show_all]) -> list.
 func builtinConnectedPlayers(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
@@ -216,13 +216,18 @@ func builtinConnectedPlayers(ctx *types.TaskContext, args []types.Value) types.R
 		return types.Err(types.E_INVARG)
 	}
 
+	showAll := false
+	if len(args) == 1 {
+		showAll = args[0].Truthy()
+	}
+
 	players := make([]types.ObjID, 0, 8)
 	seen := make(map[types.ObjID]struct{}, 8)
 	if ctx != nil && ctx.Player > 0 {
 		seen[ctx.Player] = struct{}{}
 		players = append(players, ctx.Player)
 	}
-	for _, p := range globalConnManager.ConnectedPlayers() {
+	for _, p := range globalConnManager.ConnectedPlayers(showAll) {
 		if _, ok := seen[p]; ok {
 			continue
 		}
@@ -268,7 +273,14 @@ func builtinConnectionName(ctx *types.TaskContext, args []types.Value) types.Res
 	host, port := parseRemoteAddress(conn.RemoteAddr())
 	switch method {
 	case 0:
-		return types.Ok(types.NewStr(host))
+		// Legacy LambdaMOO/Mongoose format consumed by
+		// $string_utils:connection_hostname_bsd():
+		//   "port <listen-port> from <host>, port <remote-port>"
+		listenPort := 0
+		if globalConnManager != nil {
+			listenPort = globalConnManager.GetListenPort()
+		}
+		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s, port %s", listenPort, host, port)))
 	case 1:
 		return types.Ok(types.NewStr(host))
 	case 2:

@@ -14,18 +14,19 @@ import (
 
 // Connection represents a player connection
 type Connection struct {
-	ID           int64
-	transport    Transport
-	player       types.ObjID
-	loggedIn     bool
-	outputBuffer []string
-	outputPrefix string // PREFIX/OUTPUTPREFIX command sets this
-	outputSuffix string // SUFFIX/OUTPUTSUFFIX command sets this
-	connectedAt  time.Time
-	lastInput    time.Time
-	mu           sync.Mutex
-	ctx          context.Context
-	cancel       context.CancelFunc
+	ID             int64
+	transport      Transport
+	player         types.ObjID
+	loggedIn       bool
+	outputBuffer   []string
+	outputPrefix   string // PREFIX/OUTPUTPREFIX command sets this
+	outputSuffix   string // SUFFIX/OUTPUTSUFFIX command sets this
+	connectedAt    time.Time
+	ConnectionTime time.Time // Set when login completes (zero means not yet logged in)
+	lastInput      time.Time
+	mu             sync.Mutex
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // NewConnection creates a new connection with a transport
@@ -361,13 +362,19 @@ func (cm *ConnectionManager) GetConnection(player types.ObjID) builtins.Connecti
 	return nil
 }
 
-// ConnectedPlayers returns list of connected player ObjIDs
-func (cm *ConnectionManager) ConnectedPlayers() []types.ObjID {
+// ConnectedPlayers returns list of connected player ObjIDs.
+// When showAll is false (default), only connections that have completed login
+// (non-zero ConnectionTime) are included, matching Toast's semantics.
+// When showAll is true, all connections including unlogged ones are returned.
+func (cm *ConnectionManager) ConnectedPlayers(showAll bool) []types.ObjID {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	players := make([]types.ObjID, 0, len(cm.playerConns))
-	for player := range cm.playerConns {
+	for player, conn := range cm.playerConns {
+		if !showAll && conn.ConnectionTime.IsZero() {
+			continue
+		}
 		players = append(players, player)
 	}
 	return players

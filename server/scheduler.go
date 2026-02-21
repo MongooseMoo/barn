@@ -623,6 +623,7 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 
 	if !alreadyLoggedIn {
 		conn.SetPlayer(player)
+		conn.ConnectionTime = time.Now()
 		cm.playerConns[player] = conn
 	}
 
@@ -637,6 +638,10 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 
 	// Call hooks on the scheduler goroutine
 	if alreadyLoggedIn {
+		// Ensure ConnectionTime is set even if switch_player handled login
+		if conn.ConnectionTime.IsZero() {
+			conn.ConnectionTime = time.Now()
+		}
 		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
 		_ = conn.Send("*** Connected ***")
 		s.callUserConnected(player)
