@@ -6,11 +6,12 @@ import (
 
 // Program represents compiled bytecode
 type Program struct {
-	Code      []byte      // Bytecode instructions
-	Constants []types.Value     // Constant pool
-	VarNames  []string    // Variable name table
-	LineInfo  []LineEntry // Source line mapping
-	NumLocals int         // Number of local variables
+	Code      []byte        // Bytecode instructions
+	Constants []types.Value // Constant pool
+	VarNames  []string      // Variable name table
+	LineInfo  []LineEntry   // Source line mapping
+	NumLocals int           // Number of local variables
+	Source    []string      // Source lines (1-based by index+1), optional
 }
 
 // LineEntry maps bytecode IP to source line
@@ -40,12 +41,12 @@ const (
 
 // LoopState tracks the state of a loop during execution
 type LoopState struct {
-	Type      LoopType    // Range, List, or Map
-	StartIP   int         // Loop body start
-	EndIP     int         // After loop
-	Label     string      // Optional name
-	Iterator  interface{} // Current position
-	End       interface{} // End value/index
+	Type     LoopType    // Range, List, or Map
+	StartIP  int         // Loop body start
+	EndIP    int         // After loop
+	Label    string      // Optional name
+	Iterator interface{} // Current position
+	End      interface{} // End value/index
 }
 
 // HandlerType represents the type of exception handler
@@ -87,10 +88,11 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 
 	return &Program{
 		Code:      code,
-		Constants: p.Constants,  // Share constants
-		VarNames:  p.VarNames,   // Share variable names
+		Constants: p.Constants, // Share constants
+		VarNames:  p.VarNames,  // Share variable names
 		LineInfo:  lineInfo,
-		NumLocals: p.NumLocals,  // Same local count (inherit all vars)
+		NumLocals: p.NumLocals, // Same local count (inherit all vars)
+		Source:    p.Source,
 	}
 }
 
