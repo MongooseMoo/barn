@@ -1,8 +1,8 @@
 package db
 
 import (
-	"bufio"
 	"barn/types"
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -1543,6 +1543,7 @@ func (db *Database) resolvePropertyNames() {
 
 		// Now rename _inherited_N properties to their actual names
 		newProperties := make(map[string]*Property)
+		newPropOrder := make([]string, 0, len(obj.PropOrder))
 		for i, oldName := range obj.PropOrder {
 			prop := obj.Properties[oldName]
 			if prop == nil {
@@ -1559,9 +1560,11 @@ func (db *Database) resolvePropertyNames() {
 
 			prop.Name = newName
 			newProperties[newName] = prop
+			newPropOrder = append(newPropOrder, newName)
 		}
 
 		obj.Properties = newProperties
+		obj.PropOrder = newPropOrder
 	}
 }
 
