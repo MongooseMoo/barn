@@ -39,6 +39,20 @@ func SetConnectionManager(cm ConnectionManager) {
 	globalConnManager = cm
 }
 
+// InputForcer allows builtins to inject input lines into a player's stream.
+// Implemented by the scheduler to avoid import cycles.
+type InputForcer interface {
+	ForceInput(player types.ObjID, line string, atFront bool)
+}
+
+// Global input forcer (set by server).
+var globalInputForcer InputForcer
+
+// SetInputForcer sets the global input forcer.
+func SetInputForcer(f InputForcer) {
+	globalInputForcer = f
+}
+
 var connectionOptionState = struct {
 	mu       sync.RWMutex
 	byPlayer map[types.ObjID]map[string]types.Value
