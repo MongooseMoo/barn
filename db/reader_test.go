@@ -3,6 +3,7 @@ package db
 import (
 	"barn/types"
 	"bufio"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -287,5 +288,90 @@ func TestVerbInheritance(t *testing.T) {
 	}
 	if !foundOnParent {
 		t.Error("find_exact verb not found on parent #37")
+	}
+}
+
+func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
+	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+
+	db, err := LoadDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to load database: %v", err)
+	}
+
+	for objID, obj := range db.Objects {
+		if obj == nil {
+			continue
+		}
+		for i, name := range obj.PropOrder {
+			if strings.HasPrefix(name, "_inherited_") {
+				t.Fatalf("object #%d prop order index %d still unresolved: %q", objID, i, name)
+			}
+			if _, ok := obj.Properties[name]; !ok {
+				t.Fatalf("object #%d prop order index %d missing property %q", objID, i, name)
+			}
+		}
+	}
+}
+
+func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
+	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+
+	loaded, err := LoadDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to load database: %v", err)
+	}
+
+	store := loaded.NewStoreFromDatabase()
+	beforeObj := store.Get(101)
+	if beforeObj == nil {
+		t.Fatal("Object #101 not found")
+	}
+	beforeProp, ok := beforeObj.Properties["index_cache"]
+	if !ok {
+		t.Fatal(`Object #101 missing property "index_cache"`)
+	}
+	if beforeProp.Clear {
+		t.Fatal(`Expected #101.index_cache to be a local override (clear=false) before round trip`)
+	}
+
+	tmpFile, err := os.CreateTemp(t.TempDir(), "roundtrip-*.db")
+	if err != nil {
+		t.Fatalf("CreateTemp failed: %v", err)
+	}
+	defer tmpFile.Close()
+
+	writer := NewWriter(tmpFile, store)
+	if err := writer.WriteDatabase(); err != nil {
+		t.Fatalf("WriteDatabase failed: %v", err)
+	}
+
+	reloaded, err := LoadDatabase(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to reload round-tripped database: %v", err)
+	}
+	afterObj := reloaded.NewStoreFromDatabase().Get(101)
+	if afterObj == nil {
+		t.Fatal("Reloaded object #101 not found")
+	}
+	afterProp, ok := afterObj.Properties["index_cache"]
+	if !ok {
+		t.Fatal(`Reloaded object #101 missing property "index_cache"`)
+	}
+
+	if afterProp.Clear {
+		t.Fatal(`Round trip corrupted #101.index_cache into clear=true`)
+	}
+	if afterProp.Owner != beforeProp.Owner || afterProp.Perms != beforeProp.Perms {
+		t.Fatalf("Round trip changed owner/perms for #101.index_cache: before owner=%d perms=%d, after owner=%d perms=%d",
+			beforeProp.Owner, beforeProp.Perms, afterProp.Owner, afterProp.Perms)
+	}
+	if (beforeProp.Value == nil) != (afterProp.Value == nil) {
+		t.Fatalf("Round trip changed nil-ness of #101.index_cache value: before nil=%v after nil=%v",
+			beforeProp.Value == nil, afterProp.Value == nil)
+	}
+	if beforeProp.Value != nil && !beforeProp.Value.Equal(afterProp.Value) {
+		t.Fatalf("Round trip changed #101.index_cache value: before=%v after=%v",
+			beforeProp.Value, afterProp.Value)
 	}
 }
