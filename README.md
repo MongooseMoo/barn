@@ -58,6 +58,24 @@ uv tool run ..\moo-conformance-tests --moo-port=9500
 
 Note: `uv tool run ..\moo-conformance-tests` uses the packaged tool version and may not include the newest CLI flags yet. Use `uv run --project ..\moo-conformance-tests moo-conformance ...` to use the local checkout's latest features.
 
+Targeted regression test (trusted-proxy blank login hook):
+
+```powershell
+# Toast reference (should pass)
+uv run --project ..\moo-conformance-tests pytest ..\moo-conformance-tests\src\moo_conformance\test_conformance.py `
+  -k "trusted_proxy_blank_line_invokes_do_blank_command" `
+  --server-command "C:/Users/Q/src/toaststunt/test/moo.exe {db} {db}.new {port}" `
+  --server-db C:/Users/Q/code/barn/Test_fresh2.db `
+  --moo-port 9899
+
+# Barn (should match Toast)
+uv run --project ..\moo-conformance-tests pytest ..\moo-conformance-tests\src\moo_conformance\test_conformance.py `
+  -k "trusted_proxy_blank_line_invokes_do_blank_command" `
+  --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}" `
+  --server-db C:/Users/Q/code/barn/Test_fresh2.db `
+  --moo-port 9900
+```
+
 ## Getting Started
 
 ```bash
