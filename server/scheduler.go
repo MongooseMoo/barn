@@ -464,8 +464,11 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 
 	if objVal, ok := result.Val.(types.ObjValue); ok {
 		playerID := objVal.ID()
-		if playerID > 0 && s.store.Get(playerID) != nil {
-			return playerID, nil
+		if playerID > 0 {
+			obj := s.store.Get(playerID)
+			if obj != nil && obj.Flags.Has(db.FlagUser) {
+				return playerID, nil
+			}
 		}
 	}
 
@@ -595,6 +598,17 @@ func (s *Scheduler) callUserDisconnected(player types.ObjID) {
 	}
 }
 
+// connectMessage returns the server_options.connect_msg value,
+// falling back to "*** Connected ***" if not set.
+func (s *Scheduler) connectMessage() string {
+	if val, ok := s.getServerOption(0, "connect_msg"); ok {
+		if strVal, ok := val.(types.StrValue); ok && strVal.Value() != "" {
+			return strVal.Value()
+		}
+	}
+	return "*** Connected ***"
+}
+
 // loginPlayer associates a connection with a player.
 // Called on the scheduler goroutine after a successful do_login_command.
 func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
@@ -643,7 +657,7 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 			conn.ConnectionTime = time.Now()
 		}
 		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
-		_ = conn.Send("*** Connected ***")
+		_ = conn.Send(s.connectMessage())
 		s.callUserConnected(player)
 		return
 	}
@@ -653,7 +667,7 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 		existingConn.Close()
 		s.callUserReconnected(player)
 	} else {
-		_ = conn.Send("*** Connected ***")
+		_ = conn.Send(s.connectMessage())
 		s.callUserConnected(player)
 	}
 
