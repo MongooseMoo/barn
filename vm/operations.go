@@ -1751,6 +1751,19 @@ func compareValues(a, b types.Value) (int, error) {
 		return 0, nil
 	}
 
+	// Object comparison (by ID)
+	aObj, aIsObj := a.(types.ObjValue)
+	bObj, bIsObj := b.(types.ObjValue)
+
+	if aIsObj && bIsObj {
+		if aObj.ID() < bObj.ID() {
+			return -1, nil
+		} else if aObj.ID() > bObj.ID() {
+			return 1, nil
+		}
+		return 0, nil
+	}
+
 	return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
 }
 
