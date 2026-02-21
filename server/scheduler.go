@@ -140,12 +140,58 @@ func (s *Scheduler) processInput(input InputEvent) {
 		return
 	}
 
+	// Check if a task is read()ing from this player — if so, route input there
+	if s.deliverToReadingTask(input.Player, input.Line) {
+		return
+	}
+
 	if input.Player < 0 {
 		s.processPreLogin(input)
 		return
 	}
 
 	s.processCommand(input)
+}
+
+// deliverToReadingTask checks whether any suspended task is read()ing from the
+// given player. If found, clears the reading flag and resumes the task with the
+// input line. Returns true if delivered.
+func (s *Scheduler) deliverToReadingTask(player types.ObjID, line string) bool {
+	mgr := task.GetManager()
+	t := mgr.FindReadingTask(player)
+	if t == nil {
+		return false
+	}
+	t.ReadingPlayer = types.ObjNothing
+	t.Resume(types.NewStr(line))
+	return true
+}
+
+// ForceInput implements builtins.InputForcer.
+// It injects a line of input for the given player. If a task is currently
+// read()ing from that player, the line resumes it directly. Otherwise the
+// line is enqueued as a normal InputEvent.
+func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
+	// Try to deliver to a reading task first
+	if s.deliverToReadingTask(player, line) {
+		return
+	}
+
+	// No reading task — enqueue as normal input
+	connID := int64(0)
+	if s.connManager != nil {
+		if conn := s.connManager.GetConnection(player); conn != nil {
+			if c, ok := conn.(*Connection); ok {
+				connID = c.ID
+			}
+		}
+	}
+	evt := InputEvent{
+		ConnID: connID,
+		Player: player,
+		Line:   line,
+	}
+	s.inputQueue <- evt
 }
 
 // processDisconnect handles a disconnect event.
@@ -894,6 +940,10 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		// Attach task context (may have been updated since VM was created)
 		bcVM.Context = ctx
 		if bcVM.IsYielded() {
+			// If this task was read()-suspended, deliver the input line
+			if t.WakeValue != nil {
+				bcVM.SetResumeValue(t.WakeValue)
+			}
 			// Resume after suspend
 			result = bcVM.Resume()
 		} else {
@@ -1501,6 +1551,11 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 			}
 		}
 
+		// Inject wake value before resuming (read() sets WakeValue to
+		// the input string; default suspend uses 0).
+		if t.WakeValue != nil {
+			bcVM.SetResumeValue(t.WakeValue)
+		}
 		result = bcVM.Resume()
 	}
 
