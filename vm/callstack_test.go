@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/task"
 	"barn/types"
@@ -310,5 +311,99 @@ func TestLineNumbersInWhileLoop(t *testing.T) {
 	frame := stack[0]
 	if frame.LineNumber != 3 {
 		t.Errorf("Expected line number 3 (while line), got %d", frame.LineNumber)
+	}
+}
+
+// TestBuiltinExceptionTracebackLines verifies that nested bytecode verb calls
+// preserve full call stacks and line numbers when an exception originates from
+// a builtin (raise()).
+func TestBuiltinExceptionTracebackLines(t *testing.T) {
+	store := db.NewStore()
+	reg := builtins.NewRegistry()
+
+	obj := &db.Object{
+		ID:         1,
+		Parents:    []types.ObjID{},
+		Properties: map[string]*db.Property{},
+		Verbs:      map[string]*db.Verb{},
+		VerbList:   []*db.Verb{},
+	}
+	store.Add(obj)
+
+	addVerb := func(name string, code []string) {
+		prog, errs := db.CompileVerb(code)
+		if len(errs) > 0 {
+			t.Fatalf("compile %s failed: %v", name, errs)
+		}
+		v := &db.Verb{
+			Name:  name,
+			Names: []string{name},
+			Owner: 1,
+			Perms: db.VerbExecute | db.VerbRead,
+			ArgSpec: db.VerbArgs{
+				This: "any",
+				Prep: "any",
+				That: "any",
+			},
+			Code:    code,
+			Program: prog,
+		}
+		obj.Verbs[name] = v
+		obj.VerbList = append(obj.VerbList, v)
+	}
+
+	addVerb("a", []string{
+		"x = 1;",
+		"return this:b();",
+	})
+	addVerb("b", []string{
+		"y = 1;",
+		"return this:c();",
+	})
+	addVerb("c", []string{
+		"z = 1;",
+		"raise(E_INVARG);",
+		"return 0;",
+	})
+
+	topVerb := obj.Verbs["a"]
+	topProg, err := CompileVerbBytecode(topVerb, reg)
+	if err != nil {
+		t.Fatalf("bytecode compile failed: %v", err)
+	}
+
+	testTask := task.NewTask(1, 1, 100000, 5.0)
+	ctx := types.NewTaskContext()
+	ctx.Player = 1
+	ctx.Programmer = 1
+	ctx.ThisObj = 1
+	ctx.Task = testTask
+
+	machine := NewVM(store, reg)
+	machine.Context = ctx
+	result := machine.RunWithVerbContext(topProg, 1, 1, 1, "a", 1, nil)
+	if result.Flow != types.FlowException {
+		t.Fatalf("expected FlowException, got %v", result.Flow)
+	}
+	if result.Error != types.E_INVARG {
+		t.Fatalf("expected E_INVARG, got %v", result.Error)
+	}
+
+	stack, ok := result.CallStack.([]task.ActivationFrame)
+	if !ok {
+		t.Fatalf("expected []ActivationFrame callstack, got %T", result.CallStack)
+	}
+	if len(stack) != 3 {
+		t.Fatalf("expected 3 frames, got %d", len(stack))
+	}
+
+	if stack[0].Verb != "a" || stack[0].LineNumber != 2 {
+		t.Fatalf("frame 0 mismatch: verb=%s line=%d (want a line 2)", stack[0].Verb, stack[0].LineNumber)
+	}
+	if stack[1].Verb != "b" || stack[1].LineNumber != 2 {
+		t.Fatalf("frame 1 mismatch: verb=%s line=%d (want b line 2)", stack[1].Verb, stack[1].LineNumber)
+	}
+	if stack[2].Verb != "c" || stack[2].LineNumber != 2 {
+		t.Fatalf("frame 2 mismatch: verb=%s line=%d (want c line 2)", stack[2].Verb, stack[2].LineNumber)
 	}
 }
