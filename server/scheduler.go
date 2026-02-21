@@ -976,16 +976,9 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	t.Result = result
 
-	// Handle fork: create child task, set fork variable, resume parent
-	for result.Flow == types.FlowFork {
-		if t.ForkCreator != nil && result.ForkInfo != nil {
-			childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
-			bcVM.SetForkResult(childID)
-		}
-		// Resume the parent after handling the fork
-		result = bcVM.Resume()
-		t.Result = result
-	}
+	// Handle fork yields: create child tasks and resume parent
+	result = s.drainForks(t, bcVM, result)
+	t.Result = result
 
 	// Check context deadline
 	select {
@@ -1199,6 +1192,20 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	return s.QueueTask(t)
 }
 
+// drainForks handles FlowFork yields from the VM by creating child tasks
+// and resuming the parent until no more forks are pending.
+func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) types.Result {
+	for result.Flow == types.FlowFork {
+		var childID int64
+		if result.ForkInfo != nil {
+			childID = s.CreateForkedTask(t, result.ForkInfo)
+		}
+		bcVM.SetForkResult(childID)
+		result = bcVM.Resume()
+	}
+	return result
+}
+
 // CallVerb synchronously executes a verb on an object and returns the result
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
@@ -1217,10 +1224,11 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// Create a lightweight task FIRST for call stack tracking
 	// This ensures we have a stack even if verb lookup fails
 	t := &task.Task{
-		Owner:      player,
-		Programmer: player, // Will be updated to verb owner if verb found
-		CallStack:  make([]task.ActivationFrame, 0),
-		TaskLocal:  types.NewEmptyMap(), // Initialize task_local to empty map
+		Owner:       player,
+		Programmer:  player, // Will be updated to verb owner if verb found
+		CallStack:   make([]task.ActivationFrame, 0),
+		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
+		ForkCreator: s,                   // Enable fork support in server hooks
 	}
 
 	// Look up the verb to get its owner for programmer permissions
@@ -1293,6 +1301,9 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(verbName))
 	vm.SetLocalByNamePublic(frame, prog, "args", types.NewList(args))
 	result = bcVM.ExecuteLoop()
+
+	// Handle fork yields: create child tasks and resume parent
+	result = s.drainForks(t, bcVM, result)
 
 	// Extract call stack BEFORE popping frames
 	if result.Flow == types.FlowException {
@@ -1438,13 +1449,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 
 	// Handle yielded control flow (fork/suspend) until the eval completes.
 	for result.Flow == types.FlowFork || result.Flow == types.FlowSuspend {
-		for result.Flow == types.FlowFork {
-			if t.ForkCreator != nil && result.ForkInfo != nil {
-				childID := t.ForkCreator.CreateForkedTask(t, result.ForkInfo)
-				bcVM.SetForkResult(childID)
-			}
-			result = bcVM.Resume()
-		}
+		result = s.drainForks(t, bcVM, result)
 
 		if result.Flow != types.FlowSuspend {
 			continue
