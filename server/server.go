@@ -65,6 +65,9 @@ func (s *Server) LoadDatabase() error {
 	// Wire notify() builtin to connection manager
 	builtins.SetConnectionManager(s.connManager)
 
+	// Wire force_input() builtin to scheduler
+	builtins.SetInputForcer(s.scheduler)
+
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })
 
