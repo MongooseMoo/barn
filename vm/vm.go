@@ -126,9 +126,9 @@ func (vm *VM) Run(prog *Program) types.Result {
 		ExceptStack: make([]Handler, 0, 4),
 	}
 
-	// Initialize locals to 0
+	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.IntValue{Val: 0}
+		frame.Locals[i] = types.UnboundValue{}
 	}
 
 	vm.Frames = append(vm.Frames, frame)
@@ -185,9 +185,9 @@ func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.
 		ExceptStack: make([]Handler, 0, 4),
 	}
 
-	// Initialize locals to 0
+	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.IntValue{Val: 0}
+		frame.Locals[i] = types.UnboundValue{}
 	}
 
 	vm.Frames = append(vm.Frames, frame)
@@ -218,6 +218,16 @@ func (vm *VM) Resume() types.Result {
 	vm.yielded = false
 	vm.yieldResult = types.Result{}
 	return vm.executeLoop()
+}
+
+// SetResumeValue replaces the top-of-stack value that was pushed when a
+// builtin returned FlowSuspend. By default the VM pushes 0 (correct for
+// suspend()), but read() needs to deliver the input line string. Call this
+// before Resume().
+func (vm *VM) SetResumeValue(val types.Value) {
+	if vm.SP > 0 {
+		vm.Stack[vm.SP-1] = val
+	}
 }
 
 // SetForkResult sets the fork variable in the current frame to the child task ID.

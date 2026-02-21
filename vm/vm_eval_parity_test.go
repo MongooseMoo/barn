@@ -2580,7 +2580,7 @@ func TestCrossFrameExceptionUnwinding(t *testing.T) {
 			ExceptStack: make([]Handler, 0),
 		}
 		for i := range outerFrame.Locals {
-			outerFrame.Locals[i] = types.IntValue{Val: 0}
+			outerFrame.Locals[i] = types.UnboundValue{}
 		}
 		vm.Frames = append(vm.Frames, outerFrame)
 
@@ -2615,7 +2615,7 @@ func TestCrossFrameExceptionUnwinding(t *testing.T) {
 			ExceptStack: make([]Handler, 0),
 		}
 		for i := range innerFrame.Locals {
-			innerFrame.Locals[i] = types.IntValue{Val: 0}
+			innerFrame.Locals[i] = types.UnboundValue{}
 		}
 		vm.Frames = append(vm.Frames, innerFrame)
 
@@ -4207,6 +4207,10 @@ func TestParitySpliceExpression(t *testing.T) {
 //   - #1:test_this returns pass()
 //   - #0:pass_inherit returns args
 //   - #1:pass_inherit calls pass() with no args (inherits current args)
+//   - #0:pass_splice returns args
+//   - #1:pass_splice calls pass(@args)
+//   - #0:pass_splice_mix returns args
+//   - #1:pass_splice_mix calls pass(99, @args, 100)
 func newPassTestStore() *db.Store {
 	store := db.NewStore()
 
@@ -4242,6 +4246,22 @@ func newPassTestStore() *db.Store {
 	grandparent.Verbs["pass_inherit"] = &db.Verb{
 		Name:  "pass_inherit",
 		Names: []string{"pass_inherit"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return args;`},
+	}
+
+	grandparent.Verbs["pass_splice"] = &db.Verb{
+		Name:  "pass_splice",
+		Names: []string{"pass_splice"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return args;`},
+	}
+
+	grandparent.Verbs["pass_splice_mix"] = &db.Verb{
+		Name:  "pass_splice_mix",
+		Names: []string{"pass_splice_mix"},
 		Owner: 0,
 		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
 		Code:  []string{`return args;`},
@@ -4285,6 +4305,22 @@ func newPassTestStore() *db.Store {
 		Owner: 0,
 		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
 		Code:  []string{`return pass();`},
+	}
+
+	parent.Verbs["pass_splice"] = &db.Verb{
+		Name:  "pass_splice",
+		Names: []string{"pass_splice"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return pass(@args);`},
+	}
+
+	parent.Verbs["pass_splice_mix"] = &db.Verb{
+		Name:  "pass_splice_mix",
+		Names: []string{"pass_splice_mix"},
+		Owner: 0,
+		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Code:  []string{`return pass(99, @args, 100);`},
 	}
 
 	store.Add(parent)
@@ -4356,6 +4392,24 @@ func TestParityPassBuiltin(t *testing.T) {
 		compareProgramsWithStoreAndCtx(t, `return #1:test_this();`, store, ctx)
 	})
 
+	t.Run("pass_splice_args_empty", func(t *testing.T) {
+		// pass(@args) should pass zero args when args is empty.
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:pass_splice();`, store, ctx)
+	})
+
+	t.Run("pass_splice_args_values", func(t *testing.T) {
+		// pass(@args) should expand args positionally, not pass a single list arg.
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:pass_splice(10, 20);`, store, ctx)
+	})
+
+	t.Run("pass_splice_mixed", func(t *testing.T) {
+		// pass(99, @args, 100) should preserve order around spliced args.
+		ctx := newPassTestCtx()
+		compareProgramsWithStoreAndCtx(t, `return #1:pass_splice_mix(10, 20);`, store, ctx)
+	})
+
 	t.Run("three_level_chain", func(t *testing.T) {
 		// #2:greet() -> "child:" + pass()
 		//   -> #1:greet() -> "parent:" + pass()
@@ -4365,6 +4419,17 @@ func TestParityPassBuiltin(t *testing.T) {
 		ctx := newPassTestCtx()
 		compareProgramsWithStoreAndCtx(t, `return #2:greet();`, store, ctx)
 	})
+}
+
+func TestParity_IdentifierShadowsTypeConstants(t *testing.T) {
+	cases := map[string]string{
+		"num_shadow_in_loop": `NUM = 0; for x in ({1, 2, 3}) NUM = NUM + 1; endfor return NUM;`,
+		"int_shadow_simple":  `INT = 7; return INT;`,
+		"obj_shadow_simple":  `OBJ = 12; return OBJ;`,
+	}
+	for name, code := range cases {
+		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
+	}
 }
 
 // TestCompilerOverflowChecks verifies that the compiler returns proper errors

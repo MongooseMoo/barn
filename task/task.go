@@ -118,8 +118,9 @@ type Task struct {
 
 	// For suspension/resumption
 	WakeTime        time.Time
-	WakeValue       types.Value // Value to return when resumed
-	IsExecSuspended bool        // True if suspended by exec() (can't resume, only kill)
+	WakeValue       types.Value  // Value to return when resumed
+	IsExecSuspended bool         // True if suspended by exec() (can't resume, only kill)
+	ReadingPlayer   types.ObjID  // Player this task is read()ing from (ObjNothing = not reading)
 
 	// For forked tasks
 	ForkInfo *types.ForkInfo // Fork information (only for forked tasks)
@@ -148,6 +149,7 @@ type Task struct {
 	Iobjstr             string      // Indirect object string
 	Iobj                types.ObjID // Indirect object
 	CommandOutputSuffix string      // Connection output suffix for raw command framing
+	Done                chan struct{} // Closed when task finishes; nil if fire-and-forget
 
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
@@ -159,20 +161,23 @@ type Task struct {
 func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64) *Task {
 	now := time.Now()
 	return &Task{
-		ID:           id,
-		Owner:        owner,
-		Programmer:   owner,     // Default programmer is owner
-		Kind:         TaskInput, // Default to input task
-		State:        TaskCreated,
-		StartTime:    now,
-		QueueTime:    now,
-		TicksUsed:    0,
-		TicksLimit:   tickLimit,
-		SecondsUsed:  0,
-		SecondsLimit: secondsLimit,
-		CallStack:    make([]ActivationFrame, 0),
-		TaskLocal:    types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
-		WakeValue:    types.NewInt(0),     // Default wake value is 0 (matches LambdaMOO)
+		ID:            id,
+		Owner:         owner,
+		Programmer:    owner,     // Default programmer is owner
+		Kind:          TaskInput, // Default to input task
+		State:         TaskCreated,
+		StartTime:     now,
+		QueueTime:     now,
+		TicksUsed:     0,
+		TicksLimit:    tickLimit,
+		SecondsUsed:   0,
+		SecondsLimit:  secondsLimit,
+		CallStack:     make([]ActivationFrame, 0),
+		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
+		WakeValue:     types.NewInt(0),     // Default wake value is 0 (matches LambdaMOO)
+		ReadingPlayer: types.ObjNothing,
+		Dobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
+		Iobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
 	}
 }
 
@@ -185,22 +190,25 @@ func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64,
 
 	now := time.Now()
 	t := &Task{
-		ID:           id,
-		Owner:        owner,
-		Programmer:   owner,
-		Kind:         TaskInput,
-		State:        TaskCreated,
-		StartTime:    now,
-		QueueTime:    now,
-		TicksUsed:    0,
-		TicksLimit:   tickLimit,
-		SecondsUsed:  0,
-		SecondsLimit: secondsLimit,
-		CallStack:    make([]ActivationFrame, 0),
-		TaskLocal:    types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
-		WakeValue:    types.NewInt(0),
-		Code:         code,
-		Context:      ctx,
+		ID:            id,
+		Owner:         owner,
+		Programmer:    owner,
+		Kind:          TaskInput,
+		State:         TaskCreated,
+		StartTime:     now,
+		QueueTime:     now,
+		TicksUsed:     0,
+		TicksLimit:    tickLimit,
+		SecondsUsed:   0,
+		SecondsLimit:  secondsLimit,
+		CallStack:     make([]ActivationFrame, 0),
+		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
+		WakeValue:     types.NewInt(0),
+		ReadingPlayer: types.ObjNothing,
+		Dobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
+		Iobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
+		Code:          code,
+		Context:       ctx,
 	}
 	// Set ctx.Task to this task so builtins can access it
 	if ctx != nil {

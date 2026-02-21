@@ -184,6 +184,9 @@ func CompileVerbBytecode(verb *db.Verb, registry *builtins.Registry) (*Program, 
 	if err != nil {
 		return nil, fmt.Errorf("bytecode compile error: %w", err)
 	}
+	if len(verb.Code) > 0 {
+		prog.Source = append([]string(nil), verb.Code...)
+	}
 
 	// Cache the result
 	verb.BytecodeCache = prog
@@ -554,18 +557,23 @@ var builtinConstants = map[string]types.Value{
 
 // compileIdentifier compiles a variable reference
 func (c *Compiler) compileIdentifier(n *parser.IdentifierExpr) error {
+	// User variables take precedence over built-in type constants so code can
+	// intentionally use names like NUM/INT as loop counters or temporaries.
+	if idx, ok := c.resolveVariable(n.Name); ok {
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(idx))
+		return nil
+	}
+
 	// Check for built-in type constants (OBJ, STR, INT, etc.)
 	if val, ok := builtinConstants[n.Name]; ok {
 		c.emitConstant(val)
 		return nil
 	}
 
-	idx, ok := c.resolveVariable(n.Name)
-	if !ok {
-		// Variable not found - this will be a runtime error (E_VARNF)
-		// For now, declare it (MOO has dynamic scoping)
-		idx = c.declareVariable(n.Name)
-	}
+	// Variable not found - this will be a runtime error (E_VARNF)
+	// For now, declare it (MOO has dynamic scoping)
+	idx := c.declareVariable(n.Name)
 
 	c.emit(OP_GET_VAR)
 	c.emitByte(byte(idx))
@@ -1316,7 +1324,34 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 	// OP_PASS is handled natively by the VM — looks up the parent verb,
 	// compiles it to bytecode, and pushes a new frame.
 	if n.Name == "pass" {
-		// Compile arguments onto the stack
+		hasSplice := hasSpliceArgs(n.Args)
+		if !hasSplice && len(n.Args) > 254 {
+			return fmt.Errorf("too many arguments (max 254)")
+		}
+
+		if hasSplice {
+			// Build a single flattened arg list on-stack; OP_PASS 0xFF consumes it.
+			c.emit(OP_MAKE_LIST)
+			c.emitByte(0)
+			for _, arg := range n.Args {
+				if splice, ok := arg.(*parser.SpliceExpr); ok {
+					if err := c.compileNode(splice.Expr); err != nil {
+						return err
+					}
+					c.emit(OP_LIST_EXTEND)
+				} else {
+					if err := c.compileNode(arg); err != nil {
+						return err
+					}
+					c.emit(OP_LIST_APPEND)
+				}
+			}
+			c.emit(OP_PASS)
+			c.emitByte(0xFF)
+			return nil
+		}
+
+		// Compile fixed arguments directly onto the stack.
 		for _, arg := range n.Args {
 			if err := c.compileNode(arg); err != nil {
 				return err
@@ -2505,11 +2540,11 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 			if err := c.compileNode(target.Default); err != nil {
 				return err
 			}
-		} else {
-			c.emitConstant(types.UnboundValue{})
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(targetVar))
 		}
-		c.emit(OP_SET_VAR)
-		c.emitByte(byte(targetVar))
+		// When no default is specified, leave the variable as-is (do nothing).
+		// This matches MOO semantics: ?var with no default keeps its current value.
 		return nil
 	}
 

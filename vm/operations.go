@@ -2053,9 +2053,9 @@ func (vm *VM) executeCallVerb() error {
 		SavedIsWizard:   savedIsWizard,
 	}
 
-	// Initialize locals to 0
+	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.IntValue{Val: 0}
+		frame.Locals[i] = types.UnboundValue{}
 	}
 
 	// Pre-populate built-in variables using VarNames.
@@ -2304,9 +2304,9 @@ func (vm *VM) executePass() error {
 		SavedIsWizard:   savedIsWizard,
 	}
 
-	// Initialize locals to 0
+	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range newFrame.Locals {
-		newFrame.Locals[i] = types.IntValue{Val: 0}
+		newFrame.Locals[i] = types.UnboundValue{}
 	}
 
 	// Pre-populate built-in variables
