@@ -152,6 +152,20 @@ func (m *Manager) SuspendTask(task *Task, seconds float64) {
 	}
 }
 
+// FindReadingTask returns a suspended task that is read()ing from the given player.
+// Returns nil if no task is currently reading from that player.
+func (m *Manager) FindReadingTask(player types.ObjID) *Task {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, t := range m.tasks {
+		if t.GetState() == TaskSuspended && t.ReadingPlayer == player {
+			return t
+		}
+	}
+	return nil
+}
+
 // CleanupCompletedTasks removes completed and killed tasks
 // Should be called periodically
 func (m *Manager) CleanupCompletedTasks() {
