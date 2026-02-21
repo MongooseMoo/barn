@@ -338,10 +338,47 @@ func builtinBackgroundTest(ctx *types.TaskContext, args []types.Value) types.Res
 }
 
 func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) > 1 {
+	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Err(types.E_INVARG)
+
+	// Determine target player
+	player := ctx.Player
+	if len(args) >= 1 {
+		obj, ok := args[0].(types.ObjValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		player = obj.ID()
+	}
+
+	// Check player is connected
+	if globalConnManager == nil || globalConnManager.GetConnection(player) == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Non-blocking mode: second arg truthy → return 0 immediately if no input
+	if len(args) == 2 && args[1].Truthy() {
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Suspend the task to wait for input
+	if ctx.Task == nil {
+		return types.Err(types.E_INVARG)
+	}
+	t, ok := ctx.Task.(*task.Task)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Mark this task as reading from the player
+	t.ReadingPlayer = player
+
+	// Suspend indefinitely — will be resumed when input arrives
+	mgr := task.GetManager()
+	mgr.SuspendTask(t, -1)
+
+	return types.Suspend(-1)
 }
 
 func builtinFlushInput(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -359,18 +396,28 @@ func builtinFlushInput(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinForceInput(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 	target, ok := args[0].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if _, ok := args[1].(types.StrValue); !ok {
+	line, ok := args[1].(types.StrValue)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	if !ctx.IsWizard && target.ID() != ctx.Player {
 		return types.Err(types.E_PERM)
+	}
+
+	atFront := false
+	if len(args) == 3 {
+		atFront = args[2].Truthy()
+	}
+
+	if globalInputForcer != nil {
+		globalInputForcer.ForceInput(target.ID(), line.Value(), atFront)
 	}
 	return types.Ok(types.NewInt(0))
 }
