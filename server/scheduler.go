@@ -13,10 +13,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// InputEvent represents a line of input (or disconnect) from a connection.
+// Connection goroutines enqueue these; the scheduler processes them.
+type InputEvent struct {
+	ConnID       int64
+	Player       types.ObjID // negative = pre-login, positive = logged-in
+	Line         string
+	IsDisconnect bool
+	Done         chan struct{} // Closed when processing is complete
+}
 
 // Scheduler manages task execution
 type Scheduler struct {
@@ -27,6 +39,7 @@ type Scheduler struct {
 	registry    *builtins.Registry // Shared builtins registry for bytecode VMs
 	store       *db.Store
 	connManager *ConnectionManager
+	inputQueue  chan InputEvent
 	mu          sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -44,6 +57,7 @@ func NewScheduler(store *db.Store) *Scheduler {
 		evaluator:  vm.NewEvaluatorWithStore(store),
 		registry:   vm.BuildVMRegistry(store),
 		store:      store,
+		inputQueue: make(chan InputEvent, 256),
 		ctx:        ctx,
 		cancel:     cancel,
 	}
@@ -86,6 +100,12 @@ func (s *Scheduler) SetConnectionManager(cm *ConnectionManager) {
 	s.connManager = cm
 }
 
+// EnqueueInput sends an input event to the scheduler for processing.
+// The caller should wait on evt.Done to know when processing is complete.
+func (s *Scheduler) EnqueueInput(evt InputEvent) {
+	s.inputQueue <- evt
+}
+
 // run is the main scheduler loop
 func (s *Scheduler) run() {
 	defer s.wg.Done()
@@ -97,10 +117,636 @@ func (s *Scheduler) run() {
 		select {
 		case <-s.ctx.Done():
 			return
+		case input := <-s.inputQueue:
+			s.processInput(input)
 		case <-ticker.C:
 			s.processReadyTasks()
 		}
 	}
+}
+
+// processInput handles an input event from a connection.
+// All MOO verb execution (login, command dispatch, disconnect hooks) happens here,
+// on the scheduler goroutine, matching Toast's single-threaded execution model.
+func (s *Scheduler) processInput(input InputEvent) {
+	defer func() {
+		if input.Done != nil {
+			close(input.Done)
+		}
+	}()
+
+	if input.IsDisconnect {
+		s.processDisconnect(input)
+		return
+	}
+
+	if input.Player < 0 {
+		s.processPreLogin(input)
+		return
+	}
+
+	s.processCommand(input)
+}
+
+// processDisconnect handles a disconnect event.
+func (s *Scheduler) processDisconnect(input InputEvent) {
+	cm := s.connManager
+	if cm == nil {
+		return
+	}
+
+	cm.mu.Lock()
+	conn := cm.connections[input.ConnID]
+	if conn == nil {
+		cm.mu.Unlock()
+		return
+	}
+
+	wasLoggedIn := conn.IsLoggedIn()
+	player := conn.GetPlayer()
+
+	delete(cm.connections, conn.ID)
+	if wasLoggedIn {
+		delete(cm.playerConns, player)
+	} else {
+		// Remove pre-login negative ID mapping
+		delete(cm.playerConns, types.ObjID(-conn.ID))
+	}
+	cm.mu.Unlock()
+
+	// Trace disconnect event
+	if wasLoggedIn {
+		trace.Connection("DISCONNECT", conn.ID, player, "")
+	} else {
+		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID), "unlogged")
+	}
+
+	// Call user_disconnected hook on the scheduler goroutine
+	if wasLoggedIn {
+		s.callUserDisconnected(player)
+	}
+
+	log.Printf("Connection %d closed", conn.ID)
+}
+
+// processPreLogin handles input from an unauthenticated connection.
+func (s *Scheduler) processPreLogin(input InputEvent) {
+	cm := s.connManager
+	if cm == nil {
+		return
+	}
+
+	conn := cm.getConnectionByConnID(input.ConnID)
+	if conn == nil {
+		return
+	}
+
+	if !s.shouldCallDoLoginCommand(conn, input.Line) {
+		return
+	}
+
+	player, _ := s.callDoLoginCommand(conn, input.Line)
+	if player > 0 {
+		s.loginPlayer(conn, player)
+	}
+}
+
+// processCommand handles input from an authenticated (logged-in) connection.
+func (s *Scheduler) processCommand(input InputEvent) {
+	cm := s.connManager
+	if cm == nil {
+		return
+	}
+
+	conn := cm.getConnectionByConnID(input.ConnID)
+	if conn == nil {
+		return
+	}
+
+	player := conn.GetPlayer()
+	playerObj := s.store.Get(player)
+	if playerObj == nil {
+		return
+	}
+	location := playerObj.Location
+
+	// Parse the command
+	cmd := ParseCommand(input.Line)
+	if cmd.Verb == "" {
+		return
+	}
+
+	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX, EVAL)
+	verbUpper := strings.ToUpper(cmd.Verb)
+	switch verbUpper {
+	case "PREFIX", "OUTPUTPREFIX":
+		conn.mu.Lock()
+		conn.outputPrefix = cmd.Argstr
+		conn.mu.Unlock()
+		return
+	case "SUFFIX", "OUTPUTSUFFIX":
+		conn.mu.Lock()
+		conn.outputSuffix = cmd.Argstr
+		conn.mu.Unlock()
+		return
+	case "EVAL":
+		code := strings.TrimSpace(cmd.Argstr)
+		if code == "" {
+			return
+		}
+		s.EvalCommand(player, code, conn)
+		return
+	}
+
+	// Raw command response framing for conformance transport.
+	outputPrefix := conn.GetOutputPrefix()
+	outputSuffix := conn.GetOutputSuffix()
+	if outputPrefix != "" {
+		_ = conn.Send(outputPrefix)
+	}
+
+	// Invoke #0:do_command for normal commands
+	handled, _ := s.callDoCommand(player, input.Line)
+	if handled {
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return
+	}
+
+	// Resolve direct object
+	if cmd.Dobjstr != "" {
+		cmd.Dobj = MatchObject(s.store, player, location, cmd.Dobjstr)
+	}
+
+	// Resolve indirect object
+	if cmd.Iobjstr != "" {
+		cmd.Iobj = MatchObject(s.store, player, location, cmd.Iobjstr)
+	}
+
+	// Find the verb
+	match := FindVerb(s.store, player, location, cmd)
+	if match == nil {
+		if hasVerbNameMatch(s.store, player, location, cmd) {
+			conn.Send("I couldn't understand that.")
+			if outputSuffix != "" {
+				_ = conn.Send(outputSuffix)
+			}
+			return
+		}
+
+		// Try player.location:huh fallback
+		if huhVerb, huhVerbLoc, err := s.store.FindVerb(location, "huh"); err == nil && huhVerb != nil {
+			huhMatch := &VerbMatch{
+				Verb:    huhVerb,
+				This:    location,
+				VerbLoc: huhVerbLoc,
+			}
+
+			if huhMatch.Verb.Program == nil && len(huhMatch.Verb.Code) > 0 {
+				program, errors := db.CompileVerb(huhMatch.Verb.Code)
+				if len(errors) > 0 {
+					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
+					if outputSuffix != "" {
+						_ = conn.Send(outputSuffix)
+					}
+					return
+				}
+				huhMatch.Verb.Program = program
+			}
+
+			if huhMatch.Verb.Program == nil || len(huhMatch.Verb.Program.Statements) == 0 {
+				conn.Send("I couldn't understand that.")
+				if outputSuffix != "" {
+					_ = conn.Send(outputSuffix)
+				}
+				return
+			}
+
+			// Execute huh() synchronously on the scheduler goroutine
+			s.executeVerbTaskSync(player, huhMatch, cmd, outputSuffix)
+			return
+		}
+		conn.Send("I couldn't understand that.")
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return
+	}
+
+	// Compile verb if needed (lazy compilation)
+	if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
+		program, errors := db.CompileVerb(match.Verb.Code)
+		if len(errors) > 0 {
+			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
+			if outputSuffix != "" {
+				_ = conn.Send(outputSuffix)
+			}
+			return
+		}
+		match.Verb.Program = program
+	}
+
+	// Execute the verb
+	if match.Verb.Program == nil || len(match.Verb.Program.Statements) == 0 {
+		conn.Send(fmt.Sprintf("[%s has no code]", match.Verb.Name))
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return
+	}
+
+	// Execute verb synchronously on the scheduler goroutine
+	s.executeVerbTaskSync(player, match, cmd, outputSuffix)
+}
+
+// executeVerbTaskSync creates and immediately runs a verb task on the scheduler goroutine.
+// This replaces the CreateVerbTask + <-done pattern used when connection goroutines
+// dispatched commands directly.
+func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) {
+	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
+	t.StartTime = time.Now()
+	t.Programmer = match.Verb.Owner
+	t.Context.Programmer = match.Verb.Owner
+	t.Context.IsWizard = s.isWizard(match.Verb.Owner)
+
+	t.VerbName = cmd.Verb
+	t.VerbLoc = match.VerbLoc
+	t.This = match.This
+	t.Caller = player
+	t.Argstr = cmd.Argstr
+	t.Args = cmd.Args
+	t.Dobjstr = cmd.Dobjstr
+	t.Dobj = cmd.Dobj
+	t.Prepstr = cmd.Prepstr
+	t.Iobjstr = cmd.Iobjstr
+	t.Iobj = cmd.Iobj
+	t.CommandOutputSuffix = outputSuffix
+	t.ForkCreator = s
+
+	// Register task
+	t.SetState(task.TaskQueued)
+	s.mu.Lock()
+	s.tasks[t.ID] = t
+	s.mu.Unlock()
+	task.GetManager().RegisterTask(t)
+
+	// Run synchronously on the scheduler goroutine
+	err := s.runTask(t)
+	if err != nil {
+		log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
+	}
+
+	// Flush output buffer for the player
+	if s.connManager != nil {
+		if conn := s.connManager.GetConnection(t.Owner); conn != nil {
+			conn.Flush()
+			if t.CommandOutputSuffix != "" {
+				_ = conn.Send(t.CommandOutputSuffix)
+			}
+		}
+	}
+}
+
+// shouldCallDoLoginCommand checks whether do_login_command should be called
+// for the given input. Trusted proxy blank lines route through do_blank_command first.
+func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool {
+	if line != "" || !s.isTrustedProxyConnection(conn) {
+		return true
+	}
+
+	allowLogin, err := s.callDoBlankCommand(conn, line)
+	if err != nil {
+		log.Printf("do_blank_command failed: %v", err)
+		return false
+	}
+	return allowLogin
+}
+
+// callDoLoginCommand calls #0:do_login_command with the given line.
+// Returns the player ObjID if login succeeded, or a negative value on failure.
+func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
+	systemObj := s.store.Get(0)
+	if systemObj == nil {
+		return types.ObjID(-1), fmt.Errorf("system object not found")
+	}
+
+	verb := systemObj.Verbs["do_login_command"]
+	if verb == nil {
+		conn.Send("Welcome! (No login handler defined)")
+		return types.ObjID(2), nil
+	}
+
+	connID := types.ObjID(-conn.ID)
+
+	words := strings.Fields(line)
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
+
+	result := s.CallVerb(0, "do_login_command", args, connID)
+
+	if result.Flow == types.FlowException {
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		lines := task.FormatTraceback(stack, result.Error, connID)
+		for _, line := range lines {
+			conn.Send(line)
+		}
+		return types.ObjID(-1), nil
+	}
+
+	if objVal, ok := result.Val.(types.ObjValue); ok {
+		playerID := objVal.ID()
+		if playerID > 0 && s.store.Get(playerID) != nil {
+			return playerID, nil
+		}
+	}
+
+	// Check if switch_player was called during the verb execution
+	currentPlayer := conn.GetPlayer()
+	if currentPlayer > 0 {
+		return currentPlayer, nil
+	}
+
+	return types.ObjID(-1), nil
+}
+
+// callDoBlankCommand calls #0:do_blank_command and returns whether login should proceed.
+func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, error) {
+	words := strings.Fields(line)
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
+
+	connID := types.ObjID(-conn.ID)
+	result := s.CallVerb(0, "do_blank_command", args, connID)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return false, nil
+		}
+
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		lines := task.FormatTraceback(stack, result.Error, connID)
+		for _, line := range lines {
+			conn.Send(line)
+		}
+		return false, nil
+	}
+
+	if result.Val == nil {
+		return false, nil
+	}
+	return result.Val.Truthy(), nil
+}
+
+// callDoCommand calls #0:do_command(command) and returns whether command was handled.
+func (s *Scheduler) callDoCommand(player types.ObjID, line string) (bool, error) {
+	args := []types.Value{types.NewStr(line)}
+	result := s.CallVerb(0, "do_command", args, player)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return false, nil
+		}
+
+		log.Printf("do_command error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		s.sendTracebackToPlayer(player, result.Error, stack)
+		return true, nil
+	}
+
+	if result.Val == nil {
+		return false, nil
+	}
+	return result.Val.Truthy(), nil
+}
+
+// callUserConnected calls #0:user_connected(player)
+func (s *Scheduler) callUserConnected(player types.ObjID) {
+	args := []types.Value{types.NewObj(player)}
+	result := s.CallVerb(0, "user_connected", args, player)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
+		log.Printf("user_connected error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		s.sendTracebackToPlayer(player, result.Error, stack)
+	}
+}
+
+// callUserReconnected calls #0:user_reconnected(player)
+func (s *Scheduler) callUserReconnected(player types.ObjID) {
+	args := []types.Value{types.NewObj(player)}
+	result := s.CallVerb(0, "user_reconnected", args, player)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
+		log.Printf("user_reconnected error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		s.sendTracebackToPlayer(player, result.Error, stack)
+	}
+}
+
+// callUserDisconnected calls #0:user_disconnected(player)
+func (s *Scheduler) callUserDisconnected(player types.ObjID) {
+	args := []types.Value{types.NewObj(player)}
+	result := s.CallVerb(0, "user_disconnected", args, player)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
+		log.Printf("user_disconnected error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		s.sendTracebackToPlayer(player, result.Error, stack)
+	}
+}
+
+// loginPlayer associates a connection with a player.
+// Called on the scheduler goroutine after a successful do_login_command.
+func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
+	cm := s.connManager
+	if cm == nil {
+		return
+	}
+
+	cm.mu.Lock()
+
+	// Remove negative ID mapping (used for pre-login notify())
+	delete(cm.playerConns, types.ObjID(-conn.ID))
+
+	// Check if player already connected
+	alreadyLoggedIn := false
+	reconnection := false
+	var existingConn *Connection
+	if ec, exists := cm.playerConns[player]; exists {
+		if ec == conn {
+			alreadyLoggedIn = true
+		} else {
+			existingConn = ec
+			reconnection = true
+		}
+	}
+
+	if !alreadyLoggedIn {
+		conn.SetPlayer(player)
+		cm.playerConns[player] = conn
+	}
+
+	cm.mu.Unlock()
+
+	// Trace login event
+	if reconnection {
+		trace.Connection("RECONNECT", conn.ID, player, "")
+	} else {
+		trace.Connection("LOGIN", conn.ID, player, "")
+	}
+
+	// Call hooks on the scheduler goroutine
+	if alreadyLoggedIn {
+		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
+		_ = conn.Send("*** Connected ***")
+		s.callUserConnected(player)
+		return
+	}
+
+	if reconnection {
+		existingConn.Send("You have been disconnected (reconnected elsewhere)")
+		existingConn.Close()
+		s.callUserReconnected(player)
+	} else {
+		_ = conn.Send("*** Connected ***")
+		s.callUserConnected(player)
+	}
+
+	log.Printf("Connection %d logged in as player %d", conn.ID, player)
+}
+
+// sendTracebackToPlayer sends a formatted traceback to the player's connection
+func (s *Scheduler) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	if s.connManager == nil {
+		return
+	}
+
+	// Format traceback first
+	lines := task.FormatTraceback(stack, err, player)
+
+	conn := s.connManager.GetConnection(player)
+	if conn == nil {
+		log.Printf("Traceback for player %v (connection not found):", player)
+		for _, line := range lines {
+			log.Printf("  %s", line)
+		}
+		return
+	}
+
+	for _, line := range lines {
+		conn.Send(line)
+	}
+}
+
+// isTrustedProxyConnection checks if a connection's IP is in the trusted proxies list.
+func (s *Scheduler) isTrustedProxyConnection(conn *Connection) bool {
+	trustedProxies, ok := s.getServerOption(0, "trusted_proxies")
+	if !ok {
+		return false
+	}
+
+	addr := conn.RemoteAddr()
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	ip := strings.Trim(host, "[]")
+	if ip == "" {
+		return false
+	}
+
+	return listContainsString(trustedProxies, ip)
+}
+
+// getServerOption looks up a server option from the server_options property.
+func (s *Scheduler) getServerOption(listener types.ObjID, name string) (types.Value, bool) {
+	serverOptions := s.findPropertyInherited(listener, "server_options")
+	if serverOptions == nil && listener != 0 {
+		serverOptions = s.findPropertyInherited(0, "server_options")
+	}
+	if serverOptions == nil {
+		return nil, false
+	}
+
+	serverOptionsObj, ok := serverOptions.Value.(types.ObjValue)
+	if !ok {
+		return nil, false
+	}
+
+	prop := s.findPropertyInherited(serverOptionsObj.ID(), name)
+	if prop == nil {
+		return nil, false
+	}
+	return prop.Value, true
+}
+
+// findPropertyInherited walks the parent chain to find a property.
+func (s *Scheduler) findPropertyInherited(objID types.ObjID, name string) *db.Property {
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.store.Get(currentID)
+		if current == nil {
+			continue
+		}
+
+		if prop, ok := current.Properties[name]; ok {
+			return prop
+		}
+
+		queue = append(queue, current.Parents...)
+	}
+
+	return nil
 }
 
 // processReadyTasks executes tasks that are ready to run
@@ -160,26 +806,29 @@ func (s *Scheduler) processReadyTasks() {
 
 	s.mu.Unlock()
 
-	// Execute ready tasks (outside the lock to allow concurrency)
+	// Execute ready tasks sequentially on the scheduler goroutine.
+	// Toast is single-threaded: one task at a time. No concurrent MOO execution.
 	for _, t := range readyTasks {
-		// Run task in a goroutine
-		go func(t *task.Task) {
-			err := s.runTask(t)
-			if err != nil {
-				log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
-			}
+		err := s.runTask(t)
+		if err != nil {
+			log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
+		}
 
-			// Flush output buffer for the player
-			if s.connManager != nil {
-				if conn := s.connManager.GetConnection(t.Owner); conn != nil {
-					conn.Flush()
-					// For raw command execution, emit framing suffix after task output.
-					if t.CommandOutputSuffix != "" {
-						_ = conn.Send(t.CommandOutputSuffix)
-					}
+		// Flush output buffer for the player
+		if s.connManager != nil {
+			if conn := s.connManager.GetConnection(t.Owner); conn != nil {
+				conn.Flush()
+				// For raw command execution, emit framing suffix after task output.
+				if t.CommandOutputSuffix != "" {
+					_ = conn.Send(t.CommandOutputSuffix)
 				}
 			}
-		}(t)
+		}
+
+		// Signal task completion so callers waiting on Done can proceed
+		if t.Done != nil {
+			close(t.Done)
+		}
 	}
 }
 
@@ -387,7 +1036,7 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 }
 
 // CreateVerbTask creates a task to execute a verb
-func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) int64 {
+func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) <-chan struct{} {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
 	t.StartTime = time.Now()
@@ -411,7 +1060,11 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 	t.CommandOutputSuffix = outputSuffix
 	t.ForkCreator = s // Give task access to scheduler for forks
 
-	return s.QueueTask(t)
+	// Create done channel so callers can wait for task completion
+	t.Done = make(chan struct{})
+
+	s.QueueTask(t)
+	return t.Done
 }
 
 // CreateBackgroundTask creates a background task (fork)
@@ -793,6 +1446,10 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 		case seconds < 0:
 			deadline := time.Now().Add(10 * time.Second)
 			for t.GetState() != task.TaskQueued && time.Now().Before(deadline) {
+				// Process ready tasks while waiting for explicit resume().
+				// Since we're on the scheduler goroutine, processReadyTasks
+				// won't fire from the ticker, so we must drive it here.
+				s.processReadyTasks()
 				time.Sleep(10 * time.Millisecond)
 			}
 			if t.GetState() != task.TaskQueued {
@@ -800,9 +1457,24 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 				break
 			}
 		case seconds == 0:
+			// Process ready tasks before resuming — forked children may
+			// need to run during the scheduler-yield window.
+			s.processReadyTasks()
 			time.Sleep(10 * time.Millisecond)
+			s.processReadyTasks()
 		default:
-			time.Sleep(time.Duration(seconds * float64(time.Second)))
+			sleepEnd := time.Now().Add(time.Duration(seconds * float64(time.Second)))
+			for time.Now().Before(sleepEnd) {
+				s.processReadyTasks()
+				remaining := time.Until(sleepEnd)
+				if remaining <= 0 {
+					break
+				}
+				if remaining > 10*time.Millisecond {
+					remaining = 10 * time.Millisecond
+				}
+				time.Sleep(remaining)
+			}
 		}
 
 		result = bcVM.Resume()

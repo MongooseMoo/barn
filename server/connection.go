@@ -2,15 +2,12 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/db"
-	"barn/task"
 	"barn/trace"
 	"barn/types"
 	"context"
 	"fmt"
 	"log"
 	"net"
-	"strings"
 	"sync"
 	"time"
 )
@@ -246,13 +243,23 @@ func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Co
 	return conn
 }
 
-// HandleConnection processes a connection (exported for testing)
+// HandleConnection processes a connection (exported for testing).
+// This is now an I/O-only loop: it reads lines and enqueues InputEvents
+// for the scheduler to process. All MOO verb execution happens on the
+// scheduler goroutine.
 func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	// Trace new connection
 	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
 
 	defer func() {
-		cm.removeConnection(conn)
+		// Enqueue disconnect event and wait for it to be processed
+		done := make(chan struct{})
+		cm.server.scheduler.EnqueueInput(InputEvent{
+			ConnID:       conn.ID,
+			IsDisconnect: true,
+			Done:         done,
+		})
+		<-done
 		conn.Close()
 	}()
 
@@ -260,44 +267,29 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	timeoutCtx, cancel := context.WithTimeout(conn.ctx, cm.connectTimeout)
 	defer cancel()
 
-	// Send initial welcome banner by calling do_login_command with empty string
+	// Send initial welcome banner by enqueuing empty string to scheduler
 	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
-	_, _ = cm.callDoLoginCommand(conn, "")
-
-	// Unlogged phase
-	for !conn.IsLoggedIn() {
-		select {
-		case <-timeoutCtx.Done():
-			conn.Send("Connection timeout")
-			return
-		default:
-		}
-
-		line, err := conn.ReadLine()
-		if err != nil {
-			log.Printf("Connection %d read error: %v", conn.ID, err)
-			return
-		}
-
-		// Call #0:do_login_command(connection, line)
-		player, err := cm.callDoLoginCommand(conn, line)
-		if err != nil {
-			log.Printf("Login command failed: %v", err)
-			continue
-		}
-
-		if player > 0 {
-			// Login successful
-			cm.loginPlayer(conn, player)
-			break
-		}
+	{
+		done := make(chan struct{})
+		cm.server.scheduler.EnqueueInput(InputEvent{
+			ConnID: conn.ID,
+			Player: types.ObjID(-conn.ID),
+			Line:   "",
+			Done:   done,
+		})
+		<-done
 	}
 
-	// Command loop
+	// I/O loop: read lines, enqueue events, wait for processing
 	for {
 		select {
 		case <-conn.ctx.Done():
 			return
+		case <-timeoutCtx.Done():
+			if !conn.IsLoggedIn() {
+				conn.Send("Connection timeout")
+				return
+			}
 		default:
 		}
 
@@ -307,424 +299,43 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 			return
 		}
 
-		// Dispatch command
-		if err := cm.dispatchCommand(conn, line); err != nil {
-			log.Printf("Command dispatch error: %v", err)
+		// Cancel the login timeout once logged in
+		if conn.IsLoggedIn() {
+			cancel()
 		}
+
+		done := make(chan struct{})
+		cm.server.scheduler.EnqueueInput(InputEvent{
+			ConnID: conn.ID,
+			Player: conn.GetPlayer(),
+			Line:   line,
+			Done:   done,
+		})
+		<-done
 	}
 }
 
-// callDoLoginCommand calls #0:do_login_command(connection, line)
-func (cm *ConnectionManager) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
-	systemObj := cm.server.store.Get(0)
-	if systemObj == nil {
-		return types.ObjID(-1), fmt.Errorf("system object not found")
+// listContainsString checks if a MOO list contains a string value.
+func listContainsString(value types.Value, target string) bool {
+	list, ok := value.(types.ListValue)
+	if !ok {
+		return false
 	}
 
-	verb := systemObj.Verbs["do_login_command"]
-	if verb == nil {
-		// Default login: accept any input and create/return player #2
-		conn.Send("Welcome! (No login handler defined)")
-		return types.ObjID(2), nil
-	}
-
-	connID := types.ObjID(-conn.ID) // Negative ID for unlogged connection
-
-	// Parse line into words for args
-	// toaststunt passes parsed words as args to do_login_command
-	words := strings.Fields(line)
-	args := make([]types.Value, len(words))
-	for i, word := range words {
-		args[i] = types.NewStr(word)
-	}
-
-	result := cm.server.scheduler.CallVerb(0, "do_login_command", args, connID)
-
-	if result.Flow == types.FlowException {
-		// Extract call stack from result and send traceback to connection
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = s
-			}
-		}
-		// Send traceback to the unlogged connection
-		lines := task.FormatTraceback(stack, result.Error, connID)
-		for _, line := range lines {
-			conn.Send(line)
-		}
-		return types.ObjID(-1), nil // Login failed, stay unlogged
-	}
-
-	// Check if result is a valid player object
-	if objVal, ok := result.Val.(types.ObjValue); ok {
-		playerID := objVal.ID()
-		if playerID > 0 && cm.server.store.Get(playerID) != nil {
-			return playerID, nil
+	for i := 1; i <= list.Len(); i++ {
+		s, ok := list.Get(i).(types.StrValue)
+		if ok && s.Value() == target {
+			return true
 		}
 	}
+	return false
+}
 
-	// Check if switch_player was called during the verb execution
-	// If so, the connection's player has already been updated
+// getConnectionByConnID returns a Connection by its connection ID (not player ID).
+func (cm *ConnectionManager) getConnectionByConnID(connID int64) *Connection {
 	cm.mu.Lock()
-	currentPlayer := conn.GetPlayer()
-	cm.mu.Unlock()
-	if currentPlayer > 0 {
-		return currentPlayer, nil
-	}
-
-	return types.ObjID(-1), nil // Login failed, stay unlogged
-}
-
-// loginPlayer associates a connection with a player
-func (cm *ConnectionManager) loginPlayer(conn *Connection, player types.ObjID) {
-	cm.mu.Lock()
-
-	// Remove negative ID mapping (used for pre-login notify())
-	delete(cm.playerConns, types.ObjID(-conn.ID))
-
-	// Check if player already connected
-	alreadyLoggedIn := false
-	reconnection := false
-	var existingConn *Connection
-	if ec, exists := cm.playerConns[player]; exists {
-		if ec == conn {
-			// Already logged in via switch_player, just need to call user_connected
-			alreadyLoggedIn = true
-		} else {
-			// Different connection - need to boot
-			existingConn = ec
-			reconnection = true
-		}
-	}
-
-	if !alreadyLoggedIn {
-		conn.SetPlayer(player)
-		cm.playerConns[player] = conn
-	}
-
-	cm.mu.Unlock()
-
-	// Trace login event
-	if reconnection {
-		trace.Connection("RECONNECT", conn.ID, player, "")
-	} else {
-		trace.Connection("LOGIN", conn.ID, player, "")
-	}
-
-	// Call hooks outside the lock
-	if alreadyLoggedIn {
-		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
-		_ = conn.Send("*** Connected ***")
-		cm.callUserConnected(player)
-		return
-	}
-
-	if reconnection {
-		existingConn.Send("You have been disconnected (reconnected elsewhere)")
-		existingConn.Close()
-		cm.callUserReconnected(player)
-	} else {
-		_ = conn.Send("*** Connected ***")
-		cm.callUserConnected(player)
-	}
-
-	log.Printf("Connection %d logged in as player %d", conn.ID, player)
-}
-
-// dispatchCommand parses and dispatches a command
-func (cm *ConnectionManager) dispatchCommand(conn *Connection, line string) error {
-	player := conn.GetPlayer()
-	playerObj := cm.server.store.Get(player)
-	if playerObj == nil {
-		return fmt.Errorf("player object not found")
-	}
-	location := playerObj.Location
-
-	// Parse the command
-	cmd := ParseCommand(line)
-	if cmd.Verb == "" {
-		return nil // Empty command
-	}
-
-	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX, EVAL)
-	// These are server-level commands that set output delimiters or evaluate code.
-	// They intentionally bypass do_command to keep transport framing stable.
-	verbUpper := strings.ToUpper(cmd.Verb)
-	switch verbUpper {
-	case "PREFIX", "OUTPUTPREFIX":
-		conn.mu.Lock()
-		conn.outputPrefix = cmd.Argstr
-		conn.mu.Unlock()
-		return nil
-	case "SUFFIX", "OUTPUTSUFFIX":
-		conn.mu.Lock()
-		conn.outputSuffix = cmd.Argstr
-		conn.mu.Unlock()
-		return nil
-	case "EVAL":
-		// Evaluate the code directly using eval() builtin
-		// The code is in cmd.Argstr (already trimmed of leading whitespace)
-		code := strings.TrimSpace(cmd.Argstr)
-		if code == "" {
-			return nil
-		}
-		// Queue eval task
-		cm.server.scheduler.EvalCommand(player, code, conn)
-		return nil
-	}
-
-	// Raw command response framing for conformance transport.
-	// PREFIX/SUFFIX are emitted around command parser output.
-	outputPrefix := conn.GetOutputPrefix()
-	outputSuffix := conn.GetOutputSuffix()
-	if outputPrefix != "" {
-		_ = conn.Send(outputPrefix)
-	}
-
-	// Invoke #0:do_command for normal commands. If the verb is missing, the call
-	// is treated as unhandled and normal command parsing continues.
-	handled, err := cm.callDoCommand(player, line)
-	if err != nil {
-		return err
-	}
-	if handled {
-		if outputSuffix != "" {
-			_ = conn.Send(outputSuffix)
-		}
-		return nil
-	}
-
-	// Resolve direct object
-	if cmd.Dobjstr != "" {
-		cmd.Dobj = MatchObject(cm.server.store, player, location, cmd.Dobjstr)
-	}
-
-	// Resolve indirect object
-	if cmd.Iobjstr != "" {
-		cmd.Iobj = MatchObject(cm.server.store, player, location, cmd.Iobjstr)
-	}
-
-	// Find the verb
-	match := FindVerb(cm.server.store, player, location, cmd)
-	if match == nil {
-		// If a verb name matched but arg/prep specs did not, report parse failure directly.
-		// :huh is reserved for unknown commands (no name match in dispatch targets).
-		if hasVerbNameMatch(cm.server.store, player, location, cmd) {
-			conn.Send("I couldn't understand that.")
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
-			return nil
-		}
-
-		// Try player.location:huh fallback before generic "couldn't understand".
-		if huhVerb, huhVerbLoc, err := cm.server.store.FindVerb(location, "huh"); err == nil && huhVerb != nil {
-			huhMatch := &VerbMatch{
-				Verb:    huhVerb,
-				This:    location,
-				VerbLoc: huhVerbLoc,
-			}
-
-			// Compile huh verb if needed (lazy compilation).
-			if huhMatch.Verb.Program == nil && len(huhMatch.Verb.Code) > 0 {
-				program, errors := db.CompileVerb(huhMatch.Verb.Code)
-				if len(errors) > 0 {
-					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-					if outputSuffix != "" {
-						_ = conn.Send(outputSuffix)
-					}
-					return nil
-				}
-				huhMatch.Verb.Program = program
-			}
-
-			// If huh has no executable code, fall back to standard error message.
-			if huhMatch.Verb.Program == nil || len(huhMatch.Verb.Program.Statements) == 0 {
-				conn.Send("I couldn't understand that.")
-				if outputSuffix != "" {
-					_ = conn.Send(outputSuffix)
-				}
-				return nil
-			}
-
-			// Execute huh() code, but preserve attempted verb/arg parsing context.
-			cm.server.scheduler.CreateVerbTask(player, huhMatch, cmd, outputSuffix)
-			return nil
-		}
-		conn.Send("I couldn't understand that.")
-		if outputSuffix != "" {
-			_ = conn.Send(outputSuffix)
-		}
-		return nil
-	}
-
-	// Compile verb if needed (lazy compilation)
-	if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
-		program, errors := db.CompileVerb(match.Verb.Code)
-		if len(errors) > 0 {
-			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
-			return nil
-		}
-		match.Verb.Program = program
-	}
-
-	// Execute the verb
-	if match.Verb.Program == nil || len(match.Verb.Program.Statements) == 0 {
-		conn.Send(fmt.Sprintf("[%s has no code]", match.Verb.Name))
-		if outputSuffix != "" {
-			_ = conn.Send(outputSuffix)
-		}
-		return nil
-	}
-
-	// Create task to execute the verb
-	cm.server.scheduler.CreateVerbTask(player, match, cmd, outputSuffix)
-
-	return nil
-}
-
-// removeConnection removes a connection
-func (cm *ConnectionManager) removeConnection(conn *Connection) {
-	var player types.ObjID
-	wasLoggedIn := false
-
-	cm.mu.Lock()
-	delete(cm.connections, conn.ID)
-	if conn.IsLoggedIn() {
-		player = conn.GetPlayer()
-		wasLoggedIn = true
-		delete(cm.playerConns, player)
-	}
-	cm.mu.Unlock()
-
-	// Trace disconnect event
-	if wasLoggedIn {
-		trace.Connection("DISCONNECT", conn.ID, player, "")
-	} else {
-		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID), "unlogged")
-	}
-
-	// Call hook OUTSIDE the lock to prevent deadlock
-	if wasLoggedIn {
-		cm.callUserDisconnected(player)
-	}
-
-	log.Printf("Connection %d closed", conn.ID)
-}
-
-// sendTracebackToPlayer sends a formatted traceback to the player's connection
-// Used when hook calls fail with uncaught exceptions
-func (cm *ConnectionManager) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
-	// Format traceback first (needed for both connection and log fallback)
-	lines := task.FormatTraceback(stack, err, player)
-
-	conn := cm.GetConnection(player)
-	if conn == nil {
-		// Connection not found (player disconnected or not mapped yet)
-		// Log to server so the traceback isn't lost
-		log.Printf("Traceback for player %v (connection not found):", player)
-		for _, line := range lines {
-			log.Printf("  %s", line)
-		}
-		return
-	}
-
-	// Send to player connection
-	for _, line := range lines {
-		conn.Send(line)
-	}
-}
-
-// callDoCommand calls #0:do_command(command) and returns whether command was handled.
-func (cm *ConnectionManager) callDoCommand(player types.ObjID, line string) (bool, error) {
-	args := []types.Value{types.NewStr(line)}
-	result := cm.server.scheduler.CallVerb(0, "do_command", args, player)
-	if result.Flow == types.FlowException {
-		// Missing do_command is expected on many databases.
-		if result.Error == types.E_VERBNF {
-			return false, nil
-		}
-
-		log.Printf("do_command error: %v", result.Error)
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = s
-			}
-		}
-		cm.sendTracebackToPlayer(player, result.Error, stack)
-		// Treat exceptions as handled so we don't continue normal parsing.
-		return true, nil
-	}
-
-	if result.Val == nil {
-		return false, nil
-	}
-	return result.Val.Truthy(), nil
-}
-
-// callUserConnected calls #0:user_connected(player)
-func (cm *ConnectionManager) callUserConnected(player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := cm.server.scheduler.CallVerb(0, "user_connected", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_connected error: %v", result.Error)
-		// Extract call stack from result if available
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = s
-			}
-		}
-		cm.sendTracebackToPlayer(player, result.Error, stack)
-	}
-}
-
-// callUserReconnected calls #0:user_reconnected(player)
-func (cm *ConnectionManager) callUserReconnected(player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := cm.server.scheduler.CallVerb(0, "user_reconnected", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_reconnected error: %v", result.Error)
-		// Extract call stack from result if available
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = s
-			}
-		}
-		cm.sendTracebackToPlayer(player, result.Error, stack)
-	}
-}
-
-// callUserDisconnected calls #0:user_disconnected(player)
-func (cm *ConnectionManager) callUserDisconnected(player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := cm.server.scheduler.CallVerb(0, "user_disconnected", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_disconnected error: %v", result.Error)
-		// Extract call stack from result if available
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if s, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = s
-			}
-		}
-		cm.sendTracebackToPlayer(player, result.Error, stack)
-	}
+	defer cm.mu.Unlock()
+	return cm.connections[connID]
 }
 
 // GetConnection returns a connection by player ID
