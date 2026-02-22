@@ -324,13 +324,10 @@ func (vm *VM) syncTaskLineNumbers() {
 		return
 	}
 
-	// VM verb-call frames map 1:1 to task CallStack entries (the initial
-	// eval frame has IsVerbCall=false and is not in the task CallStack).
+	// VM frames map 1:1 to task CallStack entries (the initial frame pushed
+	// by the scheduler is both VM frame 0 and CallStack entry 0).
 	var lineNumbers []int
 	for _, frame := range vm.Frames {
-		if !frame.IsVerbCall {
-			continue
-		}
 		line := 1
 		if frame.Program != nil {
 			ip := frame.IP - 1
