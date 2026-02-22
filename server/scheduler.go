@@ -943,6 +943,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// If this task was read()-suspended, deliver the input line
 			if t.WakeValue != nil {
 				bcVM.SetResumeValue(t.WakeValue)
+				t.WakeValue = nil // Consume — don't leak into future suspends
 			}
 			// Resume after suspend
 			result = bcVM.Resume()
@@ -1555,6 +1556,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 		// the input string; default suspend uses 0).
 		if t.WakeValue != nil {
 			bcVM.SetResumeValue(t.WakeValue)
+			t.WakeValue = nil // Consume — don't leak into future suspends
 		}
 		result = bcVM.Resume()
 	}
