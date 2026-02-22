@@ -18,6 +18,17 @@ type Database struct {
 	RecycledObjs   []types.ObjID
 	QueuedTasks    []*QueuedTask
 	SuspendedTasks []*SuspendedTask
+
+	// savedWaifs tracks WAIFs during loading for reference resolution.
+	// Index corresponds to the WAIF save index in the database file.
+	savedWaifs []waifLoadData
+}
+
+// waifLoadData holds a WAIF and its raw indexed properties during loading.
+// After all objects are loaded, property names are resolved from the class ancestry.
+type waifLoadData struct {
+	waif         types.WaifValue
+	propsByIndex map[int]types.Value
 }
 
 // NewStoreFromDatabase creates a Store from a loaded database
@@ -153,6 +164,9 @@ func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	// Resolve inherited property names now that all objects are loaded
 	db.resolvePropertyNames()
 
+	// Resolve WAIF property names now that all objects and their propdefs are known
+	db.resolveWaifProperties()
+
 	return db, nil
 }
 
@@ -228,6 +242,9 @@ func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
 
 	// Resolve inherited property names now that all objects are loaded
 	db.resolvePropertyNames()
+
+	// Resolve WAIF property names now that all objects and their propdefs are known
+	db.resolveWaifProperties()
 
 	return db, nil
 }
@@ -381,7 +398,7 @@ func (db *Database) skipSuspendedTask(r *bufio.Reader) error {
 	}
 
 	// Read VM local var
-	if _, err := readValue(r, db.Version); err != nil {
+	if _, err := db.readValue(r); err != nil {
 		return fmt.Errorf("read VM local: %w", err)
 	}
 
@@ -459,7 +476,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 
 	// Skip stack slot values
 	for i := 0; i < numStackSlots; i++ {
-		if _, err := readValue(r, db.Version); err != nil {
+		if _, err := db.readValue(r); err != nil {
 			return fmt.Errorf("read stack slot %d: %w", i, err)
 		}
 	}
@@ -477,7 +494,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 
 	// Read 3 MOO values (dummy, _this, vloc)
 	for i := 0; i < 3; i++ {
-		if _, err := readValue(r, db.Version); err != nil {
+		if _, err := db.readValue(r); err != nil {
 			return fmt.Errorf("read activ value %d: %w", i, err)
 		}
 	}
@@ -508,7 +525,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 	}
 
 	// Read temp value
-	if _, err := readValue(r, db.Version); err != nil {
+	if _, err := db.readValue(r); err != nil {
 		return fmt.Errorf("read temp value: %w", err)
 	}
 
@@ -555,7 +572,7 @@ func (db *Database) skipInterruptedTask(r *bufio.Reader) error {
 
 	// Read VM (same as suspended task VM, but no suspend value)
 	// VM local var
-	if _, err := readValue(r, db.Version); err != nil {
+	if _, err := db.readValue(r); err != nil {
 		return fmt.Errorf("read VM local: %w", err)
 	}
 
@@ -795,7 +812,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		prop := &Property{Name: propName}
 
 		// Value
-		prop.Value, err = readValue(r, db.Version)
+		prop.Value, err = db.readValue(r)
 		if err != nil {
 			return nil, err
 		}
@@ -886,7 +903,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	}
 
 	// Read location
-	locVal, err := readValue(r, db.Version)
+	locVal, err := db.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -895,13 +912,13 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	}
 
 	// Read last_move (skip value, not used)
-	_, err = readValue(r, db.Version)
+	_, err = db.readValue(r)
 	if err != nil {
 		return nil, err
 	}
 
 	// Read contents
-	contentsVal, err := readValue(r, db.Version)
+	contentsVal, err := db.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -914,7 +931,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	}
 
 	// Read parents
-	parentsVal, err := readValue(r, db.Version)
+	parentsVal, err := db.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -934,7 +951,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 	}
 
 	// Read children
-	childrenVal, err := readValue(r, db.Version)
+	childrenVal, err := db.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -1038,7 +1055,7 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 		prop := &Property{Name: propName}
 
 		// Value
-		prop.Value, err = readValue(r, db.Version)
+		prop.Value, err = db.readValue(r)
 		if err != nil {
 			return nil, fmt.Errorf("prop %d (%s) value: %w", i, propName, err)
 		}
@@ -1143,7 +1160,8 @@ func (db *Database) readVerbCode(r *bufio.Reader) error {
 }
 
 // readValue reads a MOO value from database format
-func readValue(r *bufio.Reader, version int) (types.Value, error) {
+func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
+	version := db.Version
 	typeCode, err := readInt(r)
 	if err != nil {
 		return nil, err
@@ -1185,7 +1203,7 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 		}
 		elements := make([]types.Value, count)
 		for i := 0; i < count; i++ {
-			elements[i], err = readValue(r, version)
+			elements[i], err = db.readValue(r)
 			if err != nil {
 				return nil, err
 			}
@@ -1233,11 +1251,11 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 		}
 		pairs := make([][2]types.Value, count)
 		for i := 0; i < count; i++ {
-			key, err := readValue(r, version)
+			key, err := db.readValue(r)
 			if err != nil {
 				return nil, err
 			}
-			val, err := readValue(r, version)
+			val, err := db.readValue(r)
 			if err != nil {
 				return nil, err
 			}
@@ -1254,7 +1272,8 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 		return types.NewObj(types.ObjID(objID)), nil
 
 	case 13: // WAIF
-		// WAIFs are saved as references ('r') or creations ('c')
+		// WAIFs are saved as references ('r') or creations ('c').
+		// Format: "{marker} {index}\n" where marker is 'r' or 'c'.
 		line, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
@@ -1264,26 +1283,39 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 			return nil, fmt.Errorf("empty WAIF marker")
 		}
 		marker := line[0]
+
 		if marker == 'r' {
-			// Reference to previously read waif - just read terminator string
+			// Reference to previously saved WAIF.
+			// Read the "." terminator line.
 			if _, err := r.ReadString('\n'); err != nil {
 				return nil, err
 			}
+			// Parse index from marker line: "r {index}"
+			refIdx, err := strconv.Atoi(strings.TrimSpace(line[1:]))
+			if err != nil {
+				return nil, fmt.Errorf("parse WAIF ref index: %w", err)
+			}
+			if refIdx < 0 || refIdx >= len(db.savedWaifs) {
+				return nil, fmt.Errorf("WAIF ref index %d out of range (have %d)", refIdx, len(db.savedWaifs))
+			}
+			return db.savedWaifs[refIdx].waif, nil
+
 		} else if marker == 'c' {
-			// Creation - read full waif structure
-			// class ObjID
-			if _, err := readObjID(r); err != nil {
+			// Creation — read full WAIF structure.
+			class, err := readObjID(r)
+			if err != nil {
 				return nil, err
 			}
-			// owner ObjID
-			if _, err := readObjID(r); err != nil {
+			owner, err := readObjID(r)
+			if err != nil {
 				return nil, err
 			}
-			// propdefs_length (skip, not used)
+			// propdefs_length (needed for sparse property storage)
 			if _, err := readInt(r); err != nil {
 				return nil, err
 			}
-			// Read property values until -1 marker
+			// Read property index→value pairs until -1 sentinel.
+			propsByIndex := make(map[int]types.Value)
 			for {
 				propIdx, err := readInt(r)
 				if err != nil {
@@ -1292,18 +1324,25 @@ func readValue(r *bufio.Reader, version int) (types.Value, error) {
 				if propIdx < 0 {
 					break
 				}
-				// Read the property value
-				if _, err := readValue(r, version); err != nil {
+				val, err := db.readValue(r)
+				if err != nil {
 					return nil, err
 				}
+				propsByIndex[propIdx] = val
 			}
-			// Read the "." terminator line
+			// Read the "." terminator line.
 			if _, err := r.ReadString('\n'); err != nil {
 				return nil, fmt.Errorf("read WAIF terminator: %w", err)
 			}
+
+			waif := types.NewWaif(class, owner)
+			db.savedWaifs = append(db.savedWaifs, waifLoadData{
+				waif:         waif,
+				propsByIndex: propsByIndex,
+			})
+			return waif, nil
 		}
-		// Return nil for WAIFs - we don't store them
-		return types.NewInt(0), nil
+		return nil, fmt.Errorf("unknown WAIF marker: %c", marker)
 
 	case 14: // BOOL (v17)
 		if version < 17 {
@@ -1346,7 +1385,7 @@ func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 			return err
 		}
 		for i := 0; i < count; i++ {
-			if _, err := readValue(r, db.Version); err != nil {
+			if _, err := db.readValue(r); err != nil {
 				return err
 			}
 		}
@@ -1376,10 +1415,10 @@ func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 			return err
 		}
 		for i := 0; i < count; i++ {
-			if _, err := readValue(r, db.Version); err != nil {
+			if _, err := db.readValue(r); err != nil {
 				return err
 			}
-			if _, err := readValue(r, db.Version); err != nil {
+			if _, err := db.readValue(r); err != nil {
 				return err
 			}
 		}
@@ -1421,13 +1460,13 @@ func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 				if propIdx < 0 {
 					break
 				}
-				if _, err := readValue(r, db.Version); err != nil {
+				if _, err := db.readValue(r); err != nil {
 					return err
 				}
 			}
 			const N_MAPPABLE_PROPS = 32
 			for i := N_MAPPABLE_PROPS; i < propdefsLen; i++ {
-				if _, err := readValue(r, db.Version); err != nil {
+				if _, err := db.readValue(r); err != nil {
 					return err
 				}
 			}
@@ -1599,4 +1638,44 @@ func (db *Database) collectPropNamesRecursive(obj *Object, names *[]string, visi
 		parent := db.Objects[parentID]
 		db.collectPropNamesRecursive(parent, names, visited)
 	}
+}
+
+// resolveWaifProperties maps raw property indices to names for all loaded WAIFs.
+// Must be called after resolvePropertyNames so that PropOrder is final.
+func (db *Database) resolveWaifProperties() {
+	for _, wd := range db.savedWaifs {
+		classObj := db.Objects[wd.waif.Class()]
+		if classObj == nil {
+			continue
+		}
+
+		// Collect ":" prefixed property names from the class ancestry.
+		// These form the WAIF propdef list; index N in the DB maps to entry N.
+		waifPropNames := db.collectWaifPropNames(classObj)
+
+		for idx, val := range wd.propsByIndex {
+			if idx < len(waifPropNames) {
+				// Strip the ":" prefix for storage in WaifValue.
+				name := strings.TrimPrefix(waifPropNames[idx], ":")
+				// SetProperty modifies the shared map (all copies see the change).
+				wd.waif.SetProperty(name, val)
+			}
+		}
+	}
+
+	// Free the loading-only data.
+	db.savedWaifs = nil
+}
+
+// collectWaifPropNames returns an ordered list of ":" prefixed property names
+// from an object's ancestry. This matches Toast's waif_propdefs construction.
+func (db *Database) collectWaifPropNames(obj *Object) []string {
+	allNames := db.collectPropertyNames(obj)
+	var waifNames []string
+	for _, name := range allNames {
+		if strings.HasPrefix(name, ":") {
+			waifNames = append(waifNames, name)
+		}
+	}
+	return waifNames
 }

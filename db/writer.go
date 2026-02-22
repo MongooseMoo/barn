@@ -269,8 +269,6 @@ func getTypeCode(v types.Value) int {
 // writeWaif writes a waif value
 // First write of a waif is a definition ("c N"), subsequent writes are references ("r N")
 func (w *Writer) writeWaif(waif types.WaifValue) error {
-	// For now, write waifs as definitions since we don't have proper identity tracking
-	// In a full implementation, we'd need to track waif instances by pointer
 	idx := w.nextWaifID
 	w.nextWaifID++
 
@@ -284,11 +282,45 @@ func (w *Writer) writeWaif(waif types.WaifValue) error {
 	if err := w.writeObjID(waif.Owner()); err != nil {
 		return err
 	}
-	// propdefs_length - for now use 0 since we don't track this
-	if err := w.writeInt(0); err != nil {
+
+	// Build WAIF propdef list from the class object's ":" prefixed properties.
+	var waifPropNames []string
+	classObj := w.store.Get(waif.Class())
+	if classObj != nil {
+		allNames := w.collectPropertyNames(classObj)
+		for _, name := range allNames {
+			if len(name) > 0 && name[0] == ':' {
+				waifPropNames = append(waifPropNames, name)
+			}
+		}
+	}
+
+	if err := w.writeInt(len(waifPropNames)); err != nil {
 		return err
 	}
-	// No properties written since propdefs_length is 0
+
+	// Build name→index map for lookup.
+	nameToIdx := make(map[string]int, len(waifPropNames))
+	for i, name := range waifPropNames {
+		// Strip ":" prefix — WaifValue stores names without prefix.
+		nameToIdx[name[1:]] = i
+	}
+
+	// Write non-clear properties as index→value pairs.
+	for _, propName := range waif.PropertyNames() {
+		idx, ok := nameToIdx[propName]
+		if !ok {
+			continue
+		}
+		val, _ := waif.GetProperty(propName)
+		if err := w.writeInt(idx); err != nil {
+			return err
+		}
+		if err := w.writeValue(val); err != nil {
+			return err
+		}
+	}
+
 	// Terminator
 	if err := w.writeInt(-1); err != nil {
 		return err

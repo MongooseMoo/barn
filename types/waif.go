@@ -74,6 +74,15 @@ func (w WaifValue) SetProperty(name string, value Value) WaifValue {
 	return w
 }
 
+// PropertyNames returns the names of all properties set on this WAIF.
+func (w WaifValue) PropertyNames() []string {
+	names := make([]string, 0, len(w.properties))
+	for name := range w.properties {
+		names = append(names, name)
+	}
+	return names
+}
+
 // equalMaps checks if two property maps are equal
 func equalMaps(a, b map[string]Value) bool {
 	if len(a) != len(b) {
