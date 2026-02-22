@@ -41,6 +41,13 @@ type TaskContext struct {
 	// Import cycle prevention: This is stored as interface{} and cast to *task.Task when needed
 	Task interface{}
 
+	// CallerVM is a reference to the VM that is currently calling a builtin.
+	// This allows eval() to push a frame on the calling VM instead of creating
+	// a separate VM, matching Toast's behavior where eval() adds an activation
+	// to the same activation stack.
+	// Import cycle prevention: This is stored as interface{} (should be *vm.VM)
+	CallerVM interface{}
+
 	// Store is a reference to the object database (if available)
 	// This allows builtins and limits to read server options from $server_options
 	// Import cycle prevention: This is stored as interface{} (should be *db.Store)

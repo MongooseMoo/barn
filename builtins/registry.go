@@ -364,4 +364,11 @@ func (r *Registry) RegisterSystemBuiltins(store *db.Store) {
 		return builtinResetMaxObject(ctx, args, store)
 	})
 	r.Register("value_bytes", builtinValueBytes)
+
+	// Re-register set_task_perms with store access so it can update
+	// ctx.IsWizard when the programmer changes (matches Toast's behavior
+	// where changing progr affects all subsequent wizard checks).
+	r.Register("set_task_perms", func(ctx *types.TaskContext, args []types.Value) types.Result {
+		return builtinSetTaskPermsWithStore(ctx, args, store)
+	})
 }

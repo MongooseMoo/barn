@@ -300,6 +300,33 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		if code == "" {
 			return
 		}
+		// Try database verb dispatch first (matches Toast behavior).
+		// In Toast, eval is NOT an intrinsic — it goes through normal
+		// verb dispatch. This lets database-defined eval verbs (e.g.
+		// #2:eval in mongoose.db) handle formatting and set_task_perms.
+		match := FindVerb(s.store, player, location, cmd)
+		if match != nil {
+			if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
+				program, errors := db.CompileVerb(match.Verb.Code)
+				if len(errors) > 0 {
+					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
+					return
+				}
+				match.Verb.Program = program
+			}
+			if match.Verb.Program != nil {
+				// Send PREFIX/SUFFIX framing around verb dispatch,
+				// matching Toast's output buffer flush behavior.
+				outputPrefix := conn.GetOutputPrefix()
+				outputSuffix := conn.GetOutputSuffix()
+				if outputPrefix != "" {
+					_ = conn.Send(outputPrefix)
+				}
+				s.executeVerbTaskSync(player, match, cmd, outputSuffix)
+				return
+			}
+		}
+		// Fallback for databases without an eval verb
 		s.EvalCommand(player, code, conn)
 		return
 	}
@@ -918,6 +945,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	// Attach task to context so builtins can access task_local
 	ctx.Task = t
+	ctx.TaskID = t.ID
 
 	// Set up cancellation with deadline
 	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
@@ -1575,7 +1603,8 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	if result.Flow == types.FlowException {
 		// Runtime error: {2, {E_TYPE, "message", value}}
 		errCode := types.NewErr(result.Error).String()
-		resultStr = fmt.Sprintf("{2, {%s, \"\", 0}}", errCode)
+		errMsg := result.Error.Message()
+		resultStr = fmt.Sprintf("{2, {%s, \"%s\", 0}}", errCode, errMsg)
 	} else if result.Val != nil {
 		// Success: {1, value}
 		resultStr = fmt.Sprintf("{1, %s}", result.Val.String())

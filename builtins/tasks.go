@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/task"
 	"barn/types"
 )
@@ -162,7 +163,14 @@ func builtinResume(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinSetTaskPerms: set_task_perms(who) → none
 // Changes the permission context for the current task
 // Wizard only - allows running code with different permissions
+// Note: this stub is registered in NewRegistry; RegisterSystemBuiltins
+// overrides it with builtinSetTaskPermsWithStore which also updates IsWizard.
 func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
+	return builtinSetTaskPermsWithStore(ctx, args, nil)
+}
+
+// builtinSetTaskPermsWithStore is the store-aware implementation of set_task_perms.
+func builtinSetTaskPermsWithStore(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -178,6 +186,23 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 
 	ctx.Programmer = whoVal.ID()
+
+	// Update ctx.IsWizard to reflect the new programmer's actual status.
+	// In Toast, the progr field determines wizard checks dynamically;
+	// Barn caches IsWizard so we must update it here.
+	if store != nil {
+		obj := store.Get(whoVal.ID())
+		ctx.IsWizard = obj != nil && obj.Flags.Has(db.FlagWizard)
+	}
+
+	// Also update the current CallStack frame's Programmer so that
+	// caller_perms() reflects the new permissions (matches Toast's
+	// behavior where set_task_perms updates RUN_ACTIV.progr).
+	if t, ok := ctx.Task.(*task.Task); ok {
+		if top := t.GetTopFrame(); top != nil {
+			top.Programmer = whoVal.ID()
+		}
+	}
 
 	return types.Ok(types.NewInt(0))
 }
@@ -257,9 +282,22 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	// callers() returns the call stack EXCLUDING the current frame,
 	// ordered most-recent-first (immediate caller first).
 	// The current frame is the top of the stack (last element).
+	//
+	// If the current (top) frame is an eval frame, we're at the eval top level.
+	// Return synthetic eval wrapper frames (matching Toast behavior).
+	if len(stack) > 0 && stack[len(stack)-1].IsEvalFrame {
+		return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
+	}
+
 	result := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 2; i >= 0; i-- {
 		frame := stack[i]
+
+		// Stop at eval frame boundary — eval infrastructure frames
+		// (the eval activation and the verb that called eval()) are hidden.
+		if frame.IsEvalFrame {
+			break
+		}
 
 		// Skip server-initiated frames (do_login_command, user_connected, etc.)
 		if frame.ServerInitiated {

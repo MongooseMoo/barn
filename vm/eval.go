@@ -4,6 +4,7 @@ import (
 	"barn/builtins"
 	"barn/db"
 	"barn/parser"
+	"barn/task"
 	"barn/types"
 	"fmt"
 	"log"
@@ -111,7 +112,11 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 	registry.RegisterCryptoBuiltins(store)
 	registry.RegisterSystemBuiltins(store)
 
-	// Register VM-aware eval() builtin
+	// Register VM-aware eval() builtin.
+	// When called from within a VM (CallerVM is set), pushes a frame on the
+	// calling VM and returns FlowEvalPush. The VM's executeLoop continues with
+	// the new frame; Return() wraps the result as {1, value} and HandleError()
+	// wraps errors as {0, error}. This mirrors Toast's setup_activ_for_eval.
 	registry.Register("eval", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
@@ -140,7 +145,9 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 		p := parser.NewParser(code)
 		stmts, err := p.ParseProgram()
 		if err != nil {
-			errorMsg := fmt.Sprintf("Line 1:  %s", err.Error())
+			// Toast always returns "Line N:  syntax error" for parse errors.
+			// Include the specific message for debugging.
+			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", err.Error())
 			return types.Ok(types.NewList([]types.Value{
 				types.NewInt(0),
 				types.NewList([]types.Value{types.NewStr(errorMsg)}),
@@ -151,38 +158,107 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 		c := NewCompilerWithRegistry(registry)
 		prog, compileErr := c.CompileStatements(stmts)
 		if compileErr != nil {
-			errorMsg := fmt.Sprintf("Line 1:  %s", compileErr.Error())
+			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", compileErr.Error())
 			return types.Ok(types.NewList([]types.Value{
 				types.NewInt(0),
 				types.NewList([]types.Value{types.NewStr(errorMsg)}),
 			}))
 		}
 
-		// Create a fresh VM for eval execution
-		evalVM := NewVM(store, registry)
-		evalVM.Context = ctx
-		evalVM.TickLimit = 30000
-
-		result := evalVM.Run(prog)
-
-		// Handle results in eval() format: {success, value}
-		if result.Flow == types.FlowException {
-			if result.Error == types.E_QUOTA {
-				return types.Err(types.E_QUOTA)
+		// Get the calling VM. If available, push a frame on it instead of
+		// creating a separate VM. This keeps eval'd code on the same
+		// activation stack so fork, suspend, callers, etc. all work.
+		callerVM, vmOK := ctx.CallerVM.(*VM)
+		if !vmOK || callerVM == nil {
+			// Fallback: separate VM (e.g., tree-walker eval path)
+			evalVM := NewVM(store, registry)
+			evalVM.Context = ctx
+			evalVM.TickLimit = 30000
+			frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
+			setLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
+			setLocalByName(frame, prog, "player", types.NewObj(ctx.Player))
+			setLocalByName(frame, prog, "caller", types.NewObj(ctx.ThisObj))
+			setLocalByName(frame, prog, "verb", types.NewStr(""))
+			setLocalByName(frame, prog, "args", types.NewList([]types.Value{}))
+			setLocalByName(frame, prog, "argstr", types.NewStr(""))
+			setLocalByName(frame, prog, "dobjstr", types.NewStr(""))
+			setLocalByName(frame, prog, "iobjstr", types.NewStr(""))
+			setLocalByName(frame, prog, "prepstr", types.NewStr(""))
+			setLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+			setLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+			result := evalVM.ExecuteLoop()
+			if result.Flow == types.FlowException {
+				return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
 			}
-			return types.Ok(types.NewList([]types.Value{
-				types.NewInt(0),
-				types.NewErr(result.Error),
-			}))
+			if result.Val == nil {
+				result.Val = types.NewInt(0)
+			}
+			return types.Ok(types.NewList([]types.Value{types.NewInt(1), result.Val}))
 		}
 
-		if result.Val == nil {
-			result.Val = types.NewInt(0)
+		// Push eval frame on the calling VM (same activation stack).
+		// Save current context for restore on return/unwind.
+		frame := &StackFrame{
+			Program:         prog,
+			IP:              0,
+			BasePointer:     callerVM.SP,
+			Locals:          make([]types.Value, prog.NumLocals),
+			This:            types.ObjNothing,
+			Player:          ctx.Player,
+			Verb:            "",
+			Caller:          ctx.ThisObj,
+			VerbLoc:         types.ObjNothing,
+			Args:            []types.Value{},
+			LoopStack:       make([]LoopState, 0, 4),
+			ExceptStack:     make([]Handler, 0, 4),
+			IsEvalFrame:     true,
+			SavedThisObj:    ctx.ThisObj,
+			SavedThisValue:  ctx.ThisValue,
+			SavedVerb:       ctx.Verb,
+			SavedProgrammer: ctx.Programmer,
+			SavedIsWizard:   ctx.IsWizard,
 		}
-		return types.Ok(types.NewList([]types.Value{
-			types.NewInt(1),
-			result.Val,
-		}))
+
+		// Initialize locals to unbound
+		for i := range frame.Locals {
+			frame.Locals[i] = types.UnboundValue{}
+		}
+
+		// Set verb context variables (matches Toast's setup_activ_for_eval)
+		setLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
+		setLocalByName(frame, prog, "player", types.NewObj(ctx.Player))
+		setLocalByName(frame, prog, "caller", types.NewObj(ctx.ThisObj))
+		setLocalByName(frame, prog, "verb", types.NewStr(""))
+		setLocalByName(frame, prog, "args", types.NewList([]types.Value{}))
+		setLocalByName(frame, prog, "argstr", types.NewStr(""))
+		setLocalByName(frame, prog, "dobjstr", types.NewStr(""))
+		setLocalByName(frame, prog, "iobjstr", types.NewStr(""))
+		setLocalByName(frame, prog, "prepstr", types.NewStr(""))
+		setLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+		setLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+
+		// Update shared context for the eval frame
+		ctx.ThisObj = types.ObjNothing
+		ctx.ThisValue = nil
+		ctx.Verb = ""
+		// Programmer stays as-is (set_task_perms may have changed it)
+
+		// Push activation frame onto task call stack
+		if ctx.Task != nil {
+			if t, ok := ctx.Task.(*task.Task); ok {
+				t.PushFrame(task.ActivationFrame{
+					This:        types.ObjNothing,
+					Player:      ctx.Player,
+					Programmer:  ctx.Programmer,
+					Verb:        "",
+					LineNumber:  1,
+					IsEvalFrame: true,
+				})
+			}
+		}
+
+		callerVM.Frames = append(callerVM.Frames, frame)
+		return types.Result{Flow: types.FlowEvalPush}
 	})
 
 	// Register pass() as a stub -- the VM handles pass() natively via OP_PASS.

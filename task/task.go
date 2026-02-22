@@ -66,6 +66,7 @@ type ActivationFrame struct {
 	LineNumber      int           // Current line number in verb
 	SourceLine      string        // Source text at LineNumber (best-effort, for debugging/logging)
 	ServerInitiated bool          // True if this is a server-invoked call (do_login_command, etc.)
+	IsEvalFrame     bool          // True if this is an eval() infrastructure frame (excluded from tracebacks)
 }
 
 // ToList converts an activation frame to a MOO list for callers()

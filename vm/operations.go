@@ -1185,12 +1185,29 @@ func (vm *VM) executeCallBuiltin() error {
 	// accurate values.
 	vm.syncTaskLineNumbers()
 
+	// Set CallerVM so builtins like eval() can push frames on this VM
+	if vm.Context != nil {
+		vm.Context.CallerVM = vm
+	}
+
 	// Call builtin
 	result := vm.Builtins.CallByID(int(funcID), vm.Context, args)
+
+	// Clear CallerVM after the call
+	if vm.Context != nil {
+		vm.Context.CallerVM = nil
+	}
+
 	if result.Flow == types.FlowException {
 		// Propagate builtin exceptions to executeLoop() so traceback capture
 		// happens before any stack unwinding.
 		return VMException{Code: result.Error, Value: result.Val}
+	}
+
+	// Handle FlowEvalPush: eval() pushed a frame on this VM.
+	// The new frame is already on vm.Frames — just continue execution.
+	if result.Flow == types.FlowEvalPush {
+		return nil
 	}
 
 	// Handle FlowSuspend: yield control back to the caller (scheduler).
@@ -2071,11 +2088,16 @@ func (vm *VM) executeCallVerb() error {
 	setLocalByName(frame, prog, "player", types.NewObj(player))
 
 	// Propagate command environment variables from the task's parsed command context.
-	// These are set by the scheduler for command-dispatched verbs and should be
-	// available in nested verb calls. setLocalByName silently skips if the verb
-	// code doesn't reference the variable, so there's no overhead for verbs that
-	// don't use them.
-	if vm.Context != nil && vm.Context.Task != nil {
+	// Only propagate real command context when NOT inside an eval() boundary.
+	// Eval'd code has no command context, so nested verb calls see empty strings.
+	insideEval := false
+	for _, f := range vm.Frames {
+		if f.IsEvalFrame {
+			insideEval = true
+			break
+		}
+	}
+	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
 			setLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
 			setLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
@@ -2084,6 +2106,13 @@ func (vm *VM) executeCallVerb() error {
 			setLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
 			setLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 		}
+	} else {
+		setLocalByName(frame, prog, "argstr", types.NewStr(""))
+		setLocalByName(frame, prog, "dobjstr", types.NewStr(""))
+		setLocalByName(frame, prog, "iobjstr", types.NewStr(""))
+		setLocalByName(frame, prog, "prepstr", types.NewStr(""))
+		setLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+		setLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 	}
 
 	// Update shared context for builtins

@@ -86,6 +86,7 @@ type StackFrame struct {
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
 	IsVerbCall      bool        // True if this frame was pushed by executeCallVerb
+	IsEvalFrame     bool        // True if this frame was pushed by eval() builtin
 	SavedThisObj    types.ObjID // ctx.ThisObj before verb call
 	SavedThisValue  types.Value // ctx.ThisValue before verb call
 	SavedVerb       string      // ctx.Verb before verb call
@@ -361,6 +362,11 @@ func (vm *VM) buildTraceback() types.Value {
 	frames := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
 		f := stack[i]
+		if f.IsEvalFrame {
+			// Stop at eval boundary — don't include eval infrastructure
+			// or the verb that called eval() (frames below this point)
+			break
+		}
 		if f.ServerInitiated {
 			continue
 		}
@@ -729,6 +735,32 @@ func (vm *VM) Return(value types.Value) {
 
 	frame := vm.Frames[len(vm.Frames)-1]
 
+	// Eval frame returning normally: wrap result in {1, value}
+	if frame.IsEvalFrame {
+		wrapped := types.NewList([]types.Value{
+			types.NewInt(1),
+			value,
+		})
+		// Restore context
+		if vm.Context != nil {
+			vm.Context.ThisObj = frame.SavedThisObj
+			vm.Context.ThisValue = frame.SavedThisValue
+			vm.Context.Verb = frame.SavedVerb
+			vm.Context.Programmer = frame.SavedProgrammer
+			vm.Context.IsWizard = frame.SavedIsWizard
+		}
+		// Pop activation frame from task call stack
+		if vm.Context != nil && vm.Context.Task != nil {
+			if t, ok := vm.Context.Task.(*task.Task); ok {
+				t.PopFrame()
+			}
+		}
+		vm.SP = frame.BasePointer
+		vm.Frames = vm.Frames[:len(vm.Frames)-1]
+		vm.Push(wrapped)
+		return
+	}
+
 	// If this was a verb-call frame, restore context and pop activation frame
 	if frame.IsVerbCall && vm.Context != nil {
 		trace.VerbReturn(frame.This, frame.Verb, value)
@@ -838,6 +870,34 @@ func (vm *VM) HandleError(err error) bool {
 			}
 			// This is the bottom frame — no more frames to unwind into
 			return false
+		}
+
+		// Eval frame boundary: catch the error and wrap as {0, error}.
+		// This matches Toast's bf_eval_callback which catches all errors
+		// from eval'd code and returns them as the eval() result.
+		// Exception: E_QUOTA/E_MAXREC propagate through to kill the task.
+		if frame.IsEvalFrame && errCode != types.E_QUOTA && errCode != types.E_MAXREC {
+			wrapped := types.NewList([]types.Value{
+				types.NewInt(0),
+				types.NewErr(errCode),
+			})
+			// Restore context
+			if vm.Context != nil {
+				vm.Context.ThisObj = frame.SavedThisObj
+				vm.Context.ThisValue = frame.SavedThisValue
+				vm.Context.Verb = frame.SavedVerb
+				vm.Context.Programmer = frame.SavedProgrammer
+				vm.Context.IsWizard = frame.SavedIsWizard
+			}
+			if vm.Context != nil && vm.Context.Task != nil {
+				if t, ok := vm.Context.Task.(*task.Task); ok {
+					t.PopFrame()
+				}
+			}
+			vm.SP = frame.BasePointer
+			vm.Frames = vm.Frames[:len(vm.Frames)-1]
+			vm.Push(wrapped)
+			return true
 		}
 
 		// Pop the current frame (unwind): reset SP to BasePointer, remove frame.

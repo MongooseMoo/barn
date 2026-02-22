@@ -16,6 +16,7 @@ const (
 	FlowFork                          // Fork statement executed
 	FlowSuspend                       // Suspend statement executed
 	FlowParseError                    // Parse/syntax error (Val contains error message list)
+	FlowEvalPush                      // eval() pushed a frame on the calling VM
 )
 
 // ForkInfo contains information needed to create a forked task
