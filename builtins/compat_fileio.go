@@ -103,6 +103,9 @@ func encodeBinaryBytes(data []byte) string {
 }
 
 func builtinFileOpen(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -136,6 +139,9 @@ func builtinFileOpen(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileClose(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -151,6 +157,9 @@ func builtinFileClose(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileName(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -162,6 +171,9 @@ func builtinFileName(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileOpenmode(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -173,6 +185,9 @@ func builtinFileOpenmode(ctx *types.TaskContext, args []types.Value) types.Resul
 }
 
 func builtinFileRead(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -200,6 +215,9 @@ func builtinFileRead(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -235,6 +253,9 @@ func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Resul
 }
 
 func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -275,6 +296,9 @@ func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Resu
 }
 
 func builtinFileWrite(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -304,6 +328,9 @@ func builtinFileWrite(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileWriteline(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -322,6 +349,9 @@ func builtinFileWriteline(ctx *types.TaskContext, args []types.Value) types.Resu
 }
 
 func builtinFileFlush(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -360,6 +390,9 @@ func parseSeekWhence(v types.Value) (int, types.ErrorCode) {
 }
 
 func builtinFileSeek(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -387,6 +420,9 @@ func builtinFileSeek(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileTell(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -402,6 +438,9 @@ func builtinFileTell(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileEOF(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -451,6 +490,9 @@ func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
 }
 
 func builtinFileSize(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -462,6 +504,9 @@ func builtinFileSize(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileMode(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -473,6 +518,9 @@ func builtinFileMode(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileLastModify(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -484,14 +532,23 @@ func builtinFileLastModify(ctx *types.TaskContext, args []types.Value) types.Res
 }
 
 func builtinFileLastAccess(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	return builtinFileLastModify(ctx, args)
 }
 
 func builtinFileLastChange(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	return builtinFileLastModify(ctx, args)
 }
 
 func builtinFileStat(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -521,6 +578,9 @@ func builtinFileStat(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileType(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -543,6 +603,9 @@ func builtinFileType(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileRemove(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -561,6 +624,9 @@ func builtinFileRemove(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinFileRename(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -581,6 +647,9 @@ func builtinFileRename(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinFileMkdir(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -610,6 +679,9 @@ func builtinFileMkdir(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileRmdir(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -628,6 +700,9 @@ func builtinFileRmdir(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileChmod(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -647,6 +722,9 @@ func builtinFileChmod(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileList(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -685,6 +763,9 @@ func builtinFileList(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFileHandles(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -703,6 +784,9 @@ func builtinFileHandles(ctx *types.TaskContext, args []types.Value) types.Result
 }
 
 func builtinFileCountLines(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -731,6 +815,9 @@ func builtinFileCountLines(ctx *types.TaskContext, args []types.Value) types.Res
 }
 
 func builtinFileGrep(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

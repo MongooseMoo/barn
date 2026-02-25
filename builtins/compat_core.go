@@ -533,6 +533,9 @@ var listenState = struct {
 }{ports: make(map[int64]types.ObjID)}
 
 func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -554,6 +557,9 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -568,6 +574,9 @@ func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
