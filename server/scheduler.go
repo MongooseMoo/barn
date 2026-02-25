@@ -1030,6 +1030,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// Prepare frame first, then set ALL variables before execution
 			frame := bcVM.PrepareVerbFrame(prog, t.This, t.Owner, t.Caller, t.VerbName, t.VerbLoc, argList)
 
+			// Set verb debug flag from the actual verb permissions
+			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && taskVerb != nil {
+				frame.VerbDebug = taskVerb.Perms.Has(db.VerbDebug)
+			}
+
 			// Set verb context variables
 			vm.SetLocalByNamePublic(frame, prog, "this", types.NewObj(t.This))
 			vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(t.Owner))
@@ -1210,6 +1215,10 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		// Mark as verb-call so syncTaskLineNumbers includes this frame
 		// when syncing line numbers to the task's CallStack.
 		frame.IsVerbCall = true
+		// Inherit verb debug flag from the parent verb
+		if forkVerb, _, vErr := s.store.FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil && forkVerb != nil {
+			frame.VerbDebug = forkVerb.Perms.Has(db.VerbDebug)
+		}
 
 		// Copy inherited variable values from the parent
 		for varName, varVal := range forkInfo.Variables {
@@ -1374,6 +1383,7 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, player, verbName, defObjID, args)
+	frame.VerbDebug = verb.Perms.Has(db.VerbDebug)
 	vm.SetLocalByNamePublic(frame, prog, "this", thisVal)
 	vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(player))
 	vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(player))

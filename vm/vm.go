@@ -82,6 +82,7 @@ type StackFrame struct {
 	LoopStack    []LoopState   // Nested loop state
 	ExceptStack  []Handler     // Exception handlers
 	PendingError error         // Error saved during finally execution
+	VerbDebug    bool          // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
@@ -125,6 +126,7 @@ func (vm *VM) Run(prog *Program) types.Result {
 		Caller:      types.ObjNothing,
 		LoopStack:   make([]LoopState, 0, 4),
 		ExceptStack: make([]Handler, 0, 4),
+		VerbDebug:   true, // Default: errors propagate as exceptions
 	}
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
@@ -184,6 +186,7 @@ func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.
 		Args:        args,
 		LoopStack:   make([]LoopState, 0, 4),
 		ExceptStack: make([]Handler, 0, 4),
+		VerbDebug:   true, // Default: errors propagate as exceptions
 	}
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
@@ -249,6 +252,28 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 func (vm *VM) executeLoop() types.Result {
 	for len(vm.Frames) > 0 {
 		if err := vm.Step(); err != nil {
+			// Verb debug flag check: when the current frame's VerbDebug is false
+			// and the error is NOT an explicit raise (VMException), push the error
+			// as a value instead of propagating it as an exception.
+			// This matches Toast's PUSH_ERROR macro behavior in execute.cc.
+			if _, isExplicitRaise := err.(VMException); !isExplicitRaise {
+				frame := vm.CurrentFrame()
+				if frame != nil && !frame.VerbDebug {
+					// Extract error code and push as value
+					var errCode types.ErrorCode
+					if mooErr, ok := err.(MooError); ok {
+						errCode = mooErr.Code
+					} else {
+						errCode = extractErrorCode(err)
+						if errCode == types.E_NONE {
+							errCode = types.E_EXEC
+						}
+					}
+					vm.Push(types.NewErr(errCode))
+					continue
+				}
+			}
+
 			// Capture line number before HandleError may pop frames
 			line := vm.CurrentLine()
 			// Snapshot activation stack before unwind so callers can inspect

@@ -212,6 +212,7 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 			LoopStack:       make([]LoopState, 0, 4),
 			ExceptStack:     make([]Handler, 0, 4),
 			IsEvalFrame:     true,
+			VerbDebug:       true, // Eval'd code propagates errors as exceptions
 			SavedThisObj:    ctx.ThisObj,
 			SavedThisValue:  ctx.ThisValue,
 			SavedVerb:       ctx.Verb,
