@@ -134,7 +134,8 @@ type Task struct {
 	Context     *types.TaskContext // Task execution context
 	Result      types.Result       // Last execution result
 	ForkCreator ForkCreator        // For creating forked tasks
-	CancelFunc  context.CancelFunc // For cancellation (exported for scheduler)
+	CancelFunc     context.CancelFunc // For cancellation (exported for scheduler)
+	ExecCancelFunc context.CancelFunc // For cancelling an exec() subprocess
 	StmtIndex   int                // Current statement index (for suspend/resume)
 
 	// Verb context (set for verb tasks)
@@ -351,6 +352,22 @@ func (t *Task) Resume(value types.Value) bool {
 	return true
 }
 
+// CompleteExec resumes an exec-suspended task with the subprocess result.
+// Unlike Resume(), this works even when IsExecSuspended is true.
+// Called from the exec goroutine when the subprocess finishes.
+func (t *Task) CompleteExec(value types.Value) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskSuspended {
+		return false
+	}
+	t.IsExecSuspended = false
+	t.ExecCancelFunc = nil
+	t.State = TaskQueued
+	t.WakeValue = value
+	return true
+}
+
 // WakeDue reports whether a suspended task has a timed wake deadline due.
 func (t *Task) WakeDue(now time.Time) bool {
 	t.mu.RLock()
@@ -363,6 +380,12 @@ func (t *Task) Kill() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskKilled
+	// If the task is exec-suspended, cancel the subprocess
+	if t.ExecCancelFunc != nil {
+		t.ExecCancelFunc()
+		t.ExecCancelFunc = nil
+	}
+	t.IsExecSuspended = false
 }
 
 // ToQueuedTaskInfo returns task info for queued_tasks()

@@ -240,9 +240,46 @@ func builtinExec(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Execute command
-	result := execCommand(resolvedPath, cmdArgs, input)
-	return result
+	// Get the task so we can suspend it
+	t, ok := ctx.Task.(*task.Task)
+	if !ok {
+		// No task context (shouldn't happen in normal execution) — fall back to synchronous
+		return execCommand(resolvedPath, cmdArgs, input)
+	}
+
+	// Create a cancellable context for the subprocess
+	execCtx, execCancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+	// Mark task as exec-suspended and store cancel func
+	t.IsExecSuspended = true
+	t.ExecCancelFunc = execCancel
+
+	// Suspend the task indefinitely (will be resumed by goroutine)
+	mgr := task.GetManager()
+	mgr.SuspendTask(t, -1)
+
+	// Launch subprocess in background goroutine
+	go func() {
+		defer execCancel()
+		result := execCommandWithContext(execCtx, resolvedPath, cmdArgs, input)
+
+		// Deliver result to the task and transition it to Queued
+		if result.IsNormal() {
+			t.CompleteExec(result.Val)
+		} else {
+			// On exec error, deliver an error list so the MOO code sees a clean result
+			// rather than propagating a Go-level error. Use exit code -1.
+			errResult := []types.Value{
+				types.NewInt(-1),
+				types.NewStr(""),
+				types.NewStr(""),
+			}
+			t.CompleteExec(types.NewList(errResult))
+		}
+	}()
+
+	// Return FlowSuspend so the VM yields
+	return types.Suspend(-1)
 }
 
 // isValidBinaryString checks if a string contains only valid MOO binary string encoding
@@ -357,8 +394,17 @@ func validateAndResolvePath(program string) (string, error) {
 	return "", os.ErrNotExist
 }
 
-// execCommand runs a command and returns {exit_code, stdout, stderr}
+// execCommand runs a command synchronously and returns {exit_code, stdout, stderr}.
+// Used as fallback when no task context is available.
 func execCommand(program string, args []string, input string) types.Result {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return execCommandWithContext(ctx, program, args, input)
+}
+
+// execCommandWithContext runs a command with the given context and returns {exit_code, stdout, stderr}.
+// The context controls cancellation (for kill_task) and timeout.
+func execCommandWithContext(ctx context.Context, program string, args []string, input string) types.Result {
 	var cmdProgram string
 	var cmdArgs []string
 
@@ -379,10 +425,6 @@ func execCommand(program string, args []string, input string) types.Result {
 		cmdArgs = args
 	}
 
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
 	// Create command with context
 	cmd := exec.CommandContext(ctx, cmdProgram, cmdArgs...)
 
@@ -400,6 +442,9 @@ func execCommand(program string, args []string, input string) types.Result {
 		} else if ctx.Err() == context.DeadlineExceeded {
 			// Timeout - return E_EXEC
 			return types.Err(types.E_EXEC)
+		} else if ctx.Err() == context.Canceled {
+			// Cancelled (kill_task) - return E_INVARG
+			return types.Err(types.E_INVARG)
 		} else {
 			// Command not found or other error - return E_INVARG per spec
 			return types.Err(types.E_INVARG)
