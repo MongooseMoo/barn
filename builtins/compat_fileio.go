@@ -22,6 +22,26 @@ type mooFileHandle struct {
 	binary bool
 }
 
+func (h *mooFileHandle) canRead() bool {
+	if len(h.mode) < 2 {
+		return false
+	}
+	if h.mode[1] == '+' {
+		return true // read-write mode
+	}
+	return h.mode[0] == 'r'
+}
+
+func (h *mooFileHandle) canWrite() bool {
+	if len(h.mode) < 2 {
+		return false
+	}
+	if h.mode[1] == '+' {
+		return true // read-write mode
+	}
+	return h.mode[0] == 'w' || h.mode[0] == 'a'
+}
+
 var fileState = struct {
 	mu      sync.Mutex
 	nextID  int64
@@ -46,37 +66,71 @@ func sanitizeFilePath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		return "", fmt.Errorf("absolute path disallowed")
 	}
-	clean := filepath.Clean(path)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	// Toast's file_verify_path: reject if starts with ".."
+	if len(path) > 1 && path[0] == '.' && path[1] == '.' {
 		return "", fmt.Errorf("path traversal disallowed")
 	}
+	// Toast's file_verify_path: reject if contains "/." anywhere (catches
+	// "../", "./", and hidden files like ".hidden")
+	if strings.Contains(path, "/.") {
+		return "", fmt.Errorf("path traversal disallowed")
+	}
+	// Also reject backslash-dot (Windows path separator traversal)
+	if strings.Contains(path, `\.`) {
+		return "", fmt.Errorf("path traversal disallowed")
+	}
+	clean := filepath.Clean(path)
 	return clean, nil
 }
 
 func parseFileOpenMode(mode string) (int, bool, error) {
-	if mode == "" {
-		return 0, false, fmt.Errorf("empty mode")
+	// Toast requires exactly 4 characters: [rwa][+-][tb][fn]
+	if len(mode) != 4 {
+		return 0, false, fmt.Errorf("invalid mode: must be exactly 4 characters")
 	}
-	binary := strings.Contains(mode, "b")
+	// Position 0: r/w/a
 	flags := 0
 	switch mode[0] {
 	case 'r':
 		flags = os.O_RDONLY
-		if strings.Contains(mode, "+") {
-			flags = os.O_RDWR
-		}
 	case 'w':
 		flags = os.O_CREATE | os.O_TRUNC | os.O_WRONLY
-		if strings.Contains(mode, "+") {
-			flags = os.O_CREATE | os.O_TRUNC | os.O_RDWR
-		}
 	case 'a':
 		flags = os.O_CREATE | os.O_APPEND | os.O_WRONLY
-		if strings.Contains(mode, "+") {
+	default:
+		return 0, false, fmt.Errorf("invalid mode: first char must be r/w/a")
+	}
+	// Position 1: + or -
+	switch mode[1] {
+	case '+':
+		if mode[0] == 'r' {
+			flags = os.O_RDWR
+		} else if mode[0] == 'w' {
+			flags = os.O_CREATE | os.O_TRUNC | os.O_RDWR
+		} else {
 			flags = os.O_CREATE | os.O_APPEND | os.O_RDWR
 		}
+	case '-':
+		// no change
 	default:
-		return 0, false, fmt.Errorf("invalid mode")
+		return 0, false, fmt.Errorf("invalid mode: second char must be + or -")
+	}
+	// Position 2: t or b
+	binary := false
+	switch mode[2] {
+	case 't':
+		// text mode
+	case 'b':
+		binary = true
+	default:
+		return 0, false, fmt.Errorf("invalid mode: third char must be t or b")
+	}
+	// Position 3: f or n
+	switch mode[3] {
+	case 'f', 'n':
+		// flush or no-flush
+	default:
+		return 0, false, fmt.Errorf("invalid mode: fourth char must be f or n")
 	}
 	return flags, binary, nil
 }
@@ -208,6 +262,9 @@ func builtinFileRead(ctx *types.TaskContext, args []types.Value) types.Result {
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
+	if !h.canRead() {
+		return types.Err(types.E_INVARG)
+	}
 	n, ok := args[1].(types.IntValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -240,6 +297,9 @@ func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Resul
 	h, code := getFileHandle(args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
+	}
+	if !h.canRead() {
+		return types.Err(types.E_INVARG)
 	}
 	var buf []byte
 	tmp := make([]byte, 1)
@@ -278,6 +338,9 @@ func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Resu
 	h, code := getFileHandle(args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
+	}
+	if !h.canRead() {
+		return types.Err(types.E_INVARG)
 	}
 	start, ok1 := args[1].(types.IntValue)
 	end, ok2 := args[2].(types.IntValue)
@@ -322,6 +385,9 @@ func builtinFileWrite(ctx *types.TaskContext, args []types.Value) types.Result {
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
+	if !h.canWrite() {
+		return types.Err(types.E_INVARG)
+	}
 	s, ok := args[1].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -353,6 +419,9 @@ func builtinFileWriteline(ctx *types.TaskContext, args []types.Value) types.Resu
 	h, code := getFileHandle(args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
+	}
+	if !h.canWrite() {
+		return types.Err(types.E_INVARG)
 	}
 	s, ok := args[1].(types.StrValue)
 	if !ok {
@@ -663,8 +732,14 @@ func builtinFileRename(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 	f, err1 := sanitizeFilePath(from.Value())
 	t, err2 := sanitizeFilePath(to.Value())
-	if err1 != nil || err2 != nil {
+	// Check dest first: invalid dest -> E_INVARG
+	if err2 != nil {
 		return types.Err(types.E_INVARG)
+	}
+	// Toast quirk: str_dup(file_resolve_path(bad_src)) does not propagate
+	// NULL, so the rename proceeds and fails -> E_FILE
+	if err1 != nil {
+		return types.Err(types.E_FILE)
 	}
 	if err := os.Rename(resolveFilePath(f), resolveFilePath(t)); err != nil {
 		return types.Err(types.E_FILE)
@@ -733,15 +808,31 @@ func builtinFileChmod(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 	pathVal, ok1 := args[0].(types.StrValue)
-	permVal, ok2 := args[1].(types.IntValue)
+	modeVal, ok2 := args[1].(types.StrValue)
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
+	}
+	// Toast validates mode string first, then path.
+	// Mode must be exactly 3 octal digits (0-7).
+	modeStr := modeVal.Value()
+	if len(modeStr) != 3 {
+		return types.Err(types.E_INVARG)
+	}
+	var perm os.FileMode
+	factor := os.FileMode(64) // 8^2 = 64
+	for i := 0; i < 3; i++ {
+		c := modeStr[i]
+		if c < '0' || c > '7' {
+			return types.Err(types.E_INVARG)
+		}
+		perm += factor * os.FileMode(c-'0')
+		factor /= 8
 	}
 	path, err := sanitizeFilePath(pathVal.Value())
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if err := os.Chmod(resolveFilePath(path), os.FileMode(permVal.Val)); err != nil {
+	if err := os.Chmod(resolveFilePath(path), perm); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
