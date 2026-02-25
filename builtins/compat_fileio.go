@@ -3,6 +3,7 @@ package builtins
 import (
 	"barn/types"
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -92,6 +93,18 @@ func getFileHandle(v types.Value) (*mooFileHandle, types.ErrorCode) {
 		return nil, types.E_INVARG
 	}
 	return handle, types.E_NONE
+}
+
+// filterTextMode keeps only printable ASCII bytes (0x20-0x7E),
+// matching Toast's raw_bytes_to_clean filter for text-mode reads.
+func filterTextMode(data []byte) string {
+	var b strings.Builder
+	for _, c := range data {
+		if (c >= 0x21 && c <= 0x7E) || c == 0x20 {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 func encodeBinaryBytes(data []byte) string {
@@ -207,11 +220,14 @@ func builtinFileRead(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err != nil && err != io.EOF {
 		return types.Err(types.E_FILE)
 	}
+	if count == 0 {
+		return types.Err(types.E_FILE)
+	}
 	data := buf[:count]
 	if h.binary {
 		return types.Ok(types.NewStr(encodeBinaryBytes(data)))
 	}
-	return types.Ok(types.NewStr(strings.ReplaceAll(string(data), "\r\n", "\n")))
+	return types.Ok(types.NewStr(filterTextMode(data)))
 }
 
 func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -243,13 +259,13 @@ func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Resul
 		}
 	}
 	if len(buf) == 0 {
-		return types.Ok(types.NewStr(""))
+		return types.Err(types.E_FILE)
 	}
 	if h.binary {
 		return types.Ok(types.NewStr(encodeBinaryBytes(buf)))
 	}
-	line := strings.TrimRight(strings.ReplaceAll(string(buf), "\r\n", "\n"), "\n")
-	return types.Ok(types.NewStr(line))
+	trimmed := bytes.TrimRight(buf, "\r\n")
+	return types.Ok(types.NewStr(filterTextMode(trimmed)))
 }
 
 func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -264,11 +280,11 @@ func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Resu
 		return types.Err(code)
 	}
 	start, ok1 := args[1].(types.IntValue)
-	count, ok2 := args[2].(types.IntValue)
+	end, ok2 := args[2].(types.IntValue)
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	if start.Val < 1 || count.Val < 0 {
+	if start.Val < 1 || start.Val > end.Val {
 		return types.Err(types.E_INVARG)
 	}
 	cur, _ := h.file.Seek(0, io.SeekCurrent)
@@ -284,7 +300,7 @@ func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Resu
 		if lineNo < start.Val {
 			continue
 		}
-		if count.Val > 0 && int64(len(out)) >= count.Val {
+		if lineNo > end.Val {
 			break
 		}
 		out = append(out, types.NewStr(scanner.Text()))
@@ -342,7 +358,17 @@ func builtinFileWriteline(ctx *types.TaskContext, args []types.Value) types.Resu
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if _, err := h.file.WriteString(s.Value() + "\n"); err != nil {
+	var data []byte
+	if h.binary {
+		decoded, bad := decodeBinaryString(s.Value())
+		if bad {
+			return types.Err(types.E_INVARG)
+		}
+		data = append(decoded, '\n')
+	} else {
+		data = []byte(s.Value() + "\n")
+	}
+	if _, err := h.file.Write(data); err != nil {
 		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewInt(0))
