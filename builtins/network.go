@@ -92,7 +92,8 @@ func resolveConnection(ctx *types.TaskContext, player types.ObjID) Connection {
 
 func validConnectionOption(name string) bool {
 	switch name {
-	case "hold-input", "client-echo", "disable-oob":
+	case "hold-input", "client-echo", "disable-oob",
+		"binary", "flush-command", "keep-alive":
 		return true
 	default:
 		return false
@@ -101,9 +102,12 @@ func validConnectionOption(name string) bool {
 
 func defaultConnectionOptions() map[string]types.Value {
 	return map[string]types.Value{
-		"hold-input":  types.NewInt(0),
-		"client-echo": types.NewInt(1),
-		"disable-oob": types.NewInt(0),
+		"hold-input":    types.NewInt(0),
+		"client-echo":   types.NewInt(1),
+		"disable-oob":   types.NewInt(0),
+		"binary":        types.NewInt(0),
+		"flush-command": types.NewStr(""),
+		"keep-alive":    types.NewInt(0),
 	}
 }
 
