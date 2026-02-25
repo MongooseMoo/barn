@@ -252,26 +252,25 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 func (vm *VM) executeLoop() types.Result {
 	for len(vm.Frames) > 0 {
 		if err := vm.Step(); err != nil {
-			// Verb debug flag check: when the current frame's VerbDebug is false
-			// and the error is NOT an explicit raise (VMException), push the error
-			// as a value instead of propagating it as an exception.
-			// This matches Toast's PUSH_ERROR macro behavior in execute.cc.
-			if _, isExplicitRaise := err.(VMException); !isExplicitRaise {
-				frame := vm.CurrentFrame()
-				if frame != nil && !frame.VerbDebug {
-					// Extract error code and push as value
-					var errCode types.ErrorCode
-					if mooErr, ok := err.(MooError); ok {
-						errCode = mooErr.Code
-					} else {
-						errCode = extractErrorCode(err)
-						if errCode == types.E_NONE {
-							errCode = types.E_EXEC
-						}
+			// Verb debug flag check: when the current frame's VerbDebug is false,
+			// push the error as a value instead of propagating it as an exception.
+			// This applies to ALL errors including explicit raise().
+			// Matches Toast's PUSH_ERROR/RAISE_ERROR macro behavior in execute.cc.
+			frame := vm.CurrentFrame()
+			if frame != nil && !frame.VerbDebug {
+				var errCode types.ErrorCode
+				if vmErr, ok := err.(VMException); ok {
+					errCode = vmErr.Code
+				} else if mooErr, ok := err.(MooError); ok {
+					errCode = mooErr.Code
+				} else {
+					errCode = extractErrorCode(err)
+					if errCode == types.E_NONE {
+						errCode = types.E_EXEC
 					}
-					vm.Push(types.NewErr(errCode))
-					continue
 				}
+				vm.Push(types.NewErr(errCode))
+				continue
 			}
 
 			// Capture line number before HandleError may pop frames
