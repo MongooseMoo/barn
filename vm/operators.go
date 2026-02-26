@@ -71,6 +71,21 @@ func add(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	// List concatenation (list + list) and append (list + any)
+	if leftList, ok := left.(types.ListValue); ok {
+		if rightList, ok := right.(types.ListValue); ok {
+			// list + list → concatenation (new list)
+			leftElems := leftList.Elements()
+			rightElems := rightList.Elements()
+			newElems := make([]types.Value, len(leftElems)+len(rightElems))
+			copy(newElems, leftElems)
+			copy(newElems[len(leftElems):], rightElems)
+			return types.Ok(types.NewList(newElems))
+		}
+		// list + any → append (new list)
+		return types.Ok(leftList.Append(right))
+	}
+
 	// Numeric addition
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)

@@ -30,6 +30,23 @@ func (vm *VM) executeAdd() error {
 		}
 	}
 
+	// Handle list concatenation (list + list) and append (list + any)
+	if aList, aIsList := a.(types.ListValue); aIsList {
+		if bList, bIsList := b.(types.ListValue); bIsList {
+			// list + list → concatenation (new list)
+			aElems := aList.Elements()
+			bElems := bList.Elements()
+			newElems := make([]types.Value, len(aElems)+len(bElems))
+			copy(newElems, aElems)
+			copy(newElems[len(aElems):], bElems)
+			vm.Push(types.NewList(newElems))
+			return nil
+		}
+		// list + any → append (new list)
+		vm.Push(aList.Append(b))
+		return nil
+	}
+
 	// Handle numeric addition
 	aInt, aIsInt := a.(types.IntValue)
 	bInt, bIsInt := b.(types.IntValue)
