@@ -266,9 +266,8 @@ func (w *Writer) writeProperties(obj *Object) error {
 	}
 
 	// Write propdef names for properties defined on this object.
-	// In root-first order, local propdefs are the trailing PropDefsCount names.
-	localStart := len(propNames) - propDefsCount
-	for i := localStart; i < len(propNames); i++ {
+	// In self-first order, local propdefs are the leading PropDefsCount names.
+	for i := 0; i < propDefsCount; i++ {
 		if err := w.writeString(propNames[i]); err != nil {
 			return err
 		}
@@ -305,7 +304,7 @@ func (w *Writer) writeProperties(obj *Object) error {
 }
 
 // collectPropertyNames builds the ordered list of property names for an object
-// in root-first order.
+// in self-first order (matching Toast's propval layout).
 func (w *Writer) collectPropertyNames(obj *Object) []string {
 	var names []string
 	visited := make(map[types.ObjID]bool)
@@ -319,22 +318,21 @@ func (w *Writer) collectPropNamesRecursive(obj *Object, names *[]string, visited
 	}
 	visited[obj.ID] = true
 
-	// Recurse to parents first so inherited propdefs are serialized first.
+	// SELF FIRST: after load/resolve, local propdefs are the leading PropDefsCount entries.
+	localCount := obj.PropDefsCount
+	if localCount > len(obj.PropOrder) {
+		localCount = len(obj.PropOrder)
+	}
+	for i := 0; i < localCount; i++ {
+		*names = append(*names, obj.PropOrder[i])
+	}
+
+	// THEN recurse to parents (depth-first, matching Toast's db_ancestors).
 	for _, parentID := range obj.Parents {
 		parent := w.store.Get(parentID)
 		if parent != nil {
 			w.collectPropNamesRecursive(parent, names, visited)
 		}
-	}
-
-	// After load/resolve, local propdefs are the trailing PropDefsCount entries.
-	localCount := obj.PropDefsCount
-	if localCount > len(obj.PropOrder) {
-		localCount = len(obj.PropOrder)
-	}
-	localStart := len(obj.PropOrder) - localCount
-	for i := localStart; i < len(obj.PropOrder); i++ {
-		*names = append(*names, obj.PropOrder[i])
 	}
 }
 

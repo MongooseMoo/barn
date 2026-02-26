@@ -1664,22 +1664,24 @@ func (db *Database) collectPropertyNamesRaw(obj *Object) []string {
 }
 
 // collectRawPropNamesRecursive recursively collects property names from an object and its ancestors.
-// Properties are collected in root-first order to match DB property value storage.
+// Properties are collected in self-first order to match DB property value storage
+// (propval[0..selfLen-1] = self's propdefs, then parent's, then grandparent's, etc.).
+// This matches Toast's db_find_property which indexes self first, then db_ancestors.
 func (db *Database) collectRawPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
 	if obj == nil || visited[obj.ID] {
 		return
 	}
 	visited[obj.ID] = true
 
-	// First recurse to parents so ancestor propdefs come before child propdefs.
+	// SELF FIRST: add this object's defined properties (propDefs).
+	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
+		*names = append(*names, obj.PropOrder[i])
+	}
+
+	// THEN recurse to parents (depth-first, matching Toast's db_ancestors).
 	for _, parentID := range obj.Parents {
 		parent := db.Objects[parentID]
 		db.collectRawPropNamesRecursive(parent, names, visited)
-	}
-
-	// Then add this object's defined properties (propDefs).
-	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
-		*names = append(*names, obj.PropOrder[i])
 	}
 }
 
