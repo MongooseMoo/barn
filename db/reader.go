@@ -1592,13 +1592,22 @@ func prepToString(prep int) string {
 // MOO databases store property values in order: first propDefsCount have names,
 // the rest inherit names from ancestors in depth-first order.
 func (db *Database) resolvePropertyNames() {
-	for _, obj := range db.Objects {
+	type resolvedProps struct {
+		properties map[string]*Property
+		propOrder  []string
+	}
+
+	// Build resolved names for every object first, then apply them in a second pass.
+	// This avoids parent-order nondeterminism from map iteration.
+	resolvedByID := make(map[types.ObjID]resolvedProps, len(db.Objects))
+
+	for id, obj := range db.Objects {
 		if obj == nil {
 			continue
 		}
 
 		// Build the full list of property names by walking up the parent chain
-		allNames := db.collectPropertyNames(obj)
+		allNames := db.collectPropertyNamesRaw(obj)
 
 		// Now rename _inherited_N properties to their actual names
 		newProperties := make(map[string]*Property)
@@ -1622,26 +1631,41 @@ func (db *Database) resolvePropertyNames() {
 			newPropOrder = append(newPropOrder, newName)
 		}
 
-		obj.Properties = newProperties
-		obj.PropOrder = newPropOrder
+		resolvedByID[id] = resolvedProps{
+			properties: newProperties,
+			propOrder:  newPropOrder,
+		}
+	}
+
+	for id, obj := range db.Objects {
+		if obj == nil {
+			continue
+		}
+		resolved, ok := resolvedByID[id]
+		if !ok {
+			continue
+		}
+		obj.Properties = resolved.properties
+		obj.PropOrder = resolved.propOrder
 	}
 }
 
-// collectPropertyNames builds an ordered list of all property names for an object
-// by walking up the parent chain and collecting property definitions.
-func (db *Database) collectPropertyNames(obj *Object) []string {
+// collectPropertyNamesRaw builds an ordered list of all property names for an object
+// by walking up the parent chain and collecting raw propdefs.
+// Raw object state stores local propdefs in the first PropDefsCount entries.
+func (db *Database) collectPropertyNamesRaw(obj *Object) []string {
 	var names []string
 	visited := make(map[types.ObjID]bool)
 
 	// Start with this object and walk up parents
-	db.collectPropNamesRecursive(obj, &names, visited)
+	db.collectRawPropNamesRecursive(obj, &names, visited)
 
 	return names
 }
 
-// collectPropNamesRecursive recursively collects property names from an object and its ancestors.
+// collectRawPropNamesRecursive recursively collects property names from an object and its ancestors.
 // Properties are collected in root-first order to match DB property value storage.
-func (db *Database) collectPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
+func (db *Database) collectRawPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
 	if obj == nil || visited[obj.ID] {
 		return
 	}
@@ -1650,13 +1674,23 @@ func (db *Database) collectPropNamesRecursive(obj *Object, names *[]string, visi
 	// First recurse to parents so ancestor propdefs come before child propdefs.
 	for _, parentID := range obj.Parents {
 		parent := db.Objects[parentID]
-		db.collectPropNamesRecursive(parent, names, visited)
+		db.collectRawPropNamesRecursive(parent, names, visited)
 	}
 
 	// Then add this object's defined properties (propDefs).
 	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
 		*names = append(*names, obj.PropOrder[i])
 	}
+}
+
+// collectPropertyNames returns an object's final property order after name resolution.
+func (db *Database) collectPropertyNames(obj *Object) []string {
+	if obj == nil || len(obj.PropOrder) == 0 {
+		return nil
+	}
+	names := make([]string, len(obj.PropOrder))
+	copy(names, obj.PropOrder)
+	return names
 }
 
 // resolveWaifProperties maps raw property indices to names for all loaded WAIFs.

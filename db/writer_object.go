@@ -265,8 +265,10 @@ func (w *Writer) writeProperties(obj *Object) error {
 		return err
 	}
 
-	// Write propdef names (first propDefsCount properties)
-	for i := 0; i < propDefsCount && i < len(propNames); i++ {
+	// Write propdef names for properties defined on this object.
+	// In root-first order, local propdefs are the trailing PropDefsCount names.
+	localStart := len(propNames) - propDefsCount
+	for i := localStart; i < len(propNames); i++ {
 		if err := w.writeString(propNames[i]); err != nil {
 			return err
 		}
@@ -303,9 +305,7 @@ func (w *Writer) writeProperties(obj *Object) error {
 }
 
 // collectPropertyNames builds the ordered list of property names for an object
-// by walking its parent chain. This mirrors the reader's resolvePropertyNames
-// logic: each object contributes its PropDefsCount defined property names,
-// then the process recurses to parents.
+// in root-first order.
 func (w *Writer) collectPropertyNames(obj *Object) []string {
 	var names []string
 	visited := make(map[types.ObjID]bool)
@@ -319,17 +319,22 @@ func (w *Writer) collectPropNamesRecursive(obj *Object, names *[]string, visited
 	}
 	visited[obj.ID] = true
 
-	// This object's defined properties (first PropDefsCount entries of PropOrder)
-	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
-		*names = append(*names, obj.PropOrder[i])
-	}
-
-	// Recurse to parents
+	// Recurse to parents first so inherited propdefs are serialized first.
 	for _, parentID := range obj.Parents {
 		parent := w.store.Get(parentID)
 		if parent != nil {
 			w.collectPropNamesRecursive(parent, names, visited)
 		}
+	}
+
+	// After load/resolve, local propdefs are the trailing PropDefsCount entries.
+	localCount := obj.PropDefsCount
+	if localCount > len(obj.PropOrder) {
+		localCount = len(obj.PropOrder)
+	}
+	localStart := len(obj.PropOrder) - localCount
+	for i := localStart; i < len(obj.PropOrder); i++ {
+		*names = append(*names, obj.PropOrder[i])
 	}
 }
 
@@ -359,9 +364,9 @@ func (w *Writer) writeProperty(prop *Property) error {
 func (w *Writer) writeVerbPrograms() error {
 	// Collect all verbs with code
 	type verbRef struct {
-		objID    types.ObjID
-		verbIdx  int
-		code     []string
+		objID   types.ObjID
+		verbIdx int
+		code    []string
 	}
 	var verbs []verbRef
 
