@@ -457,17 +457,25 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 		return fmt.Errorf("parse variables count from %q: %w", line, err)
 	}
 
-	// Skip variable definitions (type names and values)
-	// Format is complex: type names like "NUM", "OBJ", etc followed by var name and value
-	// We need to read until we hit "N rt_stack slots in use"
-	for {
-		line, err = r.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("read variable data: %w", err)
+	// Read variable definitions: each is a name line followed by a typed value.
+	for i := 0; i < numVars; i++ {
+		// Variable name
+		if _, err = r.ReadString('\n'); err != nil {
+			return fmt.Errorf("read variable %d name: %w", i, err)
 		}
-		if strings.HasSuffix(strings.TrimSpace(line), "rt_stack slots in use") {
-			break
+		// Variable value (type code + value)
+		if _, err := db.readValue(r); err != nil {
+			return fmt.Errorf("read variable %d value: %w", i, err)
 		}
+	}
+
+	// "N rt_stack slots in use"
+	line, err = r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read rt_stack header: %w", err)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(line), "rt_stack slots in use") {
+		return fmt.Errorf("expected 'rt_stack slots in use', got %q", line)
 	}
 
 	// Parse rt_stack count from the line we just read
@@ -1314,6 +1322,18 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			if _, err := readInt(r); err != nil {
 				return nil, err
 			}
+
+			// Register the WAIF in savedWaifs BEFORE reading properties.
+			// Properties may contain references back to this WAIF (or to
+			// WAIFs nested inside it), so it must be findable by index.
+			// This matches Toast's order: saved_waifs[waif_count++] = w,
+			// then read properties.
+			waif := types.NewWaif(class, owner)
+			wIdx := len(db.savedWaifs)
+			db.savedWaifs = append(db.savedWaifs, waifLoadData{
+				waif: waif,
+			})
+
 			// Read property index→value pairs until -1 sentinel.
 			propsByIndex := make(map[int]types.Value)
 			for {
@@ -1335,11 +1355,11 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 				return nil, fmt.Errorf("read WAIF terminator: %w", err)
 			}
 
-			waif := types.NewWaif(class, owner)
-			db.savedWaifs = append(db.savedWaifs, waifLoadData{
+			// Update with the properties now that they're loaded.
+			db.savedWaifs[wIdx] = waifLoadData{
 				waif:         waif,
 				propsByIndex: propsByIndex,
-			})
+			}
 			return waif, nil
 		}
 		return nil, fmt.Errorf("unknown WAIF marker: %c", marker)
@@ -1620,23 +1640,22 @@ func (db *Database) collectPropertyNames(obj *Object) []string {
 }
 
 // collectPropNamesRecursive recursively collects property names from an object and its ancestors.
-// Properties are collected in order: this object's propDefs first, then parent's, etc.
+// Properties are collected in root-first order to match DB property value storage.
 func (db *Database) collectPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
 	if obj == nil || visited[obj.ID] {
 		return
 	}
 	visited[obj.ID] = true
 
-	// First, add this object's defined properties (propDefs)
-	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
-		*names = append(*names, obj.PropOrder[i])
-	}
-
-	// Then recurse to parents (single inheritance for now)
-	// For multiple inheritance, the order matters and should match ToastStunt
+	// First recurse to parents so ancestor propdefs come before child propdefs.
 	for _, parentID := range obj.Parents {
 		parent := db.Objects[parentID]
 		db.collectPropNamesRecursive(parent, names, visited)
+	}
+
+	// Then add this object's defined properties (propDefs).
+	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
+		*names = append(*names, obj.PropOrder[i])
 	}
 }
 

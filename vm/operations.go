@@ -1508,8 +1508,12 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 }
 
 // vmFindProperty finds a property on an object with inheritance (breadth-first search).
-// This mirrors the tree-walker's findProperty logic.
+// Permission info (owner/perms) comes from the TARGET object's property entry,
+// while the value comes from the first non-clear ancestor. This matches Toast's
+// db_find_property where h.ptr always points to the original object's propval.
 func vmFindProperty(store *db.Store, obj *db.Object, name string) (*db.Property, types.ErrorCode) {
+	var targetProp *db.Property // target object's property entry (for owner/perms)
+
 	queue := []types.ObjID{obj.ID}
 	visited := make(map[types.ObjID]bool)
 
@@ -1528,8 +1532,21 @@ func vmFindProperty(store *db.Store, obj *db.Object, name string) (*db.Property,
 		}
 
 		prop, ok := current.Properties[name]
-		if ok && !prop.Clear {
-			return prop, types.E_NONE
+		if ok {
+			// Save the first property entry found (the target object's) for permissions.
+			if targetProp == nil {
+				targetProp = prop
+			}
+			if !prop.Clear {
+				if targetProp != prop {
+					// Value from ancestor, but use target's owner/perms
+					result := *targetProp
+					result.Value = prop.Value
+					result.Clear = false
+					return &result, types.E_NONE
+				}
+				return prop, types.E_NONE
+			}
 		}
 
 		queue = append(queue, current.Parents...)
