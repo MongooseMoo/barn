@@ -148,7 +148,12 @@ func (e *Evaluator) getBuiltinProperty(obj *db.Object, name string) (types.Value
 // findProperty finds a property on an object with inheritance
 // Implements breadth-first search as per spec/objects.md
 // Search order: obj → parents → grandparents (breadth-first, left-to-right)
+// Permission info (owner/perms) comes from the TARGET object's property entry,
+// while the value comes from the first non-clear ancestor. This matches Toast's
+// db_find_property where h.ptr always points to the original object's propval.
 func (e *Evaluator) findProperty(obj *db.Object, name string, ctx *types.TaskContext) (*db.Property, types.ErrorCode) {
+	var targetProp *db.Property // target object's property entry (for owner/perms)
+
 	// Use breadth-first search for inheritance
 	// Queue starts with the object itself
 	queue := []types.ObjID{obj.ID}
@@ -174,9 +179,21 @@ func (e *Evaluator) findProperty(obj *db.Object, name string, ctx *types.TaskCon
 
 		// Check if property exists on this object
 		prop, ok := current.Properties[name]
-		if ok && !prop.Clear {
-			// Found a non-clear property - this is the value
-			return prop, types.E_NONE
+		if ok {
+			// Save the first property entry found (the target object's) for permissions.
+			if targetProp == nil {
+				targetProp = prop
+			}
+			if !prop.Clear {
+				if targetProp != prop {
+					// Value from ancestor, but use target's owner/perms
+					result := *targetProp
+					result.Value = prop.Value
+					result.Clear = false
+					return &result, types.E_NONE
+				}
+				return prop, types.E_NONE
+			}
 		}
 
 		// If property is clear or not found, continue to parents
