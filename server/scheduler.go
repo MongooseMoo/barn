@@ -1085,8 +1085,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Handle completion
 	if result.Flow == types.FlowException {
 		t.SetState(task.TaskKilled)
-		// Log traceback to server log
-		s.logTraceback(t, result.Error)
+		// Log traceback to server log (skip for forked tasks to match Toast behavior:
+		// Toast does not log forked-task tracebacks to stderr)
+		if !t.IsForked {
+			s.logTraceback(t, result.Error)
+		}
 		// Send traceback to player
 		s.sendTraceback(t, result.Error)
 		// Clean up call stack after traceback has been sent
