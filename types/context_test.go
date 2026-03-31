@@ -5,8 +5,8 @@ import "testing"
 func TestNewTaskContext(t *testing.T) {
 	ctx := NewTaskContext()
 
-	if ctx.TicksRemaining != 30000 {
-		t.Errorf("Expected default tick limit of 30000, got %d", ctx.TicksRemaining)
+	if ctx.TicksRemaining != 300000 {
+		t.Errorf("Expected default tick limit of 300000, got %d", ctx.TicksRemaining)
 	}
 
 	if ctx.Player != ObjNothing {

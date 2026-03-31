@@ -499,7 +499,10 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store,
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions (Layer 8.5)
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Programmer)
+	if !playerIsWizard && obj.Owner != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
 
 	// Invoke :recycle hook if present. Missing hook and hook errors are ignored.
 	// This matches lifecycle behavior: recycle should proceed even if hook throws.
@@ -866,7 +869,13 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 		}
 	}
 
-	// TODO: Check permissions and fertile flag (Layer 8.5)
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Programmer)
+	if !playerIsWizard && obj.Owner != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
+	if !playerIsWizard && newParentVal.ID() != types.ObjNothing && !newParent.Flags.Has(db.FlagFertile) {
+		return types.Err(types.E_PERM)
+	}
 
 	// Invalidate anonymous children in descendant hierarchy.
 	store.InvalidateAnonymousChildren(objVal.ID())
@@ -1016,7 +1025,18 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions and fertile flags (Layer 8.5)
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Programmer)
+	if !playerIsWizard && obj.Owner != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
+	if !playerIsWizard {
+		for _, parentID := range newParents {
+			parent := store.Get(parentID)
+			if parent == nil || !parent.Flags.Has(db.FlagFertile) {
+				return types.Err(types.E_PERM)
+			}
+		}
+	}
 
 	// Invalidate anonymous children in descendant hierarchy.
 	store.InvalidateAnonymousChildren(objVal.ID())
@@ -1705,10 +1725,9 @@ func builtinRenumber(ctx *types.TaskContext, args []types.Value, store *db.Store
 		return types.Err(types.E_ARGS)
 	}
 
-	// TODO: Check caller is wizard
-	// if !isWizard(ctx.Programmer) {
-	// 	return types.Err(types.E_PERM)
-	// }
+	if !ctx.IsWizard && !isPlayerWizard(store, ctx.Programmer) {
+		return types.Err(types.E_PERM)
+	}
 
 	// Get object to renumber
 	objVal, ok := args[0].(types.ObjValue)

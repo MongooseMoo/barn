@@ -12,10 +12,20 @@ import (
 //   #<player> <- ... called from #<verb_loc>:<verb> (this == #<this>), line <N>
 //   #<player> <- (End of traceback)
 func FormatTraceback(stack []ActivationFrame, err types.ErrorCode, player types.ObjID) []string {
+	return FormatTracebackWithMessage(stack, err.Message(), player)
+}
+
+// FormatTracebackWithMessage formats a call stack and explicit error message
+// into a Toast-style traceback.
+func FormatTracebackWithMessage(stack []ActivationFrame, errMsg string, player types.ObjID) []string {
+	if strings.TrimSpace(errMsg) == "" {
+		errMsg = "Unknown error"
+	}
+
 	if len(stack) == 0 {
 		// No stack - just show error
 		return []string{
-			fmt.Sprintf("#%d <- (no stack):  %s", player, err.Message()),
+			fmt.Sprintf("#%d <- (no stack):  %s", player, errMsg),
 			fmt.Sprintf("#%d <- (End of traceback)", player),
 		}
 	}
@@ -35,7 +45,7 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode, player types.
 				frame.Verb,
 				frame.This,
 				frame.LineNumber,
-				err.Message())
+				errMsg)
 		} else {
 			// Lower frames - show as "called from"
 			line = fmt.Sprintf("#%d <- ... called from #%d:%s (this == #%d), line %d",
@@ -56,6 +66,6 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode, player types.
 
 // FormatTracebackString returns the traceback as a single string with newlines
 func FormatTracebackString(stack []ActivationFrame, err types.ErrorCode, player types.ObjID) string {
-	lines := FormatTraceback(stack, err, player)
+	lines := FormatTracebackWithMessage(stack, err.Message(), player)
 	return strings.Join(lines, "\n")
 }

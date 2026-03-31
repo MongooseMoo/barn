@@ -2,8 +2,9 @@ package builtins
 
 import (
 	"barn/types"
-	"fmt"
 	"sort"
+	"strings"
+	"unicode"
 )
 
 // ============================================================================
@@ -271,21 +272,58 @@ func builtinSort(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// For now, implement simple sort (ignoring keys, natural, reverse)
-	// TODO: Implement full sort with all parameters
-
-	// Copy list elements
-	elements := make([]types.Value, list.Len())
-	for i := 1; i <= list.Len(); i++ {
-		elements[i-1] = list.Get(i)
+	// Optional parallel key list used for comparison.
+	var keys []types.Value
+	if len(args) >= 2 {
+		keyList, ok := args[1].(types.ListValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		if keyList.Len() != list.Len() {
+			return types.Err(types.E_INVARG)
+		}
+		keys = keyList.Elements()
+	} else {
+		keys = list.Elements()
 	}
 
-	// Sort using Go's sort package
-	sort.Slice(elements, func(i, j int) bool {
-		return compareValues(elements[i], elements[j]) < 0
+	natural := false
+	if len(args) >= 3 {
+		naturalVal, ok := args[2].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		natural = naturalVal.Val != 0
+	}
+
+	reverse := false
+	if len(args) == 4 {
+		reverseVal, ok := args[3].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		reverse = reverseVal.Val != 0
+	}
+
+	elements := list.Elements()
+	indices := make([]int, len(elements))
+	for i := range indices {
+		indices[i] = i
+	}
+
+	sort.SliceStable(indices, func(i, j int) bool {
+		cmp := compareSortValues(keys[indices[i]], keys[indices[j]], natural)
+		if reverse {
+			cmp = -cmp
+		}
+		return cmp < 0
 	})
 
-	return types.Ok(types.NewList(elements))
+	sorted := make([]types.Value, len(elements))
+	for outIdx, srcIdx := range indices {
+		sorted[outIdx] = elements[srcIdx]
+	}
+	return types.Ok(types.NewList(sorted))
 }
 
 // builtinReverse reverses a list or string
@@ -422,6 +460,94 @@ func compareValues(a, b types.Value) int {
 	}
 }
 
+func compareSortValues(a, b types.Value, natural bool) int {
+	if natural {
+		as, okA := a.(types.StrValue)
+		bs, okB := b.(types.StrValue)
+		if okA && okB {
+			return naturalStringCompare(as.Value(), bs.Value())
+		}
+	}
+	return compareValues(a, b)
+}
+
+func naturalStringCompare(a, b string) int {
+	ar := []rune(strings.ToLower(a))
+	br := []rune(strings.ToLower(b))
+	i, j := 0, 0
+
+	for i < len(ar) && j < len(br) {
+		ra, rb := ar[i], br[j]
+
+		if unicode.IsDigit(ra) && unicode.IsDigit(rb) {
+			ia, jb := i, j
+			for ia < len(ar) && unicode.IsDigit(ar[ia]) {
+				ia++
+			}
+			for jb < len(br) && unicode.IsDigit(br[jb]) {
+				jb++
+			}
+
+			na := trimLeadingZeroRunes(ar[i:ia])
+			nb := trimLeadingZeroRunes(br[j:jb])
+
+			if len(na) != len(nb) {
+				if len(na) < len(nb) {
+					return -1
+				}
+				return 1
+			}
+			for k := 0; k < len(na); k++ {
+				if na[k] < nb[k] {
+					return -1
+				}
+				if na[k] > nb[k] {
+					return 1
+				}
+			}
+
+			// Equal numeric value: fewer leading zeroes sorts first.
+			if (ia - i) != (jb - j) {
+				if (ia - i) < (jb - j) {
+					return -1
+				}
+				return 1
+			}
+
+			i, j = ia, jb
+			continue
+		}
+
+		if ra < rb {
+			return -1
+		}
+		if ra > rb {
+			return 1
+		}
+		i++
+		j++
+	}
+
+	if len(ar) < len(br) {
+		return -1
+	}
+	if len(ar) > len(br) {
+		return 1
+	}
+	return 0
+}
+
+func trimLeadingZeroRunes(in []rune) []rune {
+	i := 0
+	for i < len(in) && in[i] == '0' {
+		i++
+	}
+	if i == len(in) {
+		return []rune{'0'}
+	}
+	return in[i:]
+}
+
 // builtinSlice: slice(list [, index] [, default_value]) → LIST
 // Extracts elements from each item in a list of lists, strings, or maps.
 func builtinSlice(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -432,7 +558,6 @@ func builtinSlice(ctx *types.TaskContext, args []types.Value) types.Result {
 	// First arg must be a list
 	list, ok := args[0].(types.ListValue)
 	if !ok {
-		fmt.Printf("[SLICE DEBUG] First arg not a list: %T = %v\n", args[0], args[0])
 		return types.Err(types.E_TYPE)
 	}
 
@@ -474,7 +599,6 @@ func builtinSlice(ctx *types.TaskContext, args []types.Value) types.Result {
 				}
 				result = append(result, types.NewStr(string(runes[i-1])))
 			default:
-				fmt.Printf("[SLICE DEBUG] E_INVARG: element not list/str: %T = %v\n", elem, elem)
 				return types.Err(types.E_INVARG)
 			}
 		}

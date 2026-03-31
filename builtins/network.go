@@ -16,11 +16,17 @@ type ConnectionManager interface {
 	BootPlayer(player types.ObjID) error
 	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
 	GetListenPort() int
+	ListListeners() []ListenerInfo
+	ListenOnPort(listenerObj types.ObjID, port int) error
+	UnlistenPort(port int) error
+	OpenNetworkConnection(host string, port int) (types.ObjID, error)
 }
 
 // Connection interface to avoid import cycle.
 type Connection interface {
 	Send(message string) error
+	SendBytes(data []byte) error
+	SetKeepAlive(enabled bool) error
 	Buffer(message string)
 	Flush() error
 	RemoteAddr() string
@@ -29,6 +35,12 @@ type Connection interface {
 	BufferedOutputLength() int
 	ConnectedSeconds() int64
 	IdleSeconds() int64
+}
+
+// ListenerInfo describes an active listener.
+type ListenerInfo struct {
+	Object types.ObjID
+	Port   int
 }
 
 // Global connection manager (set by server).
@@ -58,6 +70,13 @@ var connectionOptionState = struct {
 	byPlayer map[types.ObjID]map[string]types.Value
 }{
 	byPlayer: make(map[types.ObjID]map[string]types.Value),
+}
+
+var heldInputState = struct {
+	mu       sync.Mutex
+	byPlayer map[types.ObjID][]string
+}{
+	byPlayer: make(map[types.ObjID][]string),
 }
 
 func parseConnectionTarget(v types.Value) (types.ObjID, bool) {
@@ -137,6 +156,44 @@ func setConnectionOption(player types.ObjID, name string, value types.Value) {
 	existing[name] = value
 }
 
+// ShouldHoldInput returns true when input should be queued instead of executed.
+func ShouldHoldInput(player types.ObjID) bool {
+	return connectionOptionTruthy(player, "hold-input")
+}
+
+// QueueHeldInput appends an input line to a held-input queue for a player/connection.
+func QueueHeldInput(player types.ObjID, line string) {
+	heldInputState.mu.Lock()
+	defer heldInputState.mu.Unlock()
+	heldInputState.byPlayer[player] = append(heldInputState.byPlayer[player], line)
+}
+
+// DrainHeldInput returns and clears queued held-input lines for a player/connection.
+func DrainHeldInput(player types.ObjID) []string {
+	heldInputState.mu.Lock()
+	defer heldInputState.mu.Unlock()
+
+	lines := heldInputState.byPlayer[player]
+	if len(lines) == 0 {
+		return nil
+	}
+	delete(heldInputState.byPlayer, player)
+
+	dup := make([]string, len(lines))
+	copy(dup, lines)
+	return dup
+}
+
+// ClearHeldInput discards queued held-input lines for a player/connection.
+func ClearHeldInput(player types.ObjID) int {
+	heldInputState.mu.Lock()
+	defer heldInputState.mu.Unlock()
+
+	lines := heldInputState.byPlayer[player]
+	delete(heldInputState.byPlayer, player)
+	return len(lines)
+}
+
 func parseRemoteAddress(remoteAddr string) (string, string) {
 	host, port, err := net.SplitHostPort(remoteAddr)
 	if err == nil {
@@ -148,6 +205,14 @@ func parseRemoteAddress(remoteAddr string) (string, string) {
 		return strings.Trim(remoteAddr[:idx], "[]"), remoteAddr[idx+1:]
 	}
 	return strings.Trim(remoteAddr, "[]"), "0"
+}
+
+func connectionOptionTruthy(player types.ObjID, name string) bool {
+	options := getConnectionOptions(player)
+	if value, ok := options[name]; ok {
+		return value.Truthy()
+	}
+	return false
 }
 
 // notify(player, message [, no_flush [, no_newline]]) -> int
@@ -175,6 +240,10 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) >= 3 {
 		noFlush = args[2].Truthy()
 	}
+	noNewline := false
+	if len(args) >= 4 {
+		noNewline = args[3].Truthy()
+	}
 
 	conn := resolveConnection(ctx, player)
 	if conn == nil {
@@ -184,6 +253,27 @@ func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	if noFlush {
 		conn.Buffer(message)
+		return types.Ok(types.NewInt(0))
+	}
+
+	if connectionOptionTruthy(player, "binary") {
+		decoded, invalid := decodeBinaryString(message)
+		if invalid {
+			return types.Err(types.E_INVARG)
+		}
+		if !noNewline {
+			decoded = append(decoded, '\r', '\n')
+		}
+		if err := conn.SendBytes(decoded); err != nil {
+			return types.Err(types.E_INVARG)
+		}
+		return types.Ok(types.NewInt(0))
+	}
+
+	if noNewline {
+		if err := conn.SendBytes([]byte(message)); err != nil {
+			return types.Err(types.E_INVARG)
+		}
 		return types.Ok(types.NewInt(0))
 	}
 	if err := conn.Send(message); err != nil {
@@ -201,28 +291,45 @@ func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	port := int64(globalConnManager.GetListenPort())
-	entry := types.NewMap([][2]types.Value{
-		{types.NewStr("object"), types.NewObj(0)},
-		{types.NewStr("port"), types.NewInt(port)},
-		{types.NewStr("print-messages"), types.NewInt(0)},
-		{types.NewStr("ipv6"), types.NewInt(0)},
-		{types.NewStr("interface"), types.NewStr("")},
-	})
-
-	if len(args) == 1 {
-		if obj, ok := args[0].(types.ObjValue); ok {
-			if obj.ID() != 0 {
-				return types.Ok(types.NewList([]types.Value{}))
-			}
-		} else if p, ok := args[0].(types.IntValue); ok {
-			if p.Val != port {
-				return types.Ok(types.NewList([]types.Value{}))
-			}
+	listeners := globalConnManager.ListListeners()
+	if len(listeners) == 0 {
+		// Fallback for legacy managers.
+		listeners = []ListenerInfo{
+			{Object: 0, Port: globalConnManager.GetListenPort()},
 		}
 	}
 
-	return types.Ok(types.NewList([]types.Value{entry}))
+	filterObj := types.ObjNothing
+	filterPort := int64(-1)
+	if len(args) == 1 {
+		switch v := args[0].(type) {
+		case types.ObjValue:
+			filterObj = v.ID()
+		case types.IntValue:
+			filterPort = v.Val
+		default:
+			return types.Err(types.E_TYPE)
+		}
+	}
+
+	out := make([]types.Value, 0, len(listeners))
+	for _, li := range listeners {
+		if filterObj != types.ObjNothing && li.Object != filterObj {
+			continue
+		}
+		if filterPort >= 0 && int64(li.Port) != filterPort {
+			continue
+		}
+		out = append(out, types.NewMap([][2]types.Value{
+			{types.NewStr("object"), types.NewObj(li.Object)},
+			{types.NewStr("port"), types.NewInt(int64(li.Port))},
+			{types.NewStr("print-messages"), types.NewInt(0)},
+			{types.NewStr("ipv6"), types.NewInt(0)},
+			{types.NewStr("interface"), types.NewStr("")},
+		}))
+	}
+
+	return types.Ok(types.NewList(out))
 }
 
 // connected_players([show_all]) -> list.
@@ -494,7 +601,64 @@ func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) type
 		return types.Err(types.E_INVARG)
 	}
 
-	setConnectionOption(player, name, args[2])
+	value := args[2]
+	switch name {
+	case "flush-command":
+		if s, ok := args[2].(types.StrValue); ok {
+			value = s
+		} else {
+			value = types.NewStr("")
+		}
+	case "hold-input", "client-echo", "disable-oob", "binary", "keep-alive":
+		if args[2].Truthy() {
+			value = types.NewInt(1)
+		} else {
+			value = types.NewInt(0)
+		}
+	}
+
+	wasHolding := connectionOptionTruthy(player, "hold-input")
+	setConnectionOption(player, name, value)
+
+	if name == "hold-input" && wasHolding && !value.Truthy() {
+		// Re-enable input processing by replaying held lines in arrival order.
+		lines := DrainHeldInput(player)
+		if globalInputForcer == nil {
+			for _, line := range lines {
+				QueueHeldInput(player, line)
+			}
+		} else {
+			for _, line := range lines {
+				globalInputForcer.ForceInput(player, line, false)
+			}
+		}
+	}
+
+	if name == "client-echo" {
+		// RFC 857 ECHO option (1):
+		// value true  -> IAC WONT ECHO (client should local-echo)
+		// value false -> IAC WILL ECHO (server will echo)
+		conn := resolveConnection(ctx, player)
+		if conn != nil {
+			cmd := []byte{255, 252, 1} // IAC WONT ECHO
+			if !value.Truthy() {
+				cmd = []byte{255, 251, 1} // IAC WILL ECHO
+			}
+			if err := conn.SendBytes(cmd); err != nil {
+				return types.Err(types.E_INVARG)
+			}
+		}
+	}
+
+	if name == "keep-alive" {
+		conn := resolveConnection(ctx, player)
+		if conn != nil {
+			if err := conn.SetKeepAlive(value.Truthy()); err != nil {
+				return types.Err(types.E_INVARG)
+			}
+		}
+	}
+
 	return types.Ok(types.NewInt(0))
 }
 

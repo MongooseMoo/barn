@@ -119,7 +119,6 @@ func builtinToint(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	case types.StrValue:
 		// Parse string as integer first. If that fails, parse as float and truncate.
-		// Per MOO semantics: returns 0 for unparseable strings (not E_INVARG).
 		str := strings.TrimSpace(v.Value())
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err == nil {
@@ -128,7 +127,7 @@ func builtinToint(ctx *types.TaskContext, args []types.Value) types.Result {
 		if f, ferr := strconv.ParseFloat(str, 64); ferr == nil {
 			return types.Ok(types.IntValue{Val: int64(f)})
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Err(types.E_INVARG)
 
 	default:
 		// Cannot convert this type to int

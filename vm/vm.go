@@ -13,10 +13,14 @@ import (
 
 // MooError wraps an ErrorCode as a Go error
 type MooError struct {
-	Code types.ErrorCode
+	Code    types.ErrorCode
+	Message string
 }
 
 func (e MooError) Error() string {
+	if strings.TrimSpace(e.Message) != "" {
+		return fmt.Sprintf("%s: %s", e.Code.String(), e.Message)
+	}
 	return fmt.Sprintf("E_%d", e.Code)
 }
 
@@ -49,6 +53,67 @@ func extractErrorCode(err error) types.ErrorCode {
 		}
 	}
 	return types.E_NONE
+}
+
+// extractErrorMessage returns a user-facing message string for a VM/runtime error.
+// It prefers explicit message payloads, then parsed error text, then the default
+// error-code message.
+func extractErrorMessage(err error, errCode types.ErrorCode) string {
+	if vmErr, ok := err.(VMException); ok {
+		if msgVal, ok := vmErr.Value.(types.StrValue); ok {
+			msg := strings.TrimSpace(msgVal.Value())
+			if msg != "" {
+				if strings.EqualFold(msg, errCode.String()) || strings.EqualFold(msg, fmt.Sprintf("E_%d", int(errCode))) {
+					return errCode.Message()
+				}
+				return msg
+			}
+		}
+		if listVal, ok := vmErr.Value.(types.ListValue); ok && listVal.Len() >= 2 {
+			if msgVal, ok := listVal.Get(2).(types.StrValue); ok {
+				msg := strings.TrimSpace(msgVal.Value())
+				if msg != "" {
+					if strings.EqualFold(msg, errCode.String()) || strings.EqualFold(msg, fmt.Sprintf("E_%d", int(errCode))) {
+						return errCode.Message()
+					}
+					return msg
+				}
+			}
+		}
+	}
+
+	if mooErr, ok := err.(MooError); ok {
+		if msg := strings.TrimSpace(mooErr.Message); msg != "" {
+			if strings.EqualFold(msg, errCode.String()) || strings.EqualFold(msg, fmt.Sprintf("E_%d", int(errCode))) {
+				return errCode.Message()
+			}
+			return msg
+		}
+	}
+
+	msg := strings.TrimSpace(err.Error())
+	if msg == "" {
+		return errCode.Message()
+	}
+
+	// Strip leading error-code prefix, e.g. "E_VARNF: ...".
+	if strings.HasPrefix(msg, "E_") {
+		if idx := strings.Index(msg, ": "); idx > 0 {
+			msg = strings.TrimSpace(msg[idx+2:])
+		}
+	}
+	// Handle bare code strings like "E_INVARG" or "E_13".
+	if strings.EqualFold(msg, errCode.String()) || strings.EqualFold(msg, fmt.Sprintf("E_%d", int(errCode))) {
+		return errCode.Message()
+	}
+
+	if msg == "" {
+		return errCode.Message()
+	}
+	if strings.EqualFold(msg, errCode.Message()) {
+		return errCode.Message()
+	}
+	return msg
 }
 
 // VM represents the bytecode virtual machine
@@ -252,27 +317,6 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 func (vm *VM) executeLoop() types.Result {
 	for len(vm.Frames) > 0 {
 		if err := vm.Step(); err != nil {
-			// Verb debug flag check: when the current frame's VerbDebug is false,
-			// push the error as a value instead of propagating it as an exception.
-			// This applies to ALL errors including explicit raise().
-			// Matches Toast's PUSH_ERROR/RAISE_ERROR macro behavior in execute.cc.
-			frame := vm.CurrentFrame()
-			if frame != nil && !frame.VerbDebug {
-				var errCode types.ErrorCode
-				if vmErr, ok := err.(VMException); ok {
-					errCode = vmErr.Code
-				} else if mooErr, ok := err.(MooError); ok {
-					errCode = mooErr.Code
-				} else {
-					errCode = extractErrorCode(err)
-					if errCode == types.E_NONE {
-						errCode = types.E_EXEC
-					}
-				}
-				vm.Push(types.NewErr(errCode))
-				continue
-			}
-
 			// Capture line number before HandleError may pop frames
 			line := vm.CurrentLine()
 			// Snapshot activation stack before unwind so callers can inspect
@@ -300,10 +344,12 @@ func (vm *VM) executeLoop() types.Result {
 						errCode = types.E_EXEC
 					}
 				}
+				annotatedErr := vm.annotateError(err, line)
+				errMsg := extractErrorMessage(annotatedErr, errCode)
 				return types.Result{
 					Flow:      types.FlowException,
 					Error:     errCode,
-					Val:       types.NewStr(vm.annotateError(err, line).Error()),
+					Val:       types.NewStr(errMsg),
 					CallStack: stackSnapshot,
 				}
 			}
@@ -422,16 +468,17 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 		}
 
 		stack = append(stack, task.ActivationFrame{
-			This:       frame.This,
-			ThisValue:  nil,
-			Player:     frame.Player,
-			Programmer: types.ObjNothing,
-			Caller:     frame.Caller,
-			Verb:       frame.Verb,
-			VerbLoc:    frame.VerbLoc,
-			Args:       frame.Args,
-			LineNumber: line,
-			SourceLine: vm.sourceLineForFrame(frame, line),
+			This:        frame.This,
+			ThisValue:   nil,
+			Player:      frame.Player,
+			Programmer:  types.ObjNothing,
+			Caller:      frame.Caller,
+			Verb:        frame.Verb,
+			VerbLoc:     frame.VerbLoc,
+			Args:        frame.Args,
+			LineNumber:  line,
+			SourceLine:  vm.sourceLineForFrame(frame, line),
+			IsEvalFrame: frame.IsEvalFrame,
 		})
 	}
 
@@ -486,15 +533,30 @@ func (vm *VM) Execute(op OpCode) error {
 
 	// Variable operations
 	case OP_GET_VAR:
-		idx := vm.ReadByte()
+		idxByte := vm.ReadByte()
+		idx := int(idxByte)
 		val := vm.CurrentFrame().Locals[idx]
 		if _, unbound := val.(types.UnboundValue); unbound {
-			return MooError{Code: types.E_VARNF}
+			varName := fmt.Sprintf("var[%d]", idx)
+			if frame := vm.CurrentFrame(); frame != nil && frame.Program != nil && idx < len(frame.Program.VarNames) {
+				varName = frame.Program.VarNames[idx]
+			}
+			return MooError{
+				Code:    types.E_VARNF,
+				Message: fmt.Sprintf("Variable not found: %s", varName),
+			}
 		}
 		vm.Push(val)
 
 	case OP_SET_VAR:
 		idx := vm.ReadByte()
+		if vm.SP == 0 {
+			varName := fmt.Sprintf("var[%d]", idx)
+			if frame := vm.CurrentFrame(); frame != nil && frame.Program != nil && int(idx) < len(frame.Program.VarNames) {
+				varName = frame.Program.VarNames[int(idx)]
+			}
+			return fmt.Errorf("E_EXEC: internal stack underflow in assignment to %s", varName)
+		}
 		vm.CurrentFrame().Locals[idx] = vm.Pop()
 
 	// Property operations
@@ -824,6 +886,7 @@ func (vm *VM) HandleError(err error) bool {
 		// Try to parse error code from error message (e.g. "E_DIV: division by zero")
 		errCode = extractErrorCode(err)
 	}
+	errMsg := extractErrorMessage(err, errCode)
 
 	// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
 	// the traceback contains accurate call-site lines.
@@ -834,7 +897,7 @@ func (vm *VM) HandleError(err error) bool {
 	if exceptionValue == nil {
 		exceptionValue = types.NewList([]types.Value{
 			types.NewErr(errCode),
-			types.NewStr(errCode.Message()),
+			types.NewStr(errMsg),
 			types.NewInt(0),
 			traceback,
 		})
@@ -896,14 +959,14 @@ func (vm *VM) HandleError(err error) bool {
 			return false
 		}
 
-		// Eval frame boundary: catch the error and wrap as {0, error}.
+		// Eval frame boundary: catch the error and wrap as {0, error_lines}.
 		// This matches Toast's bf_eval_callback which catches all errors
 		// from eval'd code and returns them as the eval() result.
 		// Exception: E_QUOTA/E_MAXREC propagate through to kill the task.
 		if frame.IsEvalFrame && errCode != types.E_QUOTA && errCode != types.E_MAXREC {
 			wrapped := types.NewList([]types.Value{
 				types.NewInt(0),
-				types.NewErr(errCode),
+				vm.makeEvalErrorValueFromFrames(errCode, errMsg),
 			})
 			// Restore context
 			if vm.Context != nil {

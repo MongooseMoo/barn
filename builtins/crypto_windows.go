@@ -3,16 +3,10 @@
 
 package builtins
 
-import (
-	"github.com/digitive/crypt"
-)
+import "fmt"
 
 // cryptDESPlatform implements traditional Unix DES crypt on Windows
-// Uses pure Go implementation from github.com/digitive/crypt
+// ToastStunt compatibility: DES crypt is not supported on Windows.
 func cryptDESPlatform(password, salt string) (string, error) {
-	// Extract 2-char salt from potentially longer input (stored hash)
-	if len(salt) > 2 {
-		salt = salt[:2]
-	}
-	return crypt.Crypt(password, salt)
+	return "", fmt.Errorf("DES crypt is unavailable on Windows")
 }

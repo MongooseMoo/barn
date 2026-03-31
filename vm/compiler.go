@@ -2542,9 +2542,18 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 			}
 			c.emit(OP_SET_VAR)
 			c.emitByte(byte(targetVar))
+		} else {
+			// Optional target without a default gets 0 when there is no value.
+			// This keeps the variable bound (not unbound), matching expected
+			// scatter semantics in the existing evaluator tests.
+			if op, ok := MakeImmediateOpcode(0); ok {
+				c.emit(op)
+			} else {
+				c.emitConstant(types.NewInt(0))
+			}
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(targetVar))
 		}
-		// When no default is specified, leave the variable as-is (do nothing).
-		// This matches MOO semantics: ?var with no default keeps its current value.
 		return nil
 	}
 

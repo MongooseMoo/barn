@@ -5,9 +5,11 @@ import (
 	"barn/trace"
 	"barn/types"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -49,6 +51,16 @@ func NewConnection(id int64, transport Transport) *Connection {
 // Send sends a message to the connection immediately
 func (c *Connection) Send(message string) error {
 	return c.transport.WriteLine(message)
+}
+
+// SendBytes sends raw bytes to the connection immediately.
+func (c *Connection) SendBytes(data []byte) error {
+	return c.transport.WriteBytes(data)
+}
+
+// SetKeepAlive toggles TCP keep-alive when supported by the underlying transport.
+func (c *Connection) SetKeepAlive(enabled bool) error {
+	return c.transport.SetKeepAlive(enabled)
 }
 
 // Buffer adds a message to the output buffer (flushed later)
@@ -169,9 +181,15 @@ type ConnectionManager struct {
 	nextConnID     int64
 	mu             sync.Mutex
 	server         *Server
-	listeners      []net.Listener
+	listeners      map[int]*managedListener
 	listenPort     int
 	connectTimeout time.Duration
+}
+
+type managedListener struct {
+	listener net.Listener
+	object   types.ObjID
+	port     int
 }
 
 // NewConnectionManager creates a new connection manager
@@ -179,6 +197,7 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 	return &ConnectionManager{
 		connections:    make(map[int64]*Connection),
 		playerConns:    make(map[types.ObjID]*Connection),
+		listeners:      make(map[int]*managedListener),
 		nextConnID:     2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		server:         server,
 		listenPort:     port,
@@ -193,16 +212,90 @@ func (cm *ConnectionManager) GetListenPort() int {
 
 // Listen starts listening for connections
 func (cm *ConnectionManager) Listen() error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cm.listenPort))
+	return cm.ListenOnPort(0, cm.listenPort)
+}
+
+// ListenOnPort starts listening on an additional TCP port for a specific listener object.
+func (cm *ConnectionManager) ListenOnPort(listenerObj types.ObjID, port int) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if _, exists := cm.listeners[port]; exists {
+		return fmt.Errorf("already listening on port %d", port)
+	}
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
-	cm.listeners = append(cm.listeners, listener)
-	log.Printf("Listening on port %d", cm.listenPort)
-
+	cm.listeners[port] = &managedListener{
+		listener: listener,
+		object:   listenerObj,
+		port:     port,
+	}
+	log.Printf("Listening on port %d (object #%d)", port, listenerObj)
 	go cm.acceptConnections(listener)
 	return nil
+}
+
+// UnlistenPort stops listening on a TCP port.
+func (cm *ConnectionManager) UnlistenPort(port int) error {
+	cm.mu.Lock()
+	ml, ok := cm.listeners[port]
+	if ok {
+		delete(cm.listeners, port)
+	}
+	cm.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("not listening on port %d", port)
+	}
+	return ml.listener.Close()
+}
+
+// ListListeners returns metadata for all active listeners.
+func (cm *ConnectionManager) ListListeners() []builtins.ListenerInfo {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	out := make([]builtins.ListenerInfo, 0, len(cm.listeners))
+	for _, ml := range cm.listeners {
+		out = append(out, builtins.ListenerInfo{
+			Object: ml.object,
+			Port:   ml.port,
+		})
+	}
+	return out
+}
+
+// OpenNetworkConnection opens an outbound TCP connection and treats it as a regular MOO connection.
+func (cm *ConnectionManager) OpenNetworkConnection(host string, port int) (types.ObjID, error) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	socket, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return types.ObjNothing, err
+	}
+
+	transport := NewTCPTransport(socket)
+	conn := cm.NewConnectionFromTransport(transport)
+	log.Printf("Opened network connection to %s (ID: %d)", addr, conn.ID)
+	go cm.HandleConnection(conn)
+
+	return types.ObjID(-conn.ID), nil
+}
+
+// CloseAllListeners closes all active listeners.
+func (cm *ConnectionManager) CloseAllListeners() {
+	cm.mu.Lock()
+	listeners := make([]net.Listener, 0, len(cm.listeners))
+	for port, ml := range cm.listeners {
+		delete(cm.listeners, port)
+		listeners = append(listeners, ml.listener)
+	}
+	cm.mu.Unlock()
+
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
 }
 
 // acceptConnections accepts incoming connections
@@ -210,6 +303,9 @@ func (cm *ConnectionManager) acceptConnections(listener net.Listener) {
 	for {
 		socket, err := listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			log.Printf("Accept error: %v", err)
 			continue
 		}

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -139,6 +140,10 @@ func (s *Scheduler) processInput(input InputEvent) {
 		s.processDisconnect(input)
 		return
 	}
+	if builtins.ShouldHoldInput(input.Player) {
+		builtins.QueueHeldInput(input.Player, input.Line)
+		return
+	}
 
 	// Check if a task is read()ing from this player — if so, route input there
 	if s.deliverToReadingTask(input.Player, input.Line) {
@@ -219,6 +224,14 @@ func (s *Scheduler) processDisconnect(input InputEvent) {
 		delete(cm.playerConns, types.ObjID(-conn.ID))
 	}
 	cm.mu.Unlock()
+
+	// Drop any queued held-input for this connection.
+	if wasLoggedIn {
+		builtins.ClearHeldInput(player)
+	} else {
+		builtins.ClearHeldInput(types.ObjID(-conn.ID))
+		builtins.ClearHeldInput(player)
+	}
 
 	// Trace disconnect event
 	if wasLoggedIn {
@@ -528,7 +541,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 				stack = st
 			}
 		}
-		lines := task.FormatTraceback(stack, result.Error, connID)
+		lines := task.FormatTracebackWithMessage(stack, exceptionMessageFromResult(result), connID)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -575,7 +588,7 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 				stack = st
 			}
 		}
-		lines := task.FormatTraceback(stack, result.Error, connID)
+		lines := task.FormatTracebackWithMessage(stack, exceptionMessageFromResult(result), connID)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -604,7 +617,7 @@ func (s *Scheduler) callDoCommand(player types.ObjID, line string) (bool, error)
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.sendTracebackToPlayer(player, result.Error, exceptionMessageFromResult(result), stack)
 		return true, nil
 	}
 
@@ -629,7 +642,7 @@ func (s *Scheduler) callUserConnected(player types.ObjID) {
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.sendTracebackToPlayer(player, result.Error, exceptionMessageFromResult(result), stack)
 	}
 }
 
@@ -648,7 +661,7 @@ func (s *Scheduler) callUserReconnected(player types.ObjID) {
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.sendTracebackToPlayer(player, result.Error, exceptionMessageFromResult(result), stack)
 	}
 }
 
@@ -667,7 +680,7 @@ func (s *Scheduler) callUserDisconnected(player types.ObjID) {
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.sendTracebackToPlayer(player, result.Error, exceptionMessageFromResult(result), stack)
 	}
 }
 
@@ -680,6 +693,48 @@ func (s *Scheduler) connectMessage() string {
 		}
 	}
 	return "*** Connected ***"
+}
+
+func exceptionMessageFromResult(result types.Result) string {
+	msg := result.Error.Message()
+	if raw, ok := result.Val.(types.StrValue); ok {
+		msg = normalizeExceptionMessage(raw.Value(), result.Error)
+	}
+	if strings.TrimSpace(msg) == "" {
+		return result.Error.Message()
+	}
+	return msg
+}
+
+func normalizeExceptionMessage(raw string, code types.ErrorCode) string {
+	msg := strings.TrimSpace(raw)
+	if msg == "" {
+		return code.Message()
+	}
+
+	// Drop "(line N)" suffix when present.
+	if idx := strings.LastIndex(msg, " (line "); idx > 0 && strings.HasSuffix(msg, ")") {
+		msg = strings.TrimSpace(msg[:idx])
+	}
+
+	// Strip leading error-code prefix, e.g. "E_VARNF: ...".
+	if strings.HasPrefix(msg, "E_") {
+		if idx := strings.Index(msg, ": "); idx > 0 {
+			msg = strings.TrimSpace(msg[idx+2:])
+		}
+	}
+	// Handle bare code strings like "E_INVARG" or "E_13".
+	if strings.EqualFold(msg, code.String()) || strings.EqualFold(msg, fmt.Sprintf("E_%d", int(code))) {
+		return code.Message()
+	}
+
+	if msg == "" {
+		return code.Message()
+	}
+	if strings.EqualFold(msg, code.Message()) {
+		return code.Message()
+	}
+	return msg
 }
 
 // loginPlayer associates a connection with a player.
@@ -748,13 +803,16 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 }
 
 // sendTracebackToPlayer sends a formatted traceback to the player's connection
-func (s *Scheduler) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+func (s *Scheduler) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, errMsg string, stack []task.ActivationFrame) {
 	if s.connManager == nil {
 		return
 	}
+	if strings.TrimSpace(errMsg) == "" {
+		errMsg = err.Message()
+	}
 
 	// Format traceback first
-	lines := task.FormatTraceback(stack, err, player)
+	lines := task.FormatTracebackWithMessage(stack, errMsg, player)
 
 	conn := s.connManager.GetConnection(player)
 	if conn == nil {
@@ -930,6 +988,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("PANIC in runTask(%d): %v", t.ID, r)
+			log.Printf("PANIC stack runTask(%d):\n%s", t.ID, string(debug.Stack()))
 			t.SetState(task.TaskKilled)
 			retErr = fmt.Errorf("internal panic: %v", r)
 		}
@@ -1085,13 +1144,14 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Handle completion
 	if result.Flow == types.FlowException {
 		t.SetState(task.TaskKilled)
+		errMsg := exceptionMessageFromResult(result)
 		// Log traceback to server log (skip for forked tasks to match Toast behavior:
 		// Toast does not log forked-task tracebacks to stderr)
 		if !t.IsForked {
-			s.logTraceback(t, result.Error)
+			s.logTraceback(t, result.Error, errMsg)
 		}
 		// Send traceback to player
-		s.sendTraceback(t, result.Error)
+		s.sendTraceback(t, result.Error, errMsg)
 		// Clean up call stack after traceback has been sent
 		for len(t.CallStack) > 0 {
 			t.PopFrame()
@@ -1407,7 +1467,7 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 		}
 		result.CallStack = stack
 		// Log traceback to server log
-		s.logCallVerbTraceback(objID, verbName, result.Error, stack, player)
+		s.logCallVerbTraceback(objID, verbName, result.Error, exceptionMessageFromResult(result), stack, player)
 		// Trace exception
 		trace.Exception(objID, verbName, result.Error)
 	} else {
@@ -1711,9 +1771,9 @@ func (s *Scheduler) isWizard(objID types.ObjID) bool {
 }
 
 // logTraceback logs a formatted traceback to the server log for a task
-func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode) {
+func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode, errMsg string) {
 	stack := t.GetCallStack()
-	lines := task.FormatTraceback(stack, err, t.Owner)
+	lines := task.FormatTracebackWithMessage(stack, errMsg, t.Owner)
 	log.Printf("TRACEBACK: Task %d (#%d:%s) uncaught exception %s",
 		t.ID, t.This, t.VerbName, types.NewErr(err).String())
 	for _, line := range lines {
@@ -1724,11 +1784,11 @@ func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode) {
 
 // logCallVerbTraceback logs a formatted traceback to the server log for a synchronous verb call
 // E_VERBNF is not logged because it's the normal case for optional hook verbs
-func (s *Scheduler) logCallVerbTraceback(objID types.ObjID, verbName string, err types.ErrorCode, stack []task.ActivationFrame, player types.ObjID) {
+func (s *Scheduler) logCallVerbTraceback(objID types.ObjID, verbName string, err types.ErrorCode, errMsg string, stack []task.ActivationFrame, player types.ObjID) {
 	if err == types.E_VERBNF {
 		return // Verb not found is expected for optional hooks
 	}
-	lines := task.FormatTraceback(stack, err, player)
+	lines := task.FormatTracebackWithMessage(stack, errMsg, player)
 	log.Printf("TRACEBACK: #%d:%s uncaught exception %s (player #%d)",
 		objID, verbName, types.NewErr(err).String(), player)
 	for _, line := range lines {
@@ -1749,9 +1809,12 @@ func (s *Scheduler) logTracebackSource(stack []task.ActivationFrame) {
 }
 
 // sendTraceback sends a formatted traceback to the player
-func (s *Scheduler) sendTraceback(t *task.Task, err types.ErrorCode) {
+func (s *Scheduler) sendTraceback(t *task.Task, err types.ErrorCode, errMsg string) {
 	if s.connManager == nil {
 		return
+	}
+	if strings.TrimSpace(errMsg) == "" {
+		errMsg = err.Message()
 	}
 
 	conn := s.connManager.GetConnection(t.Owner)
@@ -1760,7 +1823,7 @@ func (s *Scheduler) sendTraceback(t *task.Task, err types.ErrorCode) {
 	}
 
 	// Format and send the traceback
-	lines := task.FormatTraceback(t.GetCallStack(), err, t.Owner)
+	lines := task.FormatTracebackWithMessage(t.GetCallStack(), errMsg, t.Owner)
 	for _, line := range lines {
 		conn.Send(line)
 	}

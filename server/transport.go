@@ -35,18 +35,20 @@ const (
 type Transport interface {
 	ReadLine() (string, error)
 	WriteLine(string) error
+	WriteBytes([]byte) error
+	SetKeepAlive(bool) error
 	Close() error
 	RemoteAddr() string
 }
 
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
-	conn        net.Conn
-	reader      *bufio.Reader
-	writer      *bufio.Writer
-	mu          sync.Mutex
-	tState      telnetState
-	lastWasCR   bool
+	conn      net.Conn
+	reader    *bufio.Reader
+	writer    *bufio.Writer
+	mu        sync.Mutex
+	tState    telnetState
+	lastWasCR bool
 }
 
 // NewTCPTransport creates a new TCP transport from a net.Conn
@@ -157,6 +159,26 @@ func (t *TCPTransport) WriteLine(msg string) error {
 	return t.writer.Flush()
 }
 
+// WriteBytes writes raw bytes to the connection.
+func (t *TCPTransport) WriteBytes(data []byte) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	_, err := t.writer.Write(data)
+	if err != nil {
+		return err
+	}
+	return t.writer.Flush()
+}
+
+// SetKeepAlive toggles TCP keep-alive when the underlying socket supports it.
+func (t *TCPTransport) SetKeepAlive(enabled bool) error {
+	if tcpConn, ok := t.conn.(*net.TCPConn); ok {
+		return tcpConn.SetKeepAlive(enabled)
+	}
+	return nil
+}
+
 // Close closes the underlying connection
 func (t *TCPTransport) Close() error {
 	return t.conn.Close()
@@ -210,6 +232,24 @@ func (t *PipeTransport) WriteLine(msg string) error {
 	t.closeMu.Unlock()
 
 	t.output <- msg
+	return nil
+}
+
+// WriteBytes writes raw bytes to the output channel.
+func (t *PipeTransport) WriteBytes(data []byte) error {
+	t.closeMu.Lock()
+	if t.closed {
+		t.closeMu.Unlock()
+		return errors.New("transport closed")
+	}
+	t.closeMu.Unlock()
+
+	t.output <- string(data)
+	return nil
+}
+
+// SetKeepAlive is a no-op for in-memory transports.
+func (t *PipeTransport) SetKeepAlive(enabled bool) error {
 	return nil
 }
 

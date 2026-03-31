@@ -9,9 +9,40 @@ import (
 	"testing"
 )
 
+func requireFixturePath(t *testing.T, candidates ...string) string {
+	t.Helper()
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	t.Skipf("fixture not found; checked: %v", candidates)
+	return ""
+}
+
+func toastcoreFixturePath(t *testing.T) string {
+	t.Helper()
+	return requireFixturePath(
+		t,
+		filepath.Join("..", "..", "cow_py", "toastcore.db"),
+		filepath.Join("..", "toastcore.db"),
+		filepath.Join("toastcore.db"),
+	)
+}
+
+func mongooseFixturePath(t *testing.T) string {
+	t.Helper()
+	return requireFixturePath(
+		t,
+		filepath.Join("..", "mongoose7_snapshot.db"),
+		filepath.Join("mongoose7_snapshot.db"),
+	)
+}
+
 func TestLoadDatabase(t *testing.T) {
-	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := toastcoreFixturePath(t)
 
 	db, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -43,8 +74,7 @@ func TestLoadDatabase(t *testing.T) {
 }
 
 func TestParentParsing(t *testing.T) {
-	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := toastcoreFixturePath(t)
 
 	db, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -84,8 +114,7 @@ func TestParentParsing(t *testing.T) {
 }
 
 func TestVerbCount(t *testing.T) {
-	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := toastcoreFixturePath(t)
 
 	db, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -235,10 +264,9 @@ inner_verb
 }
 
 func TestLoadMongooseSnapshot(t *testing.T) {
-	// Test loading the mongoose7_snapshot.db
-	dbPath := "mongoose7_snapshot.db"
+	dbPath := mongooseFixturePath(t)
 
-	db, err := LoadDatabase(filepath.Join("..", dbPath))
+	db, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
@@ -256,8 +284,7 @@ func TestLoadMongooseSnapshot(t *testing.T) {
 }
 
 func TestVerbInheritance(t *testing.T) {
-	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := toastcoreFixturePath(t)
 
 	db, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -292,7 +319,7 @@ func TestVerbInheritance(t *testing.T) {
 }
 
 func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := toastcoreFixturePath(t)
 
 	db, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -315,7 +342,7 @@ func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
 }
 
 func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := toastcoreFixturePath(t)
 
 	loaded, err := LoadDatabase(dbPath)
 	if err != nil {

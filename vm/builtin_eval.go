@@ -3,6 +3,7 @@ package vm
 import (
 	"barn/db"
 	"barn/types"
+	"fmt"
 	"strings"
 )
 
@@ -55,10 +56,14 @@ func (e *Evaluator) RegisterEvalBuiltin() {
 				// Propagate E_QUOTA instead of catching it
 				return types.Err(types.E_QUOTA)
 			}
-			// Other errors are caught and returned as {0, error_code}
+			// Other errors are caught and returned as {0, error_lines}
+			errMsg := result.Error.Message()
+			if raw, ok := result.Val.(types.StrValue); ok {
+				errMsg = extractErrorMessage(fmt.Errorf("%s", raw.Value()), result.Error)
+			}
 			return types.Ok(types.NewList([]types.Value{
 				types.NewInt(0),
-				types.NewErr(result.Error),
+				makeEvalErrorValue(result.Error, errMsg, result.CallStack),
 			}))
 		}
 

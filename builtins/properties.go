@@ -57,7 +57,11 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value, store *db.Sto
 		return types.Err(types.E_INVIND)
 	}
 
-	// TODO: Check read permission (currently allows all)
+	// Check read permission on the object itself.
+	// Wizards and object owners can always read; otherwise object must be readable.
+	if !ctx.IsWizard && ctx.Programmer != obj.Owner && !obj.Flags.Has(db.FlagRead) {
+		return types.Err(types.E_PERM)
+	}
 
 	// Return list of property names that are DEFINED on this object
 	// (not just local value overrides of inherited properties)
@@ -155,7 +159,10 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *d
 		return types.Err(types.E_PROPNF)
 	}
 
-	// TODO: Check permissions (owner or wizard)
+	// Only the property owner or a wizard can mutate property metadata.
+	if !ctx.IsWizard && ctx.Programmer != prop.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse info argument
 	switch info := args[2].(type) {
@@ -374,7 +381,10 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 		return types.Err(types.E_PROPNF)
 	}
 
-	// TODO: Check permissions (owner or wizard)
+	// Only the property owner or a wizard can delete a defined property.
+	if !ctx.IsWizard && ctx.Programmer != prop.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Delete property from this object
 	delete(obj.Properties, propName)

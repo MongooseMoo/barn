@@ -1,8 +1,7 @@
 package parser
 
-// readString reads a string literal using MOO escape semantics:
-// backslash strips itself and leaves the next character literal.
-// e.g. "\n" -> "n", "\t" -> "t", "\\\"" -> "\"".
+// readString reads a string literal and decodes common backslash escapes.
+// Supported escapes: \n, \t, \r, \\, \", and \x (fallback to x for unknown escapes).
 func (l *Lexer) readString() Token {
 	tok := Token{
 		Type: TOKEN_STRING,
@@ -25,7 +24,21 @@ func (l *Lexer) readString() Token {
 				result = append(result, '\\')
 				break
 			}
-			result = append(result, l.ch)
+			switch l.ch {
+			case 'n':
+				result = append(result, '\n')
+			case 't':
+				result = append(result, '\t')
+			case 'r':
+				result = append(result, '\r')
+			case '\\':
+				result = append(result, '\\')
+			case '"':
+				result = append(result, '"')
+			default:
+				// Unknown escapes preserve the escaped character.
+				result = append(result, l.ch)
+			}
 			l.readChar()
 		} else {
 			result = append(result, l.ch)

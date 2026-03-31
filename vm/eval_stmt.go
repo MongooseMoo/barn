@@ -598,9 +598,7 @@ func (e *Evaluator) tryExceptStmt(stmt *parser.TryExceptStmt, ctx *types.TaskCon
 		if except.IsAny || e.matchesErrorCode(errorCode, except.Codes) {
 			// Bind error to variable if specified
 			if except.Variable != "" {
-				// Build proper exception list: {E_CODE, "message", value, traceback}
-				exceptionList := e.buildExceptionList(errorCode, ctx)
-				e.env.Set(except.Variable, exceptionList)
+				e.env.Set(except.Variable, types.NewErr(errorCode))
 			}
 
 			// Execute except body
@@ -641,9 +639,7 @@ func (e *Evaluator) tryExceptFinallyStmt(stmt *parser.TryExceptFinallyStmt, ctx 
 			if except.IsAny || e.matchesErrorCode(errorCode, except.Codes) {
 				// Bind error to variable if specified
 				if except.Variable != "" {
-					// Build proper exception list: {E_CODE, "message", value, traceback}
-					exceptionList := e.buildExceptionList(errorCode, ctx)
-					e.env.Set(except.Variable, exceptionList)
+					e.env.Set(except.Variable, types.NewErr(errorCode))
 				}
 
 				// Execute except body
@@ -1029,11 +1025,15 @@ func deepCopyValue(v types.Value) types.Value {
 		}
 		return types.NewMap(newPairs)
 	case types.WaifValue:
-		// For waif, we need to deep copy properties
-		// Since we can't iterate properties directly, we'll just return the value as-is for now
-		// In a full implementation, WaifValue should expose a way to copy properties
-		// TODO: Implement proper waif deep copy
-		return val
+		copyWaif := types.NewWaif(val.Class(), val.Owner())
+		for _, name := range val.PropertyNames() {
+			propVal, ok := val.GetProperty(name)
+			if !ok {
+				continue
+			}
+			copyWaif = copyWaif.SetProperty(name, deepCopyValue(propVal))
+		}
+		return copyWaif
 	default:
 		// Immutable types (int, float, str, obj, err, bool) don't need copying
 		return v

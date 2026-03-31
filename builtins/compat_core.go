@@ -6,14 +6,10 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"os"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
-	"time"
 )
 
 type functionSignature struct {
@@ -92,11 +88,11 @@ func builtinCallFunction(ctx *types.TaskContext, args []types.Value, r *Registry
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	fn, found := r.Get(name.Value())
+	funcID, found := r.GetID(name.Value())
 	if !found {
 		return types.Err(types.E_INVARG)
 	}
-	result := fn(ctx, args[1:])
+	result := r.CallByID(funcID, ctx, args[1:])
 	if name.Value() == "max_object" && result.IsNormal() {
 		if intVal, ok := result.Val.(types.IntValue); ok {
 			return types.Ok(types.NewObj(types.ObjID(intVal.Val)))
@@ -392,7 +388,7 @@ func builtinFlushInput(ctx *types.TaskContext, args []types.Value) types.Result 
 	if !ctx.IsWizard && target.ID() != ctx.Player {
 		return types.Err(types.E_PERM)
 	}
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewInt(int64(ClearHeldInput(target.ID()))))
 }
 
 func builtinForceInput(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -527,17 +523,15 @@ func builtinOutputDelimiters(ctx *types.TaskContext, args []types.Value) types.R
 	}))
 }
 
-var listenState = struct {
-	mu    sync.RWMutex
-	ports map[int64]types.ObjID
-}{ports: make(map[int64]types.ObjID)}
-
 func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if len(args) < 2 || len(args) > 4 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
+	}
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
 	}
 	obj, ok := args[0].(types.ObjValue)
 	if !ok {
@@ -550,9 +544,14 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 	if port.Val <= 0 || port.Val > 65535 {
 		return types.Err(types.E_INVARG)
 	}
-	listenState.mu.Lock()
-	listenState.ports[port.Val] = obj.ID()
-	listenState.mu.Unlock()
+	if len(args) == 3 {
+		if _, ok := args[2].(types.MapValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
+	}
+	if err := globalConnManager.ListenOnPort(obj.ID(), int(port.Val)); err != nil {
+		return types.Err(types.E_INVARG)
+	}
 	return types.Ok(types.NewInt(port.Val))
 }
 
@@ -560,16 +559,47 @@ func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	port, ok := args[0].(types.IntValue)
-	if !ok {
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	var port int64 = -1
+	switch v := args[0].(type) {
+	case types.IntValue:
+		port = v.Val
+	case types.ObjValue:
+		if len(args) == 2 {
+			return types.Err(types.E_TYPE)
+		}
+		for _, li := range globalConnManager.ListListeners() {
+			if li.Object == v.ID() {
+				port = int64(li.Port)
+				break
+			}
+		}
+		if port < 0 {
+			return types.Err(types.E_INVARG)
+		}
+	default:
 		return types.Err(types.E_TYPE)
 	}
-	listenState.mu.Lock()
-	delete(listenState.ports, port.Val)
-	listenState.mu.Unlock()
+
+	if len(args) == 2 {
+		p, ok := args[1].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		port = p.Val
+	}
+	if port <= 0 || port > 65535 {
+		return types.Err(types.E_INVARG)
+	}
+	if err := globalConnManager.UnlistenPort(int(port)); err != nil {
+		return types.Err(types.E_INVARG)
+	}
 	return types.Ok(types.NewInt(0))
 }
 
@@ -579,6 +609,9 @@ func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) ty
 	}
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
+	}
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
 	}
 	host, ok := args[0].(types.StrValue)
 	if !ok {
@@ -591,13 +624,16 @@ func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) ty
 	if port.Val <= 0 || port.Val > 65535 {
 		return types.Err(types.E_INVARG)
 	}
-	addr := net.JoinHostPort(host.Value(), strconv.FormatInt(port.Val, 10))
-	c, err := net.DialTimeout("tcp", addr, time.Second)
+	if len(args) == 3 {
+		if _, ok := args[2].(types.MapValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
+	}
+	connID, err := globalConnManager.OpenNetworkConnection(host.Value(), int(port.Val))
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	_ = c.Close()
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewObj(connID))
 }
 
 func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {

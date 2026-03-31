@@ -108,8 +108,9 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Check execute permission
 	if !verb.Perms.Has(db.VerbExecute) {
-		// TODO: Check if caller is owner or wizard
-		return types.Err(types.E_PERM)
+		if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+			return types.Err(types.E_PERM)
+		}
 	}
 
 	// Compile verb if not already compiled
@@ -321,8 +322,9 @@ func (e *Evaluator) CallVerb(objID types.ObjID, verbName string, args []types.Va
 
 	// Check execute permission
 	if !verb.Perms.Has(db.VerbExecute) {
-		// TODO: Check if caller is owner or wizard
-		return types.Err(types.E_PERM)
+		if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+			return types.Err(types.E_PERM)
+		}
 	}
 
 	// Compile verb if not already compiled

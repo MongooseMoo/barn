@@ -239,6 +239,11 @@ func (s *Server) shutdown() error {
 		log.Printf("Warning: #0:shutdown_started() failed: %v", err)
 	}
 
+	// Stop accepting new connections immediately.
+	if s.connManager != nil {
+		s.connManager.CloseAllListeners()
+	}
+
 	// Stop scheduler
 	s.scheduler.Stop()
 

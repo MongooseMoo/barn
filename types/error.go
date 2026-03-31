@@ -20,10 +20,10 @@ func (e ErrValue) Type() TypeCode {
 	return TYPE_ERR
 }
 
-// Truthy returns whether the value is truthy
-// In MOO, errors are never truthy (only non-zero ints and non-empty strings)
+// Truthy returns whether the value is truthy.
+// ERR values are truthy in conditionals.
 func (e ErrValue) Truthy() bool {
-	return false
+	return true
 }
 
 // Equal compares two values for equality

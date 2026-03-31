@@ -17,6 +17,7 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 type Registry struct {
 	funcs      map[string]BuiltinFunc
 	byID       map[int]BuiltinFunc
+	idToName   map[int]string
 	nameToID   map[string]int
 	nextID     int
 	verbCaller VerbCallerFunc // Callback for calling verbs (set by evaluator)
@@ -27,6 +28,7 @@ func NewRegistry() *Registry {
 	r := &Registry{
 		funcs:    make(map[string]BuiltinFunc),
 		byID:     make(map[int]BuiltinFunc),
+		idToName: make(map[int]string),
 		nameToID: make(map[string]int),
 		nextID:   0,
 	}
@@ -278,6 +280,7 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	r.funcs[name] = fn
 	id := r.nextID
 	r.byID[id] = fn
+	r.idToName[id] = name
 	r.nameToID[name] = id
 	r.nextID++
 }
@@ -294,7 +297,11 @@ func (r *Registry) CallByID(id int, ctx *types.TaskContext, args []types.Value) 
 	if !ok {
 		return types.Err(types.E_VERBNF)
 	}
-	return fn(ctx, args)
+	result := fn(ctx, args)
+	if name, ok := r.idToName[id]; ok {
+		return enrichBuiltinException(name, args, result)
+	}
+	return result
 }
 
 // Get retrieves a builtin function by name

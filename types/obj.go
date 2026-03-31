@@ -48,10 +48,10 @@ func (o ObjValue) IsAnonymous() bool {
 	return o.anonymous
 }
 
-// Truthy returns whether the value is truthy
-// In MOO, objects are never truthy (only non-zero ints and non-empty strings are truthy)
+// Truthy returns whether the value is truthy.
+// Object references are truthy except for $nothing (#-1).
 func (o ObjValue) Truthy() bool {
-	return false
+	return o.id != NOTHING
 }
 
 // Equal compares two values for equality

@@ -536,12 +536,14 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value, store *db.Sto
 		return types.Err(types.E_INVIND)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
-
 	name := nameVal.Value()
 	verb, _, err := store.FindVerb(objID, name)
 	if err != nil || verb == nil {
 		return types.Err(types.E_VERBNF)
+	}
+	// Only the verb owner or a wizard can mutate verb definitions.
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
 	}
 
 	// Remove the verb from the map (one or more keys can point at the same verb)
@@ -612,7 +614,10 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_VERBNF)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	// Only the verb owner or a wizard can mutate verb metadata.
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse info list (1-indexed)
 	owner, ok := infoList.Get(1).(types.ObjValue)
@@ -687,7 +692,10 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_VERBNF)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	// Only the verb owner or a wizard can mutate verb metadata.
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse args list (1-indexed)
 	// Accept either string or object values (objects get converted to string)
@@ -737,7 +745,10 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value, store *db.St
 		return types.Err(types.E_VERBNF)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	// Only the verb owner or a wizard can rewrite verb code.
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Accept either string (single line) or list of strings
 	var lines []string

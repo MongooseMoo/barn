@@ -116,7 +116,7 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 	// When called from within a VM (CallerVM is set), pushes a frame on the
 	// calling VM and returns FlowEvalPush. The VM's executeLoop continues with
 	// the new frame; Return() wraps the result as {1, value} and HandleError()
-	// wraps errors as {0, error}. This mirrors Toast's setup_activ_for_eval.
+	// wraps errors as {0, error_lines}. This mirrors Toast's setup_activ_for_eval.
 	registry.Register("eval", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
@@ -188,7 +188,14 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 			setLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 			result := evalVM.ExecuteLoop()
 			if result.Flow == types.FlowException {
-				return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
+				errMsg := result.Error.Message()
+				if raw, ok := result.Val.(types.StrValue); ok {
+					errMsg = extractErrorMessage(fmt.Errorf("%s", raw.Value()), result.Error)
+				}
+				return types.Ok(types.NewList([]types.Value{
+					types.NewInt(0),
+					makeEvalErrorValue(result.Error, errMsg, result.CallStack),
+				}))
 			}
 			if result.Val == nil {
 				result.Val = types.NewInt(0)

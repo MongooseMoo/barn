@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+type telnetOutputState int
+
+const (
+	telnetOutputNormal telnetOutputState = iota
+	telnetOutputIAC
+	telnetOutputCommand
+	telnetOutputSubneg
+	telnetOutputSubnegIAC
+)
+
 type arrayFlags []string
 
 func (a *arrayFlags) String() string {
@@ -124,14 +134,68 @@ func readOutput(conn net.Conn, done chan bool) {
 	defer func() { done <- true }()
 
 	reader := bufio.NewReader(conn)
+	state := telnetOutputNormal
+	skipProtocolNewline := false
+
 	for {
-		line, err := reader.ReadString('\n')
+		b, err := reader.ReadByte()
 		if err != nil {
 			if err != io.EOF {
 				fmt.Fprintf(os.Stderr, "Read error: %v\n", err)
 			}
 			return
 		}
-		fmt.Print(line)
+
+		switch state {
+		case telnetOutputNormal:
+			if skipProtocolNewline {
+				if b == '\r' || b == '\n' {
+					if b == '\n' {
+						skipProtocolNewline = false
+					}
+					continue
+				}
+				skipProtocolNewline = false
+			}
+			if b == 0xFF {
+				state = telnetOutputIAC
+				continue
+			}
+			_, _ = os.Stdout.Write([]byte{b})
+
+		case telnetOutputIAC:
+			switch b {
+			case 0xFF:
+				// Escaped IAC; treat as literal data byte.
+				_, _ = os.Stdout.Write([]byte{b})
+				state = telnetOutputNormal
+			case 0xFA:
+				state = telnetOutputSubneg
+			case 0xFB, 0xFC, 0xFD, 0xFE:
+				state = telnetOutputCommand
+			default:
+				state = telnetOutputNormal
+			}
+
+		case telnetOutputCommand:
+			// Consume the option byte and return to normal stream parsing.
+			skipProtocolNewline = true
+			state = telnetOutputNormal
+
+		case telnetOutputSubneg:
+			if b == 0xFF {
+				state = telnetOutputSubnegIAC
+			}
+
+		case telnetOutputSubnegIAC:
+			if b == 0xF0 {
+				skipProtocolNewline = true
+				state = telnetOutputNormal
+			} else if b == 0xFF {
+				state = telnetOutputSubneg
+			} else {
+				state = telnetOutputSubneg
+			}
+		}
 	}
 }
