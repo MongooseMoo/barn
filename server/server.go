@@ -63,7 +63,7 @@ func (s *Server) LoadDatabase() error {
 	// Wire scheduler to connection manager for output flushing
 	s.scheduler.SetConnectionManager(s.connManager)
 	s.scheduler.SetPendingFinalizationSink(func(values []types.Value) {
-		s.database.PendingFinalizations = append(s.database.PendingFinalizations, values...)
+		s.appendPendingFinalizations(values)
 	})
 
 	// Wire notify() builtin to connection manager
@@ -74,7 +74,12 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })
-	builtins.SetShutdownFunc(func() error {
+	builtins.SetShutdownFunc(func(ctx *types.TaskContext) error {
+		if ctx != nil {
+			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
+				s.appendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
+			}
+		}
 		s.Shutdown()
 		return nil
 	})
@@ -330,6 +335,25 @@ func (s *Server) callShutdownStarted(message string) error {
 // DumpDatabase triggers an immediate checkpoint
 func (s *Server) DumpDatabase() error {
 	return s.checkpoint()
+}
+
+func (s *Server) appendPendingFinalizations(values []types.Value) {
+	if len(values) == 0 || s.database == nil {
+		return
+	}
+
+	seen := make(map[string]struct{}, len(s.database.PendingFinalizations)+len(values))
+	for _, value := range s.database.PendingFinalizations {
+		seen[value.String()] = struct{}{}
+	}
+	for _, value := range values {
+		key := value.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		s.database.PendingFinalizations = append(s.database.PendingFinalizations, value)
+	}
 }
 
 func copyFile(src, dst string) error {

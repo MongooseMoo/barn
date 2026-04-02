@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -12,13 +13,14 @@ import (
 
 // Database represents a loaded MOO database
 type Database struct {
-	Version        int
-	Objects        map[types.ObjID]*Object
-	Players        []types.ObjID
-	RecycledObjs   []types.ObjID
+	Version              int
+	Objects              map[types.ObjID]*Object
+	Players              []types.ObjID
+	RecycledObjs         []types.ObjID
 	PendingFinalizations []types.Value
-	QueuedTasks    []*QueuedTask
-	SuspendedTasks []*SuspendedTask
+	QueuedTasks          []*QueuedTask
+	SuspendedTasks       []*SuspendedTask
+	startupRepairLogs    []string
 
 	// savedWaifs tracks WAIFs during loading for reference resolution.
 	// Index corresponds to the WAIF save index in the database file.
@@ -70,7 +72,14 @@ func LoadDatabase(path string) (*Database, error) {
 	defer f.Close()
 
 	reader := bufio.NewReader(f)
-	return parseDatabase(reader)
+	db, err := parseDatabase(reader)
+	if err != nil {
+		return nil, err
+	}
+	for _, msg := range db.startupRepairLogs {
+		log.Print(msg)
+	}
+	return db, nil
 }
 
 // parseDatabase parses database from reader
@@ -99,12 +108,21 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 
 	// Version-specific parsing
 	if db.Version == 4 {
-		return db.parseV4(r)
+		db, err = db.parseV4(r)
+	} else if db.Version == 5 {
+		db, err = db.parseV5(r)
+	} else {
+		db, err = db.parseV17(r)
 	}
-	if db.Version == 5 {
-		return db.parseV5(r)
+	if err != nil {
+		return nil, err
 	}
-	return db.parseV17(r)
+	db.repairStartupIssues()
+	return db, nil
+}
+
+func (db *Database) recordStartupRepair(msg string) {
+	db.startupRepairLogs = append(db.startupRepairLogs, msg)
 }
 
 // parseV4 parses a version 4 database
@@ -1019,6 +1037,9 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*Object
 	}
 	if objVal, ok := locVal.(types.ObjValue); ok {
 		obj.Location = objVal.ID()
+	} else {
+		db.recordStartupRepair(fmt.Sprintf("#%d.location is not an object", objID))
+		obj.Location = types.ObjNothing
 	}
 
 	if hasLastMove {
@@ -1035,11 +1056,20 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*Object
 		return nil, err
 	}
 	if listVal, ok := contentsVal.(types.ListValue); ok {
+		validContents := true
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
 				obj.Contents = append(obj.Contents, objVal.ID())
+			} else {
+				validContents = false
 			}
 		}
+		if !validContents {
+			db.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
+			obj.Contents = nil
+		}
+	} else {
+		db.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
 	}
 
 	// Read parents
@@ -1049,17 +1079,26 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*Object
 	}
 	// Parents can be either a single object or a list of objects
 	if listVal, ok := parentsVal.(types.ListValue); ok {
+		validParents := true
 		// Multiple parents (list)
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
 				obj.Parents = append(obj.Parents, objVal.ID())
+			} else {
+				validParents = false
 			}
+		}
+		if !validParents {
+			db.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
+			obj.Parents = nil
 		}
 	} else if objVal, ok := parentsVal.(types.ObjValue); ok {
 		// Single parent (common case)
 		if objVal.ID() != -1 {
 			obj.Parents = append(obj.Parents, objVal.ID())
 		}
+	} else {
+		db.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
 	}
 
 	// Read children
@@ -1068,11 +1107,20 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*Object
 		return nil, err
 	}
 	if listVal, ok := childrenVal.(types.ListValue); ok {
+		validChildren := true
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
 				obj.Children = append(obj.Children, objVal.ID())
+			} else {
+				validChildren = false
 			}
 		}
+		if !validChildren {
+			db.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
+			obj.Children = nil
+		}
+	} else {
+		db.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
 	}
 
 	// Read verb count

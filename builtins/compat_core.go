@@ -19,22 +19,22 @@ type functionSignature struct {
 }
 
 var knownFunctionSignatures = map[string]functionSignature{
-	"typeof":            {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
-	"function_info":     {minArg: 0, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
-	"notify":            {minArg: 2, maxArg: 4, argTypes: []int64{int64(types.TYPE_OBJ), int64(types.TYPE_STR), -1, -1}},
-	"read_http":         {minArg: 1, maxArg: 2, argTypes: []int64{int64(types.TYPE_STR), int64(types.TYPE_OBJ)}},
-	"sqlite_open":       {minArg: 1, maxArg: 2, argTypes: []int64{int64(types.TYPE_STR), int64(types.TYPE_INT)}},
-	"sqlite_close":      {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
-	"sqlite_handles":    {minArg: 0, maxArg: 0, argTypes: []int64{}},
-	"sqlite_info":       {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
-	"sqlite_query":      {minArg: 2, maxArg: 3, argTypes: []int64{int64(types.TYPE_INT), int64(types.TYPE_STR), -1}},
-	"sqlite_execute":    {minArg: 3, maxArg: 3, argTypes: []int64{int64(types.TYPE_INT), int64(types.TYPE_STR), int64(types.TYPE_LIST)}},
+	"typeof":                    {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
+	"function_info":             {minArg: 0, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
+	"notify":                    {minArg: 2, maxArg: 4, argTypes: []int64{int64(types.TYPE_OBJ), int64(types.TYPE_STR), -1, -1}},
+	"read_http":                 {minArg: 1, maxArg: 2, argTypes: []int64{int64(types.TYPE_STR), int64(types.TYPE_OBJ)}},
+	"sqlite_open":               {minArg: 1, maxArg: 2, argTypes: []int64{int64(types.TYPE_STR), int64(types.TYPE_INT)}},
+	"sqlite_close":              {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
+	"sqlite_handles":            {minArg: 0, maxArg: 0, argTypes: []int64{}},
+	"sqlite_info":               {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
+	"sqlite_query":              {minArg: 2, maxArg: 3, argTypes: []int64{int64(types.TYPE_INT), int64(types.TYPE_STR), -1}},
+	"sqlite_execute":            {minArg: 3, maxArg: 3, argTypes: []int64{int64(types.TYPE_INT), int64(types.TYPE_STR), int64(types.TYPE_LIST)}},
 	"sqlite_last_insert_row_id": {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
-	"sqlite_limit":      {minArg: 3, maxArg: 3, argTypes: []int64{int64(types.TYPE_INT), -1, int64(types.TYPE_INT)}},
-	"sqlite_interrupt":  {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
-	"server_version":    {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
-	"connected_players": {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
-	"tostr":             {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
+	"sqlite_limit":              {minArg: 3, maxArg: 3, argTypes: []int64{int64(types.TYPE_INT), -1, int64(types.TYPE_INT)}},
+	"sqlite_interrupt":          {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
+	"server_version":            {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
+	"connected_players":         {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
+	"tostr":                     {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
 }
 
 func functionInfoEntry(name string, sig functionSignature) types.Value {
@@ -312,7 +312,7 @@ func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // globalDumpFunc is set by the server to trigger a database checkpoint.
 var globalDumpFunc func() error
-var globalShutdownFunc func() error
+var globalShutdownFunc func(ctx *types.TaskContext) error
 
 // SetDumpFunc sets the function called by dump_database() to trigger a checkpoint.
 func SetDumpFunc(f func() error) {
@@ -320,7 +320,7 @@ func SetDumpFunc(f func() error) {
 }
 
 // SetShutdownFunc sets the function called by shutdown() to stop the server.
-func SetShutdownFunc(f func() error) {
+func SetShutdownFunc(f func(ctx *types.TaskContext) error) {
 	globalShutdownFunc = f
 }
 
@@ -644,7 +644,7 @@ func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 	if globalShutdownFunc != nil {
-		if err := globalShutdownFunc(); err != nil {
+		if err := globalShutdownFunc(ctx); err != nil {
 			return types.Err(types.E_INVARG)
 		}
 	}

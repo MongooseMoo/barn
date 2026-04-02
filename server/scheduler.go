@@ -32,19 +32,19 @@ type InputEvent struct {
 
 // Scheduler manages task execution
 type Scheduler struct {
-	tasks       map[int64]*task.Task
-	waiting     *TaskQueue
-	nextTaskID  int64
-	evaluator   *vm.Evaluator
-	registry    *builtins.Registry // Shared builtins registry for bytecode VMs
-	store       *db.Store
-	connManager *ConnectionManager
-	inputQueue  chan InputEvent
+	tasks                   map[int64]*task.Task
+	waiting                 *TaskQueue
+	nextTaskID              int64
+	evaluator               *vm.Evaluator
+	registry                *builtins.Registry // Shared builtins registry for bytecode VMs
+	store                   *db.Store
+	connManager             *ConnectionManager
+	inputQueue              chan InputEvent
 	pendingFinalizationSink func([]types.Value)
-	mu          sync.Mutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	mu                      sync.Mutex
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	wg                      sync.WaitGroup
 }
 
 // NewScheduler creates a new task scheduler
@@ -1107,7 +1107,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	select {
 	case <-taskCtx.Done():
 		if taskCtx.Err() == context.Canceled && bcVM != nil && s.pendingFinalizationSink != nil {
-			if pending := collectPendingFinalizationValues(bcVM); len(pending) > 0 {
+			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
 				s.pendingFinalizationSink(pending)
 			}
 		}
@@ -1154,7 +1154,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// tasks still trigger orphan-anonymous collection.
 	if s.ctx.Err() != nil {
 		if s.pendingFinalizationSink != nil && bcVM != nil {
-			if pending := collectPendingFinalizationValues(bcVM); len(pending) > 0 {
+			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
 				s.pendingFinalizationSink(pending)
 			}
 		}
@@ -1840,70 +1840,6 @@ func (s *Scheduler) logTracebackSource(stack []task.ActivationFrame) {
 		log.Printf("TRACEBACK:     #%d:%s line %d => %s",
 			frame.VerbLoc, frame.Verb, frame.LineNumber, frame.SourceLine)
 	}
-}
-
-func collectPendingFinalizationValues(bcVM *vm.VM) []types.Value {
-	if bcVM == nil {
-		return nil
-	}
-
-	var pending []types.Value
-	seen := make(map[string]struct{})
-	for _, frame := range bcVM.Frames {
-		if frame == nil {
-			continue
-		}
-		for _, value := range frame.Locals {
-			if !isCompositePendingFinalization(value) {
-				continue
-			}
-			key := value.String()
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			pending = append(pending, value)
-		}
-	}
-	return pending
-}
-
-func isCompositePendingFinalization(v types.Value) bool {
-	switch val := v.(type) {
-	case types.ListValue:
-		for _, elem := range val.Elements() {
-			if containsAnonymousRef(elem) {
-				return true
-			}
-		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
-			if containsAnonymousRef(pair[0]) || containsAnonymousRef(pair[1]) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func containsAnonymousRef(v types.Value) bool {
-	switch val := v.(type) {
-	case types.ObjValue:
-		return val.IsAnonymous()
-	case types.ListValue:
-		for _, elem := range val.Elements() {
-			if containsAnonymousRef(elem) {
-				return true
-			}
-		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
-			if containsAnonymousRef(pair[0]) || containsAnonymousRef(pair[1]) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // sendTraceback sends a formatted traceback to the player
