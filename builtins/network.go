@@ -1,11 +1,14 @@
 package builtins
 
 import (
+	"barn/task"
 	"barn/trace"
 	"barn/types"
+	"bytes"
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -73,6 +76,29 @@ var connectionOptionState = struct {
 	byPlayer map[types.ObjID]map[string]types.Value
 }{
 	byPlayer: make(map[types.ObjID]map[string]types.Value),
+}
+
+type httpReadWaiter struct {
+	task *task.Task
+	kind string
+}
+
+type httpHeldInput struct {
+	buffer       []byte
+	invalidCount int
+	waiters      []httpReadWaiter
+}
+
+type httpWake struct {
+	task  *task.Task
+	value types.Value
+}
+
+var httpHeldInputState = struct {
+	mu       sync.Mutex
+	byPlayer map[types.ObjID]*httpHeldInput
+}{
+	byPlayer: make(map[types.ObjID]*httpHeldInput),
 }
 
 func parseConnectionTarget(v types.Value) (types.ObjID, bool) {
@@ -150,6 +176,453 @@ func setConnectionOption(player types.ObjID, name string, value types.Value) {
 		connectionOptionState.byPlayer[player] = existing
 	}
 	existing[name] = value
+}
+
+func heldInputEnabled(player types.ObjID) bool {
+	return getConnectionOptions(player)["hold-input"].Truthy()
+}
+
+func getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
+	state, ok := httpHeldInputState.byPlayer[player]
+	if !ok {
+		state = &httpHeldInput{}
+		httpHeldInputState.byPlayer[player] = state
+	}
+	return state
+}
+
+func trimHTTPLeadingWhitespace(data []byte) []byte {
+	start := 0
+	for start < len(data) && (data[start] == ' ' || data[start] == '\t') {
+		start++
+	}
+	return data[start:]
+}
+
+func isHTTPTokenByte(b byte) bool {
+	switch {
+	case b >= '0' && b <= '9':
+		return true
+	case b >= 'A' && b <= 'Z':
+		return true
+	case b >= 'a' && b <= 'z':
+		return true
+	}
+
+	switch b {
+	case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidHTTPToken(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	for _, b := range data {
+		if !isHTTPTokenByte(b) {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidHTTPRequestURI(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	for _, b := range data {
+		if b <= 0x20 || b >= 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func readHTTPCRLFLine(data []byte, start int) ([]byte, int, bool) {
+	for i := start; i+1 < len(data); i++ {
+		if data[i] == '\r' && data[i+1] == '\n' {
+			return data[start:i], i + 2, true
+		}
+	}
+	return nil, 0, false
+}
+
+func newHTTPErrorValue(code string) types.Value {
+	return types.NewMap([][2]types.Value{
+		{types.NewStr("error"), types.NewList([]types.Value{types.NewStr(code)})},
+	})
+}
+
+func parseHTTPHeaders(data []byte, start int) ([][2]types.Value, int, int, bool, bool, bool) {
+	headers := make([][2]types.Value, 0)
+	lastHeader := -1
+	contentLength := -1
+	chunked := false
+
+	for pos := start; ; {
+		line, next, ok := readHTTPCRLFLine(data, pos)
+		if !ok {
+			return nil, 0, 0, false, false, true
+		}
+		pos = next
+		if len(line) == 0 {
+			return headers, pos, contentLength, chunked, false, false
+		}
+
+		if line[0] == ' ' || line[0] == '\t' {
+			if lastHeader < 0 {
+				return nil, pos, 0, false, true, false
+			}
+			continued := encodeBinaryStr(trimHTTPLeadingWhitespace(line))
+			headers[lastHeader][1] = types.NewStr(headers[lastHeader][1].(types.StrValue).Value() + continued)
+			continue
+		}
+
+		colon := bytes.IndexByte(line, ':')
+		if colon <= 0 || !isValidHTTPToken(line[:colon]) {
+			return nil, pos, 0, false, true, false
+		}
+
+		name := string(line[:colon])
+		value := encodeBinaryStr(trimHTTPLeadingWhitespace(line[colon+1:]))
+		headers = append(headers, [2]types.Value{types.NewStr(name), types.NewStr(value)})
+		lastHeader = len(headers) - 1
+
+		switch strings.ToLower(name) {
+		case "content-length":
+			n, err := strconv.Atoi(strings.TrimSpace(value))
+			if err == nil && n >= 0 {
+				contentLength = n
+			}
+		case "transfer-encoding":
+			chunked = strings.Contains(strings.ToLower(value), "chunked")
+		}
+	}
+}
+
+func parseHTTPChunkedBody(data []byte, start int) (string, int, bool) {
+	var body []byte
+	pos := start
+
+	for {
+		line, next, ok := readHTTPCRLFLine(data, pos)
+		if !ok {
+			return "", 0, false
+		}
+		sizeText := string(line)
+		if semi := strings.IndexByte(sizeText, ';'); semi >= 0 {
+			sizeText = sizeText[:semi]
+		}
+		sizeText = strings.TrimSpace(sizeText)
+		if sizeText == "" {
+			return "", 0, false
+		}
+
+		size, err := strconv.ParseInt(sizeText, 16, 64)
+		if err != nil || size < 0 {
+			return "", 0, false
+		}
+
+		pos = next
+		if size == 0 {
+			for {
+				trailer, nextTrailer, ok := readHTTPCRLFLine(data, pos)
+				if !ok {
+					return "", 0, false
+				}
+				pos = nextTrailer
+				if len(trailer) == 0 {
+					return encodeBinaryStr(body), pos, true
+				}
+			}
+		}
+
+		if len(data[pos:]) < int(size)+2 {
+			return "", 0, false
+		}
+		body = append(body, data[pos:pos+int(size)]...)
+		if data[pos+int(size)] != '\r' || data[pos+int(size)+1] != '\n' {
+			return "", 0, false
+		}
+		pos += int(size) + 2
+	}
+}
+
+func parseHTTPRequest(data []byte) (types.Value, int, bool) {
+	line, pos, ok := readHTTPCRLFLine(data, 0)
+	if !ok {
+		return nil, 0, false
+	}
+	parts := bytes.Fields(line)
+	if (len(parts) != 2 && len(parts) != 3) || !isValidHTTPToken(parts[0]) {
+		return newHTTPErrorValue("INVALID_METHOD"), pos, true
+	}
+	if !isValidHTTPRequestURI(parts[1]) {
+		return newHTTPErrorValue("INVALID_PATH"), pos, true
+	}
+
+	headers, bodyStart, contentLength, chunked, badHeader, incomplete := parseHTTPHeaders(data, pos)
+	if incomplete {
+		return nil, 0, false
+	}
+	if badHeader {
+		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), bodyStart, true
+	}
+
+	pairs := [][2]types.Value{
+		{types.NewStr("method"), types.NewStr(string(parts[0]))},
+		{types.NewStr("uri"), types.NewStr(string(parts[1]))},
+		{types.NewStr("headers"), types.NewMap(headers)},
+	}
+	if len(parts) == 3 {
+		pairs = append(pairs, [2]types.Value{types.NewStr("version"), types.NewStr(string(parts[2]))})
+	}
+	consumed := bodyStart
+	if chunked {
+		body, next, complete := parseHTTPChunkedBody(data, bodyStart)
+		if !complete {
+			return nil, 0, false
+		}
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(body)})
+		consumed = next
+	} else if contentLength >= 0 {
+		if len(data[bodyStart:]) < contentLength {
+			return nil, 0, false
+		}
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[bodyStart : bodyStart+contentLength]))})
+		consumed = bodyStart + contentLength
+	}
+	return types.NewMap(pairs), consumed, true
+}
+
+func parseHTTPResponse(data []byte) (types.Value, int, bool) {
+	line, pos, ok := readHTTPCRLFLine(data, 0)
+	if !ok {
+		return nil, 0, false
+	}
+	if !bytes.HasPrefix(line, []byte("HTTP/")) {
+		return newHTTPErrorValue("INVALID_CONSTANT"), pos, true
+	}
+	parts := bytes.Fields(line)
+	if len(parts) < 2 {
+		return newHTTPErrorValue("INVALID_STATUS"), pos, true
+	}
+	statusToken := parts[1]
+	if len(statusToken) != 3 {
+		return newHTTPErrorValue("INVALID_STATUS"), pos, true
+	}
+	for _, b := range statusToken {
+		if b < '0' || b > '9' {
+			return newHTTPErrorValue("INVALID_STATUS"), pos, true
+		}
+	}
+	status, _ := strconv.Atoi(string(statusToken))
+
+	headers, bodyStart, contentLength, chunked, badHeader, incomplete := parseHTTPHeaders(data, pos)
+	if incomplete {
+		return nil, 0, false
+	}
+	if badHeader {
+		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), bodyStart, true
+	}
+
+	pairs := [][2]types.Value{
+		{types.NewStr("version"), types.NewStr(string(parts[0]))},
+		{types.NewStr("status"), types.NewInt(int64(status))},
+		{types.NewStr("headers"), types.NewMap(headers)},
+	}
+	if len(parts) >= 3 {
+		pairs = append(pairs, [2]types.Value{types.NewStr("reason"), types.NewStr(string(parts[2]))})
+	}
+
+	consumed := bodyStart
+	if chunked {
+		body, next, complete := parseHTTPChunkedBody(data, bodyStart)
+		if !complete {
+			return nil, 0, false
+		}
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(body)})
+		consumed = next
+	} else if contentLength >= 0 {
+		if len(data[bodyStart:]) < contentLength {
+			return nil, 0, false
+		}
+		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[bodyStart : bodyStart+contentLength]))})
+		consumed = bodyStart + contentLength
+	}
+	return types.NewMap(pairs), consumed, true
+}
+
+func parseHTTPMessage(kind string, data []byte) (types.Value, int, bool) {
+	if kind == "request" {
+		return parseHTTPRequest(data)
+	}
+	return parseHTTPResponse(data)
+}
+
+func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWake {
+	pruneHTTPWaitersLocked(state)
+	wakes := make([]httpWake, 0)
+	for len(state.waiters) > 0 {
+		waiter := state.waiters[0]
+		if state.invalidCount > 0 {
+			state.invalidCount--
+			state.waiters = state.waiters[1:]
+			wakes = append(wakes, httpWake{task: waiter.task, value: types.NewInt(0)})
+			continue
+		}
+
+		value, consumed, complete := parseHTTPMessage(waiter.kind, state.buffer)
+		if !complete {
+			break
+		}
+		if consumed > 0 {
+			state.buffer = append([]byte(nil), state.buffer[consumed:]...)
+		}
+		state.waiters = state.waiters[1:]
+		wakes = append(wakes, httpWake{task: waiter.task, value: value})
+	}
+
+	if !heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
+		delete(httpHeldInputState.byPlayer, player)
+	}
+	return wakes
+}
+
+func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
+	httpHeldInputState.mu.Lock()
+	state := httpHeldInputState.byPlayer[player]
+	if !heldInputEnabled(player) && (state == nil || len(state.waiters) == 0) {
+		httpHeldInputState.mu.Unlock()
+		return false
+	}
+
+	state = getOrCreateHeldHTTPInput(player)
+	decoded, invalid := decodeBinaryString(line)
+	if invalid {
+		state.invalidCount++
+	} else if atFront {
+		state.buffer = append(append([]byte(nil), decoded...), state.buffer...)
+	} else {
+		state.buffer = append(state.buffer, decoded...)
+	}
+
+	wakes := collectHTTPWakeupsLocked(player, state)
+	httpHeldInputState.mu.Unlock()
+
+	for _, wake := range wakes {
+		wake.task.Resume(wake.value)
+	}
+	return true
+}
+
+func prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
+	httpHeldInputState.mu.Lock()
+	defer httpHeldInputState.mu.Unlock()
+
+	state := getOrCreateHeldHTTPInput(player)
+	pruneHTTPWaitersLocked(state)
+	if state.invalidCount > 0 {
+		state.invalidCount--
+		if !heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
+			delete(httpHeldInputState.byPlayer, player)
+		}
+		return types.NewInt(0), true
+	}
+
+	value, consumed, complete := parseHTTPMessage(kind, state.buffer)
+	if complete {
+		if consumed > 0 {
+			state.buffer = append([]byte(nil), state.buffer[consumed:]...)
+		}
+		if !heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
+			delete(httpHeldInputState.byPlayer, player)
+		}
+		return value, true
+	}
+
+	state.waiters = append(state.waiters, httpReadWaiter{task: t, kind: kind})
+	return nil, false
+}
+
+func pruneHTTPWaitersLocked(state *httpHeldInput) {
+	if len(state.waiters) == 0 {
+		return
+	}
+	kept := state.waiters[:0]
+	for _, waiter := range state.waiters {
+		if waiter.task != nil && waiter.task.GetState() == task.TaskSuspended {
+			kept = append(kept, waiter)
+		}
+	}
+	state.waiters = kept
+}
+
+func HasPendingHTTPRead(player types.ObjID) bool {
+	httpHeldInputState.mu.Lock()
+	defer httpHeldInputState.mu.Unlock()
+
+	state := httpHeldInputState.byPlayer[player]
+	if state == nil {
+		return false
+	}
+	pruneHTTPWaitersLocked(state)
+	return len(state.waiters) > 0
+}
+
+func CancelHTTPReadTask(taskID int64) {
+	httpHeldInputState.mu.Lock()
+	defer httpHeldInputState.mu.Unlock()
+
+	for player, state := range httpHeldInputState.byPlayer {
+		if len(state.waiters) == 0 {
+			continue
+		}
+		removed := false
+		kept := state.waiters[:0]
+		for _, waiter := range state.waiters {
+			if waiter.task != nil && waiter.task.ID == taskID {
+				removed = true
+				continue
+			}
+			kept = append(kept, waiter)
+		}
+		state.waiters = kept
+		if removed {
+			state.buffer = nil
+			state.invalidCount = 0
+		}
+		if !heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
+			delete(httpHeldInputState.byPlayer, player)
+		}
+	}
+}
+
+func ClearAllHeldHTTPInput() {
+	httpHeldInputState.mu.Lock()
+	defer httpHeldInputState.mu.Unlock()
+	httpHeldInputState.byPlayer = make(map[types.ObjID]*httpHeldInput)
+}
+
+func CloseHeldHTTPInput(player types.ObjID) {
+	httpHeldInputState.mu.Lock()
+	state := httpHeldInputState.byPlayer[player]
+	if state == nil {
+		httpHeldInputState.mu.Unlock()
+		return
+	}
+	waiters := append([]httpReadWaiter(nil), state.waiters...)
+	delete(httpHeldInputState.byPlayer, player)
+	httpHeldInputState.mu.Unlock()
+
+	for _, waiter := range waiters {
+		if waiter.task != nil {
+			waiter.task.Resume(types.NewInt(0))
+		}
+	}
 }
 
 func parseRemoteAddress(remoteAddr string) (string, string) {
@@ -596,24 +1069,19 @@ func builtinConnectionOption(ctx *types.TaskContext, args []types.Value) types.R
 
 // read_http([type [, connection]]) -> map | E_PERM | E_ARGS | E_TYPE | E_INVARG.
 func builtinReadHTTP(ctx *types.TaskContext, args []types.Value) types.Result {
-	// Validate we have at least one argument (type).
 	if len(args) == 0 {
 		return types.Err(types.E_ARGS)
 	}
+	if len(args) > 2 {
+		return types.Err(types.E_ARGS)
+	}
 
-	// First argument must be a string (type).
 	typeVal, ok := args[0].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	typeStr := typeVal.Value()
 
-	// Validate type is "request" or "response".
-	if typeStr != "request" && typeStr != "response" {
-		return types.Err(types.E_INVARG)
-	}
-
-	// Second argument (if provided) must be an object (connection).
 	var connection types.ObjID = ctx.Player
 	if len(args) > 1 {
 		connVal, ok := args[1].(types.ObjValue)
@@ -621,6 +1089,13 @@ func builtinReadHTTP(ctx *types.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		connection = connVal.ID()
+	}
+
+	if typeStr != "request" && typeStr != "response" {
+		return types.Err(types.E_INVARG)
+	}
+	if resolveConnection(ctx, connection) == nil {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Permission checks (from ToastStunt bf_read_http).
@@ -637,9 +1112,20 @@ func builtinReadHTTP(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 		// TODO: check last_input_task_id(connection) == current_task_id.
 	}
+	if task.GetManager().FindReadingTask(connection) != nil || HasPendingHTTPRead(connection) {
+		return types.Err(types.E_INVARG)
+	}
 
-	_ = connection
+	t, ok := ctx.Task.(*task.Task)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
 
-	// TODO: Implement HTTP parsing and task suspension.
-	return types.Err(types.E_INVARG)
+	value, complete := prepareHTTPRead(connection, typeStr, t)
+	if complete {
+		return types.Ok(value)
+	}
+
+	task.GetManager().SuspendTask(t, -1)
+	return types.Suspend(-1)
 }

@@ -184,39 +184,41 @@ func (c *Connection) SetResolvedName(name string) {
 }
 
 type listenerRecord struct {
-	listener       net.Listener
-	object         types.ObjID
-	port           int64
-	printMessages  bool
-	ipv6           bool
-	iface          string
-	primary        bool
+	listener      net.Listener
+	object        types.ObjID
+	port          int64
+	printMessages bool
+	ipv6          bool
+	iface         string
+	primary       bool
 }
 
 // ConnectionManager manages all active connections
 type ConnectionManager struct {
-	connections    map[int64]*Connection
-	playerConns    map[types.ObjID]*Connection // Map player to connection
-	nextConnID     int64
-	mu             sync.Mutex
-	server         *Server
-	listeners      map[int64]*listenerRecord
-	outboundClients map[int64]net.Conn
-	listenPort     int
-	connectTimeout time.Duration
+	connections       map[int64]*Connection
+	playerConns       map[types.ObjID]*Connection // Map player to active connection
+	playerConnHistory map[types.ObjID][]*Connection
+	nextConnID        int64
+	mu                sync.Mutex
+	server            *Server
+	listeners         map[int64]*listenerRecord
+	outboundClients   map[int64]net.Conn
+	listenPort        int
+	connectTimeout    time.Duration
 }
 
 // NewConnectionManager creates a new connection manager
 func NewConnectionManager(server *Server, port int) *ConnectionManager {
 	return &ConnectionManager{
-		connections:    make(map[int64]*Connection),
-		playerConns:    make(map[types.ObjID]*Connection),
-		listeners:      make(map[int64]*listenerRecord),
-		outboundClients: make(map[int64]net.Conn),
-		nextConnID:     2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
-		server:         server,
-		listenPort:     port,
-		connectTimeout: 5 * time.Minute,
+		connections:       make(map[int64]*Connection),
+		playerConns:       make(map[types.ObjID]*Connection),
+		playerConnHistory: make(map[types.ObjID][]*Connection),
+		listeners:         make(map[int64]*listenerRecord),
+		outboundClients:   make(map[int64]net.Conn),
+		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
+		server:            server,
+		listenPort:        port,
+		connectTimeout:    5 * time.Minute,
 	}
 }
 
@@ -374,9 +376,13 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 		}
 
 		done := make(chan struct{})
+		player := conn.GetPlayer()
+		if !conn.IsLoggedIn() {
+			player = types.ObjID(-conn.ID)
+		}
 		cm.server.scheduler.EnqueueInput(InputEvent{
 			ConnID: conn.ID,
-			Player: conn.GetPlayer(),
+			Player: player,
 			Line:   line,
 			Done:   done,
 		})
@@ -427,6 +433,64 @@ func (cm *ConnectionManager) GetConnection(player types.ObjID) builtins.Connecti
 		}
 	}
 
+	return nil
+}
+
+func (cm *ConnectionManager) pushPlayerHistoryLocked(player types.ObjID, conn *Connection) {
+	if conn == nil {
+		return
+	}
+	history := cm.playerConnHistory[player]
+	if len(history) > 0 && history[len(history)-1] == conn {
+		return
+	}
+	cm.playerConnHistory[player] = append(history, conn)
+}
+
+func (cm *ConnectionManager) removePlayerHistoryConnLocked(player types.ObjID, target *Connection) {
+	history := cm.playerConnHistory[player]
+	if len(history) == 0 {
+		return
+	}
+
+	kept := history[:0]
+	for _, conn := range history {
+		if conn != nil && conn != target {
+			kept = append(kept, conn)
+		}
+	}
+
+	if len(kept) == 0 {
+		delete(cm.playerConnHistory, player)
+		return
+	}
+	cm.playerConnHistory[player] = kept
+}
+
+func (cm *ConnectionManager) restorePreviousPlayerConnLocked(player types.ObjID, closing *Connection) *Connection {
+	history := cm.playerConnHistory[player]
+	for len(history) > 0 {
+		candidate := history[len(history)-1]
+		history = history[:len(history)-1]
+		if candidate == nil || candidate == closing {
+			continue
+		}
+		if cm.connections[candidate.ID] != candidate {
+			continue
+		}
+		if !candidate.IsLoggedIn() || candidate.GetPlayer() != player {
+			continue
+		}
+		cm.playerConns[player] = candidate
+		if len(history) == 0 {
+			delete(cm.playerConnHistory, player)
+		} else {
+			cm.playerConnHistory[player] = history
+		}
+		return candidate
+	}
+
+	delete(cm.playerConnHistory, player)
 	return nil
 }
 
@@ -628,11 +692,8 @@ func (cm *ConnectionManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) erro
 	// Remove old player mapping
 	delete(cm.playerConns, oldPlayer)
 
-	// Check if new player is already connected (reconnection)
-	if existingConn, exists := cm.playerConns[newPlayer]; exists && existingConn != conn {
-		// Boot existing connection
-		existingConn.Send("You have been disconnected (reconnected elsewhere)")
-		existingConn.Close()
+	if existing := cm.playerConns[newPlayer]; existing != nil && existing != conn {
+		cm.pushPlayerHistoryLocked(newPlayer, existing)
 	}
 
 	// Set up new player

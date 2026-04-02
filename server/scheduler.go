@@ -140,6 +140,10 @@ func (s *Scheduler) processInput(input InputEvent) {
 		return
 	}
 
+	if builtins.HandleHeldInput(input.Player, input.Line, false) {
+		return
+	}
+
 	// Check if a task is read()ing from this player — if so, route input there
 	if s.deliverToReadingTask(input.Player, input.Line) {
 		return
@@ -172,6 +176,10 @@ func (s *Scheduler) deliverToReadingTask(player types.ObjID, line string) bool {
 // read()ing from that player, the line resumes it directly. Otherwise the
 // line is enqueued as a normal InputEvent.
 func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
+	if builtins.HandleHeldInput(player, line, atFront) {
+		return
+	}
+
 	// Try to deliver to a reading task first
 	if s.deliverToReadingTask(player, line) {
 		return
@@ -213,13 +221,21 @@ func (s *Scheduler) processDisconnect(input InputEvent) {
 
 	delete(cm.connections, conn.ID)
 	if wasLoggedIn {
-		delete(cm.playerConns, player)
+		if mapped := cm.playerConns[player]; mapped == conn {
+			delete(cm.playerConns, player)
+			cm.restorePreviousPlayerConnLocked(player, conn)
+		} else {
+			cm.removePlayerHistoryConnLocked(player, conn)
+		}
 	} else {
 		// Remove pre-login negative ID mapping
-		delete(cm.playerConns, types.ObjID(-conn.ID))
+		if mapped := cm.playerConns[types.ObjID(-conn.ID)]; mapped == conn {
+			delete(cm.playerConns, types.ObjID(-conn.ID))
+		}
 	}
 	cm.mu.Unlock()
 	cm.detachOutboundClient(conn.ID)
+	builtins.CloseHeldHTTPInput(player)
 
 	// Trace disconnect event
 	if wasLoggedIn {

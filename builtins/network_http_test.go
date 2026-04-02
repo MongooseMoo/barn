@@ -1,0 +1,209 @@
+package builtins
+
+import (
+	"barn/task"
+	"barn/types"
+	"testing"
+)
+
+func resetHTTPTestState(player types.ObjID) {
+	connectionOptionState.mu.Lock()
+	delete(connectionOptionState.byPlayer, player)
+	connectionOptionState.mu.Unlock()
+
+	httpHeldInputState.mu.Lock()
+	delete(httpHeldInputState.byPlayer, player)
+	httpHeldInputState.mu.Unlock()
+}
+
+func mustMapValue(t *testing.T, value types.Value) types.MapValue {
+	t.Helper()
+	m, ok := value.(types.MapValue)
+	if !ok {
+		t.Fatalf("expected map value, got %T", value)
+	}
+	return m
+}
+
+func mustStringAt(t *testing.T, m types.MapValue, key string) string {
+	t.Helper()
+	value, ok := m.Get(types.NewStr(key))
+	if !ok {
+		t.Fatalf("missing key %q", key)
+	}
+	str, ok := value.(types.StrValue)
+	if !ok {
+		t.Fatalf("expected string at %q, got %T", key, value)
+	}
+	return str.Value()
+}
+
+func mustIntAt(t *testing.T, m types.MapValue, key string) int64 {
+	t.Helper()
+	value, ok := m.Get(types.NewStr(key))
+	if !ok {
+		t.Fatalf("missing key %q", key)
+	}
+	n, ok := value.(types.IntValue)
+	if !ok {
+		t.Fatalf("expected int at %q, got %T", key, value)
+	}
+	return n.Val
+}
+
+func TestParseHTTPRequestContentLength(t *testing.T) {
+	value, _, complete := parseHTTPMessage("request", []byte("GET /hello HTTP/1.1\r\nContent-Length: 5\r\n\r\nHELLO"))
+	if !complete {
+		t.Fatal("expected complete request parse")
+	}
+
+	result := mustMapValue(t, value)
+	if got := mustStringAt(t, result, "method"); got != "GET" {
+		t.Fatalf("got method %q", got)
+	}
+	if got := mustStringAt(t, result, "uri"); got != "/hello" {
+		t.Fatalf("got uri %q", got)
+	}
+	if got := mustStringAt(t, result, "body"); got != "HELLO" {
+		t.Fatalf("got body %q", got)
+	}
+	headersValue, ok := result.Get(types.NewStr("headers"))
+	if !ok {
+		t.Fatal("missing headers")
+	}
+	headers := mustMapValue(t, headersValue)
+	if got := mustStringAt(t, headers, "Content-Length"); got != "5" {
+		t.Fatalf("got content-length %q", got)
+	}
+}
+
+func TestParseHTTPRequestWithoutVersion(t *testing.T) {
+	value, _, complete := parseHTTPMessage("request", []byte("GET /legacy\r\nfoo: bar\r\n\r\n"))
+	if !complete {
+		t.Fatal("expected complete request parse")
+	}
+
+	result := mustMapValue(t, value)
+	if got := mustStringAt(t, result, "method"); got != "GET" {
+		t.Fatalf("got method %q", got)
+	}
+	if got := mustStringAt(t, result, "uri"); got != "/legacy" {
+		t.Fatalf("got uri %q", got)
+	}
+	headersValue, ok := result.Get(types.NewStr("headers"))
+	if !ok {
+		t.Fatal("missing headers")
+	}
+	headers := mustMapValue(t, headersValue)
+	if got := mustStringAt(t, headers, "foo"); got != "bar" {
+		t.Fatalf("got foo header %q", got)
+	}
+	if _, ok := result.Get(types.NewStr("version")); ok {
+		t.Fatal("did not expect version key")
+	}
+}
+
+func TestParseHTTPRequestFoldedHeaders(t *testing.T) {
+	data := []byte("GET / HTTP/1.1\r\nLine1:   abc\r\n\tdef\r\n ghi\r\n\t\tjkl\r\n  mno \r\n\t \tqrs\r\nLine2: \t line2\t\r\n\r\n")
+	value, _, complete := parseHTTPMessage("request", data)
+	if !complete {
+		t.Fatal("expected complete request parse")
+	}
+
+	headersValue, ok := mustMapValue(t, value).Get(types.NewStr("headers"))
+	if !ok {
+		t.Fatal("missing headers")
+	}
+	headers := mustMapValue(t, headersValue)
+	if got := mustStringAt(t, headers, "Line1"); got != "abcdefghijklmno qrs" {
+		t.Fatalf("got Line1 %q", got)
+	}
+	if got := mustStringAt(t, headers, "Line2"); got != "line2~09" {
+		t.Fatalf("got Line2 %q", got)
+	}
+}
+
+func TestParseHTTPResponseChunked(t *testing.T) {
+	data := []byte("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n25  \r\nThis is the data in the first chunk\r\n\r\n1C\r\nand this is the second one\r\n\r\n0  \r\n\r\n")
+	value, _, complete := parseHTTPMessage("response", data)
+	if !complete {
+		t.Fatal("expected complete response parse")
+	}
+
+	result := mustMapValue(t, value)
+	if got := mustIntAt(t, result, "status"); got != 200 {
+		t.Fatalf("got status %d", got)
+	}
+	if got := mustStringAt(t, result, "body"); got != "This is the data in the first chunk~0D~0Aand this is the second one~0D~0A" {
+		t.Fatalf("got body %q", got)
+	}
+}
+
+func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
+	player := types.ObjID(7)
+	resetHTTPTestState(player)
+	t.Cleanup(func() { resetHTTPTestState(player) })
+
+	setConnectionOption(player, "hold-input", types.NewInt(1))
+	if !HandleHeldInput(player, "~ZZ~!!", false) {
+		t.Fatal("expected held input to be intercepted")
+	}
+
+	readTask := task.NewTask(99, player, 1000, 5)
+	value, complete := prepareHTTPRead(player, "request", readTask)
+	if !complete {
+		t.Fatal("expected read to complete immediately")
+	}
+
+	n, ok := value.(types.IntValue)
+	if !ok {
+		t.Fatalf("expected int result, got %T", value)
+	}
+	if n.Val != 0 {
+		t.Fatalf("got %d, want 0", n.Val)
+	}
+}
+
+func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
+	player := types.ObjID(8)
+	resetHTTPTestState(player)
+	t.Cleanup(func() { resetHTTPTestState(player) })
+
+	setConnectionOption(player, "hold-input", types.NewInt(1))
+	if !HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false) {
+		t.Fatal("expected partial input to be intercepted")
+	}
+
+	stalled := task.NewTask(101, player, 1000, 5)
+	if value, complete := prepareHTTPRead(player, "request", stalled); complete {
+		t.Fatalf("expected partial request to suspend, got %v", value)
+	}
+	task.GetManager().SuspendTask(stalled, -1)
+	CancelHTTPReadTask(stalled.ID)
+
+	if !HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false) {
+		t.Fatal("expected fresh input to be intercepted")
+	}
+
+	fresh := task.NewTask(102, player, 1000, 5)
+	value, complete := prepareHTTPRead(player, "request", fresh)
+	if !complete {
+		t.Fatal("expected fresh request to parse immediately")
+	}
+
+	result := mustMapValue(t, value)
+	if got := mustStringAt(t, result, "method"); got != "GET" {
+		t.Fatalf("got method %q", got)
+	}
+	if got := mustStringAt(t, result, "uri"); got != "/2" {
+		t.Fatalf("got uri %q", got)
+	}
+	headersValue, ok := result.Get(types.NewStr("headers"))
+	if !ok {
+		t.Fatal("missing headers")
+	}
+	headers := mustMapValue(t, headersValue)
+	if got := mustStringAt(t, headers, "foo"); got != "bar" {
+		t.Fatalf("got foo header %q", got)
+	}
+}

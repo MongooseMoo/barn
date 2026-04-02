@@ -78,6 +78,7 @@ func builtinKillTask(ctx *types.TaskContext, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	CancelHTTPReadTask(taskID)
 
 	return types.Ok(types.NewInt(0))
 }

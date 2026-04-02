@@ -22,6 +22,7 @@ var knownFunctionSignatures = map[string]functionSignature{
 	"typeof":            {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
 	"function_info":     {minArg: 0, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
 	"notify":            {minArg: 2, maxArg: 4, argTypes: []int64{int64(types.TYPE_OBJ), int64(types.TYPE_STR), -1, -1}},
+	"read_http":         {minArg: 1, maxArg: 2, argTypes: []int64{int64(types.TYPE_STR), int64(types.TYPE_OBJ)}},
 	"server_version":    {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"connected_players": {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"tostr":             {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
@@ -350,6 +351,9 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	// Check player is connected
 	if globalConnManager == nil || globalConnManager.GetConnection(player) == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
 		return types.Err(types.E_INVARG)
 	}
 
