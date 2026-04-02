@@ -1,5 +1,13 @@
 # Conformance Zero Plan
 
+## Conformance Guardrails
+
+1. Use only the documented managed conformance command unless the user explicitly approves a different path.
+2. Do not manually launch Barn or Toast for conformance work unless the user explicitly asks for a manual repro.
+3. Do not manually run against tracked database files. If a manual repro is explicitly required, use a disposable copy only.
+4. Verify uncertain, surprising, or order-dependent behavior against Toast before Barn-side debugging.
+5. If the managed harness command fails, report the exact command, working directory, expected result, and actual failure before improvising.
+
 ## Goal
 
 Reduce Barn's updated `moo-conformance-tests` gap from `44` failures to `0`.
