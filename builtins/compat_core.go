@@ -97,6 +97,11 @@ func validateFunctionArgs(name string, args []types.Value) types.ErrorCode {
 		if i >= len(args) {
 			break
 		}
+		if name == "next_recycled_object" && expected == int64(types.TYPE_OBJ) {
+			if _, ok := args[i].(types.IntValue); ok {
+				continue
+			}
+		}
 		if !valueMatchesFunctionArgType(args[i], expected) {
 			return types.E_TYPE
 		}

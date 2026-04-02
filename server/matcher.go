@@ -49,44 +49,46 @@ func MatchObject(store *db.Store, player types.ObjID, location types.ObjID, name
 		return types.ObjFailedMatch
 	}
 
-	// Search player's inventory first
-	matches := findInContents(store, playerObj.Contents, name)
-	if len(matches) == 1 {
-		return matches[0]
-	}
-	if len(matches) > 1 {
-		return types.ObjAmbiguous
-	}
-
-	// Search room contents
+	inventory := playerObj.Contents
+	roomContents := make([]types.ObjID, 0)
 	roomObj := store.Get(location)
 	if roomObj != nil {
-		// Exclude player from room search
-		roomContents := make([]types.ObjID, 0, len(roomObj.Contents))
+		// Exclude player from room search.
+		roomContents = make([]types.ObjID, 0, len(roomObj.Contents))
 		for _, id := range roomObj.Contents {
 			if id != player {
 				roomContents = append(roomContents, id)
 			}
 		}
-		matches = findInContents(store, roomContents, name)
+	}
+
+	if matches := findExactMatches(store, inventory, roomContents, name); len(matches) > 0 {
 		if len(matches) == 1 {
 			return matches[0]
 		}
-		if len(matches) > 1 {
-			return types.ObjAmbiguous
+		return types.ObjAmbiguous
+	}
+	if matches := findPrefixMatches(store, inventory, roomContents, name); len(matches) > 0 {
+		if len(matches) == 1 {
+			return matches[0]
 		}
+		return types.ObjAmbiguous
 	}
 
 	return types.ObjFailedMatch
 }
 
-// findInContents finds all objects in contents that match the search string
-func findInContents(store *db.Store, contents []types.ObjID, search string) []types.ObjID {
+func findExactMatches(store *db.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
 	searchLower := strings.ToLower(search)
 	var matches []types.ObjID
 
-	// First pass: exact name matches
-	for _, objID := range contents {
+	for _, objID := range inventory {
+		obj := store.Get(objID)
+		if obj != nil && strings.ToLower(obj.Name) == searchLower {
+			matches = append(matches, objID)
+		}
+	}
+	for _, objID := range room {
 		obj := store.Get(objID)
 		if obj != nil && strings.ToLower(obj.Name) == searchLower {
 			matches = append(matches, objID)
@@ -96,8 +98,7 @@ func findInContents(store *db.Store, contents []types.ObjID, search string) []ty
 		return matches
 	}
 
-	// Second pass: exact alias matches
-	for _, objID := range contents {
+	for _, objID := range inventory {
 		obj := store.Get(objID)
 		if obj != nil {
 			for _, alias := range getAliases(obj) {
@@ -112,8 +113,25 @@ func findInContents(store *db.Store, contents []types.ObjID, search string) []ty
 		return matches
 	}
 
-	// Third pass: prefix name matches
-	for _, objID := range contents {
+	for _, objID := range room {
+		obj := store.Get(objID)
+		if obj != nil {
+			for _, alias := range getAliases(obj) {
+				if alias == searchLower {
+					matches = append(matches, objID)
+					break
+				}
+			}
+		}
+	}
+	return matches
+}
+
+func findPrefixMatches(store *db.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
+	searchLower := strings.ToLower(search)
+	var matches []types.ObjID
+
+	for _, objID := range inventory {
 		obj := store.Get(objID)
 		if obj != nil && strings.HasPrefix(strings.ToLower(obj.Name), searchLower) {
 			matches = append(matches, objID)
@@ -123,8 +141,17 @@ func findInContents(store *db.Store, contents []types.ObjID, search string) []ty
 		return matches
 	}
 
-	// Fourth pass: prefix alias matches
-	for _, objID := range contents {
+	for _, objID := range room {
+		obj := store.Get(objID)
+		if obj != nil && strings.HasPrefix(strings.ToLower(obj.Name), searchLower) {
+			matches = append(matches, objID)
+		}
+	}
+	if len(matches) > 0 {
+		return matches
+	}
+
+	for _, objID := range inventory {
 		obj := store.Get(objID)
 		if obj != nil {
 			for _, alias := range getAliases(obj) {
@@ -135,7 +162,21 @@ func findInContents(store *db.Store, contents []types.ObjID, search string) []ty
 			}
 		}
 	}
+	if len(matches) > 0 {
+		return matches
+	}
 
+	for _, objID := range room {
+		obj := store.Get(objID)
+		if obj != nil {
+			for _, alias := range getAliases(obj) {
+				if strings.HasPrefix(alias, searchLower) {
+					matches = append(matches, objID)
+					break
+				}
+			}
+		}
+	}
 	return matches
 }
 

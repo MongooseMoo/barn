@@ -3,27 +3,28 @@ package server
 import (
 	"barn/types"
 	"strings"
+	"unicode"
 )
 
 // PrepSpec represents a preposition specification
 type PrepSpec int
 
 const (
-	PrepWith       PrepSpec = 0  // with/using
-	PrepAt         PrepSpec = 1  // at/to
-	PrepInFrontOf  PrepSpec = 2  // in front of
-	PrepIn         PrepSpec = 3  // in/inside/into
-	PrepOn         PrepSpec = 4  // on top of/on/onto/upon
-	PrepFrom       PrepSpec = 5  // out of/from inside/from
-	PrepOver       PrepSpec = 6  // over
-	PrepThrough    PrepSpec = 7  // through
-	PrepUnder      PrepSpec = 8  // under/underneath/beneath
-	PrepBehind     PrepSpec = 9  // behind
-	PrepBeside     PrepSpec = 10 // beside
-	PrepFor        PrepSpec = 11 // for/about
-	PrepIs         PrepSpec = 12 // is
-	PrepAs         PrepSpec = 13 // as
-	PrepOff        PrepSpec = 14 // off/off of
+	PrepWith      PrepSpec = 0  // with/using
+	PrepAt        PrepSpec = 1  // at/to
+	PrepInFrontOf PrepSpec = 2  // in front of
+	PrepIn        PrepSpec = 3  // in/inside/into
+	PrepOn        PrepSpec = 4  // on top of/on/onto/upon
+	PrepFrom      PrepSpec = 5  // out of/from inside/from
+	PrepOver      PrepSpec = 6  // over
+	PrepThrough   PrepSpec = 7  // through
+	PrepUnder     PrepSpec = 8  // under/underneath/beneath
+	PrepBehind    PrepSpec = 9  // behind
+	PrepBeside    PrepSpec = 10 // beside
+	PrepFor       PrepSpec = 11 // for/about
+	PrepIs        PrepSpec = 12 // is
+	PrepAs        PrepSpec = 13 // as
+	PrepOff       PrepSpec = 14 // off/off of
 
 	PrepNone PrepSpec = -1 // No preposition found
 	PrepAny  PrepSpec = -2 // Matches any preposition (for verb definitions)
@@ -31,21 +32,21 @@ const (
 
 // Preposition aliases - index matches PrepSpec values
 var prepositions = [][]string{
-	{"with", "using"},                          // 0 - PrepWith
-	{"at", "to"},                               // 1 - PrepAt
-	{"in front of"},                            // 2 - PrepInFrontOf
-	{"in", "inside", "into"},                   // 3 - PrepIn
-	{"on top of", "on", "onto", "upon"},        // 4 - PrepOn
-	{"out of", "from inside", "from"},          // 5 - PrepFrom
-	{"over"},                                   // 6 - PrepOver
-	{"through"},                                // 7 - PrepThrough
-	{"under", "underneath", "beneath"},         // 8 - PrepUnder
-	{"behind"},                                 // 9 - PrepBehind
-	{"beside"},                                 // 10 - PrepBeside
-	{"for", "about"},                           // 11 - PrepFor
-	{"is"},                                     // 12 - PrepIs
-	{"as"},                                     // 13 - PrepAs
-	{"off", "off of"},                          // 14 - PrepOff
+	{"with", "using"},                   // 0 - PrepWith
+	{"at", "to"},                        // 1 - PrepAt
+	{"in front of"},                     // 2 - PrepInFrontOf
+	{"in", "inside", "into"},            // 3 - PrepIn
+	{"on top of", "on", "onto", "upon"}, // 4 - PrepOn
+	{"out of", "from inside", "from"},   // 5 - PrepFrom
+	{"over"},                            // 6 - PrepOver
+	{"through"},                         // 7 - PrepThrough
+	{"under", "underneath", "beneath"},  // 8 - PrepUnder
+	{"behind"},                          // 9 - PrepBehind
+	{"beside"},                          // 10 - PrepBeside
+	{"for", "about"},                    // 11 - PrepFor
+	{"is"},                              // 12 - PrepIs
+	{"as"},                              // 13 - PrepAs
+	{"off", "off of"},                   // 14 - PrepOff
 }
 
 // ParsedCommand is the structured representation of a parsed player command
@@ -111,6 +112,39 @@ func findPreposition(words []string) (PrepSpec, int, int, string) {
 	return PrepNone, -1, -1, ""
 }
 
+func tokenizeCommandWords(input string) []string {
+	words := make([]string, 0)
+	i := 0
+	for i < len(input) {
+		for i < len(input) && unicode.IsSpace(rune(input[i])) {
+			i++
+		}
+		if i >= len(input) {
+			break
+		}
+
+		if input[i] == '"' {
+			i++
+			start := i
+			for i < len(input) && input[i] != '"' {
+				i++
+			}
+			words = append(words, input[start:i])
+			if i < len(input) && input[i] == '"' {
+				i++
+			}
+			continue
+		}
+
+		start := i
+		for i < len(input) && !unicode.IsSpace(rune(input[i])) {
+			i++
+		}
+		words = append(words, input[start:i])
+	}
+	return words
+}
+
 // ParseCommand parses player input into a structured command
 func ParseCommand(input string) *ParsedCommand {
 	cmd := NewParsedCommand()
@@ -150,8 +184,8 @@ func ParseCommand(input string) *ParsedCommand {
 		return cmd
 	}
 
-	// Tokenize - normalize whitespace
-	words := strings.Fields(input)
+	// Tokenize - normalize whitespace while preserving quoted multiword tokens.
+	words := tokenizeCommandWords(input)
 	if len(words) == 0 {
 		return cmd
 	}

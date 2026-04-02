@@ -365,7 +365,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 
 	// Invoke #0:do_command for normal commands
-	handled, _ := s.callDoCommand(player, input.Line)
+	handled, _ := s.callDoCommand(player, append([]string{cmd.Verb}, cmd.Args...))
 	if handled {
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
@@ -624,8 +624,11 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 }
 
 // callDoCommand calls #0:do_command(command) and returns whether command was handled.
-func (s *Scheduler) callDoCommand(player types.ObjID, line string) (bool, error) {
-	args := []types.Value{types.NewStr(line)}
+func (s *Scheduler) callDoCommand(player types.ObjID, words []string) (bool, error) {
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
 	result := s.CallVerb(0, "do_command", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
