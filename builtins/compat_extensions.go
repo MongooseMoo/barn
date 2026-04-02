@@ -2,11 +2,11 @@ package builtins
 
 import (
 	"barn/types"
-	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -250,32 +250,59 @@ func builtinPcreCacheStats(ctx *types.TaskContext, args []types.Value) types.Res
 }
 
 func builtinArgon2(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	if len(args) < 2 || len(args) > 5 {
 		return types.Err(types.E_ARGS)
 	}
 	password, ok := args[0].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	var salt []byte
-	if len(args) == 2 {
-		s, ok := args[1].(types.StrValue)
+	s, ok := args[1].(types.StrValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	salt := []byte(s.Value())
+	if len(salt) < 8 {
+		return types.Err(types.E_INVARG)
+	}
+
+	t := uint32(1)
+	m := uint32(64 * 1024)
+	p := uint8(2)
+	if len(args) >= 3 {
+		iterVal, ok := args[2].(types.IntValue)
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		salt = []byte(s.Value())
-		if len(salt) < 8 {
+		if iterVal.Val <= 0 {
 			return types.Err(types.E_INVARG)
 		}
-	} else {
-		salt = make([]byte, 16)
-		if _, err := rand.Read(salt); err != nil {
-			return types.Err(types.E_EXEC)
-		}
+		t = uint32(iterVal.Val)
 	}
-	const t = uint32(1)
-	const m = uint32(64 * 1024)
-	const p = uint8(2)
+	if len(args) >= 4 {
+		memVal, ok := args[3].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		if memVal.Val <= 0 {
+			return types.Err(types.E_INVARG)
+		}
+		m = uint32(memVal.Val)
+	}
+	if len(args) == 5 {
+		parallelVal, ok := args[4].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		if parallelVal.Val <= 0 || parallelVal.Val > math.MaxUint8 {
+			return types.Err(types.E_INVARG)
+		}
+		p = uint8(parallelVal.Val)
+	}
+
 	const keyLen = uint32(32)
 	h := argon2.IDKey([]byte(password.Value()), salt, t, m, p, keyLen)
 	encoded := fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", m, t, p,
@@ -318,6 +345,9 @@ func parseArgon2Hash(encoded string) (uint32, uint32, uint8, []byte, []byte, err
 }
 
 func builtinArgon2Verify(ctx *types.TaskContext, args []types.Value) types.Result {
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

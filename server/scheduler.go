@@ -369,11 +369,20 @@ func (s *Scheduler) processCommand(input InputEvent) {
 			return
 		}
 
-		// Try player.location:huh fallback
-		if huhVerb, huhVerbLoc, err := s.store.FindVerb(location, "huh"); err == nil && huhVerb != nil {
+		usePlayerHuh := false
+		if option, ok := s.getServerOption(0, "player_huh"); ok {
+			usePlayerHuh = option.Truthy()
+		}
+
+		huhTarget := location
+		if usePlayerHuh {
+			huhTarget = player
+		}
+
+		if huhVerb, huhVerbLoc, err := s.store.FindVerb(huhTarget, "huh"); err == nil && huhVerb != nil {
 			huhMatch := &VerbMatch{
 				Verb:    huhVerb,
-				This:    location,
+				This:    huhTarget,
 				VerbLoc: huhVerbLoc,
 			}
 
