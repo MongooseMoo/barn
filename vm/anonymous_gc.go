@@ -33,6 +33,23 @@ func collectCompositeAnonymousRefs(v types.Value, out map[types.ObjID]struct{}) 
 	}
 }
 
+func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
+	if exec == nil {
+		return
+	}
+	for _, frame := range exec.Frames {
+		if frame == nil {
+			continue
+		}
+		for _, value := range frame.Locals {
+			collectAnonymousRefsForGC(value, out)
+		}
+	}
+	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
+		collectAnonymousRefsForGC(exec.Stack[i], out)
+	}
+}
+
 func buildPersistentAnonymousReachability(store *db.Store) map[types.ObjID]struct{} {
 	reachable := make(map[types.ObjID]struct{})
 	if store == nil {
@@ -115,6 +132,42 @@ func pendingFinalizationValues(store *db.Store, refs map[types.ObjID]struct{}) [
 	return values
 }
 
+func expandAnonymousReachability(store *db.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+	if store == nil || len(refs) == 0 {
+		return
+	}
+
+	queue := make([]types.ObjID, 0, len(refs))
+	for id := range refs {
+		queue = append(queue, id)
+	}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+
+		if _, seen := reachable[id]; seen {
+			continue
+		}
+
+		obj := store.GetUnsafe(id)
+		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || !obj.Anonymous {
+			continue
+		}
+
+		reachable[id] = struct{}{}
+		nested := make(map[types.ObjID]struct{})
+		for _, prop := range obj.Properties {
+			if prop == nil {
+				continue
+			}
+			collectAnonymousRefsForGC(prop.Value, nested)
+		}
+		for nestedID := range nested {
+			queue = append(queue, nestedID)
+		}
+	}
+}
+
 // CollectPendingFinalizationValues snapshots anonymous-object references held by
 // a live VM and returns the bare anonymous IDs that still need pending
 // finalization because they are not already reachable from persistent object
@@ -162,6 +215,11 @@ func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registr
 	}
 
 	reachable := buildPersistentAnonymousReachability(store)
+	if callerVM, ok := ctx.CallerVM.(*VM); ok {
+		liveRefs := make(map[types.ObjID]struct{})
+		collectAnonymousRefsFromVM(callerVM, liveRefs)
+		expandAnonymousReachability(store, reachable, liveRefs)
+	}
 
 	// Recycle all currently-valid anonymous objects that are unreachable.
 	candidates := make([]types.ObjID, 0)

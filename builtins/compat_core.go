@@ -34,7 +34,6 @@ var knownFunctionSignatures = map[string]functionSignature{
 	"sqlite_interrupt":          {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
 	"server_version":            {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"connected_players":         {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
-	"tostr":                     {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
 }
 
 func functionInfoEntry(name string, sig functionSignature) types.Value {
@@ -52,6 +51,9 @@ func functionInfoEntry(name string, sig functionSignature) types.Value {
 
 func signatureForFunction(name string) functionSignature {
 	if sig, ok := knownFunctionSignatures[name]; ok {
+		return sig
+	}
+	if sig, ok := generatedFunctionSignatures[name]; ok {
 		return sig
 	}
 	return functionSignature{
