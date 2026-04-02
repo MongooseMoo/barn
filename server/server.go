@@ -3,10 +3,11 @@ package server
 import (
 	"barn/builtins"
 	"barn/db"
-	"barn/parser"
+	"barn/types"
 	"barn/vm"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -61,6 +62,9 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire scheduler to connection manager for output flushing
 	s.scheduler.SetConnectionManager(s.connManager)
+	s.scheduler.SetPendingFinalizationSink(func(values []types.Value) {
+		s.database.PendingFinalizations = append(s.database.PendingFinalizations, values...)
+	})
 
 	// Wire notify() builtin to connection manager
 	builtins.SetConnectionManager(s.connManager)
@@ -70,6 +74,10 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })
+	builtins.SetShutdownFunc(func() error {
+		s.Shutdown()
+		return nil
+	})
 
 	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	return nil
@@ -209,6 +217,11 @@ func (s *Server) checkpoint() error {
 		}
 	}
 
+	if err := copyFile(s.dbPath, s.dbPath+".new"); err != nil {
+		s.callCheckpointFinished(false)
+		return fmt.Errorf("write sibling checkpoint: %w", err)
+	}
+
 	// Call #0:checkpoint_finished(success)
 	if err := s.callCheckpointFinished(true); err != nil {
 		log.Printf("Warning: #0:checkpoint_finished() failed: %v", err)
@@ -277,80 +290,70 @@ func (s *Server) Panic(message string) {
 // callServerStarted calls #0:server_started()
 func (s *Server) callServerStarted() error {
 	systemObj := s.store.Get(0)
-	if systemObj == nil {
-		return fmt.Errorf("system object not found")
+	if systemObj == nil || systemObj.Verbs["server_started"] == nil {
+		return nil
 	}
-
-	verb := systemObj.Verbs["server_started"]
-	if verb == nil {
-		return nil // Verb not defined, skip
-	}
-
-	// Create task to call verb
-	code := []parser.Stmt{} // Empty for now - need verb call statement
-	s.scheduler.CreateForegroundTask(0, code)
-
-	return nil
+	_, err := s.scheduler.CreateServerVerbTask(0, "server_started", nil, 0)
+	return err
 }
 
 // callCheckpointStarted calls #0:checkpoint_started()
 func (s *Server) callCheckpointStarted() error {
 	systemObj := s.store.Get(0)
-	if systemObj == nil {
-		return fmt.Errorf("system object not found")
+	if systemObj == nil || systemObj.Verbs["checkpoint_started"] == nil {
+		return nil
 	}
-
-	verb := systemObj.Verbs["checkpoint_started"]
-	if verb == nil {
-		return nil // Verb not defined, skip
-	}
-
-	// Create task to call verb
-	code := []parser.Stmt{} // Empty for now - need verb call statement
-	s.scheduler.CreateForegroundTask(0, code)
-
-	return nil
+	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_started", nil, 0)
+	return err
 }
 
 // callCheckpointFinished calls #0:checkpoint_finished(success)
 func (s *Server) callCheckpointFinished(success bool) error {
 	systemObj := s.store.Get(0)
-	if systemObj == nil {
-		return fmt.Errorf("system object not found")
+	if systemObj == nil || systemObj.Verbs["checkpoint_finished"] == nil {
+		return nil
 	}
-
-	verb := systemObj.Verbs["checkpoint_finished"]
-	if verb == nil {
-		return nil // Verb not defined, skip
-	}
-
-	// Create task to call verb with success parameter
-	code := []parser.Stmt{} // Empty for now - need verb call statement
-	s.scheduler.CreateForegroundTask(0, code)
-
-	return nil
+	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
+	return err
 }
 
 // callShutdownStarted calls #0:shutdown_started(message)
 func (s *Server) callShutdownStarted(message string) error {
 	systemObj := s.store.Get(0)
-	if systemObj == nil {
-		return fmt.Errorf("system object not found")
+	if systemObj == nil || systemObj.Verbs["shutdown_started"] == nil {
+		return nil
 	}
-
-	verb := systemObj.Verbs["shutdown_started"]
-	if verb == nil {
-		return nil // Verb not defined, skip
-	}
-
-	// Create task to call verb with message parameter
-	code := []parser.Stmt{} // Empty for now - need verb call statement
-	s.scheduler.CreateForegroundTask(0, code)
-
-	return nil
+	_, err := s.scheduler.CreateServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
+	return err
 }
 
 // DumpDatabase triggers an immediate checkpoint
 func (s *Server) DumpDatabase() error {
 	return s.checkpoint()
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+func boolToInt(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
 }

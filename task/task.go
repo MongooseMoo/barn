@@ -145,6 +145,7 @@ type Task struct {
 	Caller              types.ObjID // Object that invoked the verb
 	Argstr              string      // Full argument string
 	Args                []string    // Arguments as word list
+	VerbArgsValues      []types.Value // Typed arguments for server-initiated verb calls
 	Dobjstr             string      // Direct object string
 	Dobj                types.ObjID // Direct object
 	Prepstr             string      // Preposition string

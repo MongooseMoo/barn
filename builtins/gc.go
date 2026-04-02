@@ -5,6 +5,13 @@ import (
 	"runtime"
 )
 
+var globalRunGCFunc func(ctx *types.TaskContext) error
+
+// SetRunGCFunc sets the callback for MOO-level anonymous-object collection.
+func SetRunGCFunc(f func(ctx *types.TaskContext) error) {
+	globalRunGCFunc = f
+}
+
 // ============================================================================
 // GARBAGE COLLECTION BUILTINS
 // ============================================================================
@@ -27,6 +34,12 @@ func builtinRunGC(ctx *types.TaskContext, args []types.Value) types.Result {
 	// but for anonymous objects with cyclic references, this provides
 	// a way to force collection
 	runtime.GC()
+
+	if globalRunGCFunc != nil {
+		if err := globalRunGCFunc(ctx); err != nil {
+			return types.Err(types.E_INVARG)
+		}
+	}
 
 	return types.Ok(types.NewInt(0))
 }

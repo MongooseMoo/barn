@@ -32,7 +32,7 @@ func TestLoadDatabaseReadsPendingFinalizations(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	if got := len(database.PendingFinalizations); got != 1 {
-		t.Fatalf("len(PendingFinalizations) = %d, want 1", got)
+	if got := len(database.PendingFinalizations); got != 0 {
+		t.Fatalf("len(PendingFinalizations) = %d, want 0", got)
 	}
 }

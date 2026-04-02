@@ -312,10 +312,16 @@ func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // globalDumpFunc is set by the server to trigger a database checkpoint.
 var globalDumpFunc func() error
+var globalShutdownFunc func() error
 
 // SetDumpFunc sets the function called by dump_database() to trigger a checkpoint.
 func SetDumpFunc(f func() error) {
 	globalDumpFunc = f
+}
+
+// SetShutdownFunc sets the function called by shutdown() to stop the server.
+func SetShutdownFunc(f func() error) {
+	globalShutdownFunc = f
 }
 
 func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -636,6 +642,11 @@ func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
+	}
+	if globalShutdownFunc != nil {
+		if err := globalShutdownFunc(); err != nil {
+			return types.Err(types.E_INVARG)
+		}
 	}
 	return types.Ok(types.NewInt(0))
 }

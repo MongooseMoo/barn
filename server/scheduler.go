@@ -40,6 +40,7 @@ type Scheduler struct {
 	store       *db.Store
 	connManager *ConnectionManager
 	inputQueue  chan InputEvent
+	pendingFinalizationSink func([]types.Value)
 	mu          sync.Mutex
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -74,6 +75,10 @@ func NewScheduler(store *db.Store) *Scheduler {
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
+	builtins.SetRunGCFunc(func(ctx *types.TaskContext) error {
+		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
+		return nil
+	})
 
 	return s
 }
@@ -98,6 +103,10 @@ func (s *Scheduler) GetEvaluator() *vm.Evaluator {
 // SetConnectionManager sets the connection manager for output flushing
 func (s *Scheduler) SetConnectionManager(cm *ConnectionManager) {
 	s.connManager = cm
+}
+
+func (s *Scheduler) SetPendingFinalizationSink(sink func([]types.Value)) {
+	s.pendingFinalizationSink = sink
 }
 
 // EnqueueInput sends an input event to the scheduler for processing.
@@ -1047,10 +1056,14 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		bcVM.TickLimit = t.TicksLimit
 
 		if t.VerbName != "" {
-			// Convert string args to Value list for verb context
-			argList := make([]types.Value, len(t.Args))
-			for i, arg := range t.Args {
-				argList[i] = types.NewStr(arg)
+			// Command verbs derive args from raw words; server-initiated hooks can
+			// provide fully-typed arguments directly.
+			argList := append([]types.Value(nil), t.VerbArgsValues...)
+			if argList == nil {
+				argList = make([]types.Value, len(t.Args))
+				for i, arg := range t.Args {
+					argList[i] = types.NewStr(arg)
+				}
 			}
 
 			// Prepare frame first, then set ALL variables before execution
@@ -1093,6 +1106,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
+		if taskCtx.Err() == context.Canceled && bcVM != nil && s.pendingFinalizationSink != nil {
+			if pending := collectPendingFinalizationValues(bcVM); len(pending) > 0 {
+				s.pendingFinalizationSink(pending)
+			}
+		}
 		t.SetState(task.TaskKilled)
 		t.BytecodeVM = nil
 		return taskCtx.Err()
@@ -1101,6 +1119,10 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
+		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
+		// is a GC boundary for newly-created orphan anonymous objects.
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
+
 		// Save VM state for later Resume()
 		t.BytecodeVM = bcVM
 		// The task manager has already been notified via builtinSuspend
@@ -1126,9 +1148,19 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		t.SetState(task.TaskCompleted)
 	}
 
-	// Match Toast lifecycle semantics: orphan anonymous objects are collected
-	// when a task completes (locals and stack references are gone).
-	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
+	// Match Toast lifecycle semantics at shutdown: preserve composite local
+	// values that still carry anonymous references so the final checkpoint can
+	// serialize them as pending finalization values. Outside shutdown, completed
+	// tasks still trigger orphan-anonymous collection.
+	if s.ctx.Err() != nil {
+		if s.pendingFinalizationSink != nil && bcVM != nil {
+			if pending := collectPendingFinalizationValues(bcVM); len(pending) > 0 {
+				s.pendingFinalizationSink(pending)
+			}
+		}
+	} else {
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
+	}
 
 	t.BytecodeVM = nil // Release VM after completion
 	return nil
@@ -1190,6 +1222,42 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 
 	s.QueueTask(t)
 	return t.Done
+}
+
+// CreateServerVerbTask queues a server-initiated hook verb so it runs through
+// the normal scheduler/task machinery and can suspend, fork, and shut down.
+func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (int64, error) {
+	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	if err != nil || verb == nil {
+		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
+	}
+
+	if verb.Program == nil && len(verb.Code) > 0 {
+		program, errors := db.CompileVerb(verb.Code)
+		if len(errors) > 0 {
+			return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+		}
+		verb.Program = program
+	}
+	if verb.Program == nil {
+		return 0, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
+	}
+
+	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	t := task.NewTaskFull(taskID, player, verb.Program.Statements, 300000, 5.0)
+	t.StartTime = time.Now()
+	t.Programmer = verb.Owner
+	t.Context.Programmer = verb.Owner
+	t.Context.IsWizard = s.isWizard(verb.Owner)
+	t.Context.ServerInitiated = true
+	t.VerbName = verbName
+	t.VerbLoc = defObjID
+	t.This = objID
+	t.Caller = player
+	t.VerbArgsValues = append([]types.Value(nil), args...)
+	t.ForkCreator = s
+
+	return s.QueueTask(t), nil
 }
 
 // CreateBackgroundTask creates a background task (fork)
@@ -1772,6 +1840,70 @@ func (s *Scheduler) logTracebackSource(stack []task.ActivationFrame) {
 		log.Printf("TRACEBACK:     #%d:%s line %d => %s",
 			frame.VerbLoc, frame.Verb, frame.LineNumber, frame.SourceLine)
 	}
+}
+
+func collectPendingFinalizationValues(bcVM *vm.VM) []types.Value {
+	if bcVM == nil {
+		return nil
+	}
+
+	var pending []types.Value
+	seen := make(map[string]struct{})
+	for _, frame := range bcVM.Frames {
+		if frame == nil {
+			continue
+		}
+		for _, value := range frame.Locals {
+			if !isCompositePendingFinalization(value) {
+				continue
+			}
+			key := value.String()
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			pending = append(pending, value)
+		}
+	}
+	return pending
+}
+
+func isCompositePendingFinalization(v types.Value) bool {
+	switch val := v.(type) {
+	case types.ListValue:
+		for _, elem := range val.Elements() {
+			if containsAnonymousRef(elem) {
+				return true
+			}
+		}
+	case types.MapValue:
+		for _, pair := range val.Pairs() {
+			if containsAnonymousRef(pair[0]) || containsAnonymousRef(pair[1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsAnonymousRef(v types.Value) bool {
+	switch val := v.(type) {
+	case types.ObjValue:
+		return val.IsAnonymous()
+	case types.ListValue:
+		for _, elem := range val.Elements() {
+			if containsAnonymousRef(elem) {
+				return true
+			}
+		}
+	case types.MapValue:
+		for _, pair := range val.Pairs() {
+			if containsAnonymousRef(pair[0]) || containsAnonymousRef(pair[1]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // sendTraceback sends a formatted traceback to the player

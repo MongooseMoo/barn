@@ -389,6 +389,9 @@ func (db *Database) readFinalizations(r *bufio.Reader) error {
 		if err != nil {
 			return fmt.Errorf("read pending finalization %d: %w", i, err)
 		}
+		if objVal, ok := val.(types.ObjValue); ok && objVal.IsAnonymous() && objVal.ID() < 0 {
+			continue
+		}
 		db.PendingFinalizations = append(db.PendingFinalizations, val)
 	}
 	return nil
@@ -1378,7 +1381,7 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 		if err != nil {
 			return nil, err
 		}
-		return types.NewObj(types.ObjID(objID)), nil
+		return types.NewAnon(types.ObjID(objID)), nil
 
 	case 13: // WAIF
 		// WAIFs are saved as references ('r') or creations ('c').
