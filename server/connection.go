@@ -5,9 +5,12 @@ import (
 	"barn/trace"
 	"barn/types"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,9 +24,11 @@ type Connection struct {
 	outputBuffer   []string
 	outputPrefix   string // PREFIX/OUTPUTPREFIX command sets this
 	outputSuffix   string // SUFFIX/OUTPUTSUFFIX command sets this
+	resolvedName   string
 	connectedAt    time.Time
 	ConnectionTime time.Time // Set when login completes (zero means not yet logged in)
 	lastInput      time.Time
+	outputCounter  int
 	mu             sync.Mutex
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -48,6 +53,9 @@ func NewConnection(id int64, transport Transport) *Connection {
 
 // Send sends a message to the connection immediately
 func (c *Connection) Send(message string) error {
+	c.mu.Lock()
+	c.outputCounter++
+	c.mu.Unlock()
 	return c.transport.WriteLine(message)
 }
 
@@ -56,6 +64,7 @@ func (c *Connection) Buffer(message string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.outputBuffer = append(c.outputBuffer, message)
+	c.outputCounter++
 }
 
 // Flush flushes the output buffer
@@ -137,7 +146,7 @@ func (c *Connection) GetOutputSuffix() string {
 func (c *Connection) BufferedOutputLength() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return len(c.outputBuffer)
+	return c.outputCounter
 }
 
 // ConnectedSeconds returns how long the connection has been active.
@@ -162,6 +171,28 @@ func (c *Connection) IdleSeconds() int64 {
 	return int64(seconds)
 }
 
+func (c *Connection) GetResolvedName() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.resolvedName
+}
+
+func (c *Connection) SetResolvedName(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resolvedName = name
+}
+
+type listenerRecord struct {
+	listener       net.Listener
+	object         types.ObjID
+	port           int64
+	printMessages  bool
+	ipv6           bool
+	iface          string
+	primary        bool
+}
+
 // ConnectionManager manages all active connections
 type ConnectionManager struct {
 	connections    map[int64]*Connection
@@ -169,7 +200,8 @@ type ConnectionManager struct {
 	nextConnID     int64
 	mu             sync.Mutex
 	server         *Server
-	listeners      []net.Listener
+	listeners      map[int64]*listenerRecord
+	outboundClients map[int64]net.Conn
 	listenPort     int
 	connectTimeout time.Duration
 }
@@ -179,6 +211,8 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 	return &ConnectionManager{
 		connections:    make(map[int64]*Connection),
 		playerConns:    make(map[types.ObjID]*Connection),
+		listeners:      make(map[int64]*listenerRecord),
+		outboundClients: make(map[int64]net.Conn),
 		nextConnID:     2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		server:         server,
 		listenPort:     port,
@@ -198,18 +232,52 @@ func (cm *ConnectionManager) Listen() error {
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
-	cm.listeners = append(cm.listeners, listener)
-	log.Printf("Listening on port %d", cm.listenPort)
+	return cm.registerListener(listener, 0, false, true)
+}
 
-	go cm.acceptConnections(listener)
+func (cm *ConnectionManager) registerListener(listener net.Listener, object types.ObjID, printMessages bool, primary bool) error {
+	port, ipv6, err := parseListenerPort(listener.Addr())
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+
+	record := &listenerRecord{
+		listener:      listener,
+		object:        object,
+		port:          port,
+		printMessages: printMessages,
+		ipv6:          ipv6,
+		primary:       primary,
+	}
+
+	cm.mu.Lock()
+	if _, exists := cm.listeners[port]; exists {
+		cm.mu.Unlock()
+		_ = listener.Close()
+		return fmt.Errorf("listener already exists on port %d", port)
+	}
+	cm.listeners[port] = record
+	cm.mu.Unlock()
+
+	if primary {
+		log.Printf("Listening on port %d", port)
+	} else {
+		log.Printf("Added listener on port %d for #%d", port, object)
+	}
+
+	go cm.acceptConnections(record)
 	return nil
 }
 
 // acceptConnections accepts incoming connections
-func (cm *ConnectionManager) acceptConnections(listener net.Listener) {
+func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
 	for {
-		socket, err := listener.Accept()
+		socket, err := record.listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			log.Printf("Accept error: %v", err)
 			continue
 		}
@@ -393,6 +461,148 @@ func (cm *ConnectionManager) BootPlayer(player types.ObjID) error {
 	conn.Send("You have been disconnected")
 	conn.Close()
 	return nil
+}
+
+func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	out := make([]builtins.ListenerInfo, 0, len(cm.listeners))
+	for _, record := range cm.listeners {
+		out = append(out, builtins.ListenerInfo{
+			Object:        record.object,
+			Port:          record.port,
+			PrintMessages: record.printMessages,
+			IPv6:          record.ipv6,
+			Interface:     record.iface,
+		})
+	}
+	return out
+}
+
+func (cm *ConnectionManager) AddListener(object types.ObjID, port int64, printMessages bool) (int64, error) {
+	addr := fmt.Sprintf(":%d", port)
+	if port == 0 {
+		addr = ":0"
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	if err := cm.registerListener(listener, object, printMessages, false); err != nil {
+		return 0, err
+	}
+
+	actualPort, _, err := parseListenerPort(listener.Addr())
+	return actualPort, err
+}
+
+func (cm *ConnectionManager) RemoveListener(port int64) error {
+	cm.mu.Lock()
+	record := cm.listeners[port]
+	if record == nil {
+		cm.mu.Unlock()
+		return fmt.Errorf("listener not found")
+	}
+	if record.primary {
+		cm.mu.Unlock()
+		return fmt.Errorf("cannot remove primary listener")
+	}
+	delete(cm.listeners, port)
+	cm.mu.Unlock()
+
+	return record.listener.Close()
+}
+
+func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
+	existing := make(map[int64]struct{})
+	cm.mu.Lock()
+	for id := range cm.connections {
+		existing[id] = struct{}{}
+	}
+	cm.mu.Unlock()
+
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	client, err := net.DialTimeout("tcp", addr, time.Second)
+	if err != nil {
+		return types.ObjNothing, err
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		cm.mu.Lock()
+		ids := make([]int64, 0, len(cm.connections))
+		for id := range cm.connections {
+			if _, seen := existing[id]; !seen {
+				ids = append(ids, id)
+			}
+		}
+		slices.Sort(ids)
+		if len(ids) > 0 {
+			connID := ids[0]
+			cm.outboundClients[connID] = client
+			cm.mu.Unlock()
+			return types.ObjID(-connID), nil
+		}
+		cm.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	_ = client.Close()
+	return types.ObjNothing, fmt.Errorf("timed out waiting for outbound connection to register")
+}
+
+func (cm *ConnectionManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
+	connIface := cm.GetConnection(player)
+	conn, ok := connIface.(*Connection)
+	if !ok || conn == nil {
+		return "", fmt.Errorf("connection not found")
+	}
+
+	host, _, err := net.SplitHostPort(conn.RemoteAddr())
+	host = strings.Trim(host, "[]")
+	if host == "" {
+		host = conn.RemoteAddr()
+	}
+
+	names, err := net.LookupAddr(host)
+	resolved := host
+	if err == nil && len(names) > 0 {
+		resolved = strings.TrimSuffix(names[0], ".")
+	}
+
+	if rewrite {
+		conn.SetResolvedName(resolved)
+	}
+	return resolved, nil
+}
+
+func (cm *ConnectionManager) detachOutboundClient(connID int64) {
+	cm.mu.Lock()
+	client := cm.outboundClients[connID]
+	delete(cm.outboundClients, connID)
+	cm.mu.Unlock()
+	if client != nil {
+		_ = client.Close()
+	}
+}
+
+func parseListenerPort(addr net.Addr) (int64, bool, error) {
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if ok {
+		return int64(tcpAddr.Port), tcpAddr.IP.To4() == nil, nil
+	}
+	host, portText, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return 0, false, err
+	}
+	var port int64
+	_, err = fmt.Sscanf(portText, "%d", &port)
+	if err != nil {
+		return 0, false, err
+	}
+	return port, strings.Contains(host, ":"), nil
 }
 
 // SwitchPlayer switches a connection from one player to another

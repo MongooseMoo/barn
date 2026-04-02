@@ -219,6 +219,7 @@ func (s *Scheduler) processDisconnect(input InputEvent) {
 		delete(cm.playerConns, types.ObjID(-conn.ID))
 	}
 	cm.mu.Unlock()
+	cm.detachOutboundClient(conn.ID)
 
 	// Trace disconnect event
 	if wasLoggedIn {

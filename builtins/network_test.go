@@ -18,6 +18,7 @@ func (c *stubConn) GetOutputSuffix() string       { return "" }
 func (c *stubConn) BufferedOutputLength() int     { return 0 }
 func (c *stubConn) ConnectedSeconds() int64       { return 0 }
 func (c *stubConn) IdleSeconds() int64            { return 0 }
+func (c *stubConn) GetResolvedName() string       { return "" }
 
 type stubConnManager struct {
 	conn   Connection
@@ -31,6 +32,22 @@ func (m *stubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
 	return nil
 }
 func (m *stubConnManager) GetListenPort() int { return m.listen }
+func (m *stubConnManager) ListenerInfos() []ListenerInfo {
+	return []ListenerInfo{{
+		Object: 0,
+		Port:   int64(m.listen),
+	}}
+}
+func (m *stubConnManager) AddListener(object types.ObjID, port int64, printMessages bool) (int64, error) {
+	return port, nil
+}
+func (m *stubConnManager) RemoveListener(port int64) error { return nil }
+func (m *stubConnManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
+	return types.ObjID(-8), nil
+}
+func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
+	return "lookup", nil
+}
 
 func TestConnectionNameFormats(t *testing.T) {
 	prev := globalConnManager

@@ -5,9 +5,18 @@ import (
 	"barn/types"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 )
+
+type ListenerInfo struct {
+	Object        types.ObjID
+	Port          int64
+	PrintMessages bool
+	IPv6          bool
+	Interface     string
+}
 
 // ConnectionManager interface to avoid import cycle.
 type ConnectionManager interface {
@@ -16,6 +25,11 @@ type ConnectionManager interface {
 	BootPlayer(player types.ObjID) error
 	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
 	GetListenPort() int
+	ListenerInfos() []ListenerInfo
+	AddListener(object types.ObjID, port int64, printMessages bool) (int64, error)
+	RemoveListener(port int64) error
+	OpenNetworkConnection(host string, port int64) (types.ObjID, error)
+	ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error)
 }
 
 // Connection interface to avoid import cycle.
@@ -29,6 +43,7 @@ type Connection interface {
 	BufferedOutputLength() int
 	ConnectedSeconds() int64
 	IdleSeconds() int64
+	GetResolvedName() string
 }
 
 // Global connection manager (set by server).
@@ -201,28 +216,58 @@ func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	port := int64(globalConnManager.GetListenPort())
-	entry := types.NewMap([][2]types.Value{
-		{types.NewStr("object"), types.NewObj(0)},
-		{types.NewStr("port"), types.NewInt(port)},
-		{types.NewStr("print-messages"), types.NewInt(0)},
-		{types.NewStr("ipv6"), types.NewInt(0)},
-		{types.NewStr("interface"), types.NewStr("")},
-	})
-
+	infos := globalConnManager.ListenerInfos()
 	if len(args) == 1 {
-		if obj, ok := args[0].(types.ObjValue); ok {
-			if obj.ID() != 0 {
-				return types.Ok(types.NewList([]types.Value{}))
+		switch v := args[0].(type) {
+		case types.ObjValue:
+			filtered := infos[:0]
+			for _, info := range infos {
+				if info.Object == v.ID() {
+					filtered = append(filtered, info)
+				}
 			}
-		} else if p, ok := args[0].(types.IntValue); ok {
-			if p.Val != port {
-				return types.Ok(types.NewList([]types.Value{}))
+			infos = filtered
+		case types.IntValue:
+			filtered := infos[:0]
+			for _, info := range infos {
+				if info.Port == v.Val {
+					filtered = append(filtered, info)
+				}
 			}
+			infos = filtered
+		default:
+			return types.Err(types.E_TYPE)
 		}
 	}
 
-	return types.Ok(types.NewList([]types.Value{entry}))
+	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].Port != infos[j].Port {
+			return infos[i].Port < infos[j].Port
+		}
+		return infos[i].Object < infos[j].Object
+	})
+
+	entries := make([]types.Value, 0, len(infos))
+	for _, info := range infos {
+		printMessages := int64(0)
+		if info.PrintMessages {
+			printMessages = 1
+		}
+		ipv6 := int64(0)
+		if info.IPv6 {
+			ipv6 = 1
+		}
+		entry := types.NewMap([][2]types.Value{
+			{types.NewStr("object"), types.NewObj(info.Object)},
+			{types.NewStr("port"), types.NewInt(info.Port)},
+			{types.NewStr("print-messages"), types.NewInt(printMessages)},
+			{types.NewStr("ipv6"), types.NewInt(ipv6)},
+			{types.NewStr("interface"), types.NewStr(info.Interface)},
+		})
+		entries = append(entries, entry)
+	}
+
+	return types.Ok(types.NewList(entries))
 }
 
 // connected_players([show_all]) -> list.
@@ -286,6 +331,12 @@ func builtinConnectionName(ctx *types.TaskContext, args []types.Value) types.Res
 	conn := resolveConnection(ctx, player)
 	if conn == nil {
 		return types.Err(types.E_INVARG)
+	}
+
+	if method == 0 {
+		if resolved := conn.GetResolvedName(); resolved != "" {
+			return types.Ok(types.NewStr(resolved))
+		}
 	}
 
 	host, port := parseRemoteAddress(conn.RemoteAddr())
@@ -458,14 +509,25 @@ func builtinConnectionNameLookup(ctx *types.TaskContext, args []types.Value) typ
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
+	}
+
 	player, ok := parseConnectionTarget(args[0])
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if resolveConnection(ctx, player) == nil {
+
+	rewrite := false
+	if len(args) == 2 {
+		rewrite = args[1].Truthy()
+	}
+
+	name, err := globalConnManager.ConnectionNameLookup(player, rewrite)
+	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewStr(name))
 }
 
 // set_connection_option(conn, option, value) -> int.
