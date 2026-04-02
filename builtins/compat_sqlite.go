@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/task"
 	"barn/types"
 	"context"
 	"database/sql"
@@ -248,6 +249,22 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 	return types.Ok(types.NewEmptyList())
 }
 
+func sqliteExecOrQueryAsync(ctx *types.TaskContext, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+	t, ok := ctx.Task.(*task.Task)
+	if !ok {
+		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
+	}
+
+	task.GetManager().SuspendTask(t, -1)
+	go func() {
+		result := sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
+		if result.IsNormal() {
+			_ = t.Resume(result.Val)
+		}
+	}()
+	return types.Suspend(-1)
+}
+
 func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
 	switch value := v.(type) {
 	case types.IntValue:
@@ -417,7 +434,7 @@ func builtinSqliteQuery(ctx *types.TaskContext, args []types.Value) types.Result
 	if len(args) == 3 {
 		includeHeaders = args[2].Truthy()
 	}
-	return sqliteExecOrQuery(handle, sqlText.Value(), nil, includeHeaders)
+	return sqliteExecOrQueryAsync(ctx, handle, sqlText.Value(), nil, includeHeaders)
 }
 
 func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -445,7 +462,7 @@ func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Resu
 	for _, value := range paramsVal.Elements() {
 		params = append(params, sqliteParamValue(value))
 	}
-	return sqliteExecOrQuery(handle, sqlText.Value(), params, false)
+	return sqliteExecOrQueryAsync(ctx, handle, sqlText.Value(), params, false)
 }
 
 func builtinSqliteLastInsertRowID(ctx *types.TaskContext, args []types.Value) types.Result {
