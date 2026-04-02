@@ -849,6 +849,9 @@ func builtinBootPlayer(ctx *types.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_PERM)
 	}
 
+	if resolveConnection(ctx, player) == nil {
+		return types.Ok(types.NewInt(0))
+	}
 	if err := globalConnManager.BootPlayer(player); err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1027,6 +1030,13 @@ func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) type
 	name := nameVal.Value()
 	if !validConnectionOption(name) {
 		return types.Err(types.E_INVARG)
+	}
+	if name == "keep-alive" {
+		switch args[2].(type) {
+		case types.IntValue, types.MapValue:
+		default:
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	setConnectionOption(player, name, args[2])

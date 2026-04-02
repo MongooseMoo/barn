@@ -49,11 +49,18 @@ func functionInfoEntry(name string, sig functionSignature) types.Value {
 	})
 }
 
-func signatureForFunction(name string) functionSignature {
+func lookupFunctionSignature(name string) (functionSignature, bool) {
 	if sig, ok := knownFunctionSignatures[name]; ok {
-		return sig
+		return sig, true
 	}
 	if sig, ok := generatedFunctionSignatures[name]; ok {
+		return sig, true
+	}
+	return functionSignature{}, false
+}
+
+func signatureForFunction(name string) functionSignature {
+	if sig, ok := lookupFunctionSignature(name); ok {
 		return sig
 	}
 	return functionSignature{
@@ -61,6 +68,40 @@ func signatureForFunction(name string) functionSignature {
 		maxArg:   -1,
 		argTypes: []int64{-1},
 	}
+}
+
+func valueMatchesFunctionArgType(v types.Value, expected int64) bool {
+	switch expected {
+	case -1:
+		return true
+	case -2:
+		t := v.Type()
+		return t == types.TYPE_INT || t == types.TYPE_FLOAT
+	default:
+		return int64(v.Type()) == expected
+	}
+}
+
+func validateFunctionArgs(name string, args []types.Value) types.ErrorCode {
+	sig, ok := lookupFunctionSignature(name)
+	if !ok {
+		return types.E_NONE
+	}
+	if int64(len(args)) < sig.minArg {
+		return types.E_ARGS
+	}
+	if sig.maxArg >= 0 && int64(len(args)) > sig.maxArg {
+		return types.E_ARGS
+	}
+	for i, expected := range sig.argTypes {
+		if i >= len(args) {
+			break
+		}
+		if !valueMatchesFunctionArgType(args[i], expected) {
+			return types.E_TYPE
+		}
+	}
+	return types.E_NONE
 }
 
 func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value, r *Registry) types.Result {
@@ -220,26 +261,33 @@ func builtinThreads(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinThreadPool(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 0 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	result := types.NewMap([][2]types.Value{
-		{types.NewStr("goroutines"), types.NewInt(int64(runtime.NumGoroutine()))},
-		{types.NewStr("cpus"), types.NewInt(int64(runtime.NumCPU()))},
-	})
-	return types.Ok(result)
+	if _, ok := args[0].(types.StrValue); !ok {
+		return types.Err(types.E_TYPE)
+	}
+	if _, ok := args[1].(types.StrValue); !ok {
+		return types.Err(types.E_TYPE)
+	}
+	if len(args) == 3 {
+		if _, ok := args[2].(types.IntValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
+	}
+	return types.Err(types.E_INVARG)
 }
 
 func builtinSetThreadMode(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
+	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
-	switch args[0].(type) {
-	case types.IntValue, types.StrValue:
-		return types.Ok(types.NewInt(0))
-	default:
-		return types.Err(types.E_TYPE)
+	if len(args) == 1 {
+		if _, ok := args[0].(types.IntValue); !ok {
+			return types.Err(types.E_TYPE)
+		}
 	}
+	return types.Ok(types.NewInt(0))
 }
 
 func builtinUsage(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -292,11 +340,7 @@ func builtinLogCacheStats(ctx *types.TaskContext, args []types.Value) types.Resu
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Ok(types.NewList([]types.Value{
-		types.NewInt(0),
-		types.NewInt(0),
-		types.NewInt(0),
-	}))
+	return types.Ok(types.NewInt(0))
 }
 
 func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result {

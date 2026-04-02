@@ -275,6 +275,15 @@ func NewRegistry() *Registry {
 
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
+	if _, ok := lookupFunctionSignature(name); ok {
+		inner := fn
+		fn = func(ctx *types.TaskContext, args []types.Value) types.Result {
+			if err := validateFunctionArgs(name, args); err != types.E_NONE {
+				return types.Err(err)
+			}
+			return inner(ctx, args)
+		}
+	}
 	r.funcs[name] = fn
 	id := r.nextID
 	r.byID[id] = fn
