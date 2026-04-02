@@ -31,6 +31,7 @@ type Writer struct {
 	store      *Store
 	waifIndex  map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
 	nextWaifID int
+	pendingFinalizations []types.Value
 	taskSource TaskSource // Optional: provides queued/suspended tasks for serialization
 }
 
@@ -47,6 +48,15 @@ func NewWriter(w io.Writer, store *Store) *Writer {
 // Flush flushes the underlying buffer
 func (w *Writer) Flush() error {
 	return w.w.Flush()
+}
+
+// SetPendingFinalizations preserves pending finalization values across dumps.
+func (w *Writer) SetPendingFinalizations(values []types.Value) {
+	if len(values) == 0 {
+		w.pendingFinalizations = nil
+		return
+	}
+	w.pendingFinalizations = append([]types.Value(nil), values...)
 }
 
 // --- Primitive writers ---

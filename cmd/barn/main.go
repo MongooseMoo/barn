@@ -53,6 +53,7 @@ func main() {
 		}
 
 		writer := db.NewWriter(f, store)
+		writer.SetPendingFinalizations(database.PendingFinalizations)
 		if err := writer.WriteDatabase(); err != nil {
 			f.Close()
 			log.Fatalf("Failed to write database: %v", err)

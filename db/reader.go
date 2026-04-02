@@ -16,6 +16,7 @@ type Database struct {
 	Objects        map[types.ObjID]*Object
 	Players        []types.ObjID
 	RecycledObjs   []types.ObjID
+	PendingFinalizations []types.Value
 	QueuedTasks    []*QueuedTask
 	SuspendedTasks []*SuspendedTask
 
@@ -88,6 +89,8 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 	// Parse version from header
 	if strings.Contains(header, "Format Version 4") {
 		db.Version = 4
+	} else if strings.Contains(header, "Format Version 5") {
+		db.Version = 5
 	} else if strings.Contains(header, "Format Version 17") {
 		db.Version = 17
 	} else {
@@ -97,6 +100,9 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 	// Version-specific parsing
 	if db.Version == 4 {
 		return db.parseV4(r)
+	}
+	if db.Version == 5 {
+		return db.parseV5(r)
 	}
 	return db.parseV17(r)
 }
@@ -168,6 +174,83 @@ func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	db.resolveWaifProperties()
 
 	return db, nil
+}
+
+// parseV5 parses a version 5 database.
+// ToastStunt's canned Broken*.db fixtures use version 5 with the older
+// top-level section ordering but typed object bodies compatible with later
+// readers.
+func (db *Database) parseV5(r *bufio.Reader) (*Database, error) {
+	// Line 1: total objects
+	objCount, err := readInt(r)
+	if err != nil {
+		return nil, fmt.Errorf("read object count: %w", err)
+	}
+
+	// Line 2: total verbs
+	verbCount, err := readInt(r)
+	if err != nil {
+		return nil, fmt.Errorf("read verb count: %w", err)
+	}
+
+	// Line 3: dummy line
+	if _, err := readLine(r); err != nil {
+		return nil, fmt.Errorf("read dummy line: %w", err)
+	}
+
+	// Players section
+	if err := db.readPlayersV4(r); err != nil {
+		return nil, fmt.Errorf("read players: %w", err)
+	}
+
+	// Objects section
+	for i := 0; i < objCount; i++ {
+		obj, err := db.readObjectV5(r)
+		if err != nil {
+			return nil, fmt.Errorf("read object %d: %w", i, err)
+		}
+		if obj != nil {
+			db.Objects[obj.ID] = obj
+		}
+	}
+
+	// Verb code section
+	for i := 0; i < verbCount; i++ {
+		if err := db.readVerbCode(r); err != nil {
+			return nil, fmt.Errorf("read verb code %d: %w", i, err)
+		}
+	}
+
+	// Clocks (obsolete)
+	if err := db.readClocks(r); err != nil {
+		return nil, fmt.Errorf("read clocks: %w", err)
+	}
+
+	// Queued tasks
+	if err := db.readQueuedTasks(r); err != nil {
+		return nil, fmt.Errorf("read queued tasks: %w", err)
+	}
+
+	// Suspended tasks
+	if err := db.readSuspendedTasks(r); err != nil {
+		return nil, fmt.Errorf("read suspended tasks: %w", err)
+	}
+
+	db.resolvePropertyNames()
+	db.resolveWaifProperties()
+
+	return db, nil
+}
+
+// readObjectV5 reads a version 5 object body.
+// Version 5 uses typed location/contents/parents/children fields but does not
+// include the v17 last_move slot.
+func (db *Database) readObjectV5(r *bufio.Reader) (*Object, error) {
+	obj, err := db.readObjectCommon(r, false)
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 // parseV17 parses a version 17 database
@@ -294,8 +377,20 @@ func (db *Database) readFinalizations(r *bufio.Reader) error {
 	if err != nil {
 		return err
 	}
-	// We just skip this line - finalizations not implemented
-	_ = line
+
+	var count int
+	if _, err := fmt.Sscanf(line, "%d values pending finalization", &count); err != nil {
+		return fmt.Errorf("parse pending finalization count: %w", err)
+	}
+
+	db.PendingFinalizations = make([]types.Value, 0, count)
+	for i := 0; i < count; i++ {
+		val, err := db.readValue(r)
+		if err != nil {
+			return fmt.Errorf("read pending finalization %d: %w", i, err)
+		}
+		db.PendingFinalizations = append(db.PendingFinalizations, val)
+	}
 	return nil
 }
 
@@ -852,6 +947,10 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 
 // readObject reads a single object
 func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
+	return db.readObjectCommon(r, true)
+}
+
+func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*Object, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -919,10 +1018,12 @@ func (db *Database) readObject(r *bufio.Reader) (*Object, error) {
 		obj.Location = objVal.ID()
 	}
 
-	// Read last_move (skip value, not used)
-	_, err = db.readValue(r)
-	if err != nil {
-		return nil, err
+	if hasLastMove {
+		// Read last_move (skip value, not used)
+		_, err = db.readValue(r)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Read contents

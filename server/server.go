@@ -184,6 +184,7 @@ func (s *Server) checkpoint() error {
 	}
 
 	writer := db.NewWriter(tempFile, s.store)
+	writer.SetPendingFinalizations(s.database.PendingFinalizations)
 	writer.SetTaskSource(s.scheduler) // Provide tasks for serialization
 	if err := writer.WriteDatabase(); err != nil {
 		tempFile.Close()

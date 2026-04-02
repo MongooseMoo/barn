@@ -18,8 +18,13 @@ func (w *Writer) WriteDatabase() error {
 	}
 
 	// 3. Pending finalizations (anonymous objects awaiting GC)
-	if err := w.writeString("0 values pending finalization"); err != nil {
+	if err := w.writeString(fmt.Sprintf("%d values pending finalization", len(w.pendingFinalizations))); err != nil {
 		return fmt.Errorf("write pending: %w", err)
+	}
+	for i, val := range w.pendingFinalizations {
+		if err := w.writeValue(val); err != nil {
+			return fmt.Errorf("write pending finalization %d: %w", i, err)
+		}
 	}
 
 	// 4. Clocks (obsolete, always 0)
