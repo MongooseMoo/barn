@@ -351,7 +351,11 @@ func validateAndResolvePath(program string) (string, error) {
 
 	execDirs := []string{"executables"}
 	if exePath, err := os.Executable(); err == nil {
-		execDirs = append(execDirs, filepath.Join(filepath.Dir(exePath), "executables"))
+		exeDir := filepath.Dir(exePath)
+		execDirs = append(execDirs,
+			filepath.Join(exeDir, "executables"),
+			filepath.Clean(filepath.Join(exeDir, "..", "executables")),
+		)
 	}
 
 	// On Windows, try PATHEXT extensions

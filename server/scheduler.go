@@ -1141,8 +1141,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		if !t.IsForked {
 			s.logTraceback(t, result.Error)
 		}
-		// Send traceback to player
-		s.sendTraceback(t, result.Error)
+		// Database eval verbs already package errors for the client; emitting
+		// traceback lines here pollutes the structured response stream.
+		if t.VerbName != "eval" {
+			s.sendTraceback(t, result.Error)
+		}
 		// Clean up call stack after traceback has been sent
 		for len(t.CallStack) > 0 {
 			t.PopFrame()
