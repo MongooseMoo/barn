@@ -4,6 +4,7 @@ import (
 	"barn/db"
 	"barn/task"
 	"barn/types"
+	"sort"
 )
 
 // Task management builtins - full implementation
@@ -36,6 +37,9 @@ func builtinQueuedTasks(ctx *types.TaskContext, args []types.Value) types.Result
 
 	mgr := task.GetManager()
 	tasks := mgr.GetQueuedTasks()
+	sort.SliceStable(tasks, func(i, j int) bool {
+		return tasks[i].StartTime.After(tasks[j].StartTime)
+	})
 
 	result := make([]types.Value, 0, len(tasks))
 	for _, t := range tasks {

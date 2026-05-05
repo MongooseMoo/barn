@@ -119,39 +119,39 @@ type Task struct {
 
 	// For suspension/resumption
 	WakeTime        time.Time
-	WakeValue       types.Value  // Value to return when resumed
-	IsExecSuspended bool         // True if suspended by exec() (can't resume, only kill)
-	ReadingPlayer   types.ObjID  // Player this task is read()ing from (ObjNothing = not reading)
+	WakeValue       types.Value // Value to return when resumed
+	IsExecSuspended bool        // True if suspended by exec() (can't resume, only kill)
+	ReadingPlayer   types.ObjID // Player this task is read()ing from (ObjNothing = not reading)
 
 	// For forked tasks
 	ForkInfo *types.ForkInfo // Fork information (only for forked tasks)
 	IsForked bool            // True if this is a forked task
 
 	// Execution fields (use interface{} to avoid circular imports)
-	Code        interface{}        // []parser.Stmt - actual code to execute
-	Evaluator   interface{}        // *vm.Evaluator - evaluator for execution
-	BytecodeVM  interface{}        // *vm.VM - bytecode VM for execution (saved across suspend/resume)
-	Context     *types.TaskContext // Task execution context
-	Result      types.Result       // Last execution result
-	ForkCreator ForkCreator        // For creating forked tasks
+	Code           interface{}        // []parser.Stmt - actual code to execute
+	Evaluator      interface{}        // *vm.Evaluator - evaluator for execution
+	BytecodeVM     interface{}        // *vm.VM - bytecode VM for execution (saved across suspend/resume)
+	Context        *types.TaskContext // Task execution context
+	Result         types.Result       // Last execution result
+	ForkCreator    ForkCreator        // For creating forked tasks
 	CancelFunc     context.CancelFunc // For cancellation (exported for scheduler)
 	ExecCancelFunc context.CancelFunc // For cancelling an exec() subprocess
-	StmtIndex   int                // Current statement index (for suspend/resume)
+	StmtIndex      int                // Current statement index (for suspend/resume)
 
 	// Verb context (set for verb tasks)
 	VerbName            string
-	VerbLoc             types.ObjID // Object where verb is defined (for traceback)
-	This                types.ObjID // Object this verb is called on
-	Caller              types.ObjID // Object that invoked the verb
-	Argstr              string      // Full argument string
-	Args                []string    // Arguments as word list
+	VerbLoc             types.ObjID   // Object where verb is defined (for traceback)
+	This                types.ObjID   // Object this verb is called on
+	Caller              types.ObjID   // Object that invoked the verb
+	Argstr              string        // Full argument string
+	Args                []string      // Arguments as word list
 	VerbArgsValues      []types.Value // Typed arguments for server-initiated verb calls
-	Dobjstr             string      // Direct object string
-	Dobj                types.ObjID // Direct object
-	Prepstr             string      // Preposition string
-	Iobjstr             string      // Indirect object string
-	Iobj                types.ObjID // Indirect object
-	CommandOutputSuffix string      // Connection output suffix for raw command framing
+	Dobjstr             string        // Direct object string
+	Dobj                types.ObjID   // Direct object
+	Prepstr             string        // Preposition string
+	Iobjstr             string        // Indirect object string
+	Iobj                types.ObjID   // Indirect object
+	CommandOutputSuffix string        // Connection output suffix for raw command framing
 	Done                chan struct{} // Closed when task finishes; nil if fire-and-forget
 
 	// For compatibility with old server.Task
@@ -401,6 +401,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 	var verbLoc types.ObjID
 	var lineNumber int
 	var thisObj types.ObjID
+	var thisVal types.Value
 	var programmer types.ObjID
 
 	if len(t.CallStack) > 0 {
@@ -410,6 +411,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		lineNumber = topFrame.LineNumber
 		programmer = topFrame.Programmer
 		thisObj = topFrame.This // Always use object ID (#-1 for primitives)
+		thisVal = topFrame.ThisValue
 	} else {
 		// Fallback if no call stack
 		verbName = t.VerbName
@@ -417,6 +419,9 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		lineNumber = 1
 		programmer = t.Owner
 		thisObj = t.This
+	}
+	if thisVal == nil {
+		thisVal = types.NewObj(thisObj)
 	}
 
 	// Estimate bytes (0 for now, can be calculated later if needed)
@@ -431,7 +436,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		types.NewObj(verbLoc),            // [6] verb_loc
 		types.NewStr(verbName),           // [7] verb_name
 		types.NewInt(int64(lineNumber)),  // [8] line_number
-		types.NewObj(thisObj),            // [9] this (always OBJ, #-1 for primitives)
+		thisVal,                          // [9] this
 		types.NewInt(bytes),              // [10] bytes
 	})
 }
