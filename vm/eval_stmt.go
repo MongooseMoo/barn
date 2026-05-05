@@ -874,6 +874,7 @@ func (e *Evaluator) forkStmt(stmt *parser.ForkStmt, ctx *types.TaskContext) type
 		VarName:     stmt.VarName,
 		Variables:   varEnv,
 		ThisObj:     ctx.ThisObj,
+		ThisValue:   ctx.ThisValue,
 		Player:      ctx.Player,
 		Caller:      caller,
 		Verb:        ctx.Verb,

@@ -1361,6 +1361,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 
 	// Set up child's context
 	t.Context.ThisObj = forkInfo.ThisObj
+	t.Context.ThisValue = forkInfo.ThisValue
 	t.Context.Player = forkInfo.Player
 	t.Context.Programmer = parent.Programmer
 	t.Context.Verb = forkInfo.Verb
@@ -1372,6 +1373,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	// context in which the fork statement appeared.
 	t.PushFrame(task.ActivationFrame{
 		This:       forkInfo.ThisObj,
+		ThisValue:  forkInfo.ThisValue,
 		Player:     forkInfo.Player,
 		Programmer: parent.Programmer,
 		Caller:     forkInfo.Caller,

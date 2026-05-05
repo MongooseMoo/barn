@@ -153,7 +153,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 				Player:          ctx.Player,
 				Programmer:      ctx.Programmer,
 				Caller:          ctx.ThisObj, // The object that called this verb
-				Verb:            verbName,
+				Verb:            lookupVerbName,
 				VerbLoc:         defObjID,
 				Args:            args,
 				LineNumber:      0,     // TODO: Track line numbers during execution
@@ -178,7 +178,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	} else {
 		ctx.ThisValue = nil
 	}
-	ctx.Verb = verbName
+	ctx.Verb = lookupVerbName
 
 	// Update environment variables for the verb call
 	// These need to be accessible from within the verb code
@@ -187,7 +187,7 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	oldCallerEnv, _ := e.env.Get("caller")
 	oldArgsEnv, _ := e.env.Get("args")
 
-	e.env.Set("verb", types.NewStr(verbName))
+	e.env.Set("verb", types.NewStr(lookupVerbName))
 	// For primitives and waifs, 'this' should be the value itself, not the object
 	if isPrimitive {
 		e.env.Set("this", primitiveValue)

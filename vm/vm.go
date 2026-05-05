@@ -1024,16 +1024,21 @@ func (vm *VM) executeFork() error {
 			playerObj = vm.Context.Player
 		}
 	}
+	var thisValue types.Value
+	if vm.Context != nil {
+		thisValue = vm.Context.ThisValue
+	}
 
 	forkInfo := &types.ForkInfo{
-		Delay:   time.Duration(delaySeconds * float64(time.Second)),
-		VarName: varName,
-		Body:    [3]interface{}{frame.Program, forkBodyIP, forkBodyLen}, // parent program, offset, length
-		ThisObj: thisObj,
-		Player:  playerObj,
-		Caller:  callerObj,
-		Verb:    verbStr,
-		VerbLoc: frame.VerbLoc,
+		Delay:     time.Duration(delaySeconds * float64(time.Second)),
+		VarName:   varName,
+		Body:      [3]interface{}{frame.Program, forkBodyIP, forkBodyLen}, // parent program, offset, length
+		ThisObj:   thisObj,
+		ThisValue: thisValue,
+		Player:    playerObj,
+		Caller:    callerObj,
+		Verb:      verbStr,
+		VerbLoc:   frame.VerbLoc,
 	}
 	// Store locals snapshot in Variables map for the scheduler
 	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))

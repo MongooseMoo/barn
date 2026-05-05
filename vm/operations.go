@@ -2072,7 +2072,7 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Trace nested verb calls when tracing is enabled.
-	trace.VerbCall(objID, verbName, args, player, callerObj)
+	trace.VerbCall(objID, lookupVerbName, args, player, callerObj)
 
 	// Save current context fields for restore on return/unwind
 	var savedThisObj types.ObjID
@@ -2096,7 +2096,7 @@ func (vm *VM) executeCallVerb() error {
 		Locals:          make([]types.Value, prog.NumLocals),
 		This:            objID,
 		Player:          player,
-		Verb:            verbName,
+		Verb:            lookupVerbName,
 		Caller:          callerObj,
 		VerbLoc:         defObjID,
 		Args:            args,
@@ -2123,7 +2123,7 @@ func (vm *VM) executeCallVerb() error {
 	} else {
 		setLocalByName(frame, prog, "this", types.NewObj(objID))
 	}
-	setLocalByName(frame, prog, "verb", types.NewStr(verbName))
+	setLocalByName(frame, prog, "verb", types.NewStr(lookupVerbName))
 	setLocalByName(frame, prog, "caller", types.NewObj(callerObj))
 	setLocalByName(frame, prog, "args", types.NewList(args))
 	setLocalByName(frame, prog, "player", types.NewObj(player))
@@ -2166,7 +2166,7 @@ func (vm *VM) executeCallVerb() error {
 		}
 		vm.Context.ThisObj = objID
 		vm.Context.ThisValue = thisValue // waif/primitive/anonymous value, or nil for normal
-		vm.Context.Verb = verbName
+		vm.Context.Verb = lookupVerbName
 		vm.Context.Programmer = verb.Owner
 		vm.Context.IsWizard = isWizard
 	}
@@ -2180,7 +2180,7 @@ func (vm *VM) executeCallVerb() error {
 				Player:     player,
 				Programmer: verb.Owner,
 				Caller:     callerObj,
-				Verb:       verbName,
+				Verb:       lookupVerbName,
 				VerbLoc:    defObjID,
 				Args:       args,
 				LineNumber: 0,
