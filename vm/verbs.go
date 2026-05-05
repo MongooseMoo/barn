@@ -6,6 +6,7 @@ import (
 	"barn/task"
 	"barn/types"
 	"log"
+	"strings"
 )
 
 func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) types.Result {
@@ -100,7 +101,11 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 	}
 
 	// Look up the verb (in EvalVerbCall - handles expr:verb(args))
-	verb, defObjID, err := e.store.FindVerb(objID, verbName)
+	lookupVerbName := verbName
+	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
+		lookupVerbName = ":" + lookupVerbName
+	}
+	verb, defObjID, err := e.store.FindVerb(objID, lookupVerbName)
 	if err != nil {
 		e.store.NoteVerbCacheMiss()
 		return types.Err(types.E_VERBNF)

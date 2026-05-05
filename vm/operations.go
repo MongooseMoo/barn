@@ -2002,6 +2002,7 @@ func (vm *VM) executeCallVerb() error {
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
 	var thisValue types.Value // Non-nil for waif, primitive, and anonymous targets
+	isWaif := false
 
 	switch target := objVal.(type) {
 	case types.ObjValue:
@@ -2012,6 +2013,7 @@ func (vm *VM) executeCallVerb() error {
 	case types.WaifValue:
 		objID = target.Class() // Verb lookup goes to the waif's class
 		thisValue = target     // "this" = the waif itself
+		isWaif = true
 	default:
 		// Check for primitive prototype dispatch (str, int, float, list, map, err, bool)
 		if vm.Store != nil {
@@ -2038,7 +2040,11 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Look up verb via store (with inheritance)
-	verb, defObjID, err := vm.Store.FindVerb(objID, verbName)
+	lookupVerbName := verbName
+	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
+		lookupVerbName = ":" + lookupVerbName
+	}
+	verb, defObjID, err := vm.Store.FindVerb(objID, lookupVerbName)
 	if err != nil {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
