@@ -1066,10 +1066,10 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 	return types.Ok(types.NewInt(0))
 }
 
-// builtinMove implements move(what, where)
+// builtinMove implements move(what, where[, position])
 // Moves object to new location
 func builtinMove(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -1081,6 +1081,18 @@ func builtinMove(ctx *types.TaskContext, args []types.Value, store *db.Store) ty
 	whereVal, ok := args[1].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+
+	position := int64(0)
+	if len(args) == 3 {
+		positionVal, ok := args[2].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		position = positionVal.Val
+		if position < 0 {
+			return types.Err(types.E_INVARG)
+		}
 	}
 
 	what := store.Get(whatVal.ID())
@@ -1108,7 +1120,7 @@ func builtinMove(ctx *types.TaskContext, args []types.Value, store *db.Store) ty
 	if whereVal.ID() != types.ObjNothing {
 		where := store.Get(whereVal.ID())
 		if where != nil {
-			where.Contents = append(where.Contents, whatVal.ID())
+			where.Contents = insertObjIDAtMOOPosition(where.Contents, whatVal.ID(), position)
 		}
 	}
 
@@ -1335,6 +1347,20 @@ func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
 			result = append(result, item)
 		}
 	}
+	return result
+}
+
+// insertObjIDAtMOOPosition inserts id using 1-based MOO positions; 0 appends.
+func insertObjIDAtMOOPosition(slice []types.ObjID, id types.ObjID, position int64) []types.ObjID {
+	if position == 0 || position > int64(len(slice)+1) {
+		return append(slice, id)
+	}
+
+	index := int(position - 1)
+	result := make([]types.ObjID, len(slice)+1)
+	copy(result[:index], slice[:index])
+	result[index] = id
+	copy(result[index+1:], slice[index:])
 	return result
 }
 
