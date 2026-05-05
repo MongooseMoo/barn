@@ -982,6 +982,99 @@ func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 	return roots
 }
 
+func sameWaif(a, b types.WaifValue) bool {
+	return a.Equal(b)
+}
+
+func waifInList(needle types.WaifValue, haystack []types.WaifValue) bool {
+	for _, candidate := range haystack {
+		if sameWaif(needle, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
+	var roots []types.WaifValue
+	for _, obj := range s.store.All() {
+		if obj == nil || obj.Recycled {
+			continue
+		}
+		for _, prop := range obj.Properties {
+			if prop == nil {
+				continue
+			}
+			vm.CollectWaifsFromValue(prop.Value, &roots)
+		}
+	}
+	for _, exec := range rootVMs {
+		vm.CollectWaifsFromVM(exec, &roots)
+	}
+	return roots
+}
+
+func (s *Scheduler) finalizePendingWaifs(ctx *types.TaskContext, pending []types.WaifValue, rootVMs ...*vm.VM) {
+	if len(pending) == 0 || ctx == nil {
+		return
+	}
+
+	live := s.liveWaifs(rootVMs...)
+	for _, waif := range pending {
+		if waifInList(waif, live) {
+			continue
+		}
+		s.callWaifRecycle(ctx, waif)
+	}
+}
+
+func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.WaifValue) {
+	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
+	if err != nil || verb == nil {
+		return
+	}
+	if !verb.Perms.Has(db.VerbExecute) {
+		return
+	}
+
+	prog, compileErr := vm.CompileVerbBytecode(verb, s.registry)
+	if compileErr != nil {
+		return
+	}
+
+	player := parentCtx.Player
+	if player == types.ObjNothing {
+		player = parentCtx.Programmer
+	}
+	recycleCtx := types.NewTaskContext()
+	recycleCtx.Player = player
+	recycleCtx.Programmer = verb.Owner
+	recycleCtx.IsWizard = s.isWizard(verb.Owner)
+	recycleCtx.ThisObj = waif.Class()
+	recycleCtx.ThisValue = waif
+	recycleCtx.Verb = ":recycle"
+	recycleCtx.Task = parentCtx.Task
+	recycleCtx.TaskID = parentCtx.TaskID
+
+	recycleVM := vm.NewVM(s.store, s.registry)
+	recycleVM.Context = recycleCtx
+	recycleVM.TickLimit = 300000
+	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
+	frame.VerbDebug = verb.Perms.Has(db.VerbDebug)
+	vm.SetLocalByNamePublic(frame, prog, "this", waif)
+	vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(player))
+	vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(parentCtx.ThisObj))
+	vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(":recycle"))
+	vm.SetLocalByNamePublic(frame, prog, "args", types.NewList([]types.Value{}))
+	vm.SetLocalByNamePublic(frame, prog, "argstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "dobjstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "iobjstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "prepstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+	vm.SetLocalByNamePublic(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+	_ = recycleVM.ExecuteLoop()
+}
+
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
@@ -1186,7 +1279,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			}
 		}
 	} else {
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, s.liveTaskVMs(t)...)
+		liveVMs := s.liveTaskVMs(t)
+		if bcVM != nil {
+			s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), liveVMs...)
+		}
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
 	}
 
 	t.BytecodeVM = nil // Release VM after completion
@@ -1727,7 +1824,9 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 
 	// Match Toast lifecycle semantics for eval: orphan anonymous objects are
 	// collected once evaluation completes and locals are out of scope.
-	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, s.liveTaskVMs(t)...)
+	liveVMs := s.liveTaskVMs(t)
+	s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), liveVMs...)
+	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}

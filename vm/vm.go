@@ -53,15 +53,16 @@ func extractErrorCode(err error) types.ErrorCode {
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	Stack     []types.Value      // Operand stack
-	SP        int                // Stack pointer
-	Frames    []*StackFrame      // Call stack
-	FP        int                // Frame pointer
-	Store     *db.Store          // Object store
-	Builtins  *builtins.Registry // Builtin function registry
-	Context   *types.TaskContext // Task context for builtins
-	TickLimit int64              // Maximum ticks before E_MAXREC
-	Ticks     int64              // Current tick count
+	Stack        []types.Value      // Operand stack
+	SP           int                // Stack pointer
+	Frames       []*StackFrame      // Call stack
+	FP           int                // Frame pointer
+	Store        *db.Store          // Object store
+	Builtins     *builtins.Registry // Builtin function registry
+	Context      *types.TaskContext // Task context for builtins
+	TickLimit    int64              // Maximum ticks before E_MAXREC
+	Ticks        int64              // Current tick count
+	PendingWaifs []types.WaifValue
 
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
@@ -758,6 +759,7 @@ func (vm *VM) Return(value types.Value) {
 	}
 
 	frame := vm.Frames[len(vm.Frames)-1]
+	vm.collectPendingWaifsFromFrame(frame)
 
 	// Eval frame returning normally: wrap result in {1, value}
 	if frame.IsEvalFrame {
