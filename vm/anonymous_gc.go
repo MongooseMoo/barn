@@ -209,17 +209,20 @@ func AutoRecycleOrphanAnonymousWith(store *db.Store, registry *builtins.Registry
 // recycles anonymous objects with IDs >= minID. This lets task/eval callers
 // collect objects created during the current execution without sweeping
 // pre-existing database state.
-func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext, minID types.ObjID) {
+func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext, minID types.ObjID, extraVMs ...*VM) {
 	if ctx == nil || store == nil || registry == nil {
 		return
 	}
 
 	reachable := buildPersistentAnonymousReachability(store)
+	liveRefs := make(map[types.ObjID]struct{})
 	if callerVM, ok := ctx.CallerVM.(*VM); ok {
-		liveRefs := make(map[types.ObjID]struct{})
 		collectAnonymousRefsFromVM(callerVM, liveRefs)
-		expandAnonymousReachability(store, reachable, liveRefs)
 	}
+	for _, exec := range extraVMs {
+		collectAnonymousRefsFromVM(exec, liveRefs)
+	}
+	expandAnonymousReachability(store, reachable, liveRefs)
 
 	// Recycle all currently-valid anonymous objects that are unreachable.
 	candidates := make([]types.ObjID, 0)

@@ -962,6 +962,26 @@ func (s *Scheduler) processReadyTasks() {
 	}
 }
 
+func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var roots []*vm.VM
+	for _, queued := range s.tasks {
+		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
+			continue
+		}
+		state := queued.GetState()
+		if state == task.TaskCompleted || state == task.TaskKilled {
+			continue
+		}
+		if exec, ok := queued.BytecodeVM.(*vm.VM); ok && exec != nil {
+			roots = append(roots, exec)
+		}
+	}
+	return roots
+}
+
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
@@ -1124,7 +1144,8 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	if result.Flow == types.FlowSuspend {
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 		// is a GC boundary for newly-created orphan anonymous objects.
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
+		liveVMs := append([]*vm.VM{bcVM}, s.liveTaskVMs(t)...)
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
 
 		// Save VM state for later Resume()
 		t.BytecodeVM = bcVM
@@ -1165,7 +1186,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			}
 		}
 	} else {
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, s.liveTaskVMs(t)...)
 	}
 
 	t.BytecodeVM = nil // Release VM after completion
@@ -1706,7 +1727,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 
 	// Match Toast lifecycle semantics for eval: orphan anonymous objects are
 	// collected once evaluation completes and locals are out of scope.
-	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor)
+	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, s.liveTaskVMs(t)...)
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}
