@@ -1231,10 +1231,11 @@ func builtinDescendants(ctx *types.TaskContext, args []types.Value, store *db.St
 	return types.Ok(types.NewList(result))
 }
 
-// builtinIsa implements isa(object, ancestor)
-// Returns true if object inherits from ancestor
+// builtinIsa implements isa(object, ancestor[, return_object])
+// Returns true if object inherits from ancestor, or the matching ancestor object
+// when return_object is truthy.
 func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -1243,51 +1244,76 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) typ
 		return types.Err(types.E_TYPE)
 	}
 
-	ancestorVal, ok := args[1].(types.ObjValue)
-	if !ok {
+	var ancestors []types.ObjID
+	switch ancestorVal := args[1].(type) {
+	case types.ObjValue:
+		ancestors = append(ancestors, ancestorVal.ID())
+	case types.ListValue:
+		for i := 1; i <= ancestorVal.Len(); i++ {
+			parentVal, ok := ancestorVal.Get(i).(types.ObjValue)
+			if !ok {
+				return types.Err(types.E_TYPE)
+			}
+			ancestors = append(ancestors, parentVal.ID())
+		}
+	default:
 		return types.Err(types.E_TYPE)
+	}
+
+	returnObject := len(args) == 3 && args[2].Truthy()
+	noMatch := func() types.Result {
+		if returnObject {
+			return types.Ok(types.NewObj(types.NOTHING))
+		}
+		return types.Ok(types.NewInt(0))
 	}
 
 	obj := store.Get(objVal.ID())
 	if obj == nil {
-		// Invalid child - return 0 (false)
-		return types.Ok(types.NewInt(0))
+		return noMatch()
 	}
 
-	// If ancestor is invalid, return 0 (false) not an error
-	if !store.Valid(ancestorVal.ID()) {
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Object is always its own ancestor
-	if objVal.ID() == ancestorVal.ID() {
-		return types.Ok(types.NewInt(1))
-	}
-
-	// BFS through ancestry chain
-	seen := make(map[types.ObjID]bool)
-	queue := obj.Parents[:]
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if seen[currentID] {
+	for _, ancestorID := range ancestors {
+		if !store.Valid(ancestorID) {
 			continue
 		}
-		seen[currentID] = true
 
-		if currentID == ancestorVal.ID() {
+		// Object is always its own ancestor.
+		if objVal.ID() == ancestorID {
+			if returnObject {
+				return types.Ok(types.NewObj(ancestorID))
+			}
 			return types.Ok(types.NewInt(1))
 		}
 
-		current := store.Get(currentID)
-		if current != nil {
-			queue = append(queue, current.Parents...)
+		// BFS through ancestry chain.
+		seen := make(map[types.ObjID]bool)
+		queue := obj.Parents[:]
+
+		for len(queue) > 0 {
+			currentID := queue[0]
+			queue = queue[1:]
+
+			if seen[currentID] {
+				continue
+			}
+			seen[currentID] = true
+
+			if currentID == ancestorID {
+				if returnObject {
+					return types.Ok(types.NewObj(ancestorID))
+				}
+				return types.Ok(types.NewInt(1))
+			}
+
+			current := store.Get(currentID)
+			if current != nil {
+				queue = append(queue, current.Parents...)
+			}
 		}
 	}
 
-	return types.Ok(types.NewInt(0))
+	return noMatch()
 }
 
 // Helper functions
