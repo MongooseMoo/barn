@@ -43,6 +43,10 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value, store *db.Sto
 		return types.Err(types.E_ARGS)
 	}
 
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	objVal, ok := args[0].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
@@ -76,6 +80,10 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value, store *db.Sto
 func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
+	}
+
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_INVARG)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
@@ -128,6 +136,10 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.S
 func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
+	}
+
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_INVARG)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
@@ -457,6 +469,10 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value, store *db.
 func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
+	}
+
+	if _, ok := args[0].(types.WaifValue); ok {
+		return types.Err(types.E_INVARG)
 	}
 
 	objVal, ok := args[0].(types.ObjValue)
