@@ -59,11 +59,11 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value, store *db.Sto
 
 	// TODO: Check read permission (currently allows all)
 
-	// Return list of property names that are DEFINED on this object
-	// (not just local value overrides of inherited properties)
+	// Return DEFINED property names in definition order.
 	names := make([]types.Value, 0, len(obj.Properties))
-	for name, prop := range obj.Properties {
-		if prop.Defined {
+	for _, name := range obj.PropOrder {
+		prop := obj.Properties[name]
+		if prop != nil && prop.Defined {
 			names = append(names, types.NewStr(name))
 		}
 	}
@@ -378,6 +378,10 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value, store *db
 
 	// Delete property from this object
 	delete(obj.Properties, propName)
+	obj.PropOrder = removeString(obj.PropOrder, propName)
+	if obj.PropDefsCount > 0 {
+		obj.PropDefsCount--
+	}
 
 	// Also remove inherited copies from all descendants
 	removeInheritedProperty(objID, propName, store)
@@ -553,6 +557,16 @@ func parsePerms(s string) (db.PropertyPerms, types.ErrorCode) {
 		}
 	}
 	return perms, types.E_NONE
+}
+
+func removeString(items []string, value string) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if item != value {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // findPropertyInChain finds a property anywhere in the inheritance chain
