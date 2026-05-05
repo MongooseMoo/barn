@@ -361,7 +361,32 @@ func (r *Registry) RegisterSystemBuiltins(store *db.Store) {
 		return builtinRecycledObjects(ctx, args, store)
 	})
 	r.Register("recreate", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinRecreate(ctx, args, store)
+		result := builtinRecreate(ctx, args, store)
+		if !result.IsNormal() {
+			return result
+		}
+		objVal, ok := result.Val.(types.ObjValue)
+		if !ok {
+			return result
+		}
+		obj := store.Get(objVal.ID())
+		if obj == nil {
+			return result
+		}
+
+		obj.Properties = copyInheritedProperties(obj, store)
+		for _, parentID := range obj.Parents {
+			parent := store.Get(parentID)
+			if parent != nil {
+				parent.Children = append(parent.Children, objVal.ID())
+			}
+		}
+
+		initResult := r.CallVerb(objVal.ID(), "initialize", []types.Value{}, ctx)
+		if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
+			return initResult
+		}
+		return result
 	})
 	r.Register("waif_stats", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		return builtinWaifStats(ctx, args, store)
