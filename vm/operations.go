@@ -1343,7 +1343,7 @@ func (vm *VM) vmGetWaifProp(waif types.WaifValue, propName string) error {
 		return nil
 	}
 
-	// Fall back to class object's properties
+	// Fall back to waif instance properties defined on the class with a colon prefix.
 	if vm.Store == nil {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -1354,11 +1354,11 @@ func (vm *VM) vmGetWaifProp(waif types.WaifValue, propName string) error {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
 
-	// Look up property on class object
-	prop, errCode := vmFindProperty(vm.Store, classObj, propName)
-	if errCode != types.E_NONE && !strings.HasPrefix(propName, ":") {
-		prop, errCode = vmFindProperty(vm.Store, classObj, ":"+propName)
+	classPropName := propName
+	if !strings.HasPrefix(classPropName, ":") {
+		classPropName = ":" + classPropName
 	}
+	prop, errCode := vmFindProperty(vm.Store, classObj, classPropName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}

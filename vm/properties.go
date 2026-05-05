@@ -479,18 +479,18 @@ func (e *Evaluator) waifProperty(waif types.WaifValue, node *parser.PropertyExpr
 		return types.Ok(val)
 	}
 
-	// Fall back to class object's properties
+	// Fall back to waif instance properties defined on the class with a colon prefix.
 	classID := waif.Class()
 	classObj := e.store.Get(classID)
 	if classObj == nil {
 		return types.Err(types.E_PROPNF)
 	}
 
-	// Look up property on class object
-	prop, errCode := e.findProperty(classObj, propName, ctx)
-	if errCode != types.E_NONE && !strings.HasPrefix(propName, ":") {
-		prop, errCode = e.findProperty(classObj, ":"+propName, ctx)
+	classPropName := propName
+	if !strings.HasPrefix(classPropName, ":") {
+		classPropName = ":" + classPropName
 	}
+	prop, errCode := e.findProperty(classObj, classPropName, ctx)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
