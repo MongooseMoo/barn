@@ -102,13 +102,20 @@ func (e *Evaluator) verbCall(expr *parser.VerbCallExpr, ctx *types.TaskContext) 
 
 	// Look up the verb (in EvalVerbCall - handles expr:verb(args))
 	lookupVerbName := verbName
-	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
-		lookupVerbName = ":" + lookupVerbName
+	var verb *db.Verb
+	var defObjID types.ObjID
+	var err error
+	if isWaif {
+		verb, defObjID, err = e.store.FindWaifVerb(objID, lookupVerbName)
+	} else {
+		verb, defObjID, err = e.store.FindVerb(objID, lookupVerbName)
 	}
-	verb, defObjID, err := e.store.FindVerb(objID, lookupVerbName)
 	if err != nil {
 		e.store.NoteVerbCacheMiss()
 		return types.Err(types.E_VERBNF)
+	}
+	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
+		lookupVerbName = ":" + lookupVerbName
 	}
 
 	// Check execute permission

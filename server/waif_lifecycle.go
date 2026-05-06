@@ -53,7 +53,7 @@ func (s *Scheduler) finalizePendingWaifs(ctx *types.TaskContext, pending []types
 }
 
 func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.WaifValue) {
-	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
+	verb, defObjID, err := s.store.FindWaifVerb(waif.Class(), "recycle")
 	if err != nil || verb == nil {
 		return
 	}

@@ -111,13 +111,20 @@ func (vm *VM) executeCallVerb() error {
 
 	// Look up verb via store (with inheritance)
 	lookupVerbName := verbName
-	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
-		lookupVerbName = ":" + lookupVerbName
+	var verb *db.Verb
+	var defObjID types.ObjID
+	var err error
+	if isWaif {
+		verb, defObjID, err = vm.Store.FindWaifVerb(objID, lookupVerbName)
+	} else {
+		verb, defObjID, err = vm.Store.FindVerb(objID, lookupVerbName)
 	}
-	verb, defObjID, err := vm.Store.FindVerb(objID, lookupVerbName)
 	if err != nil {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
+	}
+	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
+		lookupVerbName = ":" + lookupVerbName
 	}
 
 	// Check execute permission

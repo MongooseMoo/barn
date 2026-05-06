@@ -504,6 +504,53 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
 }
 
+// FindWaifVerb looks up an instance verb for a waif.  Waif instance verbs are
+// defined on the class object with a leading ":" and are called without making
+// non-colon class verbs visible on the waif value itself.
+func (s *Store) FindWaifVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	search := strings.TrimPrefix(verbName, ":")
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		obj := s.objects[current]
+		if obj == nil || obj.Recycled {
+			continue
+		}
+
+		for _, verb := range obj.VerbList {
+			for _, alias := range verb.Names {
+				if strings.HasPrefix(alias, ":") && matchVerbName(alias, search) {
+					return verb, current, nil
+				}
+			}
+		}
+		if len(obj.VerbList) == 0 {
+			for _, verb := range obj.Verbs {
+				for _, alias := range verb.Names {
+					if strings.HasPrefix(alias, ":") && matchVerbName(alias, search) {
+						return verb, current, nil
+					}
+				}
+			}
+		}
+
+		queue = append(queue, obj.Parents...)
+	}
+
+	return nil, types.ObjNothing, fmt.Errorf("waif verb not found: %s", verbName)
+}
+
 // RegisterWaif registers a waif with its class object for invalidation tracking
 func (s *Store) RegisterWaif(classID types.ObjID, waif *types.WaifValue) {
 	s.mu.Lock()
