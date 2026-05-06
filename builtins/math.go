@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"strings"
+	"time"
 )
 
 // ============================================================================
@@ -497,4 +499,313 @@ func toNumericFloat(v types.Value) float64 {
 	default:
 		return math.NaN()
 	}
+}
+
+func builtinAcosh(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	f := fv.Val
+	if f < 1 {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Ok(types.NewFloat(math.Acosh(f)))
+}
+
+func builtinAsinh(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	f := fv.Val
+	return types.Ok(types.NewFloat(math.Asinh(f)))
+}
+
+func builtinAtanh(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	f := fv.Val
+	if f == -1 || f == 1 {
+		return types.Err(types.E_FLOAT)
+	}
+	if f < -1 || f > 1 {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Ok(types.NewFloat(math.Atanh(f)))
+}
+
+func builtinAtan2(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+	yv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	xv, ok := args[1].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.NewFloat(math.Atan2(yv.Val, xv.Val)))
+}
+
+func builtinCbrt(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.NewFloat(math.Cbrt(fv.Val)))
+}
+
+func builtinRound(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 1 {
+		return types.Err(types.E_ARGS)
+	}
+	fv, ok := args[0].(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	return types.Ok(types.NewFloat(math.Round(fv.Val)))
+}
+
+func builtinFrandom(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 2 {
+		return types.Err(types.E_ARGS)
+	}
+	var min float64
+	var max float64
+	if len(args) == 1 {
+		maxArg, ok := args[0].(types.FloatValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		min = 0.0
+		max = maxArg.Val
+	} else {
+		minArg, ok := args[0].(types.FloatValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		maxArg, ok := args[1].(types.FloatValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		min = minArg.Val
+		max = maxArg.Val
+	}
+	f := rand.Float64()
+	return types.Ok(types.NewFloat(min + f*(max-min)))
+}
+
+func builtinReseedRandom(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	rand.Seed(time.Now().UnixNano())
+	return types.Ok(types.NewInt(0))
+}
+
+func builtinChr(ctx *types.TaskContext, args []types.Value) types.Result {
+	var out strings.Builder
+
+	var appendValue func(v types.Value) types.ErrorCode
+	appendValue = func(v types.Value) types.ErrorCode {
+		switch val := v.(type) {
+		case types.IntValue:
+			n := val.Val
+			if n < 0 || n > 255 {
+				return types.E_INVARG
+			}
+			if !ctx.IsWizard && (n < 32 || n > 254) {
+				return types.E_INVARG
+			}
+			encodeByte(&out, byte(n))
+		case types.StrValue:
+			for _, b := range []byte(val.Value()) {
+				encodeByte(&out, b)
+			}
+		case types.ListValue:
+			for i := 1; i <= val.Len(); i++ {
+				if err := appendValue(val.Get(i)); err != types.E_NONE {
+					return err
+				}
+			}
+		default:
+			return types.E_TYPE
+		}
+		return types.E_NONE
+	}
+
+	for _, arg := range args {
+		if err := appendValue(arg); err != types.E_NONE {
+			return types.Err(err)
+		}
+	}
+
+	return types.Ok(types.NewStr(out.String()))
+}
+
+func builtinAllMembers(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 2 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+	list, ok := args[1].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	caseMatters := true
+	if len(args) == 3 {
+		caseMatters = args[2].Truthy()
+	}
+	needle := args[0]
+	result := make([]types.Value, 0)
+	for i := 1; i <= list.Len(); i++ {
+		item := list.Get(i)
+		matched := false
+		if !caseMatters {
+			ns, nok := needle.(types.StrValue)
+			is, iok := item.(types.StrValue)
+			if nok && iok {
+				matched = strings.EqualFold(ns.Value(), is.Value())
+			}
+		} else {
+			matched = needle.Equal(item)
+		}
+		if matched {
+			result = append(result, types.NewInt(int64(i)))
+		}
+	}
+	return types.Ok(types.NewList(result))
+}
+
+func builtinDistance(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+	a, ok := args[0].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	b, ok := args[1].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	if a.Len() != b.Len() || a.Len() == 0 {
+		return types.Err(types.E_TYPE)
+	}
+	total := 0.0
+	for i := 1; i <= a.Len(); i++ {
+		var av float64
+		switch v := a.Get(i).(type) {
+		case types.IntValue:
+			av = float64(v.Val)
+		case types.FloatValue:
+			av = v.Val
+		default:
+			return types.Err(types.E_TYPE)
+		}
+		var bv float64
+		switch v := b.Get(i).(type) {
+		case types.IntValue:
+			bv = float64(v.Val)
+		case types.FloatValue:
+			bv = v.Val
+		default:
+			return types.Err(types.E_TYPE)
+		}
+		d := bv - av
+		total += d * d
+	}
+	return types.Ok(types.NewFloat(math.Sqrt(total)))
+}
+
+func builtinRelativeHeading(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) != 2 {
+		return types.Err(types.E_ARGS)
+	}
+	a, ok := args[0].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	b, ok := args[1].(types.ListValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	if a.Len() != 3 || b.Len() != 3 {
+		return types.Err(types.E_INVARG)
+	}
+	ax, ok := a.Get(1).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	ay, ok := a.Get(2).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	az, ok := a.Get(3).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	bx, ok := b.Get(1).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	by, ok := b.Get(2).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	bz, ok := b.Get(3).(types.FloatValue)
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+
+	dx := bx.Val - ax.Val
+	dy := by.Val - ay.Val
+	dz := bz.Val - az.Val
+
+	xy := math.Atan2(dy, dx) * 57.2957795130823
+	if xy < 0.0 {
+		xy += 360.0
+	}
+	z := math.Atan2(dz, math.Sqrt((dx*dx)+(dy*dy))) * 57.2957795130823
+
+	return types.Ok(types.NewList([]types.Value{
+		types.NewInt(int64(xy)),
+		types.NewInt(int64(z)),
+	}))
+}
+
+func builtinSimplexNoise(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) < 1 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+	seed := 0.0
+	for i, arg := range args {
+		v := toNumericFloat(arg)
+		if math.IsNaN(v) {
+			return types.Err(types.E_TYPE)
+		}
+		seed += v * float64(i+1) * 12.9898
+	}
+	noise := math.Sin(seed) * 43758.5453
+	noise = noise - math.Floor(noise)
+	return types.Ok(types.NewFloat(noise*2 - 1))
 }
