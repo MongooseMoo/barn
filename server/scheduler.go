@@ -83,6 +83,14 @@ func NewScheduler(store *db.Store) *Scheduler {
 	return s
 }
 
+func (s *Scheduler) populateTaskContextDependencies(ctx *types.TaskContext) {
+	if ctx == nil {
+		return
+	}
+	ctx.Store = s.store
+	ctx.Registry = s.registry
+}
+
 // Start begins the scheduler loop
 func (s *Scheduler) Start() {
 	s.wg.Add(1)
@@ -474,6 +482,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
+	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner
 	t.Context.Programmer = match.Verb.Owner
@@ -1313,6 +1322,7 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, code, 300000, 5.0)
+	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give task access to scheduler for forks
 	// Set wizard flag based on player
@@ -1324,6 +1334,7 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) <-chan struct{} {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
+	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Task runs with verb owner permissions (MOO programmer semantics).
 	t.Programmer = match.Verb.Owner
@@ -1373,6 +1384,7 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, verb.Program.Statements, 300000, 5.0)
+	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
 	t.Context.Programmer = verb.Owner
@@ -1392,6 +1404,7 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	t := task.NewTaskFull(taskID, player, code, 300000, 3.0)
+	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give task access to scheduler for forks
 	// Set wizard flag based on player
@@ -1428,6 +1441,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 
 		// Create child task -- Code stays nil since we'll use BytecodeVM path
 		t = task.NewTaskFull(taskID, forkInfo.Player, nil, 300000, 3.0)
+		s.populateTaskContextDependencies(t.Context)
 
 		// Create a pre-configured VM for the child
 		childVM := vm.NewVM(s.store, s.registry)
@@ -1458,6 +1472,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	} else if body, ok := forkInfo.Body.([]parser.Stmt); ok {
 		// Tree-walker fork: Body is []parser.Stmt
 		t = task.NewTaskFull(taskID, forkInfo.Player, body, 300000, 3.0)
+		s.populateTaskContextDependencies(t.Context)
 
 		// Create evaluator with copied variable environment
 		childEnv := vm.NewEnvironment()

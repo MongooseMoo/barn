@@ -80,7 +80,7 @@ The earlier `builtins/objects.go` build errors observed during initial survey (a
 
 ## Step 5: Commit
 
-Commit hash: `91b6b35` — "Move test fixtures under builtins/testdata/"
+Commit hash: `dba050e` — "Move test fixtures under builtins/testdata/"
 
 Commit content: 10 files changed, 123 insertions(+).
 

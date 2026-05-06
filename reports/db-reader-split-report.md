@@ -49,4 +49,4 @@ go test ./db/...    # ok  barn/db  1.634s
 
 ## Commit
 
-(filled in below after commit)
+`cb6946b` — "Split db/reader.go into focused files"
