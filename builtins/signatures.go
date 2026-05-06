@@ -718,7 +718,7 @@ func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
 	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	desc, errCode := parseListenerDescriptorValue(args[0])
