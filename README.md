@@ -8,7 +8,7 @@ MOO (MUD Object Oriented) is a programmable virtual world server where everythin
 
 ## Conformance-Driven Development
 
-Barn's defining characteristic: **every language feature is validated against a portable test suite**.
+Every language feature is validated against a portable test suite.
 
 The [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests) repository provides 1,465 YAML test cases covering:
 - Parser correctness (operators, expressions, statements)
@@ -29,7 +29,7 @@ uv tool run ..\moo-conformance-tests --moo-port=9501
 
 The conformance suite now supports managed server lifecycle (`--server-command`) in the local repo checkout, which can auto-start/stop Barn and isolate DB writes in a temp copy.
 
-When Barn diverges from expected behavior, the same test case runs against ToastStunt to determine the correct interpretation. This methodology catches subtle semantic differences that manual testing misses.
+When Barn diverges from expected behavior, the same test case runs against ToastStunt to determine the correct interpretation. This catches subtle semantic differences that manual testing misses.
 
 See [moo-conformance-tests documentation](https://github.com/mongoosemoo/moo-conformance-tests) for test structure and contributing tests.
 
@@ -109,9 +109,9 @@ Build any tool: `go build -o <tool>.exe ./cmd/<tool>/`
 
 ```
 barn/
-├── vm/              # Bytecode compiler and evaluator (~8,800 lines)
-├── builtins/        # 18 builtin categories (~9,200 lines)
-├── parser/          # MOO language lexer and AST (~4,000 lines)
+├── vm/              # Bytecode compiler and evaluator
+├── builtins/        # 18 builtin categories
+├── parser/          # MOO language lexer and AST
 ├── db/              # Database I/O (ToastStunt .db format)
 ├── server/          # Network server, connection management, task scheduler
 ├── types/           # MOO value types (int, list, map, obj, error, etc.)
@@ -119,7 +119,7 @@ barn/
 └── spec/            # MOO language specification (31 markdown docs)
 ```
 
-The `spec/` directory contains the reference specification developed through systematic auditing of ToastStunt source code. Each builtin category and language feature has detailed documentation of expected behavior, edge cases, and error conditions.
+The `spec/` directory contains the reference specification, derived from auditing ToastStunt source code. Each builtin category and language feature documents expected behavior, edge cases, and error conditions.
 
 ## Current Status
 
@@ -139,7 +139,7 @@ The `spec/` directory contains the reference specification developed through sys
 
 ## Specification Documents
 
-See [`spec/`](spec/) for complete MOO language documentation:
+See [`spec/`](spec/) for MOO language documentation:
 
 - **Core:** [Operators](spec/operators.md), [Control Flow](spec/control_flow.md), [Exceptions](spec/exceptions.md), [Tasks](spec/tasks.md), [Object System](spec/object_system.md)
 - **Builtins:** [Math](spec/builtins/math.md), [Strings](spec/builtins/strings.md), [Lists](spec/builtins/lists.md), [Objects](spec/builtins/objects.md), [Crypto](spec/builtins/crypto.md), and [13 more](spec/builtins/)
