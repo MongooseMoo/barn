@@ -18,7 +18,7 @@ func TestConformance(t *testing.T) {
 	}
 
 	// Create server and load database
-	srv, err := server.NewServer(DefaultDBPath, 0, 0) // port 0 = no network, 0 = no checkpoints
+	srv, err := server.NewServer(DefaultDBPath, server.DefaultListenSpecs(0), 0) // port 0 = no network, 0 = no checkpoints
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

@@ -68,13 +68,21 @@ func (cm *ConnectionManager) GetListenPort() int {
 	return cm.listenPort
 }
 
-// Listen starts listening for connections
-func (cm *ConnectionManager) Listen() error {
-	_, err := cm.addListener(builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
-		Port:     int64(cm.listenPort),
-	}, true)
-	return err
+// StartListeners starts startup-owned listeners.
+func (cm *ConnectionManager) StartListeners(specs []builtins.ListenerSpec) error {
+	if len(specs) == 0 {
+		return fmt.Errorf("no listeners configured")
+	}
+	for i, spec := range specs {
+		desc, err := cm.addListener(spec, true)
+		if err != nil {
+			return err
+		}
+		if i == 0 {
+			cm.listenPort = int(desc.Port)
+		}
+	}
+	return nil
 }
 
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/parser"
 	"barn/server"
@@ -16,9 +17,22 @@ import (
 	"strings"
 )
 
+type stringListFlag []string
+
+func (f *stringListFlag) String() string {
+	return strings.Join(*f, ",")
+}
+
+func (f *stringListFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
 func main() {
 	dbPath := flag.String("db", "Test.db", "Database file path")
 	port := flag.Int("port", 7777, "Listen port")
+	var listenFlags stringListFlag
+	flag.Var(&listenFlags, "listen", "Listener URL; repeatable, e.g. tcp://:7777")
 
 	// Trace flags
 	traceEnabled := flag.Bool("trace", false, "Enable execution tracing")
@@ -103,7 +117,21 @@ func main() {
 	// Normal server startup
 	log.Printf("Barn MOO Server")
 	log.Printf("Database: %s", *dbPath)
-	log.Printf("Port: %d", *port)
+	listenerSpecs := server.DefaultListenSpecs(*port)
+	if len(listenFlags) > 0 {
+		if flagWasProvided("port") {
+			log.Fatalf("Cannot combine -port with -listen")
+		}
+		listenerSpecs = nil
+		for _, raw := range listenFlags {
+			spec, err := server.ParseListenSpec(raw)
+			if err != nil {
+				log.Fatalf("Invalid -listen value: %v", err)
+			}
+			listenerSpecs = append(listenerSpecs, spec)
+		}
+	}
+	log.Printf("Listeners: %s", formatListenerSpecs(listenerSpecs))
 
 	// Initialize tracer
 	if *traceEnabled {
@@ -120,7 +148,7 @@ func main() {
 		trace.Init(false, nil, nil)
 	}
 
-	srv, err := server.NewServer(*dbPath, *port, *checkpointInterval)
+	srv, err := server.NewServer(*dbPath, listenerSpecs, *checkpointInterval)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
@@ -129,10 +157,33 @@ func main() {
 		log.Fatalf("Failed to load database: %v", err)
 	}
 
-	log.Printf("Starting server on port %d...", *port)
+	log.Printf("Starting server...")
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+func flagWasProvided(name string) bool {
+	short := "-" + name
+	long := "--" + name
+	for _, arg := range os.Args[1:] {
+		if arg == short || arg == long || strings.HasPrefix(arg, short+"=") || strings.HasPrefix(arg, long+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func formatListenerSpecs(specs []builtins.ListenerSpec) string {
+	parts := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if spec.Path != "" {
+			parts = append(parts, fmt.Sprintf("%s://%s:%d%s", spec.Protocol, spec.Interface, spec.Port, spec.Path))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s://%s:%d", spec.Protocol, spec.Interface, spec.Port))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // parseObjID parses "#N" or "N" to types.ObjID

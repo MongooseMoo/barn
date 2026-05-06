@@ -23,7 +23,7 @@ type Server struct {
 	scheduler          *Scheduler
 	connManager        *ConnectionManager
 	dbPath             string
-	port               int
+	listenerSpecs      []builtins.ListenerSpec
 	checkpointInterval time.Duration
 	running            bool
 	mu                 sync.Mutex
@@ -34,12 +34,15 @@ type Server struct {
 }
 
 // NewServer creates a new MOO server
-func NewServer(dbPath string, port int, checkpointIntervalSec int) (*Server, error) {
+func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
+	if len(listenerSpecs) == 0 {
+		return nil, fmt.Errorf("no listeners configured")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Server{
 		dbPath:             dbPath,
-		port:               port,
+		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		shutdownChan:       make(chan struct{}),
 		checkpointChan:     make(chan struct{}),
@@ -58,7 +61,7 @@ func (s *Server) LoadDatabase() error {
 	s.database = database
 	s.store = database.NewStoreFromDatabase()
 	s.scheduler = NewScheduler(s.store)
-	s.connManager = NewConnectionManager(s, s.port)
+	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
 
 	// Wire scheduler to connection manager for output flushing
 	s.scheduler.SetConnectionManager(s.connManager)
@@ -118,7 +121,7 @@ func (s *Server) Start() error {
 	}
 
 	// Start listening for connections
-	if err := s.connManager.Listen(); err != nil {
+	if err := s.connManager.StartListeners(s.listenerSpecs); err != nil {
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
