@@ -194,7 +194,7 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
-	if !ctx.IsWizard && whoVal.ID() != ctx.Player {
+	if !ctx.IsWizard && whoVal.ID() != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
@@ -242,6 +242,9 @@ func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result
 
 	// If less than 2 frames, return the task's programmer (top-level eval)
 	if len(stack) < 2 {
+		if ctx.Verb != "" {
+			return types.Ok(types.NewObj(types.ObjNothing))
+		}
 		return types.Ok(types.NewObj(t.Programmer))
 	}
 
