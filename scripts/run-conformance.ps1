@@ -47,6 +47,7 @@ $serverDb = if ($NoFreshDb) { $RunDb } else { $SourceDb }
 if (-not (Test-Path $serverDb)) {
     throw "Server DB not found: $serverDb"
 }
+$serverDbPath = [System.IO.Path]::GetFullPath($serverDb)
 if ($ServerHost -ne "localhost") {
     throw "Managed conformance requires -ServerHost localhost when using --server-command."
 }
@@ -59,7 +60,7 @@ $conformanceArgs = @(
     "--server-command",
     $serverCommand,
     "--server-db",
-    $serverDb,
+    $serverDbPath,
     "--moo-host=$ServerHost",
     "--moo-port=$Port",
     "-v"
@@ -96,7 +97,7 @@ $summary = [ordered]@{
     run_id = $runId
     timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
     binary = $binaryPath
-    server_db = [System.IO.Path]::GetFullPath($serverDb)
+    server_db = $serverDbPath
     host = $ServerHost
     port = $Port
     conformance_exit_code = $conformanceExit
