@@ -197,6 +197,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		// Save VM state for later Resume()
 		t.BytecodeVM = bcVM
 		if t.GetState() == task.TaskQueued {
+			ticks, seconds := backgroundTaskLimits()
+			t.TicksLimit = ticks
+			t.SecondsLimit = seconds
+			t.TicksUsed = 0
+			t.SecondsUsed = 0
+			t.StartTime = time.Now()
+			bcVM.TickLimit = ticks
 			s.mu.Lock()
 			heap.Push(s.waiting, t)
 			s.mu.Unlock()
