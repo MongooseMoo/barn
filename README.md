@@ -1,153 +1,172 @@
 # Barn
 
-A Go implementation of a MOO server, built conformance-first against a standardized test suite. Barn validates its implementation against [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests) and cross-checks behavior with the ToastStunt reference implementation.
+Barn is a Go implementation of a MOO server. It includes a parser, bytecode VM,
+ToastStunt-format database reader/writer, TCP server, task scheduler, built-in
+function registry, and conformance tooling for comparing behavior with existing
+MOO implementations.
 
 ## What is MOO?
 
-MOO (MUD Object Oriented) is a programmable virtual world server where everything is an object that can have properties and verbs (methods). Users connect via telnet, interact with objects, and write code in the MOO language to extend the world. Originally created at Xerox PARC in the early 1990s, MOO servers still power text-based virtual communities today.
+MOO (MUD Object Oriented) is a programmable virtual world server where
+everything is an object with properties and verbs. Users connect over a text
+protocol, interact with objects, and write MOO-language code to extend the
+world.
 
-## Conformance-Driven Development
+## Requirements
 
-Every language feature is validated against a portable test suite.
-
-The [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests) repository provides 1,465 YAML test cases covering:
-- Parser correctness (operators, expressions, statements)
-- Builtin functions (18 categories: math, strings, lists, objects, crypto, etc.)
-- VM behavior (scoping, exceptions, task suspension/resumption)
-- Object system (properties, verbs, inheritance, permissions)
-- Edge cases and error handling
-
-Tests run against any MOO server via telnet, enabling direct comparison:
-
-```bash
-# Test Barn
-uv tool run ..\moo-conformance-tests --moo-port=9500
-
-# Test ToastStunt for reference
-uv tool run ..\moo-conformance-tests --moo-port=9501
-```
-
-The conformance suite now supports managed server lifecycle (`--server-command`) in the local repo checkout, which can auto-start/stop Barn and isolate DB writes in a temp copy.
-
-When Barn diverges from expected behavior, the same test case runs against ToastStunt to determine the correct interpretation. This catches subtle semantic differences that manual testing misses.
-
-See [moo-conformance-tests documentation](https://github.com/mongoosemoo/moo-conformance-tests) for test structure and contributing tests.
-
-## Conformance Runbook
-
-Preferred workflow:
-
-1. Build Barn.
-2. Run conformance in managed-server mode (auto start/stop, temp DB copy):
-
-```powershell
-go build -o barn.exe ./cmd/barn/
-uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"
-```
-
-Manual mode still works:
-
-```powershell
-# Terminal 1
-go build -o barn.exe ./cmd/barn/
-.\barn.exe -db Test.db -port 9500
-
-# Terminal 2
-uv tool run ..\moo-conformance-tests --moo-port=9500
-```
-
-Note: `uv tool run ..\moo-conformance-tests` uses the packaged tool version and may not include the newest CLI flags yet. Use `uv run --project ..\moo-conformance-tests moo-conformance ...` to use the local checkout's latest features.
-
-Targeted regression test (trusted-proxy blank login hook):
-
-```powershell
-# Toast reference (should pass)
-uv run --project ..\moo-conformance-tests pytest ..\moo-conformance-tests\src\moo_conformance\test_conformance.py `
-  -k "trusted_proxy_blank_line_invokes_do_blank_command" `
-  --server-command "C:/Users/Q/src/toaststunt/test/moo.exe {db} {db}.new {port}" `
-  --server-db C:/Users/Q/code/barn/Test_fresh2.db `
-  --moo-port 9899
-
-# Barn (should match Toast)
-uv run --project ..\moo-conformance-tests pytest ..\moo-conformance-tests\src\moo_conformance\test_conformance.py `
-  -k "trusted_proxy_blank_line_invokes_do_blank_command" `
-  --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}" `
-  --server-db C:/Users/Q/code/barn/Test_fresh2.db `
-  --moo-port 9900
-```
+- Go 1.24.6, matching `go.mod`
+- PowerShell for the checked-in conformance runner
+- `uv` when running the Python conformance suite
+- A local `..\moo-conformance-tests` checkout when using the `uv` project setup
+  in this repository
 
 ## Getting Started
 
-```bash
-# Build server
+Build and run the server:
+
+```powershell
 go build -o barn.exe ./cmd/barn/
-
-# Run (uses Test.db by default)
-./barn.exe
-
-# Connect and test (in another terminal)
-go build -o moo_client.exe ./cmd/moo_client/
-./moo_client.exe -port 9500 -cmd "connect wizard" -cmd "; return 1 + 1;"
+.\barn.exe -db Test.db -port 7777
 ```
 
-Barn uses `Test.db` which creates new wizard players on `connect wizard`. Each connection gets a fresh wizard object for testing.
+Send commands from another terminal:
+
+```powershell
+go build -o moo_client.exe ./cmd/moo_client/
+.\moo_client.exe -port 7777 -cmd "connect wizard" -cmd "; return 1 + 1;"
+```
+
+`cmd/barn` defaults to `Test.db`, port `7777`, and a 3600-second checkpoint
+interval.
+
+## Server Options
+
+The main server binary is built from `./cmd/barn/`.
+
+Common runtime flags:
+
+| Flag | Purpose |
+|------|---------|
+| `-db <path>` | Database file path, default `Test.db` |
+| `-port <n>` | TCP listen port, default `7777` |
+| `-checkpoint-interval <seconds>` | Periodic checkpoint interval, default `3600`; use `0` to disable |
+| `-trace` | Enable execution tracing |
+| `-trace-filter <glob[,glob...]>` | Limit tracing to matching verb names |
+
+Database and inspection flags exit after completing the requested operation:
+
+| Flag | Purpose |
+|------|---------|
+| `-dump <path>` | Load the database and write a ToastStunt-format dump |
+| `-verb-code #obj:verb` | Print verb source and metadata |
+| `-list-verbs #obj` | List verbs defined on an object |
+| `-obj-info #obj` | Print object metadata, properties, and verbs |
+| `-eval <expr>` | Parse and evaluate a MOO expression against the database |
+| `-dump-obj-raw #obj` | Print raw object fields for debugging |
+| `-verb-lookup #obj:verb` | Show where a verb resolves in the parent chain |
+| `-ancestry #obj` | Print an object's parent chain |
 
 ## Command-Line Tools
 
+Build any tool with:
+
+```powershell
+go build -o <tool>.exe ./cmd/<tool>/
+```
+
 | Tool | Purpose |
 |------|---------|
-| `barn` | Main MOO server |
-| `moo_client` | Send commands and capture output (use this, not nc/telnet) |
-| `dump_verb` | Display verb code from objects (`dump_verb 0 do_login_command`) |
-| `check_player` | Inspect player object properties |
-| `db_roundtrip` | Test database load/save cycles |
-| `toast_oracle` | Query ToastStunt reference implementation for expected behavior |
+| `barn` | Main server plus database inspection commands |
+| `moo_client` | Send commands to a running MOO server using `-cmd` or `-file` |
+| `dump_verb` | Print a verb directly from a database object |
+| `dump_prop` | Print a property directly from a database object |
+| `db_roundtrip` | Load, write, reload, and compare a database file |
+| `check_player` | Local diagnostic for wizard `#2` in a database |
+| `toast_oracle` | Local ToastStunt expression diagnostic with hard-coded local paths |
+| `gen_builtin_signatures` | Generate built-in function signature data |
+| `test_crypt` | Local crypt/hash diagnostic |
 
-Build any tool: `go build -o <tool>.exe ./cmd/<tool>/`
+## Conformance Workflow
+
+The preferred managed conformance entrypoint in this repo is:
+
+```powershell
+.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788
+```
+
+The script builds Barn when `-Build` is supplied, copies the source database to a
+run database, starts the server, waits for the TCP listener, runs
+`uv run pytest --pyargs moo_conformance`, stops the server, removes the run
+database unless `-KeepRunDb` is set, and writes logs under `reports/runs/`.
+
+Useful script flags:
+
+| Flag | Purpose |
+|------|---------|
+| `-K <pattern>` | Pass a pytest `-k` selector |
+| `-ExtraPytestArgs <args>` | Append pytest arguments |
+| `-KeepRunDb` | Preserve the copied run database after the run |
+| `-NoFreshDb` | Use the existing run database instead of copying `-SourceDb` |
+| `-ReportsRoot <path>` | Change the report output directory |
+
+The repository also contains a Go `conformance` package. Its loader currently
+looks for legacy YAML tests under `..\cow_py\tests\conformance`; the managed
+PowerShell runner above is the current repo-level workflow.
 
 ## Architecture
 
-```
+```text
 barn/
-├── vm/              # Bytecode compiler and evaluator
-├── builtins/        # 18 builtin categories
-├── parser/          # MOO language lexer and AST
-├── db/              # Database I/O (ToastStunt .db format)
-├── server/          # Network server, connection management, task scheduler
-├── types/           # MOO value types (int, list, map, obj, error, etc.)
-├── task/            # Task/coroutine management
-└── spec/            # MOO language specification (31 markdown docs)
+|-- cmd/             # CLI entrypoints
+|-- vm/              # Bytecode compiler and evaluator
+|-- builtins/        # Built-in function implementations and registry
+|-- parser/          # MOO lexer, parser, AST, and unparser
+|-- db/              # ToastStunt-format database I/O
+|-- server/          # TCP server, connection management, scheduler integration
+|-- types/           # MOO value types and task context
+|-- task/            # Task state, queues, and tracebacks
+|-- conformance/     # Go-side conformance loader and runner
+|-- scripts/         # Managed conformance runner
+`-- spec/            # Local MOO behavior notes and reference specs
 ```
 
-The `spec/` directory contains the reference specification, derived from auditing ToastStunt source code. Each builtin category and language feature documents expected behavior, edge cases, and error conditions.
+## Current Implementation Surface
 
-## Current Status
+Implemented areas visible in the current code:
 
-**Working:**
-- Full MOO language parser and bytecode compiler
-- Stack-based VM with control flow (if/for/while/fork/try-catch)
-- Object system with properties, verbs, inheritance
-- 18 builtin categories (math, strings, lists, objects, crypto, json, tasks, etc.)
-- Network server with concurrent connection handling
-- Task scheduler with suspend/resume
-- Database persistence (load/save ToastStunt .db files)
-
-**Active development:**
-- Conformance test coverage improvements
-- Edge case fixes discovered through cross-validation
-- Performance optimization for large object counts
+- MOO lexer/parser and AST for expressions and statements
+- Bytecode compiler and stack-based VM
+- Object, property, verb, parent-chain, player, and waif support
+- Task scheduling with suspend/resume, forked tasks, traceback formatting, and
+  task-local builtins
+- TCP connection handling, login hooks, user connection hooks, listener support,
+  and connection-option builtins
+- ToastStunt database load, checkpoint, dump, and round-trip support
+- Built-in categories for types, strings, lists, maps, math, objects,
+  properties, verbs, JSON, network, crypto, regex, file I/O, SQLite, exec,
+  server/system behavior, time, tasks, and GC diagnostics
 
 ## Specification Documents
 
-See [`spec/`](spec/) for MOO language documentation:
+See [`spec/`](spec/) for local behavior documentation:
 
-- **Core:** [Operators](spec/operators.md), [Control Flow](spec/control_flow.md), [Exceptions](spec/exceptions.md), [Tasks](spec/tasks.md), [Object System](spec/object_system.md)
-- **Builtins:** [Math](spec/builtins/math.md), [Strings](spec/builtins/strings.md), [Lists](spec/builtins/lists.md), [Objects](spec/builtins/objects.md), [Crypto](spec/builtins/crypto.md), and [13 more](spec/builtins/)
-
-Each document includes function signatures, behavior specifications, error conditions, and cross-references to reference implementations.
+- Core: [Grammar](spec/grammar.md), [Types](spec/types.md),
+  [Operators](spec/operators.md), [Statements](spec/statements.md),
+  [Errors](spec/errors.md), [Objects](spec/objects.md),
+  [Tasks](spec/tasks.md), [VM](spec/vm.md), [Server](spec/server.md),
+  [Database](spec/database.md)
+- Builtins: [Types](spec/builtins/types.md), [Math](spec/builtins/math.md),
+  [Strings](spec/builtins/strings.md), [Lists](spec/builtins/lists.md),
+  [Maps](spec/builtins/maps.md), [Objects](spec/builtins/objects.md),
+  [Properties](spec/builtins/properties.md), [Verbs](spec/builtins/verbs.md),
+  [Tasks](spec/builtins/tasks.md), [Time](spec/builtins/time.md),
+  [JSON](spec/builtins/json.md), [File I/O](spec/builtins/fileio.md),
+  [Network](spec/builtins/network.md), [Crypto](spec/builtins/crypto.md),
+  [Regex](spec/builtins/regex.md), [SQLite](spec/builtins/sqlite.md),
+  [Exec](spec/builtins/exec.md), [Server](spec/builtins/server.md)
 
 ## Resources
 
-- [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests) - Portable test suite for MOO servers
-- [ToastStunt](https://github.com/lisdude/toaststunt) - C++ reference implementation
-- [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html) - Original language documentation
+- [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests)
+- [ToastStunt](https://github.com/lisdude/toaststunt)
+- [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html)
