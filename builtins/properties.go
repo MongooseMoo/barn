@@ -151,7 +151,8 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_PROPNF)
 	}
 
-	// TODO: Check permissions (owner or wizard)
+	newOwner := prop.Owner
+	newPerms := prop.Perms
 
 	// Parse info argument
 	switch info := args[2].(type) {
@@ -161,11 +162,11 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
-		prop.Perms = perms
+		newPerms = perms
 
 	case types.ObjValue:
 		// Just owner (leave perms unchanged)
-		prop.Owner = info.ID()
+		newOwner = info.ID()
 
 	case types.ListValue:
 		// {owner, perms}
@@ -184,17 +185,26 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 			return types.Err(types.E_TYPE)
 		}
 
-		prop.Owner = ownerVal.ID()
+		newOwner = ownerVal.ID()
 		perms, err := parsePerms(permsVal.Value())
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
-		prop.Perms = perms
+		newPerms = perms
 
 	default:
 		return types.Err(types.E_TYPE)
 	}
 
+	if store.Get(newOwner) == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if !ctx.IsWizard && (!prop.Perms.Has(db.PropWrite) || prop.Owner != newOwner) {
+		return types.Err(types.E_PERM)
+	}
+
+	prop.Owner = newOwner
+	prop.Perms = newPerms
 	return types.Ok(types.NewInt(0))
 }
 
