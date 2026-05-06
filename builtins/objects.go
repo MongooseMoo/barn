@@ -458,7 +458,7 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 		for _, id := range ids {
 			ref := anonRefs[types.ObjID(id)]
 			// Ignore errors while cascading anonymous recycling.
-			_ = builtinRecycle(ctx, []types.Value{ref}, store, registry)
+			_ = builtinRecycle(ctx, []types.Value{ref})
 		}
 	}
 
