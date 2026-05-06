@@ -1,9 +1,6 @@
 package builtins
 
-import (
-	"barn/db"
-	"barn/types"
-)
+import "barn/types"
 
 // BuiltinFunc is a function type for builtin functions
 // Takes a task context and list of arguments, returns a Result
@@ -117,6 +114,50 @@ func NewRegistry() *Registry {
 	r.Register("maphaskey", builtinMaphaskey)
 	r.Register("mapmerge", builtinMapmerge)
 
+	// Register object builtins
+	r.Register("create", builtinCreate)
+	r.Register("recycle", builtinRecycle)
+	r.Register("valid", builtinValid)
+	r.Register("max_object", builtinMaxObject)
+	r.Register("parent", builtinParent)
+	r.Register("parents", builtinParents)
+	r.Register("children", builtinChildren)
+	r.Register("ancestors", builtinAncestors)
+	r.Register("descendants", builtinDescendants)
+	r.Register("isa", builtinIsa)
+	r.Register("chparent", builtinChparent)
+	r.Register("chparents", builtinChparents)
+	r.Register("move", builtinMove)
+	r.Register("is_player", builtinIsPlayer)
+	r.Register("set_player_flag", builtinSetPlayerFlag)
+	r.Register("players", builtinPlayers)
+	r.Register("occupants", builtinOccupants)
+	r.Register("renumber", builtinRenumber)
+	r.Register("new_waif", builtinNewWaif)
+	r.Register("object_bytes", builtinObjectBytes)
+
+	// Register property builtins
+	r.Register("properties", builtinProperties)
+	r.Register("property_info", builtinPropertyInfo)
+	r.Register("set_property_info", builtinSetPropertyInfo)
+	r.Register("add_property", builtinAddProperty)
+	r.Register("delete_property", builtinDeleteProperty)
+	r.Register("clear_property", builtinClearProperty)
+	r.Register("is_clear_property", builtinIsClearProperty)
+
+	// Register verb builtins
+	r.Register("respond_to", builtinRespondTo)
+	r.Register("verbs", builtinVerbs)
+	r.Register("verb_info", builtinVerbInfo)
+	r.Register("verb_args", builtinVerbArgs)
+	r.Register("verb_code", builtinVerbCode)
+	r.Register("add_verb", builtinAddVerb)
+	r.Register("delete_verb", builtinDeleteVerb)
+	r.Register("set_verb_info", builtinSetVerbInfo)
+	r.Register("set_verb_args", builtinSetVerbArgs)
+	r.Register("set_verb_code", builtinSetVerbCode)
+	r.Register("disassemble", builtinDisassemble)
+
 	// Register JSON builtins (Layer 10.1)
 	r.Register("generate_json", builtinGenerateJson)
 	r.Register("parse_json", builtinParseJson)
@@ -145,11 +186,12 @@ func NewRegistry() *Registry {
 	r.Register("buffered_output_length", builtinBufferedOutputLength)
 	r.Register("output_delimiters", builtinOutputDelimiters)
 
-	// Register crypto/encoding builtins (except crypt which needs store)
+	// Register crypto/encoding builtins
 	r.Register("encode_base64", builtinEncodeBase64)
 	r.Register("decode_base64", builtinDecodeBase64)
 	r.Register("encode_binary", builtinEncodeBinary)
 	r.Register("decode_binary", builtinDecodeBinary)
+	r.Register("crypt", builtinCrypt)
 
 	// Register hash builtins
 	r.Register("string_hash", builtinStringHash)
@@ -217,12 +259,8 @@ func NewRegistry() *Registry {
 
 	// Register system builtins
 	r.Register("background_test", builtinBackgroundTest)
-	r.Register("call_function", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinCallFunction(ctx, args, r)
-	})
-	r.Register("function_info", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinFunctionInfo(ctx, args, r)
-	})
+	r.Register("call_function", builtinCallFunction)
+	r.Register("function_info", builtinFunctionInfo)
 	r.Register("db_disk_size", builtinDbDiskSize)
 	r.Register("dump_database", builtinDumpDatabase)
 	r.Register("getenv", builtinGetenv)
@@ -250,6 +288,17 @@ func NewRegistry() *Registry {
 	r.Register("time", builtinTime)
 	r.Register("ftime", builtinFtime)
 	r.Register("ctime", builtinCtime)
+	r.Register("load_server_options", builtinLoadServerOptions)
+	r.Register("locate_by_name", builtinLocateByName)
+	r.Register("locations", builtinLocations)
+	r.Register("owned_objects", builtinOwnedObjects)
+	r.Register("next_recycled_object", builtinNextRecycledObject)
+	r.Register("recycled_objects", builtinRecycledObjects)
+	r.Register("recreate", builtinRecreate)
+	r.Register("waif_stats", builtinWaifStats)
+	r.Register("verb_cache_stats", builtinVerbCacheStats)
+	r.Register("reset_max_object", builtinResetMaxObject)
+	r.Register("value_bytes", builtinValueBytes)
 
 	// GC builtins
 	r.Register("run_gc", builtinRunGC)
@@ -331,78 +380,4 @@ func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Val
 		return types.Err(types.E_VERBNF)
 	}
 	return r.verbCaller(objID, verbName, args, ctx)
-}
-
-// RegisterCryptoBuiltins registers crypto builtins that need store access
-func (r *Registry) RegisterCryptoBuiltins(store *db.Store) {
-	r.Register("crypt", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinCrypt(ctx, args, store)
-	})
-}
-
-// RegisterSystemBuiltins registers system builtins that need store access
-func (r *Registry) RegisterSystemBuiltins(store *db.Store) {
-	r.Register("load_server_options", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinLoadServerOptions(ctx, args, store)
-	})
-	r.Register("locate_by_name", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinLocateByName(ctx, args, store)
-	})
-	r.Register("locations", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinLocations(ctx, args, store)
-	})
-	r.Register("owned_objects", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinOwnedObjects(ctx, args, store)
-	})
-	r.Register("next_recycled_object", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinNextRecycledObject(ctx, args, store)
-	})
-	r.Register("recycled_objects", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinRecycledObjects(ctx, args, store)
-	})
-	r.Register("recreate", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		result := builtinRecreate(ctx, args, store)
-		if !result.IsNormal() {
-			return result
-		}
-		objVal, ok := result.Val.(types.ObjValue)
-		if !ok {
-			return result
-		}
-		obj := store.Get(objVal.ID())
-		if obj == nil {
-			return result
-		}
-
-		obj.Properties = copyInheritedProperties(obj, store)
-		for _, parentID := range obj.Parents {
-			parent := store.Get(parentID)
-			if parent != nil {
-				parent.Children = append(parent.Children, objVal.ID())
-			}
-		}
-
-		initResult := r.CallVerb(objVal.ID(), "initialize", []types.Value{}, ctx)
-		if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
-			return initResult
-		}
-		return result
-	})
-	r.Register("waif_stats", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinWaifStats(ctx, args, store)
-	})
-	r.Register("verb_cache_stats", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinVerbCacheStats(ctx, args, store)
-	})
-	r.Register("reset_max_object", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinResetMaxObject(ctx, args, store)
-	})
-	r.Register("value_bytes", builtinValueBytes)
-
-	// Re-register set_task_perms with store access so it can update
-	// ctx.IsWizard when the programmer changes (matches Toast's behavior
-	// where changing progr affects all subsequent wizard checks).
-	r.Register("set_task_perms", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinSetTaskPermsWithStore(ctx, args, store)
-	})
 }
