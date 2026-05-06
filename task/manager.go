@@ -86,7 +86,7 @@ func (m *Manager) GetQueuedTasks() []*Task {
 		state := task.GetState()
 		if state == TaskSuspended {
 			task.mu.RLock()
-			evalScaffold := task.IsForked && task.VerbName == "" && task.WakeTime.IsZero()
+			evalScaffold := task.IsForked && task.VerbName == ""
 			task.mu.RUnlock()
 			if evalScaffold {
 				continue
