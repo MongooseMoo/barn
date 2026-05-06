@@ -459,6 +459,9 @@ func (vm *VM) executePass() error {
 	SetLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
 	SetLocalByName(newFrame, prog, "args", types.NewList(passArgs))
 	SetLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
+	for _, name := range []string{"argstr", "dobjstr", "iobjstr", "prepstr", "dobj", "iobj"} {
+		SetLocalByName(newFrame, prog, name, vm.commandLocalValue(frame, name))
+	}
 
 	// Update shared context for builtins
 	if vm.Context != nil {
@@ -503,4 +506,41 @@ func (vm *VM) executePass() error {
 
 	// Return nil — Run() loop continues executing the new frame's bytecode
 	return nil
+}
+
+func (vm *VM) commandLocalValue(frame *StackFrame, name string) types.Value {
+	if frame != nil && frame.Program != nil {
+		for i, varName := range frame.Program.VarNames {
+			if varName == name && i < len(frame.Locals) {
+				if _, unbound := frame.Locals[i].(types.UnboundValue); !unbound {
+					return frame.Locals[i]
+				}
+				break
+			}
+		}
+	}
+	if vm != nil && vm.Context != nil && vm.Context.Task != nil {
+		if t, ok := vm.Context.Task.(*task.Task); ok {
+			switch name {
+			case "argstr":
+				return types.NewStr(t.Argstr)
+			case "dobjstr":
+				return types.NewStr(t.Dobjstr)
+			case "iobjstr":
+				return types.NewStr(t.Iobjstr)
+			case "prepstr":
+				return types.NewStr(t.Prepstr)
+			case "dobj":
+				return types.NewObj(t.Dobj)
+			case "iobj":
+				return types.NewObj(t.Iobj)
+			}
+		}
+	}
+	switch name {
+	case "dobj", "iobj":
+		return types.NewObj(types.ObjNothing)
+	default:
+		return types.NewStr("")
+	}
 }
