@@ -167,8 +167,8 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 			// Process immediate ready tasks before resuming. Nested zero-delay
 			// forks and suspend(0) resumes may need multiple scheduler passes.
 			idlePasses := 0
-			deadline := time.Now().Add(250 * time.Millisecond)
-			for idlePasses < 2 && time.Now().Before(deadline) {
+			deadline := time.Now().Add(2 * time.Second)
+			for idlePasses < 8 && time.Now().Before(deadline) {
 				if s.processReadyTasks() == 0 {
 					idlePasses++
 					time.Sleep(5 * time.Millisecond)

@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/task"
 	"barn/types"
 	"fmt"
@@ -415,6 +416,12 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
+	if len(args) == 0 {
+		if t, ok := ctx.Task.(*task.Task); ok && (t.Kind == task.TaskForked || t.IsForked || t.ForkInfo != nil) {
+			return types.Ok(types.NewErr(types.E_PERM))
+		}
+	}
+
 	// Determine target player
 	player := ctx.Player
 	if len(args) >= 1 {
@@ -423,6 +430,22 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_TYPE)
 		}
 		player = obj.ID()
+		if !ctx.IsWizard {
+			store, ok := ctx.Store.(*db.Store)
+			if !ok {
+				return types.Err(types.E_PERM)
+			}
+			playerObj := store.Get(player)
+			if playerObj == nil || playerObj.Owner != ctx.Programmer {
+				return types.Err(types.E_PERM)
+			}
+		}
+	}
+
+	// Non-blocking mode: second arg truthy returns immediately when no input
+	// is queued. Permission checks still happen first.
+	if len(args) == 2 && args[1].Truthy() {
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Check player is connected
@@ -431,11 +454,6 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
 		return types.Err(types.E_INVARG)
-	}
-
-	// Non-blocking mode: second arg truthy → return 0 immediately if no input
-	if len(args) == 2 && args[1].Truthy() {
-		return types.Ok(types.NewInt(0))
 	}
 
 	// Suspend the task to wait for input
