@@ -191,6 +191,44 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 	}
 }
 
+func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+
+	res := builtinListen(ctx, []types.Value{
+		types.NewObj(42),
+		types.NewInt(8890),
+		types.NewMap([][2]types.Value{
+			{types.NewStr("protocol"), types.NewStr("ws")},
+			{types.NewStr("path"), types.NewStr("/moo")},
+		}),
+	})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	desc, ok := res.Val.(types.MapValue)
+	if !ok {
+		t.Fatalf("got %T, want descriptor map", res.Val)
+	}
+	protocol, _ := desc.Get(types.NewStr("protocol"))
+	port, _ := desc.Get(types.NewStr("port"))
+	path, _ := desc.Get(types.NewStr("path"))
+	if protocol.(types.StrValue).Value() != "ws" ||
+		port.(types.IntValue).Val != 8890 ||
+		path.(types.StrValue).Value() != "/moo" {
+		t.Fatalf("unexpected descriptor: %s", desc.String())
+	}
+	if manager.added.Protocol != "ws" || manager.added.Path != "/moo" {
+		t.Fatalf("unexpected spec: %+v", manager.added)
+	}
+}
+
 func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	prev := globalConnManager
 	defer func() { globalConnManager = prev }()
