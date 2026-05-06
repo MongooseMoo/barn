@@ -759,10 +759,6 @@ func builtinConnectedPlayers(ctx *types.TaskContext, args []types.Value) types.R
 
 	players := make([]types.ObjID, 0, 8)
 	seen := make(map[types.ObjID]struct{}, 8)
-	if ctx != nil && ctx.Player > 0 {
-		seen[ctx.Player] = struct{}{}
-		players = append(players, ctx.Player)
-	}
 	for _, p := range globalConnManager.ConnectedPlayers(showAll) {
 		if _, ok := seen[p]; ok {
 			continue

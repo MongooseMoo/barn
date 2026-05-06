@@ -291,9 +291,12 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 	}
 
 	if reconnection {
-		existingConn.Send("You have been disconnected (reconnected elsewhere)")
-		existingConn.Close()
-		s.callUserReconnected(conn.ListenerObject(), player)
+		existingConn.Send("*** Redirecting connection to new port ***")
+		s.callUserClientDisconnected(existingConn.ListenerObject(), player)
+		if conn.ListenerObject() == 0 || conn.PrintMessages() {
+			_ = conn.Send(s.connectMessage())
+		}
+		s.callUserConnected(conn.ListenerObject(), player)
 	} else {
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -335,12 +336,36 @@ func (cm *ConnectionManager) ConnectedPlayers(showAll bool) []types.ObjID {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	players := make([]types.ObjID, 0, len(cm.playerConns))
+	type connectedPlayer struct {
+		player types.ObjID
+		conn   *Connection
+	}
+	connected := make([]connectedPlayer, 0, len(cm.playerConns))
 	for player, conn := range cm.playerConns {
 		if !showAll && conn.ConnectionTime.IsZero() {
 			continue
 		}
-		players = append(players, player)
+		connected = append(connected, connectedPlayer{player: player, conn: conn})
+	}
+
+	sort.SliceStable(connected, func(i, j int) bool {
+		left := connected[i].conn.ConnectionTime
+		right := connected[j].conn.ConnectionTime
+		if left.Equal(right) {
+			return connected[i].player < connected[j].player
+		}
+		if left.IsZero() {
+			return false
+		}
+		if right.IsZero() {
+			return true
+		}
+		return left.After(right)
+	})
+
+	players := make([]types.ObjID, 0, len(connected))
+	for _, item := range connected {
+		players = append(players, item.player)
 	}
 	return players
 }
