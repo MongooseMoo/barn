@@ -866,9 +866,6 @@ func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Resul
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if globalConnManager == nil {
-		return types.Err(types.E_INVARG)
-	}
 
 	oldPlayerVal, ok := args[0].(types.ObjValue)
 	if !ok {
@@ -882,6 +879,9 @@ func builtinSwitchPlayer(ctx *types.TaskContext, args []types.Value) types.Resul
 		if _, ok := args[2].(types.IntValue); !ok {
 			return types.Err(types.E_TYPE)
 		}
+	}
+	if globalConnManager == nil {
+		return types.Err(types.E_INVARG)
 	}
 
 	if err := globalConnManager.SwitchPlayer(oldPlayerVal.ID(), newPlayerVal.ID()); err != nil {
