@@ -615,7 +615,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 // Supports: ANY, single error (E_TYPE), or comma-separated list (E_TYPE, E_RANGE)
 func (p *Parser) parseCatchCodes() ([]types.ErrorCode, error) {
 	// Check for ANY keyword
-	if p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY" {
+	if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
 		p.nextToken()
 		// Return all error codes
 		return []types.ErrorCode{

@@ -760,8 +760,14 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	// Compile the code
+	// Compile the code. Toast verb_code() returns source without semicolons for
+	// many DB-loaded verbs; accept that form when restoring saved verb code.
 	program, errors := db.CompileVerb(lines)
+	if len(errors) > 0 {
+		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
+			program, errors = db.CompileVerb(normalized)
+		}
+	}
 	if len(errors) > 0 {
 		// Return compile errors
 		errVals := make([]types.Value, len(errors))
@@ -774,9 +780,49 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 	// Update verb
 	verb.Code = lines
 	verb.Program = program
+	verb.BytecodeCache = nil
 
 	// Return empty list (success)
 	return types.Ok(types.NewList([]types.Value{}))
+}
+
+func normalizeVerbSourceLines(lines []string) []string {
+	normalized := make([]string, len(lines))
+	changed := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		normalized[i] = line
+		if trimmed == "" || strings.HasSuffix(trimmed, ";") {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		switch {
+		case lower == "else" || lower == "try" || lower == "finally":
+			continue
+		case strings.HasPrefix(lower, "if ") || strings.HasPrefix(lower, "if("):
+			continue
+		case strings.HasPrefix(lower, "elseif ") || strings.HasPrefix(lower, "elseif("):
+			continue
+		case strings.HasPrefix(lower, "for ") || strings.HasPrefix(lower, "for("):
+			continue
+		case strings.HasPrefix(lower, "while ") || strings.HasPrefix(lower, "while("):
+			continue
+		case strings.HasPrefix(lower, "fork ") || strings.HasPrefix(lower, "fork("):
+			continue
+		case strings.HasPrefix(lower, "except"):
+			continue
+		case strings.HasPrefix(lower, "endif") || strings.HasPrefix(lower, "endfor") ||
+			strings.HasPrefix(lower, "endwhile") || strings.HasPrefix(lower, "endfork") ||
+			strings.HasPrefix(lower, "endtry"):
+			continue
+		}
+		normalized[i] = line + ";"
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return normalized
 }
 
 // valueToArgSpec converts a Value to an arg spec string
