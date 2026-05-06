@@ -49,9 +49,24 @@ Common runtime flags:
 |------|---------|
 | `-db <path>` | Database file path, default `Test.db` |
 | `-port <n>` | TCP listen port, default `7777` |
+| `-listen <spec>` | Add a startup listener; may be repeated |
 | `-checkpoint-interval <seconds>` | Periodic checkpoint interval, default `3600`; use `0` to disable |
 | `-trace` | Enable execution tracing |
 | `-trace-filter <glob[,glob...]>` | Limit tracing to matching verb names |
+
+`-port <n>` is shorthand for one TCP listener and cannot be combined with
+`-listen`. Use repeatable `-listen` specs for native multi-protocol listeners:
+
+```powershell
+.\barn.exe -db Test.db -listen tcp://:7777
+.\barn.exe -db Test.db -listen tls://:7778?cert=server.crt&key=server.key
+.\barn.exe -db Test.db -listen ws://:7779/moo
+.\barn.exe -db Test.db -listen wss://:7780/moo?cert=server.crt&key=server.key
+```
+
+WebSocket listeners use message framing: one text message is one MOO input
+line, and one logical server output line is one WebSocket text message. The
+full WS/WSS behavior is specified in [Server](spec/server.md).
 
 Database and inspection flags exit after completing the requested operation:
 
