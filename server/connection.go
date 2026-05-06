@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+type programmingMode struct {
+	Target types.ObjID
+	Verb   string
+	Lines  []string
+}
+
 // Connection represents a player connection
 type Connection struct {
 	ID             int64
@@ -21,6 +27,7 @@ type Connection struct {
 	ConnectionTime time.Time // Set when login completes (zero means not yet logged in)
 	lastInput      time.Time
 	outputCounter  int
+	programming    *programmingMode
 	mu             sync.Mutex
 	ctx            context.Context
 	cancel         context.CancelFunc

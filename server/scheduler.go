@@ -307,6 +307,10 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 	location := playerObj.Location
 
+	if s.processProgrammingInput(conn, input.Line) {
+		return
+	}
+
 	// Parse the command
 	cmd := ParseCommand(input.Line)
 	if cmd.Verb == "" {
@@ -325,6 +329,9 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		conn.mu.Lock()
 		conn.outputSuffix = cmd.Argstr
 		conn.mu.Unlock()
+		return
+	case ".PROGRAM":
+		s.startProgrammingMode(conn, player, location, cmd.Argstr)
 		return
 	}
 
@@ -444,6 +451,102 @@ func (s *Scheduler) processCommand(input InputEvent) {
 
 	// Execute verb synchronously on the scheduler goroutine
 	s.executeVerbTaskSync(player, match, cmd, outputSuffix)
+}
+
+func (s *Scheduler) processProgrammingInput(conn *Connection, line string) bool {
+	conn.mu.Lock()
+	mode := conn.programming
+	if mode == nil {
+		conn.mu.Unlock()
+		return false
+	}
+	if strings.TrimSpace(line) != "." {
+		mode.Lines = append(mode.Lines, line)
+		conn.mu.Unlock()
+		return true
+	}
+	conn.programming = nil
+	lines := append([]string(nil), mode.Lines...)
+	target := mode.Target
+	verbName := mode.Verb
+	conn.mu.Unlock()
+
+	obj := s.store.Get(target)
+	if obj == nil {
+		conn.Send("Verb not found")
+		return true
+	}
+	verb := findLocalVerbForProgramming(obj, verbName)
+	if verb == nil {
+		conn.Send("Verb not found")
+		return true
+	}
+	program, errors := db.CompileVerb(lines)
+	if len(errors) > 0 {
+		for _, errText := range errors {
+			conn.Send(errText)
+		}
+		return true
+	}
+	verb.Code = lines
+	verb.Program = program
+	verb.BytecodeCache = nil
+	return true
+}
+
+func (s *Scheduler) startProgrammingMode(conn *Connection, player, location types.ObjID, spec string) {
+	target, verbName, ok := s.parseProgramTarget(player, location, spec)
+	if !ok {
+		conn.Send("Verb not found")
+		return
+	}
+	conn.mu.Lock()
+	conn.programming = &programmingMode{
+		Target: target,
+		Verb:   verbName,
+		Lines:  make([]string, 0),
+	}
+	conn.mu.Unlock()
+}
+
+func (s *Scheduler) parseProgramTarget(player, location types.ObjID, spec string) (types.ObjID, string, bool) {
+	spec = strings.TrimSpace(spec)
+	colon := strings.LastIndex(spec, ":")
+	if colon < 0 {
+		return types.ObjNothing, "", false
+	}
+	objText := strings.TrimSpace(spec[:colon])
+	verbName := strings.TrimSpace(spec[colon+1:])
+	if objText == "" || verbName == "" {
+		return types.ObjNothing, "", false
+	}
+
+	target := MatchObject(s.store, player, location, objText)
+	if target < 0 {
+		return types.ObjNothing, "", false
+	}
+	obj := s.store.Get(target)
+	if obj == nil || findLocalVerbForProgramming(obj, verbName) == nil {
+		return types.ObjNothing, "", false
+	}
+	return target, verbName, true
+}
+
+func findLocalVerbForProgramming(obj *db.Object, verbName string) *db.Verb {
+	if verb, ok := obj.Verbs[verbName]; ok {
+		return verb
+	}
+	if verb, ok := obj.Verbs[":"+verbName]; ok {
+		return verb
+	}
+	for _, verb := range obj.Verbs {
+		for _, alias := range verb.Names {
+			if verbNameMatches(alias, verbName) {
+				return verb
+			}
+		}
+	}
+	return nil
 }
 
 // processReadyTasks executes tasks that are ready to run
