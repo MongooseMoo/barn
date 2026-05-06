@@ -1,0 +1,102 @@
+package server
+
+import (
+	"barn/db"
+	"barn/types"
+	"barn/vm"
+)
+
+func sameWaif(a, b types.WaifValue) bool {
+	return a.Equal(b)
+}
+
+func waifInList(needle types.WaifValue, haystack []types.WaifValue) bool {
+	for _, candidate := range haystack {
+		if sameWaif(needle, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
+	var roots []types.WaifValue
+	for _, obj := range s.store.All() {
+		if obj == nil || obj.Recycled {
+			continue
+		}
+		for _, prop := range obj.Properties {
+			if prop == nil {
+				continue
+			}
+			vm.CollectWaifsFromValue(prop.Value, &roots)
+		}
+	}
+	for _, exec := range rootVMs {
+		vm.CollectWaifsFromVM(exec, &roots)
+	}
+	return roots
+}
+
+func (s *Scheduler) finalizePendingWaifs(ctx *types.TaskContext, pending []types.WaifValue, rootVMs ...*vm.VM) {
+	if len(pending) == 0 || ctx == nil {
+		return
+	}
+
+	live := s.liveWaifs(rootVMs...)
+	for _, waif := range pending {
+		if waifInList(waif, live) {
+			continue
+		}
+		s.callWaifRecycle(ctx, waif)
+	}
+}
+
+func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.WaifValue) {
+	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
+	if err != nil || verb == nil {
+		return
+	}
+	if !verb.Perms.Has(db.VerbExecute) {
+		return
+	}
+
+	prog, compileErr := vm.CompileVerbBytecode(verb, s.registry)
+	if compileErr != nil {
+		return
+	}
+
+	player := parentCtx.Player
+	if player == types.ObjNothing {
+		player = parentCtx.Programmer
+	}
+	recycleCtx := types.NewTaskContext()
+	recycleCtx.Player = player
+	recycleCtx.Programmer = verb.Owner
+	recycleCtx.IsWizard = s.isWizard(verb.Owner)
+	recycleCtx.ThisObj = waif.Class()
+	recycleCtx.ThisValue = waif
+	recycleCtx.Verb = ":recycle"
+	recycleCtx.Task = parentCtx.Task
+	recycleCtx.TaskID = parentCtx.TaskID
+	recycleCtx.Store = s.store
+	recycleCtx.Registry = s.registry
+
+	recycleVM := vm.NewVM(s.store, s.registry)
+	recycleVM.Context = recycleCtx
+	recycleVM.TickLimit = 300000
+	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
+	frame.VerbDebug = verb.Perms.Has(db.VerbDebug)
+	vm.SetLocalByNamePublic(frame, prog, "this", waif)
+	vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(player))
+	vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(parentCtx.ThisObj))
+	vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(":recycle"))
+	vm.SetLocalByNamePublic(frame, prog, "args", types.NewList([]types.Value{}))
+	vm.SetLocalByNamePublic(frame, prog, "argstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "dobjstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "iobjstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "prepstr", types.NewStr(""))
+	vm.SetLocalByNamePublic(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+	vm.SetLocalByNamePublic(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+	_ = recycleVM.ExecuteLoop()
+}
