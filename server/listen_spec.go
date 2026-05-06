@@ -23,9 +23,31 @@ func ParseListenSpec(raw string) (builtins.ListenerSpec, error) {
 	}
 	protocol := strings.ToLower(parsed.Scheme)
 	switch protocol {
-	case builtins.ListenerProtocolTCP, "tls", "ws", "wss":
+	case builtins.ListenerProtocolTCP, builtins.ListenerProtocolUnix, "tls", "ws", "wss":
 	default:
 		return builtins.ListenerSpec{}, fmt.Errorf("unsupported listener protocol %q", protocol)
+	}
+	if protocol == builtins.ListenerProtocolUnix {
+		if parsed.RawQuery != "" {
+			return builtins.ListenerSpec{}, fmt.Errorf("listener spec %q includes unsupported unix query options", raw)
+		}
+		if parsed.Host != "" && parsed.Path == "" {
+			return builtins.ListenerSpec{
+				Protocol: protocol,
+				Path:     parsed.Host,
+			}, nil
+		}
+		path := parsed.Path
+		if path == "" {
+			path = parsed.Opaque
+		}
+		if path == "" {
+			return builtins.ListenerSpec{}, fmt.Errorf("listener spec %q missing unix socket path", raw)
+		}
+		return builtins.ListenerSpec{
+			Protocol: protocol,
+			Path:     path,
+		}, nil
 	}
 	if parsed.Host == "" {
 		return builtins.ListenerSpec{}, fmt.Errorf("listener spec %q missing host/port", raw)

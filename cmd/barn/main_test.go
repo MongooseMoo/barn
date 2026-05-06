@@ -21,12 +21,13 @@ func TestBuildListenerSpecsParsesRepeatableListenFlags(t *testing.T) {
 	specs, err := buildListenerSpecs(7777, []string{
 		"tcp://127.0.0.1:7788",
 		"ws://:7789/moo",
+		"unix:runtime.sock",
 	}, false)
 	if err != nil {
 		t.Fatalf("build listener specs: %v", err)
 	}
-	if len(specs) != 2 {
-		t.Fatalf("got %d specs, want 2", len(specs))
+	if len(specs) != 3 {
+		t.Fatalf("got %d specs, want 3", len(specs))
 	}
 	if specs[0].Protocol != builtins.ListenerProtocolTCP ||
 		specs[0].Interface != "127.0.0.1" ||
@@ -37,6 +38,10 @@ func TestBuildListenerSpecsParsesRepeatableListenFlags(t *testing.T) {
 		specs[1].Port != 7789 ||
 		specs[1].Path != "/moo" {
 		t.Fatalf("unexpected ws spec: %+v", specs[1])
+	}
+	if specs[2].Protocol != builtins.ListenerProtocolUnix ||
+		specs[2].Path != "runtime.sock" {
+		t.Fatalf("unexpected unix spec: %+v", specs[2])
 	}
 }
 

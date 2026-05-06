@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -32,6 +33,7 @@ type listenerRecord struct {
 	tls           bool
 	tlsConfig     *tls.Config
 	httpServer    *http.Server
+	cleanupPath   string
 	primary       bool
 }
 
@@ -122,6 +124,9 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		tls:           spec.Protocol == "tls" || spec.Protocol == "wss",
 		tlsConfig:     tlsConfig,
 		primary:       primary,
+	}
+	if desc.Protocol == builtins.ListenerProtocolUnix {
+		record.cleanupPath = desc.Path
 	}
 	if desc.Protocol == "ws" || desc.Protocol == "wss" {
 		record.httpServer = &http.Server{
@@ -543,8 +548,21 @@ func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.L
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" && spec.Protocol != "ws" && spec.Protocol != "wss" {
+	if spec.Protocol != builtins.ListenerProtocolTCP &&
+		spec.Protocol != builtins.ListenerProtocolUnix &&
+		spec.Protocol != "tls" &&
+		spec.Protocol != "ws" &&
+		spec.Protocol != "wss" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
+	}
+	if spec.Protocol == builtins.ListenerProtocolUnix {
+		if spec.Path == "" {
+			return builtins.ListenerDescriptor{}, fmt.Errorf("unix listener requires path")
+		}
+		if spec.Port != 0 || spec.Interface != "" || spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
+			return builtins.ListenerDescriptor{}, fmt.Errorf("unix listener only accepts path")
+		}
+		return cm.listenAndRegister(spec, primary, nil)
 	}
 	if spec.Protocol == "ws" || spec.Protocol == "wss" {
 		if spec.Path == "" {
@@ -582,8 +600,13 @@ func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary boo
 }
 
 func (cm *ConnectionManager) listenAndRegister(spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
+	network := "tcp"
 	addr := net.JoinHostPort(spec.Interface, fmt.Sprintf("%d", spec.Port))
-	listener, err := net.Listen("tcp", addr)
+	if spec.Protocol == builtins.ListenerProtocolUnix {
+		network = "unix"
+		addr = spec.Path
+	}
+	listener, err := net.Listen(network, addr)
 	if err != nil {
 		return builtins.ListenerDescriptor{}, err
 	}
@@ -620,9 +643,13 @@ func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) er
 	cm.mu.Unlock()
 
 	if record.httpServer != nil {
-		return record.httpServer.Close()
+		err := record.httpServer.Close()
+		cleanupListenerPath(record)
+		return err
 	}
-	return record.listener.Close()
+	err := record.listener.Close()
+	cleanupListenerPath(record)
+	return err
 }
 
 func (cm *ConnectionManager) Shutdown() {
@@ -646,9 +673,11 @@ func (cm *ConnectionManager) Shutdown() {
 	for _, record := range records {
 		if record.httpServer != nil {
 			_ = record.httpServer.Close()
+			cleanupListenerPath(record)
 			continue
 		}
 		_ = record.listener.Close()
+		cleanupListenerPath(record)
 	}
 	for _, conn := range connections {
 		_ = conn.Close()
@@ -747,6 +776,9 @@ func parseListenerPort(addr net.Addr) (int64, bool, error) {
 	if ok {
 		return int64(tcpAddr.Port), tcpAddr.IP.To4() == nil, nil
 	}
+	if _, ok := addr.(*net.UnixAddr); ok {
+		return 0, false, nil
+	}
 	host, portText, err := net.SplitHostPort(addr.String())
 	if err != nil {
 		return 0, false, err
@@ -773,6 +805,8 @@ func canonicalListenerPath(protocol, path string) string {
 			return "/"
 		}
 		return path
+	case builtins.ListenerProtocolUnix:
+		return path
 	default:
 		return ""
 	}
@@ -790,10 +824,22 @@ func listenerKeyFromDescriptor(desc builtins.ListenerDescriptor) listenerKey {
 func formatListenerDescriptor(desc builtins.ListenerDescriptor) string {
 	protocol := normalizeListenerProtocol(desc.Protocol)
 	path := canonicalListenerPath(protocol, desc.Path)
+	if protocol == builtins.ListenerProtocolUnix {
+		return fmt.Sprintf("%s://%s", protocol, path)
+	}
 	if path == "" {
 		return fmt.Sprintf("%s://:%d", protocol, desc.Port)
 	}
 	return fmt.Sprintf("%s://:%d%s", protocol, desc.Port, path)
+}
+
+func cleanupListenerPath(record *listenerRecord) {
+	if record.cleanupPath == "" {
+		return
+	}
+	if err := os.Remove(record.cleanupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("Failed to remove unix listener %s: %v", record.cleanupPath, err)
+	}
 }
 
 func isWebSocketUpgrade(r *http.Request) bool {

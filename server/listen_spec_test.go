@@ -52,6 +52,29 @@ func TestParseListenSpecWSS(t *testing.T) {
 	}
 }
 
+func TestParseListenSpecUnixAbsolutePath(t *testing.T) {
+	spec, err := ParseListenSpec("unix:///tmp/barn.sock")
+	if err != nil {
+		t.Fatalf("parse unix spec: %v", err)
+	}
+	if spec.Protocol != builtins.ListenerProtocolUnix ||
+		spec.Path != "/tmp/barn.sock" ||
+		spec.Port != 0 ||
+		spec.Interface != "" {
+		t.Fatalf("unexpected spec: %+v", spec)
+	}
+}
+
+func TestParseListenSpecUnixRelativePath(t *testing.T) {
+	spec, err := ParseListenSpec("unix:barn.sock")
+	if err != nil {
+		t.Fatalf("parse unix spec: %v", err)
+	}
+	if spec.Protocol != builtins.ListenerProtocolUnix || spec.Path != "barn.sock" {
+		t.Fatalf("unexpected spec: %+v", spec)
+	}
+}
+
 func TestParseListenSpecRejectsInvalidPort(t *testing.T) {
 	_, err := ParseListenSpec("tcp://:70000")
 	if err == nil {

@@ -272,6 +272,46 @@ func TestListenBuildsSecureWebSocketListenerSpec(t *testing.T) {
 	}
 }
 
+func TestListenBuildsUnixListenerSpec(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+
+	res := builtinListen(ctx, []types.Value{
+		types.NewObj(42),
+		types.NewStr("/tmp/barn.sock"),
+		types.NewMap([][2]types.Value{
+			{types.NewStr("print-messages"), types.NewInt(1)},
+		}),
+	})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	desc, ok := res.Val.(types.MapValue)
+	if !ok {
+		t.Fatalf("got %T, want descriptor map", res.Val)
+	}
+	protocol, _ := desc.Get(types.NewStr("protocol"))
+	path, _ := desc.Get(types.NewStr("path"))
+	if protocol.(types.StrValue).Value() != ListenerProtocolUnix ||
+		path.(types.StrValue).Value() != "/tmp/barn.sock" {
+		t.Fatalf("unexpected descriptor: %s", desc.String())
+	}
+	if _, ok := desc.Get(types.NewStr("port")); ok {
+		t.Fatalf("unix descriptor included port: %s", desc.String())
+	}
+	if manager.added.Protocol != ListenerProtocolUnix ||
+		manager.added.Path != "/tmp/barn.sock" ||
+		!manager.added.PrintMessages {
+		t.Fatalf("unexpected spec: %+v", manager.added)
+	}
+}
+
 func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	prev := globalConnManager
 	defer func() { globalConnManager = prev }()
@@ -293,6 +333,31 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
 	want := ListenerDescriptor{Protocol: "ws", Port: 8888, Path: "/moo"}
+	if !listenerDescriptorEqual(manager.removed, want) {
+		t.Fatalf("removed %+v, want %+v", manager.removed, want)
+	}
+}
+
+func TestUnlistenAcceptsUnixListenerDescriptorMap(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+
+	res := builtinUnlisten(ctx, []types.Value{
+		types.NewMap([][2]types.Value{
+			{types.NewStr("protocol"), types.NewStr("unix")},
+			{types.NewStr("path"), types.NewStr("/tmp/barn.sock")},
+		}),
+	})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	want := ListenerDescriptor{Protocol: "unix", Path: "/tmp/barn.sock"}
 	if !listenerDescriptorEqual(manager.removed, want) {
 		t.Fatalf("removed %+v, want %+v", manager.removed, want)
 	}

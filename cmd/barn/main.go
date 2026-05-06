@@ -186,6 +186,10 @@ func flagWasProvided(name string) bool {
 func formatListenerSpecs(specs []builtins.ListenerSpec) string {
 	parts := make([]string, 0, len(specs))
 	for _, spec := range specs {
+		if spec.Protocol == builtins.ListenerProtocolUnix {
+			parts = append(parts, fmt.Sprintf("%s://%s", spec.Protocol, spec.Path))
+			continue
+		}
 		if spec.Path != "" {
 			parts = append(parts, fmt.Sprintf("%s://%s:%d%s", spec.Protocol, spec.Interface, spec.Port, spec.Path))
 			continue

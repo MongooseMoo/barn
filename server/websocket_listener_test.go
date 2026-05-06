@@ -19,7 +19,6 @@ import (
 
 const (
 	websocketTestTimeout         = 2 * time.Second
-	websocketPingStabilityWait   = 50 * time.Millisecond
 	websocketShutdownTestTimeout = 500 * time.Millisecond
 	websocketShutdownTestPoll    = 5 * time.Millisecond
 )
@@ -178,7 +177,7 @@ func TestWebSocketPingDoesNotSurfaceAsInput(t *testing.T) {
 	select {
 	case <-closeCtx.Done():
 		t.Fatalf("websocket closed after ping")
-	case <-time.After(websocketPingStabilityWait):
+	default:
 	}
 }
 

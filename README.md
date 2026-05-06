@@ -60,11 +60,14 @@ Common runtime flags:
 .\barn.exe -db Test.db -listen tls://:7778?cert=server.crt&key=server.key
 .\barn.exe -db Test.db -listen ws://:7779/moo
 .\barn.exe -db Test.db -listen wss://:7780/moo?cert=server.crt&key=server.key
+.\barn.exe -db Test.db -listen unix:runtime.sock
 ```
 
 WebSocket listeners use message framing: one text message is one MOO input
 line, and one logical server output line is one WebSocket text message. The
 full WS/WSS behavior is specified in [Server](spec/server.md).
+Unix-domain listeners use the same line protocol as TCP listeners and may also
+be created from MOO with `listen(obj, "runtime.sock")`.
 
 Database and inspection flags exit after completing the requested operation:
 

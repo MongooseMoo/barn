@@ -13,7 +13,10 @@ import (
 	"sync"
 )
 
-const ListenerProtocolTCP = "tcp"
+const (
+	ListenerProtocolTCP  = "tcp"
+	ListenerProtocolUnix = "unix"
+)
 
 type ListenerSpec struct {
 	Protocol           string
@@ -730,7 +733,7 @@ func normalizeListenerProtocol(protocol string) string {
 
 func listenerProtocolSupported(protocol string) bool {
 	switch normalizeListenerProtocol(protocol) {
-	case ListenerProtocolTCP, "tls", "ws", "wss":
+	case ListenerProtocolTCP, ListenerProtocolUnix, "tls", "ws", "wss":
 		return true
 	default:
 		return false
@@ -745,7 +748,9 @@ func listenerDescriptorValue(desc ListenerDescriptor) types.Value {
 
 	pairs := [][2]types.Value{
 		{types.NewStr("protocol"), types.NewStr(protocol)},
-		{types.NewStr("port"), types.NewInt(desc.Port)},
+	}
+	if protocol != ListenerProtocolUnix || desc.Port != 0 {
+		pairs = append(pairs, [2]types.Value{types.NewStr("port"), types.NewInt(desc.Port)})
 	}
 	if desc.Path != "" {
 		pairs = append(pairs, [2]types.Value{types.NewStr("path"), types.NewStr(desc.Path)})
@@ -780,24 +785,27 @@ func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.
 				return ListenerDescriptor{}, types.E_INVARG
 			}
 		}
-		portValue, ok := v.Get(types.NewStr("port"))
-		if !ok {
+		if portValue, ok := v.Get(types.NewStr("port")); ok {
+			port, ok := portValue.(types.IntValue)
+			if !ok {
+				return ListenerDescriptor{}, types.E_TYPE
+			}
+			if port.Val < 0 || port.Val > 65535 {
+				return ListenerDescriptor{}, types.E_INVARG
+			}
+			desc.Port = port.Val
+		} else if desc.Protocol != ListenerProtocolUnix {
 			return ListenerDescriptor{}, types.E_INVARG
 		}
-		port, ok := portValue.(types.IntValue)
-		if !ok {
-			return ListenerDescriptor{}, types.E_TYPE
-		}
-		if port.Val < 0 || port.Val > 65535 {
-			return ListenerDescriptor{}, types.E_INVARG
-		}
-		desc.Port = port.Val
 		if pathValue, ok := v.Get(types.NewStr("path")); ok {
 			path, ok := pathValue.(types.StrValue)
 			if !ok {
 				return ListenerDescriptor{}, types.E_TYPE
 			}
 			desc.Path = path.Value()
+		}
+		if desc.Protocol == ListenerProtocolUnix && desc.Path == "" {
+			return ListenerDescriptor{}, types.E_INVARG
 		}
 		return desc, types.E_NONE
 	default:

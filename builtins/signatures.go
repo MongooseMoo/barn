@@ -635,18 +635,21 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	port, ok := args[1].(types.IntValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-	if port.Val < 0 || port.Val > 65535 {
-		return types.Err(types.E_INVARG)
-	}
-
 	spec := ListenerSpec{
 		Protocol: ListenerProtocolTCP,
 		Object:   obj.ID(),
-		Port:     port.Val,
+	}
+	switch point := args[1].(type) {
+	case types.IntValue:
+		if point.Val < 0 || point.Val > 65535 {
+			return types.Err(types.E_INVARG)
+		}
+		spec.Port = point.Val
+	case types.StrValue:
+		spec.Protocol = ListenerProtocolUnix
+		spec.Path = point.Value()
+	default:
+		return types.Err(types.E_TYPE)
 	}
 	if len(args) >= 3 {
 		options, ok := args[2].(types.MapValue)
@@ -696,6 +699,9 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 				spec.TLSKeyPath = keyPath.Value()
 			}
 		}
+	}
+	if spec.Protocol == ListenerProtocolUnix && spec.Path == "" {
+		return types.Err(types.E_INVARG)
 	}
 
 	desc, err := globalConnManager.AddListener(spec)
