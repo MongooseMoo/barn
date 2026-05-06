@@ -15,7 +15,11 @@ import (
 	"github.com/coder/websocket"
 )
 
-const websocketPingStabilityWait = 50 * time.Millisecond
+const (
+	websocketPingStabilityWait   = 50 * time.Millisecond
+	websocketShutdownTestTimeout = 500 * time.Millisecond
+	websocketShutdownTestPoll    = 5 * time.Millisecond
+)
 
 func TestWebSocketListenerReportsMetadataAndRoundTrip(t *testing.T) {
 	cm := NewConnectionManager(nil, 0)
@@ -204,6 +208,28 @@ func TestWebSocketHTTPPolicy(t *testing.T) {
 		t.Fatalf("dial with cross origin header: %v", err)
 	}
 	defer client.Close(websocket.StatusNormalClosure, "")
+}
+
+func TestWebSocketShutdownClosesActiveConnection(t *testing.T) {
+	h := startWebSocketHarness(t, "/moo")
+	h.cm.shutdownTimeout = websocketShutdownTestTimeout
+	h.cm.shutdownPoll = websocketShutdownTestPoll
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	client, _, err := websocket.Dial(ctx, h.url, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer client.Close(websocket.StatusNormalClosure, "")
+	loginWebSocket(t, client)
+	_ = readWebSocketText(t, client)
+
+	h.cm.Shutdown()
+	_, _, err = client.Read(ctx)
+	if err == nil {
+		t.Fatalf("read after connection manager shutdown succeeded, want close")
+	}
 }
 
 type websocketHarness struct {
