@@ -52,6 +52,8 @@ type ConnectionManager struct {
 	outboundClients   map[int64]net.Conn
 	listenPort        int
 	connectTimeout    time.Duration
+	shutdownTimeout   time.Duration
+	shutdownPoll      time.Duration
 }
 
 // NewConnectionManager creates a new connection manager
@@ -66,6 +68,8 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 		server:            server,
 		listenPort:        port,
 		connectTimeout:    5 * time.Minute,
+		shutdownTimeout:   2 * time.Second,
+		shutdownPoll:      10 * time.Millisecond,
 	}
 }
 
@@ -599,6 +603,50 @@ func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) er
 		return record.httpServer.Close()
 	}
 	return record.listener.Close()
+}
+
+func (cm *ConnectionManager) Shutdown() {
+	cm.mu.Lock()
+	records := make([]*listenerRecord, 0, len(cm.listeners))
+	for _, record := range cm.listeners {
+		records = append(records, record)
+	}
+	connections := make([]*Connection, 0, len(cm.connections))
+	for _, conn := range cm.connections {
+		connections = append(connections, conn)
+	}
+	outboundClients := make([]net.Conn, 0, len(cm.outboundClients))
+	for _, client := range cm.outboundClients {
+		outboundClients = append(outboundClients, client)
+	}
+	timeout := cm.shutdownTimeout
+	poll := cm.shutdownPoll
+	cm.mu.Unlock()
+
+	for _, record := range records {
+		if record.httpServer != nil {
+			_ = record.httpServer.Close()
+			continue
+		}
+		_ = record.listener.Close()
+	}
+	for _, conn := range connections {
+		_ = conn.Close()
+	}
+	for _, client := range outboundClients {
+		_ = client.Close()
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cm.mu.Lock()
+		remaining := len(cm.connections)
+		cm.mu.Unlock()
+		if remaining == 0 {
+			return
+		}
+		time.Sleep(poll)
+	}
 }
 
 func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
