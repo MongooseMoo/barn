@@ -313,7 +313,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		return
 	}
 
-	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX, EVAL)
+	// Handle intrinsic commands (PREFIX, SUFFIX, OUTPUTPREFIX, OUTPUTSUFFIX)
 	verbUpper := strings.ToUpper(cmd.Verb)
 	switch verbUpper {
 	case "PREFIX", "OUTPUTPREFIX":
@@ -326,40 +326,6 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		conn.outputSuffix = cmd.Argstr
 		conn.mu.Unlock()
 		return
-	case "EVAL":
-		code := strings.TrimSpace(cmd.Argstr)
-		if code == "" {
-			return
-		}
-		// Try database verb dispatch first (matches Toast behavior).
-		// In Toast, eval is NOT an intrinsic — it goes through normal
-		// verb dispatch. This lets database-defined eval verbs (e.g.
-		// #2:eval in mongoose.db) handle formatting and set_task_perms.
-		match := FindVerb(s.store, player, location, cmd)
-		if match != nil {
-			if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
-				program, errors := db.CompileVerb(match.Verb.Code)
-				if len(errors) > 0 {
-					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-					return
-				}
-				match.Verb.Program = program
-			}
-			if match.Verb.Program != nil {
-				// Send PREFIX/SUFFIX framing around verb dispatch,
-				// matching Toast's output buffer flush behavior.
-				outputPrefix := conn.GetOutputPrefix()
-				outputSuffix := conn.GetOutputSuffix()
-				if outputPrefix != "" {
-					_ = conn.Send(outputPrefix)
-				}
-				s.executeVerbTaskSync(player, match, cmd, outputSuffix)
-				return
-			}
-		}
-		// Fallback for databases without an eval verb
-		s.EvalCommand(player, code, conn)
-		return
 	}
 
 	// Raw command response framing for conformance transport.
@@ -370,7 +336,11 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 
 	// Invoke #0:do_command for normal commands
-	handled, _ := s.callDoCommand(player, append([]string{cmd.Verb}, cmd.Args...))
+	commandWords := cmd.Words
+	if len(commandWords) == 0 {
+		commandWords = append([]string{cmd.Verb}, cmd.Args...)
+	}
+	handled, _ := s.callDoCommand(player, commandWords)
 	if handled {
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
@@ -391,6 +361,17 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	// Find the verb
 	match := FindVerb(s.store, player, location, cmd)
 	if match == nil {
+		if verbUpper == "EVAL" {
+			code := strings.TrimSpace(cmd.Argstr)
+			if code != "" {
+				s.EvalCommand(player, code, conn)
+			}
+			if outputSuffix != "" {
+				_ = conn.Send(outputSuffix)
+			}
+			return
+		}
+
 		if hasVerbNameMatch(s.store, player, location, cmd) {
 			conn.Send("I couldn't understand that.")
 			if outputSuffix != "" {
