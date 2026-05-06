@@ -1,15 +1,5 @@
 package types
 
-// ObjID represents a MOO object reference
-// -1 = nothing, -2 = ambiguous, -3 = failed_match, 0+ = valid object
-type ObjID int64
-
-const (
-	ObjNothing      ObjID = -1
-	ObjAmbiguous    ObjID = -2
-	ObjFailedMatch  ObjID = -3
-)
-
 // ErrorCode represents a MOO error type (E_TYPE, E_DIV, etc.)
 type ErrorCode int
 
@@ -173,12 +163,4 @@ func ErrorFromString(s string) (ErrorCode, bool) {
 	default:
 		return E_NONE, false
 	}
-}
-
-// Value is the interface all MOO values implement
-type Value interface {
-	Type() TypeCode
-	String() string   // MOO literal representation
-	Equal(Value) bool // Deep equality
-	Truthy() bool     // MOO truthiness rules
 }
