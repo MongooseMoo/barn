@@ -183,9 +183,6 @@ func builtinQueueInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	if len(args) == 0 {
-		if !ctx.IsWizard {
-			return types.Err(types.E_PERM)
-		}
 		players := []types.ObjID{}
 		seen := map[types.ObjID]struct{}{}
 		if ctx.Player > 0 {
@@ -760,7 +757,7 @@ func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) ty
 }
 
 func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) > 1 {
+	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	if !ctx.IsWizard {
