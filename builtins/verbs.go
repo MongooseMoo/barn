@@ -206,6 +206,10 @@ func canReadVerb(ctx *types.TaskContext, verb *db.Verb) bool {
 	return ctx.IsWizard || verb.Owner == ctx.Programmer || verb.Perms.Has(db.VerbRead)
 }
 
+func canWriteVerb(ctx *types.TaskContext, verb *db.Verb) bool {
+	return ctx.IsWizard || verb.Owner == ctx.Programmer || verb.Perms.Has(db.VerbWrite)
+}
+
 // builtinVerbInfo: verb_info(object, name-or-index) → LIST
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
@@ -641,12 +645,10 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
+	verb := findLocalVerb(obj, nameVal.Value())
+	if verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
-
-	// TODO: Check permissions (must be owner or wizard)
 
 	// Parse info list (1-indexed)
 	owner, ok := infoList.Get(1).(types.ObjValue)
@@ -662,6 +664,12 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 	namesStr, ok := infoList.Get(3).(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+	if !store.Valid(owner.ID()) {
+		return types.Err(types.E_INVARG)
+	}
+	if !canWriteVerb(ctx, verb) || (!ctx.IsWizard && verb.Owner != owner.ID()) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Update verb
@@ -721,12 +729,13 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
+	verb := findLocalVerb(obj, nameVal.Value())
+	if verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
-
-	// TODO: Check permissions (must be owner or wizard)
+	if !canWriteVerb(ctx, verb) {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse args list (1-indexed)
 	// Accept either string or object values (objects get converted to string)
@@ -776,12 +785,16 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
+	verb := findLocalVerb(obj, nameVal.Value())
+	if verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
-
-	// TODO: Check permissions (must be owner or wizard)
+	if !ctx.IsWizard {
+		programmer := store.Get(ctx.Programmer)
+		if programmer == nil || !programmer.Flags.Has(db.FlagProgrammer) || !canWriteVerb(ctx, verb) {
+			return types.Err(types.E_PERM)
+		}
+	}
 
 	// Accept either string (single line) or list of strings
 	var lines []string
