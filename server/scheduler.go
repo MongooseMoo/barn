@@ -217,6 +217,10 @@ func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
 		Player: player,
 		Line:   line,
 	}
+	if player < 0 && connID != 0 {
+		s.processInput(evt)
+		return
+	}
 	s.inputQueue <- evt
 }
 

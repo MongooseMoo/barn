@@ -15,6 +15,9 @@ import (
 // shouldCallDoLoginCommand checks whether do_login_command should be called
 // for the given input. Trusted proxy blank lines route through do_blank_command first.
 func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool {
+	if line == "" && !s.isTrustedProxyConnection(conn) {
+		return false
+	}
 	if line != "" || !s.isTrustedProxyConnection(conn) {
 		return true
 	}
