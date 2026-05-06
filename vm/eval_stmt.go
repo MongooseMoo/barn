@@ -13,6 +13,8 @@ import (
 // EvalStatements evaluates a sequence of statements
 // Returns the value of the last statement (for eval() and ; command)
 func (e *Evaluator) EvalStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
+	e.ensureContextDependencies(ctx)
+
 	// Set up context variables from task context
 	e.env.Set("player", types.NewObj(ctx.Player))
 
