@@ -335,11 +335,18 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(result) == 0 && ctx.Verb == "" {
 		return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
 	}
+	if len(result) == 0 && ctx.Verb != "" && len(stack) >= 2 && stack[len(stack)-2].IsEvalFrame {
+		return types.Ok(syntheticEvalCallersN(ctx, includeLineNumbers, 3))
+	}
 
 	return types.Ok(types.NewList(result))
 }
 
 func syntheticEvalCallers(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
+	return syntheticEvalCallersN(ctx, includeLineNumbers, 2)
+}
+
+func syntheticEvalCallersN(ctx *types.TaskContext, includeLineNumbers bool, count int) types.Value {
 	makeFrame := func() types.Value {
 		base := []types.Value{
 			types.NewObj(types.ObjNothing), // this
@@ -353,7 +360,11 @@ func syntheticEvalCallers(ctx *types.TaskContext, includeLineNumbers bool) types
 		}
 		return types.NewList(base)
 	}
-	return types.NewList([]types.Value{makeFrame(), makeFrame()})
+	frames := make([]types.Value, count)
+	for i := range frames {
+		frames[i] = makeFrame()
+	}
+	return types.NewList(frames)
 }
 
 // builtinRaise: raise(error [, message [, value]]) → none
