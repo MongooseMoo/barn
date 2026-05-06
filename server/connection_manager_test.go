@@ -83,3 +83,40 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 		t.Fatalf("first listener was closed by duplicate registration")
 	}
 }
+
+func TestStartListenersCreatesMultipleTCPListeners(t *testing.T) {
+	cm := NewConnectionManager(nil, 0)
+	err := cm.StartListeners([]builtins.ListenerSpec{
+		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
+		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
+	})
+	if err != nil {
+		t.Fatalf("start listeners: %v", err)
+	}
+	defer closeAllListeners(cm)
+
+	infos := cm.ListenerInfos()
+	if len(infos) != 2 {
+		t.Fatalf("got %d listeners, want 2", len(infos))
+	}
+	for _, info := range infos {
+		if info.Protocol != builtins.ListenerProtocolTCP {
+			t.Fatalf("unexpected protocol in listener info: %+v", info)
+		}
+		if info.Port <= 0 {
+			t.Fatalf("listener did not bind a port: %+v", info)
+		}
+	}
+}
+
+func closeAllListeners(cm *ConnectionManager) {
+	cm.mu.Lock()
+	records := make([]*listenerRecord, 0, len(cm.listeners))
+	for _, record := range cm.listeners {
+		records = append(records, record)
+	}
+	cm.mu.Unlock()
+	for _, record := range records {
+		_ = record.listener.Close()
+	}
+}

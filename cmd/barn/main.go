@@ -117,19 +117,9 @@ func main() {
 	// Normal server startup
 	log.Printf("Barn MOO Server")
 	log.Printf("Database: %s", *dbPath)
-	listenerSpecs := server.DefaultListenSpecs(*port)
-	if len(listenFlags) > 0 {
-		if flagWasProvided("port") {
-			log.Fatalf("Cannot combine -port with -listen")
-		}
-		listenerSpecs = nil
-		for _, raw := range listenFlags {
-			spec, err := server.ParseListenSpec(raw)
-			if err != nil {
-				log.Fatalf("Invalid -listen value: %v", err)
-			}
-			listenerSpecs = append(listenerSpecs, spec)
-		}
+	listenerSpecs, err := buildListenerSpecs(*port, listenFlags, flagWasProvided("port"))
+	if err != nil {
+		log.Fatal(err)
 	}
 	log.Printf("Listeners: %s", formatListenerSpecs(listenerSpecs))
 
@@ -161,6 +151,25 @@ func main() {
 	if err := srv.Start(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+func buildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]builtins.ListenerSpec, error) {
+	if len(listenFlags) == 0 {
+		return server.DefaultListenSpecs(port), nil
+	}
+	if portProvided {
+		return nil, fmt.Errorf("cannot combine -port with -listen")
+	}
+
+	listenerSpecs := make([]builtins.ListenerSpec, 0, len(listenFlags))
+	for _, raw := range listenFlags {
+		spec, err := server.ParseListenSpec(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -listen value: %w", err)
+		}
+		listenerSpecs = append(listenerSpecs, spec)
+	}
+	return listenerSpecs, nil
 }
 
 func flagWasProvided(name string) bool {
