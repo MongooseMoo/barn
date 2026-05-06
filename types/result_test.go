@@ -23,10 +23,10 @@ func TestResultConstructors(t *testing.T) {
 		}
 	})
 
-	t.Run("Ret", func(t *testing.T) {
-		r := Ret(NewInt(42))
+	t.Run("Return", func(t *testing.T) {
+		r := Return(NewInt(42))
 		if !r.IsReturn() {
-			t.Error("Ret() should create return result")
+			t.Error("Return() should create return result")
 		}
 		if !r.Val.Equal(NewInt(42)) {
 			t.Errorf("Expected value 42, got %v", r.Val)
@@ -60,7 +60,7 @@ func TestResultPredicates(t *testing.T) {
 	}{
 		{"normal", Ok(NewInt(42)), true, false, false, false, false},
 		{"error", Err(E_TYPE), false, true, false, false, false},
-		{"return", Ret(NewInt(42)), false, false, true, false, false},
+		{"return", Return(NewInt(42)), false, false, true, false, false},
 		{"break", Break("", nil), false, false, false, true, false},
 		{"continue", Continue(""), false, false, false, false, true},
 	}
