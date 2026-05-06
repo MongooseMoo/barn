@@ -318,6 +318,8 @@ func evalExpression(store *db.Store, expr string) {
 
 	// Create a task context
 	ctx := types.NewTaskContext()
+	ctx.Store = store
+	ctx.Registry = evaluator.GetRegistry()
 
 	// Evaluate the expression
 	result := evaluator.Eval(node, ctx)
