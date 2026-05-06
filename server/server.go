@@ -71,6 +71,7 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire force_input() builtin to scheduler
 	builtins.SetInputForcer(s.scheduler)
+	builtins.SetTaskYielder(s.scheduler)
 
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })

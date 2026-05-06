@@ -7,6 +7,16 @@ import (
 	"sort"
 )
 
+type TaskYielder interface {
+	YieldReadyTasks() int
+}
+
+var globalTaskYielder TaskYielder
+
+func SetTaskYielder(yielder TaskYielder) {
+	globalTaskYielder = yielder
+}
+
 // Task management builtins - full implementation
 
 // builtinQueuedTasks: queued_tasks() → LIST
@@ -450,22 +460,24 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 // builtinYin: yin([threshold [, ticks [, seconds]]]) → none
-// Yields execution if resources are low.
-// Currently implemented as a no-op since we don't have tick-based execution.
+// Yields execution if requested resource thresholds have been crossed.
 func builtinYin(ctx *types.TaskContext, args []types.Value) types.Result {
-	// Args: optional threshold, ticks, seconds - all INT
-	// For now, just accept 0-3 arguments and return 0 (no-op)
 	if len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
-	// Validate args are INTs if provided
 	for _, arg := range args {
 		if _, ok := arg.(types.IntValue); !ok {
 			return types.Err(types.E_TYPE)
 		}
 	}
 
-	// No-op - just return 0
+	if len(args) >= 2 && globalTaskYielder != nil {
+		tickThreshold := args[1].(types.IntValue).Val
+		if ctx.TicksRemaining <= tickThreshold {
+			globalTaskYielder.YieldReadyTasks()
+		}
+	}
+
 	return types.Ok(types.NewInt(0))
 }

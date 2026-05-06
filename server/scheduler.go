@@ -668,6 +668,10 @@ func (s *Scheduler) processReadyTasks() int {
 	return len(readyTasks)
 }
 
+func (s *Scheduler) YieldReadyTasks() int {
+	return s.processReadyTasks()
+}
+
 func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 	s.mu.Lock()
 	defer s.mu.Unlock()
