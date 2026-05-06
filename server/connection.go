@@ -110,6 +110,10 @@ func (c *Connection) RemoteAddr() string {
 }
 
 func (c *Connection) WakeInputReader() {
+	if wakeTransport, ok := c.transport.(interface{ WakeReader() }); ok {
+		wakeTransport.WakeReader()
+		return
+	}
 	if deadlineTransport, ok := c.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
 		_ = deadlineTransport.SetReadDeadline(time.Now())
 	}
