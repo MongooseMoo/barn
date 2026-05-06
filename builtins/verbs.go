@@ -167,6 +167,45 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList(names))
 }
 
+func findLocalVerb(obj *db.Object, name string) *db.Verb {
+	if verb, ok := obj.Verbs[name]; ok {
+		return verb
+	}
+	if verb, ok := obj.Verbs[":"+name]; ok {
+		return verb
+	}
+	for _, verb := range obj.Verbs {
+		for _, alias := range verb.Names {
+			if localVerbNameMatches(alias, name) {
+				return verb
+			}
+		}
+	}
+	return nil
+}
+
+func localVerbNameMatches(verbPattern, searchName string) bool {
+	pattern := strings.ToLower(verbPattern)
+	search := strings.ToLower(searchName)
+	if strings.HasPrefix(pattern, ":") {
+		pattern = pattern[1:]
+	}
+	starPos := strings.Index(pattern, "*")
+	if starPos == -1 {
+		return pattern == search
+	}
+	if pattern == "*" {
+		return true
+	}
+	prefix := pattern[:starPos]
+	full := pattern[:starPos] + pattern[starPos+1:]
+	return strings.HasPrefix(search, prefix) && strings.HasPrefix(full, search)
+}
+
+func canReadVerb(ctx *types.TaskContext, verb *db.Verb) bool {
+	return ctx.IsWizard || verb.Owner == ctx.Programmer || verb.Perms.Has(db.VerbRead)
+}
+
 // builtinVerbInfo: verb_info(object, name-or-index) → LIST
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
@@ -199,9 +238,8 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Accept string (verb name) or integer (verb index)
 	switch v := args[1].(type) {
 	case types.StrValue:
-		var err error
-		verb, _, err = store.FindVerb(objID, v.Value())
-		if err != nil {
+		verb = findLocalVerb(obj, v.Value())
+		if verb == nil {
 			return types.Err(types.E_VERBNF)
 		}
 	case types.IntValue:
@@ -216,6 +254,9 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	if verb == nil {
 		return types.Err(types.E_VERBNF)
+	}
+	if !canReadVerb(ctx, verb) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Build names string (space-separated aliases)
@@ -263,9 +304,8 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Accept string (verb name) or integer (verb index)
 	switch v := args[1].(type) {
 	case types.StrValue:
-		var err error
-		verb, _, err = store.FindVerb(objID, v.Value())
-		if err != nil {
+		verb = findLocalVerb(obj, v.Value())
+		if verb == nil {
 			return types.Err(types.E_VERBNF)
 		}
 	case types.IntValue:
@@ -280,6 +320,9 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	if verb == nil {
 		return types.Err(types.E_VERBNF)
+	}
+	if !canReadVerb(ctx, verb) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Unparse the prep spec to get full string (e.g., "on" -> "on top of/on/onto/upon")
@@ -323,13 +366,13 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
+	verb := findLocalVerb(obj, nameVal.Value())
+	if verb == nil {
 		return types.Err(types.E_VERBNF)
 	}
 
 	// Check read permission (wizards can always read)
-	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard {
+	if !canReadVerb(ctx, verb) {
 		return types.Err(types.E_PERM)
 	}
 
