@@ -12,6 +12,10 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
+	registry, ok := ctx.Registry.(*Registry)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
 
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
@@ -47,6 +51,17 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Check for recursive move (moving into self or descendant)
 	if isDescendant(whatVal.ID(), whereVal.ID(), store) {
 		return types.Err(types.E_RECMOVE)
+	}
+
+	if whereVal.ID() != types.ObjNothing {
+		result := registry.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
+		if result.Flow == types.FlowException {
+			if result.Error != types.E_VERBNF {
+				return result
+			}
+		} else if !result.Val.Truthy() && !ctx.IsWizard {
+			return types.Err(types.E_NACC)
+		}
 	}
 
 	// Remove from old location's contents
