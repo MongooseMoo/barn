@@ -15,6 +15,8 @@ import (
 	"github.com/coder/websocket"
 )
 
+const websocketPingStabilityWait = 50 * time.Millisecond
+
 func TestWebSocketListenerReportsMetadataAndRoundTrip(t *testing.T) {
 	cm := NewConnectionManager(nil, 0)
 
@@ -169,7 +171,7 @@ func TestWebSocketPingDoesNotSurfaceAsInput(t *testing.T) {
 	select {
 	case <-closeCtx.Done():
 		t.Fatalf("websocket closed after ping")
-	case <-time.After(50 * time.Millisecond):
+	case <-time.After(websocketPingStabilityWait):
 	}
 }
 
