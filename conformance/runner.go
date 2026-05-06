@@ -24,8 +24,8 @@ type TestResult struct {
 
 // Runner executes conformance tests
 type Runner struct {
-	evaluator    *vm.Evaluator
-	setupSuites  map[string]bool // Track which suites have had setup run
+	evaluator   *vm.Evaluator
+	setupSuites map[string]bool // Track which suites have had setup run
 }
 
 // NewRunner creates a new test runner with the default database
@@ -212,6 +212,8 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 
 	// Create task context
 	ctx := types.NewTaskContext()
+	ctx.Store = r.evaluator.GetStore()
+	ctx.Registry = r.evaluator.GetRegistry()
 
 	// Set up player and programmer for tests
 	// Tests expect player to be #1 (matches environment.go default)
