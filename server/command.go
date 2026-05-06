@@ -213,7 +213,7 @@ func parseCommand(input string, originalWords []string) *ParsedCommand {
 
 	if prep == PrepNone {
 		// No preposition - everything is direct object
-		cmd.Dobjstr = cmd.Argstr
+		cmd.Dobjstr = strings.Join(restWords, " ")
 	} else {
 		cmd.Prep = prep
 		cmd.Prepstr = prepstr
