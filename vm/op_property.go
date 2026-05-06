@@ -37,7 +37,7 @@ func (vm *VM) executeGetProp() error {
 
 	// Check if it's a waif (must check before ObjValue since waifs are a different type)
 	if waifVal, ok := objVal.(types.WaifValue); ok {
-		return vm.vmGetWaifProp(waifVal, propName)
+		return vm.getWaifProp(waifVal, propName)
 	}
 
 	// Check if it's an object reference
@@ -79,9 +79,9 @@ func (vm *VM) executeGetProp() error {
 	return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 }
 
-// vmGetWaifProp handles property read on a waif value.
+// getWaifProp handles property read on a waif value.
 // Mirrors the tree-walker's waifProperty() logic.
-func (vm *VM) vmGetWaifProp(waif types.WaifValue, propName string) error {
+func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	// Special waif properties
 	switch propName {
 	case "owner":
@@ -163,7 +163,7 @@ func (vm *VM) executeSetProp() error {
 
 	// Check if it's a waif (must check before ObjValue since waifs are a different type)
 	if waifVal, ok := objVal.(types.WaifValue); ok {
-		return vm.vmSetWaifProp(waifVal, propName, value)
+		return vm.setWaifProp(waifVal, propName, value)
 	}
 
 	// Check if it's an object reference
@@ -230,9 +230,9 @@ func (vm *VM) executeSetProp() error {
 	return nil
 }
 
-// vmSetWaifProp handles property assignment on a waif value.
+// setWaifProp handles property assignment on a waif value.
 // Mirrors the tree-walker's assignWaifProperty() logic.
-func (vm *VM) vmSetWaifProp(waif types.WaifValue, propName string, value types.Value) error {
+func (vm *VM) setWaifProp(waif types.WaifValue, propName string, value types.Value) error {
 	// These properties cannot be set on waifs
 	switch propName {
 	case "owner", "class", "wizard", "programmer":
