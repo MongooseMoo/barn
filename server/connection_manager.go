@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type listenerRecord struct {
@@ -27,6 +30,7 @@ type listenerRecord struct {
 	iface         string
 	tls           bool
 	tlsConfig     *tls.Config
+	httpServer    *http.Server
 	primary       bool
 }
 
@@ -114,6 +118,13 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		tlsConfig:     tlsConfig,
 		primary:       primary,
 	}
+	if desc.Protocol == "ws" || desc.Protocol == "wss" {
+		record.httpServer = &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				cm.handleWebSocketRequest(record, w, r)
+			}),
+		}
+	}
 
 	cm.mu.Lock()
 	if _, exists := cm.listeners[key]; exists {
@@ -130,7 +141,11 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		log.Printf("Added %s listener on port %d for #%d", spec.Protocol, port, spec.Object)
 	}
 
-	go cm.acceptConnections(record)
+	if record.httpServer != nil {
+		go cm.serveWebSocketListener(record)
+	} else {
+		go cm.acceptConnections(record)
+	}
 	return desc, nil
 }
 
@@ -171,6 +186,40 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 	log.Printf("New connection from %s (ID: %d)", conn.RemoteAddr(), conn.ID)
 
 	// Handle connection in goroutine
+	go cm.HandleConnection(conn)
+}
+
+func (cm *ConnectionManager) serveWebSocketListener(record *listenerRecord) {
+	err := record.httpServer.Serve(record.listener)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+		log.Printf("WebSocket listener error: %v", err)
+	}
+}
+
+func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != record.path {
+		http.NotFound(w, r)
+		return
+	}
+	if !isWebSocketUpgrade(r) {
+		w.Header().Set("Upgrade", "websocket")
+		http.Error(w, "WebSocket upgrade required", http.StatusUpgradeRequired)
+		return
+	}
+
+	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		log.Printf("WebSocket upgrade error from %s: %v", r.RemoteAddr, err)
+		return
+	}
+	wsConn.SetReadLimit(1 << 20)
+
+	transport := NewWebSocketTransport(wsConn, r.RemoteAddr)
+	conn := cm.NewConnectionFromTransport(transport)
+	conn.SetListener(record.object, record.port, record.printMessages)
+
+	log.Printf("New %s connection from %s (ID: %d)", record.protocol, conn.RemoteAddr(), conn.ID)
+
 	go cm.HandleConnection(conn)
 }
 
@@ -489,8 +538,23 @@ func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.L
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" {
+	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" && spec.Protocol != "ws" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
+	}
+	if spec.Protocol == "ws" {
+		if spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
+			return builtins.ListenerDescriptor{}, fmt.Errorf("ws listener does not accept TLS options")
+		}
+		if spec.Path == "" {
+			spec.Path = "/"
+		}
+		if !strings.HasPrefix(spec.Path, "/") {
+			return builtins.ListenerDescriptor{}, fmt.Errorf("websocket listener path must start with /")
+		}
+		return cm.listenAndRegister(spec, primary, nil)
+	}
+	if spec.Path != "" {
+		return builtins.ListenerDescriptor{}, fmt.Errorf("%s listener does not accept path", spec.Protocol)
 	}
 	if spec.Protocol == "tls" {
 		if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
@@ -531,6 +595,9 @@ func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) er
 	delete(cm.listeners, key)
 	cm.mu.Unlock()
 
+	if record.httpServer != nil {
+		return record.httpServer.Close()
+	}
 	return record.listener.Close()
 }
 
@@ -659,6 +726,18 @@ func formatListenerDescriptor(desc builtins.ListenerDescriptor) string {
 		return fmt.Sprintf("%s://:%d", protocol, desc.Port)
 	}
 	return fmt.Sprintf("%s://:%d%s", protocol, desc.Port, path)
+}
+
+func isWebSocketUpgrade(r *http.Request) bool {
+	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		return false
+	}
+	for _, part := range strings.Split(r.Header.Get("Connection"), ",") {
+		if strings.EqualFold(strings.TrimSpace(part), "upgrade") {
+			return true
+		}
+	}
+	return false
 }
 
 // SwitchPlayer switches a connection from one player to another
