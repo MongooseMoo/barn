@@ -56,7 +56,7 @@ func NewScheduler(store *db.Store) *Scheduler {
 		waiting:    NewTaskQueue(),
 		nextTaskID: 1,
 		evaluator:  vm.NewEvaluatorWithStore(store),
-		registry:   vm.BuildVMRegistry(store),
+		registry:   vm.BuildVMRegistry(),
 		store:      store,
 		inputQueue: make(chan InputEvent, 256),
 		ctx:        ctx,
@@ -1055,6 +1055,8 @@ func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.Wai
 	recycleCtx.Verb = ":recycle"
 	recycleCtx.Task = parentCtx.Task
 	recycleCtx.TaskID = parentCtx.TaskID
+	recycleCtx.Store = s.store
+	recycleCtx.Registry = s.registry
 
 	recycleVM := vm.NewVM(s.store, s.registry)
 	recycleVM.Context = recycleCtx
@@ -1097,6 +1099,8 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Attach task to context so builtins can access task_local
 	ctx.Task = t
 	ctx.TaskID = t.ID
+	ctx.Store = s.store
+	ctx.Registry = s.registry
 
 	// Set up cancellation with deadline
 	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
@@ -1584,6 +1588,8 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	ctx.Verb = verbName
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Task = t               // Attach task so VM can track frames
+	ctx.Store = s.store
+	ctx.Registry = s.registry
 
 	// Push activation frame for traceback support
 	t.PushFrame(task.ActivationFrame{
@@ -1701,6 +1707,8 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
+	ctx.Store = s.store
+	ctx.Registry = s.registry
 
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.
