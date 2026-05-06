@@ -3857,11 +3857,6 @@ func TestParity_CommandEnvVarsInVerbFrame(t *testing.T) {
 			}
 
 			registry := builtins.NewRegistry()
-			registry.RegisterObjectBuiltins(store)
-			registry.RegisterPropertyBuiltins(store)
-			registry.RegisterVerbBuiltins(store)
-			registry.RegisterCryptoBuiltins(store)
-			registry.RegisterSystemBuiltins(store)
 
 			c := NewCompilerWithRegistry(registry)
 			c.beginScope()
