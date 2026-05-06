@@ -115,6 +115,8 @@ func NewVM(store *db.Store, registry *builtins.Registry) *VM {
 // FlowException for uncaught errors, FlowSuspend when a suspend() yields control,
 // and FlowFork when a fork statement yields control.
 func (vm *VM) Run(prog *Program) types.Result {
+	vm.ensureContextDependencies()
+
 	// Create initial frame
 	frame := &StackFrame{
 		Program:     prog,
@@ -146,6 +148,8 @@ func (vm *VM) Run(prog *Program) types.Result {
 // in the initial frame. This is used by the scheduler for top-level verb execution
 // (command verbs and server hooks like do_login_command).
 func (vm *VM) RunWithVerbContext(prog *Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) types.Result {
+	vm.ensureContextDependencies()
+
 	frame := vm.PrepareVerbFrame(prog, thisObj, player, caller, verbName, verbLoc, args)
 
 	// Pre-populate verb context variables
@@ -168,6 +172,14 @@ func (vm *VM) syncContextTicks() {
 		left = 0
 	}
 	vm.Context.TicksRemaining = left
+}
+
+func (vm *VM) ensureContextDependencies() {
+	if vm.Context == nil {
+		vm.Context = types.NewTaskContext()
+	}
+	vm.Context.Store = vm.Store
+	vm.Context.Registry = vm.Builtins
 }
 
 // PrepareVerbFrame creates and pushes an initial frame for a verb without starting
@@ -203,6 +215,7 @@ func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.
 // ExecuteLoop starts the VM's execution loop. Use this after PrepareVerbFrame
 // to begin execution after setting up initial variables.
 func (vm *VM) ExecuteLoop() types.Result {
+	vm.ensureContextDependencies()
 	return vm.executeLoop()
 }
 
