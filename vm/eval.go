@@ -80,6 +80,11 @@ func (e *Evaluator) GetRegistry() *builtins.Registry {
 	return e.builtins
 }
 
+// GetStore returns the evaluator's object store.
+func (e *Evaluator) GetStore() *db.Store {
+	return e.store
+}
+
 func (e *Evaluator) ensureContextDependencies(ctx *types.TaskContext) {
 	if ctx == nil {
 		return
