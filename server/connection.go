@@ -108,6 +108,12 @@ func (c *Connection) RemoteAddr() string {
 	return c.transport.RemoteAddr()
 }
 
+func (c *Connection) WakeInputReader() {
+	if deadlineTransport, ok := c.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = deadlineTransport.SetReadDeadline(time.Now())
+	}
+}
+
 // GetPlayer returns the player ObjID
 func (c *Connection) GetPlayer() types.ObjID {
 	c.mu.Lock()

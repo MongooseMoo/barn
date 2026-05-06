@@ -206,8 +206,26 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 			}
 		}
 
-		line, err := conn.ReadLine()
+		player := conn.GetPlayer()
+		if !conn.IsLoggedIn() {
+			player = types.ObjID(-conn.ID)
+		}
+
+		var line string
+		var err error
+		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
+			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
+				line, err = binaryTransport.ReadChunk()
+			} else {
+				line, err = conn.ReadLine()
+			}
+		} else {
+			line, err = conn.ReadLine()
+		}
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
+				continue
+			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
 				conn.Send("*** Timed-out waiting for login. ***")
 				cm.server.scheduler.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
@@ -218,10 +236,6 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 		}
 
 		done := make(chan struct{})
-		player := conn.GetPlayer()
-		if !conn.IsLoggedIn() {
-			player = types.ObjID(-conn.ID)
-		}
 		cm.server.scheduler.EnqueueInput(InputEvent{
 			ConnID: conn.ID,
 			Player: player,

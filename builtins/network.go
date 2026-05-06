@@ -50,6 +50,10 @@ type Connection interface {
 	GetResolvedName() string
 }
 
+type inputWakeConnection interface {
+	WakeInputReader()
+}
+
 // Global connection manager (set by server).
 var globalConnManager ConnectionManager
 
@@ -1068,7 +1072,8 @@ func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) type
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if resolveConnection(ctx, player) == nil {
+	conn := resolveConnection(ctx, player)
+	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if !ctx.IsWizard && player != ctx.Player {
@@ -1113,6 +1118,11 @@ func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) type
 	}
 
 	setConnectionOption(player, name, args[2])
+	if name == "binary" && args[2].Truthy() {
+		if wakeConn, ok := conn.(inputWakeConnection); ok {
+			wakeConn.WakeInputReader()
+		}
+	}
 	if name == "hold-input" && !args[2].Truthy() && globalInputForcer != nil {
 		for _, line := range drainHeldCommands(player) {
 			globalInputForcer.ForceInput(player, line, false)

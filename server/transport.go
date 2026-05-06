@@ -40,6 +40,10 @@ type Transport interface {
 	RemoteAddr() string
 }
 
+type BinaryTransport interface {
+	ReadChunk() (string, error)
+}
+
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
 	conn      net.Conn
@@ -144,6 +148,24 @@ func (t *TCPTransport) ReadLine() (string, error) {
 			}
 		}
 	}
+}
+
+func (t *TCPTransport) ReadChunk() (string, error) {
+	var chunk strings.Builder
+	b, err := t.reader.ReadByte()
+	if err != nil {
+		return "", err
+	}
+	chunk.WriteByte(b)
+
+	for t.reader.Buffered() > 0 {
+		b, err = t.reader.ReadByte()
+		if err != nil {
+			break
+		}
+		chunk.WriteByte(b)
+	}
+	return chunk.String(), nil
 }
 
 // WriteLine writes a line to the connection with newline
