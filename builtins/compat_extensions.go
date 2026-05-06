@@ -25,14 +25,14 @@ func builtinUrlEncode(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	spacePlus := true
+	spacePlus := false
 	if len(args) == 2 {
 		spacePlus = args[1].Truthy()
 	}
 	if spacePlus {
 		return types.Ok(types.NewStr(url.QueryEscape(s.Value())))
 	}
-	return types.Ok(types.NewStr(strings.ReplaceAll(url.PathEscape(s.Value()), "+", "%20")))
+	return types.Ok(types.NewStr(strings.ReplaceAll(url.QueryEscape(s.Value()), "+", "%20")))
 }
 
 func builtinUrlDecode(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -379,6 +379,9 @@ func builtinCurl(ctx *types.TaskContext, args []types.Value) types.Result {
 	urlVal, ok := args[0].(types.StrValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
 	method := "GET"
 	body := ""
