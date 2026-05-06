@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -215,7 +216,9 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 		// Database eval verbs already package errors for the client; emitting
 		// traceback lines here pollutes the structured response stream.
-		if t.VerbName != "eval" {
+		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+			s.sendTaskLine(t.Owner, "Task ran out of ticks")
+		} else if t.VerbName != "eval" {
 			s.sendTraceback(t, result.Error)
 		}
 		// Clean up call stack after traceback has been sent
@@ -246,6 +249,22 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	t.BytecodeVM = nil // Release VM after completion
 	return nil
+}
+
+func resultValueContains(value types.Value, text string) bool {
+	if value == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(value.String()), strings.ToLower(text))
+}
+
+func (s *Scheduler) sendTaskLine(player types.ObjID, line string) {
+	if s.connManager == nil {
+		return
+	}
+	if conn := s.connManager.GetConnection(player); conn != nil {
+		_ = conn.Send(line)
+	}
 }
 
 // drainForks handles FlowFork yields from the VM by creating child tasks
