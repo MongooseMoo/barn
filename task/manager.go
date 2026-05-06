@@ -84,6 +84,14 @@ func (m *Manager) GetQueuedTasks() []*Task {
 	tasks := make([]*Task, 0)
 	for _, task := range m.tasks {
 		state := task.GetState()
+		if state == TaskSuspended {
+			task.mu.RLock()
+			evalScaffold := task.IsForked && task.VerbName == "" && task.WakeTime.IsZero()
+			task.mu.RUnlock()
+			if evalScaffold {
+				continue
+			}
+		}
 		if state == TaskQueued || state == TaskSuspended {
 			tasks = append(tasks, task)
 		}
