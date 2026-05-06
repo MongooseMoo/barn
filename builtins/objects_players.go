@@ -121,6 +121,9 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Resu
 	if args[1].Truthy() {
 		obj.Flags = obj.Flags.Set(db.FlagUser)
 	} else {
+		if globalConnManager != nil {
+			_ = globalConnManager.BootPlayer(objVal.ID())
+		}
 		obj.Flags = obj.Flags.Clear(db.FlagUser)
 	}
 
