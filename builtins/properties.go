@@ -5,37 +5,6 @@ import (
 	"barn/types"
 )
 
-// RegisterPropertyBuiltins registers property management builtins
-func (r *Registry) RegisterPropertyBuiltins(store *db.Store) {
-	r.Register("properties", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinProperties(ctx, args, store)
-	})
-
-	r.Register("property_info", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinPropertyInfo(ctx, args, store)
-	})
-
-	r.Register("set_property_info", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinSetPropertyInfo(ctx, args, store)
-	})
-
-	r.Register("add_property", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinAddProperty(ctx, args, store)
-	})
-
-	r.Register("delete_property", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinDeleteProperty(ctx, args, store)
-	})
-
-	r.Register("clear_property", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinClearProperty(ctx, args, store)
-	})
-
-	r.Register("is_clear_property", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinIsClearProperty(ctx, args, store)
-	})
-}
-
 // builtinProperties implements properties(object)
 // Returns list of property names defined on object (not inherited)
 func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result {
