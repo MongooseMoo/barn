@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Telnet protocol constants (RFC 854, RFC 855)
@@ -41,12 +42,12 @@ type Transport interface {
 
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
-	conn        net.Conn
-	reader      *bufio.Reader
-	writer      *bufio.Writer
-	mu          sync.Mutex
-	tState      telnetState
-	lastWasCR   bool
+	conn      net.Conn
+	reader    *bufio.Reader
+	writer    *bufio.Writer
+	mu        sync.Mutex
+	tState    telnetState
+	lastWasCR bool
 }
 
 // NewTCPTransport creates a new TCP transport from a net.Conn
@@ -165,6 +166,10 @@ func (t *TCPTransport) Close() error {
 // RemoteAddr returns the remote address as a string
 func (t *TCPTransport) RemoteAddr() string {
 	return t.conn.RemoteAddr().String()
+}
+
+func (t *TCPTransport) SetReadDeadline(deadline time.Time) error {
+	return t.conn.SetReadDeadline(deadline)
 }
 
 // PipeTransport is an in-memory transport for testing

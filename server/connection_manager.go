@@ -4,7 +4,6 @@ import (
 	"barn/builtins"
 	"barn/trace"
 	"barn/types"
-	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -169,8 +168,14 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	}()
 
 	// Set up timeout for unlogged connections
-	timeoutCtx, cancel := context.WithTimeout(conn.ctx, cm.connectTimeout)
-	defer cancel()
+	connectTimeout := cm.connectTimeout
+	if cm.server != nil && cm.server.scheduler != nil {
+		if value, ok := cm.server.scheduler.getServerOption(0, "connect_timeout"); ok {
+			if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
+				connectTimeout = time.Duration(seconds.Val) * time.Second
+			}
+		}
+	}
 
 	// Send initial welcome banner by enqueuing empty string to scheduler
 	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
@@ -190,23 +195,26 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 		select {
 		case <-conn.ctx.Done():
 			return
-		case <-timeoutCtx.Done():
-			if !conn.IsLoggedIn() {
-				conn.Send("Connection timeout")
-				return
-			}
 		default:
+		}
+
+		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
+			if conn.IsLoggedIn() {
+				_ = deadlineTransport.SetReadDeadline(time.Time{})
+			} else {
+				_ = deadlineTransport.SetReadDeadline(time.Now().Add(connectTimeout))
+			}
 		}
 
 		line, err := conn.ReadLine()
 		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
+				conn.Send("*** Timed-out waiting for login. ***")
+				cm.server.scheduler.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
+				return
+			}
 			log.Printf("Connection %d read error: %v", conn.ID, err)
 			return
-		}
-
-		// Cancel the login timeout once logged in
-		if conn.IsLoggedIn() {
-			cancel()
 		}
 
 		done := make(chan struct{})
@@ -380,7 +388,7 @@ func (cm *ConnectionManager) BootPlayer(player types.ObjID) error {
 		return fmt.Errorf("player not connected")
 	}
 
-	conn.Send("You have been disconnected")
+	conn.Send("*** Disconnected ***")
 	conn.Close()
 	return nil
 }
