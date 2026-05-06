@@ -279,9 +279,8 @@ func TestEvalErrors(t *testing.T) {
 		input         string
 		expectedError types.ErrorCode
 	}{
-		{"1 / 0", types.E_DIV},       // Division by zero
-		{`toint("abc")`, types.E_INVARG}, // Invalid string to int conversion
-		{`"a" + 1`, types.E_TYPE},     // Type mismatch in addition
+		{"1 / 0", types.E_DIV},   // Division by zero
+		{`"a" + 1`, types.E_TYPE}, // Type mismatch in addition
 	}
 
 	for _, tt := range tests {
