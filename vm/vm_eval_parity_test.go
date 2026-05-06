@@ -15,13 +15,7 @@ import (
 // Both the VM and tree-walker paths should use the same registry so builtins
 // resolve identically.
 func newTestRegistry() *builtins.Registry {
-	store := db.NewStore()
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 	return registry
 }
 
@@ -190,11 +184,11 @@ func TestParity_Arithmetic(t *testing.T) {
 
 func TestParity_ArithmeticErrors(t *testing.T) {
 	cases := []string{
-		"1 / 0",        // E_DIV
-		"1 % 0",        // E_DIV
-		`"a" + 1`,      // E_TYPE
-		`"a" - "b"`,    // E_TYPE
-		`"a" * 2`,      // E_TYPE
+		"1 / 0",     // E_DIV
+		"1 % 0",     // E_DIV
+		`"a" + 1`,   // E_TYPE
+		`"a" - "b"`, // E_TYPE
+		`"a" * 2`,   // E_TYPE
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -242,8 +236,8 @@ func TestParity_Bitwise(t *testing.T) {
 		"1 << 4",  // left shift → 16
 		"16 >> 4", // right shift → 1
 		// Edge cases
-		"~-1",       // NOT of -1 → 0
-		"-1 >> 1",   // logical right shift of -1
+		"~-1",     // NOT of -1 → 0
+		"-1 >> 1", // logical right shift of -1
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -286,10 +280,10 @@ func TestParity_MapConstruction(t *testing.T) {
 
 func TestParity_In(t *testing.T) {
 	cases := []string{
-		"2 in {1, 2, 3}",    // found at index 2
-		"5 in {1, 2, 3}",    // not found → 0
-		`"ll" in "hello"`,   // substring → 1
-		`"xyz" in "hello"`,  // not found → 0
+		"2 in {1, 2, 3}",   // found at index 2
+		"5 in {1, 2, 3}",   // not found → 0
+		`"ll" in "hello"`,  // substring → 1
+		`"xyz" in "hello"`, // not found → 0
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -298,9 +292,9 @@ func TestParity_In(t *testing.T) {
 
 func TestParity_DivisionEdgeCases(t *testing.T) {
 	cases := []string{
-		"0 / 1",           // zero divided by something
-		"1.0 / 0.0",       // float division by zero
-		"0.0 / 0.0",       // zero/zero float
+		"0 / 1",     // zero divided by something
+		"1.0 / 0.0", // float division by zero
+		"0.0 / 0.0", // zero/zero float
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -381,11 +375,11 @@ func TestParity_ReturnStatements(t *testing.T) {
 
 func TestParity_Variables(t *testing.T) {
 	cases := map[string]string{
-		"assign_return":     "x = 42; return x;",
-		"assign_expr":       "x = 1 + 2; return x;",
-		"multi_assign":      "x = 10; y = 20; return x + y;",
-		"reassign":          "x = 1; x = x + 1; return x;",
-		"assign_is_expr":    "return x = 42;",
+		"assign_return":  "x = 42; return x;",
+		"assign_expr":    "x = 1 + 2; return x;",
+		"multi_assign":   "x = 10; y = 20; return x + y;",
+		"reassign":       "x = 1; x = x + 1; return x;",
+		"assign_is_expr": "return x = 42;",
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -409,9 +403,9 @@ func TestParity_IfStatements(t *testing.T) {
 
 func TestParity_WhileLoops(t *testing.T) {
 	cases := map[string]string{
-		"count_to_5":    "x = 0; while (x < 5) x = x + 1; endwhile return x;",
-		"sum_1_to_10":   "s = 0; i = 1; while (i <= 10) s = s + i; i = i + 1; endwhile return s;",
-		"while_false":   "x = 99; while (0) x = 0; endwhile return x;",
+		"count_to_5":  "x = 0; while (x < 5) x = x + 1; endwhile return x;",
+		"sum_1_to_10": "s = 0; i = 1; while (i <= 10) s = s + i; i = i + 1; endwhile return s;",
+		"while_false": "x = 99; while (0) x = 0; endwhile return x;",
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -420,12 +414,12 @@ func TestParity_WhileLoops(t *testing.T) {
 
 func TestParity_ComplexExpressions(t *testing.T) {
 	cases := map[string]string{
-		"nested_ternary":     "return 1 ? (2 ? 10 | 20) | 30;",
-		"list_in_expr":       "return 2 in {1, 2, 3};",
-		"comparison_chain":   "return (1 < 2) && (3 > 2);",
-		"mixed_arithmetic":   "return (10 + 5) * 2 - 3;",
-		"string_concat":      `return "a" + "b" + "c";`,
-		"negative_power":     "return 2 ^ 10;",
+		"nested_ternary":   "return 1 ? (2 ? 10 | 20) | 30;",
+		"list_in_expr":     "return 2 in {1, 2, 3};",
+		"comparison_chain": "return (1 < 2) && (3 > 2);",
+		"mixed_arithmetic": "return (10 + 5) * 2 - 3;",
+		"string_concat":    `return "a" + "b" + "c";`,
+		"negative_power":   "return 2 ^ 10;",
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -434,10 +428,10 @@ func TestParity_ComplexExpressions(t *testing.T) {
 
 func TestParity_ListIndexing(t *testing.T) {
 	cases := []string{
-		"{1, 2, 3}[1]",     // first element (1-based)
-		"{1, 2, 3}[2]",     // middle
-		"{1, 2, 3}[3]",     // last
-		`{"a", "b", "c"}[2]`, // string elements
+		"{1, 2, 3}[1]",        // first element (1-based)
+		"{1, 2, 3}[2]",        // middle
+		"{1, 2, 3}[3]",        // last
+		`{"a", "b", "c"}[2]`,  // string elements
 		"{{1, 2}, {3, 4}}[1]", // nested list
 	}
 	for _, c := range cases {
@@ -447,9 +441,9 @@ func TestParity_ListIndexing(t *testing.T) {
 
 func TestParity_StringIndexing(t *testing.T) {
 	cases := []string{
-		`"hello"[1]`,   // first char
-		`"hello"[3]`,   // middle
-		`"hello"[5]`,   // last
+		`"hello"[1]`, // first char
+		`"hello"[3]`, // middle
+		`"hello"[5]`, // last
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -458,9 +452,9 @@ func TestParity_StringIndexing(t *testing.T) {
 
 func TestParity_ListSlicing(t *testing.T) {
 	cases := []string{
-		"{1, 2, 3, 4, 5}[2..4]",   // middle slice
-		"{1, 2, 3}[1..3]",         // whole list
-		"{1, 2, 3}[1..1]",         // single element
+		"{1, 2, 3, 4, 5}[2..4]", // middle slice
+		"{1, 2, 3}[1..3]",       // whole list
+		"{1, 2, 3}[1..1]",       // single element
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -469,9 +463,9 @@ func TestParity_ListSlicing(t *testing.T) {
 
 func TestParity_StringSlicing(t *testing.T) {
 	cases := []string{
-		`"hello"[2..4]`,   // "ell"
-		`"hello"[1..5]`,   // whole string
-		`"hello"[3..3]`,   // single char
+		`"hello"[2..4]`, // "ell"
+		`"hello"[1..5]`, // whole string
+		`"hello"[3..3]`, // single char
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -719,10 +713,10 @@ func TestParity_EdgeCases(t *testing.T) {
 
 func TestParity_IndexErrors(t *testing.T) {
 	cases := []string{
-		"{1, 2, 3}[0]",   // out of range (MOO is 1-based)
-		"{1, 2, 3}[4]",   // out of range
-		`"hello"[0]`,      // out of range
-		`"hello"[6]`,      // out of range
+		"{1, 2, 3}[0]", // out of range (MOO is 1-based)
+		"{1, 2, 3}[4]", // out of range
+		`"hello"[0]`,   // out of range
+		`"hello"[6]`,   // out of range
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -897,7 +891,7 @@ func TestParity_BreakWithoutExprValue(t *testing.T) {
 
 func TestParity_ForLoopBreakExpr(t *testing.T) {
 	cases := map[string]string{
-		"for_list_break_expr": `for x in ({1, 2, 3}) break x * 10; endfor`,
+		"for_list_break_expr":  `for x in ({1, 2, 3}) break x * 10; endfor`,
 		"for_range_break_expr": `for x in [1..5] break x * 100; endfor`,
 		"for_list_break_conditional": `
 			for x in ({10, 20, 30, 40})
@@ -1192,10 +1186,10 @@ func TestParity_ScatterOptional(t *testing.T) {
 
 func TestParity_ScatterRest(t *testing.T) {
 	cases := map[string]string{
-		"rest_basic":       `{a, @rest} = {1, 2, 3}; return rest;`,
-		"rest_single":      `{a, @rest} = {1, 2}; return rest;`,
-		"rest_empty":       `{a, @rest} = {1}; return rest;`,
-		"rest_first_elem":  `{a, @rest} = {1, 2, 3}; return a;`,
+		"rest_basic":      `{a, @rest} = {1, 2, 3}; return rest;`,
+		"rest_single":     `{a, @rest} = {1, 2}; return rest;`,
+		"rest_empty":      `{a, @rest} = {1}; return rest;`,
+		"rest_first_elem": `{a, @rest} = {1, 2, 3}; return a;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -1215,13 +1209,13 @@ func TestParity_ScatterErrors(t *testing.T) {
 
 func TestParity_ScatterComplex(t *testing.T) {
 	cases := map[string]string{
-		"three_required": `{a, b, c} = {10, 20, 30}; return a + b + c;`,
-		"mixed_optional_required": `{a, ?b, ?c} = {1}; return {a, b, c};`,
-		"mixed_optional_required_2": `{a, ?b, ?c} = {1, 2}; return {a, b, c};`,
-		"mixed_optional_required_3": `{a, ?b, ?c} = {1, 2, 3}; return {a, b, c};`,
+		"three_required":              `{a, b, c} = {10, 20, 30}; return a + b + c;`,
+		"mixed_optional_required":     `{a, ?b, ?c} = {1}; return {a, b, c};`,
+		"mixed_optional_required_2":   `{a, ?b, ?c} = {1, 2}; return {a, b, c};`,
+		"mixed_optional_required_3":   `{a, ?b, ?c} = {1, 2, 3}; return {a, b, c};`,
 		"rest_with_multiple_required": `{a, b, @rest} = {1, 2, 3, 4, 5}; return rest;`,
-		"rest_with_optional": `{a, ?b, @rest} = {1}; return {b, rest};`,
-		"optional_default_expr": `{a, ?b = 10 + 5} = {1}; return b;`,
+		"rest_with_optional":          `{a, ?b, @rest} = {1}; return {b, rest};`,
+		"optional_default_expr":       `{a, ?b = 10 + 5} = {1}; return b;`,
 		"scatter_in_loop": `
 			s = 0;
 			for x in ({{1, 2}, {3, 4}, {5, 6}})
@@ -1230,7 +1224,7 @@ func TestParity_ScatterComplex(t *testing.T) {
 			endfor
 			return s;`,
 		"scatter_single": `{a} = {42}; return a;`,
-		"rest_only": `{@rest} = {1, 2, 3}; return rest;`,
+		"rest_only":      `{@rest} = {1, 2, 3}; return rest;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -1302,11 +1296,11 @@ func TestParity_BuiltinCallsInPrograms(t *testing.T) {
 
 func TestParity_IndexAssignList(t *testing.T) {
 	cases := map[string]string{
-		"set_middle_element": `l = {1, 2, 3}; l[2] = 99; return l;`,
-		"set_first_element":  `l = {1, 2, 3}; l[1] = 10; return l[1];`,
-		"set_last_element":   `l = {1, 2, 3}; l[3] = 30; return l;`,
+		"set_middle_element":   `l = {1, 2, 3}; l[2] = 99; return l;`,
+		"set_first_element":    `l = {1, 2, 3}; l[1] = 10; return l[1];`,
+		"set_last_element":     `l = {1, 2, 3}; l[3] = 30; return l;`,
 		"assign_returns_value": `l = {1, 2, 3}; x = (l[2] = 99); return x;`,
-		"multiple_assigns":   `l = {1, 2, 3}; l[1] = 10; l[2] = 20; l[3] = 30; return l;`,
+		"multiple_assigns":     `l = {1, 2, 3}; l[1] = 10; l[2] = 20; l[3] = 30; return l;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -1315,9 +1309,9 @@ func TestParity_IndexAssignList(t *testing.T) {
 
 func TestParity_IndexAssignString(t *testing.T) {
 	cases := map[string]string{
-		"set_first_char":     `s = "hello"; s[1] = "H"; return s;`,
-		"set_last_char":      `s = "hello"; s[5] = "O"; return s;`,
-		"set_middle_char":    `s = "hello"; s[3] = "L"; return s;`,
+		"set_first_char":  `s = "hello"; s[1] = "H"; return s;`,
+		"set_last_char":   `s = "hello"; s[5] = "O"; return s;`,
+		"set_middle_char": `s = "hello"; s[3] = "L"; return s;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -1371,11 +1365,6 @@ func vmEvalProgramWithStore(t *testing.T, code string, store *db.Store) (types.V
 	}
 
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 
 	c := NewCompilerWithRegistry(registry)
 	prog, err := c.CompileStatements(stmts)
@@ -1441,8 +1430,8 @@ func TestParity_PropertyRead(t *testing.T) {
 
 func TestParity_PropertyWrite(t *testing.T) {
 	cases := map[string]string{
-		"write_defined_prop": `#0.foo = 100; return #0.foo;`,
-		"write_builtin_name": `#0.name = "NewName"; return #0.name;`,
+		"write_defined_prop":            `#0.foo = 100; return #0.foo;`,
+		"write_builtin_name":            `#0.name = "NewName"; return #0.name;`,
 		"write_inherited_creates_local": `#1.foo = 999; return #1.foo;`,
 	}
 	for name, code := range cases {
@@ -1457,9 +1446,9 @@ func TestParity_PropertyWrite(t *testing.T) {
 func TestParity_PropertyErrors(t *testing.T) {
 	store := newPropertyTestStore()
 	cases := map[string]string{
-		"prop_not_found":     `return #0.nonexistent;`,
-		"invalid_object":     `return #99.foo;`,
-		"type_error":         `return 42.foo;`,
+		"prop_not_found": `return #0.nonexistent;`,
+		"invalid_object": `return #99.foo;`,
+		"type_error":     `return 42.foo;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -1687,8 +1676,8 @@ func TestParity_VerbCallSimple(t *testing.T) {
 func TestParity_VerbCallWithArgs(t *testing.T) {
 	store := newVerbTestStore()
 	cases := map[string]string{
-		"call_with_args":   `return #0:test_args(1, 2, 3);`,
-		"call_add_two":     `return #0:test_add(10, 20);`,
+		"call_with_args": `return #0:test_args(1, 2, 3);`,
+		"call_add_two":   `return #0:test_add(10, 20);`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -1708,8 +1697,8 @@ func TestParity_VerbCallWithBuiltin(t *testing.T) {
 func TestParity_VerbCallErrors(t *testing.T) {
 	store := newVerbTestStore()
 	cases := map[string]string{
-		"verb_not_found":   `return #0:nonexistent();`,
-		"invalid_object":   `return #99:test_return();`,
+		"verb_not_found": `return #0:nonexistent();`,
+		"invalid_object": `return #99:test_return();`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -1872,11 +1861,11 @@ func TestParity_ForMapBreakContinue(t *testing.T) {
 
 func TestParity_ListRangeExpr(t *testing.T) {
 	cases := []string{
-		"{1..5}",       // ascending: {1, 2, 3, 4, 5}
-		"{3..1}",       // descending: {3, 2, 1}
-		"{1..1}",       // single element: {1}
-		"{0..0}",       // single zero: {0}
-		"{-2..2}",      // negative to positive: {-2, -1, 0, 1, 2}
+		"{1..5}",  // ascending: {1, 2, 3, 4, 5}
+		"{3..1}",  // descending: {3, 2, 1}
+		"{1..1}",  // single element: {1}
+		"{0..0}",  // single zero: {0}
+		"{-2..2}", // negative to positive: {-2, -1, 0, 1, 2}
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -1899,13 +1888,13 @@ func TestParity_ListRangeExprProgram(t *testing.T) {
 
 func TestParity_SpliceInList(t *testing.T) {
 	cases := map[string]string{
-		"splice_at_end":      `l = {1, 2}; return {@l, 3};`,
-		"splice_at_start":    `l = {2, 3}; return {1, @l};`,
-		"splice_in_middle":   `l = {1, 2}; return {0, @l, 3};`,
-		"splice_two_lists":   `l = {1, 2}; m = {3, 4}; return {@l, @m};`,
-		"splice_inline":      `return {@{1, 2}, 3};`,
-		"splice_empty_list":  `l = {}; return {1, @l, 2};`,
-		"splice_only":        `l = {1, 2, 3}; return {@l};`,
+		"splice_at_end":       `l = {1, 2}; return {@l, 3};`,
+		"splice_at_start":     `l = {2, 3}; return {1, @l};`,
+		"splice_in_middle":    `l = {1, 2}; return {0, @l, 3};`,
+		"splice_two_lists":    `l = {1, 2}; m = {3, 4}; return {@l, @m};`,
+		"splice_inline":       `return {@{1, 2}, 3};`,
+		"splice_empty_list":   `l = {}; return {1, @l, 2};`,
+		"splice_only":         `l = {1, 2, 3}; return {@l};`,
 		"no_splice_unchanged": `return {1, 2, 3};`,
 	}
 	for name, code := range cases {
@@ -1950,10 +1939,10 @@ func TestParity_RangeAssignList(t *testing.T) {
 
 func TestParity_RangeAssignDollar(t *testing.T) {
 	cases := map[string]string{
-		"string_dollar_end":   `s = "hello"; s[2..$] = "ELLO"; return s;`,
-		"list_dollar_end":     `l = {1, 2, 3, 4}; l[2..$] = {20, 30, 40}; return l;`,
-		"string_full_range":   `s = "hello"; s[1..$] = "WORLD"; return s;`,
-		"list_full_range":     `l = {1, 2, 3}; l[1..$] = {10, 20, 30}; return l;`,
+		"string_dollar_end": `s = "hello"; s[2..$] = "ELLO"; return s;`,
+		"list_dollar_end":   `l = {1, 2, 3, 4}; l[2..$] = {20, 30, 40}; return l;`,
+		"string_full_range": `s = "hello"; s[1..$] = "WORLD"; return s;`,
+		"list_full_range":   `l = {1, 2, 3}; l[1..$] = {10, 20, 30}; return l;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -2044,10 +2033,10 @@ func TestParity_RangeAssignErrors(t *testing.T) {
 
 func TestParity_MapIndexRead(t *testing.T) {
 	cases := []string{
-		`["a" -> 1, "b" -> 2]["a"]`,    // string key -> int value
-		`["a" -> 1, "b" -> 2]["b"]`,    // second key
-		`[1 -> "x", 2 -> "y"][1]`,      // int key -> string value
-		`[1 -> "x", 2 -> "y"][2]`,      // second int key
+		`["a" -> 1, "b" -> 2]["a"]`, // string key -> int value
+		`["a" -> 1, "b" -> 2]["b"]`, // second key
+		`[1 -> "x", 2 -> "y"][1]`,   // int key -> string value
+		`[1 -> "x", 2 -> "y"][2]`,   // second int key
 	}
 	for _, c := range cases {
 		t.Run(c, func(t *testing.T) { comparePaths(t, c) })
@@ -2096,9 +2085,9 @@ func TestParity_MapRangeAssign(t *testing.T) {
 
 func TestParity_DollarIndexRead(t *testing.T) {
 	cases := map[string]string{
-		"list_dollar_last":    `l = {1, 2, 3}; return l[$];`,
-		"string_dollar_last":  `s = "hello"; return s[$];`,
-		"list_dollar_arith":   `l = {10, 20, 30}; return l[$ - 1];`,
+		"list_dollar_last":   `l = {1, 2, 3}; return l[$];`,
+		"string_dollar_last": `s = "hello"; return s[$];`,
+		"list_dollar_arith":  `l = {10, 20, 30}; return l[$ - 1];`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -2107,10 +2096,10 @@ func TestParity_DollarIndexRead(t *testing.T) {
 
 func TestParity_DollarRangeRead(t *testing.T) {
 	cases := map[string]string{
-		"list_range_dollar":    `l = {1, 2, 3, 4, 5}; return l[2..$];`,
-		"string_range_dollar":  `s = "hello"; return s[2..$];`,
-		"list_range_full":      `l = {1, 2, 3}; return l[1..$];`,
-		"string_range_full":    `s = "hello"; return s[1..$];`,
+		"list_range_dollar":   `l = {1, 2, 3, 4, 5}; return l[2..$];`,
+		"string_range_dollar": `s = "hello"; return s[2..$];`,
+		"list_range_full":     `l = {1, 2, 3}; return l[1..$];`,
+		"string_range_full":   `s = "hello"; return s[1..$];`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -2119,7 +2108,7 @@ func TestParity_DollarRangeRead(t *testing.T) {
 
 func TestParity_CaretIndexRead(t *testing.T) {
 	cases := map[string]string{
-		"list_caret_first":  `l = {10, 20, 30}; return l[^];`,
+		"list_caret_first":   `l = {10, 20, 30}; return l[^];`,
 		"string_caret_first": `s = "hello"; return s[^];`,
 	}
 	for name, code := range cases {
@@ -2129,12 +2118,12 @@ func TestParity_CaretIndexRead(t *testing.T) {
 
 func TestParity_SpliceInBuiltinArgs(t *testing.T) {
 	cases := map[string]string{
-		"splice_all_args":    `return tostr(@{1, 2, 3});`,
-		"splice_single_list": `return length(@{{1, 2, 3}});`,
+		"splice_all_args":      `return tostr(@{1, 2, 3});`,
+		"splice_single_list":   `return length(@{{1, 2, 3}});`,
 		"mixed_regular_splice": `l = {1, 2}; return tostr("a", @l, "b");`,
-		"splice_var":         `args = {1, 2, 3}; return tostr(@args);`,
-		"splice_empty":       `return tostr(@{});`,
-		"splice_nested_list": `l = {4, 5}; return tostr(1, 2, 3, @l);`,
+		"splice_var":           `args = {1, 2, 3}; return tostr(@args);`,
+		"splice_empty":         `return tostr(@{});`,
+		"splice_nested_list":   `l = {4, 5}; return tostr(1, 2, 3, @l);`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -2244,11 +2233,11 @@ func containsAny(s string, substrs ...string) bool {
 
 func TestParity_NestedIndexAssign(t *testing.T) {
 	cases := map[string]string{
-		"nested_2d_first": `l = {{1, 2}, {3, 4}}; l[1][2] = 99; return l;`,
-		"nested_2d_second": `l = {{1, 2}, {3, 4}}; l[2][1] = 99; return l;`,
+		"nested_2d_first":     `l = {{1, 2}, {3, 4}}; l[1][2] = 99; return l;`,
+		"nested_2d_second":    `l = {{1, 2}, {3, 4}}; l[2][1] = 99; return l;`,
 		"nested_3elem_middle": `l = {{"a", "b"}, {"c", "d"}, {"e", "f"}}; l[2][2] = "Z"; return l;`,
-		"nested_3d": `l = {{{1}}}; l[1][1][1] = 42; return l;`,
-		"nested_string_char": `l = {"hello", "world"}; l[1][2] = "a"; return l;`,
+		"nested_3d":           `l = {{{1}}}; l[1][1][1] = 42; return l;`,
+		"nested_string_char":  `l = {"hello", "world"}; l[1][2] = "a"; return l;`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { comparePrograms(t, code) })
@@ -2739,9 +2728,9 @@ func TestCrossFrameExceptionUnwinding(t *testing.T) {
 func TestParity_VerbCallBuiltinVars(t *testing.T) {
 	store := newVerbTestStore()
 	cases := map[string]string{
-		"this_is_obj":     `return #0:test_this();`,
-		"verb_name":       `return #0:test_verb();`,
-		"caller_default":  `return #0:test_caller();`,
+		"this_is_obj":    `return #0:test_this();`,
+		"verb_name":      `return #0:test_verb();`,
+		"caller_default": `return #0:test_caller();`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -2751,7 +2740,7 @@ func TestParity_VerbCallBuiltinVars(t *testing.T) {
 func TestParity_VerbCallNested(t *testing.T) {
 	store := newVerbTestStore()
 	cases := map[string]string{
-		"nested_call":     `return #0:test_nested();`,
+		"nested_call": `return #0:test_nested();`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -2761,9 +2750,9 @@ func TestParity_VerbCallNested(t *testing.T) {
 func TestParity_VerbCallRecursive(t *testing.T) {
 	store := newVerbTestStore()
 	cases := map[string]string{
-		"recursive_base":  `return #0:test_recursive(0);`,
-		"recursive_one":   `return #0:test_recursive(1);`,
-		"recursive_five":  `return #0:test_recursive(5);`,
+		"recursive_base": `return #0:test_recursive(0);`,
+		"recursive_one":  `return #0:test_recursive(1);`,
+		"recursive_five": `return #0:test_recursive(5);`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -2773,7 +2762,7 @@ func TestParity_VerbCallRecursive(t *testing.T) {
 func TestParity_VerbCallThrows(t *testing.T) {
 	store := newVerbTestStore()
 	cases := map[string]string{
-		"verb_throws_div":  `return #0:test_throw();`,
+		"verb_throws_div": `return #0:test_throw();`,
 	}
 	for name, code := range cases {
 		t.Run(name, func(t *testing.T) { compareProgramsWithStore(t, code, store) })
@@ -3012,11 +3001,6 @@ func vmEvalProgramWithStoreAndCtx(t *testing.T, code string, store *db.Store, ct
 	}
 
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 
 	c := NewCompilerWithRegistry(registry)
 	prog, err := c.CompileStatements(stmts)
@@ -3558,8 +3542,8 @@ func newInheritedVerbStore() *db.Store {
 // inheritedVerbTestCtx creates a task context with a task for callers() to work.
 func inheritedVerbTestCtx() *types.TaskContext {
 	ctx := types.NewTaskContext()
-	ctx.Player = 2        // Some player, NOT the verb owner
-	ctx.Programmer = 0    // Initial programmer (will be overridden per verb call)
+	ctx.Player = 2     // Some player, NOT the verb owner
+	ctx.Programmer = 0 // Initial programmer (will be overridden per verb call)
 	ctx.ThisObj = 0
 	ctx.IsWizard = true
 	ctx.Task = task.NewTask(1, 2, 100000, 5.0)
@@ -3734,11 +3718,6 @@ func TestParity_ThisValueRestoredAfterVerbCall(t *testing.T) {
 	}
 
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 
 	c := NewCompilerWithRegistry(registry)
 	c.beginScope()
@@ -4135,7 +4114,7 @@ func TestParity_PropertyIndexAssign(t *testing.T) {
 
 func TestParity_PropertyNestedIndexAssign(t *testing.T) {
 	cases := map[string]string{
-		"nested_2d": `#0.foo = {{1, 2}, {3, 4}}; #0.foo[1][2] = 99; return #0.foo;`,
+		"nested_2d":        `#0.foo = {{1, 2}, {3, 4}}; #0.foo[1][2] = 99; return #0.foo;`,
 		"nested_2d_second": `#0.foo = {{1, 2}, {3, 4}}; #0.foo[2][1] = 99; return #0.foo;`,
 	}
 	for name, code := range cases {
