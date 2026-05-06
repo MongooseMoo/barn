@@ -89,7 +89,7 @@ if ($failedLines.Count -gt 0) {
     "" | Set-Content -Path $failedTestsFile
 }
 
-$summaryLine = (Select-String -Path $conformanceLog -Pattern '={5,}\s+.+\s+in\s+.+' | Select-Object -Last 1)
+$summaryLine = (Select-String -Path $conformanceLog -Pattern '={2,}\s+.+\s+in\s+.+\s+={2,}' | Select-Object -Last 1)
 $summaryText = if ($null -ne $summaryLine) { $summaryLine.Line.Trim() } else { "(conformance summary line not found)" }
 
 $summary = [ordered]@{
