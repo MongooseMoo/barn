@@ -186,21 +186,167 @@ When connection closes:
 
 ---
 
-## 7. Error Handling
+## 7. Network Listeners
 
-### 7.1 Task Errors
+### 7.1 Listener Protocols
+
+Barn listeners support four native protocols:
+
+| Protocol | Transport | Input Model |
+|----------|-----------|-------------|
+| `tcp` | TCP byte stream | Telnet-style line input |
+| `tls` | TLS over TCP | Telnet-style line input |
+| `ws` | WebSocket over HTTP | Message input |
+| `wss` | WebSocket over HTTPS/TLS | Message input |
+
+Startup listener specs and the MOO `listen()` builtin use the same listener
+representation. The `-port N` startup option is shorthand for one
+`tcp://:N` listener.
+
+### 7.2 Listener Options and Descriptors
+
+`listen(object, port, [options])` accepts an optional map for extended
+listener options:
+
+| Key | Type | Applies To | Description |
+|-----|------|------------|-------------|
+| `protocol` | STR | all | `tcp`, `tls`, `ws`, or `wss`; default is `tcp` |
+| `path` | STR | `ws`, `wss` | HTTP request path; default is `/` |
+| `certificate` | STR | `tls`, `wss` | TLS certificate file path |
+| `key` | STR | `tls`, `wss` | TLS private key file path |
+| `print-messages` | INT | all | Whether listener connect/full/refuse messages are printed |
+
+The canonical listener descriptor is:
+
+| Protocol | Descriptor Returned by `listen()` |
+|----------|-----------------------------------|
+| `tcp` | INT port |
+| `tls` | MAP with `protocol` and `port` |
+| `ws` | MAP with `protocol`, `port`, and `path` |
+| `wss` | MAP with `protocol`, `port`, and `path` |
+
+The canonical descriptor identifies exactly one listener. `unlisten()` accepts
+the canonical descriptor. For compatibility, `unlisten(port)` means
+`unlisten(["protocol" -> "tcp", "port" -> port])`.
+
+`listeners([find])` returns a list of maps with these fields for every protocol:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `object` | OBJ | Listener object that owns login processing |
+| `port` | INT | Bound local port |
+| `protocol` | STR | `tcp`, `tls`, `ws`, or `wss` |
+| `path` | STR | WebSocket path, or empty string for non-WebSocket listeners |
+| `print-messages` | INT | Listener message flag |
+| `ipv6` | INT | Nonzero when the listener is IPv6 |
+| `interface` | STR | Bound interface text |
+| `TLS` | INT | Nonzero for `tls` and `wss` |
+
+`listeners(find)` accepts a listener object, a legacy integer port, or a
+canonical descriptor map.
+
+### 7.3 WebSocket HTTP Semantics
+
+For `ws` and `wss`, only requests whose path exactly equals the listener path
+are eligible for upgrade. Matching is byte-for-byte after the HTTP server has
+parsed the path. Query strings are ignored for path matching. Path matching is
+case-sensitive. No prefix matching is performed.
+
+The default origin policy is open: WebSocket upgrade requests are accepted
+regardless of the `Origin` header. Client-supplied forwarding headers such as
+`Forwarded`, `X-Forwarded-For`, and `X-Real-IP` are ignored by connection
+metadata unless a future trusted-proxy option explicitly enables them.
+
+A non-WebSocket HTTP request to a WebSocket listener receives `426 Upgrade
+Required` and does not create a Barn connection. A WebSocket upgrade request for
+the wrong path receives `404 Not Found` and does not create a Barn connection.
+
+### 7.4 WebSocket Connection Metadata
+
+After a successful WebSocket upgrade, the connection enters the normal Barn
+connection lifecycle. The listener object owns `do_login_command()` and the
+same login, reconnect, disconnect, and notifier hooks used by TCP and TLS.
+
+`connection_name(player, 0)` keeps the legacy format:
+
+```moo
+"port <listen-port> from <remote-host>, port <remote-port>"
+```
+
+For `connection_info(player)`, `source_port` is the accepting listener's local
+port and destination address fields are derived from the HTTP request's remote
+socket address. The `protocol` field remains the IP family string (`IPv4` or
+`IPv6`) for compatibility; listener protocol is reported through `listeners()`.
+
+### 7.5 WebSocket Input Framing
+
+One complete WebSocket text message is one MOO input line. The message payload
+is delivered without adding or requiring CRLF framing.
+
+Text messages containing `\r` or `\n` are invalid input. The server closes the
+WebSocket with a policy/protocol error and does not split the payload into
+multiple MOO commands.
+
+Binary WebSocket messages are invalid input. The server closes the WebSocket
+with an unsupported-data or policy/protocol error and does not expose the bytes
+to MOO code.
+
+Valid UTF-8 text payloads may contain high-byte Unicode code points. Invalid
+UTF-8 text payloads are invalid input and close the WebSocket before the
+payload is delivered.
+
+WebSocket ping and pong control frames are transport-level events. They do not
+surface as MOO input, do not affect idle command text, and do not call login or
+command verbs.
+
+Client close frames close the Barn connection and trigger the normal disconnect
+lifecycle. Server-initiated disconnects send a WebSocket close frame when the
+connection is still writable, then close the underlying connection.
+
+The `connect_timeout` server option applies after a successful WebSocket
+upgrade. A connection that remains unlogged past the timeout is closed like an
+unlogged TCP or TLS connection.
+
+### 7.6 WebSocket Output Framing
+
+Each logical output line sent to a WebSocket connection is one WebSocket text
+message. TCP/TLS newline bytes are not appended to the WebSocket payload.
+
+`notify(player, message, no_flush, no_newline)` keeps its TCP/TLS meaning for
+byte-stream transports. For WebSocket transports, `no_newline` is ignored
+because WebSocket output is message-framed, not newline-framed. The `no_flush`
+argument still buffers output; flushing sends each buffered logical message as
+its own WebSocket text message.
+
+Out-of-band lines beginning with `#$#` are application text on WebSocket
+connections. They are sent and received as ordinary text messages and are not
+implemented as WebSocket control frames.
+
+The `flush-command` connection option is matched against a complete incoming
+WebSocket text message. When it matches, held commands are flushed exactly as
+they are for TCP/TLS.
+
+The `binary` connection option does not change WebSocket framing. WebSocket
+connections continue to accept only complete valid UTF-8 text messages as MOO
+input and send text messages as output.
+
+---
+
+## 8. Error Handling
+
+### 8.1 Task Errors
 
 Unhandled errors in tasks:
 - Foreground: Error message sent to player via notify()
 - Background: Error logged to server log (implementation-defined: file, stderr, logging system), task aborts silently
 
-### 7.2 Hook Errors
+### 8.2 Hook Errors
 
 Errors in server hooks (`server_started`, `checkpoint_finished`, etc.):
 - Logged but do not abort server
 - Server continues with default behavior
 
-### 7.3 Database Corruption
+### 8.3 Database Corruption
 
 If database cannot be loaded:
 - Log error
@@ -209,9 +355,9 @@ If database cannot be loaded:
 
 ---
 
-## 8. Go Implementation Notes
+## 9. Go Implementation Notes
 
-### 8.1 Natural Mappings
+### 9.1 Natural Mappings
 
 | MOO Concept | Go Idiom |
 |-------------|----------|
@@ -222,17 +368,17 @@ If database cannot be loaded:
 | Task scheduling | Goroutine + scheduler |
 | Graceful shutdown | `sync.WaitGroup` for cleanup |
 
-### 8.2 Atomicity
+### 9.2 Atomicity
 
 Use `os.Rename` for atomic checkpoint (write temp, rename).
 
-### 8.3 Signals
+### 9.3 Signals
 
 Use `signal.Notify` for OS signals, but internal shutdown via context.
 
 ---
 
-## 9. Differences from ToastStunt
+## 10. Differences from ToastStunt
 
 This spec intentionally omits:
 - Fork-based checkpointing (Go can checkpoint in-process or via goroutine)
