@@ -202,8 +202,8 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Caller = forkInfo.Caller
 	t.VerbName = forkInfo.Verb
 	t.VerbLoc = forkInfo.VerbLoc
-	t.ForkCreator = s                   // Give child access to scheduler for nested forks
-	t.TaskLocal = parent.GetTaskLocal() // Copy parent's task_local to child
+	t.ForkCreator = s
+	t.TaskLocal = types.NewEmptyMap()
 
 	// Set up child's context
 	t.Context.ThisObj = forkInfo.ThisObj

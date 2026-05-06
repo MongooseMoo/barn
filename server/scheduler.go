@@ -580,8 +580,8 @@ func findLocalVerbForProgramming(obj *db.Object, verbName string) *db.Verb {
 	return nil
 }
 
-// processReadyTasks executes tasks that are ready to run
-func (s *Scheduler) processReadyTasks() {
+// processReadyTasks executes tasks that are ready to run.
+func (s *Scheduler) processReadyTasks() int {
 	s.mu.Lock()
 
 	now := time.Now()
@@ -661,6 +661,7 @@ func (s *Scheduler) processReadyTasks() {
 			close(t.Done)
 		}
 	}
+	return len(readyTasks)
 }
 
 func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {

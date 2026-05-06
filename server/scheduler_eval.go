@@ -162,11 +162,18 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 				break
 			}
 		case seconds == 0:
-			// Process ready tasks before resuming — forked children may
-			// need to run during the scheduler-yield window.
-			s.processReadyTasks()
-			time.Sleep(10 * time.Millisecond)
-			s.processReadyTasks()
+			// Process immediate ready tasks before resuming. Nested zero-delay
+			// forks and suspend(0) resumes may need multiple scheduler passes.
+			idlePasses := 0
+			deadline := time.Now().Add(250 * time.Millisecond)
+			for idlePasses < 2 && time.Now().Before(deadline) {
+				if s.processReadyTasks() == 0 {
+					idlePasses++
+					time.Sleep(5 * time.Millisecond)
+				} else {
+					idlePasses = 0
+				}
+			}
 		default:
 			sleepEnd := time.Now().Add(time.Duration(seconds * float64(time.Second)))
 			for time.Now().Before(sleepEnd) {

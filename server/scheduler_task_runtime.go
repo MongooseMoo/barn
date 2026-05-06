@@ -6,6 +6,7 @@ import (
 	"barn/task"
 	"barn/types"
 	"barn/vm"
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -174,6 +175,16 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	default:
 	}
 
+	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
+		t.BytecodeVM = bcVM
+		if t.WakeValue != nil {
+			bcVM.SetResumeValue(t.WakeValue)
+			t.WakeValue = nil
+		}
+		result = bcVM.Resume()
+		t.Result = result
+	}
+
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
@@ -183,6 +194,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 		// Save VM state for later Resume()
 		t.BytecodeVM = bcVM
+		if t.GetState() == task.TaskQueued {
+			s.mu.Lock()
+			heap.Push(s.waiting, t)
+			s.mu.Unlock()
+		}
 		// The task manager has already been notified via builtinSuspend
 		// Just return without setting state to Completed
 		return nil
