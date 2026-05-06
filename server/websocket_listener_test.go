@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -258,6 +259,101 @@ func TestWebSocketPreLoginTimeoutClosesConnection(t *testing.T) {
 	}
 }
 
+func TestWSSListenerLoginAndEval(t *testing.T) {
+	h := startSecureWebSocketHarness(t, "/moo")
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
+	defer cancel()
+
+	client, _, err := websocket.Dial(ctx, h.url, insecureWebSocketDialOptions())
+	if err != nil {
+		t.Fatalf("dial secure websocket: %v", err)
+	}
+	defer client.Close(websocket.StatusNormalClosure, "")
+
+	loginWebSocket(t, client)
+	if got := readWebSocketText(t, client); got != "*** Connected ***" {
+		t.Fatalf("login response %q, want connected message", got)
+	}
+
+	writeWebSocketText(t, client, "eval return 5;")
+	if got := readWebSocketText(t, client); got != "{1, 5}" {
+		t.Fatalf("eval response %q, want {1, 5}", got)
+	}
+}
+
+func TestWSSHTTPPolicy(t *testing.T) {
+	h := startSecureWebSocketHarness(t, "/moo")
+	httpClient := &http.Client{Transport: insecureHTTPTransport()}
+
+	resp, err := httpClient.Get(strings.Replace(h.url, "wss://", "https://", 1))
+	if err != nil {
+		t.Fatalf("plain https get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUpgradeRequired {
+		t.Fatalf("plain https status %d, want 426", resp.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
+	defer cancel()
+	_, resp, err = websocket.Dial(ctx, strings.Replace(h.url, "/moo", "/other", 1), insecureWebSocketDialOptions())
+	if err == nil {
+		t.Fatalf("secure websocket dial to wrong path succeeded")
+	}
+	if resp == nil || resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("wrong-path status %v, want 404", responseStatus(resp))
+	}
+
+	client, _, err := websocket.Dial(ctx, h.url, &websocket.DialOptions{
+		HTTPClient: insecureHTTPClient(),
+		HTTPHeader: http.Header{"Origin": []string{"https://example.invalid"}},
+	})
+	if err != nil {
+		t.Fatalf("dial secure websocket with cross origin header: %v", err)
+	}
+	defer client.Close(websocket.StatusNormalClosure, "")
+}
+
+func TestWSSHandshakeFailureDoesNotCreateBarnConnection(t *testing.T) {
+	h := startSecureWebSocketHarness(t, "/moo")
+	port := h.cm.ListenerInfos()[0].Port
+
+	conn, err := tls.Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)), &tls.Config{ServerName: "localhost"})
+	if err == nil {
+		_ = conn.Close()
+		t.Fatalf("TLS handshake unexpectedly succeeded")
+	}
+
+	h.cm.mu.Lock()
+	connections := len(h.cm.connections)
+	h.cm.mu.Unlock()
+	if connections != 0 {
+		t.Fatalf("got %d Barn connections after failed TLS handshake, want 0", connections)
+	}
+}
+
+func TestWSSShutdownClosesActiveConnection(t *testing.T) {
+	h := startSecureWebSocketHarness(t, "/moo")
+	h.cm.shutdownTimeout = websocketShutdownTestTimeout
+	h.cm.shutdownPoll = websocketShutdownTestPoll
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
+	defer cancel()
+
+	client, _, err := websocket.Dial(ctx, h.url, insecureWebSocketDialOptions())
+	if err != nil {
+		t.Fatalf("dial secure websocket: %v", err)
+	}
+	defer client.Close(websocket.StatusNormalClosure, "")
+	loginWebSocket(t, client)
+	_ = readWebSocketText(t, client)
+
+	h.cm.Shutdown()
+	_, _, err = client.Read(ctx)
+	if err == nil {
+		t.Fatalf("read after connection manager shutdown succeeded, want close")
+	}
+}
+
 type websocketHarness struct {
 	cm  *ConnectionManager
 	url string
@@ -269,6 +365,29 @@ func startWebSocketHarness(t *testing.T, path string) websocketHarness {
 }
 
 func startWebSocketHarnessWithConnectTimeout(t *testing.T, path string, connectTimeout int64) websocketHarness {
+	t.Helper()
+	return startWebSocketHarnessWithSpec(t, "ws", builtins.ListenerSpec{
+		Protocol:  "ws",
+		Port:      0,
+		Interface: "127.0.0.1",
+		Path:      path,
+	}, connectTimeout)
+}
+
+func startSecureWebSocketHarness(t *testing.T, path string) websocketHarness {
+	t.Helper()
+	certPath, keyPath := writeSelfSignedCertificate(t)
+	return startWebSocketHarnessWithSpec(t, "wss", builtins.ListenerSpec{
+		Protocol:           "wss",
+		Port:               0,
+		Interface:          "127.0.0.1",
+		Path:               path,
+		TLSCertificatePath: certPath,
+		TLSKeyPath:         keyPath,
+	}, 0)
+}
+
+func startWebSocketHarnessWithSpec(t *testing.T, scheme string, spec builtins.ListenerSpec, connectTimeout int64) websocketHarness {
 	t.Helper()
 
 	store := db.NewStore()
@@ -298,22 +417,29 @@ func startWebSocketHarnessWithConnectTimeout(t *testing.T, path string, connectT
 	scheduler.Start()
 	t.Cleanup(scheduler.Stop)
 
-	err := cm.StartListeners([]builtins.ListenerSpec{{
-		Protocol:  "ws",
-		Port:      0,
-		Interface: "127.0.0.1",
-		Path:      path,
-	}})
+	err := cm.StartListeners([]builtins.ListenerSpec{spec})
 	if err != nil {
-		t.Fatalf("start ws listener: %v", err)
+		t.Fatalf("start %s listener: %v", spec.Protocol, err)
 	}
 	t.Cleanup(func() { closeAllListeners(cm) })
 
 	port := cm.ListenerInfos()[0].Port
 	return websocketHarness{
 		cm:  cm,
-		url: "ws://" + net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)) + path,
+		url: scheme + "://" + net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)) + spec.Path,
 	}
+}
+
+func insecureWebSocketDialOptions() *websocket.DialOptions {
+	return &websocket.DialOptions{HTTPClient: insecureHTTPClient()}
+}
+
+func insecureHTTPClient() *http.Client {
+	return &http.Client{Transport: insecureHTTPTransport()}
+}
+
+func insecureHTTPTransport() *http.Transport {
+	return &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 }
 
 func readWebSocketText(t *testing.T, conn *websocket.Conn) string {
