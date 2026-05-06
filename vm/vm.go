@@ -11,16 +11,17 @@ import (
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	Stack        []types.Value      // Operand stack
-	SP           int                // Stack pointer
-	Frames       []*StackFrame      // Call stack
-	FP           int                // Frame pointer
-	Store        *db.Store          // Object store
-	Builtins     *builtins.Registry // Builtin function registry
-	Context      *types.TaskContext // Task context for builtins
-	TickLimit    int64              // Maximum ticks before E_MAXREC
-	Ticks        int64              // Current tick count
-	PendingWaifs []types.WaifValue
+	Stack         []types.Value      // Operand stack
+	SP            int                // Stack pointer
+	Frames        []*StackFrame      // Call stack
+	FP            int                // Frame pointer
+	Store         *db.Store          // Object store
+	Builtins      *builtins.Registry // Builtin function registry
+	Context       *types.TaskContext // Task context for builtins
+	TickLimit     int64              // Maximum ticks before E_MAXREC
+	MaxStackDepth int                // Maximum VM call frames before E_MAXREC
+	Ticks         int64              // Current tick count
+	PendingWaifs  []types.WaifValue
 
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
@@ -57,15 +58,23 @@ type StackFrame struct {
 // NewVM creates a new virtual machine
 func NewVM(store *db.Store, registry *builtins.Registry) *VM {
 	return &VM{
-		Stack:     make([]types.Value, 0, 256),
-		SP:        0,
-		Frames:    make([]*StackFrame, 0, 16),
-		FP:        0,
-		Store:     store,
-		Builtins:  registry,
-		TickLimit: 30000,
-		Ticks:     0,
+		Stack:         make([]types.Value, 0, 256),
+		SP:            0,
+		Frames:        make([]*StackFrame, 0, 16),
+		FP:            0,
+		Store:         store,
+		Builtins:      registry,
+		TickLimit:     30000,
+		MaxStackDepth: 50,
+		Ticks:         0,
 	}
+}
+
+func (vm *VM) checkFrameLimit() error {
+	if vm.MaxStackDepth > 0 && len(vm.Frames) >= vm.MaxStackDepth {
+		return MooError{Code: types.E_MAXREC}
+	}
+	return nil
 }
 
 // Run executes a program and returns the result.

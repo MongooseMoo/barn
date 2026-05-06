@@ -102,6 +102,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	bcVM := vm.NewVM(s.store, s.registry)
 	bcVM.Context = ctx
 	bcVM.TickLimit = ticks
+	configureVMStackLimit(bcVM)
 
 	// Top-level eval still has intrinsic command variables in Toast:
 	// player/caller/this/verb/args and command parser placeholders.

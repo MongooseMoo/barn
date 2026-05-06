@@ -259,6 +259,9 @@ func (vm *VM) executeCallVerb() error {
 		}
 	}
 
+	if err := vm.checkFrameLimit(); err != nil {
+		return err
+	}
 	vm.Frames = append(vm.Frames, frame)
 
 	// Return nil — Run() loop continues executing the new frame's bytecode
@@ -493,6 +496,9 @@ func (vm *VM) executePass() error {
 		}
 	}
 
+	if err := vm.checkFrameLimit(); err != nil {
+		return err
+	}
 	vm.Frames = append(vm.Frames, newFrame)
 
 	// Return nil — Run() loop continues executing the new frame's bytecode

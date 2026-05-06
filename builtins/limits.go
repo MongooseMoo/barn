@@ -21,6 +21,7 @@ const (
 	defaultBgTicks           = 30000
 	defaultFgSeconds         = 5.0
 	defaultBgSeconds         = 3.0
+	defaultMaxStackDepth     = 50
 	minStringConcatLimit     = 1021
 	minListValueBytesLimit   = 1021
 	minMapValueBytesLimit    = 1021
@@ -39,6 +40,7 @@ var (
 		bgTicks           int64
 		fgSeconds         float64
 		bgSeconds         float64
+		maxStackDepth     int
 	}{
 		maxStringConcat:   defaultMaxStringConcat,
 		maxListValueBytes: defaultMaxListValueBytes,
@@ -47,6 +49,7 @@ var (
 		bgTicks:           defaultBgTicks,
 		fgSeconds:         defaultFgSeconds,
 		bgSeconds:         defaultBgSeconds,
+		maxStackDepth:     defaultMaxStackDepth,
 	}
 )
 
@@ -65,6 +68,12 @@ func GetTaskLimits(background bool) (int64, float64) {
 		return serverOptionsCache.bgTicks, serverOptionsCache.bgSeconds
 	}
 	return serverOptionsCache.fgTicks, serverOptionsCache.fgSeconds
+}
+
+func GetMaxStackDepth() int {
+	serverOptionsCache.RLock()
+	defer serverOptionsCache.RUnlock()
+	return serverOptionsCache.maxStackDepth
 }
 
 // findPropertyInherited finds a property anywhere in the inheritance chain
@@ -123,6 +132,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	nextBgTicks := int64(defaultBgTicks)
 	nextFgSeconds := defaultFgSeconds
 	nextBgSeconds := defaultBgSeconds
+	nextMaxStackDepth := defaultMaxStackDepth
 	loaded := 0
 
 	if store == nil {
@@ -134,6 +144,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.bgTicks = nextBgTicks
 		serverOptionsCache.fgSeconds = nextFgSeconds
 		serverOptionsCache.bgSeconds = nextBgSeconds
+		serverOptionsCache.maxStackDepth = nextMaxStackDepth
 		serverOptionsCache.Unlock()
 		return 0
 	}
@@ -149,6 +160,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.bgTicks = nextBgTicks
 		serverOptionsCache.fgSeconds = nextFgSeconds
 		serverOptionsCache.bgSeconds = nextBgSeconds
+		serverOptionsCache.maxStackDepth = nextMaxStackDepth
 		serverOptionsCache.Unlock()
 		return 0 // No server_options property
 	}
@@ -164,6 +176,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.bgTicks = nextBgTicks
 		serverOptionsCache.fgSeconds = nextFgSeconds
 		serverOptionsCache.bgSeconds = nextBgSeconds
+		serverOptionsCache.maxStackDepth = nextMaxStackDepth
 		serverOptionsCache.Unlock()
 		return 0 // server_options is not an object
 	}
@@ -219,6 +232,12 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 			loaded++
 		}
 	}
+	if prop := findDefinedProperty(serverOptsID, "max_stack_depth", store); prop != nil {
+		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
+			nextMaxStackDepth = int(intVal.Val)
+			loaded++
+		}
+	}
 
 	serverOptionsCache.Lock()
 	serverOptionsCache.maxStringConcat = nextString
@@ -228,6 +247,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	serverOptionsCache.bgTicks = nextBgTicks
 	serverOptionsCache.fgSeconds = nextFgSeconds
 	serverOptionsCache.bgSeconds = nextBgSeconds
+	serverOptionsCache.maxStackDepth = nextMaxStackDepth
 	serverOptionsCache.Unlock()
 
 	return loaded

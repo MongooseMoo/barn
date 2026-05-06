@@ -102,6 +102,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	bcVM.Context = ctx
 	ticks, _ := foregroundTaskLimits()
 	bcVM.TickLimit = ticks
+	configureVMStackLimit(bcVM)
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, player, verbName, defObjID, args)

@@ -112,6 +112,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		bcVM = vm.NewVM(s.store, s.registry)
 		bcVM.Context = ctx
 		bcVM.TickLimit = t.TicksLimit
+		configureVMStackLimit(bcVM)
 
 		if t.VerbName != "" {
 			// Command verbs derive args from raw words; server-initiated hooks can

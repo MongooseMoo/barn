@@ -21,6 +21,10 @@ func backgroundTaskLimits() (int64, float64) {
 	return builtins.GetTaskLimits(true)
 }
 
+func configureVMStackLimit(machine *vm.VM) {
+	machine.MaxStackDepth = builtins.GetMaxStackDepth()
+}
+
 // QueueTask adds a task to the scheduler
 func (s *Scheduler) QueueTask(t *task.Task) int64 {
 	s.mu.Lock()
@@ -169,6 +173,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		// Create a pre-configured VM for the child
 		childVM := vm.NewVM(s.store, s.registry)
 		childVM.TickLimit = ticks
+		configureVMStackLimit(childVM)
 
 		// Set up the child frame with inherited variables
 		frame := childVM.PrepareVerbFrame(forkProg,
