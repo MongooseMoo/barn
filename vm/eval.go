@@ -21,11 +21,6 @@ type Evaluator struct {
 func NewEvaluator() *Evaluator {
 	store := db.NewStore()
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
@@ -41,11 +36,6 @@ func NewEvaluator() *Evaluator {
 func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 	store := db.NewStore()
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -60,11 +50,6 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 // NewEvaluatorWithEnvAndStore creates a new evaluator with a given environment and store
 func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
@@ -79,11 +64,6 @@ func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
 // NewEvaluatorWithStore creates a new evaluator with a given store
 func NewEvaluatorWithStore(store *db.Store) *Evaluator {
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
@@ -101,16 +81,11 @@ func (e *Evaluator) GetRegistry() *builtins.Registry {
 }
 
 // BuildVMRegistry creates a builtins registry suitable for the bytecode VM.
-// It registers all standard builtins (objects, properties, verbs, crypto, system)
-// and a VM-aware eval() builtin. pass() is handled natively by OP_PASS in the VM
+// It registers all standard builtins and a VM-aware eval() builtin.
+// pass() is handled natively by OP_PASS in the VM
 // but is still registered so the compiler can resolve its function ID.
-func BuildVMRegistry(store *db.Store) *builtins.Registry {
+func BuildVMRegistry() *builtins.Registry {
 	registry := builtins.NewRegistry()
-	registry.RegisterObjectBuiltins(store)
-	registry.RegisterPropertyBuiltins(store)
-	registry.RegisterVerbBuiltins(store)
-	registry.RegisterCryptoBuiltins(store)
-	registry.RegisterSystemBuiltins(store)
 
 	// Register VM-aware eval() builtin.
 	// When called from within a VM (CallerVM is set), pushes a frame on the
@@ -120,6 +95,10 @@ func BuildVMRegistry(store *db.Store) *builtins.Registry {
 	registry.Register("eval", func(ctx *types.TaskContext, args []types.Value) types.Result {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
+		}
+		store, ok := ctx.Store.(*db.Store)
+		if !ok {
+			return types.Err(types.E_INVARG)
 		}
 
 		// eval() requires programmer permissions
