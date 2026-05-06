@@ -43,7 +43,7 @@ Executed `prompts/registry-lift.md` directly.
 ## Verification
 
 - `go build ./...`: passed.
-- `go test ./...`: failed. Failures included existing broad-suite issues outside this migration surface:
+- `go test ./...`: failed. Failures included broad-suite issues outside this migration surface or in files not edited for this work:
   - build failures in `types/result_test.go` for `Break` call arity.
   - build failure in `conformance/conformance_test.go` for `server.NewServer` call arity.
   - runtime failures in `builtins`, `parser`, and `vm` packages.
