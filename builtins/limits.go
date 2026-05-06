@@ -17,6 +17,10 @@ const (
 	defaultMaxStringConcat   = 64537861
 	defaultMaxListValueBytes = 64537861
 	defaultMaxMapValueBytes  = 64537861
+	defaultFgTicks           = 60000
+	defaultBgTicks           = 30000
+	defaultFgSeconds         = 5.0
+	defaultBgSeconds         = 3.0
 	minStringConcatLimit     = 1021
 	minListValueBytesLimit   = 1021
 	minMapValueBytesLimit    = 1021
@@ -31,10 +35,18 @@ var (
 		maxStringConcat   int
 		maxListValueBytes int
 		maxMapValueBytes  int
+		fgTicks           int64
+		bgTicks           int64
+		fgSeconds         float64
+		bgSeconds         float64
 	}{
 		maxStringConcat:   defaultMaxStringConcat,
 		maxListValueBytes: defaultMaxListValueBytes,
 		maxMapValueBytes:  defaultMaxMapValueBytes,
+		fgTicks:           defaultFgTicks,
+		bgTicks:           defaultBgTicks,
+		fgSeconds:         defaultFgSeconds,
+		bgSeconds:         defaultBgSeconds,
 	}
 )
 
@@ -44,6 +56,15 @@ func GetMaxStringConcat() int {
 	serverOptionsCache.RLock()
 	defer serverOptionsCache.RUnlock()
 	return serverOptionsCache.maxStringConcat
+}
+
+func GetTaskLimits(background bool) (int64, float64) {
+	serverOptionsCache.RLock()
+	defer serverOptionsCache.RUnlock()
+	if background {
+		return serverOptionsCache.bgTicks, serverOptionsCache.bgSeconds
+	}
+	return serverOptionsCache.fgTicks, serverOptionsCache.fgSeconds
 }
 
 // findPropertyInherited finds a property anywhere in the inheritance chain
@@ -78,6 +99,18 @@ func findPropertyInherited(objID types.ObjID, name string, store *db.Store) *db.
 	return nil
 }
 
+func findDefinedProperty(objID types.ObjID, name string, store *db.Store) *db.Property {
+	obj := store.Get(objID)
+	if obj == nil {
+		return nil
+	}
+	prop := obj.Properties[name]
+	if prop == nil || !prop.Defined {
+		return nil
+	}
+	return prop
+}
+
 // LoadServerOptionsFromStore reads limits from $server_options object and caches them.
 // This is called by the load_server_options() builtin.
 // Returns the number of options successfully loaded.
@@ -86,6 +119,10 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	nextString := defaultMaxStringConcat
 	nextList := defaultMaxListValueBytes
 	nextMap := defaultMaxMapValueBytes
+	nextFgTicks := int64(defaultFgTicks)
+	nextBgTicks := int64(defaultBgTicks)
+	nextFgSeconds := defaultFgSeconds
+	nextBgSeconds := defaultBgSeconds
 	loaded := 0
 
 	if store == nil {
@@ -93,6 +130,10 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.maxStringConcat = nextString
 		serverOptionsCache.maxListValueBytes = nextList
 		serverOptionsCache.maxMapValueBytes = nextMap
+		serverOptionsCache.fgTicks = nextFgTicks
+		serverOptionsCache.bgTicks = nextBgTicks
+		serverOptionsCache.fgSeconds = nextFgSeconds
+		serverOptionsCache.bgSeconds = nextBgSeconds
 		serverOptionsCache.Unlock()
 		return 0
 	}
@@ -104,6 +145,10 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.maxStringConcat = nextString
 		serverOptionsCache.maxListValueBytes = nextList
 		serverOptionsCache.maxMapValueBytes = nextMap
+		serverOptionsCache.fgTicks = nextFgTicks
+		serverOptionsCache.bgTicks = nextBgTicks
+		serverOptionsCache.fgSeconds = nextFgSeconds
+		serverOptionsCache.bgSeconds = nextBgSeconds
 		serverOptionsCache.Unlock()
 		return 0 // No server_options property
 	}
@@ -115,6 +160,10 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.maxStringConcat = nextString
 		serverOptionsCache.maxListValueBytes = nextList
 		serverOptionsCache.maxMapValueBytes = nextMap
+		serverOptionsCache.fgTicks = nextFgTicks
+		serverOptionsCache.bgTicks = nextBgTicks
+		serverOptionsCache.fgSeconds = nextFgSeconds
+		serverOptionsCache.bgSeconds = nextBgSeconds
 		serverOptionsCache.Unlock()
 		return 0 // server_options is not an object
 	}
@@ -123,7 +172,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	serverOptsID := serverOptsRef.ID()
 
 	// Read max_string_concat (searching inheritance chain)
-	if prop := findPropertyInherited(serverOptsID, "max_string_concat", store); prop != nil {
+	if prop := findDefinedProperty(serverOptsID, "max_string_concat", store); prop != nil {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextString = canonicalizeLimit(int(intVal.Val), minStringConcatLimit, maxStringConcatLimit)
 			loaded++
@@ -131,7 +180,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	}
 
 	// Read max_list_value_bytes
-	if prop := findPropertyInherited(serverOptsID, "max_list_value_bytes", store); prop != nil {
+	if prop := findDefinedProperty(serverOptsID, "max_list_value_bytes", store); prop != nil {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextList = canonicalizeLimit(int(intVal.Val), minListValueBytesLimit, maxListValueBytesLimit)
 			loaded++
@@ -139,9 +188,34 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	}
 
 	// Read max_map_value_bytes
-	if prop := findPropertyInherited(serverOptsID, "max_map_value_bytes", store); prop != nil {
+	if prop := findDefinedProperty(serverOptsID, "max_map_value_bytes", store); prop != nil {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextMap = canonicalizeLimit(int(intVal.Val), minMapValueBytesLimit, maxMapValueBytesLimit)
+			loaded++
+		}
+	}
+
+	if prop := findDefinedProperty(serverOptsID, "fg_ticks", store); prop != nil {
+		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
+			nextFgTicks = intVal.Val
+			loaded++
+		}
+	}
+	if prop := findDefinedProperty(serverOptsID, "bg_ticks", store); prop != nil {
+		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
+			nextBgTicks = intVal.Val
+			loaded++
+		}
+	}
+	if prop := findDefinedProperty(serverOptsID, "fg_seconds", store); prop != nil {
+		if seconds, ok := numericSeconds(prop.Value); ok && seconds > 0 {
+			nextFgSeconds = seconds
+			loaded++
+		}
+	}
+	if prop := findDefinedProperty(serverOptsID, "bg_seconds", store); prop != nil {
+		if seconds, ok := numericSeconds(prop.Value); ok && seconds > 0 {
+			nextBgSeconds = seconds
 			loaded++
 		}
 	}
@@ -150,9 +224,24 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	serverOptionsCache.maxStringConcat = nextString
 	serverOptionsCache.maxListValueBytes = nextList
 	serverOptionsCache.maxMapValueBytes = nextMap
+	serverOptionsCache.fgTicks = nextFgTicks
+	serverOptionsCache.bgTicks = nextBgTicks
+	serverOptionsCache.fgSeconds = nextFgSeconds
+	serverOptionsCache.bgSeconds = nextBgSeconds
 	serverOptionsCache.Unlock()
 
 	return loaded
+}
+
+func numericSeconds(value types.Value) (float64, bool) {
+	switch v := value.(type) {
+	case types.IntValue:
+		return float64(v.Val), true
+	case types.FloatValue:
+		return v.Val, true
+	default:
+		return 0, false
+	}
 }
 
 func canonicalizeLimit(value, min, max int) int {

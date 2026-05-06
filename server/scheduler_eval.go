@@ -74,7 +74,8 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.
 	mgr := task.GetManager()
-	t := mgr.CreateTask(player, 300000, 5.0)
+	ticks, secondsLimit := foregroundTaskLimits()
+	t := mgr.CreateTask(player, ticks, secondsLimit)
 	defer mgr.RemoveTask(t.ID)
 	t.Programmer = player
 	t.ForkCreator = s // Enable fork support in eval commands
@@ -100,7 +101,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	// Create bytecode VM and execute
 	bcVM := vm.NewVM(s.store, s.registry)
 	bcVM.Context = ctx
-	bcVM.TickLimit = 300000
+	bcVM.TickLimit = ticks
 
 	// Top-level eval still has intrinsic command variables in Toast:
 	// player/caller/this/verb/args and command parser placeholders.

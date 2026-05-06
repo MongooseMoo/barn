@@ -1,6 +1,7 @@
 package server
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/parser"
 	"barn/task"
@@ -11,6 +12,14 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+func foregroundTaskLimits() (int64, float64) {
+	return builtins.GetTaskLimits(false)
+}
+
+func backgroundTaskLimits() (int64, float64) {
+	return builtins.GetTaskLimits(true)
+}
 
 // QueueTask adds a task to the scheduler
 func (s *Scheduler) QueueTask(t *task.Task) int64 {
@@ -30,7 +39,8 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 // CreateForegroundTask creates a foreground task (user command)
 func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	t := task.NewTaskFull(taskID, player, code, 300000, 5.0)
+	ticks, seconds := foregroundTaskLimits()
+	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give task access to scheduler for forks
@@ -42,7 +52,8 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 // CreateVerbTask creates a task to execute a verb
 func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) <-chan struct{} {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, 300000, 5.0)
+	ticks, seconds := foregroundTaskLimits()
+	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Task runs with verb owner permissions (MOO programmer semantics).
@@ -92,7 +103,8 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	t := task.NewTaskFull(taskID, player, verb.Program.Statements, 300000, 5.0)
+	ticks, seconds := foregroundTaskLimits()
+	t := task.NewTaskFull(taskID, player, verb.Program.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
@@ -112,7 +124,8 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 // CreateBackgroundTask creates a background task (fork)
 func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	t := task.NewTaskFull(taskID, player, code, 300000, 3.0)
+	ticks, seconds := backgroundTaskLimits()
+	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give task access to scheduler for forks
@@ -149,12 +162,13 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		forkProg := parentProg.ExtractForkBody(bodyIP, bodyLen)
 
 		// Create child task -- Code stays nil since we'll use BytecodeVM path
-		t = task.NewTaskFull(taskID, forkInfo.Player, nil, 300000, 3.0)
+		ticks, seconds := backgroundTaskLimits()
+		t = task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
 		s.populateTaskContextDependencies(t.Context)
 
 		// Create a pre-configured VM for the child
 		childVM := vm.NewVM(s.store, s.registry)
-		childVM.TickLimit = 300000
+		childVM.TickLimit = ticks
 
 		// Set up the child frame with inherited variables
 		frame := childVM.PrepareVerbFrame(forkProg,
@@ -180,7 +194,8 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 
 	} else if body, ok := forkInfo.Body.([]parser.Stmt); ok {
 		// Tree-walker fork: Body is []parser.Stmt
-		t = task.NewTaskFull(taskID, forkInfo.Player, body, 300000, 3.0)
+		ticks, seconds := backgroundTaskLimits()
+		t = task.NewTaskFull(taskID, forkInfo.Player, body, ticks, seconds)
 		s.populateTaskContextDependencies(t.Context)
 
 		// Create evaluator with copied variable environment
