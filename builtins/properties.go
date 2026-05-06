@@ -199,7 +199,7 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 	if store.Get(newOwner) == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if !ctx.IsWizard && (!prop.Perms.Has(db.PropWrite) || prop.Owner != newOwner) {
+	if !ctx.IsWizard && (prop.Owner != ctx.Programmer || prop.Owner != newOwner) {
 		return types.Err(types.E_PERM)
 	}
 
