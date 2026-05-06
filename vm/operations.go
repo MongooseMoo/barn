@@ -556,6 +556,13 @@ func (vm *VM) executeShl() error {
 	if bInt.Val < 0 {
 		return fmt.Errorf("E_INVARG: negative shift count")
 	}
+	if bInt.Val == 64 {
+		vm.Push(types.IntValue{Val: 0})
+		return nil
+	}
+	if bInt.Val > 64 {
+		return fmt.Errorf("E_INVARG: invalid shift count")
+	}
 
 	vm.Push(types.IntValue{Val: aInt.Val << uint(bInt.Val)})
 	return nil
@@ -574,6 +581,13 @@ func (vm *VM) executeShr() error {
 
 	if bInt.Val < 0 {
 		return fmt.Errorf("E_INVARG: negative shift count")
+	}
+	if bInt.Val == 64 {
+		vm.Push(types.IntValue{Val: 0})
+		return nil
+	}
+	if bInt.Val > 64 {
+		return fmt.Errorf("E_INVARG: invalid shift count")
 	}
 
 	// Use unsigned cast for logical right shift (zero-fill, not sign-extending)
