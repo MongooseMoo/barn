@@ -324,6 +324,22 @@ func NewRegistry() *Registry {
 
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
+	inner := fn
+	fn = func(ctx *types.TaskContext, args []types.Value) types.Result {
+		if ctx != nil && ctx.ThisObj != 0 && IsProtectedBuiltin(name) {
+			result := r.CallVerb(0, "bf_"+name, args, ctx)
+			if result.IsNormal() {
+				return result
+			}
+			if result.Flow == types.FlowReturn {
+				return types.Ok(result.Val)
+			}
+			if !ctx.IsWizard {
+				return types.Err(types.E_PERM)
+			}
+		}
+		return inner(ctx, args)
+	}
 	if _, ok := lookupFunctionSignature(name); ok {
 		inner := fn
 		fn = func(ctx *types.TaskContext, args []types.Value) types.Result {

@@ -4,6 +4,7 @@ import (
 	"barn/db"
 	"barn/types"
 	"math"
+	"strings"
 	"sync"
 )
 
@@ -41,6 +42,7 @@ var (
 		fgSeconds         float64
 		bgSeconds         float64
 		maxStackDepth     int
+		protectedBuiltins map[string]bool
 	}{
 		maxStringConcat:   defaultMaxStringConcat,
 		maxListValueBytes: defaultMaxListValueBytes,
@@ -50,6 +52,7 @@ var (
 		fgSeconds:         defaultFgSeconds,
 		bgSeconds:         defaultBgSeconds,
 		maxStackDepth:     defaultMaxStackDepth,
+		protectedBuiltins: make(map[string]bool),
 	}
 )
 
@@ -74,6 +77,12 @@ func GetMaxStackDepth() int {
 	serverOptionsCache.RLock()
 	defer serverOptionsCache.RUnlock()
 	return serverOptionsCache.maxStackDepth
+}
+
+func IsProtectedBuiltin(name string) bool {
+	serverOptionsCache.RLock()
+	defer serverOptionsCache.RUnlock()
+	return serverOptionsCache.protectedBuiltins[name]
 }
 
 // findPropertyInherited finds a property anywhere in the inheritance chain
@@ -133,6 +142,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	nextFgSeconds := defaultFgSeconds
 	nextBgSeconds := defaultBgSeconds
 	nextMaxStackDepth := defaultMaxStackDepth
+	nextProtectedBuiltins := make(map[string]bool)
 	loaded := 0
 
 	if store == nil {
@@ -145,6 +155,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.fgSeconds = nextFgSeconds
 		serverOptionsCache.bgSeconds = nextBgSeconds
 		serverOptionsCache.maxStackDepth = nextMaxStackDepth
+		serverOptionsCache.protectedBuiltins = nextProtectedBuiltins
 		serverOptionsCache.Unlock()
 		return 0
 	}
@@ -161,6 +172,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.fgSeconds = nextFgSeconds
 		serverOptionsCache.bgSeconds = nextBgSeconds
 		serverOptionsCache.maxStackDepth = nextMaxStackDepth
+		serverOptionsCache.protectedBuiltins = nextProtectedBuiltins
 		serverOptionsCache.Unlock()
 		return 0 // No server_options property
 	}
@@ -177,6 +189,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 		serverOptionsCache.fgSeconds = nextFgSeconds
 		serverOptionsCache.bgSeconds = nextBgSeconds
 		serverOptionsCache.maxStackDepth = nextMaxStackDepth
+		serverOptionsCache.protectedBuiltins = nextProtectedBuiltins
 		serverOptionsCache.Unlock()
 		return 0 // server_options is not an object
 	}
@@ -238,6 +251,17 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 			loaded++
 		}
 	}
+	if serverOpts := store.Get(serverOptsID); serverOpts != nil {
+		for name, prop := range serverOpts.Properties {
+			if !prop.Defined || !strings.HasPrefix(name, "protect_") {
+				continue
+			}
+			if prop.Value.Truthy() {
+				nextProtectedBuiltins[strings.TrimPrefix(name, "protect_")] = true
+			}
+			loaded++
+		}
+	}
 
 	serverOptionsCache.Lock()
 	serverOptionsCache.maxStringConcat = nextString
@@ -248,6 +272,7 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	serverOptionsCache.fgSeconds = nextFgSeconds
 	serverOptionsCache.bgSeconds = nextBgSeconds
 	serverOptionsCache.maxStackDepth = nextMaxStackDepth
+	serverOptionsCache.protectedBuiltins = nextProtectedBuiltins
 	serverOptionsCache.Unlock()
 
 	return loaded
