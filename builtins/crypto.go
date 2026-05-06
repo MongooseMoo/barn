@@ -315,7 +315,12 @@ func hexValue(c byte) int {
 // - SHA256 ($5$)
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2b$)
-func builtinCrypt(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinCrypt(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
