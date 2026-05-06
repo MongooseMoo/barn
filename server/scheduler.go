@@ -372,14 +372,6 @@ func (s *Scheduler) processCommand(input InputEvent) {
 			return
 		}
 
-		if hasVerbNameMatch(s.store, player, location, cmd) {
-			conn.Send("I couldn't understand that.")
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
-			return
-		}
-
 		usePlayerHuh := false
 		if option, ok := s.getServerOption(0, "player_huh"); ok {
 			usePlayerHuh = option.Truthy()
