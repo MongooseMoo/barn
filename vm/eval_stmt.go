@@ -535,6 +535,8 @@ func (e *Evaluator) EvalProgram(source string) (types.Value, error) {
 	}
 
 	ctx := types.NewTaskContext()
+	ctx.Store = e.store
+	ctx.Registry = e.builtins
 	result := e.EvalStatements(stmts, ctx)
 
 	if result.Flow == types.FlowException {
