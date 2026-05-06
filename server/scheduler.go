@@ -154,7 +154,9 @@ func (s *Scheduler) processInput(input InputEvent) {
 		return
 	}
 
-	if builtins.HandleHeldInput(input.Player, input.Line, false) {
+	oob := strings.HasPrefix(input.Line, "#$#")
+	disableOOB := builtins.ConnectionOptionTruthy(input.Player, "disable-oob")
+	if !(oob && !disableOOB) && builtins.HandleHeldInput(input.Player, input.Line, false) {
 		return
 	}
 
@@ -190,7 +192,9 @@ func (s *Scheduler) deliverToReadingTask(player types.ObjID, line string) bool {
 // read()ing from that player, the line resumes it directly. Otherwise the
 // line is enqueued as a normal InputEvent.
 func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
-	if builtins.HandleHeldInput(player, line, atFront) {
+	oob := strings.HasPrefix(line, "#$#")
+	disableOOB := builtins.ConnectionOptionTruthy(player, "disable-oob")
+	if !(oob && !disableOOB) && builtins.HandleHeldInput(player, line, atFront) {
 		return
 	}
 
@@ -315,6 +319,25 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	location := playerObj.Location
 
 	if s.processProgrammingInput(conn, input.Line) {
+		return
+	}
+
+	if strings.HasPrefix(input.Line, "#$#") && !builtins.ConnectionOptionTruthy(player, "disable-oob") {
+		words := commandWordList(input.Line)
+		args := make([]types.Value, len(words))
+		for i, word := range words {
+			args[i] = types.NewStr(word)
+		}
+		result := s.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, player, input.Line)
+		if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+			var stack []task.ActivationFrame
+			if result.CallStack != nil {
+				if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+					stack = st
+				}
+			}
+			s.sendTracebackToPlayer(player, result.Error, stack)
+		}
 		return
 	}
 

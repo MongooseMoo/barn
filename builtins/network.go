@@ -78,6 +78,13 @@ var connectionOptionState = struct {
 	byPlayer: make(map[types.ObjID]map[string]types.Value),
 }
 
+var heldCommandState = struct {
+	mu       sync.Mutex
+	byPlayer map[types.ObjID][]string
+}{
+	byPlayer: make(map[types.ObjID][]string),
+}
+
 type httpReadWaiter struct {
 	task *task.Task
 	kind string
@@ -178,8 +185,22 @@ func setConnectionOption(player types.ObjID, name string, value types.Value) {
 	existing[name] = value
 }
 
+func drainHeldCommands(player types.ObjID) []string {
+	heldCommandState.mu.Lock()
+	defer heldCommandState.mu.Unlock()
+	lines := append([]string(nil), heldCommandState.byPlayer[player]...)
+	delete(heldCommandState.byPlayer, player)
+	return lines
+}
+
 func heldInputEnabled(player types.ObjID) bool {
 	return getConnectionOptions(player)["hold-input"].Truthy()
+}
+
+func ConnectionOptionTruthy(player types.ObjID, name string) bool {
+	options := getConnectionOptions(player)
+	value, ok := options[name]
+	return ok && value.Truthy()
 }
 
 func getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
@@ -493,9 +514,20 @@ func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWa
 }
 
 func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
+	held := heldInputEnabled(player)
+	if held {
+		heldCommandState.mu.Lock()
+		if atFront {
+			heldCommandState.byPlayer[player] = append([]string{line}, heldCommandState.byPlayer[player]...)
+		} else {
+			heldCommandState.byPlayer[player] = append(heldCommandState.byPlayer[player], line)
+		}
+		heldCommandState.mu.Unlock()
+	}
+
 	httpHeldInputState.mu.Lock()
 	state := httpHeldInputState.byPlayer[player]
-	if !heldInputEnabled(player) && (state == nil || len(state.waiters) == 0) {
+	if !held && (state == nil || len(state.waiters) == 0) {
 		httpHeldInputState.mu.Unlock()
 		return false
 	}
@@ -1036,6 +1068,11 @@ func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) type
 	}
 
 	setConnectionOption(player, name, args[2])
+	if name == "hold-input" && !args[2].Truthy() && globalInputForcer != nil {
+		for _, line := range drainHeldCommands(player) {
+			globalInputForcer.ForceInput(player, line, false)
+		}
+	}
 	return types.Ok(types.NewInt(0))
 }
 
