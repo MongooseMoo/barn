@@ -543,33 +543,38 @@ func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.L
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" && spec.Protocol != "ws" {
+	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" && spec.Protocol != "ws" && spec.Protocol != "wss" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
 	}
-	if spec.Protocol == "ws" {
-		if spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
-			return builtins.ListenerDescriptor{}, fmt.Errorf("ws listener does not accept TLS options")
-		}
+	if spec.Protocol == "ws" || spec.Protocol == "wss" {
 		if spec.Path == "" {
 			spec.Path = "/"
 		}
 		if !strings.HasPrefix(spec.Path, "/") {
 			return builtins.ListenerDescriptor{}, fmt.Errorf("websocket listener path must start with /")
 		}
+	}
+	if spec.Protocol == "ws" {
+		if spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
+			return builtins.ListenerDescriptor{}, fmt.Errorf("ws listener does not accept TLS options")
+		}
 		return cm.listenAndRegister(spec, primary, nil)
+	}
+	if spec.Protocol == "wss" {
+		tlsConfig, err := loadListenerTLSConfig(spec)
+		if err != nil {
+			return builtins.ListenerDescriptor{}, err
+		}
+		return cm.listenAndRegister(spec, primary, tlsConfig)
 	}
 	if spec.Path != "" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("%s listener does not accept path", spec.Protocol)
 	}
 	if spec.Protocol == "tls" {
-		if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
-			return builtins.ListenerDescriptor{}, fmt.Errorf("tls listener requires certificate and key")
-		}
-		cert, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath)
+		tlsConfig, err := loadListenerTLSConfig(spec)
 		if err != nil {
 			return builtins.ListenerDescriptor{}, err
 		}
-		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
 		return cm.listenAndRegister(spec, primary, tlsConfig)
 	}
 
@@ -582,7 +587,21 @@ func (cm *ConnectionManager) listenAndRegister(spec builtins.ListenerSpec, prima
 	if err != nil {
 		return builtins.ListenerDescriptor{}, err
 	}
+	if spec.Protocol == "wss" {
+		listener = tls.NewListener(listener, tlsConfig)
+	}
 	return cm.registerListener(listener, spec, primary, tlsConfig)
+}
+
+func loadListenerTLSConfig(spec builtins.ListenerSpec) (*tls.Config, error) {
+	if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
+		return nil, fmt.Errorf("%s listener requires certificate and key", spec.Protocol)
+	}
+	cert, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{Certificates: []tls.Certificate{cert}}, nil
 }
 
 func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) error {
