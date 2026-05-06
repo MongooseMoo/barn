@@ -109,7 +109,12 @@ func validateFunctionArgs(name string, args []types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
-func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value, r *Registry) types.Result {
+func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value) types.Result {
+	r, ok := ctx.Registry.(*Registry)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -138,7 +143,12 @@ func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value, r *Registry
 	return types.Ok(functionInfoEntry(name, signatureForFunction(name)))
 }
 
-func builtinCallFunction(ctx *types.TaskContext, args []types.Value, r *Registry) types.Result {
+func builtinCallFunction(ctx *types.TaskContext, args []types.Value) types.Result {
+	r, ok := ctx.Registry.(*Registry)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
