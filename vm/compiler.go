@@ -2146,9 +2146,7 @@ func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
 func (c *Compiler) compileContinue(n *parser.ContinueStmt) error {
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
-		// "continue x;" where x is not a loop target is used as value-carrying continue
-		// in legacy code; treat it as an unlabeled continue.
-		loop = c.findLoopByTarget("")
+		return fmt.Errorf("Invalid loop name")
 	}
 	if loop == nil {
 		return fmt.Errorf("continue outside of loop")
