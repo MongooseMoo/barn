@@ -4,6 +4,7 @@ import (
 	"barn/builtins"
 	"barn/trace"
 	"barn/types"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -25,6 +26,7 @@ type listenerRecord struct {
 	ipv6          bool
 	iface         string
 	tls           bool
+	tlsConfig     *tls.Config
 	primary       bool
 }
 
@@ -85,7 +87,7 @@ func (cm *ConnectionManager) StartListeners(specs []builtins.ListenerSpec) error
 	return nil
 }
 
-func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
+func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
 	port, ipv6, err := parseListenerPort(listener.Addr())
 	if err != nil {
 		_ = listener.Close()
@@ -109,6 +111,7 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		ipv6:          ipv6,
 		iface:         spec.Interface,
 		tls:           spec.Protocol == "tls" || spec.Protocol == "wss",
+		tlsConfig:     tlsConfig,
 		primary:       primary,
 	}
 
@@ -143,12 +146,24 @@ func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
 			continue
 		}
 
-		cm.handleNewConnection(record, socket)
+		go cm.handleNewConnection(record, socket)
 	}
 }
 
 // handleNewConnection handles a new TCP connection
 func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket net.Conn) {
+	if record.tlsConfig != nil {
+		_ = socket.SetDeadline(time.Now().Add(cm.connectTimeout))
+		tlsSocket := tls.Server(socket, record.tlsConfig)
+		if err := tlsSocket.Handshake(); err != nil {
+			log.Printf("TLS handshake error from %s: %v", socket.RemoteAddr(), err)
+			_ = socket.Close()
+			return
+		}
+		_ = tlsSocket.SetDeadline(time.Time{})
+		socket = tlsSocket
+	}
+
 	transport := NewTCPTransport(socket)
 	conn := cm.NewConnectionFromTransport(transport)
 	conn.SetListener(record.object, record.port, record.printMessages)
@@ -474,16 +489,31 @@ func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.L
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP {
+	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
 	}
+	if spec.Protocol == "tls" {
+		if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
+			return builtins.ListenerDescriptor{}, fmt.Errorf("tls listener requires certificate and key")
+		}
+		cert, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath)
+		if err != nil {
+			return builtins.ListenerDescriptor{}, err
+		}
+		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+		return cm.listenAndRegister(spec, primary, tlsConfig)
+	}
 
+	return cm.listenAndRegister(spec, primary, nil)
+}
+
+func (cm *ConnectionManager) listenAndRegister(spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
 	addr := net.JoinHostPort(spec.Interface, fmt.Sprintf("%d", spec.Port))
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return builtins.ListenerDescriptor{}, err
 	}
-	return cm.registerListener(listener, spec, primary)
+	return cm.registerListener(listener, spec, primary, tlsConfig)
 }
 
 func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) error {

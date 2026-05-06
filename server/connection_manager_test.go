@@ -31,7 +31,7 @@ func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
 	desc, err := cm.registerListener(tcp, builtins.ListenerSpec{
 		Protocol: builtins.ListenerProtocolTCP,
 		Object:   5,
-	}, false)
+	}, false, nil)
 	if err != nil {
 		t.Fatalf("register tcp listener: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 	_, err := cm.registerListener(first, builtins.ListenerSpec{
 		Protocol: builtins.ListenerProtocolTCP,
 		Object:   5,
-	}, false)
+	}, false, nil)
 	if err != nil {
 		t.Fatalf("register first listener: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 	_, err = cm.registerListener(second, builtins.ListenerSpec{
 		Protocol: builtins.ListenerProtocolTCP,
 		Object:   6,
-	}, false)
+	}, false, nil)
 	if err == nil {
 		t.Fatalf("registered duplicate listener descriptor")
 	}
