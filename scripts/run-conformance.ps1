@@ -7,84 +7,14 @@ param(
     [string]$ServerHost = "127.0.0.1",
     [switch]$Build,
     [string]$BuildTarget = "./cmd/barn/",
-    [string]$PytestModule = "moo_conformance",
     [string]$K = "",
-    [string[]]$ExtraPytestArgs = @(),
+    [string[]]$ExtraConformanceArgs = @(),
     [string]$ReportsRoot = "reports/runs",
-    [int]$StartupTimeoutSec = 20,
     [switch]$KeepRunDb,
     [switch]$NoFreshDb
 )
 
 $ErrorActionPreference = "Stop"
-
-function Wait-ForTcpPort {
-    param(
-        [string]$WaitHost,
-        [int]$WaitPort,
-        [int]$TimeoutSec
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        try {
-            $client = New-Object System.Net.Sockets.TcpClient
-            $iar = $client.BeginConnect($WaitHost, $WaitPort, $null, $null)
-            if ($iar.AsyncWaitHandle.WaitOne(500)) {
-                $client.EndConnect($iar)
-                $client.Close()
-                return $true
-            }
-            $client.Close()
-        } catch {
-            # Port not ready yet.
-        }
-        Start-Sleep -Milliseconds 200
-    }
-    return $false
-}
-
-function Get-ListeningProcessIds {
-    param([int]$ListenPort)
-
-    try {
-        return @(Get-NetTCPConnection -LocalPort $ListenPort -State Listen -ErrorAction Stop |
-            Select-Object -ExpandProperty OwningProcess -Unique)
-    } catch {
-        return @()
-    }
-}
-
-function Stop-PortListeners {
-    param([int]$ListenPort)
-
-    $listenerPids = @(Get-ListeningProcessIds -ListenPort $ListenPort)
-    if ($listenerPids.Count -eq 0) {
-        return
-    }
-
-    Write-Host "Stopping existing listeners on port $ListenPort : $($listenerPids -join ', ')"
-    foreach ($listenerPid in $listenerPids) {
-        try {
-            Stop-Process -Id $listenerPid -Force -ErrorAction Stop
-        } catch {
-            Write-Warning "Failed to stop PID ${listenerPid}: $($_.Exception.Message)"
-        }
-    }
-
-    $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline) {
-        if ((Get-ListeningProcessIds -ListenPort $ListenPort).Count -eq 0) {
-            return
-        }
-        Start-Sleep -Milliseconds 200
-    }
-
-    $remaining = @(Get-ListeningProcessIds -ListenPort $ListenPort)
-    if ($remaining.Count -gt 0) {
-        throw "Port $ListenPort is still in use by PID(s): $($remaining -join ', ')"
-    }
-}
 
 function Write-Section {
     param([string]$Text)
@@ -96,12 +26,9 @@ $runId = Get-Date -Format "yyyyMMdd_HHmmss"
 $runDir = Join-Path $ReportsRoot $runId
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 
-$serverOutLog = Join-Path $runDir "server.stdout.log"
-$serverErrLog = Join-Path $runDir "server.stderr.log"
-$pytestLog = Join-Path $runDir "pytest.log"
-$pytestCmdFile = Join-Path $runDir "pytest.command.txt"
+$conformanceLog = Join-Path $runDir "conformance.log"
+$conformanceCmdFile = Join-Path $runDir "conformance.command.txt"
 $failedTestsFile = Join-Path $runDir "failed-tests.txt"
-$serverAlertsFile = Join-Path $runDir "server-alerts.txt"
 $summaryFile = Join-Path $runDir "summary.json"
 
 if ($Build) {
@@ -116,125 +43,74 @@ if (-not (Test-Path $Binary)) {
     throw "Server binary not found: $Binary"
 }
 
-if (-not $NoFreshDb) {
-    if (-not (Test-Path $SourceDb)) {
-        throw "Source DB not found: $SourceDb"
-    }
-    Write-Section "Prepare DB"
-    Copy-Item -Force $SourceDb $RunDb
-    Write-Host "Copied $SourceDb -> $RunDb"
-} elseif (-not (Test-Path $RunDb)) {
-    throw "Run DB not found and -NoFreshDb set: $RunDb"
+$serverDb = if ($NoFreshDb) { $RunDb } else { $SourceDb }
+if (-not (Test-Path $serverDb)) {
+    throw "Server DB not found: $serverDb"
 }
 
-$pytestArgs = @("run", "pytest", "--pyargs", $PytestModule, "--moo-port=$Port", "-v")
+$binaryPath = [System.IO.Path]::GetFullPath($Binary)
+$serverCommand = "`"$binaryPath`" -db {db} -port {port}"
+$conformanceArgs = @(
+    "run",
+    "moo-conformance",
+    "--server-command",
+    $serverCommand,
+    "--server-db",
+    $serverDb,
+    "--moo-host=$ServerHost",
+    "--moo-port=$Port",
+    "-v"
+)
 if ($K -ne "") {
-    $pytestArgs += @("-k", $K)
+    $conformanceArgs += @("-k", $K)
 }
-if ($ExtraPytestArgs.Count -gt 0) {
-    $pytestArgs += $ExtraPytestArgs
+if ($ExtraConformanceArgs.Count -gt 0) {
+    $conformanceArgs += $ExtraConformanceArgs
 }
-$pytestCmdText = "uv " + ($pytestArgs -join " ")
-$pytestCmdText | Set-Content -Path $pytestCmdFile
-
-$server = $null
-$pytestExit = 1
+$conformanceCmdText = "uv " + ($conformanceArgs -join " ")
+$conformanceCmdText | Set-Content -Path $conformanceCmdFile
+$conformanceExit = 1
 
 Write-Section "Run"
 Write-Host "Run ID: $runId"
 Write-Host "Run Dir: $runDir"
-Write-Host "Server:  $Binary -db $RunDb -port $Port"
-Write-Host "Pytest:  $pytestCmdText"
+Write-Host "Command: $conformanceCmdText"
 
-try {
-    Stop-PortListeners -ListenPort $Port
+& uv @conformanceArgs 2>&1 | Tee-Object -FilePath $conformanceLog
+$conformanceExit = $LASTEXITCODE
 
-    $server = Start-Process -FilePath $Binary `
-        -ArgumentList @("-db", $RunDb, "-port", $Port.ToString()) `
-        -RedirectStandardOutput $serverOutLog `
-        -RedirectStandardError $serverErrLog `
-        -PassThru
-
-    Start-Sleep -Milliseconds 300
-    if ($server.HasExited) {
-        throw "Server exited early with code $($server.ExitCode). See $serverErrLog"
-    }
-
-    if (-not (Wait-ForTcpPort -WaitHost $ServerHost -WaitPort $Port -TimeoutSec $StartupTimeoutSec)) {
-        throw "Server failed to accept TCP connections on $ServerHost`:$Port within $StartupTimeoutSec seconds."
-    }
-
-    $owners = @(Get-ListeningProcessIds -ListenPort $Port)
-    if ($owners.Count -eq 0) {
-        throw "No active listener found on port $Port after startup."
-    }
-    if ($owners -notcontains $server.Id) {
-        throw "Port $Port listener PID(s) $($owners -join ', ') do not include started server PID $($server.Id)."
-    }
-
-    & uv @pytestArgs 2>&1 | Tee-Object -FilePath $pytestLog
-    $pytestExit = $LASTEXITCODE
-}
-finally {
-    if ($null -ne $server -and -not $server.HasExited) {
-        Stop-Process -Id $server.Id -Force
-    }
-}
-
-$failedLines = @(Select-String -Path $pytestLog -Pattern '^FAILED ' | ForEach-Object { $_.Line })
+$failedLines = @(Select-String -Path $conformanceLog -Pattern '^FAILED ' | ForEach-Object { $_.Line })
 if ($failedLines.Count -gt 0) {
     $failedLines | Set-Content -Path $failedTestsFile
 } else {
     "" | Set-Content -Path $failedTestsFile
 }
 
-$alertMatches = @(
-    Select-String -Path @($serverOutLog, $serverErrLog) `
-        -Pattern 'panic:|runtime error|fatal|Command dispatch error|Traceback for player|user_connected error|user_disconnected error' `
-        -CaseSensitive:$false
-)
-if ($alertMatches.Count -gt 0) {
-    $alertMatches | ForEach-Object { "{0}:{1}: {2}" -f $_.Path, $_.LineNumber, $_.Line } | Set-Content -Path $serverAlertsFile
-} else {
-    "" | Set-Content -Path $serverAlertsFile
-}
-
-$summaryLine = (Select-String -Path $pytestLog -Pattern '={5,}\s+.+\s+in\s+.+' | Select-Object -Last 1)
-$summaryText = if ($null -ne $summaryLine) { $summaryLine.Line.Trim() } else { "(pytest summary line not found)" }
+$summaryLine = (Select-String -Path $conformanceLog -Pattern '={5,}\s+.+\s+in\s+.+' | Select-Object -Last 1)
+$summaryText = if ($null -ne $summaryLine) { $summaryLine.Line.Trim() } else { "(conformance summary line not found)" }
 
 $summary = [ordered]@{
     run_id = $runId
     timestamp_utc = (Get-Date).ToUniversalTime().ToString("o")
-    binary = [System.IO.Path]::GetFullPath($Binary)
-    source_db = [System.IO.Path]::GetFullPath($SourceDb)
-    run_db = [System.IO.Path]::GetFullPath($RunDb)
+    binary = $binaryPath
+    server_db = [System.IO.Path]::GetFullPath($serverDb)
     host = $ServerHost
     port = $Port
-    pytest_exit_code = $pytestExit
-    pytest_summary = $summaryText
+    conformance_exit_code = $conformanceExit
+    conformance_summary = $summaryText
     failed_count = $failedLines.Count
     run_dir = [System.IO.Path]::GetFullPath($runDir)
-    pytest_command = $pytestCmdText
-    pytest_command_file = [System.IO.Path]::GetFullPath($pytestCmdFile)
-    pytest_log = [System.IO.Path]::GetFullPath($pytestLog)
+    conformance_command = $conformanceCmdText
+    conformance_command_file = [System.IO.Path]::GetFullPath($conformanceCmdFile)
+    conformance_log = [System.IO.Path]::GetFullPath($conformanceLog)
     failed_tests_file = [System.IO.Path]::GetFullPath($failedTestsFile)
-    server_stdout_log = [System.IO.Path]::GetFullPath($serverOutLog)
-    server_stderr_log = [System.IO.Path]::GetFullPath($serverErrLog)
-    server_alerts_file = [System.IO.Path]::GetFullPath($serverAlertsFile)
 }
 $summary | ConvertTo-Json -Depth 4 | Set-Content -Path $summaryFile
-
-if (-not $KeepRunDb -and -not $NoFreshDb) {
-    Remove-Item -Force $RunDb
-}
 
 Write-Section "Summary"
 Write-Host $summaryText
 Write-Host "Failed tests: $($failedLines.Count)"
-Write-Host "Pytest log:   $pytestLog"
-Write-Host "Server out:   $serverOutLog"
-Write-Host "Server err:   $serverErrLog"
-Write-Host "Alerts:       $serverAlertsFile"
+Write-Host "Log:          $conformanceLog"
 Write-Host "Summary JSON: $summaryFile"
 
-exit $pytestExit
+exit $conformanceExit
