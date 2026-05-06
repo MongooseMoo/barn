@@ -262,6 +262,10 @@ func (s *Server) shutdown() error {
 		log.Printf("Warning: #0:shutdown_started() failed: %v", err)
 	}
 
+	// Stop accepting new connections and close active transports while the
+	// scheduler can still process disconnect hooks.
+	s.connManager.Shutdown()
+
 	// Stop scheduler
 	s.scheduler.Stop()
 
