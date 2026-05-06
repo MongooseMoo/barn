@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"strings"
+
 	"barn/types"
 )
 
@@ -94,6 +96,69 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		NumLocals: p.NumLocals, // Same local count (inherit all vars)
 		Source:    p.Source,
 	}
+}
+
+func (p *Program) ForkSourceLines(bodyIP, bodyLen int) []string {
+	if p == nil || len(p.Source) == 0 {
+		return nil
+	}
+	minLine := 0
+	maxLine := 0
+	for _, entry := range p.LineInfo {
+		if entry.StartIP >= bodyIP && entry.StartIP < bodyIP+bodyLen && entry.Line > 0 {
+			if minLine == 0 || entry.Line < minLine {
+				minLine = entry.Line
+			}
+			if entry.Line > maxLine {
+				maxLine = entry.Line
+			}
+		}
+	}
+	if minLine == 0 || maxLine == 0 {
+		for _, line := range p.Source {
+			if body := inlineForkBody(strings.TrimSpace(line)); body != "" {
+				return []string{body}
+			}
+		}
+		return nil
+	}
+	if minLine > len(p.Source) {
+		return nil
+	}
+	if maxLine > len(p.Source) {
+		maxLine = len(p.Source)
+	}
+	lines := make([]string, 0, maxLine-minLine+1)
+	for _, line := range p.Source[minLine-1 : maxLine] {
+		line = strings.TrimSpace(line)
+		if minLine == maxLine {
+			if body := inlineForkBody(line); body != "" {
+				return []string{body}
+			}
+		}
+		if line != "" && line != "endfork" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func inlineForkBody(line string) string {
+	forkAt := strings.Index(line, "fork")
+	if forkAt < 0 {
+		return ""
+	}
+	bodyAt := strings.Index(line[forkAt:], ")")
+	if bodyAt < 0 {
+		return ""
+	}
+	bodyAt += forkAt + 1
+	endAt := strings.Index(line[bodyAt:], "endfork")
+	if endAt < 0 {
+		return ""
+	}
+	body := strings.TrimSpace(line[bodyAt : bodyAt+endAt])
+	return body
 }
 
 // Matches checks if a handler matches an error code

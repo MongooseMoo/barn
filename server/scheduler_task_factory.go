@@ -9,6 +9,7 @@ import (
 	"barn/vm"
 	"container/heap"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -249,6 +250,65 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	})
 
 	return s.QueueTask(t)
+}
+
+func (s *Scheduler) RestoreQueuedTask(q *db.QueuedTask) error {
+	if q == nil || len(q.SourceLines) == 0 {
+		return nil
+	}
+	p := parser.NewParser(strings.Join(q.SourceLines, "\n"))
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		return fmt.Errorf("parse queued task %d: %w", q.ID, err)
+	}
+
+	ticks, seconds := backgroundTaskLimits()
+	t := task.NewTaskFull(q.ID, q.Player, stmts, ticks, seconds)
+	s.populateTaskContextDependencies(t.Context)
+	t.StartTime = time.Unix(q.StartTime, 0)
+	t.Kind = task.TaskForked
+	t.IsForked = true
+	t.Programmer = q.Programmer
+	t.This = q.This
+	t.VerbName = q.Verb
+	t.VerbLoc = q.VerbLoc
+	t.ForkCreator = s
+	t.ForkInfo = &types.ForkInfo{
+		Body:        stmts,
+		SourceLines: append([]string(nil), q.SourceLines...),
+		Variables:   q.Variables,
+		ThisObj:     q.This,
+		Player:      q.Player,
+		Verb:        q.Verb,
+		VerbLoc:     q.VerbLoc,
+	}
+	t.Context.ThisObj = q.This
+	t.Context.Player = q.Player
+	t.Context.Programmer = q.Programmer
+	t.Context.Verb = q.Verb
+	t.Context.IsWizard = s.isWizard(q.Programmer)
+	t.Context.Task = t
+	t.PushFrame(task.ActivationFrame{
+		This:       q.This,
+		Player:     q.Player,
+		Programmer: q.Programmer,
+		Verb:       q.Verb,
+		VerbLoc:    q.VerbLoc,
+		LineNumber: 1,
+	})
+
+	for {
+		current := atomic.LoadInt64(&s.nextTaskID)
+		if current > q.ID {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&s.nextTaskID, current, q.ID+1) {
+			break
+		}
+	}
+
+	s.QueueTask(t)
+	return nil
 }
 
 // ResumeTask resumes a suspended task

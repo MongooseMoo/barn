@@ -51,8 +51,15 @@ func (db *Database) NewStoreFromDatabase() *Store {
 
 // QueuedTask represents a task waiting to run
 type QueuedTask struct {
-	ID        int64
-	StartTime int64
+	ID          int64
+	StartTime   int64
+	This        types.ObjID
+	Player      types.ObjID
+	Programmer  types.ObjID
+	VerbLoc     types.ObjID
+	Verb        string
+	SourceLines []string
+	Variables   map[string]types.Value
 }
 
 // SuspendedTask represents a suspended task

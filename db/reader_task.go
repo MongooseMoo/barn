@@ -64,18 +64,114 @@ func (db *Database) readQueuedTasks(r *bufio.Reader) error {
 
 	db.QueuedTasks = make([]*QueuedTask, 0, count)
 	for i := 0; i < count; i++ {
-		// Skip task data for now - just read until terminator
-		for {
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(line) == "." {
-				break
-			}
+		task, err := db.readQueuedTask(r)
+		if err != nil {
+			return fmt.Errorf("read queued task %d: %w", i, err)
 		}
+		db.QueuedTasks = append(db.QueuedTasks, task)
 	}
 	return nil
+}
+
+func (db *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	var unused, firstLine int
+	var id, startTime int64
+	if _, err := fmt.Sscanf(line, "%d %d %d %d", &unused, &firstLine, &id, &startTime); err != nil {
+		return nil, fmt.Errorf("parse queued task header: %w", err)
+	}
+
+	qt := &QueuedTask{
+		ID:          id,
+		StartTime:   startTime,
+		This:        types.ObjNothing,
+		Player:      types.ObjNothing,
+		Programmer:  types.ObjNothing,
+		VerbLoc:     types.ObjNothing,
+		SourceLines: make([]string, 0),
+		Variables:   make(map[string]types.Value),
+	}
+
+	if _, err := db.readValue(r); err != nil {
+		return nil, fmt.Errorf("read activation temp value: %w", err)
+	}
+	if thisVal, err := db.readValue(r); err != nil {
+		return nil, fmt.Errorf("read activation this: %w", err)
+	} else if obj, ok := thisVal.(types.ObjValue); ok {
+		qt.This = obj.ID()
+	}
+	if vlocVal, err := db.readValue(r); err != nil {
+		return nil, fmt.Errorf("read activation vloc: %w", err)
+	} else if obj, ok := vlocVal.(types.ObjValue); ok {
+		qt.VerbLoc = obj.ID()
+	}
+	if _, err := r.ReadString('\n'); err != nil {
+		return nil, fmt.Errorf("read activation threaded: %w", err)
+	}
+	line, err = r.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("read activation verbref: %w", err)
+	}
+	fields := strings.Fields(line)
+	if len(fields) >= 9 {
+		if player, err := strconv.ParseInt(fields[3], 10, 64); err == nil {
+			qt.Player = types.ObjID(player)
+		}
+		if programmer, err := strconv.ParseInt(fields[5], 10, 64); err == nil {
+			qt.Programmer = types.ObjID(programmer)
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		if _, err := r.ReadString('\n'); err != nil {
+			return nil, fmt.Errorf("read activation placeholder %d: %w", i, err)
+		}
+	}
+	if line, err = r.ReadString('\n'); err != nil {
+		return nil, fmt.Errorf("read activation verb: %w", err)
+	}
+	qt.Verb = strings.TrimRight(line, "\r\n")
+	if _, err := r.ReadString('\n'); err != nil {
+		return nil, fmt.Errorf("read activation verb names: %w", err)
+	}
+
+	line, err = r.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("read rtenv header: %w", err)
+	}
+	var varCount int
+	if _, err := fmt.Sscanf(line, "%d variables", &varCount); err != nil {
+		return nil, fmt.Errorf("parse rtenv count: %w", err)
+	}
+	for i := 0; i < varCount; i++ {
+		nameLine, err := r.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("read rtenv name %d: %w", i, err)
+		}
+		val, err := db.readValue(r)
+		if err != nil {
+			return nil, fmt.Errorf("read rtenv value %d: %w", i, err)
+		}
+		qt.Variables[strings.TrimRight(nameLine, "\r\n")] = val
+	}
+
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "." {
+			break
+		}
+		qt.SourceLines = append(qt.SourceLines, line)
+	}
+
+	return qt, nil
 }
 
 // readSuspendedTasks reads suspended tasks

@@ -61,6 +61,11 @@ func (s *Server) LoadDatabase() error {
 	s.database = database
 	s.store = database.NewStoreFromDatabase()
 	s.scheduler = NewScheduler(s.store)
+	for _, queued := range database.QueuedTasks {
+		if err := s.scheduler.RestoreQueuedTask(queued); err != nil {
+			log.Printf("restore queued task %d: %v", queued.ID, err)
+		}
+	}
 	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
 
 	// Wire scheduler to connection manager for output flushing
