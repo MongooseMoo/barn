@@ -506,15 +506,34 @@ func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {
 	timestamp := time.Now().Unix()
 	if len(args) == 1 {
 		if intVal, ok := args[0].(types.IntValue); ok {
+			if intVal.Val >= 2147483647 {
+				return types.Err(types.E_INVARG)
+			}
 			timestamp = intVal.Val
 		} else {
 			return types.Err(types.E_TYPE)
 		}
 	}
 	t := time.Unix(timestamp, 0)
-	// MOO format: "Sun Dec 26 22:30:00 2025" (24 chars, no timezone)
+	// MOO format: "Sun Dec 26 22:30:00 2025 Mountain Standard Time"
 	// Go's _2 gives space-padded day: " 1" for day 1, "28" for day 28
-	return types.Ok(types.NewStr(t.Format("Mon Jan _2 15:04:05 2006")))
+	zoneName := mooTimeZoneName(t)
+	return types.Ok(types.NewStr(t.Format("Mon Jan _2 15:04:05 2006 ") + zoneName))
+}
+
+func mooTimeZoneName(t time.Time) string {
+	name, _ := t.Zone()
+	switch name {
+	case "MST":
+		return "Mountain Standard Time"
+	case "MDT":
+		return "Mountain Daylight Time"
+	default:
+		if name != "" {
+			return name
+		}
+		return "UTC"
+	}
 }
 
 // builtinServerVersion implements server_version([key])
