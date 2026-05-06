@@ -209,6 +209,9 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Handle completion
 	if result.Flow == types.FlowException {
 		t.SetState(task.TaskKilled)
+		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+			s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
+		}
 		// Log traceback to server log (skip for forked tasks to match Toast behavior:
 		// Toast does not log forked-task tracebacks to stderr)
 		if !t.IsForked {
@@ -218,7 +221,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		// traceback lines here pollutes the structured response stream.
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.sendTaskLine(t.Owner, "Task ran out of ticks")
-		} else if t.VerbName != "eval" {
+		} else if t.VerbName != "eval" && !t.IsForked {
 			s.sendTraceback(t, result.Error)
 		}
 		// Clean up call stack after traceback has been sent
@@ -249,6 +252,30 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	t.BytecodeVM = nil // Release VM after completion
 	return nil
+}
+
+func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) {
+	stack := t.GetCallStack()
+	stackValues := make([]types.Value, 0, len(stack))
+	for _, frame := range stack {
+		stackValues = append(stackValues, frame.ToList())
+	}
+	traceLines := task.FormatTraceback(stack, t.Result.Error, t.Owner)
+	traceValues := make([]types.Value, 0, len(traceLines))
+	for i, line := range traceLines {
+		if i == 0 {
+			line = "Task ran out of ticks"
+		}
+		traceValues = append(traceValues, types.NewStr(line))
+	}
+	if len(traceValues) == 0 {
+		traceValues = append(traceValues, message)
+	}
+	_ = s.CallVerb(0, "handle_task_timeout", []types.Value{
+		types.NewStr(resource),
+		types.NewList(stackValues),
+		types.NewList(traceValues),
+	}, t.Owner)
 }
 
 func resultValueContains(value types.Value, text string) bool {
