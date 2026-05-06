@@ -29,6 +29,7 @@ type Connection struct {
 	outputCounter  int
 	programming    *programmingMode
 	listenerObject types.ObjID
+	listenerPort   int64
 	printMessages  bool
 	mu             sync.Mutex
 	ctx            context.Context
@@ -191,10 +192,11 @@ func (c *Connection) SetResolvedName(name string) {
 	c.resolvedName = name
 }
 
-func (c *Connection) SetListener(object types.ObjID, printMessages bool) {
+func (c *Connection) SetListener(object types.ObjID, port int64, printMessages bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.listenerObject = object
+	c.listenerPort = port
 	c.printMessages = printMessages
 }
 
@@ -202,6 +204,12 @@ func (c *Connection) ListenerObject() types.ObjID {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.listenerObject
+}
+
+func (c *Connection) ListenerPort() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.listenerPort
 }
 
 func (c *Connection) PrintMessages() bool {

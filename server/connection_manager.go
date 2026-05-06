@@ -124,7 +124,7 @@ func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
 func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket net.Conn) {
 	transport := NewTCPTransport(socket)
 	conn := cm.NewConnectionFromTransport(transport)
-	conn.SetListener(record.object, record.printMessages)
+	conn.SetListener(record.object, record.port, record.printMessages)
 
 	log.Printf("New connection from %s (ID: %d)", conn.RemoteAddr(), conn.ID)
 

@@ -48,6 +48,7 @@ type Connection interface {
 	ConnectedSeconds() int64
 	IdleSeconds() int64
 	GetResolvedName() string
+	ListenerPort() int64
 }
 
 type inputWakeConnection interface {
@@ -875,7 +876,9 @@ func builtinConnectionName(ctx *types.TaskContext, args []types.Value) types.Res
 		// $string_utils:connection_hostname_bsd():
 		//   "port <listen-port> from <host>, port <remote-port>"
 		listenPort := 0
-		if globalConnManager != nil {
+		if conn.ListenerPort() > 0 {
+			listenPort = int(conn.ListenerPort())
+		} else if globalConnManager != nil {
 			listenPort = globalConnManager.GetListenPort()
 		}
 		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s, port %s", listenPort, host, port)))
@@ -1017,6 +1020,10 @@ func builtinConnectionInfo(ctx *types.TaskContext, args []types.Value) types.Res
 	host, portText := parseRemoteAddress(conn.RemoteAddr())
 	destPort := int64(0)
 	_, _ = fmt.Sscanf(portText, "%d", &destPort)
+	sourcePort := conn.ListenerPort()
+	if sourcePort <= 0 {
+		sourcePort = int64(globalConnManager.GetListenPort())
+	}
 
 	protocol := "IPv4"
 	if strings.Contains(host, ":") {
@@ -1026,7 +1033,7 @@ func builtinConnectionInfo(ctx *types.TaskContext, args []types.Value) types.Res
 	result := types.NewMap([][2]types.Value{
 		{types.NewStr("source_address"), types.NewStr("localhost")},
 		{types.NewStr("source_ip"), types.NewStr("127.0.0.1")},
-		{types.NewStr("source_port"), types.NewInt(int64(globalConnManager.GetListenPort()))},
+		{types.NewStr("source_port"), types.NewInt(sourcePort)},
 		{types.NewStr("destination_address"), types.NewStr(host)},
 		{types.NewStr("destination_ip"), types.NewStr(host)},
 		{types.NewStr("destination_port"), types.NewInt(destPort)},

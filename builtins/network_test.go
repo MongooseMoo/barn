@@ -6,7 +6,8 @@ import (
 )
 
 type stubConn struct {
-	remote string
+	remote       string
+	listenerPort int64
 }
 
 func (c *stubConn) Send(message string) error    { return nil }
@@ -19,6 +20,7 @@ func (c *stubConn) BufferedOutputLength() int     { return 0 }
 func (c *stubConn) ConnectedSeconds() int64       { return 0 }
 func (c *stubConn) IdleSeconds() int64            { return 0 }
 func (c *stubConn) GetResolvedName() string       { return "" }
+func (c *stubConn) ListenerPort() int64           { return c.listenerPort }
 
 type stubConnManager struct {
 	conn   Connection
@@ -55,7 +57,7 @@ func TestConnectionNameFormats(t *testing.T) {
 	defer func() { globalConnManager = prev }()
 
 	globalConnManager = &stubConnManager{
-		conn:   &stubConn{remote: "[::1]:4567"},
+		conn:   &stubConn{remote: "[::1]:4567", listenerPort: 7777},
 		listen: 7777,
 	}
 
