@@ -189,14 +189,14 @@ func (vm *VM) executeCallVerb() error {
 	// Pre-populate built-in variables using VarNames.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
 	if thisValue != nil {
-		setLocalByName(frame, prog, "this", thisValue)
+		SetLocalByName(frame, prog, "this", thisValue)
 	} else {
-		setLocalByName(frame, prog, "this", types.NewObj(objID))
+		SetLocalByName(frame, prog, "this", types.NewObj(objID))
 	}
-	setLocalByName(frame, prog, "verb", types.NewStr(lookupVerbName))
-	setLocalByName(frame, prog, "caller", types.NewObj(callerObj))
-	setLocalByName(frame, prog, "args", types.NewList(args))
-	setLocalByName(frame, prog, "player", types.NewObj(player))
+	SetLocalByName(frame, prog, "verb", types.NewStr(lookupVerbName))
+	SetLocalByName(frame, prog, "caller", types.NewObj(callerObj))
+	SetLocalByName(frame, prog, "args", types.NewList(args))
+	SetLocalByName(frame, prog, "player", types.NewObj(player))
 
 	// Propagate command environment variables from the task's parsed command context.
 	// Only propagate real command context when NOT inside an eval() boundary.
@@ -210,20 +210,20 @@ func (vm *VM) executeCallVerb() error {
 	}
 	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
-			setLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
-			setLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
-			setLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
-			setLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
-			setLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
-			setLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
+			SetLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
+			SetLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
+			SetLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
+			SetLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
+			SetLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
+			SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 		}
 	} else {
-		setLocalByName(frame, prog, "argstr", types.NewStr(""))
-		setLocalByName(frame, prog, "dobjstr", types.NewStr(""))
-		setLocalByName(frame, prog, "iobjstr", types.NewStr(""))
-		setLocalByName(frame, prog, "prepstr", types.NewStr(""))
-		setLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
-		setLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+		SetLocalByName(frame, prog, "argstr", types.NewStr(""))
+		SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
+		SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
+		SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
+		SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+		SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 	}
 
 	// Update shared context for builtins
@@ -451,11 +451,11 @@ func (vm *VM) executePass() error {
 	}
 
 	// Pre-populate built-in variables
-	setLocalByName(newFrame, prog, "this", passThis)
-	setLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
-	setLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
-	setLocalByName(newFrame, prog, "args", types.NewList(passArgs))
-	setLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
+	SetLocalByName(newFrame, prog, "this", passThis)
+	SetLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
+	SetLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
+	SetLocalByName(newFrame, prog, "args", types.NewList(passArgs))
+	SetLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
 
 	// Update shared context for builtins
 	if vm.Context != nil {

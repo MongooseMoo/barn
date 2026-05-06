@@ -118,9 +118,3 @@ func (vm *VM) Return(value types.Value) {
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
 	vm.Push(value)
 }
-
-// SetLocalByNamePublic is a public wrapper for setLocalByName, allowing the scheduler
-// to set local variables in a frame before execution starts.
-func SetLocalByNamePublic(frame *StackFrame, prog *Program, name string, value types.Value) {
-	setLocalByName(frame, prog, name, value)
-}

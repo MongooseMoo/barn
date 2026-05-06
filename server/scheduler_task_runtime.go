@@ -132,19 +132,19 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			}
 
 			// Set verb context variables
-			vm.SetLocalByNamePublic(frame, prog, "this", types.NewObj(t.This))
-			vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(t.Owner))
-			vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(t.Caller))
-			vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(t.VerbName))
-			vm.SetLocalByNamePublic(frame, prog, "args", types.NewList(argList))
+			vm.SetLocalByName(frame, prog, "this", types.NewObj(t.This))
+			vm.SetLocalByName(frame, prog, "player", types.NewObj(t.Owner))
+			vm.SetLocalByName(frame, prog, "caller", types.NewObj(t.Caller))
+			vm.SetLocalByName(frame, prog, "verb", types.NewStr(t.VerbName))
+			vm.SetLocalByName(frame, prog, "args", types.NewList(argList))
 
 			// Set command-specific variables
-			vm.SetLocalByNamePublic(frame, prog, "argstr", types.NewStr(t.Argstr))
-			vm.SetLocalByNamePublic(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
-			vm.SetLocalByNamePublic(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
-			vm.SetLocalByNamePublic(frame, prog, "prepstr", types.NewStr(t.Prepstr))
-			vm.SetLocalByNamePublic(frame, prog, "dobj", types.NewObj(t.Dobj))
-			vm.SetLocalByNamePublic(frame, prog, "iobj", types.NewObj(t.Iobj))
+			vm.SetLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
+			vm.SetLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
+			vm.SetLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
+			vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
+			vm.SetLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
+			vm.SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
 
 			// Start execution
 			result = bcVM.ExecuteLoop()

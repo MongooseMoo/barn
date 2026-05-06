@@ -111,11 +111,11 @@ func (vm *VM) RunWithVerbContext(prog *Program, thisObj types.ObjID, player type
 	frame := vm.PrepareVerbFrame(prog, thisObj, player, caller, verbName, verbLoc, args)
 
 	// Pre-populate verb context variables
-	setLocalByName(frame, prog, "this", types.NewObj(thisObj))
-	setLocalByName(frame, prog, "player", types.NewObj(player))
-	setLocalByName(frame, prog, "caller", types.NewObj(caller))
-	setLocalByName(frame, prog, "verb", types.NewStr(verbName))
-	setLocalByName(frame, prog, "args", types.NewList(args))
+	SetLocalByName(frame, prog, "this", types.NewObj(thisObj))
+	SetLocalByName(frame, prog, "player", types.NewObj(player))
+	SetLocalByName(frame, prog, "caller", types.NewObj(caller))
+	SetLocalByName(frame, prog, "verb", types.NewStr(verbName))
+	SetLocalByName(frame, prog, "args", types.NewList(args))
 	vm.syncContextTicks()
 
 	return vm.executeLoop()
@@ -208,7 +208,7 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 		if varName != "" {
 			frame := vm.CurrentFrame()
 			if frame != nil {
-				setLocalByName(frame, frame.Program, varName, types.NewInt(childTaskID))
+				SetLocalByName(frame, frame.Program, varName, types.NewInt(childTaskID))
 			}
 		}
 	}

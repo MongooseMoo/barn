@@ -170,7 +170,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 
 		// Copy inherited variable values from the parent
 		for varName, varVal := range forkInfo.Variables {
-			vm.SetLocalByNamePublic(frame, forkProg, varName, varVal)
+			vm.SetLocalByName(frame, forkProg, varName, varVal)
 		}
 
 		// The child VM is stored on the task and will be executed via ExecuteLoop

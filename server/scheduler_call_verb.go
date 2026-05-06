@@ -101,11 +101,11 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, player, verbName, defObjID, args)
 	frame.VerbDebug = verb.Perms.Has(db.VerbDebug)
-	vm.SetLocalByNamePublic(frame, prog, "this", thisVal)
-	vm.SetLocalByNamePublic(frame, prog, "player", types.NewObj(player))
-	vm.SetLocalByNamePublic(frame, prog, "caller", types.NewObj(player))
-	vm.SetLocalByNamePublic(frame, prog, "verb", types.NewStr(verbName))
-	vm.SetLocalByNamePublic(frame, prog, "args", types.NewList(args))
+	vm.SetLocalByName(frame, prog, "this", thisVal)
+	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
+	vm.SetLocalByName(frame, prog, "caller", types.NewObj(player))
+	vm.SetLocalByName(frame, prog, "verb", types.NewStr(verbName))
+	vm.SetLocalByName(frame, prog, "args", types.NewList(args))
 	result = bcVM.ExecuteLoop()
 
 	// Handle fork yields: create child tasks and resume parent
