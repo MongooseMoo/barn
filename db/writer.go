@@ -50,6 +50,71 @@ func (w *Writer) Flush() error {
 	return w.w.Flush()
 }
 
+// WriteDatabase writes a complete database to the writer
+func (w *Writer) WriteDatabase() error {
+	// 1. Version header
+	if err := w.writeString("** LambdaMOO Database, Format Version 17 **"); err != nil {
+		return fmt.Errorf("write version: %w", err)
+	}
+
+	// 2. Players section
+	if err := w.writePlayers(); err != nil {
+		return fmt.Errorf("write players: %w", err)
+	}
+
+	// 3. Pending finalizations (anonymous objects awaiting GC)
+	if err := w.writeString(fmt.Sprintf("%d values pending finalization", len(w.pendingFinalizations))); err != nil {
+		return fmt.Errorf("write pending: %w", err)
+	}
+	for i, val := range w.pendingFinalizations {
+		if err := w.writeValue(val); err != nil {
+			return fmt.Errorf("write pending finalization %d: %w", i, err)
+		}
+	}
+
+	// 4. Clocks (obsolete, always 0)
+	if err := w.writeString("0 clocks"); err != nil {
+		return fmt.Errorf("write clocks: %w", err)
+	}
+
+	// 5. Queued tasks
+	if err := w.writeQueuedTasks(); err != nil {
+		return fmt.Errorf("write queued tasks: %w", err)
+	}
+
+	// 6. Suspended tasks
+	if err := w.writeSuspendedTasks(); err != nil {
+		return fmt.Errorf("write suspended tasks: %w", err)
+	}
+
+	// 7. Interrupted tasks
+	if err := w.writeInterruptedTasks(); err != nil {
+		return fmt.Errorf("write interrupted tasks: %w", err)
+	}
+
+	// 8. Active connections (always 0 on save)
+	if err := w.writeString("0 active connections with listeners"); err != nil {
+		return fmt.Errorf("write connections: %w", err)
+	}
+
+	// 9. Regular objects
+	if err := w.writeObjects(); err != nil {
+		return fmt.Errorf("write objects: %w", err)
+	}
+
+	// 10. Anonymous objects (terminated by count of 0)
+	if err := w.writeAnonymousObjects(); err != nil {
+		return fmt.Errorf("write anonymous objects: %w", err)
+	}
+
+	// 11. Verb programs
+	if err := w.writeVerbPrograms(); err != nil {
+		return fmt.Errorf("write verb programs: %w", err)
+	}
+
+	return w.Flush()
+}
+
 // SetPendingFinalizations preserves pending finalization values across dumps.
 func (w *Writer) SetPendingFinalizations(values []types.Value) {
 	if len(values) == 0 {
