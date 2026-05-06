@@ -7,7 +7,12 @@ import (
 	"strings"
 )
 
-func builtinLocateByName(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinLocateByName(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -50,7 +55,12 @@ func builtinLocateByName(ctx *types.TaskContext, args []types.Value, store *db.S
 	return types.Ok(types.NewList(matches))
 }
 
-func builtinLocations(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinLocations(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -134,7 +144,12 @@ func objectHasAncestor(store *db.Store, objID, ancestorID types.ObjID) bool {
 	return false
 }
 
-func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -157,7 +172,12 @@ func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value, store *db.S
 	return types.Ok(types.NewList(out))
 }
 
-func builtinRecycledObjects(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinRecycledObjects(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -171,7 +191,12 @@ func builtinRecycledObjects(ctx *types.TaskContext, args []types.Value, store *d
 	return types.Ok(types.NewList(out))
 }
 
-func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -203,7 +228,16 @@ func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value, store
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinRecreate(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinRecreate(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+	registry, ok := ctx.Registry.(*Registry)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -233,10 +267,34 @@ func builtinRecreate(ctx *types.TaskContext, args []types.Value, store *db.Store
 	if err := store.Recreate(obj.ID(), parent, owner); err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewObj(obj.ID()))
+
+	result := types.Ok(types.NewObj(obj.ID()))
+	objData := store.Get(obj.ID())
+	if objData == nil {
+		return result
+	}
+
+	objData.Properties = copyInheritedProperties(objData, store)
+	for _, parentID := range objData.Parents {
+		parent := store.Get(parentID)
+		if parent != nil {
+			parent.Children = append(parent.Children, obj.ID())
+		}
+	}
+
+	initResult := registry.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
+	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
+		return initResult
+	}
+	return result
 }
 
-func builtinWaifStats(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinWaifStats(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
