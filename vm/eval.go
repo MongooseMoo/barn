@@ -80,6 +80,14 @@ func (e *Evaluator) GetRegistry() *builtins.Registry {
 	return e.builtins
 }
 
+func (e *Evaluator) ensureContextDependencies(ctx *types.TaskContext) {
+	if ctx == nil {
+		return
+	}
+	ctx.Store = e.store
+	ctx.Registry = e.builtins
+}
+
 // BuildVMRegistry creates a builtins registry suitable for the bytecode VM.
 // It registers all standard builtins and a VM-aware eval() builtin.
 // pass() is handled natively by OP_PASS in the VM
@@ -278,6 +286,8 @@ func (e *Evaluator) registerVerbCaller() {
 // - Return Result (not raw Value) to unify error handling and control flow
 // - Check tick limit before processing
 func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result {
+	e.ensureContextDependencies(ctx)
+
 	// Tick counting - protect against infinite loops
 	if !ctx.ConsumeTick() {
 		return types.Err(types.E_QUOTA)
@@ -529,6 +539,8 @@ func (e *Evaluator) assign(node *parser.AssignExpr, ctx *types.TaskContext) type
 
 // builtinCall evaluates a builtin function call
 func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskContext) types.Result {
+	e.ensureContextDependencies(ctx)
+
 	// Look up the builtin function
 	fn, ok := e.builtins.Get(node.Name)
 	if !ok {
@@ -648,6 +660,8 @@ func (e *Evaluator) SetVerbContext(vc *VerbContext) {
 // - FlowException: runtime error (Error field set)
 // - FlowParseError: syntax error (Val contains list of error strings)
 func (e *Evaluator) EvalString(code string, ctx *types.TaskContext) types.Result {
+	e.ensureContextDependencies(ctx)
+
 	// Parse the code as statements
 	p := parser.NewParser(code)
 	stmts, err := p.ParseProgram()
