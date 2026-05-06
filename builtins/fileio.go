@@ -52,11 +52,11 @@ var fileState = struct {
 }
 
 func resolveFilePath(rel string) string {
-	return filepath.Join("builtins", "testdata", "fileio", rel)
+	return filepath.Join("files", rel)
 }
 
 func ensureFilesRoot() error {
-	return os.MkdirAll(filepath.Join("builtins", "testdata", "fileio"), 0o755)
+	return os.MkdirAll("files", 0o755)
 }
 
 func sanitizeFilePath(path string) (string, error) {
