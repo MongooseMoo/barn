@@ -4,7 +4,7 @@ param(
     [string]$SourceDb = "Test_conf.db",
     [string]$RunDb = "Test_run.db",
     [int]$Port = 7788,
-    [string]$ServerHost = "127.0.0.1",
+    [string]$ServerHost = "localhost",
     [switch]$Build,
     [string]$BuildTarget = "./cmd/barn/",
     [string]$K = "",
@@ -46,6 +46,9 @@ if (-not (Test-Path $Binary)) {
 $serverDb = if ($NoFreshDb) { $RunDb } else { $SourceDb }
 if (-not (Test-Path $serverDb)) {
     throw "Server DB not found: $serverDb"
+}
+if ($ServerHost -ne "localhost") {
+    throw "Managed conformance requires -ServerHost localhost when using --server-command."
 }
 
 $binaryPath = [System.IO.Path]::GetFullPath($Binary)
