@@ -182,7 +182,7 @@ func BuildVMRegistry() *builtins.Registry {
 			SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 			result := evalVM.ExecuteLoop()
 			if result.Flow == types.FlowException {
-				return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
+				return types.Err(result.Error)
 			}
 			if result.Val == nil {
 				result.Val = types.NewInt(0)
