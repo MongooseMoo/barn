@@ -59,7 +59,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Look up defined property first (with inheritance via breadth-first search)
-	prop, errCode := vmFindProperty(vm.Store, obj, propName)
+	prop, errCode := findProperty(vm.Store, obj, propName)
 	if errCode == types.E_NONE {
 		// Check read permission
 		if err := vm.checkPropertyReadPerm(prop); err != nil {
@@ -70,7 +70,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Check for built-in properties (flag properties like .name, .owner, .wizard, etc.)
-	if val, ok := vmGetBuiltinProperty(obj, propName); ok {
+	if val, ok := getBuiltinProperty(obj, propName); ok {
 		vm.Push(val)
 		return nil
 	}
@@ -123,7 +123,7 @@ func (vm *VM) vmGetWaifProp(waif types.WaifValue, propName string) error {
 	if !strings.HasPrefix(classPropName, ":") {
 		classPropName = ":" + classPropName
 	}
-	prop, errCode := vmFindProperty(vm.Store, classObj, classPropName)
+	prop, errCode := findProperty(vm.Store, classObj, classPropName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -185,7 +185,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Check for built-in property assignment first
-	if isBuiltin, errCode := vmSetBuiltinProperty(obj, propName, value, vm.Context); isBuiltin {
+	if isBuiltin, errCode := setBuiltinProperty(obj, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
@@ -206,7 +206,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Property not on this object - check if inherited
-	inheritedProp, errCode := vmFindProperty(vm.Store, obj, propName)
+	inheritedProp, errCode := findProperty(vm.Store, obj, propName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -289,11 +289,11 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 	return nil
 }
 
-// vmFindProperty finds a property on an object with inheritance (breadth-first search).
+// findProperty finds a property on an object with inheritance (breadth-first search).
 // Permission info (owner/perms) comes from the TARGET object's property entry,
 // while the value comes from the first non-clear ancestor. This matches Toast's
 // db_find_property where h.ptr always points to the original object's propval.
-func vmFindProperty(store *db.Store, obj *db.Object, name string) (*db.Property, types.ErrorCode) {
+func findProperty(store *db.Store, obj *db.Object, name string) (*db.Property, types.ErrorCode) {
 	var targetProp *db.Property // target object's property entry (for owner/perms)
 
 	queue := []types.ObjID{obj.ID}
@@ -337,9 +337,9 @@ func vmFindProperty(store *db.Store, obj *db.Object, name string) (*db.Property,
 	return nil, types.E_PROPNF
 }
 
-// vmGetBuiltinProperty returns built-in object properties (name, owner, location, etc.).
+// getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
 // This mirrors the tree-walker's getBuiltinProperty logic.
-func vmGetBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
+func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 	switch name {
 	case "name":
 		return types.NewStr(obj.Name), true
@@ -410,9 +410,9 @@ func vmGetBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 	}
 }
 
-// vmSetBuiltinProperty sets a built-in object property.
+// setBuiltinProperty sets a built-in object property.
 // This mirrors the tree-walker's setBuiltinProperty logic.
-func vmSetBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
