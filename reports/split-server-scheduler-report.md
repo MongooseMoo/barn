@@ -76,6 +76,24 @@ No new server failures introduced.
 - Original function ordering preserved within each new file.
 - No signature, body, or comment changes; no renames; no explanatory comments added.
 
-## Commit
+## Commits
 
-Hash: (filled below after commit)
+The split landed in two commits because of a working-tree mishap during the
+session:
+
+- `ae77484` "Split server/scheduler.go into themed files" — added the 8 new
+  themed files + this report. The accompanying scheduler.go shrink was
+  inadvertently lost during a `git stash`/`pop` cycle and was missed at commit
+  time, leaving duplicate symbols in the package.
+- "Complete server/scheduler.go split (drop relocated content)" — removes the
+  now-relocated function bodies from scheduler.go so the package compiles.
+  Pure 1464-line deletion (plus this report addendum). Hash shifts on each
+  amend; use `git log --oneline | grep "Complete server/scheduler"` for the
+  current value.
+
+Net effect of the two commits is the intended pure relocation. Tree at the
+fix-up tip is green: `go test ./server/... -count=1` -> `ok barn/server 0.736s`.
+
+(Two commits between mine and this fix — `e4393a9` builtins/objects split and
+`8fec19b` vm/operations split — were landed concurrently by other agents
+during this work and are unrelated.)
