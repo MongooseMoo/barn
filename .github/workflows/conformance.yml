@@ -1,0 +1,36 @@
+name: Conformance
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  moo-conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out Barn
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync Python dependencies
+        run: uv sync --locked
+
+      - name: Run MOO conformance
+        shell: pwsh
+        run: ./scripts/run-conformance.ps1 -Build -Binary ./barn -SourceDb ./Test_conf.db -Port 7788
