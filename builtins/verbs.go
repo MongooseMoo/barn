@@ -168,6 +168,13 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func findLocalVerb(obj *db.Object, name string) *db.Verb {
+	for _, verb := range obj.VerbList {
+		for _, alias := range verb.Names {
+			if localVerbNameMatches(alias, name) {
+				return verb
+			}
+		}
+	}
 	if verb, ok := obj.Verbs[name]; ok {
 		return verb
 	}
@@ -184,6 +191,25 @@ func findLocalVerb(obj *db.Object, name string) *db.Verb {
 	return nil
 }
 
+func findLocalVerbDescriptor(obj *db.Object, desc types.Value) (*db.Verb, types.ErrorCode) {
+	switch v := desc.(type) {
+	case types.StrValue:
+		verb := findLocalVerb(obj, v.Value())
+		if verb == nil {
+			return nil, types.E_VERBNF
+		}
+		return verb, types.E_NONE
+	case types.IntValue:
+		index := int(v.Val) - 1
+		if index < 0 || index >= len(obj.VerbList) {
+			return nil, types.E_RANGE
+		}
+		return obj.VerbList[index], types.E_NONE
+	default:
+		return nil, types.E_TYPE
+	}
+}
+
 func localVerbNameMatches(verbPattern, searchName string) bool {
 	pattern := strings.ToLower(verbPattern)
 	search := strings.ToLower(searchName)
@@ -196,6 +222,9 @@ func localVerbNameMatches(verbPattern, searchName string) bool {
 	}
 	if pattern == "*" {
 		return true
+	}
+	if starPos == len(pattern)-1 {
+		return strings.HasPrefix(search, pattern[:starPos])
 	}
 	prefix := pattern[:starPos]
 	full := pattern[:starPos] + pattern[starPos+1:]
@@ -771,11 +800,6 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
@@ -785,9 +809,9 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
-	verb := findLocalVerb(obj, nameVal.Value())
-	if verb == nil {
-		return types.Err(types.E_VERBNF)
+	verb, errCode := findLocalVerbDescriptor(obj, args[1])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 	if !ctx.IsWizard {
 		programmer := store.Get(ctx.Programmer)

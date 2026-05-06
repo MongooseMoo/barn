@@ -421,6 +421,9 @@ func matchVerbName(verbPattern, searchName string) bool {
 	if pattern == "*" {
 		return true
 	}
+	if starPos == len(pattern)-1 {
+		return strings.HasPrefix(search, pattern[:starPos])
+	}
 
 	// MOO wildcard semantics:
 	// Pattern "get_conj*ugation" matches any search that:
@@ -470,21 +473,25 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 			continue
 		}
 
-		// Check if verb exists on this object
-		// Try exact name match first
-		if verb, ok := obj.Verbs[verbName]; ok {
-			return verb, current, nil
-		}
-		// Also try with colon prefix for method-only verbs
-		if verb, ok := obj.Verbs[":"+verbName]; ok {
-			return verb, current, nil
-		}
-
-		// Also check verb aliases (names field) with wildcard matching
-		for _, verb := range obj.Verbs {
+		for _, verb := range obj.VerbList {
 			for _, alias := range verb.Names {
 				if matchVerbName(alias, verbName) {
 					return verb, current, nil
+				}
+			}
+		}
+		if len(obj.VerbList) == 0 {
+			if verb, ok := obj.Verbs[verbName]; ok {
+				return verb, current, nil
+			}
+			if verb, ok := obj.Verbs[":"+verbName]; ok {
+				return verb, current, nil
+			}
+			for _, verb := range obj.Verbs {
+				for _, alias := range verb.Names {
+					if matchVerbName(alias, verbName) {
+						return verb, current, nil
+					}
 				}
 			}
 		}
