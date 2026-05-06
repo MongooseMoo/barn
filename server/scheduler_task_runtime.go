@@ -41,8 +41,12 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	ctx.Store = s.store
 	ctx.Registry = s.registry
 
-	// Set up cancellation with deadline
-	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
+	// Set up cancellation with a fresh execution-slice deadline.  StartTime is
+	// also used as queued-task scheduling metadata, so using it here charges
+	// suspended/waiting wall time against the next run.
+	runStartedAt := time.Now()
+	t.StartTime = runStartedAt
+	deadline := runStartedAt.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
 	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
 	t.CancelFunc = cancel
 	defer cancel()
