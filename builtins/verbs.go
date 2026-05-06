@@ -74,55 +74,6 @@ func unparsePrepSpec(prepStr string) string {
 	return prepStr
 }
 
-// RegisterVerbBuiltins registers verb-related builtin functions
-func (r *Registry) RegisterVerbBuiltins(store *db.Store) {
-	// Verb listing and information
-	r.Register("verbs", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinVerbs(ctx, args, store)
-	})
-
-	r.Register("verb_info", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinVerbInfo(ctx, args, store)
-	})
-
-	r.Register("verb_args", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinVerbArgs(ctx, args, store)
-	})
-
-	r.Register("verb_code", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinVerbCode(ctx, args, store)
-	})
-
-	// Verb management
-	r.Register("add_verb", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinAddVerb(ctx, args, store)
-	})
-
-	r.Register("delete_verb", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinDeleteVerb(ctx, args, store)
-	})
-
-	r.Register("set_verb_info", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinSetVerbInfo(ctx, args, store)
-	})
-
-	r.Register("set_verb_args", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinSetVerbArgs(ctx, args, store)
-	})
-
-	r.Register("set_verb_code", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinSetVerbCode(ctx, args, store)
-	})
-
-	r.Register("disassemble", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinDisassemble(ctx, args, store)
-	})
-
-	r.Register("respond_to", func(ctx *types.TaskContext, args []types.Value) types.Result {
-		return builtinRespondTo(ctx, args, store)
-	})
-}
-
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
 func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
