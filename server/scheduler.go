@@ -259,9 +259,9 @@ func (s *Scheduler) processDisconnect(input InputEvent) {
 		trace.Connection("DISCONNECT", conn.ID, types.ObjID(-conn.ID), "unlogged")
 	}
 
-	// Call user_disconnected hook on the scheduler goroutine
+	// Call user_client_disconnected hook on the scheduler goroutine
 	if wasLoggedIn {
-		s.callUserDisconnected(handler, player)
+		s.callUserClientDisconnected(handler, player)
 	}
 
 	log.Printf("Connection %d closed", conn.ID)

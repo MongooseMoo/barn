@@ -205,6 +205,25 @@ func (s *Scheduler) callUserDisconnected(handler types.ObjID, player types.ObjID
 	}
 }
 
+// callUserClientDisconnected calls handler:user_client_disconnected(player)
+func (s *Scheduler) callUserClientDisconnected(handler types.ObjID, player types.ObjID) {
+	args := []types.Value{types.NewObj(player)}
+	result := s.CallVerb(handler, "user_client_disconnected", args, player)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
+		log.Printf("user_client_disconnected error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		s.sendTracebackToPlayer(player, result.Error, stack)
+	}
+}
+
 // connectMessage returns the server_options.connect_msg value,
 // falling back to "*** Connected ***" if not set.
 func (s *Scheduler) connectMessage() string {
