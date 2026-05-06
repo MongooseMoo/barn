@@ -279,11 +279,17 @@ func (s *Scheduler) processPreLogin(input InputEvent) {
 		return
 	}
 
-	if !s.shouldCallDoLoginCommand(conn, input.Line) {
+	line := input.Line
+	proxyLine := s.isTrustedProxyConnection(conn) && strings.HasPrefix(line, "PROXY ")
+	if proxyLine {
+		line = ""
+	}
+
+	if !proxyLine && !s.shouldCallDoLoginCommand(conn, line) {
 		return
 	}
 
-	player, _ := s.callDoLoginCommand(conn, input.Line)
+	player, _ := s.callDoLoginCommand(conn, line)
 	if player > 0 {
 		s.loginPlayer(conn, player)
 	}
