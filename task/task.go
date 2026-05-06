@@ -429,7 +429,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 
 	return types.NewList([]types.Value{
 		types.NewInt(t.ID),               // [1] task_id
-		types.NewInt(t.QueueTime.Unix()), // [2] start_time
+		types.NewInt(t.StartTime.Unix()), // [2] start_time
 		types.NewInt(0),                  // [3] obsolete clock ID
 		types.NewInt(30000),              // [4] DEFAULT_BG_TICKS (obsolete)
 		types.NewObj(programmer),         // [5] programmer
