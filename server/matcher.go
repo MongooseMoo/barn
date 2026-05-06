@@ -23,9 +23,8 @@ func MatchObject(store *db.Store, player types.ObjID, location types.ObjID, name
 		if err != nil {
 			return types.ObjFailedMatch
 		}
-		// #-1 is valid (NOTHING)
 		if num < 0 {
-			return types.ObjID(num)
+			return types.ObjFailedMatch
 		}
 		// Check if object exists
 		if store.Valid(types.ObjID(num)) {
@@ -53,13 +52,7 @@ func MatchObject(store *db.Store, player types.ObjID, location types.ObjID, name
 	roomContents := make([]types.ObjID, 0)
 	roomObj := store.Get(location)
 	if roomObj != nil {
-		// Exclude player from room search.
-		roomContents = make([]types.ObjID, 0, len(roomObj.Contents))
-		for _, id := range roomObj.Contents {
-			if id != player {
-				roomContents = append(roomContents, id)
-			}
-		}
+		roomContents = append(roomContents, roomObj.Contents...)
 	}
 
 	if matches := findExactMatches(store, inventory, roomContents, name); len(matches) > 0 {
@@ -82,98 +75,51 @@ func findExactMatches(store *db.Store, inventory []types.ObjID, room []types.Obj
 	searchLower := strings.ToLower(search)
 	var matches []types.ObjID
 
-	for _, objID := range inventory {
+	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
 		obj := store.Get(objID)
-		if obj != nil && strings.ToLower(obj.Name) == searchLower {
-			matches = append(matches, objID)
+		if obj == nil {
+			continue
 		}
-	}
-	for _, objID := range room {
-		obj := store.Get(objID)
-		if obj != nil && strings.ToLower(obj.Name) == searchLower {
-			matches = append(matches, objID)
+		if strings.ToLower(obj.Name) == searchLower {
+			matches = appendUniqueMatch(matches, objID)
+			continue
 		}
-	}
-	if len(matches) > 0 {
-		return matches
-	}
-
-	for _, objID := range inventory {
-		obj := store.Get(objID)
-		if obj != nil {
-			for _, alias := range getAliases(obj) {
-				if alias == searchLower {
-					matches = append(matches, objID)
-					break
-				}
-			}
-		}
-	}
-	if len(matches) > 0 {
-		return matches
-	}
-
-	for _, objID := range room {
-		obj := store.Get(objID)
-		if obj != nil {
-			for _, alias := range getAliases(obj) {
-				if alias == searchLower {
-					matches = append(matches, objID)
-					break
-				}
+		for _, alias := range getAliases(obj) {
+			if alias == searchLower {
+				matches = appendUniqueMatch(matches, objID)
+				break
 			}
 		}
 	}
 	return matches
 }
 
+func appendUniqueMatch(matches []types.ObjID, objID types.ObjID) []types.ObjID {
+	for _, existing := range matches {
+		if existing == objID {
+			return matches
+		}
+	}
+	return append(matches, objID)
+}
+
 func findPrefixMatches(store *db.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
 	searchLower := strings.ToLower(search)
 	var matches []types.ObjID
 
-	for _, objID := range inventory {
+	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
 		obj := store.Get(objID)
-		if obj != nil && strings.HasPrefix(strings.ToLower(obj.Name), searchLower) {
-			matches = append(matches, objID)
+		if obj == nil {
+			continue
 		}
-	}
-	if len(matches) > 0 {
-		return matches
-	}
-
-	for _, objID := range room {
-		obj := store.Get(objID)
-		if obj != nil && strings.HasPrefix(strings.ToLower(obj.Name), searchLower) {
-			matches = append(matches, objID)
+		if strings.HasPrefix(strings.ToLower(obj.Name), searchLower) {
+			matches = appendUniqueMatch(matches, objID)
+			continue
 		}
-	}
-	if len(matches) > 0 {
-		return matches
-	}
-
-	for _, objID := range inventory {
-		obj := store.Get(objID)
-		if obj != nil {
-			for _, alias := range getAliases(obj) {
-				if strings.HasPrefix(alias, searchLower) {
-					matches = append(matches, objID)
-					break
-				}
-			}
-		}
-	}
-	if len(matches) > 0 {
-		return matches
-	}
-
-	for _, objID := range room {
-		obj := store.Get(objID)
-		if obj != nil {
-			for _, alias := range getAliases(obj) {
-				if strings.HasPrefix(alias, searchLower) {
-					matches = append(matches, objID)
-					break
-				}
+		for _, alias := range getAliases(obj) {
+			if strings.HasPrefix(alias, searchLower) {
+				matches = appendUniqueMatch(matches, objID)
+				break
 			}
 		}
 	}
