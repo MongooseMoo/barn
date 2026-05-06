@@ -349,12 +349,12 @@ func validateAndResolvePath(program string) (string, error) {
 		}
 	}
 
-	execDirs := []string{"executables"}
+	execDirs := []string{filepath.Join("builtins", "testdata", "exec")}
 	if exePath, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exePath)
 		execDirs = append(execDirs,
-			filepath.Join(exeDir, "executables"),
-			filepath.Clean(filepath.Join(exeDir, "..", "executables")),
+			filepath.Join(exeDir, "builtins", "testdata", "exec"),
+			filepath.Clean(filepath.Join(exeDir, "..", "builtins", "testdata", "exec")),
 		)
 	}
 
