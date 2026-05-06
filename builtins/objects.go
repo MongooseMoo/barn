@@ -552,6 +552,9 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 	if err := store.Recycle(objID); err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	if globalConnManager != nil {
+		_ = globalConnManager.RecyclePlayer(objID)
+	}
 	store.NoteVerbCacheClear()
 
 	return types.Ok(types.NewInt(0))

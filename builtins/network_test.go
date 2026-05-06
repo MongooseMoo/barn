@@ -28,6 +28,7 @@ type stubConnManager struct {
 func (m *stubConnManager) GetConnection(player types.ObjID) Connection { return m.conn }
 func (m *stubConnManager) ConnectedPlayers(showAll bool) []types.ObjID  { return []types.ObjID{7} }
 func (m *stubConnManager) BootPlayer(player types.ObjID) error          { return nil }
+func (m *stubConnManager) RecyclePlayer(player types.ObjID) error       { return nil }
 func (m *stubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
 	return nil
 }

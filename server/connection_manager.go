@@ -393,6 +393,20 @@ func (cm *ConnectionManager) BootPlayer(player types.ObjID) error {
 	return nil
 }
 
+func (cm *ConnectionManager) RecyclePlayer(player types.ObjID) error {
+	cm.mu.Lock()
+	conn := cm.playerConns[player]
+	cm.mu.Unlock()
+
+	if conn == nil {
+		return nil
+	}
+
+	conn.Send("*** Recycled ***")
+	conn.Close()
+	return nil
+}
+
 func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()

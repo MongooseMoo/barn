@@ -26,6 +26,7 @@ type ConnectionManager interface {
 	GetConnection(player types.ObjID) Connection
 	ConnectedPlayers(showAll bool) []types.ObjID
 	BootPlayer(player types.ObjID) error
+	RecyclePlayer(player types.ObjID) error
 	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
 	GetListenPort() int
 	ListenerInfos() []ListenerInfo
@@ -191,6 +192,12 @@ func drainHeldCommands(player types.ObjID) []string {
 	lines := append([]string(nil), heldCommandState.byPlayer[player]...)
 	delete(heldCommandState.byPlayer, player)
 	return lines
+}
+
+func clearHeldCommands(player types.ObjID) {
+	heldCommandState.mu.Lock()
+	defer heldCommandState.mu.Unlock()
+	delete(heldCommandState.byPlayer, player)
 }
 
 func heldInputEnabled(player types.ObjID) bool {
@@ -514,6 +521,12 @@ func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWa
 }
 
 func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
+	options := getConnectionOptions(player)
+	if flush, ok := options["flush-command"].(types.StrValue); ok && flush.Value() != "" && line == flush.Value() {
+		clearHeldCommands(player)
+		return true
+	}
+
 	held := heldInputEnabled(player)
 	if held {
 		heldCommandState.mu.Lock()

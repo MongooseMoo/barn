@@ -293,9 +293,10 @@ func (s *Scheduler) processPreLogin(input InputEvent) {
 		return
 	}
 
+	maxBeforeLogin := s.store.MaxObject()
 	player, _ := s.callDoLoginCommand(conn, line)
 	if player > 0 {
-		s.loginPlayer(conn, player)
+		s.loginPlayer(conn, player, player > maxBeforeLogin)
 	}
 }
 

@@ -167,6 +167,25 @@ func (s *Scheduler) callUserConnected(handler types.ObjID, player types.ObjID) {
 	}
 }
 
+// callUserCreated calls handler:user_created(player)
+func (s *Scheduler) callUserCreated(handler types.ObjID, player types.ObjID) {
+	args := []types.Value{types.NewObj(player)}
+	result := s.CallVerb(handler, "user_created", args, player)
+	if result.Flow == types.FlowException {
+		if result.Error == types.E_VERBNF {
+			return
+		}
+		log.Printf("user_created error: %v", result.Error)
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		s.sendTracebackToPlayer(player, result.Error, stack)
+	}
+}
+
 // callUserReconnected calls #0:user_reconnected(player)
 func (s *Scheduler) callUserReconnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
@@ -237,7 +256,7 @@ func (s *Scheduler) connectMessage() string {
 
 // loginPlayer associates a connection with a player.
 // Called on the scheduler goroutine after a successful do_login_command.
-func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
+func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID, newlyCreated bool) {
 	cm := s.connManager
 	if cm == nil {
 		return
@@ -286,6 +305,9 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}
+		if newlyCreated {
+			s.callUserCreated(conn.ListenerObject(), player)
+		}
 		s.callUserConnected(conn.ListenerObject(), player)
 		return
 	}
@@ -300,6 +322,9 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 	} else {
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
+		}
+		if newlyCreated {
+			s.callUserCreated(conn.ListenerObject(), player)
 		}
 		s.callUserConnected(conn.ListenerObject(), player)
 	}
