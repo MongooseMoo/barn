@@ -28,6 +28,8 @@ type Connection struct {
 	lastInput      time.Time
 	outputCounter  int
 	programming    *programmingMode
+	listenerObject types.ObjID
+	printMessages  bool
 	mu             sync.Mutex
 	ctx            context.Context
 	cancel         context.CancelFunc
@@ -38,15 +40,16 @@ func NewConnection(id int64, transport Transport) *Connection {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Connection{
-		ID:           id,
-		transport:    transport,
-		player:       types.ObjID(-1), // Not logged in yet
-		loggedIn:     false,
-		outputBuffer: make([]string, 0),
-		connectedAt:  time.Now(),
-		lastInput:    time.Now(),
-		ctx:          ctx,
-		cancel:       cancel,
+		ID:             id,
+		transport:      transport,
+		player:         types.ObjID(-1), // Not logged in yet
+		loggedIn:       false,
+		outputBuffer:   make([]string, 0),
+		listenerObject: 0,
+		connectedAt:    time.Now(),
+		lastInput:      time.Now(),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -180,4 +183,23 @@ func (c *Connection) SetResolvedName(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.resolvedName = name
+}
+
+func (c *Connection) SetListener(object types.ObjID, printMessages bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.listenerObject = object
+	c.printMessages = printMessages
+}
+
+func (c *Connection) ListenerObject() types.ObjID {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.listenerObject
+}
+
+func (c *Connection) PrintMessages() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.printMessages
 }

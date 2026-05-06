@@ -30,9 +30,10 @@ func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool
 // callDoLoginCommand calls #0:do_login_command with the given line.
 // Returns the player ObjID if login succeeded, or a negative value on failure.
 func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
-	systemObj := s.store.Get(0)
+	handler := conn.ListenerObject()
+	systemObj := s.store.Get(handler)
 	if systemObj == nil {
-		return types.ObjID(-1), fmt.Errorf("system object not found")
+		return types.ObjID(-1), fmt.Errorf("listener object not found")
 	}
 
 	verb := systemObj.Verbs["do_login_command"]
@@ -43,13 +44,13 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 
 	connID := types.ObjID(-conn.ID)
 
-	words := strings.Fields(line)
+	words := commandWordList(line)
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
 
-	result := s.CallVerb(0, "do_login_command", args, connID)
+	result := s.CallVerbWithArgstr(handler, "do_login_command", args, connID, line)
 
 	if result.Flow == types.FlowException {
 		var stack []task.ActivationFrame
@@ -86,14 +87,14 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 
 // callDoBlankCommand calls #0:do_blank_command and returns whether login should proceed.
 func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, error) {
-	words := strings.Fields(line)
+	words := commandWordList(line)
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
 
 	connID := types.ObjID(-conn.ID)
-	result := s.CallVerb(0, "do_blank_command", args, connID)
+	result := s.CallVerbWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return false, nil
@@ -119,12 +120,12 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 }
 
 // callDoCommand calls #0:do_command(command) and returns whether command was handled.
-func (s *Scheduler) callDoCommand(player types.ObjID, words []string) (bool, error) {
+func (s *Scheduler) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string) (bool, error) {
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := s.CallVerb(0, "do_command", args, player)
+	result := s.CallVerbWithArgstr(handler, "do_command", args, player, argstr)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return false, nil
@@ -148,9 +149,9 @@ func (s *Scheduler) callDoCommand(player types.ObjID, words []string) (bool, err
 }
 
 // callUserConnected calls #0:user_connected(player)
-func (s *Scheduler) callUserConnected(player types.ObjID) {
+func (s *Scheduler) callUserConnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(0, "user_connected", args, player)
+	result := s.CallVerb(handler, "user_connected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -167,9 +168,9 @@ func (s *Scheduler) callUserConnected(player types.ObjID) {
 }
 
 // callUserReconnected calls #0:user_reconnected(player)
-func (s *Scheduler) callUserReconnected(player types.ObjID) {
+func (s *Scheduler) callUserReconnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(0, "user_reconnected", args, player)
+	result := s.CallVerb(handler, "user_reconnected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -186,9 +187,9 @@ func (s *Scheduler) callUserReconnected(player types.ObjID) {
 }
 
 // callUserDisconnected calls #0:user_disconnected(player)
-func (s *Scheduler) callUserDisconnected(player types.ObjID) {
+func (s *Scheduler) callUserDisconnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(0, "user_disconnected", args, player)
+	result := s.CallVerb(handler, "user_disconnected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -263,18 +264,22 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID) {
 			conn.ConnectionTime = time.Now()
 		}
 		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
-		_ = conn.Send(s.connectMessage())
-		s.callUserConnected(player)
+		if conn.ListenerObject() == 0 || conn.PrintMessages() {
+			_ = conn.Send(s.connectMessage())
+		}
+		s.callUserConnected(conn.ListenerObject(), player)
 		return
 	}
 
 	if reconnection {
 		existingConn.Send("You have been disconnected (reconnected elsewhere)")
 		existingConn.Close()
-		s.callUserReconnected(player)
+		s.callUserReconnected(conn.ListenerObject(), player)
 	} else {
-		_ = conn.Send(s.connectMessage())
-		s.callUserConnected(player)
+		if conn.ListenerObject() == 0 || conn.PrintMessages() {
+			_ = conn.Send(s.connectMessage())
+		}
+		s.callUserConnected(conn.ListenerObject(), player)
 	}
 
 	log.Printf("Connection %d logged in as player %d", conn.ID, player)

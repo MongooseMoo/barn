@@ -232,6 +232,7 @@ func (s *Scheduler) processDisconnect(input InputEvent) {
 
 	wasLoggedIn := conn.IsLoggedIn()
 	player := conn.GetPlayer()
+	handler := conn.ListenerObject()
 
 	delete(cm.connections, conn.ID)
 	if wasLoggedIn {
@@ -260,7 +261,7 @@ func (s *Scheduler) processDisconnect(input InputEvent) {
 
 	// Call user_disconnected hook on the scheduler goroutine
 	if wasLoggedIn {
-		s.callUserDisconnected(player)
+		s.callUserDisconnected(handler, player)
 	}
 
 	log.Printf("Connection %d closed", conn.ID)
@@ -347,7 +348,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	if len(commandWords) == 0 {
 		commandWords = append([]string{cmd.Verb}, cmd.Args...)
 	}
-	handled, _ := s.callDoCommand(player, commandWords)
+	handled, _ := s.callDoCommand(conn.ListenerObject(), player, commandWords, input.Line)
 	if handled {
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)

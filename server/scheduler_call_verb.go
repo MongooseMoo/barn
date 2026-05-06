@@ -13,6 +13,10 @@ import (
 // This is used for server hooks like do_login_command, user_connected, etc.
 // Returns a Result with a call stack for traceback formatting
 func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (result types.Result) {
+	return s.CallVerbWithArgstr(objID, verbName, args, player, "")
+}
+
+func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string) (result types.Result) {
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -106,6 +110,7 @@ func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Va
 	vm.SetLocalByName(frame, prog, "caller", types.NewObj(player))
 	vm.SetLocalByName(frame, prog, "verb", types.NewStr(verbName))
 	vm.SetLocalByName(frame, prog, "args", types.NewList(args))
+	vm.SetLocalByName(frame, prog, "argstr", types.NewStr(argstr))
 	result = bcVM.ExecuteLoop()
 
 	// Handle fork yields: create child tasks and resume parent
