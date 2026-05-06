@@ -224,7 +224,13 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// TODO: Check permissions and fertile flag (Layer 8.5)
+	if !ctx.IsWizard && newParentVal.ID() != types.ObjNothing {
+		isOwner := newParent.Owner == ctx.Programmer
+		hasFertile := newParent.Flags.Has(db.FlagFertile)
+		if !isOwner && !hasFertile {
+			return types.Err(types.E_PERM)
+		}
+	}
 
 	// Invalidate anonymous children in descendant hierarchy.
 	store.InvalidateAnonymousChildren(objVal.ID())
