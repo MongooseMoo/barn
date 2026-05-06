@@ -569,7 +569,15 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 	}
 
 	held := heldInputEnabled(player)
-	if held {
+
+	httpHeldInputState.mu.Lock()
+	state := httpHeldInputState.byPlayer[player]
+	if !held && (state == nil || len(state.waiters) == 0) {
+		httpHeldInputState.mu.Unlock()
+		return false
+	}
+	httpReading := state != nil && len(state.waiters) > 0
+	if held && !httpReading {
 		heldCommandState.mu.Lock()
 		if atFront {
 			heldCommandState.byPlayer[player] = append([]string{line}, heldCommandState.byPlayer[player]...)
@@ -577,13 +585,6 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 			heldCommandState.byPlayer[player] = append(heldCommandState.byPlayer[player], line)
 		}
 		heldCommandState.mu.Unlock()
-	}
-
-	httpHeldInputState.mu.Lock()
-	state := httpHeldInputState.byPlayer[player]
-	if !held && (state == nil || len(state.waiters) == 0) {
-		httpHeldInputState.mu.Unlock()
-		return false
 	}
 
 	state = getOrCreateHeldHTTPInput(player)

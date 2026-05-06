@@ -207,3 +207,27 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 		t.Fatalf("got foo header %q", got)
 	}
 }
+
+func TestActiveHTTPReadDoesNotDrainDuplicateHeldCommand(t *testing.T) {
+	player := types.ObjID(9)
+	resetHTTPTestState(player)
+	t.Cleanup(func() { resetHTTPTestState(player) })
+
+	setConnectionOption(player, "hold-input", types.NewInt(1))
+	readTask := task.NewTask(103, player, 1000, 5)
+	if value, complete := prepareHTTPRead(player, "request", readTask); complete {
+		t.Fatalf("expected read to suspend, got %v", value)
+	}
+	task.GetManager().SuspendTask(readTask, -1)
+
+	if !HandleHeldInput(player, "GET /bad HTTP/1.1~0D~0A", false) {
+		t.Fatal("expected active HTTP read to intercept held input")
+	}
+	if !HandleHeldInput(player, "foo~00bar~0D~0A", false) {
+		t.Fatal("expected active HTTP read to intercept held input")
+	}
+
+	if held := drainHeldCommands(player); len(held) != 0 {
+		t.Fatalf("got duplicate held commands %v", held)
+	}
+}
