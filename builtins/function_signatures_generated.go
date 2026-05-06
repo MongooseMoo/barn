@@ -218,7 +218,7 @@ var generatedFunctionSignatures = map[string]functionSignature{
 	"tostr":                     {minArg: 0, maxArg: -1, argTypes: []int64{}},
 	"trunc":                     {minArg: 1, maxArg: 1, argTypes: []int64{9}},
 	"typeof":                    {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
-	"unlisten":                  {minArg: 1, maxArg: 2, argTypes: []int64{-1, -1}},
+	"unlisten":                  {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
 	"usage":                     {minArg: 0, maxArg: 0, argTypes: []int64{}},
 	"valid":                     {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
 	"value_bytes":               {minArg: 1, maxArg: 1, argTypes: []int64{-1}},

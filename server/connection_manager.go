@@ -19,10 +19,19 @@ type listenerRecord struct {
 	listener      net.Listener
 	object        types.ObjID
 	port          int64
+	protocol      string
+	path          string
 	printMessages bool
 	ipv6          bool
 	iface         string
+	tls           bool
 	primary       bool
+}
+
+type listenerKey struct {
+	protocol string
+	port     int64
+	path     string
 }
 
 // ConnectionManager manages all active connections
@@ -33,7 +42,7 @@ type ConnectionManager struct {
 	nextConnID        int64
 	mu                sync.Mutex
 	server            *Server
-	listeners         map[int64]*listenerRecord
+	listeners         map[listenerKey]*listenerRecord
 	outboundClients   map[int64]net.Conn
 	listenPort        int
 	connectTimeout    time.Duration
@@ -45,7 +54,7 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 		connections:       make(map[int64]*Connection),
 		playerConns:       make(map[types.ObjID]*Connection),
 		playerConnHistory: make(map[types.ObjID][]*Connection),
-		listeners:         make(map[int64]*listenerRecord),
+		listeners:         make(map[listenerKey]*listenerRecord),
 		outboundClients:   make(map[int64]net.Conn),
 		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		server:            server,
@@ -61,47 +70,57 @@ func (cm *ConnectionManager) GetListenPort() int {
 
 // Listen starts listening for connections
 func (cm *ConnectionManager) Listen() error {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cm.listenPort))
-	if err != nil {
-		return fmt.Errorf("listen failed: %w", err)
-	}
-
-	return cm.registerListener(listener, 0, false, true)
+	_, err := cm.addListener(builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Port:     int64(cm.listenPort),
+	}, true)
+	return err
 }
 
-func (cm *ConnectionManager) registerListener(listener net.Listener, object types.ObjID, printMessages bool, primary bool) error {
+func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	port, ipv6, err := parseListenerPort(listener.Addr())
 	if err != nil {
 		_ = listener.Close()
-		return err
+		return builtins.ListenerDescriptor{}, err
 	}
 
+	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
+	desc := builtins.ListenerDescriptor{
+		Protocol: spec.Protocol,
+		Port:     port,
+		Path:     canonicalListenerPath(spec.Protocol, spec.Path),
+	}
+	key := listenerKeyFromDescriptor(desc)
 	record := &listenerRecord{
 		listener:      listener,
-		object:        object,
+		object:        spec.Object,
 		port:          port,
-		printMessages: printMessages,
+		protocol:      desc.Protocol,
+		path:          desc.Path,
+		printMessages: spec.PrintMessages,
 		ipv6:          ipv6,
+		iface:         spec.Interface,
+		tls:           spec.Protocol == "tls" || spec.Protocol == "wss",
 		primary:       primary,
 	}
 
 	cm.mu.Lock()
-	if _, exists := cm.listeners[port]; exists {
+	if _, exists := cm.listeners[key]; exists {
 		cm.mu.Unlock()
 		_ = listener.Close()
-		return fmt.Errorf("listener already exists on port %d", port)
+		return builtins.ListenerDescriptor{}, fmt.Errorf("listener already exists for %s", formatListenerDescriptor(desc))
 	}
-	cm.listeners[port] = record
+	cm.listeners[key] = record
 	cm.mu.Unlock()
 
 	if primary {
 		log.Printf("Listening on port %d", port)
 	} else {
-		log.Printf("Added listener on port %d for #%d", port, object)
+		log.Printf("Added %s listener on port %d for #%d", spec.Protocol, port, spec.Object)
 	}
 
 	go cm.acceptConnections(record)
-	return nil
+	return desc, nil
 }
 
 // acceptConnections accepts incoming connections
@@ -430,35 +449,39 @@ func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
 		out = append(out, builtins.ListenerInfo{
 			Object:        record.object,
 			Port:          record.port,
+			Protocol:      record.protocol,
+			Path:          record.path,
 			PrintMessages: record.printMessages,
 			IPv6:          record.ipv6,
 			Interface:     record.iface,
+			TLS:           record.tls,
 		})
 	}
 	return out
 }
 
-func (cm *ConnectionManager) AddListener(object types.ObjID, port int64, printMessages bool) (int64, error) {
-	addr := fmt.Sprintf(":%d", port)
-	if port == 0 {
-		addr = ":0"
-	}
-
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return 0, err
-	}
-	if err := cm.registerListener(listener, object, printMessages, false); err != nil {
-		return 0, err
-	}
-
-	actualPort, _, err := parseListenerPort(listener.Addr())
-	return actualPort, err
+func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
+	return cm.addListener(spec, false)
 }
 
-func (cm *ConnectionManager) RemoveListener(port int64) error {
+func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
+	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
+	if spec.Protocol != builtins.ListenerProtocolTCP {
+		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
+	}
+
+	addr := net.JoinHostPort(spec.Interface, fmt.Sprintf("%d", spec.Port))
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return builtins.ListenerDescriptor{}, err
+	}
+	return cm.registerListener(listener, spec, primary)
+}
+
+func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) error {
+	key := listenerKeyFromDescriptor(desc)
 	cm.mu.Lock()
-	record := cm.listeners[port]
+	record := cm.listeners[key]
 	if record == nil {
 		cm.mu.Unlock()
 		return fmt.Errorf("listener not found")
@@ -467,7 +490,7 @@ func (cm *ConnectionManager) RemoveListener(port int64) error {
 		cm.mu.Unlock()
 		return fmt.Errorf("cannot remove primary listener")
 	}
-	delete(cm.listeners, port)
+	delete(cm.listeners, key)
 	cm.mu.Unlock()
 
 	return record.listener.Close()
@@ -561,6 +584,43 @@ func parseListenerPort(addr net.Addr) (int64, bool, error) {
 		return 0, false, err
 	}
 	return port, strings.Contains(host, ":"), nil
+}
+
+func normalizeListenerProtocol(protocol string) string {
+	if protocol == "" {
+		return builtins.ListenerProtocolTCP
+	}
+	return strings.ToLower(protocol)
+}
+
+func canonicalListenerPath(protocol, path string) string {
+	switch protocol {
+	case "ws", "wss":
+		if path == "" {
+			return "/"
+		}
+		return path
+	default:
+		return ""
+	}
+}
+
+func listenerKeyFromDescriptor(desc builtins.ListenerDescriptor) listenerKey {
+	protocol := normalizeListenerProtocol(desc.Protocol)
+	return listenerKey{
+		protocol: protocol,
+		port:     desc.Port,
+		path:     canonicalListenerPath(protocol, desc.Path),
+	}
+}
+
+func formatListenerDescriptor(desc builtins.ListenerDescriptor) string {
+	protocol := normalizeListenerProtocol(desc.Protocol)
+	path := canonicalListenerPath(protocol, desc.Path)
+	if path == "" {
+		return fmt.Sprintf("%s://:%d", protocol, desc.Port)
+	}
+	return fmt.Sprintf("%s://:%d%s", protocol, desc.Port, path)
 }
 
 // SwitchPlayer switches a connection from one player to another

@@ -13,12 +13,34 @@ import (
 	"sync"
 )
 
+const ListenerProtocolTCP = "tcp"
+
+type ListenerSpec struct {
+	Protocol           string
+	Object             types.ObjID
+	Port               int64
+	Interface          string
+	Path               string
+	PrintMessages      bool
+	TLSCertificatePath string
+	TLSKeyPath         string
+}
+
+type ListenerDescriptor struct {
+	Protocol string
+	Port     int64
+	Path     string
+}
+
 type ListenerInfo struct {
 	Object        types.ObjID
 	Port          int64
+	Protocol      string
+	Path          string
 	PrintMessages bool
 	IPv6          bool
 	Interface     string
+	TLS           bool
 }
 
 // ConnectionManager interface to avoid import cycle.
@@ -30,8 +52,8 @@ type ConnectionManager interface {
 	SwitchPlayer(oldPlayer, newPlayer types.ObjID) error
 	GetListenPort() int
 	ListenerInfos() []ListenerInfo
-	AddListener(object types.ObjID, port int64, printMessages bool) (int64, error)
-	RemoveListener(port int64) error
+	AddListener(spec ListenerSpec) (ListenerDescriptor, error)
+	RemoveListener(desc ListenerDescriptor) error
 	OpenNetworkConnection(host string, port int64) (types.ObjID, error)
 	ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error)
 }
@@ -699,6 +721,96 @@ func parseRemoteAddress(remoteAddr string) (string, string) {
 	return strings.Trim(remoteAddr, "[]"), "0"
 }
 
+func normalizeListenerProtocol(protocol string) string {
+	if protocol == "" {
+		return ListenerProtocolTCP
+	}
+	return strings.ToLower(protocol)
+}
+
+func listenerProtocolSupported(protocol string) bool {
+	switch normalizeListenerProtocol(protocol) {
+	case ListenerProtocolTCP, "tls", "ws", "wss":
+		return true
+	default:
+		return false
+	}
+}
+
+func listenerDescriptorValue(desc ListenerDescriptor) types.Value {
+	protocol := normalizeListenerProtocol(desc.Protocol)
+	if protocol == ListenerProtocolTCP && desc.Path == "" {
+		return types.NewInt(desc.Port)
+	}
+
+	pairs := [][2]types.Value{
+		{types.NewStr("protocol"), types.NewStr(protocol)},
+		{types.NewStr("port"), types.NewInt(desc.Port)},
+	}
+	if desc.Path != "" {
+		pairs = append(pairs, [2]types.Value{types.NewStr("path"), types.NewStr(desc.Path)})
+	}
+	return types.NewMap(pairs)
+}
+
+func listenerInfoDescriptor(info ListenerInfo) ListenerDescriptor {
+	return ListenerDescriptor{
+		Protocol: normalizeListenerProtocol(info.Protocol),
+		Port:     info.Port,
+		Path:     info.Path,
+	}
+}
+
+func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.ErrorCode) {
+	switch v := value.(type) {
+	case types.IntValue:
+		if v.Val < 0 || v.Val > 65535 {
+			return ListenerDescriptor{}, types.E_INVARG
+		}
+		return ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: v.Val}, types.E_NONE
+	case types.MapValue:
+		desc := ListenerDescriptor{Protocol: ListenerProtocolTCP}
+		if protocolValue, ok := v.Get(types.NewStr("protocol")); ok {
+			protocol, ok := protocolValue.(types.StrValue)
+			if !ok {
+				return ListenerDescriptor{}, types.E_TYPE
+			}
+			desc.Protocol = normalizeListenerProtocol(protocol.Value())
+			if !listenerProtocolSupported(desc.Protocol) {
+				return ListenerDescriptor{}, types.E_INVARG
+			}
+		}
+		portValue, ok := v.Get(types.NewStr("port"))
+		if !ok {
+			return ListenerDescriptor{}, types.E_INVARG
+		}
+		port, ok := portValue.(types.IntValue)
+		if !ok {
+			return ListenerDescriptor{}, types.E_TYPE
+		}
+		if port.Val < 0 || port.Val > 65535 {
+			return ListenerDescriptor{}, types.E_INVARG
+		}
+		desc.Port = port.Val
+		if pathValue, ok := v.Get(types.NewStr("path")); ok {
+			path, ok := pathValue.(types.StrValue)
+			if !ok {
+				return ListenerDescriptor{}, types.E_TYPE
+			}
+			desc.Path = path.Value()
+		}
+		return desc, types.E_NONE
+	default:
+		return ListenerDescriptor{}, types.E_TYPE
+	}
+}
+
+func listenerDescriptorEqual(left, right ListenerDescriptor) bool {
+	return normalizeListenerProtocol(left.Protocol) == normalizeListenerProtocol(right.Protocol) &&
+		left.Port == right.Port &&
+		left.Path == right.Path
+}
+
 // notify(player, message [, no_flush [, no_newline]]) -> int
 func builtinNotify(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
@@ -769,14 +881,34 @@ func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
 				}
 			}
 			infos = filtered
+		case types.MapValue:
+			desc, errCode := parseListenerDescriptorValue(v)
+			if errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
+			filtered := infos[:0]
+			for _, info := range infos {
+				if listenerDescriptorEqual(listenerInfoDescriptor(info), desc) {
+					filtered = append(filtered, info)
+				}
+			}
+			infos = filtered
 		default:
 			return types.Err(types.E_TYPE)
 		}
 	}
 
 	sort.Slice(infos, func(i, j int) bool {
+		leftProtocol := normalizeListenerProtocol(infos[i].Protocol)
+		rightProtocol := normalizeListenerProtocol(infos[j].Protocol)
+		if leftProtocol != rightProtocol {
+			return leftProtocol < rightProtocol
+		}
 		if infos[i].Port != infos[j].Port {
 			return infos[i].Port < infos[j].Port
+		}
+		if infos[i].Path != infos[j].Path {
+			return infos[i].Path < infos[j].Path
 		}
 		return infos[i].Object < infos[j].Object
 	})
@@ -791,12 +923,19 @@ func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
 		if info.IPv6 {
 			ipv6 = 1
 		}
+		tls := int64(0)
+		if info.TLS {
+			tls = 1
+		}
 		entry := types.NewMap([][2]types.Value{
 			{types.NewStr("object"), types.NewObj(info.Object)},
 			{types.NewStr("port"), types.NewInt(info.Port)},
+			{types.NewStr("protocol"), types.NewStr(normalizeListenerProtocol(info.Protocol))},
+			{types.NewStr("path"), types.NewStr(info.Path)},
 			{types.NewStr("print-messages"), types.NewInt(printMessages)},
 			{types.NewStr("ipv6"), types.NewInt(ipv6)},
 			{types.NewStr("interface"), types.NewStr(info.Interface)},
+			{types.NewStr("TLS"), types.NewInt(tls)},
 		})
 		entries = append(entries, entry)
 	}

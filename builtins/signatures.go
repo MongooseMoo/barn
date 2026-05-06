@@ -628,7 +628,7 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if len(args) < 2 || len(args) > 4 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 	obj, ok := args[0].(types.ObjValue)
@@ -643,7 +643,11 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	printMessages := false
+	spec := ListenerSpec{
+		Protocol: ListenerProtocolTCP,
+		Object:   obj.ID(),
+		Port:     port.Val,
+	}
 	if len(args) >= 3 {
 		options, ok := args[2].(types.MapValue)
 		if !ok {
@@ -654,17 +658,51 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 			if !ok {
 				continue
 			}
-			if key.Value() == "print-messages" {
-				printMessages = pair[1].Truthy()
+			switch key.Value() {
+			case "print-messages":
+				spec.PrintMessages = pair[1].Truthy()
+			case "protocol":
+				protocol, ok := pair[1].(types.StrValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				spec.Protocol = normalizeListenerProtocol(protocol.Value())
+				if !listenerProtocolSupported(spec.Protocol) {
+					return types.Err(types.E_INVARG)
+				}
+			case "interface":
+				iface, ok := pair[1].(types.StrValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				spec.Interface = iface.Value()
+			case "path":
+				path, ok := pair[1].(types.StrValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				spec.Path = path.Value()
+			case "certificate":
+				cert, ok := pair[1].(types.StrValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				spec.TLSCertificatePath = cert.Value()
+			case "key":
+				keyPath, ok := pair[1].(types.StrValue)
+				if !ok {
+					return types.Err(types.E_TYPE)
+				}
+				spec.TLSKeyPath = keyPath.Value()
 			}
 		}
 	}
 
-	actualPort, err := globalConnManager.AddListener(obj.ID(), port.Val, printMessages)
+	desc, err := globalConnManager.AddListener(spec)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewInt(actualPort))
+	return types.Ok(listenerDescriptorValue(desc))
 }
 
 func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -677,11 +715,11 @@ func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	port, ok := args[0].(types.IntValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
+	desc, errCode := parseListenerDescriptorValue(args[0])
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
-	if err := globalConnManager.RemoveListener(port.Val); err != nil {
+	if err := globalConnManager.RemoveListener(desc); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
