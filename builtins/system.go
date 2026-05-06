@@ -523,13 +523,14 @@ func builtinCtime(ctx *types.TaskContext, args []types.Value) types.Result {
 // With arg: returns specific version info (not fully implemented yet)
 func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Result {
 	const versionString = "1.0.0-barn"
+	features := types.NewList([]types.Value{types.NewStr("64bit")})
 	versionInfo := []types.Value{
 		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(1)}),
 		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(0)}),
 		types.NewList([]types.Value{types.NewStr("patch"), types.NewInt(0)}),
 		types.NewList([]types.Value{types.NewStr("prerelease"), types.NewStr("barn")}),
 		types.NewList([]types.Value{types.NewStr("string"), types.NewStr(versionString)}),
-		types.NewList([]types.Value{types.NewStr("features"), types.NewList([]types.Value{})}),
+		types.NewList([]types.Value{types.NewStr("features"), features}),
 	}
 
 	if len(args) == 0 {
@@ -556,7 +557,7 @@ func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Resu
 	case "string":
 		return types.Ok(types.NewStr(versionString))
 	case "features":
-		return types.Ok(types.NewList([]types.Value{}))
+		return types.Ok(features)
 	default:
 		return types.Err(types.E_INVARG)
 	}
