@@ -153,6 +153,44 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 	}
 }
 
+func TestListenBuildsTLSListenerSpec(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+
+	res := builtinListen(ctx, []types.Value{
+		types.NewObj(42),
+		types.NewInt(8889),
+		types.NewMap([][2]types.Value{
+			{types.NewStr("protocol"), types.NewStr("tls")},
+			{types.NewStr("certificate"), types.NewStr("server.crt")},
+			{types.NewStr("key"), types.NewStr("server.key")},
+		}),
+	})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	desc, ok := res.Val.(types.MapValue)
+	if !ok {
+		t.Fatalf("got %T, want descriptor map", res.Val)
+	}
+	protocol, _ := desc.Get(types.NewStr("protocol"))
+	port, _ := desc.Get(types.NewStr("port"))
+	if protocol.(types.StrValue).Value() != "tls" || port.(types.IntValue).Val != 8889 {
+		t.Fatalf("unexpected descriptor: %s", desc.String())
+	}
+	if manager.added.Protocol != "tls" ||
+		manager.added.TLSCertificatePath != "server.crt" ||
+		manager.added.TLSKeyPath != "server.key" {
+		t.Fatalf("unexpected spec: %+v", manager.added)
+	}
+}
+
 func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	prev := globalConnManager
 	defer func() { globalConnManager = prev }()
