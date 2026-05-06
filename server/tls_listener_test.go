@@ -2,16 +2,20 @@ package server
 
 import (
 	"barn/builtins"
+	"barn/db"
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,6 +104,66 @@ func TestTLSLineTransportReadsAfterHandshake(t *testing.T) {
 		t.Fatalf("server error: %v", err)
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for TLS line")
+	}
+}
+
+func TestTLSListenerLoginAndEval(t *testing.T) {
+	certPath, keyPath := writeSelfSignedCertificate(t)
+	store := db.NewStore()
+	system := addTestObject(t, store, 0, db.FlagWizard)
+	addTestObject(t, store, 2, db.FlagUser|db.FlagProgrammer|db.FlagWizard)
+	addTestVerb(system, "do_login_command", "return #2;")
+
+	scheduler := NewScheduler(store)
+	srv := &Server{scheduler: scheduler}
+	cm := NewConnectionManager(srv, 0)
+	scheduler.SetConnectionManager(cm)
+	scheduler.Start()
+	defer scheduler.Stop()
+
+	err := cm.StartListeners([]builtins.ListenerSpec{{
+		Protocol:           "tls",
+		Port:               0,
+		Interface:          "127.0.0.1",
+		TLSCertificatePath: certPath,
+		TLSKeyPath:         keyPath,
+	}})
+	if err != nil {
+		t.Fatalf("start tls listener: %v", err)
+	}
+	defer closeAllListeners(cm)
+
+	port := cm.ListenerInfos()[0].Port
+	client, err := tls.Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)), &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatalf("tls dial: %v", err)
+	}
+	defer client.Close()
+	if err := client.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	reader := bufio.NewReader(client)
+
+	if _, err := client.Write([]byte("connect test\r\n")); err != nil {
+		t.Fatalf("write login: %v", err)
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read login response: %v", err)
+	}
+	if strings.TrimSpace(line) != "*** Connected ***" {
+		t.Fatalf("login response %q, want connected message", line)
+	}
+
+	if _, err := client.Write([]byte("eval return 3;\r\n")); err != nil {
+		t.Fatalf("write eval: %v", err)
+	}
+	line, err = reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read eval response: %v", err)
+	}
+	if strings.TrimSpace(line) != "{1, 3}" {
+		t.Fatalf("eval response %q, want {1, 3}", line)
 	}
 }
 
