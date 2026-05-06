@@ -595,7 +595,12 @@ func builtinServerLog(ctx *types.TaskContext, args []types.Value) types.Result {
 // Reloads server configuration from $server_options object.
 // Reads properties like max_string_concat and caches them globally.
 // Requires wizard permissions.
-func builtinLoadServerOptions(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinLoadServerOptions(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -613,7 +618,12 @@ func builtinLoadServerOptions(ctx *types.TaskContext, args []types.Value, store 
 
 // builtinVerbCacheStats implements verb_cache_stats()
 // Returns a compatibility structure where element 5 is a 17-int stats vector.
-func builtinVerbCacheStats(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinVerbCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -636,7 +646,12 @@ func builtinVerbCacheStats(ctx *types.TaskContext, args []types.Value, store *db
 
 // builtinResetMaxObject implements reset_max_object()
 // Recomputes max/high-water object IDs from current live objects.
-func builtinResetMaxObject(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinResetMaxObject(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
