@@ -142,21 +142,32 @@ func resolveConnection(ctx *types.TaskContext, player types.ObjID) Connection {
 func validConnectionOption(name string) bool {
 	switch name {
 	case "hold-input", "client-echo", "disable-oob",
-		"binary", "flush-command", "keep-alive":
+		"binary", "flush-command", "keep-alive", "intrinsic-commands":
 		return true
 	default:
 		return false
 	}
 }
 
+func defaultIntrinsicCommands() types.Value {
+	return types.NewList([]types.Value{
+		types.NewStr(".program"),
+		types.NewStr("PREFIX"),
+		types.NewStr("SUFFIX"),
+		types.NewStr("OUTPUTPREFIX"),
+		types.NewStr("OUTPUTSUFFIX"),
+	})
+}
+
 func defaultConnectionOptions() map[string]types.Value {
 	return map[string]types.Value{
-		"hold-input":    types.NewInt(0),
-		"client-echo":   types.NewInt(1),
-		"disable-oob":   types.NewInt(0),
-		"binary":        types.NewInt(0),
-		"flush-command": types.NewStr(""),
-		"keep-alive":    types.NewInt(0),
+		"hold-input":         types.NewInt(0),
+		"client-echo":        types.NewInt(1),
+		"disable-oob":        types.NewInt(0),
+		"binary":             types.NewInt(0),
+		"flush-command":      types.NewStr(""),
+		"keep-alive":         types.NewInt(0),
+		"intrinsic-commands": defaultIntrinsicCommands(),
 	}
 }
 
@@ -1077,6 +1088,27 @@ func builtinSetConnectionOption(ctx *types.TaskContext, args []types.Value) type
 		case types.IntValue, types.MapValue:
 		default:
 			return types.Err(types.E_INVARG)
+		}
+	}
+	if name == "intrinsic-commands" {
+		if args[2].Truthy() {
+			if list, ok := args[2].(types.ListValue); ok {
+				allowed := map[string]bool{
+					".program":     true,
+					"PREFIX":       true,
+					"SUFFIX":       true,
+					"OUTPUTPREFIX": true,
+					"OUTPUTSUFFIX": true,
+				}
+				for i := 1; i <= list.Len(); i++ {
+					str, ok := list.Get(i).(types.StrValue)
+					if !ok || !allowed[str.Value()] {
+						return types.Err(types.E_INVARG)
+					}
+				}
+			} else {
+				args[2] = defaultIntrinsicCommands()
+			}
 		}
 	}
 
