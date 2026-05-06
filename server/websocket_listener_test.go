@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	websocketTestTimeout         = 2 * time.Second
 	websocketPingStabilityWait   = 50 * time.Millisecond
 	websocketShutdownTestTimeout = 500 * time.Millisecond
 	websocketShutdownTestPoll    = 5 * time.Millisecond
@@ -62,7 +63,7 @@ func TestWebSocketListenerReportsMetadataAndRoundTrip(t *testing.T) {
 
 func TestWebSocketListenerLoginAndEval(t *testing.T) {
 	h := startWebSocketHarness(t, "/moo")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, h.url, nil)
@@ -84,7 +85,7 @@ func TestWebSocketListenerLoginAndEval(t *testing.T) {
 
 func TestWebSocketInputIsOneMessagePerLine(t *testing.T) {
 	h := startWebSocketHarness(t, "/moo")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, h.url, nil)
@@ -107,7 +108,7 @@ func TestWebSocketInputIsOneMessagePerLine(t *testing.T) {
 
 func TestWebSocketRejectsEmbeddedNewline(t *testing.T) {
 	h := startWebSocketHarness(t, "/moo")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, h.url, nil)
@@ -130,7 +131,7 @@ func TestWebSocketRejectsEmbeddedNewline(t *testing.T) {
 
 func TestWebSocketRejectsBinaryInput(t *testing.T) {
 	h := startWebSocketHarness(t, "/moo")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, h.url, nil)
@@ -155,7 +156,7 @@ func TestWebSocketRejectsBinaryInput(t *testing.T) {
 
 func TestWebSocketPingDoesNotSurfaceAsInput(t *testing.T) {
 	h := startWebSocketHarness(t, "/moo")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, h.url, nil)
@@ -167,7 +168,7 @@ func TestWebSocketPingDoesNotSurfaceAsInput(t *testing.T) {
 	_ = readWebSocketText(t, client)
 
 	closeCtx := client.CloseRead(context.Background())
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer pingCancel()
 	if err := client.Ping(pingCtx); err != nil {
 		t.Fatalf("ping websocket: %v", err)
@@ -191,7 +192,7 @@ func TestWebSocketHTTPPolicy(t *testing.T) {
 		t.Fatalf("plain http status %d, want 426", resp.StatusCode)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 	_, resp, err = websocket.Dial(ctx, strings.Replace(h.url, "/moo", "/other", 1), nil)
 	if err == nil {
@@ -214,7 +215,7 @@ func TestWebSocketShutdownClosesActiveConnection(t *testing.T) {
 	h := startWebSocketHarness(t, "/moo")
 	h.cm.shutdownTimeout = websocketShutdownTestTimeout
 	h.cm.shutdownPoll = websocketShutdownTestPoll
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	client, _, err := websocket.Dial(ctx, h.url, nil)
@@ -272,7 +273,7 @@ func startWebSocketHarness(t *testing.T, path string) websocketHarness {
 
 func readWebSocketText(t *testing.T, conn *websocket.Conn) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	messageType, payload, err := conn.Read(ctx)
@@ -292,7 +293,7 @@ func loginWebSocket(t *testing.T, conn *websocket.Conn) {
 
 func writeWebSocketText(t *testing.T, conn *websocket.Conn, message string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
 	defer cancel()
 
 	if err := conn.Write(ctx, websocket.MessageText, []byte(message)); err != nil {
