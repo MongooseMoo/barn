@@ -168,14 +168,12 @@ func builtinResume(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinSetTaskPerms: set_task_perms(who) → none
 // Changes the permission context for the current task
 // Wizard only - allows running code with different permissions
-// Note: this stub is registered in NewRegistry; RegisterSystemBuiltins
-// overrides it with builtinSetTaskPermsWithStore which also updates IsWizard.
 func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
-	return builtinSetTaskPermsWithStore(ctx, args, nil)
-}
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
 
-// builtinSetTaskPermsWithStore is the store-aware implementation of set_task_perms.
-func builtinSetTaskPermsWithStore(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -195,10 +193,8 @@ func builtinSetTaskPermsWithStore(ctx *types.TaskContext, args []types.Value, st
 	// Update ctx.IsWizard to reflect the new programmer's actual status.
 	// In Toast, the progr field determines wizard checks dynamically;
 	// Barn caches IsWizard so we must update it here.
-	if store != nil {
-		obj := store.Get(whoVal.ID())
-		ctx.IsWizard = obj != nil && obj.Flags.Has(db.FlagWizard)
-	}
+	obj := store.Get(whoVal.ID())
+	ctx.IsWizard = obj != nil && obj.Flags.Has(db.FlagWizard)
 
 	// Also update the current CallStack frame's Programmer so that
 	// caller_perms() reflects the new permissions (matches Toast's
