@@ -4,6 +4,7 @@ import (
 	"barn/builtins"
 	"barn/trace"
 	"barn/types"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -318,10 +319,10 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 			line, err = conn.ReadLine()
 		}
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
+			if isReadTimeout(err) && conn.IsLoggedIn() {
 				continue
 			}
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
+			if isReadTimeout(err) && !conn.IsLoggedIn() {
 				conn.Send("*** Timed-out waiting for login. ***")
 				cm.server.scheduler.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
 				return
@@ -786,6 +787,13 @@ func isWebSocketUpgrade(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+func isReadTimeout(err error) bool {
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		return true
+	}
+	return errors.Is(err, context.DeadlineExceeded)
 }
 
 // SwitchPlayer switches a connection from one player to another

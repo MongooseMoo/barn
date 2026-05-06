@@ -11,6 +11,7 @@ import (
 
 	"barn/builtins"
 	"barn/db"
+	"barn/types"
 
 	"github.com/coder/websocket"
 )
@@ -233,6 +234,30 @@ func TestWebSocketShutdownClosesActiveConnection(t *testing.T) {
 	}
 }
 
+func TestWebSocketPreLoginTimeoutClosesConnection(t *testing.T) {
+	h := startWebSocketHarnessWithConnectTimeout(t, "/moo", 1)
+	ctx, cancel := context.WithTimeout(context.Background(), websocketTestTimeout)
+	defer cancel()
+
+	client, _, err := websocket.Dial(ctx, h.url, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer client.Close(websocket.StatusNormalClosure, "")
+
+	messageType, payload, err := client.Read(ctx)
+	if err != nil {
+		t.Fatalf("read timeout message: %v", err)
+	}
+	if messageType != websocket.MessageText || string(payload) != "*** Timed-out waiting for login. ***" {
+		t.Fatalf("timeout message type=%v payload=%q", messageType, string(payload))
+	}
+	_, _, err = client.Read(ctx)
+	if err == nil {
+		t.Fatalf("read after pre-login timeout succeeded, want close")
+	}
+}
+
 type websocketHarness struct {
 	cm  *ConnectionManager
 	url string
@@ -240,11 +265,31 @@ type websocketHarness struct {
 
 func startWebSocketHarness(t *testing.T, path string) websocketHarness {
 	t.Helper()
+	return startWebSocketHarnessWithConnectTimeout(t, path, 0)
+}
+
+func startWebSocketHarnessWithConnectTimeout(t *testing.T, path string, connectTimeout int64) websocketHarness {
+	t.Helper()
 
 	store := db.NewStore()
 	system := addTestObject(t, store, 0, db.FlagWizard)
 	addTestObject(t, store, 2, db.FlagUser|db.FlagProgrammer|db.FlagWizard)
 	addTestVerb(system, "do_login_command", "return #2;")
+	if connectTimeout > 0 {
+		serverOptions := addTestObject(t, store, 9, db.FlagWizard)
+		serverOptions.Properties["connect_timeout"] = &db.Property{
+			Name:  "connect_timeout",
+			Value: types.NewInt(connectTimeout),
+			Owner: 2,
+			Perms: db.PropRead | db.PropWrite,
+		}
+		system.Properties["server_options"] = &db.Property{
+			Name:  "server_options",
+			Value: types.NewObj(9),
+			Owner: 2,
+			Perms: db.PropRead | db.PropWrite,
+		}
+	}
 
 	scheduler := NewScheduler(store)
 	srv := &Server{scheduler: scheduler}

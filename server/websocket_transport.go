@@ -16,15 +16,45 @@ var errWebSocketInvalidInput = errors.New("invalid websocket input")
 type WebSocketTransport struct {
 	conn       *websocket.Conn
 	remoteAddr string
+	input      chan websocketReadResult
 	mu         sync.Mutex
 	readMu     sync.Mutex
 	deadline   time.Time
 }
 
+type websocketReadResult struct {
+	messageType websocket.MessageType
+	payload     []byte
+	err         error
+}
+
+type websocketTimeoutError struct{}
+
+func (websocketTimeoutError) Error() string   { return "websocket read timeout" }
+func (websocketTimeoutError) Timeout() bool   { return true }
+func (websocketTimeoutError) Temporary() bool { return true }
+
 func NewWebSocketTransport(conn *websocket.Conn, remoteAddr string) *WebSocketTransport {
-	return &WebSocketTransport{
+	transport := &WebSocketTransport{
 		conn:       conn,
 		remoteAddr: remoteAddr,
+		input:      make(chan websocketReadResult, 16),
+	}
+	go transport.readLoop()
+	return transport
+}
+
+func (t *WebSocketTransport) readLoop() {
+	for {
+		messageType, payload, err := t.conn.Read(context.Background())
+		t.input <- websocketReadResult{
+			messageType: messageType,
+			payload:     payload,
+			err:         err,
+		}
+		if err != nil {
+			return
+		}
 	}
 }
 
@@ -32,33 +62,44 @@ func (t *WebSocketTransport) ReadLine() (string, error) {
 	t.readMu.Lock()
 	defer t.readMu.Unlock()
 
-	ctx := context.Background()
 	if deadline := t.readDeadline(); !deadline.IsZero() {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, deadline)
-		defer cancel()
+		wait := time.Until(deadline)
+		if wait <= 0 {
+			return "", websocketTimeoutError{}
+		}
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case result := <-t.input:
+			return t.validateReadResult(result)
+		case <-timer.C:
+			return "", websocketTimeoutError{}
+		}
 	}
 
-	messageType, payload, err := t.conn.Read(ctx)
-	if err != nil {
-		return "", err
+	return t.validateReadResult(<-t.input)
+}
+
+func (t *WebSocketTransport) validateReadResult(result websocketReadResult) (string, error) {
+	if result.err != nil {
+		return "", result.err
 	}
-	if messageType == websocket.MessageBinary {
+	if result.messageType == websocket.MessageBinary {
 		_ = t.conn.Close(websocket.StatusUnsupportedData, "binary messages are not MOO input")
 		return "", errWebSocketInvalidInput
 	}
-	if messageType != websocket.MessageText {
+	if result.messageType != websocket.MessageText {
 		return "", errWebSocketInvalidInput
 	}
-	if !utf8.Valid(payload) {
+	if !utf8.Valid(result.payload) {
 		_ = t.conn.Close(websocket.StatusInvalidFramePayloadData, "invalid UTF-8")
 		return "", errWebSocketInvalidInput
 	}
-	if bytes.ContainsAny(payload, "\r\n") {
+	if bytes.ContainsAny(result.payload, "\r\n") {
 		_ = t.conn.Close(websocket.StatusPolicyViolation, "embedded newlines are not MOO input")
 		return "", errWebSocketInvalidInput
 	}
-	return string(payload), nil
+	return string(result.payload), nil
 }
 
 func (t *WebSocketTransport) WriteLine(message string) error {
