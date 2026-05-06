@@ -106,7 +106,16 @@ func (r *Registry) RegisterObjectBuiltins(store *db.Store) {
 //
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
-func builtinCreate(ctx *types.TaskContext, args []types.Value, store *db.Store, registry *Registry) types.Result {
+func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+	registry, ok := ctx.Registry.(*Registry)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -476,7 +485,16 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.ObjValue) {
 
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
-func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store, registry *Registry) types.Result {
+func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+	registry, ok := ctx.Registry.(*Registry)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -631,7 +649,12 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value, store *db.Store,
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
-func builtinValid(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinValid(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -660,7 +683,12 @@ func builtinValid(ctx *types.TaskContext, args []types.Value, store *db.Store) t
 
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object ID
-func builtinMaxObject(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinMaxObject(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -671,7 +699,12 @@ func builtinMaxObject(ctx *types.TaskContext, args []types.Value, store *db.Stor
 
 // builtinParent implements parent(object)
 // Returns the first parent of an object
-func builtinParent(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinParent(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -705,7 +738,12 @@ func builtinParent(ctx *types.TaskContext, args []types.Value, store *db.Store) 
 // builtinParents implements parents(object)
 // Returns list of all direct parents
 // Waifs have no parents (E_INVARG)
-func builtinParents(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinParents(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -746,7 +784,12 @@ func builtinParents(ctx *types.TaskContext, args []types.Value, store *db.Store)
 // builtinChildren implements children(object)
 // Returns list of direct children
 // Waifs have no children (E_INVARG)
-func builtinChildren(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinChildren(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -786,7 +829,12 @@ func builtinChildren(ctx *types.TaskContext, args []types.Value, store *db.Store
 
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
-func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -916,7 +964,12 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value, store *db.Store
 
 // builtinChparents implements chparents(object, parents_list)
 // Changes object's parents (multiple inheritance)
-func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1068,7 +1121,12 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value, store *db.Stor
 
 // builtinMove implements move(what, where[, position])
 // Moves object to new location
-func builtinMove(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1131,7 +1189,12 @@ func builtinMove(ctx *types.TaskContext, args []types.Value, store *db.Store) ty
 
 // builtinAncestors implements ancestors(object [, include_self])
 // Returns list of all ancestors in inheritance order
-func builtinAncestors(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinAncestors(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1188,7 +1251,12 @@ func builtinAncestors(ctx *types.TaskContext, args []types.Value, store *db.Stor
 
 // builtinDescendants implements descendants(object [, include_self])
 // Returns list of all descendants in inheritance order
-func builtinDescendants(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinDescendants(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1246,7 +1314,12 @@ func builtinDescendants(ctx *types.TaskContext, args []types.Value, store *db.St
 // builtinIsa implements isa(object, ancestor[, return_object])
 // Returns true if object inherits from ancestor, or the matching ancestor object
 // when return_object is truthy.
-func builtinIsa(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1388,7 +1461,12 @@ func isChildOf(store *db.Store, descendant, ancestor types.ObjID) bool {
 
 // builtinPlayers implements players()
 // Returns a list of all player objects
-func builtinPlayers(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinPlayers(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1413,7 +1491,12 @@ func builtinPlayers(ctx *types.TaskContext, args []types.Value, store *db.Store)
 // With 2+ args: filters by parent (isa check)
 // With 3+ args: also filters by player flag
 // With 4 args: inverts the parent check
-func builtinOccupants(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1543,7 +1626,12 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value, store *db.Stor
 // builtinIsPlayer implements is_player(object)
 // Returns 1 if object is a player, 0 otherwise
 // Waifs can't be players (E_TYPE)
-func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinIsPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1580,7 +1668,12 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value, store *db.Store
 // builtinSetPlayerFlag implements set_player_flag(object, value)
 // Sets or clears the player flag on an object
 // Waifs can't have player flag set (E_TYPE)
-func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1752,7 +1845,12 @@ func isDescendant(ancestor, target types.ObjID, store *db.Store) bool {
 // builtinRenumber implements renumber(obj) - wizard only
 // Reassigns object to lowest available object ID
 // Returns the new object ID
-func builtinRenumber(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinRenumber(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1795,7 +1893,12 @@ func builtinRenumber(ctx *types.TaskContext, args []types.Value, store *db.Store
 // builtinNewWaif implements new_waif() - creates a new waif instance
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
-func builtinNewWaif(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinNewWaif(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1834,7 +1937,12 @@ func builtinNewWaif(ctx *types.TaskContext, args []types.Value, store *db.Store)
 // builtinObjectBytes implements object_bytes(object)
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
-func builtinObjectBytes(ctx *types.TaskContext, args []types.Value, store *db.Store) types.Result {
+func builtinObjectBytes(ctx *types.TaskContext, args []types.Value) types.Result {
+	store, ok := ctx.Store.(*db.Store)
+	if !ok {
+		return types.Err(types.E_INVARG)
+	}
+
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
