@@ -56,11 +56,6 @@ func Return(v Value) Result {
 	return Result{Val: v, Flow: FlowReturn}
 }
 
-// Ret creates a Result for a return statement (alias for backward compatibility)
-func Ret(v Value) Result {
-	return Return(v)
-}
-
 // Err creates a Result for an error/exception
 func Err(e ErrorCode) Result {
 	return Result{Flow: FlowException, Error: e}
