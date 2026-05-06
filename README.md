@@ -17,8 +17,6 @@ world.
 - Go 1.24.6, matching `go.mod`
 - PowerShell for the checked-in conformance runner
 - `uv` when running the Python conformance suite
-- A local `..\moo-conformance-tests` checkout when using the `uv` project setup
-  in this repository
 
 ## Getting Started
 
@@ -106,27 +104,37 @@ go build -o <tool>.exe ./cmd/<tool>/
 The preferred managed conformance entrypoint in this repo is:
 
 ```powershell
-.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788
+.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -Port 7788
 ```
 
-The script builds Barn when `-Build` is supplied, copies the source database to a
-run database, starts the server, waits for the TCP listener, runs
-`uv run pytest --pyargs moo_conformance`, stops the server, removes the run
-database unless `-KeepRunDb` is set, and writes logs under `reports/runs/`.
+The Python dependency is pinned in `pyproject.toml` and `uv.lock` to a GitHub
+commit of [MongooseMoo/moo-conformance-tests](https://github.com/MongooseMoo/moo-conformance-tests),
+so a clean checkout and CI do not need a sibling repository. The script builds
+Barn when `-Build` is supplied and runs the conformance suite through managed
+server mode:
+
+```powershell
+uv run moo-conformance --server-command "<barn> -db {db} -port {port}" --server-db .\Test_conf.db --moo-port=7788 -v
+```
+
+`moo-conformance` copies the database to a temporary working directory, starts
+and stops the server, and cleans up its managed runtime files. The wrapper writes
+the conformance command, log, failed-test list, and summary JSON under
+`reports/runs/`.
 
 Useful script flags:
 
 | Flag | Purpose |
 |------|---------|
-| `-K <pattern>` | Pass a pytest `-k` selector |
-| `-ExtraPytestArgs <args>` | Append pytest arguments |
-| `-KeepRunDb` | Preserve the copied run database after the run |
-| `-NoFreshDb` | Use the existing run database instead of copying `-SourceDb` |
+| `-K <pattern>` | Pass a conformance `-k` selector |
+| `-ExtraConformanceArgs <args>` | Append conformance CLI arguments |
+| `-NoFreshDb` | Use `-RunDb` as the managed server DB instead of `-SourceDb` |
 | `-ReportsRoot <path>` | Change the report output directory |
 
 The repository also contains a Go `conformance` package. Its loader currently
-looks for legacy YAML tests under `..\cow_py\tests\conformance`; the managed
-PowerShell runner above is the current repo-level workflow.
+looks for legacy YAML tests under `..\cow_py\tests\conformance`; that package is
+not the repo-level conformance workflow. Use the PowerShell runner above for the
+MongooseMoo conformance suite.
 
 ## Architecture
 
