@@ -22,14 +22,14 @@ func (i IntValue) Equal(other Value) bool {
 	if other == nil {
 		return false
 	}
-	switch other := other.(type) {
-	case IntValue:
-		return i.Val == other.Val
-	case FloatValue:
-		return float64(i.Val) == other.Val
-	default:
+	if other.Type() != TYPE_INT {
 		return false
 	}
+	otherInt, ok := other.(IntValue)
+	if !ok {
+		return false
+	}
+	return i.Val == otherInt.Val
 }
 
 // Truthy returns the MOO truthiness
