@@ -75,10 +75,6 @@ func sanitizeFilePath(path string) (string, error) {
 	if strings.Contains(path, "/.") {
 		return "", fmt.Errorf("path traversal disallowed")
 	}
-	// Also reject backslash-dot (Windows path separator traversal)
-	if strings.Contains(path, `\.`) {
-		return "", fmt.Errorf("path traversal disallowed")
-	}
 	clean := filepath.Clean(path)
 	return clean, nil
 }
