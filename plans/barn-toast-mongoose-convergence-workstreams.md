@@ -765,20 +765,37 @@ Done when:
 The first slice should not touch Barn behavior. It must establish the profile
 matrix before any conformance behavior is trusted.
 
-1. Create ignored artifact directories.
-2. Fetch or verify the source `mongoose.db.new` artifact from
+1. [x] Create ignored artifact directories.
+2. [x] Fetch or verify the source `mongoose.db.new` artifact from
    `root@mongoose.world`.
-3. Reset or abandon any experiment branches containing work derived from an
+3. [x] Reset or abandon any experiment branches containing work derived from an
    unverified or misconfigured Toast profile.
-4. Extract the complete Toast option inventory from latest upstream source and
+4. [x] Extract the complete Toast option inventory from latest upstream source and
    generated build output.
-5. Build the required Toast profiles, starting with
+5. [x] Build the required Toast profiles, starting with
    `toast-linux-testdb-outbound-on` and `toast-linux-testdb-outbound-off`.
-6. Add or verify Barn `.conf` files for the matching Barn profiles.
-7. Build Barn profiles or mark unsupported profiles explicitly.
-8. Start one matching Toast/Barn profile pair against disposable DB copies.
-9. Connect with a minimal raw socket client and capture banners.
-10. Write the run manifest, including profile IDs and feature manifests.
+6. [x] Add or verify Barn `.conf` files for the matching Barn profiles.
+7. [x] Build Barn profiles or mark unsupported profiles explicitly.
+8. [x] Start one matching Toast/Barn profile pair against disposable DB copies.
+9. [ ] Connect with a minimal raw socket client and capture banners.
+10. [x] Write the run manifest, including profile IDs and feature manifests.
+
+Current status:
+
+- Source Mongoose DB identity verified from
+  `.tmp/mongoose-oracle/source/mongoose.db.new`:
+  `0F90CA1D766523E50C719ABCAEE9D949EDDAFC28E4D047FB662CE6A1C5BE1273`.
+- Toast Linux `OUTBOUND_NETWORK` on/off builds exist at upstream commit
+  `7e6e4a5e17a86b78f14bdbce00c234034e6e61a7`.
+- Barn now has explicit profile configs, profile manifests, a profile registry,
+  and runtime `OUTBOUND_NETWORK` behavior.
+- Metadata gate rejects Toast-on versus Barn-off before test execution, and
+  accepts Toast-off versus Barn-off.
+- Toast-off and Barn-off both pass
+  `open_network_connection_disabled_returns_perm` through the conformance
+  harness.
+- Raw socket health was verified as successful TCP accept for Barn. Prompt/banner
+  capture remains unchecked for this slice.
 
 Stop conditions:
 
