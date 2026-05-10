@@ -414,14 +414,7 @@ func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.
 		}
 		return result, 0
 	}
-	// Unknown prefix falls through to traditional crypt behavior.
-	// Toast keeps the original two leading characters in the final output even
-	// when they are outside the canonical DES salt alphabet.
-	result, err := cryptDESUnknownPrefix(password, salt)
-	if err != nil {
-		return "", types.E_INVARG
-	}
-	return result, 0
+	return "*0", 0
 }
 
 // cryptPassword implements crypt with algorithm detection from salt (legacy, no perm check)
