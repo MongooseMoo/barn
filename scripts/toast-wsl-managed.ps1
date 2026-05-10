@@ -23,6 +23,13 @@ function Convert-ToWslPath {
 
 $dbWsl = Convert-ToWslPath -Path $DbPath
 $outWsl = "$dbWsl.toast.out.db"
+$fileDirWsl = "$dbWsl.files"
+$execDirWsl = "$dbWsl.executables"
 
-& wsl -- "$ToastBinary" -O -4 127.0.0.1 "$dbWsl" "$outWsl" -p "$Port"
+& wsl -- mkdir -p "$fileDirWsl" "$execDirWsl"
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
+& wsl -- "$ToastBinary" -O -4 127.0.0.1 -i "$fileDirWsl" -x "$execDirWsl" "$dbWsl" "$outWsl" -p "$Port"
 exit $LASTEXITCODE
