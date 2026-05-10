@@ -16,7 +16,7 @@ func builtinPcreMatch(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	if subject.Value() == "" || pattern.Value() == "" {
+	if pattern.Value() == "" {
 		return types.Err(types.E_INVARG)
 	}
 
