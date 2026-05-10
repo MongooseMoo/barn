@@ -345,8 +345,15 @@ func builtinMemoryUsage(ctx *types.TaskContext, args []types.Value) types.Result
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	// Windows compatibility: Toast returns E_FILE when /proc-style memory stats are unavailable.
-	return types.Err(types.E_FILE)
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	return types.Ok(types.NewList([]types.Value{
+		types.NewFloat(float64(mem.Sys)),
+		types.NewFloat(float64(mem.Alloc)),
+		types.NewFloat(0),
+		types.NewFloat(0),
+		types.NewFloat(float64(mem.HeapSys)),
+	}))
 }
 
 func builtinLogCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
