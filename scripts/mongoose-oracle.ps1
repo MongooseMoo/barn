@@ -129,10 +129,10 @@ function Start-ToastServer {
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to start Toast via WSL"
     }
-    $pid = (Get-Content -Raw $pidPath).Trim()
-    Write-ManifestValue $runPath "toast_wsl_pid" $pid
+    $toastPid = (Get-Content -Raw $pidPath).Trim()
+    Write-ManifestValue $runPath "toast_wsl_pid" $toastPid
     Write-ManifestValue $runPath "toast_started_utc" ((Get-Date).ToUniversalTime().ToString("o"))
-    Write-Output "toast wsl_pid=$pid port=$ToastPort"
+    Write-Output "toast wsl_pid=$toastPid port=$ToastPort"
 }
 
 function Stop-Run {
