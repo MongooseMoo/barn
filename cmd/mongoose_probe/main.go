@@ -43,6 +43,7 @@ func main() {
 	var account string
 	var outDir string
 	var pause time.Duration
+	var extraCommands commandFlags
 
 	flag.StringVar(&host, "host", "127.0.0.1", "server host")
 	flag.IntVar(&barnPort, "barn-port", 17880, "Barn port")
@@ -51,6 +52,7 @@ func main() {
 	flag.StringVar(&account, "account", "mongoose-codex", "bridge.conf account section")
 	flag.StringVar(&outDir, "out", filepath.Join(".tmp", "mongoose-oracle", "probe"), "transcript output directory")
 	flag.DurationVar(&pause, "pause", 600*time.Millisecond, "pause after each command")
+	flag.Var(&extraCommands, "cmd", "command to run after login; repeatable")
 	flag.Parse()
 
 	login, err := readConnectCommand(configPath, account)
@@ -61,20 +63,27 @@ func main() {
 
 	commands := []command{
 		{text: login, label: "<login redacted>"},
-		{text: "look"},
-		{text: "@who"},
-		{text: "smile"},
-		{text: "wave"},
-		{text: "say Mongoose parity probe from local Barn/Toast copies."},
-		{text: "north"},
-		{text: "look"},
-		{text: "south"},
-		{text: "look"},
-		{text: "east"},
-		{text: "look"},
-		{text: "west"},
-		{text: "look"},
-		{text: "@quit"},
+	}
+	if len(extraCommands) == 0 {
+		extraCommands = commandFlags{
+			"look",
+			"@who",
+			"smile",
+			"wave",
+			"say Mongoose parity probe from local Barn/Toast copies.",
+			"north",
+			"look",
+			"south",
+			"look",
+			"east",
+			"look",
+			"west",
+			"look",
+			"@quit",
+		}
+	}
+	for _, cmd := range extraCommands {
+		commands = append(commands, command{text: cmd})
 	}
 
 	endpoints := []endpoint{
@@ -111,6 +120,17 @@ func main() {
 type command struct {
 	text  string
 	label string
+}
+
+type commandFlags []string
+
+func (c *commandFlags) String() string {
+	return strings.Join(*c, ", ")
+}
+
+func (c *commandFlags) Set(value string) error {
+	*c = append(*c, value)
+	return nil
 }
 
 func readConnectCommand(path string, section string) (string, error) {
