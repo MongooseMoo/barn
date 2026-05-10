@@ -232,9 +232,6 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Invalidate anonymous children in descendant hierarchy.
-	store.InvalidateAnonymousChildren(objVal.ID())
-
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
 		oldParent := store.Get(oldParentID)
@@ -386,9 +383,6 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// TODO: Check permissions and fertile flags (Layer 8.5)
-
-	// Invalidate anonymous children in descendant hierarchy.
-	store.InvalidateAnonymousChildren(objVal.ID())
 
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {

@@ -144,6 +144,9 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 		}
 		return types.Err(types.E_INVIND)
 	}
+	if obj.Anonymous {
+		return types.Err(types.E_TYPE)
+	}
 
 	propName := nameVal.Value()
 	prop, ok := obj.Properties[propName]
@@ -239,6 +242,9 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
+	}
+	if obj.Anonymous {
+		return types.Err(types.E_TYPE)
 	}
 
 	propName := nameVal.Value()
@@ -345,9 +351,6 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	// Propagate inherited copies to all existing descendants
 	propagatePropertyToDescendants(objID, prop, store)
 
-	// Invalidate anonymous children in descendant hierarchy (parent schema changed).
-	store.InvalidateAnonymousChildren(objID)
-
 	return types.Ok(types.NewInt(0))
 }
 
@@ -401,9 +404,6 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Res
 
 	// Also remove inherited copies from all descendants
 	removeInheritedProperty(objID, propName, store)
-
-	// Invalidate anonymous children in descendant hierarchy (parent schema changed).
-	store.InvalidateAnonymousChildren(objID)
 
 	return types.Ok(types.NewInt(0))
 }

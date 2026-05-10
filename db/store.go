@@ -142,39 +142,6 @@ func (s *Store) IsRecycled(id types.ObjID) bool {
 	return obj.Recycled
 }
 
-// invalidateAnonymousChildrenLocked marks anonymous children under rootID as invalid.
-// Includes the root object's own anonymous children and all descendants' anonymous children.
-// Caller must hold s.mu lock.
-func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
-	queue := []types.ObjID{rootID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := s.objects[currentID]
-		if current == nil || current.Recycled {
-			continue
-		}
-
-		for _, childID := range current.AnonymousChildren {
-			child := s.objects[childID]
-			if child != nil && child.Anonymous {
-				child.Flags = child.Flags.Set(FlagInvalid)
-			}
-		}
-		current.AnonymousChildren = nil
-
-		queue = append(queue, current.Children...)
-	}
-}
-
 // Recycle marks an object as recycled
 // Returns error if object doesn't exist or is already recycled
 func (s *Store) Recycle(id types.ObjID) error {
@@ -189,9 +156,6 @@ func (s *Store) Recycle(id types.ObjID) error {
 	if obj.Recycled {
 		return fmt.Errorf("object #%d already recycled", id)
 	}
-
-	// Invalidate any anonymous children in the descendant hierarchy.
-	s.invalidateAnonymousChildrenLocked(id)
 
 	// Mark as recycled and invalid
 	obj.Recycled = true
@@ -322,9 +286,6 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	if existing, exists := s.objects[newID]; exists && !existing.Recycled {
 		return fmt.Errorf("object #%d already exists", newID)
 	}
-
-	// Invalidate any anonymous children in the descendant hierarchy.
-	s.invalidateAnonymousChildrenLocked(oldID)
 
 	// Update the object's ID
 	obj.ID = newID
@@ -589,15 +550,6 @@ func (s *Store) WaifCountByClass() map[types.ObjID]int {
 		result[classID] = len(waifs)
 	}
 	return result
-}
-
-// InvalidateAnonymousChildren marks all anonymous children of an object as invalid
-// This is called when the parent hierarchy changes (recycle, chparents, add_property, delete_property, renumber)
-func (s *Store) InvalidateAnonymousChildren(parentID types.ObjID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.invalidateAnonymousChildrenLocked(parentID)
 }
 
 // NoteVerbCacheClear increments the compatibility clear counter used by verb_cache_stats().

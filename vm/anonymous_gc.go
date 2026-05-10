@@ -215,6 +215,17 @@ func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registr
 	}
 
 	reachable := buildPersistentAnonymousReachability(store)
+	for _, obj := range store.GetAnonymousObjects() {
+		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) {
+			continue
+		}
+		for _, prop := range obj.Properties {
+			if prop == nil {
+				continue
+			}
+			collectAnonymousRefsForGC(prop.Value, reachable)
+		}
+	}
 	liveRefs := make(map[types.ObjID]struct{})
 	if callerVM, ok := ctx.CallerVM.(*VM); ok {
 		collectAnonymousRefsFromVM(callerVM, liveRefs)

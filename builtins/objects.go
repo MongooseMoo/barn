@@ -266,22 +266,13 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_QUOTA)
 	}
 
-	// Add to parents' children lists (only for non-anonymous objects)
-	// Anonymous objects do not appear in children() results
-	// But DO track anonymous children on parent for invalidation
+	// Add to parents' children lists (only for non-anonymous objects).
+	// Anonymous objects do not appear in children() results.
 	if !anonymous {
 		for _, parentID := range parents {
 			parent := store.Get(parentID)
 			if parent != nil {
 				parent.Children = append(parent.Children, newID)
-			}
-		}
-	} else {
-		// Track anonymous children on all parents for invalidation
-		for _, parentID := range parents {
-			parent := store.Get(parentID)
-			if parent != nil {
-				parent.AnonymousChildren = append(parent.AnonymousChildren, newID)
 			}
 		}
 	}
@@ -438,10 +429,14 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Recycle anonymous objects reachable via property values (including nested
-	// list/map values) before this object is destroyed.
+	// list/map values) before this object is destroyed. Upstream Toast master
+	// does not cascade through properties locally defined on anonymous objects.
 	anonRefs := make(map[types.ObjID]types.ObjValue)
 	for _, prop := range obj.Properties {
 		if prop == nil {
+			continue
+		}
+		if obj.Anonymous && prop.Defined {
 			continue
 		}
 		collectAnonymousRefs(prop.Value, anonRefs)
@@ -461,9 +456,6 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 			_ = builtinRecycle(ctx, []types.Value{ref})
 		}
 	}
-
-	// Parent hierarchy is changing; invalidate anonymous children on descendants.
-	store.InvalidateAnonymousChildren(objID)
 
 	// Reparent children to this object's parent(s)
 	// Per MOO semantics: when an object is recycled, its children
