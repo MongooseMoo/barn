@@ -42,20 +42,18 @@ func (f FloatValue) Equal(other Value) bool {
 	if other == nil {
 		return false
 	}
-	var otherFloat float64
-	switch other := other.(type) {
-	case FloatValue:
-		otherFloat = other.Val
-	case IntValue:
-		otherFloat = float64(other.Val)
-	default:
+	if other.Type() != TYPE_FLOAT {
+		return false
+	}
+	otherFloat, ok := other.(FloatValue)
+	if !ok {
 		return false
 	}
 	// NaN != NaN in MOO (IEEE 754 semantics)
-	if math.IsNaN(f.Val) || math.IsNaN(otherFloat) {
+	if math.IsNaN(f.Val) || math.IsNaN(otherFloat.Val) {
 		return false
 	}
-	return f.Val == otherFloat
+	return f.Val == otherFloat.Val
 }
 
 // Truthy returns the MOO truthiness.
