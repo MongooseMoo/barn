@@ -5,6 +5,7 @@ import (
 	"barn/config"
 	"barn/db"
 	"barn/parser"
+	"barn/profile"
 	"barn/server"
 	"barn/trace"
 	"barn/types"
@@ -13,6 +14,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -168,6 +170,23 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	if *profileManifest != "" {
+		manifest, err := profile.BuildManifest(profile.BuildInput{
+			ProfileID:         *profileID,
+			ImplementationRef: gitImplementationRef(),
+			DatabasePath:      *dbPath,
+			ConfigPath:        *configPath,
+			Options:           options,
+		})
+		if err != nil {
+			log.Fatalf("Failed to build profile manifest: %v", err)
+		}
+		if err := profile.WriteManifest(*profileManifest, manifest); err != nil {
+			log.Fatalf("Failed to write profile manifest: %v", err)
+		}
+		log.Printf("Profile manifest: %s", *profileManifest)
+	}
+
 	if err := srv.LoadDatabase(); err != nil {
 		log.Fatalf("Failed to load database: %v", err)
 	}
@@ -222,6 +241,26 @@ func formatListenerSpecs(specs []builtins.ListenerSpec) string {
 		parts = append(parts, fmt.Sprintf("%s://%s:%d", spec.Protocol, spec.Interface, spec.Port))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func gitImplementationRef() string {
+	commit, err := gitOutput("rev-parse", "HEAD")
+	if err != nil {
+		return "unknown tracked_dirty=unknown"
+	}
+	dirty := "false"
+	if err := exec.Command("git", "diff", "--quiet", "--").Run(); err != nil {
+		dirty = "true"
+	}
+	return fmt.Sprintf("%s tracked_dirty=%s", commit, dirty)
+}
+
+func gitOutput(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // parseObjID parses "#N" or "N" to types.ObjID
