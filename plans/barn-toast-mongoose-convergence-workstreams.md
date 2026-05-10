@@ -12,6 +12,20 @@ durable convergence happens through `../moo-conformance-tests`.
 
 - Toast behavior must be verified before any Barn-side debugging for a disputed
   behavior.
+- Verification means an actual `moo-conformance-tests` test run against Toast,
+  not an interactive probe transcript, shell experiment, manual eval, source
+  inspection, or plausible inference.
+- For every Barn/Toast divergence, the mandatory order is:
+  1. distill the smallest conformance test for the intended behavior;
+  2. run that test on Toast and record the exact passing command/result;
+  3. run the same test on Barn and observe the pre-fix failure;
+  4. only then inspect or change Barn production code;
+  5. rerun the test on Barn and keep the fix only if it passes.
+- Interactive Mongoose/Barn/Toast probes are discovery tools only. They may
+  identify candidate differences, but they do not authorize Barn source edits.
+- A Barn source change made before the Toast-pass/Barn-fail conformance gate is
+  invalid work for this workstream and must be reverted or abandoned before
+  continuing.
 - The source Mongoose DB is immutable input. Every server run gets its own
   disposable DB copy.
 - No manual conformance repro replaces the managed harness. Manual server runs
@@ -42,6 +56,10 @@ The executable order is:
 WS6 can start once WS3 exposes a missing primitive, but it must not invent
 harness features speculatively. WS7 starts only after WS5 has a Toast-verified
 test or an existing test already proves the behavior.
+
+The critical gate between WS4/WS5 and WS7 is non-negotiable: Barn is never fixed
+from a probe transcript alone. The transcript must be distilled into a
+conformance test, Toast must pass it, and Barn must fail it first.
 
 ## WS0 Repository And Artifact Hygiene
 
@@ -251,6 +269,8 @@ Done when:
 - Each candidate links to raw Toast transcript, raw Barn transcript, and the
   normalizer decisions applied.
 - Harness artifacts can be dismissed with an explicit reason.
+- No candidate is marked actionable for Barn implementation until WS5 has
+  produced a Toast-passing conformance test.
 
 ## WS5 Conformance Test Factory
 
@@ -258,12 +278,13 @@ Purpose: convert confirmed Toast behavior into durable YAML tests.
 
 Target architecture:
 
-- For every accepted divergence, first write or run the smallest Toast oracle
-  check that proves expected behavior.
+- For every accepted divergence, first write the smallest managed conformance
+  test that proves expected behavior.
 - Add a focused YAML test in `../moo-conformance-tests`.
-- The test must pass on Toast.
-- The test should fail on Barn before the Barn fix, unless Barn already matches
-  and the test is pure coverage.
+- The test must pass on Toast through the conformance harness.
+- The test must then be run unchanged on Barn and should fail before any Barn
+  fix, unless Barn already matches and the test is pure coverage.
+- The Toast pass and Barn pre-fix result are the handoff artifact for WS7.
 - Commit conformance test changes in the conformance repo independently from
   Barn fixes.
 
@@ -291,6 +312,8 @@ Done when:
 - Every new test has a Toast verification command and result recorded.
 - The test is committed in `moo-conformance-tests`.
 - Barn's expected result is known: fail-before-fix or coverage-only pass.
+- If the behavior was discovered interactively on Mongoose, the transcript is
+  linked only as discovery evidence; the conformance test is the authority.
 
 ## WS6 Harness Extensions
 
@@ -337,14 +360,25 @@ Purpose: fix Barn against Toast-verified tests.
 
 Loop:
 
-1. Read the failing conformance test and Toast proof.
-2. Reproduce Barn failure with the managed command.
-3. Inspect Barn code only after Toast behavior is known.
-4. Make the smallest production change.
-5. Run targeted tests.
-6. Run the relevant broader suite.
-7. Commit the Barn source edit atomically.
-8. Record the behavior family as closed.
+1. Read the conformance test and the exact Toast pass command/result.
+2. Run the same test on Barn through the managed command.
+3. If Barn does not fail, stop and classify the test as coverage-only or stale;
+   do not edit Barn.
+4. Inspect Barn code only after the Barn pre-fix failure is observed.
+5. Make the smallest production change.
+6. Run the focused Barn test and verify it now passes.
+7. Run the relevant broader suite.
+8. Commit the Barn source edit atomically.
+9. Record the behavior family as closed.
+
+Violation recovery:
+
+- If a Barn source edit was made before the conformance gate, revert or abandon
+  that edit first.
+- Then add the conformance test, prove Toast pass, prove Barn fail, and reapply
+  only the minimal fix required by that test.
+- Do not count manual probes, DB inspectors, ad hoc Go helpers, or source
+  analysis as substitutes for the Toast-pass/Barn-fail gate.
 
 Issues to manage:
 
@@ -475,4 +509,3 @@ Stop conditions:
   data remain local.
 - Should Mongoose-derived tests use a reduced fixture DB? Current bias: yes
   whenever the behavior can be distilled.
-
