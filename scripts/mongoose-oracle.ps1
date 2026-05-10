@@ -128,7 +128,7 @@ function Start-ToastServer {
     $launcher = @"
 #!/bin/sh
 cd '$toastDirWsl' || exit 1
-'$ToastBinaryWsl' -O -4 127.0.0.1 '$dbWsl' '$outDbWsl' -p $ToastPort > '$logWsl' 2>&1 &
+nohup '$ToastBinaryWsl' -O -4 127.0.0.1 '$dbWsl' '$outDbWsl' -p $ToastPort > '$logWsl' 2>&1 < /dev/null &
 echo `$! > '$pidWsl'
 "@
     $launcher = $launcher -replace "`r`n", "`n"
