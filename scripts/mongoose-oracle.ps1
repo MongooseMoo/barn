@@ -124,8 +124,17 @@ function Start-ToastServer {
     $logWsl = Convert-ToWslPath $logPath
     $pidPath = Join-Path $toastDir "toast.wsl.pid"
     $pidWsl = Convert-ToWslPath $pidPath
-    $cmd = "cd '$toastDirWsl' && '$ToastBinaryWsl' -O -4 127.0.0.1 '$dbWsl' '$outDbWsl' -p $ToastPort > '$logWsl' 2>&1 & echo `$! > '$pidWsl'"
-    & wsl sh -lc $cmd
+    $launcherPath = Join-Path $toastDir "start-toast.sh"
+    $launcher = @"
+#!/bin/sh
+cd '$toastDirWsl' || exit 1
+'$ToastBinaryWsl' -O -4 127.0.0.1 '$dbWsl' '$outDbWsl' -p $ToastPort > '$logWsl' 2>&1 &
+echo `$! > '$pidWsl'
+"@
+    $launcher = $launcher -replace "`r`n", "`n"
+    Set-Content -Path $launcherPath -Value $launcher -NoNewline
+    $launcherWsl = Convert-ToWslPath $launcherPath
+    & wsl sh -lc "chmod +x '$launcherWsl' && '$launcherWsl'"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to start Toast via WSL"
     }
