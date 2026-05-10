@@ -129,7 +129,7 @@ func (vm *VM) executeCallVerb() error {
 
 	// Check execute permission
 	if !verb.Perms.Has(db.VerbExecute) {
-		return fmt.Errorf("E_PERM: verb %s is not executable", verbName)
+		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
 
 	// Try to compile verb to bytecode
@@ -397,7 +397,7 @@ func (vm *VM) executePass() error {
 
 	// Check execute permission
 	if !verb.Perms.Has(db.VerbExecute) {
-		return fmt.Errorf("E_PERM: parent verb %s is not executable", verbName)
+		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
 	}
 
 	// Compile the parent verb to bytecode
