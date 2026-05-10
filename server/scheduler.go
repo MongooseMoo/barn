@@ -21,11 +21,12 @@ import (
 // InputEvent represents a line of input (or disconnect) from a connection.
 // Connection goroutines enqueue these; the scheduler processes them.
 type InputEvent struct {
-	ConnID       int64
-	Player       types.ObjID // negative = pre-login, positive = logged-in
-	Line         string
-	IsDisconnect bool
-	Done         chan struct{} // Closed when processing is complete
+	ConnID              int64
+	Player              types.ObjID // negative = pre-login, positive = logged-in
+	Line                string
+	IsInitialConnection bool
+	IsDisconnect        bool
+	Done                chan struct{} // Closed when processing is complete
 }
 
 // Scheduler manages task execution
@@ -302,7 +303,7 @@ func (s *Scheduler) processPreLogin(input InputEvent) {
 		line = ""
 	}
 
-	if !proxyLine && !s.shouldCallDoLoginCommand(conn, line) {
+	if !input.IsInitialConnection && !proxyLine && !s.shouldCallDoLoginCommand(conn, line) {
 		return
 	}
 

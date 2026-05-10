@@ -64,6 +64,55 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 	}
 }
 
+func TestInitialConnectionCallsDoLoginCommandWithEmptyLine(t *testing.T) {
+	store := db.NewStore()
+	system := addTestObject(t, store, 0, db.FlagWizard)
+	system.Properties["seen"] = &db.Property{Name: "seen", Value: types.NewInt(0), Owner: 2, Perms: db.PropRead | db.PropWrite}
+	addTestObject(t, store, 2, db.FlagUser|db.FlagWizard)
+	addTestVerb(system, "do_login_command", "#0.seen = 1;", "return #-1;")
+
+	s := NewScheduler(store)
+	cm := NewConnectionManager(nil, 7777)
+	s.SetConnectionManager(cm)
+	conn := cm.NewConnectionFromTransport(stubTransport{})
+
+	s.processPreLogin(InputEvent{
+		ConnID:              conn.ID,
+		Player:              types.ObjID(-conn.ID),
+		Line:                "",
+		IsInitialConnection: true,
+	})
+
+	seen, ok := system.Properties["seen"].Value.(types.IntValue)
+	if !ok || seen.Val != 1 {
+		t.Fatalf("seen = %v, want 1 after initial login command", system.Properties["seen"].Value)
+	}
+}
+
+func TestBlankPreLoginInputDoesNotCallDoLoginCommand(t *testing.T) {
+	store := db.NewStore()
+	system := addTestObject(t, store, 0, db.FlagWizard)
+	system.Properties["seen"] = &db.Property{Name: "seen", Value: types.NewInt(0), Owner: 2, Perms: db.PropRead | db.PropWrite}
+	addTestObject(t, store, 2, db.FlagUser|db.FlagWizard)
+	addTestVerb(system, "do_login_command", "#0.seen = 1;", "return #-1;")
+
+	s := NewScheduler(store)
+	cm := NewConnectionManager(nil, 7777)
+	s.SetConnectionManager(cm)
+	conn := cm.NewConnectionFromTransport(stubTransport{})
+
+	s.processPreLogin(InputEvent{
+		ConnID: conn.ID,
+		Player: types.ObjID(-conn.ID),
+		Line:   "",
+	})
+
+	seen, ok := system.Properties["seen"].Value.(types.IntValue)
+	if !ok || seen.Val != 0 {
+		t.Fatalf("seen = %v, want 0 after ordinary blank input", system.Properties["seen"].Value)
+	}
+}
+
 func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	store := db.NewStore()
 	system := addTestObject(t, store, 0, db.FlagWizard)

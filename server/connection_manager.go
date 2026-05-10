@@ -283,10 +283,11 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	{
 		done := make(chan struct{})
 		cm.server.scheduler.EnqueueInput(InputEvent{
-			ConnID: conn.ID,
-			Player: types.ObjID(-conn.ID),
-			Line:   "",
-			Done:   done,
+			ConnID:              conn.ID,
+			Player:              types.ObjID(-conn.ID),
+			Line:                "",
+			IsInitialConnection: true,
+			Done:                done,
 		})
 		<-done
 	}
