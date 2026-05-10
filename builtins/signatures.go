@@ -739,6 +739,9 @@ func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) ty
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
+	if !ctx.RuntimeOptions.OutboundNetwork {
+		return types.Err(types.E_PERM)
+	}
 	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}

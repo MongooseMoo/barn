@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/config"
 	"barn/types"
 	"testing"
 )
@@ -28,6 +29,7 @@ type stubConnManager struct {
 	infos   []ListenerInfo
 	added   ListenerSpec
 	removed ListenerDescriptor
+	opened  int
 }
 
 func (m *stubConnManager) GetConnection(player types.ObjID) Connection { return m.conn }
@@ -61,6 +63,7 @@ func (m *stubConnManager) RemoveListener(desc ListenerDescriptor) error {
 	return nil
 }
 func (m *stubConnManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
+	m.opened++
 	return types.ObjID(-8), nil
 }
 func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
@@ -115,6 +118,50 @@ func TestConnectionNameFormats(t *testing.T) {
 				t.Fatalf("got %q, want %q", got.Value(), tc.want)
 			}
 		})
+	}
+}
+
+func TestOpenNetworkConnectionDisabledReturnsPermission(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+	ctx.RuntimeOptions = config.Options{OutboundNetwork: false}
+
+	res := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(80)})
+	if !res.IsError() || res.Error != types.E_PERM {
+		t.Fatalf("got %v, want E_PERM", res)
+	}
+	if manager.opened != 0 {
+		t.Fatalf("opened %d connections, want 0", manager.opened)
+	}
+}
+
+func TestOpenNetworkConnectionEnabledKeepsCurrentBehavior(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := types.NewTaskContext()
+	ctx.IsWizard = true
+	ctx.RuntimeOptions = config.Options{OutboundNetwork: true}
+
+	res := builtinOpenNetworkConnection(ctx, []types.Value{types.NewStr("127.0.0.1"), types.NewInt(80)})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	got, ok := res.Val.(types.ObjValue)
+	if !ok || got.ID() != -8 {
+		t.Fatalf("got %v (%T), want #-8", res.Val, res.Val)
+	}
+	if manager.opened != 1 {
+		t.Fatalf("opened %d connections, want 1", manager.opened)
 	}
 }
 

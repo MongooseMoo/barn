@@ -2,6 +2,7 @@ package main
 
 import (
 	"barn/builtins"
+	"barn/config"
 	"barn/db"
 	"barn/parser"
 	"barn/server"
@@ -31,6 +32,9 @@ func (f *stringListFlag) Set(value string) error {
 func main() {
 	dbPath := flag.String("db", "Test.db", "Database file path")
 	port := flag.Int("port", 7777, "Listen port")
+	configPath := flag.String("config", "", "Server config file path")
+	profileID := flag.String("profile-id", "", "Managed profile identifier")
+	profileManifest := flag.String("profile-manifest", "", "Path to write managed profile metadata")
 	var listenFlags stringListFlag
 	flag.Var(&listenFlags, "listen", "Listener URL; repeatable, e.g. tcp://:7777")
 
@@ -52,6 +56,24 @@ func main() {
 	checkpointInterval := flag.Int("checkpoint-interval", 3600, "Checkpoint interval in seconds (0=disabled)")
 
 	flag.Parse()
+
+	options := config.DefaultOptions()
+	if *configPath != "" {
+		loaded, err := config.LoadFile(*configPath)
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		options = loaded
+	}
+	if err := options.Validate(); err != nil {
+		log.Fatalf("Invalid config: %v", err)
+	}
+	if *profileManifest != "" && *profileID == "" {
+		log.Fatal("--profile-id is required with --profile-manifest")
+	}
+	if *profileID != "" && *configPath == "" {
+		log.Fatal("--config is required with --profile-id")
+	}
 
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
@@ -117,6 +139,9 @@ func main() {
 	// Normal server startup
 	log.Printf("Barn MOO Server")
 	log.Printf("Database: %s", *dbPath)
+	if *configPath != "" {
+		log.Printf("Config: %s", *configPath)
+	}
 	listenerSpecs, err := buildListenerSpecs(*port, listenFlags, flagWasProvided("port"))
 	if err != nil {
 		log.Fatal(err)
@@ -138,7 +163,7 @@ func main() {
 		trace.Init(false, nil, nil)
 	}
 
-	srv, err := server.NewServer(*dbPath, listenerSpecs, *checkpointInterval)
+	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, options)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

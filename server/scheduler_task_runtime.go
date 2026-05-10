@@ -40,6 +40,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	ctx.TaskID = t.ID
 	ctx.Store = s.store
 	ctx.Registry = s.registry
+	ctx.RuntimeOptions = s.options
 
 	// Set up cancellation with a fresh execution-slice deadline.  StartTime is
 	// also used as queued-task scheduling metadata, so using it here charges

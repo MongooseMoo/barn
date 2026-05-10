@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	"barn/config"
 	"barn/db"
 	"barn/task"
 	"barn/trace"
@@ -35,6 +36,7 @@ type Scheduler struct {
 	evaluator               *vm.Evaluator
 	registry                *builtins.Registry // Shared builtins registry for bytecode VMs
 	store                   *db.Store
+	options                 config.Options
 	connManager             *ConnectionManager
 	inputQueue              chan InputEvent
 	pendingFinalizationSink func([]types.Value)
@@ -46,15 +48,21 @@ type Scheduler struct {
 
 // NewScheduler creates a new task scheduler
 func NewScheduler(store *db.Store) *Scheduler {
+	return NewSchedulerWithOptions(store, config.DefaultOptions())
+}
+
+// NewSchedulerWithOptions creates a new task scheduler with explicit runtime options.
+func NewSchedulerWithOptions(store *db.Store, options config.Options) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
 		tasks:      make(map[int64]*task.Task),
 		waiting:    NewTaskQueue(),
 		nextTaskID: 1,
-		evaluator:  vm.NewEvaluatorWithStore(store),
+		evaluator:  vm.NewEvaluatorWithStoreAndOptions(store, options),
 		registry:   vm.BuildVMRegistry(),
 		store:      store,
+		options:    options,
 		inputQueue: make(chan InputEvent, 256),
 		ctx:        ctx,
 		cancel:     cancel,
@@ -86,6 +94,7 @@ func (s *Scheduler) populateTaskContextDependencies(ctx *types.TaskContext) {
 	}
 	ctx.Store = s.store
 	ctx.Registry = s.registry
+	ctx.RuntimeOptions = s.options
 }
 
 // Start begins the scheduler loop

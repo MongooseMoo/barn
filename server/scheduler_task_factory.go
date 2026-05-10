@@ -209,7 +209,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		for k, v := range forkInfo.Variables {
 			childEnv.Set(k, v)
 		}
-		t.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
+		t.Evaluator = vm.NewEvaluatorWithEnvStoreAndOptions(childEnv, s.store, s.options)
 	} else {
 		return 0 // Unknown fork body type
 	}

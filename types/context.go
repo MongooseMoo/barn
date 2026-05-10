@@ -1,5 +1,7 @@
 package types
 
+import "barn/config"
+
 // TaskContext holds the execution context for a MOO task
 // This is passed through all evaluator methods to track:
 // - Tick limits (infinite loop protection)
@@ -58,6 +60,9 @@ type TaskContext struct {
 	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)
 	Registry interface{}
 
+	// RuntimeOptions are immutable server startup options for profile-sensitive behavior.
+	RuntimeOptions config.Options
+
 	// MaxStringConcat is the maximum string length allowed by string-producing builtins
 	// When a string operation would produce a result longer than this, E_QUOTA is returned
 	// Default matches ToastStunt's DEFAULT_MAX_STRING_CONCAT
@@ -74,7 +79,8 @@ func NewTaskContext() *TaskContext {
 		Programmer:      ObjNothing,
 		ThisObj:         ObjNothing,
 		Verb:            "",
-		IndexContext:    -1,      // -1 means not in an indexing context
+		IndexContext:    -1, // -1 means not in an indexing context
+		RuntimeOptions:  config.DefaultOptions(),
 		MaxStringConcat: 1000000, // Default 1MB string limit (matches test default)
 	}
 }

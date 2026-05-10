@@ -2,6 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
+	"barn/config"
 	"barn/db"
 	"barn/parser"
 	"barn/task"
@@ -16,16 +17,23 @@ type Evaluator struct {
 	env      *Environment
 	builtins *builtins.Registry
 	store    *db.Store
+	options  config.Options
 }
 
 // NewEvaluator creates a new evaluator with a fresh environment
 func NewEvaluator() *Evaluator {
+	return NewEvaluatorWithOptions(config.DefaultOptions())
+}
+
+// NewEvaluatorWithOptions creates a new evaluator with explicit runtime options.
+func NewEvaluatorWithOptions(options config.Options) *Evaluator {
 	store := db.NewStore()
 	registry := builtins.NewRegistry()
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
 		store:    store,
+		options:  options,
 	}
 	e.RegisterEvalBuiltin()
 	e.RegisterPassBuiltin()
@@ -35,12 +43,18 @@ func NewEvaluator() *Evaluator {
 
 // NewEvaluatorWithEnv creates a new evaluator with a given environment
 func NewEvaluatorWithEnv(env *Environment) *Evaluator {
+	return NewEvaluatorWithEnvAndOptions(env, config.DefaultOptions())
+}
+
+// NewEvaluatorWithEnvAndOptions creates a new evaluator with a given environment and options.
+func NewEvaluatorWithEnvAndOptions(env *Environment, options config.Options) *Evaluator {
 	store := db.NewStore()
 	registry := builtins.NewRegistry()
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
 		store:    store,
+		options:  options,
 	}
 	e.RegisterEvalBuiltin()
 	e.RegisterPassBuiltin()
@@ -50,11 +64,17 @@ func NewEvaluatorWithEnv(env *Environment) *Evaluator {
 
 // NewEvaluatorWithEnvAndStore creates a new evaluator with a given environment and store
 func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
+	return NewEvaluatorWithEnvStoreAndOptions(env, store, config.DefaultOptions())
+}
+
+// NewEvaluatorWithEnvStoreAndOptions creates a new evaluator with a given environment, store, and options.
+func NewEvaluatorWithEnvStoreAndOptions(env *Environment, store *db.Store, options config.Options) *Evaluator {
 	registry := builtins.NewRegistry()
 	e := &Evaluator{
 		env:      env,
 		builtins: registry,
 		store:    store,
+		options:  options,
 	}
 	e.RegisterEvalBuiltin()
 	e.RegisterPassBuiltin()
@@ -64,11 +84,17 @@ func NewEvaluatorWithEnvAndStore(env *Environment, store *db.Store) *Evaluator {
 
 // NewEvaluatorWithStore creates a new evaluator with a given store
 func NewEvaluatorWithStore(store *db.Store) *Evaluator {
+	return NewEvaluatorWithStoreAndOptions(store, config.DefaultOptions())
+}
+
+// NewEvaluatorWithStoreAndOptions creates a new evaluator with a given store and options.
+func NewEvaluatorWithStoreAndOptions(store *db.Store, options config.Options) *Evaluator {
 	registry := builtins.NewRegistry()
 	e := &Evaluator{
 		env:      NewEnvironment(),
 		builtins: registry,
 		store:    store,
+		options:  options,
 	}
 	e.RegisterEvalBuiltin()
 	e.RegisterPassBuiltin()
@@ -92,6 +118,7 @@ func (e *Evaluator) ensureContextDependencies(ctx *types.TaskContext) {
 	}
 	ctx.Store = e.store
 	ctx.Registry = e.builtins
+	ctx.RuntimeOptions = e.options
 }
 
 // BuildVMRegistry creates a builtins registry suitable for the bytecode VM.

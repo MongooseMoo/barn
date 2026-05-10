@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	"barn/config"
 	"barn/db"
 	"barn/types"
 	"barn/vm"
@@ -25,6 +26,7 @@ type Server struct {
 	dbPath             string
 	listenerSpecs      []builtins.ListenerSpec
 	checkpointInterval time.Duration
+	options            config.Options
 	running            bool
 	mu                 sync.Mutex
 	shutdownChan       chan struct{}
@@ -35,8 +37,16 @@ type Server struct {
 
 // NewServer creates a new MOO server
 func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
+	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, config.DefaultOptions())
+}
+
+// NewServerWithOptions creates a new MOO server with explicit runtime options.
+func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, options config.Options) (*Server, error) {
 	if len(listenerSpecs) == 0 {
 		return nil, fmt.Errorf("no listeners configured")
+	}
+	if err := options.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid options: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -44,6 +54,7 @@ func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointI
 		dbPath:             dbPath,
 		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
+		options:            options,
 		shutdownChan:       make(chan struct{}),
 		checkpointChan:     make(chan struct{}),
 		ctx:                ctx,
@@ -60,7 +71,7 @@ func (s *Server) LoadDatabase() error {
 
 	s.database = database
 	s.store = database.NewStoreFromDatabase()
-	s.scheduler = NewScheduler(s.store)
+	s.scheduler = NewSchedulerWithOptions(s.store, s.options)
 	for _, queued := range database.QueuedTasks {
 		if err := s.scheduler.RestoreQueuedTask(queued); err != nil {
 			log.Printf("restore queued task %d: %v", queued.ID, err)

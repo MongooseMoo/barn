@@ -532,7 +532,12 @@ func mooTimeZoneName(t time.Time) string {
 // With arg: returns specific version info (not fully implemented yet)
 func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Result {
 	const versionString = "1.0.0-barn"
-	features := types.NewList([]types.Value{types.NewStr("64bit")})
+	featureNames := ctx.RuntimeOptions.FeatureNames()
+	featureValues := make([]types.Value, 0, len(featureNames))
+	for _, name := range featureNames {
+		featureValues = append(featureValues, types.NewStr(name))
+	}
+	features := types.NewList(featureValues)
 	versionInfo := []types.Value{
 		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(1)}),
 		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(0)}),
@@ -567,6 +572,11 @@ func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Resu
 		return types.Ok(types.NewStr(versionString))
 	case "features":
 		return types.Ok(features)
+	case "options.OUTBOUND_NETWORK":
+		if ctx.RuntimeOptions.OutboundNetwork {
+			return types.Ok(types.NewInt(1))
+		}
+		return types.Ok(types.NewInt(0))
 	default:
 		return types.Err(types.E_INVARG)
 	}
