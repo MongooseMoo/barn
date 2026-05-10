@@ -53,7 +53,7 @@ func bitwiseNot(operand types.Value) types.Result {
 // ============================================================================
 
 // add implements addition: left + right
-// Supports INT + INT and numeric operations with float promotion.
+// Supports INT + INT and FLOAT + FLOAT (no cross-type numeric promotion).
 // Also supports string concatenation: STR + STR.
 func add(left, right types.Value) types.Result {
 	// String concatenation
@@ -94,7 +94,11 @@ func add(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		// Float addition
 		result := toFloat64(leftNum) + toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
@@ -116,7 +120,11 @@ func subtract(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		result := toFloat64(leftNum) - toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
@@ -136,7 +144,11 @@ func multiply(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		result := toFloat64(leftNum) * toFloat64(rightNum)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
@@ -158,7 +170,11 @@ func divide(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	if leftIsFloat || rightIsFloat {
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	if leftIsFloat {
 		rightFloat := toFloat64(rightNum)
 		if rightFloat == 0.0 {
 			return types.Err(types.E_DIV)
@@ -193,9 +209,13 @@ func modulo(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
+	if leftIsFloat != rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
 	// Check for division by zero
-	if rightIsFloat || leftIsFloat {
-		if toFloat64(rightNum) == 0 {
+	if rightIsFloat {
+		if rightNum.(float64) == 0 {
 			return types.Err(types.E_DIV)
 		}
 	} else {
@@ -204,8 +224,8 @@ func modulo(left, right types.Value) types.Result {
 		}
 	}
 
-	// Float modulo if either operand is a float.
-	if leftIsFloat || rightIsFloat {
+	// Both are floats
+	if leftIsFloat {
 		leftFloat := toFloat64(leftNum)
 		rightFloat := toFloat64(rightNum)
 		// Use floored modulo (MOO/Python semantics): result sign matches divisor
@@ -228,7 +248,8 @@ func modulo(left, right types.Value) types.Result {
 }
 
 // power implements exponentiation: left ^ right.
-// Supports INT ^ INT and numeric operations with float promotion.
+// Supports INT ^ INT, FLOAT ^ INT, FLOAT ^ FLOAT.
+// INT ^ FLOAT is E_TYPE (no promotion from int base to float base).
 func power(left, right types.Value) types.Result {
 	leftNum, leftIsFloat := toNumeric(left)
 	rightNum, rightIsFloat := toNumeric(right)
@@ -237,8 +258,12 @@ func power(left, right types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Floating power if either operand is a float.
-	if leftIsFloat || rightIsFloat {
+	if !leftIsFloat && rightIsFloat {
+		return types.Err(types.E_TYPE)
+	}
+
+	// Floating-base power.
+	if leftIsFloat {
 		result := math.Pow(toFloat64(leftNum), toFloat64(rightNum))
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
@@ -571,9 +596,14 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 	rightNum, rightIsFloat := toNumeric(right)
 
 	if leftNum != nil && rightNum != nil {
-		if leftIsFloat || rightIsFloat {
-			leftFloat := toFloat64(leftNum)
-			rightFloat := toFloat64(rightNum)
+		// Numeric cross-type comparison is not supported.
+		if leftIsFloat != rightIsFloat {
+			return 0, types.E_TYPE
+		}
+
+		if leftIsFloat {
+			leftFloat := leftNum.(float64)
+			rightFloat := rightNum.(float64)
 			if leftFloat < rightFloat {
 				return -1, types.E_NONE
 			} else if leftFloat > rightFloat {
