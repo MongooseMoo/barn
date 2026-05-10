@@ -23,8 +23,9 @@ function Convert-ToWslPath {
 
 $dbWsl = Convert-ToWslPath -Path $DbPath
 $outWsl = "$dbWsl.toast.out.db"
-$fileDirWsl = "$dbWsl.files"
-$execDirWsl = "$dbWsl.executables"
+$runtimeDir = Split-Path -Parent ([System.IO.Path]::GetFullPath($DbPath))
+$fileDirWsl = Convert-ToWslPath -Path (Join-Path $runtimeDir "files")
+$execDirWsl = Convert-ToWslPath -Path (Join-Path $runtimeDir "executables")
 
 & wsl -- mkdir -p "$fileDirWsl" "$execDirWsl"
 if ($LASTEXITCODE -ne 0) {
