@@ -37,6 +37,8 @@ func main() {
 	configPath := flag.String("config", "", "Server config file path")
 	profileID := flag.String("profile-id", "", "Managed profile identifier")
 	profileManifest := flag.String("profile-manifest", "", "Path to write managed profile metadata")
+	profileRegistry := flag.String("profile-registry", "profiles/barn/profiles.json", "Managed profile registry path")
+	listProfiles := flag.Bool("list-profiles", false, "List known managed profiles and exit")
 	var listenFlags stringListFlag
 	flag.Var(&listenFlags, "listen", "Listener URL; repeatable, e.g. tcp://:7777")
 
@@ -58,6 +60,15 @@ func main() {
 	checkpointInterval := flag.Int("checkpoint-interval", 3600, "Checkpoint interval in seconds (0=disabled)")
 
 	flag.Parse()
+
+	if *listProfiles {
+		registry, err := profile.LoadRegistry(*profileRegistry)
+		if err != nil {
+			log.Fatalf("Failed to load profile registry: %v", err)
+		}
+		printProfiles(registry)
+		return
+	}
 
 	options := config.DefaultOptions()
 	if *configPath != "" {
@@ -261,6 +272,17 @@ func gitOutput(args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func printProfiles(registry profile.Registry) {
+	for _, entry := range registry.SortedProfiles() {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n",
+			entry.ProfileID,
+			entry.Implementation,
+			entry.RuntimeOS,
+			entry.DatabaseFixture,
+			entry.SupportStatus)
+	}
 }
 
 // parseObjID parses "#N" or "N" to types.ObjID
