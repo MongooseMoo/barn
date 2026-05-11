@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -62,6 +63,9 @@ func main() {
 	var readTimeout time.Duration
 	var connectTimeout time.Duration
 	var output string
+	var configPath string
+	var configSection string
+	var sendBoth string
 
 	flag.StringVar(&root, "root", ".tmp/mongoose-oracle", "managed oracle artifact root")
 	flag.StringVar(&runDir, "run-dir", "", "managed run directory; defaults to root/current-run.txt")
@@ -69,6 +73,9 @@ func main() {
 	flag.DurationVar(&connectTimeout, "connect-timeout", 3*time.Second, "TCP connect timeout")
 	flag.DurationVar(&readTimeout, "read-timeout", 2*time.Second, "banner read deadline after connect")
 	flag.StringVar(&output, "out", "", "JSONL transcript path; defaults to run/transcripts/bridge-banners.jsonl")
+	flag.StringVar(&configPath, "config", "", "optional bridge.conf path used for a local connect command")
+	flag.StringVar(&configSection, "config-section", "", "bridge.conf section containing connect command")
+	flag.StringVar(&sendBoth, "send-both", "", "literal line to send to both targets after connect")
 	flag.Parse()
 
 	resolvedRunDir, err := resolveRunDir(root, runDir)
@@ -90,11 +97,25 @@ func main() {
 		fatal(err)
 	}
 
+	connectCommand, err := selectedConnectCommand(configPath, configSection)
+	if err != nil {
+		fatal(err)
+	}
+	if sendBoth != "" && connectCommand != "" {
+		fatal(fmt.Errorf("use either -send-both or -config/-config-section, not both"))
+	}
+	lineToSend := sendBoth
+	redactSentLine := false
+	if connectCommand != "" {
+		lineToSend = connectCommand
+		redactSentLine = true
+	}
+
 	targets := []target{
 		{Name: "toast", Host: host, Port: manifest.ToastPort},
 		{Name: "barn", Host: host, Port: manifest.BarnPort},
 	}
-	results := captureTargets(targets, connectTimeout, readTimeout)
+	results := captureTargets(targets, connectTimeout, readTimeout, lineToSend, redactSentLine)
 	events := flattenEvents(results)
 	if err := writeJSONLines(output, events); err != nil {
 		fatal(err)
@@ -147,14 +168,14 @@ func loadManifest(runDir string) (runManifest, error) {
 	return manifest, nil
 }
 
-func captureTargets(targets []target, connectTimeout, readTimeout time.Duration) []captureResult {
+func captureTargets(targets []target, connectTimeout, readTimeout time.Duration, lineToSend string, redactSentLine bool) []captureResult {
 	results := make([]captureResult, len(targets))
 	var wg sync.WaitGroup
 	for i, tgt := range targets {
 		wg.Add(1)
 		go func(i int, tgt target) {
 			defer wg.Done()
-			events, err := captureBanner(tgt, connectTimeout, readTimeout)
+			events, err := captureBanner(tgt, connectTimeout, readTimeout, lineToSend, redactSentLine)
 			results[i] = captureResult{target: tgt, events: events, err: err}
 		}(i, tgt)
 	}
@@ -162,7 +183,7 @@ func captureTargets(targets []target, connectTimeout, readTimeout time.Duration)
 	return results
 }
 
-func captureBanner(target target, connectTimeout, readTimeout time.Duration) ([]event, error) {
+func captureBanner(target target, connectTimeout, readTimeout time.Duration, lineToSend string, redactSentLine bool) ([]event, error) {
 	connectionID := fmt.Sprintf("%s-%s", target.Name, time.Now().UTC().Format("20060102T150405.000000000Z"))
 	address := fmt.Sprintf("%s:%d", target.Host, target.Port)
 	events := []event{newEvent(target.Name, connectionID, "bridge", "connect_start", address, nil, "")}
@@ -175,6 +196,18 @@ func captureBanner(target target, connectTimeout, readTimeout time.Duration) ([]
 	}
 	defer conn.Close()
 	events = append(events, newEvent(target.Name, connectionID, "bridge", "connect_ok", address, nil, ""))
+
+	if lineToSend != "" {
+		if _, err := conn.Write([]byte(lineToSend + "\r\n")); err != nil {
+			events = append(events, newErrorEvent(target.Name, connectionID, "socket", "send_error", address, err))
+			return events, err
+		}
+		text := lineToSend
+		if redactSentLine {
+			text = "[redacted config connect command]"
+		}
+		events = append(events, newEvent(target.Name, connectionID, "socket", "send_line", address, nil, text))
+	}
 
 	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 		events = append(events, newErrorEvent(target.Name, connectionID, "bridge", "deadline_error", address, err))
@@ -290,6 +323,61 @@ func normalizeTelnetText(raw []byte) string {
 		}
 	}
 	return strings.ToValidUTF8(string(text), string(utf8.RuneError))
+}
+
+func selectedConnectCommand(configPath, section string) (string, error) {
+	if configPath == "" {
+		return "", nil
+	}
+	if section == "" {
+		return "", fmt.Errorf("-config-section is required with -config")
+	}
+	values, err := parseINISection(configPath, section)
+	if err != nil {
+		return "", err
+	}
+	connect := strings.TrimSpace(values["connect"])
+	if connect == "" {
+		return "", fmt.Errorf("section %q in %s has no connect value", section, configPath)
+	}
+	return connect, nil
+}
+
+func parseINISection(path, section string) (map[string]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open config %s: %w", path, err)
+	}
+	defer file.Close()
+
+	values := map[string]string{}
+	current := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.Contains(line, "]") {
+			current = strings.TrimSpace(line[1:strings.Index(line, "]")])
+			continue
+		}
+		if current != section {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		values[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("section %q not found in %s", section, path)
+	}
+	return values, nil
 }
 
 func fatal(err error) {
