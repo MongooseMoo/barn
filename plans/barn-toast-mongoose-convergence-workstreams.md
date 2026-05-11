@@ -39,15 +39,21 @@ These facts come from the current Barn code and must shape the work:
 
 - `cmd/barn` starts listeners from `-port` or repeatable `-listen` specs.
 - Startup listener protocols are `tcp`, `tls`, `ws`, and `wss`.
-- WebSocket listeners use message framing; a plain TCP client is not a valid
-  client for a `ws` or `wss` profile.
 - TCP input strips Telnet IAC sequences and terminates on CR or LF.
 - Output is line-oriented on TCP/TLS and message-oriented on WebSocket.
 - Login dispatch happens through the listener object, not only through `#0`.
-- A pre-login line beginning with `PROXY ` is special only for a trusted remote
-  IP listed in the database's `server_options.trusted_proxies`.
-- The PROXY protocol is a client prelude line in this system. It does not imply
-  an external HAProxy process.
+- "The haproxy thing" means ToastStunt trusted-proxy login behavior around the
+  HAProxy PROXY protocol. It is not a WebSocket issue.
+- If the remote IP is listed in the database's
+  `server_options.trusted_proxies`, ToastStunt suppresses ordinary blank-login
+  behavior: blank initial input calls the listener's `do_blank_command`, and
+  `do_login_command("")` runs only if that hook returns true.
+- A pre-login line beginning with `PROXY ` is special only from a trusted remote
+  IP. ToastStunt parses it, rewrites connection metadata, clears the login
+  input, and then calls `do_login_command` with empty args and argstr.
+- Barn currently has trusted-proxy blank-line handling and clears trusted
+  `PROXY ...` input into empty login input; full Toast-style connection metadata
+  rewrite is a known behavior surface to verify through conformance.
 - `listeners()` exposes listener protocol, port, path, interface, TLS state,
   object, and print-message metadata from inside the MOO.
 
@@ -69,9 +75,11 @@ A profile is the comparable runtime identity for one target. It includes:
 
 The connection contract includes:
 
-- listener protocol: `tcp`, `tls`, `ws`, or `wss`;
-- host, port, and WebSocket path when applicable;
-- whether a PROXY prelude line is required or forbidden;
+- listener protocol and endpoint, normally TCP for ToastStunt comparison;
+- whether the client IP is trusted by `server_options.trusted_proxies`;
+- whether blank initial input should be consumed or passed through by
+  `do_blank_command`;
+- whether a `PROXY ...` prelude is expected, forbidden, or irrelevant;
 - login script and account profile;
 - expected first observable MOO output;
 - how to verify the listener from inside the MOO, usually `listeners()`;
@@ -107,11 +115,13 @@ Stop and report the exact unfinished row when any of these is true:
 
 - The active profile cannot name its listener protocol, endpoint, and login
   account.
-- The profile requires `ws` or `wss`, but the client path is plain TCP.
-- The profile requires a PROXY prelude, but the client path cannot send the
-  required `PROXY ...` line before login input.
-- A `PROXY ...` line is being used without verifying that the server treats the
-  remote address as trusted for that database/profile.
+- A localhost or other trusted-IP connection produces no banner/login output and
+  the next step is anything other than checking `trusted_proxies`,
+  `do_blank_command`, and PROXY-prelude handling.
+- A `PROXY ...` line is being used without first verifying that the database
+  profile trusts the client's remote IP.
+- The profile expects Toast-style PROXY metadata rewrite and the implementation
+  under test only clears the login command without proving connection metadata.
 - Barn cannot be started by the same lifecycle surface intended for repeated
   work.
 - ToastStunt cannot be started by the same lifecycle surface intended for
@@ -169,9 +179,10 @@ the managed harness refuses to compare mismatched profile facts.
 Extend `cmd/moo_client` or a close Barn-side sibling so an agent can drive the
 selected profile contract:
 
-- TCP/TLS line transport where appropriate;
-- WebSocket message transport where appropriate;
-- optional PROXY prelude line before login when the profile requires it;
+- TCP line transport for ToastStunt-comparable MOO control;
+- optional `PROXY ...` prelude before login when the profile requires it;
+- explicit handling for trusted-proxy blank initial input: the tool must let the
+  operator distinguish normal no-output from Toast's trusted-proxy login gate;
 - scripted login/account selection from uncommitted local config;
 - Barn-only, Toast-only, and send-both command execution;
 - tagged output that lets the operator see which target produced each line.
@@ -190,8 +201,8 @@ that Mongoose actually exercises:
 - `look`, movement, contents, exits, and room rendering;
 - parser shortcuts and `huh` behavior;
 - `@who`, `@display`, `@props`, `@verbs`, and object inspection;
-- connection metadata, listener metadata, PROXY-prelude-visible behavior, and
-  reconnect/disconnect hooks;
+- connection metadata, listener metadata, trusted-proxy blank-line behavior,
+  PROXY-prelude metadata rewrite, and reconnect/disconnect hooks;
 - task scheduling, suspended reads, queued tasks, and persistence-visible
   workflows.
 
@@ -231,8 +242,8 @@ Barn that passes it, not a pile of run artifacts.
 - `../moo-conformance-tests` can represent the profile requirements used by the
   added tests.
 - Barn-side MOO command tooling can drive Barn and ToastStunt through the
-  selected profile connection contracts, including WebSocket or PROXY-prelude
-  cases when those profiles require them.
+  selected TCP profile connection contracts, including trusted-proxy blank-line
+  and PROXY-prelude cases when those profiles require them.
 - Every accepted Mongoose-discovered behavior is either represented in
   `../moo-conformance-tests` or closed as database content, unsupported profile,
   diagnostic-only behavior, client/transport behavior, or invalid comparison.
