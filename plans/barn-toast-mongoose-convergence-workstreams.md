@@ -371,6 +371,9 @@ Do not copy blindly:
 
 Issues to prove:
 
+- The bridge is the connectivity proof. Do not split off a standalone raw-socket
+  banner check as a workstream milestone; that creates a manual/debug side path
+  instead of advancing the managed controller.
 - Mongoose login is prompt-driven: username/email, password, character select.
 - Output is asynchronous; command-response pairing is often approximate.
 - GMCP/OOB output may duplicate plain text and must be normalized or tagged.
@@ -777,7 +780,8 @@ matrix before any conformance behavior is trusted.
 6. [x] Add or verify Barn `.conf` files for the matching Barn profiles.
 7. [x] Build Barn profiles or mark unsupported profiles explicitly.
 8. [x] Start one matching Toast/Barn profile pair against disposable DB copies.
-9. [ ] Connect with a minimal raw socket client and capture banners.
+9. [ ] Build the first managed bridge connection path and use it to capture
+   tagged Toast and Barn banners from the managed profile pair.
 10. [x] Write the run manifest, including profile IDs and feature manifests.
 
 Current status:
@@ -794,8 +798,8 @@ Current status:
 - Toast-off and Barn-off both pass
   `open_network_connection_disabled_returns_perm` through the conformance
   harness.
-- Raw socket health was verified as successful TCP accept for Barn. Prompt/banner
-  capture remains unchecked for this slice.
+- The remaining unchecked first-slice work is the first managed bridge
+  connection path, not a standalone raw-socket/manual banner probe.
 
 Stop conditions:
 
