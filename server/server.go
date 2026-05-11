@@ -136,6 +136,7 @@ func (s *Server) Start() error {
 	if err := s.connManager.StartListeners(s.listenerSpecs); err != nil {
 		return fmt.Errorf("listen failed: %w", err)
 	}
+	s.syncPrimaryListenerPortProperty()
 
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
@@ -325,6 +326,30 @@ func (s *Server) callServerStarted() error {
 	}
 	_, err := s.scheduler.CreateServerVerbTask(0, "server_started", nil, 0)
 	return err
+}
+
+func (s *Server) syncPrimaryListenerPortProperty() {
+	systemObj := s.store.Get(0)
+	if systemObj == nil {
+		return
+	}
+	networkProp, ok := systemObj.LookupProperty("network")
+	if !ok {
+		return
+	}
+	networkObj, ok := networkProp.Value.(types.ObjValue)
+	if !ok {
+		return
+	}
+	network := s.store.Get(networkObj.ID())
+	if network == nil {
+		return
+	}
+	portProp, ok := network.LookupProperty("port")
+	if !ok {
+		return
+	}
+	portProp.Value = types.NewInt(int64(s.connManager.GetListenPort()))
 }
 
 // callCheckpointStarted calls #0:checkpoint_started()
