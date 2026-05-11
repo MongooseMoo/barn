@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -308,6 +309,8 @@ func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_TYPE)
 	}
 	path := pathVal.Value()
+	openPath := path
+	reportPath := path
 	if len(args) == 2 {
 		if _, ok := args[1].(types.IntValue); !ok {
 			return types.Err(types.E_TYPE)
@@ -320,9 +323,11 @@ func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result 
 			return types.Err(types.E_INVARG)
 		}
 		path = sanitized
+		openPath = resolveFilePath(path)
+		reportPath = filepath.ToSlash(openPath)
 	}
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", openPath)
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -338,7 +343,7 @@ func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result 
 	sqliteState.mu.Lock()
 	id := sqliteState.nextID
 	sqliteState.nextID++
-	sqliteState.handles[id] = newSQLiteHandle(id, path, db, conn)
+	sqliteState.handles[id] = newSQLiteHandle(id, reportPath, db, conn)
 	sqliteState.mu.Unlock()
 	return types.Ok(types.NewInt(id))
 }

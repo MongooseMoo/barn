@@ -3,6 +3,8 @@ package builtins
 import (
 	"barn/db"
 	"barn/types"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -146,6 +148,42 @@ func TestSqliteWizardProgrammerWithStaleCachedFlag(t *testing.T) {
 	})
 	if result.IsError() {
 		t.Fatalf("sqlite_execute returned %v, want success for wizard programmer", result.Error)
+	}
+}
+
+func TestSqliteOpenUsesFilesRootForDiskPaths(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWD); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	if err := os.MkdirAll(filepath.Join("files", "sqlite"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := sqliteWizardCtx()
+	handleID := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr("sqlite/test.sqlite")})))
+
+	info := sqliteMustMap(t, sqliteMustResult(t, builtinSqliteInfo(ctx, []types.Value{types.NewInt(handleID)})))
+	if got := sqliteMustString(t, sqliteMapGet(t, info, "path")); got != "files/sqlite/test.sqlite" {
+		t.Fatalf("path = %q, want files/sqlite/test.sqlite", got)
+	}
+	if _, err := os.Stat(filepath.Join("files", "sqlite", "test.sqlite")); err != nil {
+		t.Fatalf("files-root sqlite database missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join("sqlite", "test.sqlite")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected cwd-relative sqlite database err=%v", err)
 	}
 }
 
