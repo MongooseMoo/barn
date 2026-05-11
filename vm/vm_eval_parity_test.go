@@ -3203,6 +3203,36 @@ func TestParity_PropertyPermissions(t *testing.T) {
 		}
 	})
 
+	t.Run("wizard_programmer_reads_with_stale_cached_flag", func(t *testing.T) {
+		wizard := db.NewObject(2, 2)
+		wizard.Flags = wizard.Flags.Set(db.FlagWizard)
+		store.Add(wizard)
+
+		wizCtx := types.NewTaskContext()
+		wizCtx.Programmer = 2
+		wizCtx.IsWizard = false
+		vmVal, vmErr := vmEvalProgramWithStoreAndCtx(t, `return #0.secret;`, store, wizCtx)
+		if vmErr != nil {
+			t.Errorf("expected success for wizard programmer despite stale IsWizard, but VM errored: %v", vmErr)
+		} else if vmVal == nil || vmVal.String() != `"hidden"` {
+			t.Errorf("expected \"hidden\", got: %v", vmVal)
+		}
+	})
+
+	t.Run("wizard_programmer_writes_with_stale_cached_flag", func(t *testing.T) {
+		wizard := db.NewObject(3, 3)
+		wizard.Flags = wizard.Flags.Set(db.FlagWizard)
+		store.Add(wizard)
+
+		wizCtx := types.NewTaskContext()
+		wizCtx.Programmer = 3
+		wizCtx.IsWizard = false
+		_, vmErr := vmEvalProgramWithStoreAndCtx(t, `#0.readable = "new"; return #0.readable;`, store, wizCtx)
+		if vmErr != nil {
+			t.Errorf("expected write success for wizard programmer despite stale IsWizard, but VM errored: %v", vmErr)
+		}
+	})
+
 	t.Run("owner_reads_own_property", func(t *testing.T) {
 		// Property owner should be able to read their own non-readable property
 		ownerCtx := types.NewTaskContext()

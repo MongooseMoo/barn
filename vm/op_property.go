@@ -259,7 +259,7 @@ func (vm *VM) checkPropertyReadPerm(prop *db.Property) error {
 	if vm.Context == nil {
 		return nil // No context = no permission check
 	}
-	if vm.Context.IsWizard {
+	if vm.contextProgrammerIsWizard() {
 		return nil
 	}
 	if vm.Context.Programmer == prop.Owner {
@@ -277,7 +277,7 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 	if vm.Context == nil {
 		return nil // No context = no permission check
 	}
-	if vm.Context.IsWizard {
+	if vm.contextProgrammerIsWizard() {
 		return nil
 	}
 	if vm.Context.Programmer == prop.Owner {
@@ -287,6 +287,20 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 		return fmt.Errorf("E_PERM: property not writable")
 	}
 	return nil
+}
+
+func (vm *VM) contextProgrammerIsWizard() bool {
+	if vm.Context == nil {
+		return false
+	}
+	if vm.Context.IsWizard {
+		return true
+	}
+	if vm.Store == nil {
+		return false
+	}
+	obj := vm.Store.Get(vm.Context.Programmer)
+	return obj != nil && obj.Flags.Has(db.FlagWizard)
 }
 
 // findProperty finds a property on an object with inheritance (breadth-first search).
