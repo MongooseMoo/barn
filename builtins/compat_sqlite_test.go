@@ -185,6 +185,7 @@ func TestSqliteOpenUsesFilesRootForDiskPaths(t *testing.T) {
 	if _, err := os.Stat(filepath.Join("sqlite", "test.sqlite")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected cwd-relative sqlite database err=%v", err)
 	}
+	sqliteMustResult(t, builtinSqliteClose(ctx, []types.Value{types.NewInt(handleID)}))
 }
 
 func TestSqliteExecuteAndQueryShapes(t *testing.T) {
