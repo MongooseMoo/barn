@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"barn/db"
+	"barn/task"
 	"barn/types"
 	"os"
 	"path/filepath"
@@ -243,6 +244,27 @@ func TestSqliteExecuteAndQueryShapes(t *testing.T) {
 	firstPair := sqliteMustList(t, headerRow.Get(1))
 	if sqliteMustString(t, firstPair.Get(1)) != "first" || sqliteMustInt(t, firstPair.Get(2)) != 42 {
 		t.Fatalf("unexpected header row %v", headerRow)
+	}
+}
+
+func TestSqliteQueryDoesNotSuspendTaskContext(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	ctx := sqliteWizardCtx()
+	ctx.Task = task.NewTask(1, ctx.Player, 0, 0)
+	handleID := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr(":memory:")})))
+
+	result := builtinSqliteQuery(ctx, []types.Value{
+		types.NewInt(handleID),
+		types.NewStr("SELECT 1"),
+	})
+	if result.Flow == types.FlowSuspend {
+		t.Fatal("sqlite_query suspended task context")
+	}
+	rows := sqliteMustList(t, sqliteMustResult(t, result))
+	if rows.Len() != 1 {
+		t.Fatalf("row count = %d, want 1", rows.Len())
 	}
 }
 
