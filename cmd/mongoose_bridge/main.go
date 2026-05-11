@@ -38,6 +38,17 @@ type target struct {
 	Port int
 }
 
+type repeatedFlag []string
+
+func (f *repeatedFlag) String() string {
+	return strings.Join(*f, ", ")
+}
+
+func (f *repeatedFlag) Set(value string) error {
+	*f = append(*f, value)
+	return nil
+}
+
 type event struct {
 	TimestampUTC string `json:"timestamp_utc"`
 	Server       string `json:"server"`
@@ -56,6 +67,11 @@ type captureResult struct {
 	err    error
 }
 
+type scriptLine struct {
+	Text   string
+	Redact bool
+}
+
 func main() {
 	var root string
 	var runDir string
@@ -65,7 +81,7 @@ func main() {
 	var output string
 	var configPath string
 	var configSection string
-	var sendBoth string
+	var sendBoth repeatedFlag
 
 	flag.StringVar(&root, "root", ".tmp/mongoose-oracle", "managed oracle artifact root")
 	flag.StringVar(&runDir, "run-dir", "", "managed run directory; defaults to root/current-run.txt")
@@ -75,7 +91,7 @@ func main() {
 	flag.StringVar(&output, "out", "", "JSONL transcript path; defaults to run/transcripts/bridge-banners.jsonl")
 	flag.StringVar(&configPath, "config", "", "optional bridge.conf path used for a local connect command")
 	flag.StringVar(&configSection, "config-section", "", "bridge.conf section containing connect command")
-	flag.StringVar(&sendBoth, "send-both", "", "literal line to send to both targets after connect")
+	flag.Var(&sendBoth, "send-both", "line to send to both targets after optional config login; repeatable")
 	flag.Parse()
 
 	resolvedRunDir, err := resolveRunDir(root, runDir)
@@ -101,21 +117,19 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	if sendBoth != "" && connectCommand != "" {
-		fatal(fmt.Errorf("use either -send-both or -config/-config-section, not both"))
-	}
-	lineToSend := sendBoth
-	redactSentLine := false
+	var script []scriptLine
 	if connectCommand != "" {
-		lineToSend = connectCommand
-		redactSentLine = true
+		script = append(script, scriptLine{Text: connectCommand, Redact: true})
+	}
+	for _, line := range sendBoth {
+		script = append(script, scriptLine{Text: line})
 	}
 
 	targets := []target{
 		{Name: "toast", Host: host, Port: manifest.ToastPort},
 		{Name: "barn", Host: host, Port: manifest.BarnPort},
 	}
-	results := captureTargets(targets, connectTimeout, readTimeout, lineToSend, redactSentLine)
+	results := captureTargets(targets, connectTimeout, readTimeout, script)
 	events := flattenEvents(results)
 	if err := writeJSONLines(output, events); err != nil {
 		fatal(err)
@@ -168,14 +182,14 @@ func loadManifest(runDir string) (runManifest, error) {
 	return manifest, nil
 }
 
-func captureTargets(targets []target, connectTimeout, readTimeout time.Duration, lineToSend string, redactSentLine bool) []captureResult {
+func captureTargets(targets []target, connectTimeout, readTimeout time.Duration, script []scriptLine) []captureResult {
 	results := make([]captureResult, len(targets))
 	var wg sync.WaitGroup
 	for i, tgt := range targets {
 		wg.Add(1)
 		go func(i int, tgt target) {
 			defer wg.Done()
-			events, err := captureBanner(tgt, connectTimeout, readTimeout, lineToSend, redactSentLine)
+			events, err := captureBanner(tgt, connectTimeout, readTimeout, script)
 			results[i] = captureResult{target: tgt, events: events, err: err}
 		}(i, tgt)
 	}
@@ -183,7 +197,7 @@ func captureTargets(targets []target, connectTimeout, readTimeout time.Duration,
 	return results
 }
 
-func captureBanner(target target, connectTimeout, readTimeout time.Duration, lineToSend string, redactSentLine bool) ([]event, error) {
+func captureBanner(target target, connectTimeout, readTimeout time.Duration, script []scriptLine) ([]event, error) {
 	connectionID := fmt.Sprintf("%s-%s", target.Name, time.Now().UTC().Format("20060102T150405.000000000Z"))
 	address := fmt.Sprintf("%s:%d", target.Host, target.Port)
 	events := []event{newEvent(target.Name, connectionID, "bridge", "connect_start", address, nil, "")}
@@ -197,18 +211,34 @@ func captureBanner(target target, connectTimeout, readTimeout time.Duration, lin
 	defer conn.Close()
 	events = append(events, newEvent(target.Name, connectionID, "bridge", "connect_ok", address, nil, ""))
 
-	if lineToSend != "" {
-		if _, err := conn.Write([]byte(lineToSend + "\r\n")); err != nil {
+	if len(script) == 0 {
+		readEvents, err := readUntilDeadline(conn, target, connectionID, address, readTimeout, "initial")
+		events = append(events, readEvents...)
+		return events, err
+	}
+
+	for i, line := range script {
+		if _, err := conn.Write([]byte(line.Text + "\r\n")); err != nil {
 			events = append(events, newErrorEvent(target.Name, connectionID, "socket", "send_error", address, err))
 			return events, err
 		}
-		text := lineToSend
-		if redactSentLine {
+		text := line.Text
+		if line.Redact {
 			text = "[redacted config connect command]"
 		}
 		events = append(events, newEvent(target.Name, connectionID, "socket", "send_line", address, nil, text))
+		readEvents, err := readUntilDeadline(conn, target, connectionID, address, readTimeout, fmt.Sprintf("after_send_%d", i+1))
+		events = append(events, readEvents...)
+		if err != nil {
+			return events, err
+		}
 	}
+	events = append(events, newEvent(target.Name, connectionID, "bridge", "disconnect", address, nil, ""))
+	return events, nil
+}
 
+func readUntilDeadline(conn net.Conn, target target, connectionID, address string, readTimeout time.Duration, phase string) ([]event, error) {
+	var events []event
 	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 		events = append(events, newErrorEvent(target.Name, connectionID, "bridge", "deadline_error", address, err))
 		return events, err
@@ -221,7 +251,7 @@ func captureBanner(target target, connectTimeout, readTimeout time.Duration, lin
 		if n > 0 {
 			readAny = true
 			raw := append([]byte(nil), buf[:n]...)
-			events = append(events, newEvent(target.Name, connectionID, "socket", "banner_chunk", address, raw, normalizeTelnetText(raw)))
+			events = append(events, newEvent(target.Name, connectionID, phase, "output_chunk", address, raw, normalizeTelnetText(raw)))
 		}
 		if err != nil {
 			var netErr net.Error
@@ -234,7 +264,7 @@ func captureBanner(target target, connectTimeout, readTimeout time.Duration, lin
 		}
 	}
 	if !readAny {
-		events = append(events, newEvent(target.Name, connectionID, "bridge", "empty_banner", address, nil, ""))
+		events = append(events, newEvent(target.Name, connectionID, "bridge", "empty_read", address, nil, phase))
 	}
 	return events, nil
 }
