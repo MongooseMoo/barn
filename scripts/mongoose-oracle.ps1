@@ -10,7 +10,8 @@ param(
     [string]$BarnBinary = "",
     [int]$BarnPort = 17880,
     [int]$ToastPort = 17881,
-    [string]$ToastBinaryWsl = "/mnt/c/Users/Q/src/toaststunt/moo"
+    [string]$ToastBinaryWsl = "/mnt/c/Users/Q/src/toaststunt/moo",
+    [int]$ReadyTimeoutSeconds = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +53,96 @@ function Write-ManifestValue {
     }
     $manifest[$Name] = $Value
     $manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $manifestPath
+}
+
+function Test-TcpPort {
+    param([string]$HostName, [int]$Port)
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $connect = $client.BeginConnect($HostName, $Port, $null, $null)
+        if (-not $connect.AsyncWaitHandle.WaitOne(250)) {
+            return $false
+        }
+        $client.EndConnect($connect)
+        return $true
+    } catch {
+        return $false
+    } finally {
+        $client.Close()
+    }
+}
+
+function Get-ListeningProcess {
+    param([int]$Port)
+    $connection = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $connection) {
+        return $null
+    }
+    return Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+}
+
+function Wait-PortClosed {
+    param([int]$Port)
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Test-TcpPort "127.0.0.1" $Port)) {
+            return
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "port $Port remained open after stopping managed listener"
+}
+
+function Clear-ManagedBarnListener {
+    param([int]$Port, [string]$ExpectedBinary)
+    $listener = Get-ListeningProcess $Port
+    if (-not $listener) {
+        return
+    }
+
+    $listenerPath = [System.IO.Path]::GetFullPath($listener.Path)
+    $expectedPath = [System.IO.Path]::GetFullPath($ExpectedBinary)
+    if ($listenerPath -ne $expectedPath) {
+        throw "port $Port is already in use by non-managed process pid=$($listener.Id) path=$listenerPath"
+    }
+
+    Stop-Process -Id $listener.Id -ErrorAction SilentlyContinue
+    Wait-PortClosed $Port
+    Write-Output "stopped stale managed barn pid=$($listener.Id) port=$Port"
+}
+
+function Wait-ForManagedListener {
+    param(
+        [string]$RunPath,
+        [string]$Name,
+        [int]$Port,
+        [string]$LogPath,
+        [string]$ReadyText
+    )
+    $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
+    $sawLog = $false
+    while ((Get-Date) -lt $deadline) {
+        if ($Name -eq "barn" -and $script:BarnProcess -and $script:BarnProcess.HasExited) {
+            $exitCode = $script:BarnProcess.ExitCode
+            throw "barn exited before readiness (exit=$exitCode, log=$LogPath)"
+        }
+        if (-not $sawLog -and (Test-Path $LogPath)) {
+            $content = Get-Content -Raw -LiteralPath $LogPath -ErrorAction SilentlyContinue
+            if ($content -like "*listen failed*" -or $content -like "*Server error:*") {
+                throw "$Name reported startup failure before readiness (log=$LogPath)"
+            }
+            $sawLog = $content -like "*$ReadyText*"
+        }
+        if ($sawLog -and (Test-TcpPort "127.0.0.1" $Port)) {
+            Write-ManifestValue $RunPath "$($Name)_ready_utc" ((Get-Date).ToUniversalTime().ToString("o"))
+            Write-Output "$Name ready port=$Port"
+            return
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    $logState = if ($sawLog) { "seen" } else { "not seen" }
+    $tcpState = if (Test-TcpPort "127.0.0.1" $Port) { "open" } else { "closed" }
+    throw "$Name did not become ready within ${ReadyTimeoutSeconds}s (log marker $logState, tcp $tcpState, port=$Port, log=$LogPath)"
 }
 
 function New-Run {
@@ -100,6 +191,7 @@ function Start-BarnServer {
     if (-not (Test-Path $binary)) {
         throw "Barn binary not found: $binary"
     }
+    Clear-ManagedBarnListener $BarnPort $binary
 
     $barnDir = Join-Path $runPath "barn"
     $dbPath = Join-Path $barnDir "mongoose.db"
@@ -107,11 +199,14 @@ function Start-BarnServer {
     $stderrPath = Join-Path $barnDir "barn.err.log"
     $args = @("-db", $dbPath, "-port", "$BarnPort", "-checkpoint-interval", "0")
     $proc = Start-Process -FilePath $binary -ArgumentList $args -WorkingDirectory $barnDir -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -WindowStyle Hidden -PassThru
+    $script:BarnProcess = $proc
     $pidPath = Join-Path $barnDir "barn.pid"
     $proc.Id | Set-Content $pidPath
     Write-ManifestValue $runPath "barn_pid" $proc.Id
     Write-ManifestValue $runPath "barn_started_utc" ((Get-Date).ToUniversalTime().ToString("o"))
+    Write-ManifestValue $runPath "ready_timeout_seconds" $ReadyTimeoutSeconds
     Write-Output "barn pid=$($proc.Id) port=$BarnPort"
+    Wait-ForManagedListener $runPath "barn" $BarnPort $stderrPath "Listening on port $BarnPort"
 }
 
 function Start-ToastServer {
@@ -141,7 +236,9 @@ echo `$! > '$pidWsl'
     $toastPid = (Get-Content -Raw $pidPath).Trim()
     Write-ManifestValue $runPath "toast_wsl_pid" $toastPid
     Write-ManifestValue $runPath "toast_started_utc" ((Get-Date).ToUniversalTime().ToString("o"))
+    Write-ManifestValue $runPath "ready_timeout_seconds" $ReadyTimeoutSeconds
     Write-Output "toast wsl_pid=$toastPid port=$ToastPort"
+    Wait-ForManagedListener $runPath "toast" $ToastPort $logPath "port $ToastPort"
 }
 
 function Stop-Run {
