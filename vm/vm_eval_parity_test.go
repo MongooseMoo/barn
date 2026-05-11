@@ -182,6 +182,50 @@ func TestParity_Arithmetic(t *testing.T) {
 	}
 }
 
+func TestMixedNumericPromotionMatchesToast(t *testing.T) {
+	cases := []struct {
+		expr     string
+		expected types.Value
+	}{
+		{"1.0 + 1", types.FloatValue{Val: 2.0}},
+		{"1 + 1.0", types.FloatValue{Val: 2.0}},
+		{"3.0 - 1", types.FloatValue{Val: 2.0}},
+		{"3 - 1.0", types.FloatValue{Val: 2.0}},
+		{"2.0 * 3", types.FloatValue{Val: 6.0}},
+		{"2 * 3.0", types.FloatValue{Val: 6.0}},
+		{"5.0 / 2", types.FloatValue{Val: 2.5}},
+		{"5 / 2.0", types.FloatValue{Val: 2.5}},
+		{"5.0 % 2", types.FloatValue{Val: 1.0}},
+		{"5 % 2.0", types.FloatValue{Val: 1.0}},
+		{"2 ^ 3.0", types.FloatValue{Val: 8.0}},
+		{"2.0 ^ 3", types.FloatValue{Val: 8.0}},
+		{"1.0 < 2", types.IntValue{Val: 1}},
+		{"1 < 2.0", types.IntValue{Val: 1}},
+		{"2.0 == 2", types.IntValue{Val: 1}},
+		{"2 == 2.0", types.IntValue{Val: 1}},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.expr, func(t *testing.T) {
+			treeResult := treeEvalExpr(t, tt.expr)
+			if !treeResult.IsNormal() {
+				t.Fatalf("tree-walker returned flow %v error %v", treeResult.Flow, treeResult.Error)
+			}
+			if !valuesEqual(treeResult.Val, tt.expected) {
+				t.Fatalf("tree-walker got %v (%T), want %v (%T)", treeResult.Val, treeResult.Val, tt.expected, tt.expected)
+			}
+
+			vmVal, vmErr := vmEvalExpr(t, tt.expr)
+			if vmErr != nil {
+				t.Fatalf("VM errored: %v", vmErr)
+			}
+			if !valuesEqual(vmVal, tt.expected) {
+				t.Fatalf("VM got %v (%T), want %v (%T)", vmVal, vmVal, tt.expected, tt.expected)
+			}
+		})
+	}
+}
+
 func TestParity_ArithmeticErrors(t *testing.T) {
 	cases := []string{
 		"1 / 0",     // E_DIV

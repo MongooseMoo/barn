@@ -19,6 +19,14 @@ func (vm *VM) executeEq() error {
 		}
 		return nil
 	}
+	if eq, ok := numericEqual(a, b); ok {
+		if eq {
+			vm.Push(types.IntValue{Val: 1})
+		} else {
+			vm.Push(types.IntValue{Val: 0})
+		}
+		return nil
+	}
 	if a.Equal(b) {
 		vm.Push(types.IntValue{Val: 1})
 	} else {
@@ -31,6 +39,14 @@ func (vm *VM) executeNe() error {
 	b := vm.Pop()
 	a := vm.Pop()
 	if eq, ok := boolIntEqual(a, b); ok {
+		if eq {
+			vm.Push(types.IntValue{Val: 0})
+		} else {
+			vm.Push(types.IntValue{Val: 1})
+		}
+		return nil
+	}
+	if eq, ok := numericEqual(a, b); ok {
 		if eq {
 			vm.Push(types.IntValue{Val: 0})
 		} else {
@@ -164,34 +180,22 @@ func (vm *VM) executeIn() error {
 
 // Helper function to compare values
 func compareValues(a, b types.Value) (int, error) {
-	// Integer comparison
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
-
-	if aIsInt && bIsInt {
-		if aInt.Val < bInt.Val {
+	aInt, bInt, aFloat, bFloat, useFloat, ok := numericPair(a, b)
+	if ok {
+		if useFloat {
+			if aFloat < bFloat {
+				return -1, nil
+			} else if aFloat > bFloat {
+				return 1, nil
+			}
+			return 0, nil
+		}
+		if aInt < bInt {
 			return -1, nil
-		} else if aInt.Val > bInt.Val {
+		} else if aInt > bInt {
 			return 1, nil
 		}
 		return 0, nil
-	}
-
-	// Float comparison
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
-
-	if aIsFloat && bIsFloat {
-		if aFloat.Val < bFloat.Val {
-			return -1, nil
-		} else if aFloat.Val > bFloat.Val {
-			return 1, nil
-		}
-		return 0, nil
-	}
-
-	if (aIsInt && bIsFloat) || (aIsFloat && bIsInt) {
-		return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
 	}
 
 	// String comparison

@@ -53,7 +53,7 @@ func bitwiseNot(operand types.Value) types.Result {
 // ============================================================================
 
 // add implements addition: left + right
-// Supports INT + INT and FLOAT + FLOAT (no cross-type numeric promotion).
+// Supports numeric addition with int-to-float promotion.
 // Also supports string concatenation: STR + STR.
 func add(left, right types.Value) types.Result {
 	// String concatenation
@@ -86,109 +86,74 @@ func add(left, right types.Value) types.Result {
 		return types.Ok(leftList.Append(right))
 	}
 
-	// Numeric addition
-	leftNum, leftIsFloat := toNumeric(left)
-	rightNum, rightIsFloat := toNumeric(right)
-
-	if leftNum == nil || rightNum == nil {
+	leftInt, rightInt, leftFloat, rightFloat, useFloat, ok := numericPair(left, right)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	if leftIsFloat != rightIsFloat {
-		return types.Err(types.E_TYPE)
-	}
-
-	if leftIsFloat {
-		// Float addition
-		result := toFloat64(leftNum) + toFloat64(rightNum)
+	if useFloat {
+		result := leftFloat + rightFloat
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
 		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	// Integer addition
-	return types.Ok(types.IntValue{Val: leftNum.(int64) + rightNum.(int64)})
+	return types.Ok(types.IntValue{Val: leftInt + rightInt})
 }
 
 // subtract implements subtraction: left - right
 func subtract(left, right types.Value) types.Result {
-	leftNum, leftIsFloat := toNumeric(left)
-	rightNum, rightIsFloat := toNumeric(right)
-
-	if leftNum == nil || rightNum == nil {
+	leftInt, rightInt, leftFloat, rightFloat, useFloat, ok := numericPair(left, right)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	if leftIsFloat != rightIsFloat {
-		return types.Err(types.E_TYPE)
-	}
-
-	if leftIsFloat {
-		result := toFloat64(leftNum) - toFloat64(rightNum)
+	if useFloat {
+		result := leftFloat - rightFloat
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
 		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	return types.Ok(types.IntValue{Val: leftNum.(int64) - rightNum.(int64)})
+	return types.Ok(types.IntValue{Val: leftInt - rightInt})
 }
 
 // multiply implements multiplication: left * right
 func multiply(left, right types.Value) types.Result {
-	leftNum, leftIsFloat := toNumeric(left)
-	rightNum, rightIsFloat := toNumeric(right)
-
-	if leftNum == nil || rightNum == nil {
+	leftInt, rightInt, leftFloat, rightFloat, useFloat, ok := numericPair(left, right)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	if leftIsFloat != rightIsFloat {
-		return types.Err(types.E_TYPE)
-	}
-
-	if leftIsFloat {
-		result := toFloat64(leftNum) * toFloat64(rightNum)
+	if useFloat {
+		result := leftFloat * rightFloat
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
 		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	return types.Ok(types.IntValue{Val: leftNum.(int64) * rightNum.(int64)})
+	return types.Ok(types.IntValue{Val: leftInt * rightInt})
 }
 
 // divide implements division: left / right
 // Integer division truncates toward zero
 // Raises E_DIV for division by zero
 func divide(left, right types.Value) types.Result {
-	leftNum, leftIsFloat := toNumeric(left)
-	rightNum, rightIsFloat := toNumeric(right)
-
-	if leftNum == nil || rightNum == nil {
+	leftInt, rightInt, leftFloat, rightFloat, useFloat, ok := numericPair(left, right)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	if leftIsFloat != rightIsFloat {
-		return types.Err(types.E_TYPE)
-	}
-
-	if leftIsFloat {
-		rightFloat := toFloat64(rightNum)
+	if useFloat {
 		if rightFloat == 0.0 {
 			return types.Err(types.E_DIV)
 		}
-		result := toFloat64(leftNum) / rightFloat
+		result := leftFloat / rightFloat
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
 		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	// Integer division
-	leftInt := leftNum.(int64)
-	rightInt := rightNum.(int64)
 	if rightInt == 0 {
 		return types.Err(types.E_DIV)
 	}
@@ -202,33 +167,14 @@ func divide(left, right types.Value) types.Result {
 // modulo implements modulo: left % right
 // Supports INT and FLOAT operands
 func modulo(left, right types.Value) types.Result {
-	leftNum, leftIsFloat := toNumeric(left)
-	rightNum, rightIsFloat := toNumeric(right)
-
-	if leftNum == nil || rightNum == nil {
+	leftInt, rightInt, leftFloat, rightFloat, useFloat, ok := numericPair(left, right)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	if leftIsFloat != rightIsFloat {
-		return types.Err(types.E_TYPE)
-	}
-
-	// Check for division by zero
-	if rightIsFloat {
-		if rightNum.(float64) == 0 {
+	if useFloat {
+		if rightFloat == 0 {
 			return types.Err(types.E_DIV)
 		}
-	} else {
-		if rightNum.(int64) == 0 {
-			return types.Err(types.E_DIV)
-		}
-	}
-
-	// Both are floats
-	if leftIsFloat {
-		leftFloat := toFloat64(leftNum)
-		rightFloat := toFloat64(rightNum)
-		// Use floored modulo (MOO/Python semantics): result sign matches divisor
 		result := math.Mod(leftFloat, rightFloat)
 		if result != 0 && (result < 0) != (rightFloat < 0) {
 			result += rightFloat
@@ -236,11 +182,10 @@ func modulo(left, right types.Value) types.Result {
 		return types.Ok(types.FloatValue{Val: result})
 	}
 
-	// Both are ints - use floored modulo (MOO/Python semantics)
-	leftInt := leftNum.(int64)
-	rightInt := rightNum.(int64)
+	if rightInt == 0 {
+		return types.Err(types.E_DIV)
+	}
 	result := leftInt % rightInt
-	// Adjust if signs differ and result is non-zero
 	if result != 0 && (result < 0) != (rightInt < 0) {
 		result += rightInt
 	}
@@ -248,32 +193,20 @@ func modulo(left, right types.Value) types.Result {
 }
 
 // power implements exponentiation: left ^ right.
-// Supports INT ^ INT, FLOAT ^ INT, FLOAT ^ FLOAT.
-// INT ^ FLOAT is E_TYPE (no promotion from int base to float base).
+// Keeps INT ^ INT as an int result; mixed numeric operands promote to float.
 func power(left, right types.Value) types.Result {
-	leftNum, leftIsFloat := toNumeric(left)
-	rightNum, rightIsFloat := toNumeric(right)
-
-	if leftNum == nil || rightNum == nil {
+	leftInt, rightInt, leftFloat, rightFloat, useFloat, ok := numericPair(left, right)
+	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	if !leftIsFloat && rightIsFloat {
-		return types.Err(types.E_TYPE)
-	}
-
-	// Floating-base power.
-	if leftIsFloat {
-		result := math.Pow(toFloat64(leftNum), toFloat64(rightNum))
+	if useFloat {
+		result := math.Pow(leftFloat, rightFloat)
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
 		return types.Ok(types.FloatValue{Val: result})
 	}
-
-	// Integer-base power (both operands are ints at this point).
-	leftInt := leftNum.(int64)
-	rightInt := rightNum.(int64)
 
 	// Toast semantics: 0 ^ negative is division by zero.
 	if leftInt == 0 && rightInt < 0 {
@@ -339,6 +272,12 @@ func equal(left, right types.Value) types.Result {
 		}
 		return types.Ok(types.IntValue{Val: 0})
 	}
+	if eq, ok := numericEqual(left, right); ok {
+		if eq {
+			return types.Ok(types.IntValue{Val: 1})
+		}
+		return types.Ok(types.IntValue{Val: 0})
+	}
 	if left.Equal(right) {
 		return types.Ok(types.IntValue{Val: 1})
 	}
@@ -348,6 +287,12 @@ func equal(left, right types.Value) types.Result {
 // notEqual implements inequality: left != right
 func notEqual(left, right types.Value) types.Result {
 	if eq, ok := boolIntEqual(left, right); ok {
+		if eq {
+			return types.Ok(types.IntValue{Val: 0})
+		}
+		return types.Ok(types.IntValue{Val: 1})
+	}
+	if eq, ok := numericEqual(left, right); ok {
 		if eq {
 			return types.Ok(types.IntValue{Val: 0})
 		}
@@ -587,6 +532,32 @@ func toFloat64(v interface{}) float64 {
 	}
 }
 
+// numericPair returns integer operands when both inputs are ints; otherwise it
+// returns float operands with int operands promoted to float.
+func numericPair(left, right types.Value) (int64, int64, float64, float64, bool, bool) {
+	leftNum, leftIsFloat := toNumeric(left)
+	rightNum, rightIsFloat := toNumeric(right)
+	if leftNum == nil || rightNum == nil {
+		return 0, 0, 0, 0, false, false
+	}
+	useFloat := leftIsFloat || rightIsFloat
+	if useFloat {
+		return 0, 0, toFloat64(leftNum), toFloat64(rightNum), true, true
+	}
+	return leftNum.(int64), rightNum.(int64), 0, 0, false, true
+}
+
+func numericEqual(left, right types.Value) (bool, bool) {
+	li, ri, lf, rf, useFloat, ok := numericPair(left, right)
+	if !ok {
+		return false, false
+	}
+	if useFloat {
+		return lf == rf, true
+	}
+	return li == ri, true
+}
+
 // compare compares two values for ordering
 // Returns: -1 if left < right, 0 if equal, 1 if left > right
 // Returns error code if comparison is not valid for the types
@@ -596,14 +567,9 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 	rightNum, rightIsFloat := toNumeric(right)
 
 	if leftNum != nil && rightNum != nil {
-		// Numeric cross-type comparison is not supported.
-		if leftIsFloat != rightIsFloat {
-			return 0, types.E_TYPE
-		}
-
-		if leftIsFloat {
-			leftFloat := leftNum.(float64)
-			rightFloat := rightNum.(float64)
+		if leftIsFloat || rightIsFloat {
+			leftFloat := toFloat64(leftNum)
+			rightFloat := toFloat64(rightNum)
 			if leftFloat < rightFloat {
 				return -1, types.E_NONE
 			} else if leftFloat > rightFloat {
