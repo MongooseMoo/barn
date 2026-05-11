@@ -121,6 +121,36 @@ func TestConnectionNameFormats(t *testing.T) {
 	}
 }
 
+func TestConnectedPlayersAcceptsFalseSecondFlag(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	globalConnManager = &stubConnManager{}
+	ctx := types.NewTaskContext()
+	registry := NewRegistry()
+	fn, ok := registry.Get("connected_players")
+	if !ok {
+		t.Fatal("connected_players builtin not registered")
+	}
+
+	res := fn(ctx, []types.Value{types.NewInt(1), types.NewInt(0)})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	got, ok := res.Val.(types.ListValue)
+	if !ok {
+		t.Fatalf("got %T, want list", res.Val)
+	}
+	if len(got.Elements()) != 1 {
+		t.Fatalf("got %d players, want 1", len(got.Elements()))
+	}
+
+	res = fn(ctx, []types.Value{types.NewInt(1), types.NewInt(1)})
+	if !res.IsError() || res.Error != types.E_ARGS {
+		t.Fatalf("got %v, want E_ARGS", res)
+	}
+}
+
 func TestOpenNetworkConnectionDisabledReturnsPermission(t *testing.T) {
 	prev := globalConnManager
 	defer func() { globalConnManager = prev }()

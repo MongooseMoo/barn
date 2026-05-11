@@ -88,6 +88,11 @@ func validateFunctionArgs(name string, args []types.Value) types.ErrorCode {
 	if !ok {
 		return types.E_NONE
 	}
+	if name == "connected_players" && len(args) == 2 {
+		if second, ok := args[1].(types.IntValue); ok && second.Val == 0 {
+			args = args[:1]
+		}
+	}
 	if int64(len(args)) < sig.minArg {
 		return types.E_ARGS
 	}

@@ -954,6 +954,13 @@ func builtinListeners(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // connected_players([show_all]) -> list.
 func builtinConnectedPlayers(ctx *types.TaskContext, args []types.Value) types.Result {
+	if len(args) == 2 {
+		second, ok := args[1].(types.IntValue)
+		if !ok || second.Val != 0 {
+			return types.Err(types.E_ARGS)
+		}
+		args = args[:1]
+	}
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
