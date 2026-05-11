@@ -33,6 +33,7 @@ type Server struct {
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
+	startupReady       chan struct{}
 }
 
 // NewServer creates a new MOO server
@@ -59,6 +60,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, 
 		checkpointChan:     make(chan struct{}),
 		ctx:                ctx,
 		cancel:             cancel,
+		startupReady:       make(chan struct{}),
 	}, nil
 }
 
@@ -142,6 +144,10 @@ func (s *Server) Start() error {
 	if err := s.callServerStarted(); err != nil {
 		log.Printf("Warning: #0:server_started() failed: %v", err)
 	}
+	if err := s.waitForStartupQuiescence(5 * time.Second); err != nil {
+		log.Printf("Warning: startup tasks still active: %v", err)
+	}
+	close(s.startupReady)
 
 	// Set up signal handling
 	go s.handleSignals()
@@ -163,6 +169,32 @@ func (s *Server) mainLoop() error {
 			if err := s.checkpoint(); err != nil {
 				log.Printf("Checkpoint failed: %v", err)
 			}
+		}
+	}
+}
+
+func (s *Server) waitUntilStartupReady() bool {
+	select {
+	case <-s.startupReady:
+		return true
+	case <-s.ctx.Done():
+		return false
+	}
+}
+
+func (s *Server) waitForStartupQuiescence(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !s.scheduler.HasImmediateTasks(time.Now()) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s", timeout)
+		}
+		select {
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		case <-time.After(10 * time.Millisecond):
 		}
 	}
 }

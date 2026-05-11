@@ -281,6 +281,9 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	// Send initial welcome banner by enqueuing empty string to scheduler
 	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
 	{
+		if cm.server != nil && !cm.server.waitUntilStartupReady() {
+			return
+		}
 		done := make(chan struct{})
 		cm.server.scheduler.EnqueueInput(InputEvent{
 			ConnID:              conn.ID,

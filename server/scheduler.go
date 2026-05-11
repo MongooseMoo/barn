@@ -130,6 +130,23 @@ func (s *Scheduler) EnqueueInput(evt InputEvent) {
 	s.inputQueue <- evt
 }
 
+func (s *Scheduler) HasImmediateTasks(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, t := range s.tasks {
+		switch t.GetState() {
+		case task.TaskRunning:
+			return true
+		case task.TaskQueued:
+			if !t.StartTime.After(now) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // run is the main scheduler loop
 func (s *Scheduler) run() {
 	defer s.wg.Done()
