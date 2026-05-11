@@ -193,7 +193,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Check if property exists directly on this object
-	prop, ok := obj.Properties[propName]
+	prop, ok := obj.LookupProperty(propName)
 	if ok {
 		// Check write permission
 		if err := vm.checkPropertyWritePerm(prop); err != nil {
@@ -313,7 +313,7 @@ func findProperty(store *db.Store, obj *db.Object, name string) (*db.Property, t
 			continue
 		}
 
-		prop, ok := current.Properties[name]
+		prop, ok := current.LookupProperty(name)
 		if ok {
 			// Save the first property entry found (the target object's) for permissions.
 			if targetProp == nil {
@@ -340,7 +340,7 @@ func findProperty(store *db.Store, obj *db.Object, name string) (*db.Property, t
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
 // This mirrors the tree-walker's getBuiltinProperty logic.
 func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name":
 		return types.NewStr(obj.Name), true
 	case "owner":
@@ -413,7 +413,7 @@ func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 // setBuiltinProperty sets a built-in object property.
 // This mirrors the tree-walker's setBuiltinProperty logic.
 func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
 			obj.Name = str.Value()

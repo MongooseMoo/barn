@@ -396,7 +396,7 @@ func (s *Scheduler) findPropertyInherited(objID types.ObjID, name string) *db.Pr
 			continue
 		}
 
-		if prop, ok := current.Properties[name]; ok {
+		if prop, ok := current.LookupProperty(name); ok {
 			return prop
 		}
 

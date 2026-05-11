@@ -106,7 +106,7 @@ func findPropertyInherited(objID types.ObjID, name string, store *db.Store) *db.
 		}
 
 		// Check if property exists on this object
-		if prop, ok := current.Properties[name]; ok {
+		if prop, ok := current.LookupProperty(name); ok {
 			return prop
 		}
 
@@ -122,7 +122,7 @@ func findDefinedProperty(objID types.ObjID, name string, store *db.Store) *db.Pr
 	if obj == nil {
 		return nil
 	}
-	prop := obj.Properties[name]
+	prop, _ := obj.LookupProperty(name)
 	if prop == nil || !prop.Defined {
 		return nil
 	}

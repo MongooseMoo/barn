@@ -3,6 +3,7 @@ package db
 import (
 	"barn/parser"
 	"barn/types"
+	"strings"
 )
 
 // Object represents a MOO object
@@ -44,15 +45,41 @@ type Property struct {
 	Defined bool // If true, was added via add_property on this object
 }
 
+// LookupProperty finds a property by MOO's case-insensitive property names.
+// It prefers exact spelling, then the object's stored property order so callers
+// get the canonical loaded property when the requested case differs.
+func (o *Object) LookupProperty(name string) (*Property, bool) {
+	if o == nil {
+		return nil, false
+	}
+	if prop, ok := o.Properties[name]; ok {
+		return prop, true
+	}
+	for _, propName := range o.PropOrder {
+		if strings.EqualFold(propName, name) {
+			prop := o.Properties[propName]
+			if prop != nil {
+				return prop, true
+			}
+		}
+	}
+	for propName, prop := range o.Properties {
+		if strings.EqualFold(propName, name) {
+			return prop, true
+		}
+	}
+	return nil, false
+}
+
 // Verb represents a verb on an object
 type Verb struct {
 	Name    string
-	Names   []string        // All verb names (aliases) - first is primary
+	Names   []string // All verb names (aliases) - first is primary
 	Owner   types.ObjID
 	Perms   VerbPerms
 	ArgSpec VerbArgs
-	Code    []string        // Source lines
-	Program *VerbProgram    // Compiled AST (added in Layer 9.2)
+	Code    []string     // Source lines
+	Program *VerbProgram // Compiled AST (added in Layer 9.2)
 
 	// BytecodeCache holds compiled bytecode (*vm.Program) for the bytecode VM.
 	// Typed as any to avoid circular import between db and vm packages.

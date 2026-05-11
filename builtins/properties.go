@@ -621,7 +621,7 @@ func findPropertyInChain(objID types.ObjID, name string, store *db.Store) (*db.P
 		}
 
 		// Check if property exists on this object
-		if prop, ok := current.Properties[name]; ok {
+		if prop, ok := current.LookupProperty(name); ok {
 			return prop, types.E_NONE
 		}
 
@@ -661,7 +661,7 @@ func hasPropertyInDescendants(objID types.ObjID, name string, store *db.Store) b
 			}
 
 			// Check if property is defined on this child
-			if prop, ok := child.Properties[name]; ok && prop.Defined {
+			if prop, ok := child.LookupProperty(name); ok && prop.Defined {
 				return true
 			}
 
@@ -736,8 +736,8 @@ func removeInheritedProperty(objID types.ObjID, name string, store *db.Store) {
 			if child == nil {
 				continue
 			}
-			if prop, ok := child.Properties[name]; ok && !prop.Defined {
-				delete(child.Properties, name)
+			if prop, ok := child.LookupProperty(name); ok && !prop.Defined {
+				delete(child.Properties, prop.Name)
 			}
 			queue = append(queue, childID)
 		}

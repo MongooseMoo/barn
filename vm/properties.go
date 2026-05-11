@@ -74,7 +74,7 @@ func (e *Evaluator) property(node *parser.PropertyExpr, ctx *types.TaskContext) 
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.)
 func (e *Evaluator) getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name":
 		return types.NewStr(obj.Name), true
 	case "owner":
@@ -178,7 +178,7 @@ func (e *Evaluator) findProperty(obj *db.Object, name string, ctx *types.TaskCon
 		}
 
 		// Check if property exists on this object
-		prop, ok := current.Properties[name]
+		prop, ok := current.LookupProperty(name)
 		if ok {
 			// Save the first property entry found (the target object's) for permissions.
 			if targetProp == nil {
@@ -273,7 +273,7 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 	}
 
 	// Check if property exists directly on this object
-	prop, ok := obj.Properties[propName]
+	prop, ok := obj.LookupProperty(propName)
 	if ok {
 		// Property exists locally - update it
 		prop.Clear = false
@@ -310,7 +310,7 @@ func (e *Evaluator) assignProperty(node *parser.PropertyExpr, value types.Value,
 // Returns (isBuiltin, errorCode) where isBuiltin indicates if it was a built-in property
 // and errorCode is E_NONE on success or the appropriate error on failure
 func (e *Evaluator) setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
 			obj.Name = str.Value()

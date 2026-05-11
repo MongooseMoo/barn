@@ -1387,6 +1387,8 @@ func newPropertyTestStore() *db.Store {
 	root.Name = "Root"
 	root.Properties["foo"] = &db.Property{Name: "foo", Value: types.NewInt(42), Perms: db.PropRead | db.PropWrite, Defined: true}
 	root.Properties["bar"] = &db.Property{Name: "bar", Value: types.NewStr("hello"), Perms: db.PropRead | db.PropWrite, Defined: true}
+	root.Properties["MixedCase"] = &db.Property{Name: "MixedCase", Value: types.NewObj(3010), Perms: db.PropRead | db.PropWrite, Defined: true}
+	root.PropOrder = []string{"foo", "bar", "MixedCase"}
 	store.Add(root)
 
 	child := db.NewObject(1, 0)
@@ -1462,6 +1464,8 @@ func TestParity_PropertyRead(t *testing.T) {
 		"read_defined_str":    `return #0.bar;`,
 		"read_builtin_name":   `return #0.name;`,
 		"read_builtin_owner":  `return #0.owner;`,
+		"read_builtin_case":   `return #0.Name;`,
+		"read_property_case":  `return {#0.mixedcase, #0.MIXEDCASE};`,
 		"read_child_own_prop": `return #1.baz;`,
 		"read_inherited_prop": `return #1.foo;`,
 		"read_inherited_str":  `return #1.bar;`,
@@ -1475,6 +1479,7 @@ func TestParity_PropertyRead(t *testing.T) {
 func TestParity_PropertyWrite(t *testing.T) {
 	cases := map[string]string{
 		"write_defined_prop":            `#0.foo = 100; return #0.foo;`,
+		"write_defined_prop_case":       `#0.mixedcase = #42; return {#0.MixedCase, #0.MIXEDCASE};`,
 		"write_builtin_name":            `#0.name = "NewName"; return #0.name;`,
 		"write_inherited_creates_local": `#1.foo = 999; return #1.foo;`,
 	}
