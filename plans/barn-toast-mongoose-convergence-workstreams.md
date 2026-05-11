@@ -804,6 +804,10 @@ Current status:
   ../mongoose/bridge.conf -config-section mongoose-codex -read-timeout 5s`.
 - The transcript was written under the managed run's ignored transcript area,
   with the config-sourced login command redacted from events.
+- Managed start now waits for Barn and Toast listener readiness before returning.
+- Run `20260511_111553` verified `send-both look`: the bridge logged into both
+  targets, sent `look` to both, and captured tagged `after_send_2` output from
+  both Toast and Barn.
 
 Stop conditions:
 
