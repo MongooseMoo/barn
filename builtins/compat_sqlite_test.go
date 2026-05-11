@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/types"
 	"testing"
 )
@@ -116,6 +117,35 @@ func TestSqliteOpenInfoAndHandles(t *testing.T) {
 	handles := sqliteMustList(t, sqliteMustResult(t, builtinSqliteHandles(ctx, nil)))
 	if handles.Len() != 1 || sqliteMustInt(t, handles.Get(1)) != handleID {
 		t.Fatalf("unexpected handles %v", handles)
+	}
+}
+
+func TestSqliteWizardProgrammerWithStaleCachedFlag(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	store := db.NewStore()
+	wizard := db.NewObject(3, 3)
+	wizard.Flags = wizard.Flags.Set(db.FlagWizard)
+	store.Add(wizard)
+
+	ctx := sqliteWizardCtx()
+	ctx.IsWizard = false
+	ctx.Store = store
+
+	handleValue := builtinSqliteOpen(ctx, []types.Value{types.NewStr(":memory:")})
+	if handleValue.IsError() {
+		t.Fatalf("sqlite_open returned %v, want success for wizard programmer", handleValue.Error)
+	}
+
+	handleID := sqliteMustInt(t, handleValue.Val)
+	result := builtinSqliteExecute(ctx, []types.Value{
+		types.NewInt(handleID),
+		types.NewStr("CREATE TABLE t(id INTEGER PRIMARY KEY)"),
+		types.NewEmptyList(),
+	})
+	if result.IsError() {
+		t.Fatalf("sqlite_execute returned %v, want success for wizard programmer", result.Error)
 	}
 }
 

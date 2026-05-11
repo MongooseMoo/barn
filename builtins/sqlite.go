@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"barn/db"
 	"barn/task"
 	"barn/types"
 	"context"
@@ -14,17 +15,17 @@ import (
 )
 
 type sqliteHandle struct {
-	id              int64
-	path            string
-	db              *sql.DB
-	conn            *sql.Conn
-	limits          map[int64]int64
-	mu              sync.Mutex
-	cond            *sync.Cond
-	activeOps       int
-	currentCancel   context.CancelFunc
+	id               int64
+	path             string
+	db               *sql.DB
+	conn             *sql.Conn
+	limits           map[int64]int64
+	mu               sync.Mutex
+	cond             *sync.Cond
+	activeOps        int
+	currentCancel    context.CancelFunc
 	pendingInterrupt bool
-	closed          bool
+	closed           bool
 }
 
 var sqliteLimitNames = map[string]int64{
@@ -265,6 +266,17 @@ func sqliteExecOrQueryAsync(ctx *types.TaskContext, handle *sqliteHandle, sqlTex
 	return types.Suspend(-1)
 }
 
+func sqliteIsWizard(ctx *types.TaskContext) bool {
+	if ctx == nil {
+		return false
+	}
+	if ctx.IsWizard {
+		return true
+	}
+	store, ok := ctx.Store.(*db.Store)
+	return ok && isPlayerWizard(store, ctx.Programmer)
+}
+
 func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
 	switch value := v.(type) {
 	case types.IntValue:
@@ -284,7 +296,7 @@ func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
 }
 
 func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) < 1 || len(args) > 2 {
@@ -332,7 +344,7 @@ func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinSqliteClose(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 1 {
@@ -365,7 +377,7 @@ func builtinSqliteClose(ctx *types.TaskContext, args []types.Value) types.Result
 }
 
 func builtinSqliteHandles(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 0 {
@@ -388,7 +400,7 @@ func builtinSqliteHandles(ctx *types.TaskContext, args []types.Value) types.Resu
 }
 
 func builtinSqliteInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 1 {
@@ -414,7 +426,7 @@ func builtinSqliteInfo(ctx *types.TaskContext, args []types.Value) types.Result 
 }
 
 func builtinSqliteQuery(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) < 2 || len(args) > 3 {
@@ -438,7 +450,7 @@ func builtinSqliteQuery(ctx *types.TaskContext, args []types.Value) types.Result
 }
 
 func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 3 {
@@ -466,7 +478,7 @@ func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Resu
 }
 
 func builtinSqliteLastInsertRowID(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 1 {
@@ -492,7 +504,7 @@ func builtinSqliteLastInsertRowID(ctx *types.TaskContext, args []types.Value) ty
 }
 
 func builtinSqliteLimit(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 3 {
@@ -522,7 +534,7 @@ func builtinSqliteLimit(ctx *types.TaskContext, args []types.Value) types.Result
 }
 
 func builtinSqliteInterrupt(ctx *types.TaskContext, args []types.Value) types.Result {
-	if !ctx.IsWizard {
+	if !sqliteIsWizard(ctx) {
 		return types.Err(types.E_PERM)
 	}
 	if len(args) != 1 {
