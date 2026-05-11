@@ -400,6 +400,17 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		return
 	}
 
+	if len(cmd.Words) > 0 && cmd.Words[0] == ";" {
+		code := strings.TrimSpace(cmd.Argstr)
+		if code != "" {
+			s.EvalCommand(player, code, conn)
+		}
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return
+	}
+
 	// Resolve direct object
 	if cmd.Dobjstr != "" {
 		cmd.Dobj = MatchObject(s.store, player, location, cmd.Dobjstr)
