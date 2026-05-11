@@ -131,14 +131,15 @@ func (s *Server) Start() error {
 	// Start scheduler
 	s.scheduler.Start()
 
+	// Start listening before #0:server_started() so startup code that checks
+	// listeners() sees the primary listener, matching Toast's prod detection.
+	if err := s.connManager.StartListeners(s.listenerSpecs); err != nil {
+		return fmt.Errorf("listen failed: %w", err)
+	}
+
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
 		log.Printf("Warning: #0:server_started() failed: %v", err)
-	}
-
-	// Start listening for connections
-	if err := s.connManager.StartListeners(s.listenerSpecs); err != nil {
-		return fmt.Errorf("listen failed: %w", err)
 	}
 
 	// Set up signal handling
