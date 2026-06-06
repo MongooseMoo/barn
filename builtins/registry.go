@@ -1,6 +1,9 @@
 package builtins
 
-import "barn/types"
+import (
+	"barn/db"
+	"barn/types"
+)
 
 // BuiltinFunc is a function type for builtin functions
 // Takes a task context and list of arguments, returns a Result
@@ -15,6 +18,7 @@ type Registry struct {
 	funcs      map[string]BuiltinFunc
 	byID       map[int]BuiltinFunc
 	nameToID   map[string]int
+	idToName   map[int]string
 	nextID     int
 	verbCaller VerbCallerFunc // Callback for calling verbs (set by evaluator)
 }
@@ -25,6 +29,7 @@ func NewRegistry() *Registry {
 		funcs:    make(map[string]BuiltinFunc),
 		byID:     make(map[int]BuiltinFunc),
 		nameToID: make(map[string]int),
+		idToName: make(map[int]string),
 		nextID:   0,
 	}
 
@@ -337,6 +342,7 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	id := r.nextID
 	r.byID[id] = fn
 	r.nameToID[name] = id
+	r.idToName[id] = name
 	r.nextID++
 }
 
@@ -346,13 +352,69 @@ func (r *Registry) GetID(name string) (int, bool) {
 	return id, ok
 }
 
-// CallByID calls a builtin function by its ID
+// CallByID calls a builtin function by its ID, applying protected-builtin
+// redirection first.
 func (r *Registry) CallByID(id int, ctx *types.TaskContext, args []types.Value) types.Result {
 	fn, ok := r.byID[id]
 	if !ok {
 		return types.Err(types.E_VERBNF)
 	}
+	return r.dispatch(r.idToName[id], fn, ctx, args)
+}
+
+// CallByName calls a builtin function by name, applying protected-builtin
+// redirection first. Used by the tree-walking evaluator path.
+func (r *Registry) CallByName(name string, ctx *types.TaskContext, args []types.Value) (types.Result, bool) {
+	fn, ok := r.funcs[name]
+	if !ok {
+		return types.Result{}, false
+	}
+	return r.dispatch(name, fn, ctx, args), true
+}
+
+// dispatch runs a builtin, first giving ToastStunt's protected-builtin
+// redirection a chance to intercept the call.
+func (r *Registry) dispatch(name string, fn BuiltinFunc, ctx *types.TaskContext, args []types.Value) types.Result {
+	if redirect, ok := r.maybeProtectedRedirect(name, ctx, args); ok {
+		return redirect
+	}
 	return fn(ctx, args)
+}
+
+// maybeProtectedRedirect implements ToastStunt's protected-builtin dispatch.
+// When the builtin is protected and is being called from a verb whose `this`
+// is not #0, the call is redirected to `#0:bf_<name>(@args)`:
+//   - if that verb exists, its result (return or raise) becomes the call result;
+//   - if it does not exist, a wizard caller falls through to the real builtin
+//     (ok=false) and a non-wizard caller gets E_PERM.
+// Returns (result, true) when the call was handled by the redirect path, or
+// (_, false) when the caller should run the real builtin normally.
+func (r *Registry) maybeProtectedRedirect(name string, ctx *types.TaskContext, args []types.Value) (types.Result, bool) {
+	if ctx == nil || name == "" {
+		return types.Result{}, false
+	}
+	// caller() == #0 (the bf_ wrapper, or any #0 verb) runs the real builtin.
+	if ctx.ThisObj == types.ObjID(0) {
+		return types.Result{}, false
+	}
+	if !IsProtectedBuiltin(name) {
+		return types.Result{}, false
+	}
+	store, ok := ctx.Store.(*db.Store)
+	if !ok || store == nil {
+		return types.Result{}, false
+	}
+	bfName := "bf_" + name
+	verb, _, err := store.FindVerb(types.ObjID(0), bfName)
+	if err == nil && verb != nil {
+		// #0:bf_<name> exists: run it and use its outcome (return or raise).
+		return r.CallVerb(types.ObjID(0), bfName, args, ctx), true
+	}
+	// No wrapper verb: wizards fall through to the real builtin, others denied.
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM), true
+	}
+	return types.Result{}, false
 }
 
 // Get retrieves a builtin function by name

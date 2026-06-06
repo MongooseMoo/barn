@@ -546,9 +546,8 @@ func (e *Evaluator) assign(node *parser.AssignExpr, ctx *types.TaskContext) type
 func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskContext) types.Result {
 	e.ensureContextDependencies(ctx)
 
-	// Look up the builtin function
-	fn, ok := e.builtins.Get(node.Name)
-	if !ok {
+	// Verify the builtin exists before evaluating arguments.
+	if !e.builtins.Has(node.Name) {
 		// Builtin not found
 		log.Printf("[BUILTIN NOT FOUND] %s", node.Name)
 		return types.Err(types.E_VERBNF)
@@ -583,9 +582,9 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 		}
 	}
 
-	// Call the builtin function
-	// Call the builtin function
-	return fn(ctx, args)
+	// Call the builtin function (applies protected-builtin redirection).
+	result, _ := e.builtins.CallByName(node.Name, ctx, args)
+	return result
 }
 
 // indexMarker evaluates an index marker (^ or $)

@@ -88,6 +88,13 @@ func (s *Server) LoadDatabase() error {
 		return nil
 	})
 
+	// Prime the server-options and protected-builtin caches from the database
+	// before any verb runs, matching Toast's boot-time load_server_options() /
+	// load_server_protect_function_flags(). The MOO may refresh these later by
+	// calling load_server_options().
+	builtins.LoadServerOptionsFromStore(s.store)
+	builtins.LoadProtectedBuiltinsFromStore(s.store)
+
 	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	return nil
 }
