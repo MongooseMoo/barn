@@ -1,8 +1,10 @@
 package main
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/types"
+	"barn/vm"
 	"flag"
 	"fmt"
 	"os"
@@ -61,5 +63,28 @@ func main() {
 	fmt.Printf("Code (%d lines):\n", len(verb.Code))
 	for i, line := range verb.Code {
 		fmt.Printf("%3d: %s\n", i+1, line)
+	}
+
+	if os.Getenv("DISASM") == "1" {
+		prog, err := vm.CompileVerbBytecode(verb, builtins.NewRegistry())
+		if err != nil {
+			fmt.Printf("\n[disasm] compile error: %v\n", err)
+			return
+		}
+		fmt.Printf("\n[disasm] %d bytes, %d constants, %d locals\n", len(prog.Code), len(prog.Constants), prog.NumLocals)
+		counts := map[string]int{}
+		for _, b := range prog.Code {
+			counts[vm.OpCode(b).String()]++
+		}
+		for _, name := range []string{"CALL_BUILTIN", "CALL_VERB"} {
+			fmt.Printf("[disasm] byte-occurrences of %s: %d\n", name, counts[name])
+		}
+		// Raw opcode stream (operands included as their own bytes; crude but
+		// shows whether CALL_BUILTIN appears at all).
+		fmt.Printf("[disasm] stream: ")
+		for _, b := range prog.Code {
+			fmt.Printf("%s ", vm.OpCode(b).String())
+		}
+		fmt.Println()
 	}
 }

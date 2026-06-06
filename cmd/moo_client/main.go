@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"strings"
@@ -28,12 +27,16 @@ func main() {
 	var host string
 	var file string
 	var timeout int
+	var bannerWait int
+	var interCmd int
 
 	flag.Var(&commands, "cmd", "Command to send (can be specified multiple times)")
 	flag.IntVar(&port, "port", 7777, "MOO server port")
 	flag.StringVar(&host, "host", "localhost", "MOO server host")
 	flag.StringVar(&file, "file", "", "File containing commands (one per line)")
-	flag.IntVar(&timeout, "timeout", 3, "Seconds to wait after last command")
+	flag.IntVar(&timeout, "timeout", 3, "Seconds of idle silence before exiting")
+	flag.IntVar(&bannerWait, "banner-wait", 0, "Milliseconds to wait for the connect banner before sending the first command")
+	flag.IntVar(&interCmd, "inter-cmd", 300, "Milliseconds to wait between commands")
 	flag.Parse()
 
 	// Load commands from file if specified
@@ -44,12 +47,6 @@ func main() {
 			os.Exit(1)
 		}
 		commands = append(commands, fileCommands...)
-	}
-
-	if len(commands) == 0 {
-		fmt.Fprintf(os.Stderr, "No commands specified. Use -cmd or -file.\n")
-		flag.Usage()
-		os.Exit(1)
 	}
 
 	// Connect to MOO server
@@ -65,35 +62,34 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "Connected.\n")
 
-	// Start goroutine to read and print all server output
+	// Reader runs in the background, printing raw bytes as they arrive so that
+	// partial lines (e.g. a banner with no trailing newline, or a bare prompt)
+	// are never lost. It signals done when the connection idles out or closes.
 	done := make(chan bool)
-	go readOutput(conn, done)
+	go readOutput(conn, done, time.Duration(timeout)*time.Second)
 
-	// Send commands with delays
+	// Optionally let the connect banner arrive before we start typing.
+	if bannerWait > 0 {
+		time.Sleep(time.Duration(bannerWait) * time.Millisecond)
+	}
+
 	writer := bufio.NewWriter(conn)
 	for i, cmd := range commands {
-		fmt.Fprintf(os.Stderr, "Sending command %d: %s\n", i+1, cmd)
-		_, err := writer.WriteString(cmd + "\n")
-		if err != nil {
+		fmt.Fprintf(os.Stderr, ">> %s\n", cmd)
+		if _, err := writer.WriteString(cmd + "\r\n"); err != nil {
 			fmt.Fprintf(os.Stderr, "Error sending command: %v\n", err)
-			os.Exit(1)
+			break
 		}
 		writer.Flush()
-
-		// Small delay between commands
 		if i < len(commands)-1 {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(time.Duration(interCmd) * time.Millisecond)
 		}
 	}
 
-	// Wait for timeout after last command to collect output
-	fmt.Fprintf(os.Stderr, "Waiting %d seconds for output...\n", timeout)
-	time.Sleep(time.Duration(timeout) * time.Second)
-
-	// Close connection (this will cause readOutput to finish)
-	conn.Close()
+	// Block until the reader has seen `timeout` seconds of silence (or the
+	// server closed). We do NOT hard-close from here, so no in-flight bytes are
+	// dropped.
 	<-done
-
 	fmt.Fprintf(os.Stderr, "Done.\n")
 }
 
@@ -120,18 +116,20 @@ func loadCommandsFromFile(filename string) ([]string, error) {
 	return commands, nil
 }
 
-func readOutput(conn net.Conn, done chan bool) {
+func readOutput(conn net.Conn, done chan bool, idle time.Duration) {
 	defer func() { done <- true }()
 
-	reader := bufio.NewReader(conn)
+	buf := make([]byte, 4096)
 	for {
-		line, err := reader.ReadString('\n')
+		conn.SetReadDeadline(time.Now().Add(idle))
+		n, err := conn.Read(buf)
+		if n > 0 {
+			os.Stdout.Write(buf[:n])
+		}
 		if err != nil {
-			if err != io.EOF {
-				fmt.Fprintf(os.Stderr, "Read error: %v\n", err)
-			}
+			// Idle timeout or EOF/close: we are done. Any bytes already read
+			// above have been printed.
 			return
 		}
-		fmt.Print(line)
 	}
 }
