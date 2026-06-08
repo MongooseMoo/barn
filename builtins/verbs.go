@@ -218,6 +218,11 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_VERBNF)
 	}
 
+	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
+	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
+
 	// Build names string (space-separated aliases)
 	namesStr := strings.Join(verb.Names, " ")
 	if namesStr == "" {
@@ -280,6 +285,11 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	if verb == nil {
 		return types.Err(types.E_VERBNF)
+	}
+
+	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
+	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
 	}
 
 	// Unparse the prep spec to get full string (e.g., "on" -> "on top of/on/onto/upon")
@@ -609,7 +619,11 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_VERBNF)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
+	// object writability does not grant this to a non-owner).
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse info list (1-indexed)
 	owner, ok := infoList.Get(1).(types.ObjValue)
@@ -689,7 +703,11 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_VERBNF)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
+	// object writability does not grant this to a non-owner).
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse args list (1-indexed)
 	// Accept either string or object values (objects get converted to string)
@@ -744,7 +762,11 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_VERBNF)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
+	// object writability does not grant this to a non-owner).
+	if !ctx.IsWizard && ctx.Programmer != verb.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Accept either string (single line) or list of strings
 	var lines []string
