@@ -346,8 +346,25 @@ func builtinMemoryUsage(ctx *types.TaskContext, args []types.Value) types.Result
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	// Windows compatibility: Toast returns E_FILE when /proc-style memory stats are unavailable.
-	return types.Err(types.E_FILE)
+	// ToastStunt returns five integers from /proc/self/statm (page counts):
+	// total program size, resident set size, shared pages, text, and data.
+	// Barn reports the closest Go-runtime equivalents so the five-element shape
+	// matches on every platform.
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	const page = 4096
+	vals := []int64{
+		int64(m.Sys / page),
+		int64(m.HeapInuse / page),
+		0,
+		0,
+		int64(m.HeapAlloc / page),
+	}
+	out := make([]types.Value, len(vals))
+	for i, v := range vals {
+		out[i] = types.NewInt(v)
+	}
+	return types.Ok(types.NewList(out))
 }
 
 func builtinLogCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
