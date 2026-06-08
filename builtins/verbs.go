@@ -384,6 +384,12 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
+	// Anonymous objects are instances, not classes: their verb structure cannot
+	// be modified. ToastStunt raises E_TYPE for add_verb on an anonymous object.
+	if obj.Anonymous {
+		return types.Err(types.E_TYPE)
+	}
+
 	// Parse info list (1-indexed)
 	owner, ok := infoList.Get(1).(types.ObjValue)
 	if !ok {

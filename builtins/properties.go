@@ -231,6 +231,13 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
+	// Anonymous objects are instances, not classes: their property structure
+	// cannot be modified. ToastStunt raises E_TYPE for add_property on an
+	// anonymous object.
+	if obj.Anonymous {
+		return types.Err(types.E_TYPE)
+	}
+
 	propName := nameVal.Value()
 
 	// Check if property name is built-in
