@@ -462,8 +462,9 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Parent hierarchy is changing; invalidate anonymous children on descendants.
-	store.InvalidateAnonymousChildren(objID)
+	// Note: recycling does NOT invalidate anonymous descendants in ToastStunt;
+	// they remain valid (property access through the recycled parent raises
+	// E_PROPNF).
 
 	// Reparent children to this object's parent(s)
 	// Per MOO semantics: when an object is recycled, its children

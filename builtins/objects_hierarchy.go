@@ -227,8 +227,8 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Invalidate anonymous children in descendant hierarchy.
-	store.InvalidateAnonymousChildren(objVal.ID())
+	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
+	// hierarchy changes; they remain valid.
 
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {
@@ -382,8 +382,8 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	// TODO: Check permissions and fertile flags (Layer 8.5)
 
-	// Invalidate anonymous children in descendant hierarchy.
-	store.InvalidateAnonymousChildren(objVal.ID())
+	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
+	// hierarchy changes; they remain valid.
 
 	// Remove from old parents' children lists and ChparentChildren tracking
 	for _, oldParentID := range obj.Parents {

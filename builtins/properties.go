@@ -342,8 +342,8 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	// Propagate inherited copies to all existing descendants
 	propagatePropertyToDescendants(objID, prop, store)
 
-	// Invalidate anonymous children in descendant hierarchy (parent schema changed).
-	store.InvalidateAnonymousChildren(objID)
+	// Note: ToastStunt does NOT invalidate anonymous descendants when a parent's
+	// property schema changes; they remain valid.
 
 	return types.Ok(types.NewInt(0))
 }
@@ -399,8 +399,8 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Res
 	// Also remove inherited copies from all descendants
 	removeInheritedProperty(objID, propName, store)
 
-	// Invalidate anonymous children in descendant hierarchy (parent schema changed).
-	store.InvalidateAnonymousChildren(objID)
+	// Note: ToastStunt does NOT invalidate anonymous descendants when a parent's
+	// property schema changes; they remain valid.
 
 	return types.Ok(types.NewInt(0))
 }

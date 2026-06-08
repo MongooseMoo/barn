@@ -190,8 +190,9 @@ func (s *Store) Recycle(id types.ObjID) error {
 		return fmt.Errorf("object #%d already recycled", id)
 	}
 
-	// Invalidate any anonymous children in the descendant hierarchy.
-	s.invalidateAnonymousChildrenLocked(id)
+	// Note: recycling an object does NOT invalidate anonymous descendants in
+	// ToastStunt; they remain valid (property access through a recycled parent
+	// simply raises E_PROPNF). The anon is only invalidated when recycled itself.
 
 	// Mark as recycled and invalid
 	obj.Recycled = true
@@ -323,8 +324,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		return fmt.Errorf("object #%d already exists", newID)
 	}
 
-	// Invalidate any anonymous children in the descendant hierarchy.
-	s.invalidateAnonymousChildrenLocked(oldID)
+	// Note: renumbering does NOT invalidate anonymous descendants in ToastStunt.
 
 	// Update the object's ID
 	obj.ID = newID
