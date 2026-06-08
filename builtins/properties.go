@@ -151,7 +151,11 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_PROPNF)
 	}
 
-	// TODO: Check permissions (owner or wizard)
+	// Only the property's owner or a wizard may change its {owner, perms}
+	// metadata (Toast: E_PERM otherwise).
+	if !ctx.IsWizard && ctx.Programmer != prop.Owner {
+		return types.Err(types.E_PERM)
+	}
 
 	// Parse info argument
 	switch info := args[2].(type) {
