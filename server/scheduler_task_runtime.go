@@ -214,6 +214,14 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		t.BytecodeVM = bcVM
 		if t.GetState() == task.TaskQueued {
 			s.mu.Lock()
+			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
+			// Stamp it with the suspend moment so the task's ready time reflects
+			// when it yielded — otherwise it sorts by its original StartTime and
+			// unfairly preempts tasks (e.g. a just-forked task) that became ready
+			// while it was running.
+			if t.WakeTime.IsZero() {
+				t.WakeTime = time.Now()
+			}
 			s.queueSeq++
 			t.QueueSeq = s.queueSeq
 			heap.Push(s.waiting, t)
