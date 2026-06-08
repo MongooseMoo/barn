@@ -122,6 +122,11 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Resu
 		obj.Flags = obj.Flags.Set(db.FlagUser)
 	} else {
 		obj.Flags = obj.Flags.Clear(db.FlagUser)
+		// Clearing the player flag on a currently-connected player terminates
+		// its live connection (matching Toast).
+		if globalConnManager != nil && resolveConnection(ctx, objVal.ID()) != nil {
+			_ = globalConnManager.BootPlayer(objVal.ID())
+		}
 	}
 
 	return types.Ok(types.NewInt(0))
