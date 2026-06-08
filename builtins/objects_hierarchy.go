@@ -145,7 +145,9 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	if len(args) < 2 || len(args) > 3 {
+	// ToastStunt's chparent takes exactly two arguments (function_info reports
+	// {"chparent", 2, 2, ...}); a third argument is E_ARGS.
+	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -157,13 +159,6 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 	newParentVal, ok := args[1].(types.ObjValue)
 	if !ok {
 		return types.Err(types.E_TYPE)
-	}
-
-	// Validate 3rd arg type if present (must be a list of parents)
-	if len(args) == 3 {
-		if _, ok := args[2].(types.ListValue); !ok {
-			return types.Err(types.E_TYPE)
-		}
 	}
 
 	// Check for invalid object references
