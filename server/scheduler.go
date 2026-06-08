@@ -32,6 +32,7 @@ type Scheduler struct {
 	tasks                   map[int64]*task.Task
 	waiting                 *TaskQueue
 	nextTaskID              int64
+	queueSeq                int64
 	evaluator               *vm.Evaluator
 	registry                *builtins.Registry // Shared builtins registry for bytecode VMs
 	store                   *db.Store

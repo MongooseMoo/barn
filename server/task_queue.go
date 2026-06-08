@@ -3,9 +3,11 @@ package server
 import (
 	"barn/task"
 	"container/heap"
+	"time"
 )
 
-// TaskQueue is a priority queue for tasks ordered by start time
+// TaskQueue is a priority queue for tasks ordered by the time each task next
+// becomes ready to run.
 type TaskQueue []*task.Task
 
 func NewTaskQueue() *TaskQueue {
@@ -16,8 +18,24 @@ func NewTaskQueue() *TaskQueue {
 
 func (tq TaskQueue) Len() int { return len(tq) }
 
+// readyTime is the moment a task next becomes runnable: its wake time when
+// suspended, otherwise its (possibly fork-delayed) start time. Ordering by this
+// — rather than the original start time — lets suspend(0) yield to an already
+// ready forked task whose fork time precedes the suspender's wake time.
+func readyTime(t *task.Task) time.Time {
+	if !t.WakeTime.IsZero() {
+		return t.WakeTime
+	}
+	return t.StartTime
+}
+
 func (tq TaskQueue) Less(i, j int) bool {
-	return tq[i].StartTime.Before(tq[j].StartTime)
+	ti, tj := readyTime(tq[i]), readyTime(tq[j])
+	if ti.Equal(tj) {
+		// Deterministic tie-break: earlier-enqueued task runs first (FIFO).
+		return tq[i].QueueSeq < tq[j].QueueSeq
+	}
+	return ti.Before(tj)
 }
 
 func (tq TaskQueue) Swap(i, j int) {

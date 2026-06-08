@@ -119,6 +119,7 @@ type Task struct {
 
 	// For suspension/resumption
 	WakeTime        time.Time
+	QueueSeq        int64       // Monotonic enqueue order for deterministic same-time scheduling
 	WakeValue       types.Value // Value to return when resumed
 	IsExecSuspended bool        // True if suspended by exec() (can't resume, only kill)
 	ReadingPlayer   types.ObjID // Player this task is read()ing from (ObjNothing = not reading)

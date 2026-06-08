@@ -214,6 +214,8 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		t.BytecodeVM = bcVM
 		if t.GetState() == task.TaskQueued {
 			s.mu.Lock()
+			s.queueSeq++
+			t.QueueSeq = s.queueSeq
 			heap.Push(s.waiting, t)
 			s.mu.Unlock()
 		}
