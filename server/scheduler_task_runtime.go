@@ -41,6 +41,22 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	ctx.Store = s.store
 	ctx.Registry = s.registry
 
+	// A task resuming after suspend runs under background limits: Toast treats
+	// resumed tasks as background tasks, and time spent suspended does not count
+	// against the execution budget. Reset both the tick and second budgets (and
+	// the start time used for the deadline below) so ticks_left()/seconds_left()
+	// and the hard deadline reflect a fresh background slice.
+	if savedVM, ok := t.BytecodeVM.(*vm.VM); ok && savedVM.IsYielded() {
+		bgTicks, bgSeconds := backgroundTaskLimits()
+		t.TicksLimit = bgTicks
+		t.TicksUsed = 0
+		t.SecondsLimit = bgSeconds
+		t.SecondsUsed = 0
+		t.StartTime = time.Now()
+		savedVM.TickLimit = bgTicks
+		savedVM.Ticks = 0
+	}
+
 	// Set up cancellation with deadline
 	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
 	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
