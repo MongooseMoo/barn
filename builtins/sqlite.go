@@ -422,6 +422,10 @@ func builtinSqliteQuery(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	handle, code := getSQLiteHandle(args[0])
+	if code == types.E_INVARG {
+		// An invalid handle yields the error value, not a raise (Toast).
+		return types.Ok(types.NewErr(types.E_INVARG))
+	}
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -446,6 +450,10 @@ func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Resu
 	}
 
 	handle, code := getSQLiteHandle(args[0])
+	if code == types.E_INVARG {
+		// An invalid handle yields the error value, not a raise (Toast).
+		return types.Ok(types.NewErr(types.E_INVARG))
+	}
 	if code != types.E_NONE {
 		return types.Err(code)
 	}

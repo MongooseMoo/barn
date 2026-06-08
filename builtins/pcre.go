@@ -16,7 +16,11 @@ func builtinPcreMatch(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	if subject.Value() == "" || pattern.Value() == "" {
+	// An empty subject simply yields no matches (Toast returns {}).
+	if subject.Value() == "" {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+	if pattern.Value() == "" {
 		return types.Err(types.E_INVARG)
 	}
 
