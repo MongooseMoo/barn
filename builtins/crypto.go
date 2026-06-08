@@ -414,9 +414,14 @@ func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.
 		}
 		return result, 0
 	}
-	// Unknown prefix falls through to traditional crypt behavior.
-	// Toast keeps the original two leading characters in the final output even
-	// when they are outside the canonical DES salt alphabet.
+	// A "$tag$..." salt whose tag is not a recognized algorithm is rejected by
+	// glibc crypt, which returns the failure marker "*0" (matching Toast).
+	if strings.HasPrefix(salt, "$") {
+		return "*0", 0
+	}
+	// Non-"$" salts with characters outside the canonical DES alphabet fall
+	// through to traditional crypt, which keeps the original two leading
+	// characters in the output (matching Toast).
 	result, err := cryptDESUnknownPrefix(password, salt)
 	if err != nil {
 		return "", types.E_INVARG
