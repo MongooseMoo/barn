@@ -477,23 +477,24 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 			continue
 		}
 
-		// Check if verb exists on this object
-		// Try exact name match first
-		if verb, ok := obj.Verbs[verbName]; ok {
-			return verb, current, nil
-		}
-		// Also try with colon prefix for method-only verbs
-		if verb, ok := obj.Verbs[":"+verbName]; ok {
-			return verb, current, nil
-		}
-
-		// Also check verb aliases (names field) with wildcard matching
-		for _, verb := range obj.Verbs {
+		// Scan this object's verbs in definition order and return the first whose
+		// name or alias matches. Toast resolves alias collisions by definition
+		// order (the first-declared verb wins), so iterate the ordered VerbList
+		// rather than the unordered Verbs map.
+		for _, verb := range obj.VerbList {
 			for _, alias := range verb.Names {
 				if matchVerbName(alias, verbName) {
 					return verb, current, nil
 				}
 			}
+		}
+		// Fallback for verbs present in the map but not matched above (e.g. verbs
+		// with an unpopulated Names slice): exact and colon-prefixed map lookups.
+		if verb, ok := obj.Verbs[verbName]; ok {
+			return verb, current, nil
+		}
+		if verb, ok := obj.Verbs[":"+verbName]; ok {
+			return verb, current, nil
 		}
 
 		// Not found on this object, add parents to queue
@@ -518,18 +519,20 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (*Verb, err
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
 
-	if verb, ok := obj.Verbs[verbName]; ok {
-		return verb, nil
-	}
-	if verb, ok := obj.Verbs[":"+verbName]; ok {
-		return verb, nil
-	}
-	for _, verb := range obj.Verbs {
+	// Definition-order scan (see FindVerb) so colliding aliases resolve to the
+	// first-declared verb.
+	for _, verb := range obj.VerbList {
 		for _, alias := range verb.Names {
 			if matchVerbName(alias, verbName) {
 				return verb, nil
 			}
 		}
+	}
+	if verb, ok := obj.Verbs[verbName]; ok {
+		return verb, nil
+	}
+	if verb, ok := obj.Verbs[":"+verbName]; ok {
+		return verb, nil
 	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
 }

@@ -194,7 +194,12 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
-	if !ctx.IsWizard && whoVal.ID() != ctx.Player {
+	// Toast compares the target against the currently running verb's programmer
+	// (RUN_ACTIV.progr), not the connected player: set_task_perms(who) is allowed
+	// when the current programmer is a wizard or who is the current programmer.
+	progObj := store.Get(ctx.Programmer)
+	progIsWizard := progObj != nil && progObj.Flags.Has(db.FlagWizard)
+	if !progIsWizard && whoVal.ID() != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 

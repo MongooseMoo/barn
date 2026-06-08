@@ -743,11 +743,6 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
@@ -757,9 +752,23 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
-		return types.Err(types.E_VERBNF)
+	// The verb specifier may be a string name/alias or a 1-based integer index.
+	var verb *db.Verb
+	switch v := args[1].(type) {
+	case types.StrValue:
+		found, _, err := store.FindVerb(objID, v.Value())
+		if err != nil {
+			return types.Err(types.E_VERBNF)
+		}
+		verb = found
+	case types.IntValue:
+		index := int(v.Val) - 1 // Convert to 0-based
+		if index < 0 || index >= len(obj.VerbList) {
+			return types.Err(types.E_RANGE)
+		}
+		verb = obj.VerbList[index]
+	default:
+		return types.Err(types.E_TYPE)
 	}
 
 	// Only the verb's owner or a wizard may modify it (Toast: E_PERM otherwise;
@@ -902,11 +911,6 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
 	objID := objVal.ID()
 	obj := store.Get(objID)
 	if obj == nil {
@@ -916,9 +920,23 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
-	if err != nil {
-		return types.Err(types.E_VERBNF)
+	// The verb specifier may be a string name/alias or a 1-based integer index.
+	var verb *db.Verb
+	switch v := args[1].(type) {
+	case types.StrValue:
+		found, _, err := store.FindVerb(objID, v.Value())
+		if err != nil {
+			return types.Err(types.E_VERBNF)
+		}
+		verb = found
+	case types.IntValue:
+		index := int(v.Val) - 1 // Convert to 0-based
+		if index < 0 || index >= len(obj.VerbList) {
+			return types.Err(types.E_RANGE)
+		}
+		verb = obj.VerbList[index]
+	default:
+		return types.Err(types.E_TYPE)
 	}
 
 	// Check read permission: wizard, owner, or verb has 'r' flag
