@@ -676,11 +676,8 @@ func (vm *VM) HandleError(err error) bool {
 		// from eval'd code and returns them as the eval() result.
 		// Exception: E_QUOTA/E_MAXREC propagate through to kill the task.
 		if frame.IsEvalFrame && errCode != types.E_QUOTA && errCode != types.E_MAXREC {
-			wrapped := types.NewList([]types.Value{
-				types.NewInt(0),
-				types.NewErr(errCode),
-			})
-			// Restore context
+			// Restore context, pop the eval frame, and keep unwinding so the
+			// runtime error propagates to eval()'s caller.
 			if vm.Context != nil {
 				vm.Context.ThisObj = frame.SavedThisObj
 				vm.Context.ThisValue = frame.SavedThisValue
@@ -695,8 +692,7 @@ func (vm *VM) HandleError(err error) bool {
 			}
 			vm.SP = frame.BasePointer
 			vm.Frames = vm.Frames[:len(vm.Frames)-1]
-			vm.Push(wrapped)
-			return true
+			continue
 		}
 
 		// Pop the current frame (unwind): reset SP to BasePointer, remove frame.

@@ -48,18 +48,11 @@ func (e *Evaluator) RegisterEvalBuiltin() {
 			}))
 		}
 
-		// Handle runtime errors
-		// E_QUOTA is a resource limit error that should be propagated, not caught
+		// Runtime errors raised by the evaluated code propagate out of eval()
+		// to the caller (matching ToastStunt); only parse/compile errors are
+		// reported as {0, errors} above.
 		if result.Flow == types.FlowException {
-			if result.Error == types.E_QUOTA {
-				// Propagate E_QUOTA instead of catching it
-				return types.Err(types.E_QUOTA)
-			}
-			// Other errors are caught and returned as {0, error_code}
-			return types.Ok(types.NewList([]types.Value{
-				types.NewInt(0),
-				types.NewErr(result.Error),
-			}))
+			return types.Err(result.Error)
 		}
 
 		// Return {1, result_value}
