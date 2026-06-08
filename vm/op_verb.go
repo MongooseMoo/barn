@@ -120,9 +120,11 @@ func (vm *VM) executeCallVerb() error {
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
 
-	// Check execute permission
+	// A verb without the execute flag is not callable: ToastStunt treats it as
+	// nonexistent for call dispatch (E_VERBNF), not a permission error.
 	if !verb.Perms.Has(db.VerbExecute) {
-		return fmt.Errorf("E_PERM: verb %s is not executable", verbName)
+		vm.Store.NoteVerbCacheMiss()
+		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
 
 	// Try to compile verb to bytecode

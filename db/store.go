@@ -430,7 +430,14 @@ func matchVerbName(verbPattern, searchName string) bool {
 	// Valid: "get_conj", "get_conju", "get_conjug", "get_conjugation"
 	// Invalid: "get_con", "get_conjugate"
 
-	prefix := pattern[:starPos]                     // "get_conj" - required minimum
+	prefix := pattern[:starPos] // "get_conj" - required minimum
+
+	// Trailing star: the verb name matches any requested name that begins with
+	// the pre-star prefix (e.g. "audittrail*" matches "audittrailing_suffix").
+	if starPos == len(pattern)-1 {
+		return strings.HasPrefix(search, prefix)
+	}
+
 	full := pattern[:starPos] + pattern[starPos+1:] // "get_conjugation" - full name
 
 	// Search must start with the required prefix
