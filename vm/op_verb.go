@@ -462,6 +462,34 @@ func (vm *VM) executePass() error {
 	SetLocalByName(newFrame, prog, "args", types.NewList(passArgs))
 	SetLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
 
+	// pass() continues the same command, so propagate the command parsing
+	// variables to the inherited verb (matching the regular verb-dispatch path
+	// above and Toast). Eval'd code has no command context.
+	insideEval := false
+	for _, f := range vm.Frames {
+		if f.IsEvalFrame {
+			insideEval = true
+			break
+		}
+	}
+	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
+		if t, ok := vm.Context.Task.(*task.Task); ok {
+			SetLocalByName(newFrame, prog, "argstr", types.NewStr(t.Argstr))
+			SetLocalByName(newFrame, prog, "dobjstr", types.NewStr(t.Dobjstr))
+			SetLocalByName(newFrame, prog, "iobjstr", types.NewStr(t.Iobjstr))
+			SetLocalByName(newFrame, prog, "prepstr", types.NewStr(t.Prepstr))
+			SetLocalByName(newFrame, prog, "dobj", types.NewObj(t.Dobj))
+			SetLocalByName(newFrame, prog, "iobj", types.NewObj(t.Iobj))
+		}
+	} else {
+		SetLocalByName(newFrame, prog, "argstr", types.NewStr(""))
+		SetLocalByName(newFrame, prog, "dobjstr", types.NewStr(""))
+		SetLocalByName(newFrame, prog, "iobjstr", types.NewStr(""))
+		SetLocalByName(newFrame, prog, "prepstr", types.NewStr(""))
+		SetLocalByName(newFrame, prog, "dobj", types.NewObj(types.ObjNothing))
+		SetLocalByName(newFrame, prog, "iobj", types.NewObj(types.ObjNothing))
+	}
+
 	// Update shared context for builtins
 	if vm.Context != nil {
 		isWizard := false
