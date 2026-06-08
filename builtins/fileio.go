@@ -66,20 +66,36 @@ func sanitizeFilePath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		return "", fmt.Errorf("absolute path disallowed")
 	}
-	// Toast's file_verify_path: reject if starts with ".."
+	// Toast's file_verify_path uses Unix semantics: only "/" separates path
+	// components and a backslash is an ordinary filename character. Reject the
+	// same forward-slash traversal patterns Toast rejects, but treat backslash
+	// literally (so "foo\..\bar" is a plain — and almost certainly missing —
+	// filename, yielding E_FILE rather than a traversal rejection).
+	// Reject if it starts with "..".
 	if len(path) > 1 && path[0] == '.' && path[1] == '.' {
 		return "", fmt.Errorf("path traversal disallowed")
 	}
-	// Toast's file_verify_path: reject if contains "/." anywhere (catches
-	// "../", "./", and hidden files like ".hidden")
+	// Reject if it contains "/." anywhere (catches "../", "./", and hidden
+	// files like ".hidden").
 	if strings.Contains(path, "/.") {
 		return "", fmt.Errorf("path traversal disallowed")
 	}
-	// Also reject backslash-dot (Windows path separator traversal)
-	if strings.Contains(path, `\.`) {
-		return "", fmt.Errorf("path traversal disallowed")
-	}
 	clean := filepath.Clean(path)
+	// Defense in depth on platforms where "\" is also a path separator
+	// (Windows): ensure the resolved path cannot escape the files/ root even
+	// though we no longer reject backslashes outright.
+	root, err := filepath.Abs("files")
+	if err != nil {
+		return "", err
+	}
+	full, err := filepath.Abs(filepath.Join("files", clean))
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes files root")
+	}
 	return clean, nil
 }
 
