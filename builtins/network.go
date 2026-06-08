@@ -566,19 +566,19 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 	}
 
 	held := heldInputEnabled(player)
-	if held {
-		heldCommandState.mu.Lock()
-		if atFront {
-			heldCommandState.byPlayer[player] = append([]string{line}, heldCommandState.byPlayer[player]...)
-		} else {
-			heldCommandState.byPlayer[player] = append(heldCommandState.byPlayer[player], line)
-		}
-		heldCommandState.mu.Unlock()
-	}
 
 	httpHeldInputState.mu.Lock()
 	state := httpHeldInputState.byPlayer[player]
-	if !held && (state == nil || len(state.waiters) == 0) {
+	if state != nil {
+		pruneHTTPWaitersLocked(state)
+	}
+	// An active read_http waiter owns incoming input: the line belongs to that
+	// read and must NOT also be held as a command. Otherwise read_http consumes
+	// it here while drainHeldCommands() later replays the same line as a command
+	// when hold-input is turned off (the http-cluster cascade bug).
+	hadWaiter := state != nil && len(state.waiters) > 0
+
+	if !held && !hadWaiter {
 		httpHeldInputState.mu.Unlock()
 		return false
 	}
@@ -598,6 +598,18 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 
 	for _, wake := range wakes {
 		wake.task.Resume(wake.value)
+	}
+
+	// Hold the line as a pending command only when hold-input is on and there was
+	// no active read_http waiter to consume it.
+	if held && !hadWaiter {
+		heldCommandState.mu.Lock()
+		if atFront {
+			heldCommandState.byPlayer[player] = append([]string{line}, heldCommandState.byPlayer[player]...)
+		} else {
+			heldCommandState.byPlayer[player] = append(heldCommandState.byPlayer[player], line)
+		}
+		heldCommandState.mu.Unlock()
 	}
 	return true
 }
