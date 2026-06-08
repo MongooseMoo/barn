@@ -497,6 +497,36 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
 }
 
+// FindVerbOnObject finds a verb by name on objID itself only, WITHOUT searching
+// the inheritance chain. The verb-metadata builtins (verb_info, verb_args,
+// verb_code) inspect only an object's own verbs: ToastStunt returns E_VERBNF
+// when the name resolves only to an inherited verb. Matching honors aliases and
+// the `*` wildcard, exactly like FindVerb but limited to this one object.
+func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (*Verb, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if obj == nil || obj.Recycled {
+		return nil, fmt.Errorf("verb not found: %s", verbName)
+	}
+
+	if verb, ok := obj.Verbs[verbName]; ok {
+		return verb, nil
+	}
+	if verb, ok := obj.Verbs[":"+verbName]; ok {
+		return verb, nil
+	}
+	for _, verb := range obj.Verbs {
+		for _, alias := range verb.Names {
+			if matchVerbName(alias, verbName) {
+				return verb, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("verb not found: %s", verbName)
+}
+
 // RegisterWaif registers a waif with its class object for invalidation tracking
 func (s *Store) RegisterWaif(classID types.ObjID, waif *types.WaifValue) {
 	s.mu.Lock()

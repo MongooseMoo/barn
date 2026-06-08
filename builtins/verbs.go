@@ -200,7 +200,7 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 	switch v := args[1].(type) {
 	case types.StrValue:
 		var err error
-		verb, _, err = store.FindVerb(objID, v.Value())
+		verb, err = store.FindVerbOnObject(objID, v.Value())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
@@ -264,7 +264,7 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 	switch v := args[1].(type) {
 	case types.StrValue:
 		var err error
-		verb, _, err = store.FindVerb(objID, v.Value())
+		verb, err = store.FindVerbOnObject(objID, v.Value())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
@@ -323,7 +323,7 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
+	verb, err := store.FindVerbOnObject(objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
