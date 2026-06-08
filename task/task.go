@@ -152,6 +152,7 @@ type Task struct {
 	Iobjstr             string        // Indirect object string
 	Iobj                types.ObjID   // Indirect object
 	CommandOutputSuffix string        // Connection output suffix for raw command framing
+	FromCommand         bool          // True if dispatched by the command parser (top-level command verb)
 	Done                chan struct{} // Closed when task finishes; nil if fire-and-forget
 
 	// For compatibility with old server.Task

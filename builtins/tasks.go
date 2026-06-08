@@ -245,8 +245,13 @@ func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result
 	// Get the call stack
 	stack := t.GetCallStack()
 
-	// If less than 2 frames, return the task's programmer (top-level eval)
+	// If less than 2 frames, there is no MOO caller. A parser-dispatched
+	// top-level command verb has no caller permissions object (Toast returns
+	// #-1), whereas a top-level eval inherits the player's permissions.
 	if len(stack) < 2 {
+		if t.FromCommand {
+			return types.Ok(types.NewObj(types.ObjNothing))
+		}
 		return types.Ok(types.NewObj(t.Programmer))
 	}
 

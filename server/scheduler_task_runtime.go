@@ -333,6 +333,7 @@ func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *VerbMatch, cm
 	t.Iobjstr = cmd.Iobjstr
 	t.Iobj = cmd.Iobj
 	t.CommandOutputSuffix = outputSuffix
+	t.FromCommand = true
 	t.ForkCreator = s
 
 	// Register task
