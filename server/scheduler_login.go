@@ -15,19 +15,21 @@ import (
 // shouldCallDoLoginCommand checks whether do_login_command should be called
 // for the given input. Trusted proxy blank lines route through do_blank_command first.
 func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool {
-	if line == "" && !s.isTrustedProxyConnection(conn) {
-		return false
-	}
-	if line != "" || !s.isTrustedProxyConnection(conn) {
-		return true
+	// A trusted-proxy blank line routes through do_blank_command first.
+	if line == "" && s.isTrustedProxyConnection(conn) {
+		allowLogin, err := s.callDoBlankCommand(conn, line)
+		if err != nil {
+			log.Printf("do_blank_command failed: %v", err)
+			return false
+		}
+		return allowLogin
 	}
 
-	allowLogin, err := s.callDoBlankCommand(conn, line)
-	if err != nil {
-		log.Printf("do_blank_command failed: %v", err)
-		return false
-	}
-	return allowLogin
+	// Otherwise always call do_login_command — including for the empty line the
+	// connection manager enqueues on connect, matching ToastStunt's
+	// new_input_task(h->tasks, "", 0, 0). A listener whose do_login_command
+	// returns a player without consuming input thus logs in at connect time.
+	return true
 }
 
 // callDoLoginCommand calls #0:do_login_command with the given line.

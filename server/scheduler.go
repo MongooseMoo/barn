@@ -213,6 +213,15 @@ func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
 			}
 		}
 	}
+	// A pre-login (negative) target with no live connection: ToastStunt's
+	// force_input does find_tqueue(conn, 1) — creating a queue on demand — and
+	// runs do_login_command for it. Mirror that by driving do_login_command
+	// directly for the phantom connection so the line reaches the login path.
+	if player < 0 && connID == 0 {
+		s.forcePhantomLogin(player, line)
+		return
+	}
+
 	evt := InputEvent{
 		ConnID: connID,
 		Player: player,
@@ -223,6 +232,19 @@ func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
 		return
 	}
 	s.inputQueue <- evt
+}
+
+// forcePhantomLogin runs #0:do_login_command for a pre-login target that has no
+// live connection, matching ToastStunt's create-on-demand task queue in
+// bf_force_input. There is no connection to bind, so a returned player is not
+// logged in — only the verb's side effects occur.
+func (s *Scheduler) forcePhantomLogin(player types.ObjID, line string) {
+	words := commandWordList(line)
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
+	s.CallVerbWithArgstr(types.ObjID(0), "do_login_command", args, player, line)
 }
 
 // processDisconnect handles a disconnect event.
