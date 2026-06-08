@@ -752,7 +752,9 @@ func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) ty
 }
 
 func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) > 1 {
+	// ToastStunt's shutdown accepts an optional (message, delay) pair; the
+	// permission check happens after argument validation.
+	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	if !ctx.IsWizard {
