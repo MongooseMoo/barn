@@ -314,9 +314,12 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	for i := len(stack) - 2; i >= 0; i-- {
 		frame := stack[i]
 
-		// Stop at eval frame boundary — eval infrastructure frames
-		// (the eval activation and the verb that called eval()) are hidden.
+		// At the eval boundary, expose the eval activation the way Toast does:
+		// the eval'd user-code frame followed by the two synthetic eval wrapper
+		// frames (bf_eval builtin marker + root "eval" command frame).
 		if frame.IsEvalFrame {
+			result = append(result, evalUserCodeFrame(ctx, includeLineNumbers))
+			result = append(result, evalWrapperFrames(ctx, includeLineNumbers)...)
 			break
 		}
 
@@ -346,21 +349,56 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
-func syntheticEvalCallers(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
-	makeFrame := func() types.Value {
+// evalWrapperFrames returns the two activation frames Toast reports beneath the
+// eval'd user code for a command-line ";" eval: a synthetic bf_eval builtin
+// marker ({#-1, "eval", #-1, #-1, player}) and the root "eval" command frame,
+// whose `this`/verb_loc is the player's location and whose programmer is the
+// player ({location, "eval", player, location, player}).
+func evalWrapperFrames(ctx *types.TaskContext, includeLineNumbers bool) []types.Value {
+	location := types.ObjNothing
+	if store, ok := ctx.Store.(*db.Store); ok {
+		if p := store.Get(ctx.Player); p != nil {
+			location = p.Location
+		}
+	}
+	makeFrame := func(this, programmer, vloc types.ObjID) types.Value {
 		base := []types.Value{
-			types.NewObj(types.ObjNothing), // this
-			types.NewStr("eval"),           // verb
-			types.NewObj(ctx.Programmer),   // programmer
-			types.NewObj(types.ObjNothing), // verb_loc
-			types.NewObj(ctx.Player),       // player
+			types.NewObj(this),       // this
+			types.NewStr("eval"),     // verb
+			types.NewObj(programmer), // programmer
+			types.NewObj(vloc),       // verb_loc
+			types.NewObj(ctx.Player), // player
 		}
 		if includeLineNumbers {
 			base = append(base, types.NewInt(1))
 		}
 		return types.NewList(base)
 	}
-	return types.NewList([]types.Value{makeFrame(), makeFrame()})
+	return []types.Value{
+		makeFrame(types.ObjNothing, types.ObjNothing, types.ObjNothing), // bf_eval builtin marker
+		makeFrame(location, ctx.Player, location),                       // root eval command frame
+	}
+}
+
+// evalUserCodeFrame returns the representation of the eval'd user-code activation
+// itself ({#-1, "", player, #-1, player}) — Toast shows this when callers() is
+// invoked from a verb that was called by the eval.
+func evalUserCodeFrame(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
+	base := []types.Value{
+		types.NewObj(types.ObjNothing), // this
+		types.NewStr(""),               // verb (empty for eval'd code)
+		types.NewObj(ctx.Player),       // programmer (the eval runs as the player)
+		types.NewObj(types.ObjNothing), // verb_loc
+		types.NewObj(ctx.Player),       // player
+	}
+	if includeLineNumbers {
+		base = append(base, types.NewInt(1))
+	}
+	return types.NewList(base)
+}
+
+func syntheticEvalCallers(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
+	return types.NewList(evalWrapperFrames(ctx, includeLineNumbers))
 }
 
 // builtinRaise: raise(error [, message [, value]]) → none
