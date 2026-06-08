@@ -212,8 +212,11 @@ func parseCommand(input string, originalWords []string) *ParsedCommand {
 	prep, prepStart, prepEnd, prepstr := findPreposition(restWords)
 
 	if prep == PrepNone {
-		// No preposition - everything is direct object
-		cmd.Dobjstr = cmd.Argstr
+		// No preposition - everything is the direct object. Build it from the
+		// tokenized words (quotes stripped, whitespace normalized) so quoted
+		// multiword names like `grab "red ball"` match an object named
+		// "red ball", consistent with the preposition branch below and Toast.
+		cmd.Dobjstr = strings.Join(restWords, " ")
 	} else {
 		cmd.Prep = prep
 		cmd.Prepstr = prepstr
