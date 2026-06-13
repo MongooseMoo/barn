@@ -4,13 +4,10 @@ import (
 	"barn/db"
 	"barn/task"
 	"barn/types"
-	"fmt"
 	"log"
-	"math/rand"
 	"os"
 	"runtime"
 	"sort"
-	"strings"
 )
 
 type functionSignature struct {
@@ -802,34 +799,3 @@ func builtinSpellcheck(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewList([]types.Value{}))
 }
 
-func builtinParseCompatBool(arg types.Value) (bool, types.ErrorCode) {
-	switch v := arg.(type) {
-	case types.IntValue:
-		return v.Val != 0, types.E_NONE
-	case types.StrValue:
-		s := strings.ToLower(strings.TrimSpace(v.Value()))
-		if s == "1" || s == "true" || s == "yes" || s == "on" {
-			return true, types.E_NONE
-		}
-		if s == "0" || s == "false" || s == "no" || s == "off" || s == "" {
-			return false, types.E_NONE
-		}
-		return false, types.E_INVARG
-	default:
-		return false, types.E_TYPE
-	}
-}
-
-func builtinDebugCompatibility(ctx *types.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
-		return types.Err(types.E_ARGS)
-	}
-	flag, code := builtinParseCompatBool(args[0])
-	if code != types.E_NONE {
-		return types.Err(code)
-	}
-	if flag {
-		return types.Ok(types.NewStr(fmt.Sprintf("compat-rand-seed=%d", rand.Int63())))
-	}
-	return types.Ok(types.NewStr("compat-off"))
-}

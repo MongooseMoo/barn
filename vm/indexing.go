@@ -1000,7 +1000,7 @@ func (e *Evaluator) propertyIndexedAssign(propExpr *parser.PropertyExpr, indices
 // Returns the value and E_NONE on success, or nil and an error code on failure
 func (e *Evaluator) getPropertyValue(obj *db.Object, name string, ctx *types.TaskContext) (types.Value, types.ErrorCode) {
 	// Check for built-in properties first
-	if val, ok := e.getBuiltinProperty(obj, name); ok {
+	if val, ok := getBuiltinProperty(obj, name); ok {
 		return val, types.E_NONE
 	}
 

@@ -1,2 +1,27 @@
-NUL.#*
+# Build artifacts
+*.exe
 *.exe~
+*.log
+*.tmp
+*.err
+*.new
+
+# Scratch test output
+*_results.txt
+manual_*.txt
+manual_*.sh
+login_test.txt
+manual_test_output.txt
+.tmp_collect.txt
+
+# Scratch databases (keep the Test*.db conformance fixtures tracked)
+mongoose*.db
+conf_*.db
+*_snapshot.db
+toast_out.db
+toast_output.db
+toaststunt_test.db
+
+# Python / tooling
+.python-version
+__pycache__/

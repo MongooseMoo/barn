@@ -64,85 +64,12 @@ func (e *Evaluator) property(node *parser.PropertyExpr, ctx *types.TaskContext) 
 	}
 
 	// No defined property - check for built-in properties (flag properties like .player, .wizard)
-	if val, ok := e.getBuiltinProperty(obj, propName); ok {
+	if val, ok := getBuiltinProperty(obj, propName); ok {
 		return types.Ok(val)
 	}
 
 	// Property not found
 	return types.Err(errCode)
-}
-
-// getBuiltinProperty returns built-in object properties (name, owner, location, etc.)
-func (e *Evaluator) getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
-	switch name {
-	case "name":
-		return types.NewStr(obj.Name), true
-	case "owner":
-		return types.NewObj(obj.Owner), true
-	case "location":
-		return types.NewObj(obj.Location), true
-	case "contents":
-		vals := make([]types.Value, len(obj.Contents))
-		for i, id := range obj.Contents {
-			vals[i] = types.NewObj(id)
-		}
-		return types.NewList(vals), true
-	case "parents":
-		vals := make([]types.Value, len(obj.Parents))
-		for i, id := range obj.Parents {
-			vals[i] = types.NewObj(id)
-		}
-		return types.NewList(vals), true
-	case "parent":
-		// .parent returns first parent or #-1 if none
-		if len(obj.Parents) > 0 {
-			return types.NewObj(obj.Parents[0]), true
-		}
-		return types.NewObj(types.ObjNothing), true
-	case "children":
-		vals := make([]types.Value, len(obj.Children))
-		for i, id := range obj.Children {
-			vals[i] = types.NewObj(id)
-		}
-		return types.NewList(vals), true
-	case "programmer":
-		if obj.Flags.Has(db.FlagProgrammer) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	case "wizard":
-		if obj.Flags.Has(db.FlagWizard) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	case "player":
-		if obj.Flags.Has(db.FlagUser) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	case "r":
-		if obj.Flags.Has(db.FlagRead) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	case "w":
-		if obj.Flags.Has(db.FlagWrite) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	case "f":
-		if obj.Flags.Has(db.FlagFertile) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	case "a":
-		if obj.Flags.Has(db.FlagAnonymous) || obj.Anonymous {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
-	default:
-		return nil, false
-	}
 }
 
 // findProperty finds a property on an object with inheritance

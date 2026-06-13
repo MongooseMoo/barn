@@ -43,7 +43,7 @@ func (vm *VM) executeIterPrep() error {
 	case types.MapValue:
 		// Sort pairs by key in MOO canonical order, produce {value, key} pairs
 		pairs := c.Pairs()
-		sortForMapPairs(pairs)
+		sortMapPairsForIn(pairs)
 		elements := make([]types.Value, len(pairs))
 		for i, pair := range pairs {
 			// pair[0] = key, pair[1] = value

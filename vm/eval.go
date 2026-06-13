@@ -7,7 +7,6 @@ import (
 	"barn/task"
 	"barn/types"
 	"fmt"
-	"log"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
@@ -549,7 +548,6 @@ func (e *Evaluator) builtinCall(node *parser.BuiltinCallExpr, ctx *types.TaskCon
 	// Verify the builtin exists before evaluating arguments.
 	if !e.builtins.Has(node.Name) {
 		// Builtin not found
-		log.Printf("[BUILTIN NOT FOUND] %s", node.Name)
 		return types.Err(types.E_VERBNF)
 	}
 
