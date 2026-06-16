@@ -39,7 +39,7 @@ func TestPropertyInheritance(t *testing.T) {
 	// Test: child.name should return parent's value
 	propExpr := &parser.PropertyExpr{
 		Pos:      parser.Position{Line: 1, Column: 1},
-		Expr:     &parser.LiteralExpr{Value: types.NewObj(1)},
+		Expr:     objLiteral(1),
 		Property: "name",
 	}
 
@@ -89,7 +89,7 @@ func TestPropertyOverride(t *testing.T) {
 	// Test: child.name should return child's value
 	propExpr := &parser.PropertyExpr{
 		Pos:      parser.Position{Line: 1, Column: 1},
-		Expr:     &parser.LiteralExpr{Value: types.NewObj(1)},
+		Expr:     objLiteral(1),
 		Property: "name",
 	}
 
@@ -155,7 +155,7 @@ func TestMultipleInheritance(t *testing.T) {
 	// Test: child should inherit x from grandparent through parent1
 	propX := &parser.PropertyExpr{
 		Pos:      parser.Position{Line: 1, Column: 1},
-		Expr:     &parser.LiteralExpr{Value: types.NewObj(3)},
+		Expr:     objLiteral(3),
 		Property: "x",
 	}
 
@@ -171,7 +171,7 @@ func TestMultipleInheritance(t *testing.T) {
 	// Test: child should inherit y from parent1
 	propY := &parser.PropertyExpr{
 		Pos:      parser.Position{Line: 1, Column: 1},
-		Expr:     &parser.LiteralExpr{Value: types.NewObj(3)},
+		Expr:     objLiteral(3),
 		Property: "y",
 	}
 
@@ -187,7 +187,7 @@ func TestMultipleInheritance(t *testing.T) {
 	// Test: child should inherit z from parent2
 	propZ := &parser.PropertyExpr{
 		Pos:      parser.Position{Line: 1, Column: 1},
-		Expr:     &parser.LiteralExpr{Value: types.NewObj(3)},
+		Expr:     objLiteral(3),
 		Property: "z",
 	}
 
@@ -250,7 +250,7 @@ func TestDiamondInheritance(t *testing.T) {
 	// Test: A.x should be 200 (from B, first parent)
 	propExpr := &parser.PropertyExpr{
 		Pos:      parser.Position{Line: 1, Column: 1},
-		Expr:     &parser.LiteralExpr{Value: types.NewObj(0)},
+		Expr:     objLiteral(0),
 		Property: "x",
 	}
 
@@ -266,5 +266,12 @@ func TestDiamondInheritance(t *testing.T) {
 
 	if intVal.Val != 200 {
 		t.Errorf("Expected x=200 (from B), got %d", intVal.Val)
+	}
+}
+
+func objLiteral(id int64) *parser.LiteralExpr {
+	return &parser.LiteralExpr{
+		Kind:  parser.LiteralObj,
+		ObjID: id,
 	}
 }

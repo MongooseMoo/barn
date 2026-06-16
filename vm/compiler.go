@@ -494,13 +494,18 @@ func (c *Compiler) compileNode(node parser.Node) error {
 // compileLiteral compiles a literal value
 func (c *Compiler) compileLiteral(n *parser.LiteralExpr) error {
 	// Check if it's a small integer that can use immediate opcode
-	if intVal, ok := n.Value.(types.IntValue); ok {
-		c.emitIntLiteral(intVal.Val)
+	if n.Kind == parser.LiteralInt {
+		c.emitIntLiteral(n.IntValue)
 		return nil
 	}
 
+	value, err := valueFromLiteral(n)
+	if err != nil {
+		return err
+	}
+
 	// Otherwise push from constant pool
-	c.emitConstant(n.Value)
+	c.emitConstant(value)
 	return nil
 }
 
@@ -1668,9 +1673,18 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 	c.emit(OP_TRY_EXCEPT)
 	c.emitByte(1) // 1 clause
 
+	codes, err := lowerErrorNames(n.Codes)
+	if err != nil {
+		return err
+	}
+
 	// Emit catch codes
-	c.emitByte(byte(len(n.Codes)))
-	for _, code := range n.Codes {
+	if n.IsAny {
+		c.emitByte(0)
+	} else {
+		c.emitByte(byte(len(codes)))
+	}
+	for _, code := range codes {
 		c.emitByte(byte(code))
 	}
 
@@ -2209,8 +2223,12 @@ func (c *Compiler) compileTryExcept(n *parser.TryExceptStmt) error {
 		if except.IsAny {
 			c.emitByte(0) // 0 codes = catch any
 		} else {
-			c.emitByte(byte(len(except.Codes)))
-			for _, code := range except.Codes {
+			codes, err := lowerErrorNames(except.Codes)
+			if err != nil {
+				return err
+			}
+			c.emitByte(byte(len(codes)))
+			for _, code := range codes {
 				c.emitByte(byte(code))
 			}
 		}
@@ -2340,8 +2358,12 @@ func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error
 		if except.IsAny {
 			c.emitByte(0)
 		} else {
-			c.emitByte(byte(len(except.Codes)))
-			for _, code := range except.Codes {
+			codes, err := lowerErrorNames(except.Codes)
+			if err != nil {
+				return err
+			}
+			c.emitByte(byte(len(codes)))
+			for _, code := range codes {
 				c.emitByte(byte(code))
 			}
 		}

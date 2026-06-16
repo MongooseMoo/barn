@@ -668,7 +668,11 @@ func (e *Evaluator) tryExceptFinallyStmt(stmt *parser.TryExceptFinallyStmt, ctx 
 }
 
 // matchesErrorCode checks if an error code is in the list of codes
-func (e *Evaluator) matchesErrorCode(code types.ErrorCode, codes []types.ErrorCode) bool {
+func (e *Evaluator) matchesErrorCode(code types.ErrorCode, names []string) bool {
+	codes, err := lowerErrorNames(names)
+	if err != nil {
+		return false
+	}
 	for _, c := range codes {
 		if c == code {
 			return true

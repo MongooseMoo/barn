@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"barn/types"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,22 +8,22 @@ import (
 
 // Operator precedence levels (higher = tighter binding)
 const (
-	precedenceLowest = iota
-	precedenceAssign      // =
-	precedenceTernary     // ? |
-	precedenceOr          // ||
-	precedenceAnd         // &&
-	precedenceBitOr       // |
-	precedenceBitXor      // ^
-	precedenceBitAnd      // &
-	precedenceEquality    // == !=
-	precedenceComparison  // < <= > >= in
-	precedenceShift       // << >>
-	precedenceAdditive    // + -
-	precedenceMultiply    // * / %
-	precedenceExponent    // ^
-	precedenceUnary       // - ! ~
-	precedenceProperty    // . : [] (highest - property access, verb call, index)
+	precedenceLowest     = iota
+	precedenceAssign     // =
+	precedenceTernary    // ? |
+	precedenceOr         // ||
+	precedenceAnd        // &&
+	precedenceBitOr      // |
+	precedenceBitXor     // ^
+	precedenceBitAnd     // &
+	precedenceEquality   // == !=
+	precedenceComparison // < <= > >= in
+	precedenceShift      // << >>
+	precedenceAdditive   // + -
+	precedenceMultiply   // * / %
+	precedenceExponent   // ^
+	precedenceUnary      // - ! ~
+	precedenceProperty   // . : [] (highest - property access, verb call, index)
 )
 
 // UnparseProgram converts AST statements back to source code lines
@@ -143,7 +142,7 @@ func unparseStmt(stmt Stmt, indent int) string {
 					if i > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(code.String())
+					sb.WriteString(code)
 				}
 			}
 			sb.WriteString(")\n")
@@ -186,7 +185,7 @@ func unparseStmt(stmt Stmt, indent int) string {
 					if i > 0 {
 						sb.WriteString(", ")
 					}
-					sb.WriteString(code.String())
+					sb.WriteString(code)
 				}
 			}
 			sb.WriteString(")\n")
@@ -244,7 +243,7 @@ func unparseStmt(stmt Stmt, indent int) string {
 func unparseExpr(expr Expr, parentPrecedence int) string {
 	switch e := expr.(type) {
 	case *LiteralExpr:
-		return unparseLiteral(e.Value)
+		return unparseLiteral(e)
 
 	case *IdentifierExpr:
 		return e.Name
@@ -313,14 +312,14 @@ func unparseExpr(expr Expr, parentPrecedence int) string {
 	case *CatchExpr:
 		result := unparseExpr(e.Expr, precedenceTernary)
 		result += " `! "
-		if len(e.Codes) == 0 {
+		if e.IsAny {
 			result += "ANY"
 		} else {
 			for i, code := range e.Codes {
 				if i > 0 {
 					result += ", "
 				}
-				result += code.String()
+				result += code
 			}
 		}
 		if e.Default != nil {
@@ -368,11 +367,9 @@ func unparseExpr(expr Expr, parentPrecedence int) string {
 func unparsePropertyExpr(e *PropertyExpr) string {
 	// Check if base is #0 (system object)
 	if lit, ok := e.Expr.(*LiteralExpr); ok {
-		if obj, ok := lit.Value.(types.ObjValue); ok {
-			if obj.ID() == 0 {
-				// Use $property syntax for system object
-				return "$" + e.Property
-			}
+		if lit.Kind == LiteralObj && lit.ObjID == 0 && e.Property != "" {
+			// Use $property syntax for system object
+			return "$" + e.Property
 		}
 	}
 
@@ -494,22 +491,27 @@ func unparseUnaryOp(op TokenType) string {
 	}
 }
 
-// unparseLiteral converts a Value to its source representation
-func unparseLiteral(v types.Value) string {
-	switch val := v.(type) {
-	case types.IntValue:
-		return strconv.Itoa(int(val.Val))
-	case types.FloatValue:
-		return fmt.Sprintf("%g", val.Val)
-	case types.StrValue:
+// unparseLiteral converts a literal syntax node to source representation.
+func unparseLiteral(v *LiteralExpr) string {
+	switch v.Kind {
+	case LiteralInt:
+		return strconv.FormatInt(v.IntValue, 10)
+	case LiteralFloat:
+		return fmt.Sprintf("%g", v.FloatValue)
+	case LiteralString:
 		// Need proper string escaping
-		return strconv.Quote(val.Value())
-	case types.ObjValue:
-		return fmt.Sprintf("#%d", val.ID())
-	case types.ErrValue:
-		return val.Code().String()
+		return strconv.Quote(v.StringValue)
+	case LiteralBool:
+		if v.BoolValue {
+			return "true"
+		}
+		return "false"
+	case LiteralObj:
+		return fmt.Sprintf("#%d", v.ObjID)
+	case LiteralErr:
+		return v.ErrorName
 	default:
-		return v.String()
+		return "<unknown literal>"
 	}
 }
 

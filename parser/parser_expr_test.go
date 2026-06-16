@@ -1,13 +1,10 @@
 package parser
 
-import (
-	"barn/types"
-	"testing"
-)
+import "testing"
 
 func TestParseUnaryMinus(t *testing.T) {
 	tests := []struct {
-		input      string
+		input       string
 		expectUnary bool
 		description string
 	}{
@@ -116,7 +113,7 @@ func TestUnaryOperatorPrecedence(t *testing.T) {
 		// Note: "-5" is lexed as a negative literal, not unary minus
 		// But "!true" and "~0" are unary operators
 		{"!true && false", true},
-		{"~5 &. 3", true},  // Use &. to ensure it's a binary operator, not |
+		{"~5 &. 3", true}, // Use &. to ensure it's a binary operator, not |
 	}
 
 	for _, tt := range tests {
@@ -155,13 +152,12 @@ func TestParseIntegerLiteralExpr(t *testing.T) {
 		t.Fatalf("expected LiteralExpr, got %T", expr)
 	}
 
-	intVal, ok := lit.Value.(types.IntValue)
-	if !ok {
-		t.Fatalf("expected IntValue, got %T", lit.Value)
+	if lit.Kind != LiteralInt {
+		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 	}
 
-	if intVal.Val != 42 {
-		t.Errorf("expected 42, got %d", intVal.Val)
+	if lit.IntValue != 42 {
+		t.Errorf("IntValue = %d, want 42", lit.IntValue)
 	}
 }
 

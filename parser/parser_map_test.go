@@ -1,15 +1,12 @@
 package parser
 
-import (
-	"barn/types"
-	"testing"
-)
+import "testing"
 
 func TestParseMapLiteral(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected map[string]int64 // For simple str->int maps
+		expected map[string]int64
 	}{
 		{"empty", "[]", map[string]int64{}},
 		{"single", `["a" -> 1]`, map[string]int64{"a": 1}},
@@ -19,194 +16,95 @@ func TestParseMapLiteral(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(tt.input)
-			val, err := p.ParseLiteral()
-			if err != nil {
-				t.Fatalf("ParseLiteral() error = %v", err)
+			mapExpr := parseMapForTest(t, tt.input)
+			if len(mapExpr.Pairs) != len(tt.expected) {
+				t.Fatalf("len(Pairs) = %d, want %d", len(mapExpr.Pairs), len(tt.expected))
 			}
 
-			mapVal, ok := val.(types.MapValue)
-			if !ok {
-				t.Fatalf("expected MapValue, got %T", val)
-			}
-
-			if mapVal.Len() != len(tt.expected) {
-				t.Errorf("expected length %d, got %d", len(tt.expected), mapVal.Len())
-			}
-
-			// Check entries
-			for key, expectedVal := range tt.expected {
-				v, exists := mapVal.Get(types.NewStr(key))
-				if !exists {
-					t.Errorf("key %q not found", key)
-					continue
-				}
-				intVal, ok := v.(types.IntValue)
+			for _, pair := range mapExpr.Pairs {
+				key, ok := pair.Key.(*LiteralExpr)
 				if !ok {
-					t.Errorf("value for key %q: expected IntValue, got %T", key, v)
-					continue
+					t.Fatalf("key = %T, want *LiteralExpr", pair.Key)
 				}
-				if intVal.Val != expectedVal {
-					t.Errorf("value for key %q: expected %d, got %d", key, expectedVal, intVal.Val)
+				if key.Kind != LiteralString {
+					t.Fatalf("key kind = %v, want LiteralString", key.Kind)
 				}
-			}
-
-			// Check type
-			if mapVal.Type() != types.TYPE_MAP {
-				t.Errorf("expected type TYPE_MAP, got %v", mapVal.Type())
+				expected, ok := tt.expected[key.StringValue]
+				if !ok {
+					t.Fatalf("unexpected key %q", key.StringValue)
+				}
+				assertIntLiteral(t, pair.Value, expected)
 			}
 		})
 	}
 }
 
-func TestParseMapWithDifferentKeyTypes(t *testing.T) {
+func TestParseMapWithDifferentKeySyntax(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
+		kind  LiteralKind
 	}{
-		{"int_key", "[1 -> \"one\"]"},
-		{"float_key", "[3.14 -> \"pi\"]"},
-		{"obj_key", "[#42 -> \"answer\"]"},
-		{"err_key", "[E_TYPE -> \"type error\"]"},
+		{"int_key", `[1 -> "one"]`, LiteralInt},
+		{"float_key", `[3.14 -> "pi"]`, LiteralFloat},
+		{"obj_key", `[#42 -> "answer"]`, LiteralObj},
+		{"err_key", `[E_TYPE -> "type error"]`, LiteralErr},
+		{"list_key", `[{1, 2} -> "value"]`, -1},
+		{"map_key", `[[ "nested" -> 1] -> "value"]`, -1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(tt.input)
-			val, err := p.ParseLiteral()
-			if err != nil {
-				t.Fatalf("ParseLiteral() error = %v", err)
+			mapExpr := parseMapForTest(t, tt.input)
+			if len(mapExpr.Pairs) != 1 {
+				t.Fatalf("len(Pairs) = %d, want 1", len(mapExpr.Pairs))
 			}
 
-			mapVal, ok := val.(types.MapValue)
-			if !ok {
-				t.Fatalf("expected MapValue, got %T", val)
-			}
-
-			if mapVal.Len() != 1 {
-				t.Errorf("expected length 1, got %d", mapVal.Len())
+			if tt.kind >= 0 {
+				key, ok := mapExpr.Pairs[0].Key.(*LiteralExpr)
+				if !ok {
+					t.Fatalf("key = %T, want *LiteralExpr", mapExpr.Pairs[0].Key)
+				}
+				if key.Kind != tt.kind {
+					t.Errorf("key kind = %v, want %v", key.Kind, tt.kind)
+				}
 			}
 		})
 	}
 }
 
 func TestParseMapWithNestedValue(t *testing.T) {
-	input := `["x" -> {1, 2, 3}]`
-	p := NewParser(input)
-	val, err := p.ParseLiteral()
-	if err != nil {
-		t.Fatalf("ParseLiteral() error = %v", err)
+	mapExpr := parseMapForTest(t, `["x" -> {1, 2, 3}]`)
+	if len(mapExpr.Pairs) != 1 {
+		t.Fatalf("len(Pairs) = %d, want 1", len(mapExpr.Pairs))
 	}
 
-	mapVal, ok := val.(types.MapValue)
+	key, ok := mapExpr.Pairs[0].Key.(*LiteralExpr)
 	if !ok {
-		t.Fatalf("expected MapValue, got %T", val)
+		t.Fatalf("key = %T, want *LiteralExpr", mapExpr.Pairs[0].Key)
+	}
+	if key.Kind != LiteralString || key.StringValue != "x" {
+		t.Fatalf("key = (%v, %q), want (LiteralString, \"x\")", key.Kind, key.StringValue)
 	}
 
-	v, exists := mapVal.Get(types.NewStr("x"))
-	if !exists {
-		t.Fatal("key 'x' not found")
-	}
-
-	listVal, ok := v.(types.ListValue)
+	list, ok := mapExpr.Pairs[0].Value.(*ListExpr)
 	if !ok {
-		t.Fatalf("expected ListValue, got %T", v)
+		t.Fatalf("value = %T, want *ListExpr", mapExpr.Pairs[0].Value)
 	}
-
-	if listVal.Len() != 3 {
-		t.Errorf("expected list length 3, got %d", listVal.Len())
+	if len(list.Elements) != 3 {
+		t.Fatalf("len(Elements) = %d, want 3", len(list.Elements))
 	}
+	assertIntLiteral(t, list.Elements[0], 1)
+	assertIntLiteral(t, list.Elements[1], 2)
+	assertIntLiteral(t, list.Elements[2], 3)
 }
 
-func TestMapTruthy(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected bool
-	}{
-		{"[]", false},             // Empty map is falsy
-		{`["a" -> 1]`, true},      // Non-empty map is truthy
-		{`[1 -> 2, 3 -> 4]`, true}, // Non-empty map is truthy
+func parseMapForTest(t *testing.T, input string) *MapExpr {
+	t.Helper()
+	expr := parseExprForTest(t, input)
+	mapExpr, ok := expr.(*MapExpr)
+	if !ok {
+		t.Fatalf("ParseExpression(%q) returned %T, want *MapExpr", input, expr)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			p := NewParser(tt.input)
-			val, err := p.ParseLiteral()
-			if err != nil {
-				t.Fatalf("ParseLiteral() error = %v", err)
-			}
-
-			if val.Truthy() != tt.expected {
-				t.Errorf("expected truthy=%v, got %v", tt.expected, val.Truthy())
-			}
-		})
-	}
-}
-
-func TestMapEqual(t *testing.T) {
-	m1 := types.NewMap([][2]types.Value{
-		{types.NewStr("a"), types.NewInt(1)},
-		{types.NewStr("b"), types.NewInt(2)},
-	})
-
-	m2 := types.NewMap([][2]types.Value{
-		{types.NewStr("a"), types.NewInt(1)},
-		{types.NewStr("b"), types.NewInt(2)},
-	})
-
-	m3 := types.NewMap([][2]types.Value{
-		{types.NewStr("a"), types.NewInt(1)},
-	})
-
-	if !m1.Equal(m2) {
-		t.Error("identical maps should be equal")
-	}
-
-	if m1.Equal(m3) {
-		t.Error("different maps should not be equal")
-	}
-
-	// Test cross-type equality
-	i := types.NewInt(1)
-	if m1.Equal(i) {
-		t.Error("map should not equal int")
-	}
-}
-
-func TestMapString(t *testing.T) {
-	tests := []struct {
-		mapVal   types.MapValue
-		expected string
-	}{
-		{types.NewEmptyMap(), "[]"},
-		// Note: map order is non-deterministic, so we can't test multi-entry maps reliably
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			if tt.mapVal.String() != tt.expected {
-				t.Errorf("expected String() %q, got %q", tt.expected, tt.mapVal.String())
-			}
-		})
-	}
-}
-
-func TestInvalidMapKeyType(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-	}{
-		{"list_key", "[{1, 2} -> \"value\"]"},
-		{"map_key", "[[\"nested\" -> 1] -> \"value\"]"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := NewParser(tt.input)
-			_, err := p.ParseLiteral()
-			if err == nil {
-				t.Error("expected error for invalid key type, got nil")
-			}
-		})
-	}
+	return mapExpr
 }

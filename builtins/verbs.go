@@ -999,7 +999,7 @@ func disassembleExpr(expr parser.Expr) []string {
 		lines = append(lines, unaryOpToOpcode(e.Operator))
 		return lines
 	case *parser.LiteralExpr:
-		return []string{fmt.Sprintf("PUSH %v", e.Value)}
+		return []string{fmt.Sprintf("PUSH %s", disassembleLiteral(e))}
 	case *parser.IndexExpr:
 		// Emit collection, index, then INDEX opcode
 		lines := disassembleExpr(e.Expr)
@@ -1021,6 +1021,28 @@ func disassembleExpr(expr parser.Expr) []string {
 		return []string{"LAST"}
 	default:
 		return []string{"EXPR"}
+	}
+}
+
+func disassembleLiteral(e *parser.LiteralExpr) string {
+	switch e.Kind {
+	case parser.LiteralInt:
+		return fmt.Sprintf("%d", e.IntValue)
+	case parser.LiteralFloat:
+		return fmt.Sprintf("%g", e.FloatValue)
+	case parser.LiteralString:
+		return fmt.Sprintf("%q", e.StringValue)
+	case parser.LiteralBool:
+		if e.BoolValue {
+			return "true"
+		}
+		return "false"
+	case parser.LiteralObj:
+		return fmt.Sprintf("#%d", e.ObjID)
+	case parser.LiteralErr:
+		return e.ErrorName
+	default:
+		return "<literal>"
 	}
 }
 

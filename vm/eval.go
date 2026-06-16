@@ -341,10 +341,13 @@ func (e *Evaluator) Eval(node parser.Node, ctx *types.TaskContext) types.Result 
 	}
 }
 
-// literal evaluates a literal expression
-// Literals are already Values, just wrap in Result
+// literal evaluates a literal expression by lowering parser syntax to a value.
 func (e *Evaluator) literal(node *parser.LiteralExpr, ctx *types.TaskContext) types.Result {
-	return types.Ok(node.Value)
+	value, err := valueFromLiteral(node)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Ok(value)
 }
 
 // identifier looks up a variable by name
@@ -725,16 +728,29 @@ func (e *Evaluator) catch(node *parser.CatchExpr, ctx *types.TaskContext) types.
 		return result
 	}
 
-	// Check if the error matches any of the catch codes
-	for _, code := range node.Codes {
-		if result.Error == code {
-			// Error matches, return default if provided
-			if node.Default != nil {
-				return e.Eval(node.Default, ctx)
-			}
-			// No default, return the error value
-			return types.Ok(types.NewErr(result.Error))
+	if node.IsAny {
+		if node.Default != nil {
+			return e.Eval(node.Default, ctx)
 		}
+		return types.Ok(types.NewErr(result.Error))
+	}
+
+	codes, err := lowerErrorNames(node.Codes)
+	if err != nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	// Check if the error matches any of the catch codes
+	for _, code := range codes {
+		if result.Error != code {
+			continue
+		}
+		// Error matches, return default if provided
+		if node.Default != nil {
+			return e.Eval(node.Default, ctx)
+		}
+		// No default, return the error value
+		return types.Ok(types.NewErr(result.Error))
 	}
 
 	// Error doesn't match, propagate it

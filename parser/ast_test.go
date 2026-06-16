@@ -1,9 +1,6 @@
 package parser
 
-import (
-	"barn/types"
-	"testing"
-)
+import "testing"
 
 func TestASTNodes(t *testing.T) {
 	// Test that all AST nodes implement the Expr interface
@@ -29,8 +26,9 @@ func TestASTNodes(t *testing.T) {
 func TestLiteralExprPosition(t *testing.T) {
 	pos := Position{Line: 1, Column: 5, Offset: 10}
 	expr := &LiteralExpr{
-		Pos:   pos,
-		Value: types.NewInt(42),
+		Pos:      pos,
+		Kind:     LiteralInt,
+		IntValue: 42,
 	}
 	if expr.Position() != pos {
 		t.Errorf("Position() = %v, want %v", expr.Position(), pos)
@@ -41,9 +39,9 @@ func TestBinaryExprPosition(t *testing.T) {
 	pos := Position{Line: 2, Column: 10, Offset: 20}
 	expr := &BinaryExpr{
 		Pos:      pos,
-		Left:     &LiteralExpr{Pos: pos, Value: types.NewInt(1)},
+		Left:     &LiteralExpr{Pos: pos, Kind: LiteralInt, IntValue: 1},
 		Operator: TOKEN_PLUS,
-		Right:    &LiteralExpr{Pos: pos, Value: types.NewInt(2)},
+		Right:    &LiteralExpr{Pos: pos, Kind: LiteralInt, IntValue: 2},
 	}
 	if expr.Position() != pos {
 		t.Errorf("Position() = %v, want %v", expr.Position(), pos)

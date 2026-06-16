@@ -1,13 +1,12 @@
 package parser
 
 import (
-	"barn/types"
 	"fmt"
 	"strconv"
 	"strings"
 )
 
-// Parser parses MOO source code into values/expressions
+// Parser parses MOO source code into syntax nodes.
 type Parser struct {
 	lexer   *Lexer
 	current Token
@@ -29,61 +28,6 @@ func NewParser(input string) *Parser {
 func (p *Parser) nextToken() {
 	p.current = p.peek
 	p.peek = p.lexer.NextToken()
-}
-
-// ParseLiteral parses a literal value
-func (p *Parser) ParseLiteral() (types.Value, error) {
-	switch p.current.Type {
-	case TOKEN_INT:
-		return p.parseIntLiteral()
-	case TOKEN_FLOAT:
-		return p.parseFloatLiteral()
-	case TOKEN_TRUE:
-		p.nextToken()
-		return types.NewBool(true), nil
-	case TOKEN_FALSE:
-		p.nextToken()
-		return types.NewBool(false), nil
-	case TOKEN_STRING:
-		return p.parseStringLiteral()
-	case TOKEN_ERROR_LIT:
-		return p.parseErrorLiteral()
-	case TOKEN_OBJECT:
-		return p.parseObjectLiteral()
-	case TOKEN_LBRACE:
-		return p.parseListLiteral()
-	case TOKEN_LBRACKET:
-		return p.parseMapLiteral()
-	default:
-		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
-	}
-}
-
-// parseIntLiteral parses an integer literal
-func (p *Parser) parseIntLiteral() (types.Value, error) {
-	val, err := strconv.ParseInt(p.current.Value, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse integer: %w", err)
-	}
-	p.nextToken()
-	return types.NewInt(val), nil
-}
-
-// parseFloatLiteral parses a float literal
-func (p *Parser) parseFloatLiteral() (types.Value, error) {
-	val, err := strconv.ParseFloat(p.current.Value, 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse float: %w", err)
-	}
-	p.nextToken()
-	return types.NewFloat(val), nil
-}
-
-// parseStringLiteral parses a string literal
-func (p *Parser) parseStringLiteral() (types.Value, error) {
-	val := p.current.Literal // Use decoded value
-	p.nextToken()
-	return types.NewStr(val), nil
 }
 
 // Precedence levels for operators (higher number = higher precedence)
@@ -151,15 +95,9 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 	switch p.current.Type {
 	case TOKEN_INT, TOKEN_FLOAT, TOKEN_STRING, TOKEN_OBJECT, TOKEN_ERROR_LIT,
 		TOKEN_TRUE, TOKEN_FALSE:
-		// Parse literal (simple values only)
-		pos := p.current.Position
-		val, err := p.ParseLiteral()
+		left, err = p.parseLiteralExpr()
 		if err != nil {
 			return nil, err
-		}
-		left = &LiteralExpr{
-			Pos:   pos,
-			Value: val,
 		}
 
 	case TOKEN_LBRACE:
@@ -234,22 +172,16 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				p.nextToken() // consume ')'
 
 				left = &VerbCallExpr{
-					Pos: pos,
-					Expr: &LiteralExpr{
-						Pos:   pos,
-						Value: types.NewObj(0), // #0 (system object)
-					},
+					Pos:  pos,
+					Expr: systemObjectLiteral(pos),
 					Verb: propName,
 					Args: args,
 				}
 			} else {
 				// $name => #0.name (property access)
 				left = &PropertyExpr{
-					Pos: pos,
-					Expr: &LiteralExpr{
-						Pos:   pos,
-						Value: types.NewObj(0), // #0 (system object)
-					},
+					Pos:      pos,
+					Expr:     systemObjectLiteral(pos),
 					Property: propName,
 				}
 			}
@@ -322,8 +254,8 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		}
 		p.nextToken()
 
-		// Parse error codes
-		codes, err := p.parseCatchCodes()
+		// Parse error names
+		codes, isAny, err := p.parseCatchCodes()
 		if err != nil {
 			return nil, err
 		}
@@ -348,6 +280,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			Pos:     pos,
 			Expr:    expr,
 			Codes:   codes,
+			IsAny:   isAny,
 			Default: defaultExpr,
 		}
 
@@ -611,34 +544,87 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 	return left, err
 }
 
+func systemObjectLiteral(pos Position) *LiteralExpr {
+	return &LiteralExpr{Pos: pos, Kind: LiteralObj, ObjID: 0}
+}
+
+// parseLiteralExpr parses a simple literal syntax node.
+func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
+	pos := p.current.Position
+
+	switch p.current.Type {
+	case TOKEN_INT:
+		val, err := strconv.ParseInt(p.current.Value, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse integer: %w", err)
+		}
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralInt, IntValue: val}, nil
+
+	case TOKEN_FLOAT:
+		val, err := strconv.ParseFloat(p.current.Value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse float: %w", err)
+		}
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralFloat, FloatValue: val}, nil
+
+	case TOKEN_TRUE:
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralBool, BoolValue: true}, nil
+
+	case TOKEN_FALSE:
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralBool, BoolValue: false}, nil
+
+	case TOKEN_STRING:
+		val := p.current.Literal
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralString, StringValue: val}, nil
+
+	case TOKEN_ERROR_LIT:
+		name := p.current.Value
+		if !isErrorName(name) {
+			return nil, fmt.Errorf("unknown error code: %s", name)
+		}
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralErr, ErrorName: name}, nil
+
+	case TOKEN_OBJECT:
+		val := strings.TrimPrefix(p.current.Value, "#")
+		id, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse object ID: %w", err)
+		}
+		p.nextToken()
+		return &LiteralExpr{Pos: pos, Kind: LiteralObj, ObjID: id}, nil
+
+	default:
+		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
+	}
+}
+
 // parseCatchCodes parses error codes in a catch expression
 // Supports: ANY, single error (E_TYPE), or comma-separated list (E_TYPE, E_RANGE)
-func (p *Parser) parseCatchCodes() ([]types.ErrorCode, error) {
+func (p *Parser) parseCatchCodes() ([]string, bool, error) {
 	// Check for ANY keyword
 	if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
 		p.nextToken()
-		// Return all error codes
-		return []types.ErrorCode{
-			types.E_NONE, types.E_TYPE, types.E_DIV, types.E_PERM,
-			types.E_PROPNF, types.E_VERBNF, types.E_VARNF, types.E_INVIND,
-			types.E_RECMOVE, types.E_MAXREC, types.E_RANGE, types.E_ARGS,
-			types.E_NACC, types.E_INVARG, types.E_QUOTA, types.E_FLOAT,
-			types.E_FILE, types.E_EXEC,
-		}, nil
+		return nil, true, nil
 	}
 
 	// Parse comma-separated list of error codes
-	var codes []types.ErrorCode
+	var codes []string
 
 	for {
 		if p.current.Type != TOKEN_ERROR_LIT {
-			return nil, fmt.Errorf("expected error code, got %s", p.current.Type)
+			return nil, false, fmt.Errorf("expected error code, got %s", p.current.Type)
 		}
 
 		// Parse the error literal
-		code, err := p.parseErrorCode()
+		code, err := p.parseErrorName()
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		codes = append(codes, code)
 
@@ -649,64 +635,26 @@ func (p *Parser) parseCatchCodes() ([]types.ErrorCode, error) {
 		p.nextToken() // skip comma
 	}
 
-	return codes, nil
+	return codes, false, nil
 }
 
-// parseErrorCode parses a single error code literal (E_TYPE, E_RANGE, etc.)
-func (p *Parser) parseErrorCode() (types.ErrorCode, error) {
+// parseErrorName parses a single error-code name literal (E_TYPE, E_RANGE, etc.)
+func (p *Parser) parseErrorName() (string, error) {
 	if p.current.Type != TOKEN_ERROR_LIT {
-		return 0, fmt.Errorf("expected error code, got %s", p.current.Type)
+		return "", fmt.Errorf("expected error code, got %s", p.current.Type)
 	}
 
-	// Convert error name to code
-	var code types.ErrorCode
-	switch p.current.Value {
-	case "E_NONE":
-		code = types.E_NONE
-	case "E_TYPE":
-		code = types.E_TYPE
-	case "E_DIV":
-		code = types.E_DIV
-	case "E_PERM":
-		code = types.E_PERM
-	case "E_PROPNF":
-		code = types.E_PROPNF
-	case "E_VERBNF":
-		code = types.E_VERBNF
-	case "E_VARNF":
-		code = types.E_VARNF
-	case "E_INVIND":
-		code = types.E_INVIND
-	case "E_RECMOVE":
-		code = types.E_RECMOVE
-	case "E_MAXREC":
-		code = types.E_MAXREC
-	case "E_RANGE":
-		code = types.E_RANGE
-	case "E_ARGS":
-		code = types.E_ARGS
-	case "E_NACC":
-		code = types.E_NACC
-	case "E_INVARG":
-		code = types.E_INVARG
-	case "E_QUOTA":
-		code = types.E_QUOTA
-	case "E_FLOAT":
-		code = types.E_FLOAT
-	case "E_FILE":
-		code = types.E_FILE
-	case "E_EXEC":
-		code = types.E_EXEC
-	default:
-		return 0, fmt.Errorf("unknown error code: %s", p.current.Value)
+	name := p.current.Value
+	if !isErrorName(name) {
+		return "", fmt.Errorf("unknown error code: %s", name)
 	}
 
 	p.nextToken()
-	return code, nil
+	return name, nil
 }
 
-// parseListExpr parses a list expression: {expr, expr, ...} or {start..end}
-// Unlike parseListLiteral, this allows full expressions including splice (@)
+// parseListExpr parses a list expression: {expr, expr, ...} or {start..end}.
+// It allows full expressions including splice (@).
 // Returns either *ListExpr or *ListRangeExpr depending on the syntax
 func (p *Parser) parseListExpr() (Expr, error) {
 	pos := p.current.Position
@@ -772,8 +720,8 @@ func (p *Parser) parseListExpr() (Expr, error) {
 	return &ListExpr{Pos: pos, Elements: elements}, nil
 }
 
-// parseMapExpr parses a map expression: [key -> value, ...]
-// Unlike parseMapLiteral, this allows full expressions
+// parseMapExpr parses a map expression: [key -> value, ...].
+// It allows full expressions.
 func (p *Parser) parseMapExpr() (*MapExpr, error) {
 	pos := p.current.Position
 	p.nextToken() // skip '['
@@ -836,20 +784,4 @@ func (p *Parser) parseMapExpr() (*MapExpr, error) {
 	p.nextToken() // skip ']'
 
 	return &MapExpr{Pos: pos, Pairs: pairs}, nil
-}
-
-// parseObjectLiteral parses an object literal
-func (p *Parser) parseObjectLiteral() (types.Value, error) {
-	// Value is like "#42" or "#-1"
-	val := p.current.Value
-	// Strip the '#' prefix
-	val = strings.TrimPrefix(val, "#")
-
-	id, err := strconv.ParseInt(val, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse object ID: %w", err)
-	}
-
-	p.nextToken()
-	return types.NewObj(types.ObjID(id)), nil
 }

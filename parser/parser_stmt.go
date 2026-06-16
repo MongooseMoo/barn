@@ -1,9 +1,6 @@
 package parser
 
-import (
-	"barn/types"
-	"fmt"
-)
+import "fmt"
 
 // ParseProgram parses a complete MOO program (sequence of statements)
 func (p *Parser) ParseProgram() ([]Stmt, error) {
@@ -521,8 +518,8 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 		}
 		p.nextToken() // consume '('
 
-		// Parse exception codes
-		var codes []types.ErrorCode
+		// Parse exception names
+		var codes []string
 		isAny := false
 
 		if p.current.Type == TOKEN_ANY || (p.current.Type == TOKEN_IDENTIFIER && p.current.Value == "ANY") {
@@ -534,9 +531,10 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 				if p.current.Type != TOKEN_ERROR_LIT {
 					return nil, fmt.Errorf("expected error code, got %v", p.current.Type)
 				}
-				// Convert error name to code
-				code := p.errorNameToCode(p.current.Value)
-				codes = append(codes, code)
+				if !isErrorName(p.current.Value) {
+					return nil, fmt.Errorf("unknown error code: %s", p.current.Value)
+				}
+				codes = append(codes, p.current.Value)
 				p.nextToken()
 
 				if p.current.Type == TOKEN_COMMA {
@@ -606,50 +604,6 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 		}, nil
 	} else {
 		return nil, fmt.Errorf("try statement must have except or finally clause")
-	}
-}
-
-// errorNameToCode converts an error name string to an ErrorCode
-func (p *Parser) errorNameToCode(name string) types.ErrorCode {
-	switch name {
-	case "E_NONE":
-		return types.E_NONE
-	case "E_TYPE":
-		return types.E_TYPE
-	case "E_DIV":
-		return types.E_DIV
-	case "E_PERM":
-		return types.E_PERM
-	case "E_PROPNF":
-		return types.E_PROPNF
-	case "E_VERBNF":
-		return types.E_VERBNF
-	case "E_VARNF":
-		return types.E_VARNF
-	case "E_INVIND":
-		return types.E_INVIND
-	case "E_RECMOVE":
-		return types.E_RECMOVE
-	case "E_MAXREC":
-		return types.E_MAXREC
-	case "E_RANGE":
-		return types.E_RANGE
-	case "E_ARGS":
-		return types.E_ARGS
-	case "E_NACC":
-		return types.E_NACC
-	case "E_INVARG":
-		return types.E_INVARG
-	case "E_QUOTA":
-		return types.E_QUOTA
-	case "E_FLOAT":
-		return types.E_FLOAT
-	case "E_FILE":
-		return types.E_FILE
-	case "E_EXEC":
-		return types.E_EXEC
-	default:
-		return types.E_NONE // Unknown error code
 	}
 }
 

@@ -1,7 +1,5 @@
 package parser
 
-import "barn/types"
-
 // Node is the base interface for all AST nodes
 type Node interface {
 	Position() Position
@@ -19,10 +17,29 @@ type Stmt interface {
 	stmtNode()
 }
 
-// LiteralExpr wraps a Value from Phase 1
+// LiteralKind identifies the syntax kind of a literal expression.
+type LiteralKind int
+
+const (
+	LiteralInt LiteralKind = iota
+	LiteralFloat
+	LiteralString
+	LiteralBool
+	LiteralObj
+	LiteralErr
+)
+
+// LiteralExpr represents a literal as parsed syntax. Runtime packages lower it
+// into runtime values.
 type LiteralExpr struct {
-	Pos   Position
-	Value types.Value
+	Pos         Position
+	Kind        LiteralKind
+	IntValue    int64
+	FloatValue  float64
+	StringValue string
+	BoolValue   bool
+	ObjID       int64
+	ErrorName   string
 }
 
 func (e *LiteralExpr) Position() Position { return e.Pos }
@@ -156,7 +173,8 @@ func (e *SpliceExpr) exprNode()          {}
 type CatchExpr struct {
 	Pos     Position
 	Expr    Expr
-	Codes   []types.ErrorCode
+	Codes   []string
+	IsAny   bool
 	Default Expr
 }
 
@@ -253,14 +271,14 @@ func (s *WhileStmt) stmtNode()          {}
 
 // ForStmt represents for loops (list, range, or map iteration)
 type ForStmt struct {
-	Pos       Position
-	Label     string // Optional loop label
-	Value     string // Variable name for value
-	Index     string // Variable name for index/key (optional)
-	Container Expr   // List/map expression or nil for range
-	RangeStart Expr  // For range loops: start expression
-	RangeEnd   Expr  // For range loops: end expression
-	Body      []Stmt
+	Pos        Position
+	Label      string // Optional loop label
+	Value      string // Variable name for value
+	Index      string // Variable name for index/key (optional)
+	Container  Expr   // List/map expression or nil for range
+	RangeStart Expr   // For range loops: start expression
+	RangeEnd   Expr   // For range loops: end expression
+	Body       []Stmt
 }
 
 func (s *ForStmt) Position() Position { return s.Pos }
@@ -305,9 +323,9 @@ type TryExceptStmt struct {
 
 type ExceptClause struct {
 	Pos      Position
-	Variable string           // Optional: binds the caught error
-	Codes    []types.ErrorCode // Error codes to catch (empty means ANY)
-	IsAny    bool             // True if catching ANY
+	Variable string   // Optional: binds the caught error
+	Codes    []string // Error names to catch (empty when IsAny is true)
+	IsAny    bool     // True if catching ANY
 	Body     []Stmt
 }
 
@@ -356,9 +374,9 @@ func (s *ScatterStmt) stmtNode()          {}
 // ForkStmt represents fork [varname] (delay) body endfork
 type ForkStmt struct {
 	Pos     Position
-	Delay   Expr     // Delay expression (seconds)
-	VarName string   // Variable name for task ID (empty = anonymous)
-	Body    []Stmt   // Fork body statements
+	Delay   Expr   // Delay expression (seconds)
+	VarName string // Variable name for task ID (empty = anonymous)
+	Body    []Stmt // Fork body statements
 }
 
 func (s *ForkStmt) Position() Position { return s.Pos }
