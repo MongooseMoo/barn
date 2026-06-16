@@ -64,18 +64,129 @@ func (db *Database) readQueuedTasks(r *bufio.Reader) error {
 
 	db.QueuedTasks = make([]*QueuedTask, 0, count)
 	for i := 0; i < count; i++ {
-		// Skip task data for now - just read until terminator
-		for {
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(line) == "." {
-				break
-			}
+		task, err := db.readQueuedTask(r)
+		if err != nil {
+			return fmt.Errorf("read queued task %d: %w", i, err)
 		}
+		db.QueuedTasks = append(db.QueuedTasks, task)
 	}
 	return nil
+}
+
+func (db *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
+	header, err := r.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("read queued task header: %w", err)
+	}
+
+	var unused, firstLine int
+	task := &QueuedTask{Variables: make(map[string]types.Value)}
+	if _, err := fmt.Sscanf(header, "%d %d %d %d", &unused, &firstLine, &task.ID, &task.StartTime); err != nil {
+		return nil, fmt.Errorf("parse queued task header %q: %w", strings.TrimSpace(header), err)
+	}
+	_ = unused
+	_ = firstLine
+
+	if err := db.readQueuedTaskActivation(r, task); err != nil {
+		return nil, err
+	}
+	vars, err := db.readRtEnv(r)
+	if err != nil {
+		return nil, err
+	}
+	task.Variables = vars
+
+	for {
+		line, err := readLine(r)
+		if err != nil {
+			return nil, fmt.Errorf("read queued task source: %w", err)
+		}
+		if strings.TrimSpace(line) == "." {
+			break
+		}
+		task.Code = append(task.Code, line)
+	}
+
+	return task, nil
+}
+
+func (db *Database) readQueuedTaskActivation(r *bufio.Reader, task *QueuedTask) error {
+	if _, err := db.readValue(r); err != nil {
+		return fmt.Errorf("read activation temp value: %w", err)
+	}
+	if tempThis, err := db.readValue(r); err != nil {
+		return fmt.Errorf("read activation this value: %w", err)
+	} else if obj, ok := tempThis.(types.ObjValue); ok {
+		task.This = obj.ID()
+	}
+	if tempVerbLoc, err := db.readValue(r); err != nil {
+		return fmt.Errorf("read activation verb location: %w", err)
+	} else if obj, ok := tempVerbLoc.(types.ObjValue); ok {
+		task.VerbLoc = obj.ID()
+	}
+
+	if _, err := r.ReadString('\n'); err != nil {
+		return fmt.Errorf("read activation threaded flag: %w", err)
+	}
+
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read activation verbref: %w", err)
+	}
+	var thisObj, player, programmer, verbLoc types.ObjID
+	var unused1, unused2, unused3, unused4, debug int
+	if _, err := fmt.Sscanf(line, "%d %d %d %d %d %d %d %d %d",
+		&thisObj, &unused1, &unused2, &player, &unused3, &programmer, &verbLoc, &unused4, &debug); err != nil {
+		return fmt.Errorf("parse activation verbref %q: %w", strings.TrimSpace(line), err)
+	}
+	task.This = thisObj
+	task.Player = player
+	task.Programmer = programmer
+	task.VerbLoc = verbLoc
+	_ = debug
+
+	for i := 0; i < 4; i++ {
+		if _, err := readLine(r); err != nil {
+			return fmt.Errorf("read activation placeholder %d: %w", i, err)
+		}
+	}
+
+	verb, err := readLine(r)
+	if err != nil {
+		return fmt.Errorf("read activation verb: %w", err)
+	}
+	task.Verb = verb
+	if _, err := readLine(r); err != nil {
+		return fmt.Errorf("read activation verb aliases: %w", err)
+	}
+
+	return nil
+}
+
+func (db *Database) readRtEnv(r *bufio.Reader) (map[string]types.Value, error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("read runtime environment header: %w", err)
+	}
+
+	var count int
+	if _, err := fmt.Sscanf(line, "%d variables", &count); err != nil {
+		return nil, fmt.Errorf("parse runtime environment header %q: %w", strings.TrimSpace(line), err)
+	}
+
+	vars := make(map[string]types.Value, count)
+	for i := 0; i < count; i++ {
+		name, err := readLine(r)
+		if err != nil {
+			return nil, fmt.Errorf("read runtime variable %d name: %w", i, err)
+		}
+		value, err := db.readValue(r)
+		if err != nil {
+			return nil, fmt.Errorf("read runtime variable %q: %w", name, err)
+		}
+		vars[name] = value
+	}
+	return vars, nil
 }
 
 // readSuspendedTasks reads suspended tasks

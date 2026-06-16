@@ -95,6 +95,8 @@ func (s *Server) LoadDatabase() error {
 	builtins.LoadServerOptionsFromStore(s.store)
 	builtins.LoadProtectedBuiltinsFromStore(s.store)
 
+	s.scheduler.LoadQueuedTasks(database.QueuedTasks)
+
 	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	return nil
 }

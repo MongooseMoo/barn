@@ -558,6 +558,8 @@ func builtinServerVersion(ctx *types.TaskContext, args []types.Value) types.Resu
 		return types.Ok(types.NewStr(versionString))
 	case "features":
 		return types.Ok(features)
+	case "options.OUTBOUND_NETWORK":
+		return types.Ok(types.NewInt(1))
 	default:
 		return types.Err(types.E_INVARG)
 	}

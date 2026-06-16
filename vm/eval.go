@@ -7,6 +7,7 @@ import (
 	"barn/task"
 	"barn/types"
 	"fmt"
+	"strings"
 )
 
 // Evaluator walks the AST and evaluates expressions/statements
@@ -155,6 +156,7 @@ func BuildVMRegistry() *builtins.Registry {
 				types.NewList([]types.Value{types.NewStr(errorMsg)}),
 			}))
 		}
+		prog.Source = strings.Split(code, "\n")
 
 		// Get the calling VM. If available, push a frame on it instead of
 		// creating a separate VM. This keeps eval'd code on the same

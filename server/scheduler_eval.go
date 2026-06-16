@@ -7,6 +7,7 @@ import (
 	"barn/vm"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -97,6 +98,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 		}
 		return
 	}
+	prog.Source = strings.Split(code, "\n")
 
 	// Create bytecode VM and execute
 	bcVM := vm.NewVM(s.store, s.registry)

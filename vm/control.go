@@ -3,6 +3,7 @@ package vm
 import (
 	"barn/types"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -86,15 +87,16 @@ func (vm *VM) executeFork() error {
 	}
 
 	forkInfo := &types.ForkInfo{
-		Delay:     time.Duration(delaySeconds * float64(time.Second)),
-		VarName:   varName,
-		Body:      [3]interface{}{frame.Program, forkBodyIP, forkBodyLen}, // parent program, offset, length
-		ThisObj:   thisObj,
-		ThisValue: thisValue,
-		Player:    playerObj,
-		Caller:    callerObj,
-		Verb:      verbStr,
-		VerbLoc:   frame.VerbLoc,
+		Delay:       time.Duration(delaySeconds * float64(time.Second)),
+		VarName:     varName,
+		Body:        [3]interface{}{frame.Program, forkBodyIP, forkBodyLen}, // parent program, offset, length
+		SourceLines: sourceLinesForFork(frame.Program, forkBodyIP, forkBodyLen),
+		ThisObj:     thisObj,
+		ThisValue:   thisValue,
+		Player:      playerObj,
+		Caller:      callerObj,
+		Verb:        verbStr,
+		VerbLoc:     frame.VerbLoc,
 	}
 	// Store locals snapshot in Variables map for the scheduler
 	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))
@@ -112,6 +114,59 @@ func (vm *VM) executeFork() error {
 	}
 
 	return nil
+}
+
+func sourceLinesForFork(program *Program, bodyIP, bodyLen int) []string {
+	if program == nil || len(program.Source) == 0 || bodyLen <= 0 {
+		return nil
+	}
+
+	startLine := program.LineForIP(bodyIP)
+	endLine := program.LineForIP(bodyIP + bodyLen - 1)
+	if startLine <= 0 || endLine <= 0 {
+		return nil
+	}
+	if endLine < startLine {
+		endLine = startLine
+	}
+	if startLine > len(program.Source) {
+		return nil
+	}
+	if endLine > len(program.Source) {
+		endLine = len(program.Source)
+	}
+	if startLine == endLine {
+		if body := oneLineForkBody(program.Source[startLine-1]); body != "" {
+			return []string{body}
+		}
+	}
+
+	lines := make([]string, 0, endLine-startLine+1)
+	for i := startLine; i <= endLine; i++ {
+		lines = append(lines, program.Source[i-1])
+	}
+	return lines
+}
+
+func oneLineForkBody(source string) string {
+	lower := strings.ToLower(source)
+	forkIdx := strings.Index(lower, "fork")
+	if forkIdx < 0 {
+		return ""
+	}
+	headerEnd := strings.Index(source[forkIdx:], ")")
+	if headerEnd < 0 {
+		return ""
+	}
+	bodyStart := forkIdx + headerEnd + 1
+	endIdx := strings.Index(strings.ToLower(source[bodyStart:]), "endfork")
+	if endIdx < 0 {
+		return ""
+	}
+	body := strings.TrimSpace(source[bodyStart : bodyStart+endIdx])
+	body = strings.TrimPrefix(body, ";")
+	body = strings.TrimSpace(body)
+	return body
 }
 
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack

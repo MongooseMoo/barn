@@ -104,6 +104,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			t.SetState(task.TaskKilled)
 			return fmt.Errorf("compile error: %w", compileErr)
 		}
+		if t.VerbName != "" {
+			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && taskVerb != nil && len(taskVerb.Code) > 0 {
+				prog.Source = append([]string(nil), taskVerb.Code...)
+			}
+		}
 
 		// Update TaskContext for permissions and builtins
 		if t.VerbName != "" {

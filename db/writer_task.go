@@ -48,10 +48,11 @@ func (w *Writer) writeQueuedTasks() error {
 
 // writeQueuedTask writes a single queued (forked) task
 // Format:
-//   Header: "{unused} {firstLineno} {id} {st}"
-//   ActivationAsPI
-//   RtEnv: "{count} variables" + name/value pairs
-//   Code: lines ending with "."
+//
+//	Header: "{unused} {firstLineno} {id} {st}"
+//	ActivationAsPI
+//	RtEnv: "{count} variables" + name/value pairs
+//	Code: lines ending with "."
 func (w *Writer) writeQueuedTask(t *task.Task) error {
 	if t.ForkInfo == nil {
 		return fmt.Errorf("task has no ForkInfo")
@@ -63,7 +64,7 @@ func (w *Writer) writeQueuedTask(t *task.Task) error {
 	if len(t.CallStack) > 0 {
 		firstLineno = t.CallStack[0].LineNumber
 	}
-	st := t.QueueTime.Unix()
+	st := t.StartTime.Unix()
 
 	if _, err := fmt.Fprintf(w.w, "0 %d %d %d\n", firstLineno, t.ID, st); err != nil {
 		return err
@@ -122,8 +123,9 @@ func (w *Writer) writeSuspendedTasks() error {
 
 // writeSuspendedTask writes a single suspended task
 // Format:
-//   Header: "{startTime} {id} {type_code?} {value?}"
-//   VM struct
+//
+//	Header: "{startTime} {id} {type_code?} {value?}"
+//	VM struct
 func (w *Writer) writeSuspendedTask(t *task.Task) error {
 	// Header: {startTime} {id} [type value]
 	startTime := t.StartTime.Unix()
@@ -155,17 +157,18 @@ func (w *Writer) writeInterruptedTasks() error {
 
 // writeActivationAsPI writes activation in Program Info format
 // Format:
-//   temp_value (typed)
-//   temp_this (typed)
-//   temp_vloc (typed)
-//   threaded (raw int)
-//   Header: "{this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}"
-//   "No"
-//   "More"
-//   "Parse"
-//   "Infos"
-//   verb (string)
-//   verbname (string)
+//
+//	temp_value (typed)
+//	temp_this (typed)
+//	temp_vloc (typed)
+//	threaded (raw int)
+//	Header: "{this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}"
+//	"No"
+//	"More"
+//	"Parse"
+//	"Infos"
+//	verb (string)
+//	verbname (string)
 func (w *Writer) writeActivationAsPI(t *task.Task) error {
 	// Get values from task
 	thisObj := t.This
@@ -321,4 +324,3 @@ func (w *Writer) writeFullActivation(t *task.Task, index int) error {
 
 	return nil
 }
-
