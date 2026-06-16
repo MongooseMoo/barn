@@ -13,7 +13,7 @@ func (s *Scheduler) sendTracebackToPlayer(player types.ObjID, err types.ErrorCod
 	}
 
 	// Format traceback first
-	lines := task.FormatTraceback(stack, err, player)
+	lines := task.FormatTraceback(stack, err)
 
 	conn := s.connManager.GetConnection(player)
 	if conn == nil {
@@ -32,7 +32,7 @@ func (s *Scheduler) sendTracebackToPlayer(player types.ObjID, err types.ErrorCod
 // logTraceback logs a formatted traceback to the server log for a task
 func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode) {
 	stack := t.GetCallStack()
-	lines := task.FormatTraceback(stack, err, t.Owner)
+	lines := task.FormatTraceback(stack, err)
 	log.Printf("TRACEBACK: Task %d (#%d:%s) uncaught exception %s",
 		t.ID, t.This, t.VerbName, types.NewErr(err).String())
 	for _, line := range lines {
@@ -47,7 +47,7 @@ func (s *Scheduler) logCallVerbTraceback(objID types.ObjID, verbName string, err
 	if err == types.E_VERBNF {
 		return // Verb not found is expected for optional hooks
 	}
-	lines := task.FormatTraceback(stack, err, player)
+	lines := task.FormatTraceback(stack, err)
 	log.Printf("TRACEBACK: #%d:%s uncaught exception %s (player #%d)",
 		objID, verbName, types.NewErr(err).String(), player)
 	for _, line := range lines {
@@ -79,7 +79,7 @@ func (s *Scheduler) sendTraceback(t *task.Task, err types.ErrorCode) {
 	}
 
 	// Format and send the traceback
-	lines := task.FormatTraceback(t.GetCallStack(), err, t.Owner)
+	lines := task.FormatTraceback(t.GetCallStack(), err)
 	for _, line := range lines {
 		conn.Send(line)
 	}

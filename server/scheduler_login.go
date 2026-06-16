@@ -64,7 +64,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 				stack = st
 			}
 		}
-		lines := task.FormatTraceback(stack, result.Error, connID)
+		lines := task.FormatTraceback(stack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -111,7 +111,7 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 				stack = st
 			}
 		}
-		lines := task.FormatTraceback(stack, result.Error, connID)
+		lines := task.FormatTraceback(stack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}

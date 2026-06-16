@@ -296,7 +296,7 @@ func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message t
 	for _, frame := range stack {
 		stackValues = append(stackValues, frame.ToList())
 	}
-	traceLines := task.FormatTraceback(stack, t.Result.Error, t.Owner)
+	traceLines := task.FormatTraceback(stack, t.Result.Error)
 	traceValues := make([]types.Value, 0, len(traceLines))
 	for i, line := range traceLines {
 		if i == 0 {
