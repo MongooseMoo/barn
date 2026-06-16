@@ -129,9 +129,12 @@ func (r *Runner) runSetupBlock(block *SetupBlock, ctx *types.TaskContext) error 
 		return fmt.Errorf("setup parse error: %w", err)
 	}
 
-	result := r.evaluator.EvalStatements(stmts, ctx)
+	result := r.executeStatements(stmts, ctx)
 	if result.Flow == types.FlowException {
 		return fmt.Errorf("setup error: %s", errorCodeToName(result.Error))
+	}
+	if result.Flow == types.FlowParseError {
+		return fmt.Errorf("setup compile error: %v", result.Val)
 	}
 
 	return nil

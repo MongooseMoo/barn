@@ -110,8 +110,7 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 // CompileStatements compiles a slice of statements (e.g. a verb body) to a Program.
 // An implicit "return 0" is appended if no explicit return is present (MOO verbs
 // return 0 by default). When the last statement is a loop, its result value
-// (from break expr or default 0) is used as the implicit return value, matching
-// tree-walker EvalStatements behavior.
+// (from break expr or default 0) is used as the implicit return value.
 // VarNames is populated from the compiler's variable table.
 func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 	c.beginScope()
@@ -136,7 +135,7 @@ func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 		}
 
 		// If the last statement is a loop, it pushed its result onto the stack.
-		// Use OP_RETURN to return that value (matches tree-walker lastResult behavior).
+		// Use OP_RETURN to return that value.
 		if isLoopStmt(last) {
 			c.emit(OP_RETURN)
 		} else {
@@ -2563,8 +2562,7 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 			c.emit(OP_SET_VAR)
 			c.emitByte(byte(targetVar))
 		}
-		// When no default is specified, leave the variable as-is (do nothing).
-		// This matches MOO semantics: ?var with no default keeps its current value.
+		// When no default is specified, leave the variable as-is.
 		return nil
 	}
 

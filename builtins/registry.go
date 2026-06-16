@@ -20,7 +20,7 @@ type Registry struct {
 	nameToID   map[string]int
 	idToName   map[int]string
 	nextID     int
-	verbCaller VerbCallerFunc // Callback for calling verbs (set by evaluator)
+	verbCaller VerbCallerFunc // Callback for calling verbs
 }
 
 // NewRegistry creates a new builtin function registry
@@ -321,7 +321,7 @@ func NewRegistry() *Registry {
 	r.Register("raise", builtinRaise)
 	r.Register("yin", builtinYin)
 
-	// Note: eval() builtin is registered by the Evaluator via RegisterEvalBuiltin()
+	// eval() is registered by the bytecode VM registry.
 	// to avoid circular dependencies (eval needs parser which needs eval)
 
 	return r
@@ -363,7 +363,7 @@ func (r *Registry) CallByID(id int, ctx *types.TaskContext, args []types.Value) 
 }
 
 // CallByName calls a builtin function by name, applying protected-builtin
-// redirection first. Used by the tree-walking evaluator path.
+// redirection first.
 func (r *Registry) CallByName(name string, ctx *types.TaskContext, args []types.Value) (types.Result, bool) {
 	fn, ok := r.funcs[name]
 	if !ok {
@@ -387,6 +387,7 @@ func (r *Registry) dispatch(name string, fn BuiltinFunc, ctx *types.TaskContext,
 //   - if that verb exists, its result (return or raise) becomes the call result;
 //   - if it does not exist, a wizard caller falls through to the real builtin
 //     (ok=false) and a non-wizard caller gets E_PERM.
+//
 // Returns (result, true) when the call was handled by the redirect path, or
 // (_, false) when the caller should run the real builtin normally.
 func (r *Registry) maybeProtectedRedirect(name string, ctx *types.TaskContext, args []types.Value) (types.Result, bool) {

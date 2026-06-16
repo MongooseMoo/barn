@@ -80,7 +80,7 @@ func (vm *VM) executeGetProp() error {
 }
 
 // getWaifProp handles property read on a waif value.
-// Mirrors the tree-walker's waifProperty() logic.
+// Reads a waif property, falling back to the waif's class object.
 func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	// Special waif properties
 	switch propName {
@@ -231,7 +231,7 @@ func (vm *VM) executeSetProp() error {
 }
 
 // setWaifProp handles property assignment on a waif value.
-// Mirrors the tree-walker's assignWaifProperty() logic.
+// Assigns a waif property and returns the copied waif value.
 func (vm *VM) setWaifProp(waif types.WaifValue, propName string, value types.Value) error {
 	// These properties cannot be set on waifs
 	switch propName {
@@ -247,7 +247,7 @@ func (vm *VM) setWaifProp(waif types.WaifValue, propName string, value types.Val
 	// Set property on waif (creates a new waif with the property set)
 	// Note: Waifs use copy-on-write semantics. The VM does not currently
 	// propagate the new waif back to the source variable. This matches
-	// the tree-walker's limitation for non-simple-identifier cases.
+	// non-simple-identifier cases.
 	_ = waif.SetProperty(propName, value)
 
 	return nil
@@ -338,7 +338,6 @@ func findProperty(store *db.Store, obj *db.Object, name string) (*db.Property, t
 }
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
-// This mirrors the tree-walker's getBuiltinProperty logic.
 func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 	switch name {
 	case "name":
@@ -411,7 +410,6 @@ func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 }
 
 // setBuiltinProperty sets a built-in object property.
-// This mirrors the tree-walker's setBuiltinProperty logic.
 func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":

@@ -145,18 +145,14 @@ func (s *Scheduler) Fork(ctx *types.TaskContext, code []parser.Stmt, delay time.
 	return s.CreateBackgroundTask(ctx.Player, code, delay)
 }
 
-// CreateForkedTask creates a forked child task from fork statement
-// Implements task.ForkCreator interface
-// Handles both bytecode VM forks (Body is [3]interface{}{*Program, IP, Len})
-// and tree-walker forks (Body is []parser.Stmt).
+// CreateForkedTask creates a forked child task from a bytecode VM fork yield.
+// Implements task.ForkCreator interface.
 func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 
-	// Determine the fork body type
 	var t *task.Task
 
 	if bcFork, ok := forkInfo.Body.([3]interface{}); ok {
-		// Bytecode VM fork: Body is [3]interface{}{*Program, bodyIP, bodyLen}
 		parentProg, ok1 := bcFork[0].(*vm.Program)
 		bodyIP, ok2 := bcFork[1].(int)
 		bodyLen, ok3 := bcFork[2].(int)
@@ -167,7 +163,6 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		// Extract the fork body as a sub-program
 		forkProg := parentProg.ExtractForkBody(bodyIP, bodyLen)
 
-		// Create child task -- Code stays nil since we'll use BytecodeVM path
 		ticks, seconds := backgroundTaskLimits()
 		t = task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
 		s.populateTaskContextDependencies(t.Context)
@@ -194,23 +189,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 			vm.SetLocalByName(frame, forkProg, varName, varVal)
 		}
 
-		// The child VM is stored on the task and will be executed via ExecuteLoop
-		// when runTask picks it up. We need a special code path for this.
-		// Store the VM as BytecodeVM so runTask's resume path handles it.
 		t.BytecodeVM = childVM
-
-	} else if body, ok := forkInfo.Body.([]parser.Stmt); ok {
-		// Tree-walker fork: Body is []parser.Stmt
-		ticks, seconds := backgroundTaskLimits()
-		t = task.NewTaskFull(taskID, forkInfo.Player, body, ticks, seconds)
-		s.populateTaskContextDependencies(t.Context)
-
-		// Create evaluator with copied variable environment
-		childEnv := vm.NewEnvironment()
-		for k, v := range forkInfo.Variables {
-			childEnv.Set(k, v)
-		}
-		t.Evaluator = vm.NewEvaluatorWithEnvAndStore(childEnv, s.store)
 	} else {
 		return 0 // Unknown fork body type
 	}

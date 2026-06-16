@@ -130,8 +130,7 @@ type Task struct {
 	IsForked bool            // True if this is a forked task
 
 	// Execution fields (use interface{} to avoid circular imports)
-	Code           interface{}        // []parser.Stmt - actual code to execute
-	Evaluator      interface{}        // *vm.Evaluator - evaluator for execution
+	Code           interface{}        // []parser.Stmt - parsed code compiled on first run
 	BytecodeVM     interface{}        // *vm.VM - bytecode VM for execution (saved across suspend/resume)
 	Context        *types.TaskContext // Task execution context
 	Result         types.Result       // Last execution result
@@ -187,7 +186,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 	}
 }
 
-// NewTaskFull creates a task with full context (code, evaluator, etc)
+// NewTaskFull creates a task with full execution context.
 func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64, secondsLimit float64) *Task {
 	ctx := types.NewTaskContext()
 	ctx.Player = owner

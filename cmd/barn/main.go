@@ -365,7 +365,6 @@ func dumpObjInfo(store *db.Store, spec string) {
 
 // evalExpression parses and evaluates a MOO expression
 func evalExpression(store *db.Store, expr string) {
-	// Parse the expression
 	p := parser.NewParser(expr)
 	node, err := p.ParseExpression(0)
 	if err != nil {
@@ -373,23 +372,28 @@ func evalExpression(store *db.Store, expr string) {
 		os.Exit(1)
 	}
 
-	// Create an evaluator with the store
-	evaluator := vm.NewEvaluatorWithStore(store)
+	registry := vm.BuildVMRegistry()
+	compiler := vm.NewCompilerWithRegistry(registry)
+	prog, err := compiler.Compile(&parser.ReturnStmt{Value: node})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Compile error: %v\n", err)
+		os.Exit(1)
+	}
 
-	// Create a task context
 	ctx := types.NewTaskContext()
 	ctx.Store = store
-	ctx.Registry = evaluator.GetRegistry()
+	ctx.Registry = registry
 
-	// Evaluate the expression
-	result := evaluator.Eval(node, ctx)
+	machine := vm.NewVM(store, registry)
+	machine.Context = ctx
+	result := machine.Run(prog)
 
-	// Print the result
-	if result.IsNormal() {
-		// Success - print the value in MOO literal format
+	if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
+		if result.Val == nil {
+			result.Val = types.NewInt(0)
+		}
 		fmt.Printf("=> %s\n", result.Val.String())
 	} else {
-		// Error - print the error code
 		fmt.Printf("Error: %s\n", result.Error.String())
 	}
 }

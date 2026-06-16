@@ -193,12 +193,6 @@ func CollectPendingFinalizationValues(store *db.Store, exec *VM) []types.Value {
 	return pendingFinalizationValues(store, refs)
 }
 
-// AutoRecycleOrphanAnonymous recycles anonymous objects that are not reachable
-// from any persistent non-anonymous object's properties.
-func (e *Evaluator) AutoRecycleOrphanAnonymous(ctx *types.TaskContext) {
-	AutoRecycleOrphanAnonymousWith(e.store, e.builtins, ctx)
-}
-
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
 func AutoRecycleOrphanAnonymousWith(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext) {

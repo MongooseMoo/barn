@@ -433,13 +433,13 @@ func (vm *VM) executeIndexMarker() error {
 }
 
 // executeListRange handles OP_LIST_RANGE: pop end, start; push {start..end} list.
-// Matches tree-walker behavior: ascending if start <= end, descending if start > end.
+// MOO ranges ascend if start <= end and descend if start > end.
 // Accepts INT and OBJ types (OBJ treated as its ID value).
 func (vm *VM) executeListRange() error {
 	endVal := vm.Pop()
 	startVal := vm.Pop()
 
-	// Extract integer values (accept both INT and OBJ types, matching tree-walker)
+	// Extract integer values; object IDs are accepted as integer-like indices.
 	var start, end int64
 
 	switch v := startVal.(type) {

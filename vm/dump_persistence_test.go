@@ -20,9 +20,9 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	ctx.Programmer = 3
 	ctx.IsWizard = true
 
-	setup := `try delete_property(#1, "persist_prop"); except (ANY) endtry; add_property(#1, "persist_prop", "base", {player, ""}); #0.persist_prop = "child-override"; return #0.persist_prop;`
-	result := treeEvalProgramWithStoreAndCtx(t, setup, store, ctx)
-	if result.IsError() {
+	setup := `try delete_property(#1, "persist_prop"); except (ANY) endtry; add_property(#1, "persist_prop", "base", {#3, ""}); #0.persist_prop = "child-override"; return #0.persist_prop;`
+	result := runBytecodeProgram(t, setup, store, ctx)
+	if result.Flow == types.FlowException {
 		t.Fatalf("setup failed: %v", result.Error)
 	}
 	if got := result.Val.(types.StrValue).Value(); got != "child-override" {

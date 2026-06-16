@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"barn/builtins"
 	"barn/db"
 	"barn/parser"
 	"barn/server"
@@ -23,7 +24,8 @@ type TestResult struct {
 
 // Runner executes conformance tests
 type Runner struct {
-	evaluator   *vm.Evaluator
+	store       *db.Store
+	registry    *builtins.Registry
 	setupSuites map[string]bool // Track which suites have had setup run
 }
 
@@ -38,8 +40,10 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	database, err := db.LoadDatabase(dbPath)
 	if err != nil {
 		// Fall back to empty store if database can't be loaded
+		store := db.NewStore()
 		return &Runner{
-			evaluator:   vm.NewEvaluator(),
+			store:       store,
+			registry:    vm.BuildVMRegistry(),
 			setupSuites: make(map[string]bool),
 		}
 	}
@@ -51,19 +55,21 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	setupStoreForTests(store)
 
 	return &Runner{
-		evaluator:   vm.NewEvaluatorWithStore(store),
+		store:       store,
+		registry:    vm.BuildVMRegistry(),
 		setupSuites: make(map[string]bool),
 	}
 }
 
-// NewRunnerWithServer creates a test runner using a server's evaluator
+// NewRunnerWithServer creates a test runner using a server's store.
 func NewRunnerWithServer(srv *server.Server) *Runner {
 	// Apply the same store setup that NewRunnerWithDB does
 	store := srv.GetStore()
 	setupStoreForTests(store)
 
 	return &Runner{
-		evaluator:   srv.GetEvaluator(),
+		store:       store,
+		registry:    vm.BuildVMRegistry(),
 		setupSuites: make(map[string]bool),
 	}
 }
@@ -81,8 +87,8 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 
 	// Create task context
 	ctx := types.NewTaskContext()
-	ctx.Store = r.evaluator.GetStore()
-	ctx.Registry = r.evaluator.GetRegistry()
+	ctx.Store = r.store
+	ctx.Registry = r.registry
 
 	// Set up player and programmer for tests
 	// Tests expect player to be #1 (matches environment.go default)
@@ -129,7 +135,7 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 				Error:  fmt.Errorf("parse error: %w", err),
 			}
 		}
-		result = r.evaluator.EvalStatements(stmts, ctx)
+		result = r.executeStatements(stmts, ctx)
 		// Handle FlowReturn - extract the value
 		if result.Flow == types.FlowReturn {
 			result = types.Ok(result.Val)
@@ -145,7 +151,10 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 				Error:  fmt.Errorf("parse error: %w", err),
 			}
 		}
-		result = r.evaluator.Eval(expr, ctx)
+		result = r.executeStatements([]parser.Stmt{&parser.ReturnStmt{Value: expr}}, ctx)
+		if result.Flow == types.FlowReturn {
+			result = types.Ok(result.Val)
+		}
 	} else {
 		// No code to execute
 		return TestResult{
@@ -162,6 +171,25 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 		Passed: passed,
 		Error:  err,
 	}
+}
+
+func (r *Runner) executeStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
+	compiler := vm.NewCompilerWithRegistry(r.registry)
+	prog, err := compiler.CompileStatements(stmts)
+	if err != nil {
+		return types.Result{Flow: types.FlowParseError, Val: types.NewStr(err.Error())}
+	}
+
+	machine := vm.NewVM(r.store, r.registry)
+	machine.Context = ctx
+	result := machine.Run(prog)
+	for result.Flow == types.FlowSuspend || result.Flow == types.FlowFork {
+		if result.Flow == types.FlowFork && result.ForkInfo != nil && result.ForkInfo.VarName != "" {
+			machine.SetForkResult(0)
+		}
+		result = machine.Resume()
+	}
+	return result
 }
 
 // RunAll executes all loaded tests

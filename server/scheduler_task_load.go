@@ -57,7 +57,6 @@ func (s *Scheduler) loadQueuedTask(saved *db.QueuedTask) error {
 	t.VerbLoc = saved.VerbLoc
 	t.ForkCreator = s
 	t.ForkInfo = &types.ForkInfo{
-		Body:        program.Statements,
 		SourceLines: append([]string(nil), saved.Code...),
 		Variables:   copyValueMap(saved.Variables),
 		ThisObj:     saved.This,

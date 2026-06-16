@@ -106,11 +106,6 @@ func (s *Server) GetStore() *db.Store {
 	return s.store
 }
 
-// GetEvaluator returns the evaluator from the scheduler
-func (s *Server) GetEvaluator() *vm.Evaluator {
-	return s.scheduler.GetEvaluator()
-}
-
 // Start starts the server
 func (s *Server) Start() error {
 	s.mu.Lock()

@@ -26,7 +26,7 @@ func TestConformance(t *testing.T) {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
-	// Create runner using server's evaluator
+	// Create runner using server state
 	runner := NewRunnerWithServer(srv)
 
 	// Run all tests

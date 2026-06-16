@@ -73,7 +73,7 @@ func (vm *VM) executeCallBuiltin() error {
 // getPrimitivePrototypeFromStore returns the prototype object ID for a primitive value
 // by reading the appropriate property (str_proto, int_proto, etc.) from #0.
 // Returns ObjNothing if no prototype is configured for this type.
-// This mirrors Evaluator.getPrimitivePrototype() but takes a *db.Store directly.
+// Primitive prototypes are configured through #0's *_proto properties.
 func getPrimitivePrototypeFromStore(store *db.Store, val types.Value) types.ObjID {
 	sysObj := store.Get(0)
 	if sysObj == nil {

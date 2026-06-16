@@ -19,10 +19,10 @@ const (
 	FlowEvalPush                      // eval() pushed a frame on the calling VM
 )
 
-// ForkInfo contains information needed to create a forked task
-// Note: Body is []interface{} to avoid circular dependency with parser package
+// ForkInfo contains information needed to create a forked task.
+// Body carries the bytecode VM fork payload without importing the vm package.
 type ForkInfo struct {
-	Body        interface{}      // []parser.Stmt - Fork body to execute
+	Body        interface{}      // [3]interface{}{*vm.Program, bodyIP, bodyLen}
 	SourceLines []string         // Original source lines (for database serialization)
 	Delay       time.Duration    // Delay before execution
 	VarName     string           // Variable to store task ID (empty = anonymous)
