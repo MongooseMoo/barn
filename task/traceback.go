@@ -26,12 +26,20 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
 	for i := len(stack) - 1; i >= 0; i-- {
 		frame := &stack[i]
 
+		// The eval'd-code activation is shown as "Input to EVAL" (Toast labels
+		// the frame this way in printed tracebacks even though its stored verb
+		// name is empty).
+		verbName := frame.Verb
+		if frame.IsEvalFrame {
+			verbName = "Input to EVAL"
+		}
+
 		var line string
 		if i == len(stack)-1 {
 			// Top frame - where the error occurred - include error message
 			line = fmt.Sprintf("#%d:%s (this == #%d), line %d:  %s",
 				frame.VerbLoc,
-				frame.Verb,
+				verbName,
 				frame.This,
 				frame.LineNumber,
 				err.Message())
@@ -39,11 +47,17 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
 			// Lower frames - show as "called from"
 			line = fmt.Sprintf("... called from #%d:%s (this == #%d), line %d",
 				frame.VerbLoc,
-				frame.Verb,
+				verbName,
 				frame.This,
 				frame.LineNumber)
 		}
 		lines = append(lines, line)
+
+		// Toast inserts a synthetic bf_eval marker beneath the eval'd-code
+		// activation, since the error propagated out through the eval() builtin.
+		if frame.IsEvalFrame {
+			lines = append(lines, "... called from built-in function eval()")
+		}
 	}
 
 	// End of traceback marker
