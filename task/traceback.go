@@ -26,10 +26,14 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
 	for i := len(stack) - 1; i >= 0; i-- {
 		frame := &stack[i]
 
-		// The eval'd-code activation is shown as "Input to EVAL" (Toast labels
-		// the frame this way in printed tracebacks even though its stored verb
-		// name is empty).
+		// Printed tracebacks name the frame by the verb's stored name spec
+		// (e.g. "eval*-d"), not the word it was invoked with — matching Toast,
+		// whose traceback uses db_verb_names while callers()/task_stack() use the
+		// invoked name. The eval'd-code activation is shown as "Input to EVAL".
 		verbName := frame.Verb
+		if frame.StoredVerb != "" {
+			verbName = frame.StoredVerb
+		}
 		if frame.IsEvalFrame {
 			verbName = "Input to EVAL"
 		}

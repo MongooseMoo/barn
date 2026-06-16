@@ -91,6 +91,7 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 			Programmer:  types.ObjNothing,
 			Caller:      frame.Caller,
 			Verb:        frame.Verb,
+			StoredVerb:  frame.StoredVerb,
 			VerbLoc:     frame.VerbLoc,
 			Args:        frame.Args,
 			LineNumber:  line,

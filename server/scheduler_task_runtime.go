@@ -145,9 +145,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// Prepare frame first, then set ALL variables before execution
 			frame := bcVM.PrepareVerbFrame(prog, t.This, t.Owner, t.Caller, t.VerbName, t.VerbLoc, argList)
 
-			// Set verb debug flag from the actual verb permissions
+			// Set verb debug flag from the actual verb permissions, and record the
+			// verb's stored name spec (incl. wildcards) for printed tracebacks.
 			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && taskVerb != nil {
 				frame.VerbDebug = taskVerb.Perms.Has(db.VerbDebug)
+				frame.StoredVerb = strings.Join(taskVerb.Names, " ")
 			}
 
 			// Set verb context variables

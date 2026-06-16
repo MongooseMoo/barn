@@ -60,7 +60,8 @@ type ActivationFrame struct {
 	Player          types.ObjID   // Player who initiated this task
 	Programmer      types.ObjID   // Programmer (for permissions)
 	Caller          types.ObjID   // Object that called this verb
-	Verb            string        // Verb name
+	Verb            string        // Verb name as invoked (callers()/task_stack())
+	StoredVerb      string        // Verb's stored name spec incl. wildcards; used by printed tracebacks
 	VerbLoc         types.ObjID   // Object where verb is defined
 	Args            []types.Value // Arguments passed to verb
 	LineNumber      int           // Current line number in verb

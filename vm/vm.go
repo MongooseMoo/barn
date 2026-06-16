@@ -35,7 +35,8 @@ type StackFrame struct {
 	Locals       []types.Value // Local variables
 	This         types.ObjID   // Current object
 	Player       types.ObjID   // Player context
-	Verb         string        // Verb name
+	Verb         string        // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
+	StoredVerb   string        // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
 	Caller       types.ObjID   // Calling object
 	VerbLoc      types.ObjID   // Object where the current verb is defined (for pass())
 	Args         []types.Value // Original args passed to this verb (for pass() inheritance)
