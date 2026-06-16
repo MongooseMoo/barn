@@ -243,12 +243,22 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		if !t.IsForked {
 			s.logTraceback(t, result.Error)
 		}
-		// Database eval verbs already package errors for the client; emitting
-		// traceback lines here pollutes the structured response stream.
+		// An uncaught error aborts the task; report it to the player the way
+		// Toast does. (When a database's eval verb catches the error itself —
+		// e.g. Test.db wraps results as {status, result} — the task completes
+		// normally and never reaches this branch.) Tick exhaustion gets the
+		// friendlier one-line message instead of a full traceback.
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.sendTaskLine(t.Owner, "Task ran out of ticks")
-		} else if t.VerbName != "eval" && !t.IsForked {
-			s.sendTraceback(t, result.Error)
+		} else if !t.IsForked {
+			// Prefer the activation stack snapshotted at raise time (carried on
+			// the result): the live call stack has already unwound, so it would
+			// report the eval frame instead of the verb where the error occurred.
+			if stack, ok := result.CallStack.([]task.ActivationFrame); ok && len(stack) > 0 {
+				s.sendTracebackToPlayer(t.Owner, result.Error, stack)
+			} else {
+				s.sendTraceback(t, result.Error)
+			}
 		}
 		// Clean up call stack after traceback has been sent
 		for len(t.CallStack) > 0 {

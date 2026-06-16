@@ -603,7 +603,10 @@ func (vm *VM) HandleError(err error) bool {
 	// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
 	// the traceback contains accurate call-site lines.
 	vm.syncTaskLineNumbers()
-	traceback := vm.buildTraceback()
+	// Toast includes the eval'd-code activation in the traceback when the error
+	// is caught at (or unwinds to) the eval frame, but not when a verb above the
+	// eval frame catches it first. Decide which case we're in before unwinding.
+	traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
 
 	// Build or augment the 4-element exception value: {code, message, value, traceback}
 	if exceptionValue == nil {

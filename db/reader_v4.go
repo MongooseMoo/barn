@@ -283,7 +283,10 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 
 		obj.PropOrder[i] = propName // Track order for resolution
 
-		prop := &Property{Name: propName}
+		// The first propDefCount entries are the property definitions added on
+		// this object (vs. inherited slots). Mark them Defined so properties()
+		// reports them, matching Toast.
+		prop := &Property{Name: propName, Defined: i < propDefCount}
 
 		// Value
 		prop.Value, err = db.readValue(r)

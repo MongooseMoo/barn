@@ -7,9 +7,13 @@ import (
 
 // buildTraceback returns a MOO list of stack frames suitable for the 4th
 // element of a caught exception value.  Frames are ordered innermost-first
-// (the verb where the error occurred comes first).  Only real verb frames
-// are included — eval infrastructure is excluded.
-func (vm *VM) buildTraceback() types.Value {
+// (the verb where the error occurred comes first).  Eval infrastructure below
+// the eval'd-code activation (the bf_eval marker and the verb that called
+// eval()) is always excluded.  The eval'd-code activation itself is included
+// only when includeEvalFrame is set — i.e. when the error is caught at, or
+// unwinds to, the eval boundary rather than being caught by a verb above it
+// (matching ToastStunt).
+func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
 	if vm.Context == nil || vm.Context.Task == nil {
 		return types.NewList([]types.Value{})
 	}
@@ -23,8 +27,11 @@ func (vm *VM) buildTraceback() types.Value {
 	for i := len(stack) - 1; i >= 0; i-- {
 		f := stack[i]
 		if f.IsEvalFrame {
-			// Stop at eval boundary — don't include eval infrastructure
-			// or the verb that called eval() (frames below this point)
+			if includeEvalFrame {
+				frames = append(frames, f.ToList())
+			}
+			// Stop at the eval boundary either way — frames below are eval
+			// infrastructure, not part of the in-eval traceback.
 			break
 		}
 		if f.ServerInitiated {
@@ -33,6 +40,26 @@ func (vm *VM) buildTraceback() types.Value {
 		frames = append(frames, f.ToList())
 	}
 	return types.NewList(frames)
+}
+
+// matchingExceptAboveEvalFrame reports whether some frame strictly above the
+// nearest eval frame has an except handler that matches errCode. When true, that
+// verb catches the error before it reaches the eval boundary, so the eval'd-code
+// activation is not part of the traceback. Finally handlers are ignored: they run
+// and re-raise, so they do not stop propagation toward the eval frame.
+func (vm *VM) matchingExceptAboveEvalFrame(errCode types.ErrorCode) bool {
+	for i := len(vm.Frames) - 1; i >= 0; i-- {
+		frame := vm.Frames[i]
+		if frame.IsEvalFrame {
+			return false
+		}
+		for _, h := range frame.ExceptStack {
+			if h.Type == HandlerExcept && h.Matches(errCode) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // snapshotActivationFrames captures the current VM call chain as activation
