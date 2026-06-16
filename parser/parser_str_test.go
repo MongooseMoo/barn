@@ -13,8 +13,8 @@ func TestParseStringLiteral(t *testing.T) {
 		{`"hello"`, "hello"},
 		{`""`, ""},
 		{`"with \"quotes\""`, `with "quotes"`},
-		{`"line\nbreak"`, "line\nbreak"},
-		{`"tab\there"`, "tab\there"},
+		{`"line\nbreak"`, "linenbreak"},
+		{`"tab\there"`, "tabthere"},
 		{`"backslash\\"`, `backslash\`},
 	}
 

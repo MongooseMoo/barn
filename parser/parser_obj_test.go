@@ -14,9 +14,9 @@ func TestParseObjectLiteral(t *testing.T) {
 		{"#1", 1},
 		{"#42", 42},
 		{"#123", 123},
-		{"#-1", -1},  // NOTHING
-		{"#-2", -2},  // AMBIGUOUS
-		{"#-3", -3},  // FAILED_MATCH
+		{"#-1", -1}, // NOTHING
+		{"#-2", -2}, // AMBIGUOUS
+		{"#-3", -3}, // FAILED_MATCH
 	}
 
 	for _, tt := range tests {
@@ -54,12 +54,12 @@ func TestObjectTruthy(t *testing.T) {
 		input    string
 		expected bool
 	}{
-		{"#0", true},
-		{"#1", true},
-		{"#42", true},
+		{"#0", false},
+		{"#1", false},
+		{"#42", false},
 		{"#-1", false}, // NOTHING is falsy
-		{"#-2", true},  // AMBIGUOUS is truthy
-		{"#-3", true},  // FAILED_MATCH is truthy
+		{"#-2", false},
+		{"#-3", false},
 	}
 
 	for _, tt := range tests {

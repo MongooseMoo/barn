@@ -61,7 +61,7 @@ func TestParseErrorLiteral(t *testing.T) {
 }
 
 func TestErrorTruthy(t *testing.T) {
-	// All errors are truthy
+	// ToastStunt treats error values as falsy in conditionals.
 	tests := []string{
 		"E_NONE",
 		"E_TYPE",
@@ -76,8 +76,8 @@ func TestErrorTruthy(t *testing.T) {
 				t.Fatalf("ParseLiteral() error = %v", err)
 			}
 
-			if !val.Truthy() {
-				t.Error("errors should always be truthy")
+			if val.Truthy() {
+				t.Error("errors should be falsy")
 			}
 		})
 	}
