@@ -490,11 +490,19 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID
 		}
 		// Fallback for verbs present in the map but not matched above (e.g. verbs
 		// with an unpopulated Names slice): exact and colon-prefixed map lookups.
-		if verb, ok := obj.Verbs[verbName]; ok {
-			return verb, current, nil
-		}
-		if verb, ok := obj.Verbs[":"+verbName]; ok {
-			return verb, current, nil
+		// The map is keyed by the full stored name, so a lookup string containing
+		// "*" would otherwise match a wildcard verb by its literal spec (e.g.
+		// "foo*bar") — but "*" is special only in the stored name, not in the
+		// lookup word, so Toast's verbcasecmp rejects it. Skip the literal
+		// fallback for such lookups; the wildcard scan above already handled any
+		// legitimate match.
+		if !strings.Contains(verbName, "*") {
+			if verb, ok := obj.Verbs[verbName]; ok {
+				return verb, current, nil
+			}
+			if verb, ok := obj.Verbs[":"+verbName]; ok {
+				return verb, current, nil
+			}
 		}
 
 		// Not found on this object, add parents to queue
@@ -528,11 +536,16 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (*Verb, err
 			}
 		}
 	}
-	if verb, ok := obj.Verbs[verbName]; ok {
-		return verb, nil
-	}
-	if verb, ok := obj.Verbs[":"+verbName]; ok {
-		return verb, nil
+	// See FindVerb: a lookup string containing "*" must not match a stored
+	// wildcard name literally (Toast's verbcasecmp rejects "*" in the lookup
+	// word). The wildcard scan above already handled any legitimate match.
+	if !strings.Contains(verbName, "*") {
+		if verb, ok := obj.Verbs[verbName]; ok {
+			return verb, nil
+		}
+		if verb, ok := obj.Verbs[":"+verbName]; ok {
+			return verb, nil
+		}
 	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
 }
