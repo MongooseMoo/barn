@@ -34,7 +34,7 @@ Results:
 
 ## Commit
 
-Pending.
+`4150219 Move parent changes into store`
 
 ## Next Slice
 
