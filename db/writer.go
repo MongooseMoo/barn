@@ -29,6 +29,7 @@ const (
 type Writer struct {
 	w                    *bufio.Writer
 	store                *Store
+	snapshot             storeSnapshot
 	waifIndex            map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
 	nextWaifID           int
 	pendingFinalizations []types.Value
@@ -52,6 +53,8 @@ func (w *Writer) Flush() error {
 
 // WriteDatabase writes a complete database to the writer
 func (w *Writer) WriteDatabase() error {
+	w.snapshot = w.store.snapshot()
+
 	// 1. Version header
 	if err := w.writeString("** LambdaMOO Database, Format Version 17 **"); err != nil {
 		return fmt.Errorf("write version: %w", err)
@@ -360,14 +363,11 @@ func (w *Writer) writeWaif(waif types.WaifValue) error {
 
 	// Build WAIF propdef list from the class object's ":" prefixed properties.
 	var waifPropNames []string
-	classObj := w.store.Get(waif.Class())
-	if classObj != nil {
-		allNames, errCode := w.store.PropertyNames(classObj.ID)
-		if errCode == types.E_NONE {
-			for _, name := range allNames {
-				if len(name) > 0 && name[0] == ':' {
-					waifPropNames = append(waifPropNames, name)
-				}
+	classObj := w.snapshot.Objects[waif.Class()]
+	if validLiveObject(classObj) {
+		for _, name := range w.snapshot.PropertyNames[classObj.ID] {
+			if len(name) > 0 && name[0] == ':' {
+				waifPropNames = append(waifPropNames, name)
 			}
 		}
 	}

@@ -7,7 +7,7 @@ import (
 
 // writePlayers writes the players section
 func (w *Writer) writePlayers() error {
-	players := w.store.Players()
+	players := w.snapshot.Players
 	if err := w.writeInt(len(players)); err != nil {
 		return err
 	}
@@ -22,7 +22,7 @@ func (w *Writer) writePlayers() error {
 // writeObjects writes all regular (non-anonymous) objects
 func (w *Writer) writeObjects() error {
 	// Get max object ID for regular objects
-	maxID := w.store.MaxObject()
+	maxID := w.snapshot.MaxObject
 
 	// Write count (includes recycled slots, #0 through maxID)
 	if err := w.writeInt(int(maxID) + 1); err != nil {
@@ -31,7 +31,7 @@ func (w *Writer) writeObjects() error {
 
 	// Write objects in order, including recycled placeholders
 	for id := types.ObjID(0); id <= maxID; id++ {
-		obj := w.store.GetUnsafe(id)
+		obj := w.snapshot.Objects[id]
 		if obj == nil || obj.Recycled {
 			// Recycled object - just write marker
 			if err := w.writeString(fmt.Sprintf("# %d recycled", id)); err != nil {
@@ -55,7 +55,7 @@ func (w *Writer) writeObjects() error {
 
 // writeAnonymousObjects writes anonymous objects section
 func (w *Writer) writeAnonymousObjects() error {
-	anons := w.store.GetAnonymousObjects()
+	anons := w.snapshot.AnonymousObjects
 
 	// Write anonymous objects in batches (ToastStunt allows multiple batches)
 	// For simplicity, we write them all in one batch
@@ -192,10 +192,7 @@ func (w *Writer) writeVerbMetadata(verb *Verb) error {
 // Property order is recomputed from the parent chain at dump time to ensure
 // round-trip correctness even when properties are added/modified at runtime.
 func (w *Writer) writeProperties(obj *Object) error {
-	propNames, errCode := w.store.PropertyNames(obj.ID)
-	if errCode != types.E_NONE {
-		return fmt.Errorf("property names for #%d: %s", obj.ID, errCode)
-	}
+	propNames := w.snapshot.PropertyNames[obj.ID]
 
 	// Write propdef count (properties defined on this object)
 	propDefsCount := obj.PropDefsCount
@@ -277,7 +274,7 @@ func (w *Writer) writeVerbPrograms() error {
 	var verbs []verbRef
 
 	// Iterate all objects to collect verbs
-	for _, obj := range w.store.All() {
+	for _, obj := range w.snapshot.AllObjects {
 		if obj == nil || obj.Recycled {
 			continue
 		}
