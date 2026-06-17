@@ -71,7 +71,7 @@ Results:
 
 ## Commit
 
-Pending.
+`ed2525f Close verb mutations through store`
 
 ## Next Slice
 
