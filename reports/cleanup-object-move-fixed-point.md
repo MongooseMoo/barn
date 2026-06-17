@@ -36,7 +36,7 @@ Results:
 
 ## Commit
 
-Pending.
+`2e33025 Move object movement mutation into store`
 
 ## Next Slice
 
