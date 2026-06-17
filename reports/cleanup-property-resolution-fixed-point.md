@@ -68,7 +68,7 @@ Gate results:
 - Pass: `git diff --check`
 
 Commit:
-- Pending.
+- `8f2ab64 Consolidate property resolution in store`
 
 Next slice:
 - Close property and object mutation paths through `db.Store` so runtime callers no longer mutate leaked `*db.Object` internals directly.
