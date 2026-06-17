@@ -41,7 +41,7 @@ Results:
 
 ## Commit
 
-Pending.
+`90c9274 Move recycle cleanup into store`
 
 ## Next Slice
 
