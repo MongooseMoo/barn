@@ -43,8 +43,7 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	what := store.Get(whatVal.ID())
-	if what == nil {
+	if store.Get(whatVal.ID()) == nil {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -64,23 +63,8 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Remove from old location's contents
-	if what.Location != types.ObjNothing {
-		oldLoc := store.Get(what.Location)
-		if oldLoc != nil {
-			oldLoc.Contents = removeObjID(oldLoc.Contents, whatVal.ID())
-		}
-	}
-
-	// Set new location
-	what.Location = whereVal.ID()
-
-	// Add to new location's contents (if not moving to nothing)
-	if whereVal.ID() != types.ObjNothing {
-		where := store.Get(whereVal.ID())
-		if where != nil {
-			where.Contents = insertObjIDAtMOOPosition(where.Contents, whatVal.ID(), position)
-		}
+	if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// TODO: Call exitfunc and enterfunc verbs (Phase 9)

@@ -164,6 +164,56 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 	return result
 }
 
+func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int64) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	what := s.objects[whatID]
+	if !validLiveObject(what) {
+		return types.E_INVIND
+	}
+
+	if what.Location != types.ObjNothing {
+		oldLoc := s.objects[what.Location]
+		if validLiveObject(oldLoc) {
+			oldLoc.Contents = removeObjID(oldLoc.Contents, whatID)
+		}
+	}
+
+	what.Location = whereID
+
+	if whereID != types.ObjNothing {
+		where := s.objects[whereID]
+		if validLiveObject(where) {
+			where.Contents = insertObjIDAtMOOPosition(where.Contents, whatID, position)
+		}
+	}
+	return types.E_NONE
+}
+
+func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
+	result := make([]types.ObjID, 0, len(slice))
+	for _, item := range slice {
+		if item != id {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func insertObjIDAtMOOPosition(slice []types.ObjID, id types.ObjID, position int64) []types.ObjID {
+	if position == 0 || position > int64(len(slice)+1) {
+		return append(slice, id)
+	}
+
+	index := int(position - 1)
+	result := make([]types.ObjID, len(slice)+1)
+	copy(result[:index], slice[:index])
+	result[index] = id
+	copy(result[index+1:], slice[index:])
+	return result
+}
+
 // NextID returns the next available object ID
 // Uses highWaterID to ensure unique IDs (including anonymous objects)
 // Recycled slots are NOT automatically reused
