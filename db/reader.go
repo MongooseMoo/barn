@@ -35,16 +35,8 @@ type waifLoadData struct {
 // NewStoreFromDatabase creates a Store from a loaded database
 func (db *Database) NewStoreFromDatabase() *Store {
 	store := NewStore()
-	for id, obj := range db.Objects {
-		store.objects[id] = obj
-		// Track high water ID (all objects including anonymous)
-		if id > store.highWaterID {
-			store.highWaterID = id
-		}
-		// Track max object ID (only non-anonymous objects)
-		if !obj.Anonymous && id > store.maxObjID {
-			store.maxObjID = id
-		}
+	for _, obj := range db.Objects {
+		store.addLoadedObject(obj)
 	}
 	return store
 }

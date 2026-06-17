@@ -61,6 +61,18 @@ func (s *Store) Add(obj *Object) error {
 		return fmt.Errorf("object #%d already exists", obj.ID)
 	}
 
+	s.insertObjectLocked(obj)
+	return nil
+}
+
+func (s *Store) addLoadedObject(obj *Object) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.insertObjectLocked(obj)
+}
+
+func (s *Store) insertObjectLocked(obj *Object) {
 	s.objects[obj.ID] = obj
 
 	// Update high water ID (tracks all allocations including anonymous)
@@ -73,8 +85,6 @@ func (s *Store) Add(obj *Object) error {
 	if !obj.Anonymous && obj.ID > s.maxObjID {
 		s.maxObjID = obj.ID
 	}
-
-	return nil
 }
 
 // NextID returns the next available object ID
