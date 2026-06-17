@@ -77,12 +77,8 @@ func GetMaxStackDepth() int {
 }
 
 func findDefinedProperty(objID types.ObjID, name string, store *db.Store) *db.Property {
-	obj := store.Get(objID)
-	if obj == nil {
-		return nil
-	}
-	prop := obj.Properties[name]
-	if prop == nil || !prop.Defined {
+	prop, ok, err := store.DefinedProperty(objID, name)
+	if err != types.E_NONE || !ok {
 		return nil
 	}
 	return prop

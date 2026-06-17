@@ -35,18 +35,17 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_INVIND)
 	}
 
-	// TODO: Check read permission (currently allows all)
-
-	// Return DEFINED property names in definition order.
-	names := make([]types.Value, 0, len(obj.Properties))
-	for _, name := range obj.PropOrder {
-		prop := obj.Properties[name]
-		if prop != nil && prop.Defined {
-			names = append(names, types.NewStr(name))
-		}
+	names, err := store.DefinedPropertyNames(objID)
+	if err != types.E_NONE {
+		return types.Err(err)
 	}
 
-	return types.Ok(types.NewList(names))
+	values := make([]types.Value, 0, len(names))
+	for _, name := range names {
+		values = append(values, types.NewStr(name))
+	}
+
+	return types.Ok(types.NewList(values))
 }
 
 // builtinPropertyInfo implements property_info(object, name)
@@ -146,7 +145,10 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 	}
 
 	propName := nameVal.Value()
-	prop, ok := obj.Properties[propName]
+	prop, ok, err := store.LocalProperty(objID, propName)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
 	if !ok {
 		return types.Err(types.E_PROPNF)
 	}
@@ -165,11 +167,16 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
-		prop.Perms = perms
+		if err := store.SetPropertyInfo(objID, propName, nil, &perms); err != types.E_NONE {
+			return types.Err(err)
+		}
 
 	case types.ObjValue:
 		// Just owner (leave perms unchanged)
-		prop.Owner = info.ID()
+		owner := info.ID()
+		if err := store.SetPropertyInfo(objID, propName, &owner, nil); err != types.E_NONE {
+			return types.Err(err)
+		}
 
 	case types.ListValue:
 		// {owner, perms}
@@ -188,12 +195,14 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 			return types.Err(types.E_TYPE)
 		}
 
-		prop.Owner = ownerVal.ID()
 		perms, err := parsePerms(permsVal.Value())
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
-		prop.Perms = perms
+		owner := ownerVal.ID()
+		if err := store.SetPropertyInfo(objID, propName, &owner, &perms); err != types.E_NONE {
+			return types.Err(err)
+		}
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -250,7 +259,11 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// Check if property already exists on this object
-	if _, exists := obj.Properties[propName]; exists {
+	exists, err := store.HasLocalProperty(objID, propName)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if exists {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -262,7 +275,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// Check if property exists in any descendant
-	if hasPropertyInDescendants(objID, propName, store) {
+	if store.HasDefinedPropertyInDescendants(objID, propName) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -321,30 +334,17 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_PERM)
 	}
 
-	// Create property (defined on this object via add_property)
-	prop := &db.Property{
+	prop := db.Property{
 		Name:    propName,
 		Value:   value,
 		Owner:   owner,
 		Perms:   perms,
 		Clear:   false,
-		Defined: true, // This property is defined on this object
+		Defined: true,
 	}
-	obj.Properties[propName] = prop
-
-	// Update PropOrder so the property is written during dump_database().
-	// Defined properties go at the PropDefsCount position (before inherited ones).
-	pos := obj.PropDefsCount
-	if pos > len(obj.PropOrder) {
-		pos = len(obj.PropOrder)
+	if err := store.DefineProperty(objID, prop); err != types.E_NONE {
+		return types.Err(err)
 	}
-	obj.PropOrder = append(obj.PropOrder, "")
-	copy(obj.PropOrder[pos+1:], obj.PropOrder[pos:])
-	obj.PropOrder[pos] = propName
-	obj.PropDefsCount++
-
-	// Propagate inherited copies to all existing descendants
-	propagatePropertyToDescendants(objID, prop, store)
 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when a parent's
 	// property schema changes; they remain valid.
@@ -385,23 +385,19 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Res
 
 	propName := nameVal.Value()
 
-	// Check if property is DEFINED on this object (not just inherited)
-	prop, exists := obj.Properties[propName]
-	if !exists || !prop.Defined {
+	defined, err := store.IsPropertyDefinedOnObject(objID, propName)
+	if err != types.E_NONE {
+		return types.Err(err)
+	}
+	if !defined {
 		return types.Err(types.E_PROPNF)
 	}
 
 	// TODO: Check permissions (owner or wizard)
 
-	// Delete property from this object
-	delete(obj.Properties, propName)
-	obj.PropOrder = removeString(obj.PropOrder, propName)
-	if obj.PropDefsCount > 0 {
-		obj.PropDefsCount--
+	if err := store.DeleteDefinedProperty(objID, propName); err != types.E_NONE {
+		return types.Err(err)
 	}
-
-	// Also remove inherited copies from all descendants
-	removeInheritedProperty(objID, propName, store)
 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when a parent's
 	// property schema changes; they remain valid.
@@ -454,7 +450,11 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Check if property is defined on this object - E_INVARG if so
-	if prop, exists := obj.Properties[propName]; exists && prop.Defined {
+	defined, defErr := store.IsPropertyDefinedOnObject(objID, propName)
+	if defErr != types.E_NONE {
+		return types.Err(defErr)
+	}
+	if defined {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -466,9 +466,9 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_PERM)
 	}
 
-	// Clear property by removing local entry
-	// This causes the property to inherit from parent
-	delete(obj.Properties, propName)
+	if err := store.ClearPropertyOverride(objID, propName); err != types.E_NONE {
+		return types.Err(err)
+	}
 
 	return types.Ok(types.NewInt(0))
 }
@@ -522,23 +522,9 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Re
 		return types.Err(err)
 	}
 
-	// Check if property exists directly on this object and determine clear state FIRST
-	prop, exists := obj.Properties[propName]
-	var isClear bool
-	if exists {
-		// Property is defined on this object (via add_property)
-		if prop.Defined {
-			isClear = false
-		} else if prop.Clear {
-			// Property exists as cleared local value
-			isClear = true
-		} else {
-			// Property exists as local value override
-			isClear = false
-		}
-	} else {
-		// Property not on this object - it's inherited (counts as "clear")
-		isClear = true
+	isClear, clearErr := store.PropertyClearState(objID, propName)
+	if clearErr != types.E_NONE {
+		return types.Err(clearErr)
 	}
 
 	// NOW check read permission (unless wizard or owner)
@@ -588,126 +574,4 @@ func parsePerms(s string) (db.PropertyPerms, types.ErrorCode) {
 		}
 	}
 	return perms, types.E_NONE
-}
-
-func removeString(items []string, value string) []string {
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		if item != value {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
-// hasPropertyInDescendants checks if any descendant has a defined property with the given name
-// Returns true if found, false otherwise
-func hasPropertyInDescendants(objID types.ObjID, name string, store *db.Store) bool {
-	// Breadth-first search through descendants
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		// Check children for the property
-		for _, childID := range current.Children {
-			child := store.Get(childID)
-			if child == nil {
-				continue
-			}
-
-			// Check if property is defined on this child
-			if prop, ok := child.Properties[name]; ok && prop.Defined {
-				return true
-			}
-
-			// Add child to queue to check its descendants
-			queue = append(queue, childID)
-		}
-	}
-
-	return false
-}
-
-// propagatePropertyToDescendants adds an inherited copy of a property to all descendants
-// Called when add_property adds a new property to an object with existing children
-func propagatePropertyToDescendants(objID types.ObjID, prop *db.Property, store *db.Store) {
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		for _, childID := range current.Children {
-			child := store.Get(childID)
-			if child == nil {
-				continue
-			}
-			// Add inherited copy (Clear=true, Defined=false)
-			child.Properties[prop.Name] = &db.Property{
-				Name:  prop.Name,
-				Value: prop.Value,
-				Owner: prop.Owner,
-				Perms: prop.Perms,
-				Clear: true,
-			}
-			queue = append(queue, childID)
-		}
-	}
-}
-
-// removeInheritedProperty removes inherited copies of a property from all descendants
-// Called when delete_property removes a defined property
-func removeInheritedProperty(objID types.ObjID, name string, store *db.Store) {
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		for _, childID := range current.Children {
-			child := store.Get(childID)
-			if child == nil {
-				continue
-			}
-			if prop, ok := child.Properties[name]; ok && !prop.Defined {
-				delete(child.Properties, name)
-			}
-			queue = append(queue, childID)
-		}
-	}
 }

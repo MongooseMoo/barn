@@ -192,16 +192,18 @@ func (vm *VM) executeSetProp() error {
 		return nil
 	}
 
-	// Check if property exists directly on this object
-	prop, ok := obj.Properties[propName]
+	prop, ok, errCode := vm.Store.LocalProperty(obj.ID, propName)
+	if errCode != types.E_NONE {
+		return fmt.Errorf("%s: invalid object #%d", errCode, obj.ID)
+	}
 	if ok {
 		// Check write permission
 		if err := vm.checkPropertyWritePerm(prop); err != nil {
 			return err
 		}
-		// Property exists locally - update it
-		prop.Clear = false
-		prop.Value = value
+		if errCode := vm.Store.SetPropertyValue(obj.ID, propName, value); errCode != types.E_NONE {
+			return fmt.Errorf("%s: property not set: %s", errCode, propName)
+		}
 		return nil
 	}
 
@@ -216,17 +218,9 @@ func (vm *VM) executeSetProp() error {
 		return err
 	}
 
-	// Property is inherited - create a local copy with the new value
-	newProp := &db.Property{
-		Name:    propName,
-		Value:   value,
-		Owner:   inheritedProp.Owner,
-		Perms:   inheritedProp.Perms,
-		Clear:   false,
-		Defined: false,
+	if errCode := vm.Store.SetPropertyValue(obj.ID, propName, value); errCode != types.E_NONE {
+		return fmt.Errorf("%s: property not set: %s", errCode, propName)
 	}
-	obj.Properties[propName] = newProp
-
 	return nil
 }
 
