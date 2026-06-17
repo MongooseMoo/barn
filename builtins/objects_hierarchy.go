@@ -230,45 +230,15 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	// Remove from old parents' children lists and ChparentChildren tracking
-	for _, oldParentID := range obj.Parents {
-		oldParent := store.Get(oldParentID)
-		if oldParent != nil {
-			oldParent.Children = removeObjID(oldParent.Children, objVal.ID())
-			// Remove from ChparentChildren tracking
-			if oldParent.ChparentChildren != nil {
-				delete(oldParent.ChparentChildren, objVal.ID())
-			}
-		}
-	}
-
-	// Set new parent(s)
+	var newParents []types.ObjID
 	if newParentVal.ID() == types.ObjNothing {
-		obj.Parents = []types.ObjID{}
+		newParents = []types.ObjID{}
 	} else {
-		obj.Parents = []types.ObjID{newParentVal.ID()}
-		// Add to new parent's children
-		newParent.Children = append(newParent.Children, objVal.ID())
-		// Track that this child was added via chparent (not create)
-		if newParent.ChparentChildren == nil {
-			newParent.ChparentChildren = make(map[types.ObjID]bool)
-		}
-		newParent.ChparentChildren[objVal.ID()] = true
+		newParents = []types.ObjID{newParentVal.ID()}
 	}
-
-	// Reset inherited property overrides when parent changes
-	// Properties that are propdefs (Defined=true) are kept
-	// Properties that are local overrides (Defined=false) are removed and re-inherited
-	resetInheritedProperties(obj)
-	// Re-inherit properties from new parent chain
-	newProps := copyInheritedProperties(obj, store)
-	// Merge with existing defined properties
-	for name, prop := range obj.Properties {
-		if prop.Defined {
-			newProps[name] = prop
-		}
+	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
-	obj.Properties = newProps
 
 	return types.Ok(types.NewInt(0))
 }
@@ -385,47 +355,9 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	// Remove from old parents' children lists and ChparentChildren tracking
-	for _, oldParentID := range obj.Parents {
-		oldParent := store.Get(oldParentID)
-		if oldParent != nil {
-			oldParent.Children = removeObjID(oldParent.Children, objVal.ID())
-			// Remove from ChparentChildren tracking
-			if oldParent.ChparentChildren != nil {
-				delete(oldParent.ChparentChildren, objVal.ID())
-			}
-		}
+	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
-
-	// Set new parents
-	obj.Parents = newParents
-
-	// Add to new parents' children lists and track as chparent-added
-	for _, newParentID := range newParents {
-		newParent := store.Get(newParentID)
-		if newParent != nil {
-			newParent.Children = append(newParent.Children, objVal.ID())
-			// Track that this child was added via chparent (not create)
-			if newParent.ChparentChildren == nil {
-				newParent.ChparentChildren = make(map[types.ObjID]bool)
-			}
-			newParent.ChparentChildren[objVal.ID()] = true
-		}
-	}
-
-	// Reset inherited property overrides when parents change
-	// Properties that are propdefs (Defined=true) are kept
-	// Properties that are local overrides (Defined=false) are removed and re-inherited
-	resetInheritedProperties(obj)
-	// Re-inherit properties from new parent chain
-	newProps := copyInheritedProperties(obj, store)
-	// Merge with existing defined properties
-	for name, prop := range obj.Properties {
-		if prop.Defined {
-			newProps[name] = prop
-		}
-	}
-	obj.Properties = newProps
 
 	return types.Ok(types.NewInt(0))
 }
@@ -655,20 +587,6 @@ func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
 	return result
 }
 
-// insertObjIDAtMOOPosition inserts id using 1-based MOO positions; 0 appends.
-func insertObjIDAtMOOPosition(slice []types.ObjID, id types.ObjID, position int64) []types.ObjID {
-	if position == 0 || position > int64(len(slice)+1) {
-		return append(slice, id)
-	}
-
-	index := int(position - 1)
-	result := make([]types.ObjID, len(slice)+1)
-	copy(result[:index], slice[:index])
-	result[index] = id
-	copy(result[index+1:], slice[index:])
-	return result
-}
-
 // isChildOf checks if descendant is in the children tree of ancestor
 // Used for cycle detection in parent relationships
 func isChildOf(store *db.Store, descendant, ancestor types.ObjID) bool {
@@ -768,21 +686,6 @@ func hasChparentDescendantConflict(store *db.Store, obj *db.Object, ancestorProp
 	}
 
 	return checkChparentDescendants(obj)
-}
-
-// resetInheritedProperties clears non-defined properties when parent changes
-// Properties added via add_property (Defined=true) are kept
-// Properties that are local overrides (Defined=false) are cleared
-func resetInheritedProperties(obj *db.Object) {
-	toDelete := []string{}
-	for name, prop := range obj.Properties {
-		if !prop.Defined {
-			toDelete = append(toDelete, name)
-		}
-	}
-	for _, name := range toDelete {
-		delete(obj.Properties, name)
-	}
 }
 
 // isDescendant checks if target is a descendant of ancestor

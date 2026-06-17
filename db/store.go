@@ -191,6 +191,42 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	return types.E_NONE
 }
 
+func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+
+	for _, oldParentID := range obj.Parents {
+		oldParent := s.objects[oldParentID]
+		if !validLiveObject(oldParent) {
+			continue
+		}
+		oldParent.Children = removeObjID(oldParent.Children, objID)
+		if oldParent.ChparentChildren != nil {
+			delete(oldParent.ChparentChildren, objID)
+		}
+	}
+
+	obj.Parents = append([]types.ObjID(nil), newParents...)
+	s.attachChildToParentsLocked(objID, obj.Parents, false, true)
+	s.reseedInheritedPropertiesLocked(obj)
+	return types.E_NONE
+}
+
+func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
+	newProps := s.copyInheritedPropertiesLocked(obj.Parents)
+	for name, prop := range obj.Properties {
+		if prop.Defined {
+			newProps[name] = prop
+		}
+	}
+	obj.Properties = newProps
+}
+
 func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
 	result := make([]types.ObjID, 0, len(slice))
 	for _, item := range slice {

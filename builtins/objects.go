@@ -265,52 +265,6 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewObj(newID))
 }
 
-// copyInheritedProperties copies properties from parent chain
-// Clear properties remain clear (inherit dynamically)
-// Non-clear properties are copied as independent values
-func copyInheritedProperties(obj *db.Object, store *db.Store) map[string]*db.Property {
-	result := make(map[string]*db.Property)
-	visited := make(map[types.ObjID]bool)
-
-	// Breadth-first traversal of inheritance chain
-	queue := obj.Parents[:]
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		// Copy properties not already seen
-		for name, prop := range current.Properties {
-			if _, exists := result[name]; !exists {
-				// Copy property - inherited properties start as "clear" (inheriting value)
-				// The child doesn't have its own local value yet
-				newProp := &db.Property{
-					Name:  prop.Name,
-					Value: prop.Value,
-					Owner: prop.Owner,
-					Perms: prop.Perms,
-					Clear: true, // Inherited properties are "clear" until child sets own value
-				}
-				result[name] = newProp
-			}
-		}
-
-		// Add parents to queue
-		queue = append(queue, current.Parents...)
-	}
-
-	return result
-}
-
 var recycleState struct {
 	mu  sync.Mutex
 	ids map[types.ObjID]int
