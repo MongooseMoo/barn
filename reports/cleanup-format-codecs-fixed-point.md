@@ -39,4 +39,4 @@ Known unrelated baseline reproduced:
 - `go test ./db ./server` fails only in `barn/server` `TestTLSListenerLoginAndEval`.
 
 Commit:
-- Pending
+- `43d1a39 Share snapshot format codecs`
