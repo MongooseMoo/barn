@@ -327,67 +327,8 @@ func (vm *VM) executePass() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	// Get the object where the current verb is defined
-	verbLocObj := vm.Store.Get(verbLoc)
-	if verbLocObj == nil {
-		return fmt.Errorf("E_INVIND: defining object #%d not found", verbLoc)
-	}
-
-	// No parents = no parent verb to call
-	if len(verbLocObj.Parents) == 0 {
-		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
-	}
-
-	// Search for the verb on parent(s), starting from verbLoc's parents
-	// Uses the store's FindVerb for each parent to do BFS through ancestors
-	var verb *db.Verb
-	var defObjID types.ObjID
-
-	visited := make(map[types.ObjID]bool)
-	queue := make([]types.ObjID, len(verbLocObj.Parents))
-	copy(queue, verbLocObj.Parents)
-
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-
-		if visited[current] {
-			continue
-		}
-		visited[current] = true
-
-		obj := vm.Store.Get(current)
-		if obj == nil || obj.Recycled {
-			continue
-		}
-
-		// Check if verb exists on this object (exact name or alias match)
-		if v, ok := obj.Verbs[verbName]; ok {
-			verb = v
-			defObjID = current
-			break
-		}
-		// Check aliases
-		for _, v := range obj.Verbs {
-			for _, alias := range v.Names {
-				if alias == verbName {
-					verb = v
-					defObjID = current
-					break
-				}
-			}
-			if verb != nil {
-				break
-			}
-		}
-		if verb != nil {
-			break
-		}
-
-		queue = append(queue, obj.Parents...)
-	}
-
-	if verb == nil {
+	verb, defObjID, err := vm.Store.FindParentVerb(verbLoc, verbName)
+	if err != nil {
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
 	}
 

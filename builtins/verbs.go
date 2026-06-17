@@ -158,13 +158,17 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	// Collect verb names
-	names := make([]types.Value, 0, len(obj.Verbs))
-	for _, verb := range obj.Verbs {
-		names = append(names, types.NewStr(verb.Name))
+	names, errCode := store.VerbNames(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
-	return types.Ok(types.NewList(names))
+	values := make([]types.Value, 0, len(names))
+	for _, name := range names {
+		values = append(values, types.NewStr(name))
+	}
+
+	return types.Ok(types.NewList(values))
 }
 
 // builtinVerbInfo: verb_info(object, name-or-index) → LIST
@@ -206,10 +210,14 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		if index < 0 || index >= len(obj.VerbList) {
+		found, errCode := store.VerbByIndex(objID, index)
+		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
-		verb = obj.VerbList[index]
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		verb = found
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -275,10 +283,14 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		if index < 0 || index >= len(obj.VerbList) {
+		found, errCode := store.VerbByIndex(objID, index)
+		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
-		verb = obj.VerbList[index]
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		verb = found
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -483,7 +495,7 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 	perms := parseVerbPerms(permsStr.Value())
 
 	// Create the verb
-	verb := &db.Verb{
+	verb := db.Verb{
 		Name:  names[0],
 		Names: names,
 		Owner: ownerID,
@@ -497,14 +509,12 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 		Program: nil,
 	}
 
-	// Add verb to object (use first name as key).
-	// MOO allows same-name verbs on the same object; newest definition shadows older ones.
-	obj.Verbs[names[0]] = verb
-	// Add to VerbList for indexing
-	obj.VerbList = append(obj.VerbList, verb)
+	index, errCode := store.AddVerb(objID, verb)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 
-	// Return 1-based index
-	return types.Ok(types.NewInt(int64(len(obj.VerbList))))
+	return types.Ok(types.NewInt(int64(index)))
 }
 
 // builtinDeleteVerb: delete_verb(object, name) → none
@@ -540,38 +550,8 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value) types.Result 
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	name := nameVal.Value()
-	verb, _, err := store.FindVerb(objID, name)
-	if err != nil || verb == nil {
-		return types.Err(types.E_VERBNF)
-	}
-
-	// Remove the verb from the map (one or more keys can point at the same verb)
-	keysToRefresh := make([]string, 0, 1)
-	for key, entry := range obj.Verbs {
-		if entry == verb {
-			keysToRefresh = append(keysToRefresh, key)
-			delete(obj.Verbs, key)
-		}
-	}
-
-	// Remove one occurrence from VerbList (preserve list ordering otherwise)
-	for i, entry := range obj.VerbList {
-		if entry == verb {
-			obj.VerbList = append(obj.VerbList[:i], obj.VerbList[i+1:]...)
-			break
-		}
-	}
-
-	// If older verbs with the same primary key still exist, restore the newest one.
-	for _, key := range keysToRefresh {
-		for i := len(obj.VerbList) - 1; i >= 0; i-- {
-			candidate := obj.VerbList[i]
-			if candidate.Name == key {
-				obj.Verbs[key] = candidate
-				break
-			}
-		}
+	if errCode := store.DeleteVerb(objID, nameVal.Value()); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -641,21 +621,9 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	// Update verb
-	oldName := verb.Name
-	verb.Owner = owner.ID()
-	verb.Perms = parseVerbPerms(permsStr.Value())
-	verb.Names = strings.Fields(namesStr.Value())
-	if len(verb.Names) > 0 {
-		verb.Name = verb.Names[0]
-	}
-
-	// Keep object verb map in sync if the primary name changed.
-	if oldName != verb.Name {
-		if current, ok := obj.Verbs[oldName]; ok && current == verb {
-			delete(obj.Verbs, oldName)
-		}
-		obj.Verbs[verb.Name] = verb
+	errCode := store.SetVerbInfo(objID, nameVal.Value(), owner.ID(), parseVerbPerms(permsStr.Value()), strings.Fields(namesStr.Value()))
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -715,11 +683,13 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 	prepStr := valueToArgSpec(argsList.Get(2))
 	iobjStr := valueToArgSpec(argsList.Get(3))
 
-	// Update verb args
-	verb.ArgSpec = db.VerbArgs{
+	argSpec := db.VerbArgs{
 		This: dobjStr,
 		Prep: prepStr,
 		That: iobjStr,
+	}
+	if errCode := store.SetVerbArgs(objID, nameVal.Value(), argSpec); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -763,10 +733,14 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		verb = found
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		if index < 0 || index >= len(obj.VerbList) {
+		found, errCode := store.VerbByIndex(objID, index)
+		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
-		verb = obj.VerbList[index]
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		verb = found
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -814,10 +788,16 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Ok(types.NewList(errVals))
 	}
 
-	// Update verb
-	verb.Code = lines
-	verb.Program = program
-	verb.BytecodeCache = nil
+	switch v := args[1].(type) {
+	case types.StrValue:
+		if errCode := store.SetVerbCode(objID, v.Value(), lines, program); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	case types.IntValue:
+		if errCode := store.SetVerbCodeByIndex(objID, int(v.Val)-1, lines, program); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 
 	// Return empty list (success)
 	return types.Ok(types.NewList([]types.Value{}))
@@ -931,10 +911,14 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result
 		verb = found
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		if index < 0 || index >= len(obj.VerbList) {
+		found, errCode := store.VerbByIndex(objID, index)
+		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
-		verb = obj.VerbList[index]
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		verb = found
 	default:
 		return types.Err(types.E_TYPE)
 	}

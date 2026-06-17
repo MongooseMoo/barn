@@ -522,13 +522,7 @@ func (s *Scheduler) processProgrammingInput(conn *Connection, line string) bool 
 	verbName := mode.Verb
 	conn.mu.Unlock()
 
-	obj := s.store.Get(target)
-	if obj == nil {
-		conn.Send("Verb not found")
-		return true
-	}
-	verb := findLocalVerbForProgramming(obj, verbName)
-	if verb == nil {
+	if _, err := s.store.FindLocalVerbForProgramming(target, verbName); err != nil {
 		conn.Send("Verb not found")
 		return true
 	}
@@ -539,9 +533,10 @@ func (s *Scheduler) processProgrammingInput(conn *Connection, line string) bool 
 		}
 		return true
 	}
-	verb.Code = lines
-	verb.Program = program
-	verb.BytecodeCache = nil
+	if errCode := s.store.SetVerbCode(target, verbName, lines, program); errCode != types.E_NONE {
+		conn.Send("Verb not found")
+		return true
+	}
 	return true
 }
 
@@ -576,28 +571,10 @@ func (s *Scheduler) parseProgramTarget(player, location types.ObjID, spec string
 	if target < 0 {
 		return types.ObjNothing, "", false
 	}
-	obj := s.store.Get(target)
-	if obj == nil || findLocalVerbForProgramming(obj, verbName) == nil {
+	if _, err := s.store.FindLocalVerbForProgramming(target, verbName); err != nil {
 		return types.ObjNothing, "", false
 	}
 	return target, verbName, true
-}
-
-func findLocalVerbForProgramming(obj *db.Object, verbName string) *db.Verb {
-	if verb, ok := obj.Verbs[verbName]; ok {
-		return verb
-	}
-	if verb, ok := obj.Verbs[":"+verbName]; ok {
-		return verb
-	}
-	for _, verb := range obj.Verbs {
-		for _, alias := range verb.Names {
-			if verbNameMatches(alias, verbName) {
-				return verb
-			}
-		}
-	}
-	return nil
 }
 
 // processReadyTasks executes tasks that are ready to run.
