@@ -191,6 +191,58 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	return types.E_NONE
 }
 
+func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	obj.Name = name
+	return types.E_NONE
+}
+
+func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	obj.Owner = owner
+	return types.E_NONE
+}
+
+func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	obj.Location = location
+	return types.E_NONE
+}
+
+func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if enabled {
+		obj.Flags = obj.Flags.Set(flag)
+	} else {
+		obj.Flags = obj.Flags.Clear(flag)
+	}
+	return types.E_NONE
+}
+
 func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()

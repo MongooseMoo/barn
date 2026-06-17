@@ -185,7 +185,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Check for built-in property assignment first
-	if isBuiltin, errCode := setBuiltinProperty(obj, propName, value, vm.Context); isBuiltin {
+	if isBuiltin, errCode := setBuiltinProperty(vm.Store, obj, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
@@ -356,12 +356,11 @@ func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 }
 
 // setBuiltinProperty sets a built-in object property.
-func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(store *db.Store, obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
-			obj.Name = str.Value()
-			return true, types.E_NONE
+			return true, store.SetObjectName(obj.ID, str.Value())
 		}
 		return false, types.E_NONE
 	case "owner":
@@ -369,14 +368,12 @@ func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *typ
 			if obj.Anonymous && ctx != nil && !ctx.IsWizard {
 				return true, types.E_PERM
 			}
-			obj.Owner = objVal.ID()
-			return true, types.E_NONE
+			return true, store.SetObjectOwner(obj.ID, objVal.ID())
 		}
 		return false, types.E_NONE
 	case "location":
 		if objVal, ok := value.(types.ObjValue); ok {
-			obj.Location = objVal.ID()
-			return true, types.E_NONE
+			return true, store.SetObjectLocationRaw(obj.ID, objVal.ID())
 		}
 		return false, types.E_NONE
 	case "programmer":
@@ -387,12 +384,7 @@ func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *typ
 				}
 				return true, types.E_PERM
 			}
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagProgrammer)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagProgrammer)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagProgrammer, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "wizard":
@@ -403,62 +395,32 @@ func setBuiltinProperty(obj *db.Object, name string, value types.Value, ctx *typ
 				}
 				return true, types.E_PERM
 			}
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagWizard)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagWizard)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagWizard, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "player":
 		if intVal, ok := value.(types.IntValue); ok {
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagUser)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagUser)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagUser, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "r":
 		if intVal, ok := value.(types.IntValue); ok {
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagRead)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagRead)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagRead, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "w":
 		if intVal, ok := value.(types.IntValue); ok {
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagWrite)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagWrite)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagWrite, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "f":
 		if intVal, ok := value.(types.IntValue); ok {
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagFertile)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagFertile)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagFertile, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "a":
 		if intVal, ok := value.(types.IntValue); ok {
-			if intVal.Val != 0 {
-				obj.Flags = obj.Flags.Set(db.FlagAnonymous)
-			} else {
-				obj.Flags = obj.Flags.Clear(db.FlagAnonymous)
-			}
-			return true, types.E_NONE
+			return true, store.SetObjectFlag(obj.ID, db.FlagAnonymous, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	default:

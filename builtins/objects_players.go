@@ -119,9 +119,13 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Resu
 
 	// Set or clear the player flag
 	if args[1].Truthy() {
-		obj.Flags = obj.Flags.Set(db.FlagUser)
+		if errCode := store.SetObjectFlag(objVal.ID(), db.FlagUser, true); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	} else {
-		obj.Flags = obj.Flags.Clear(db.FlagUser)
+		if errCode := store.SetObjectFlag(objVal.ID(), db.FlagUser, false); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 		// Clearing the player flag on a currently-connected player terminates
 		// its live connection (matching Toast).
 		if globalConnManager != nil && resolveConnection(ctx, objVal.ID()) != nil {
