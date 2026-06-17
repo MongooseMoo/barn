@@ -16,8 +16,8 @@ const (
 	TypeList    = 4
 	TypeClear   = 5
 	TypeNone    = 6
-	TypeCatch   = 7  // Internal for exception handling
-	TypeFinally = 8  // Internal for exception handling
+	TypeCatch   = 7 // Internal for exception handling
+	TypeFinally = 8 // Internal for exception handling
 	TypeFloat   = 9
 	TypeMap     = 10
 	TypeAnon    = 12
@@ -27,12 +27,12 @@ const (
 
 // Writer handles serialization of MOO databases to v17 format
 type Writer struct {
-	w          *bufio.Writer
-	store      *Store
-	waifIndex  map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
-	nextWaifID int
+	w                    *bufio.Writer
+	store                *Store
+	waifIndex            map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
+	nextWaifID           int
 	pendingFinalizations []types.Value
-	taskSource TaskSource // Optional: provides queued/suspended tasks for serialization
+	taskSource           TaskSource // Optional: provides queued/suspended tasks for serialization
 }
 
 // NewWriter creates a writer for database serialization
@@ -362,10 +362,12 @@ func (w *Writer) writeWaif(waif types.WaifValue) error {
 	var waifPropNames []string
 	classObj := w.store.Get(waif.Class())
 	if classObj != nil {
-		allNames := w.collectPropertyNames(classObj)
-		for _, name := range allNames {
-			if len(name) > 0 && name[0] == ':' {
-				waifPropNames = append(waifPropNames, name)
+		allNames, errCode := w.store.PropertyNames(classObj.ID)
+		if errCode == types.E_NONE {
+			for _, name := range allNames {
+				if len(name) > 0 && name[0] == ':' {
+					waifPropNames = append(waifPropNames, name)
+				}
 			}
 		}
 	}

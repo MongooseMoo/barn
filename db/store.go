@@ -762,6 +762,21 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 	return names, types.E_NONE
 }
 
+// PropertyNames returns the dump-order property names for an object: local
+// definitions first, then inherited definitions in parent traversal order.
+func (s *Store) PropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	return propertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
+		return s.objects[id]
+	}), types.E_NONE
+}
+
 // LocalProperty returns a copy of the property slot defined on the object
 // itself. It does not search ancestors.
 func (s *Store) LocalProperty(objID types.ObjID, name string) (*Property, bool, types.ErrorCode) {

@@ -178,23 +178,24 @@ func (w *Writer) writeVerbMetadata(verb *Verb) error {
 
 	// Perms (encoded with argspec in higher bits)
 	perms := int(verb.Perms)
-	perms |= argspecToInt(verb.ArgSpec.This) << 4
-	perms |= argspecToInt(verb.ArgSpec.That) << 6
+	perms |= argSpecToCode(verb.ArgSpec.This) << 4
+	perms |= argSpecToCode(verb.ArgSpec.That) << 6
 	if err := w.writeInt(perms); err != nil {
 		return err
 	}
 
 	// Prep
-	return w.writeInt(prepToInt(verb.ArgSpec.Prep))
+	return w.writeInt(prepToCode(verb.ArgSpec.Prep))
 }
 
 // writeProperties writes property definitions and values.
 // Property order is recomputed from the parent chain at dump time to ensure
 // round-trip correctness even when properties are added/modified at runtime.
 func (w *Writer) writeProperties(obj *Object) error {
-	// Recompute property order from the parent chain.
-	// This mirrors the reader's collectPropertyNames logic so positions match on reload.
-	propNames := w.collectPropertyNames(obj)
+	propNames, errCode := w.store.PropertyNames(obj.ID)
+	if errCode != types.E_NONE {
+		return fmt.Errorf("property names for #%d: %s", obj.ID, errCode)
+	}
 
 	// Write propdef count (properties defined on this object)
 	propDefsCount := obj.PropDefsCount
@@ -241,39 +242,6 @@ func (w *Writer) writeProperties(obj *Object) error {
 	}
 
 	return nil
-}
-
-// collectPropertyNames builds the ordered list of property names for an object
-// in self-first order (matching Toast's propval layout).
-func (w *Writer) collectPropertyNames(obj *Object) []string {
-	var names []string
-	visited := make(map[types.ObjID]bool)
-	w.collectPropNamesRecursive(obj, &names, visited)
-	return names
-}
-
-func (w *Writer) collectPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
-	if obj == nil || visited[obj.ID] {
-		return
-	}
-	visited[obj.ID] = true
-
-	// SELF FIRST: after load/resolve, local propdefs are the leading PropDefsCount entries.
-	localCount := obj.PropDefsCount
-	if localCount > len(obj.PropOrder) {
-		localCount = len(obj.PropOrder)
-	}
-	for i := 0; i < localCount; i++ {
-		*names = append(*names, obj.PropOrder[i])
-	}
-
-	// THEN recurse to parents (depth-first, matching Toast's db_ancestors).
-	for _, parentID := range obj.Parents {
-		parent := w.store.Get(parentID)
-		if parent != nil {
-			w.collectPropNamesRecursive(parent, names, visited)
-		}
-	}
 }
 
 // writeProperty writes a single property value, owner, and perms
@@ -350,53 +318,4 @@ func (w *Writer) writeVerbPrograms() error {
 	}
 
 	return nil
-}
-
-// argspecToInt converts argument spec string to integer code
-func argspecToInt(spec string) int {
-	switch spec {
-	case "none":
-		return 0
-	case "any":
-		return 1
-	case "this":
-		return 2
-	default:
-		return 0
-	}
-}
-
-// prepToInt converts preposition string to integer code
-func prepToInt(prep string) int {
-	preps := []string{
-		"with/using",
-		"at/to",
-		"in front of",
-		"in/inside/into",
-		"on top of/on/onto/upon",
-		"out of/from inside/from",
-		"over",
-		"through",
-		"under/underneath/beneath",
-		"behind",
-		"beside",
-		"for/about",
-		"is",
-		"as",
-		"off/off of",
-	}
-
-	if prep == "none" {
-		return -1
-	}
-	if prep == "any" {
-		return -2
-	}
-
-	for i, p := range preps {
-		if prep == p {
-			return i
-		}
-	}
-	return -1 // Default to none
 }

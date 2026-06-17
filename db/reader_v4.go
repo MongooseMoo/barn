@@ -238,9 +238,9 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		}
 
 		// Convert to argspec strings
-		verb.ArgSpec.This = argspecToString(dobj)
-		verb.ArgSpec.Prep = prepToString(prep)
-		verb.ArgSpec.That = argspecToString(iobj)
+		verb.ArgSpec.This = argSpecFromCode(dobj)
+		verb.ArgSpec.Prep = prepFromCode(prep)
+		verb.ArgSpec.That = argSpecFromCode(iobj)
 
 		obj.VerbList[i] = verb
 		obj.Verbs[verb.Names[0]] = verb

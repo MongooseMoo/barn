@@ -48,8 +48,25 @@ func readLine(r *bufio.Reader) (string, error) {
 	return strings.TrimRight(line, "\n\r"), nil
 }
 
-// argspecToString converts dobj/iobj spec to string
-func argspecToString(spec int) string {
+var mooPrepositions = []string{
+	"with/using",
+	"at/to",
+	"in front of",
+	"in/inside/into",
+	"on top of/on/onto/upon",
+	"out of/from inside/from",
+	"over",
+	"through",
+	"under/underneath/beneath",
+	"behind",
+	"beside",
+	"for/about",
+	"is",
+	"as",
+	"off/off of",
+}
+
+func argSpecFromCode(spec int) string {
 	switch spec {
 	case 0:
 		return "none"
@@ -62,37 +79,45 @@ func argspecToString(spec int) string {
 	}
 }
 
-// prepToString converts prep value to string
-func prepToString(prep int) string {
-	// Preposition table (0-indexed)
-	preps := []string{
-		"with/using",
-		"at/to",
-		"in front of",
-		"in/inside/into",
-		"on top of/on/onto/upon",
-		"out of/from inside/from",
-		"over",
-		"through",
-		"under/underneath/beneath",
-		"behind",
-		"beside",
-		"for/about",
-		"is",
-		"as",
-		"off/off of",
+func argSpecToCode(spec string) int {
+	switch spec {
+	case "none":
+		return 0
+	case "any":
+		return 1
+	case "this":
+		return 2
+	default:
+		return 0
 	}
+}
 
+func prepFromCode(prep int) string {
 	switch {
 	case prep == -1:
 		return "none"
 	case prep == -2:
 		return "any"
-	case prep >= 0 && prep < len(preps):
-		return preps[prep]
+	case prep >= 0 && prep < len(mooPrepositions):
+		return mooPrepositions[prep]
 	default:
 		return "none"
 	}
+}
+
+func prepToCode(prep string) int {
+	if prep == "none" {
+		return -1
+	}
+	if prep == "any" {
+		return -2
+	}
+	for i, p := range mooPrepositions {
+		if prep == p {
+			return i
+		}
+	}
+	return -1
 }
 
 // resolvePropertyNames resolves inherited property names after all objects are loaded.
@@ -114,7 +139,7 @@ func (db *Database) resolvePropertyNames() {
 		}
 
 		// Build the full list of property names by walking up the parent chain
-		allNames := db.collectPropertyNamesRaw(obj)
+		allNames := db.rawPropertyNames(obj)
 
 		// Now rename _inherited_N properties to their actual names
 		newProperties := make(map[string]*Property)
@@ -157,43 +182,42 @@ func (db *Database) resolvePropertyNames() {
 	}
 }
 
-// collectPropertyNamesRaw builds an ordered list of all property names for an object
+// rawPropertyNames builds an ordered list of all property names for an object
 // by walking up the parent chain and collecting raw propdefs.
 // Raw object state stores local propdefs in the first PropDefsCount entries.
-func (db *Database) collectPropertyNamesRaw(obj *Object) []string {
+func (db *Database) rawPropertyNames(obj *Object) []string {
+	return propertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
+		return db.Objects[id]
+	})
+}
+
+func propertyNamesSelfFirst(obj *Object, parent func(types.ObjID) *Object) []string {
 	var names []string
 	visited := make(map[types.ObjID]bool)
-
-	// Start with this object and walk up parents
-	db.collectRawPropNamesRecursive(obj, &names, visited)
-
+	propertyNamesSelfFirstRecursive(obj, parent, &names, visited)
 	return names
 }
 
-// collectRawPropNamesRecursive recursively collects property names from an object and its ancestors.
-// Properties are collected in self-first order to match DB property value storage
-// (propval[0..selfLen-1] = self's propdefs, then parent's, then grandparent's, etc.).
-// This matches Toast's db_find_property which indexes self first, then db_ancestors.
-func (db *Database) collectRawPropNamesRecursive(obj *Object, names *[]string, visited map[types.ObjID]bool) {
+func propertyNamesSelfFirstRecursive(obj *Object, parent func(types.ObjID) *Object, names *[]string, visited map[types.ObjID]bool) {
 	if obj == nil || visited[obj.ID] {
 		return
 	}
 	visited[obj.ID] = true
 
-	// SELF FIRST: add this object's defined properties (propDefs).
-	for i := 0; i < obj.PropDefsCount && i < len(obj.PropOrder); i++ {
+	localCount := obj.PropDefsCount
+	if localCount > len(obj.PropOrder) {
+		localCount = len(obj.PropOrder)
+	}
+	for i := 0; i < localCount; i++ {
 		*names = append(*names, obj.PropOrder[i])
 	}
 
-	// THEN recurse to parents (depth-first, matching Toast's db_ancestors).
 	for _, parentID := range obj.Parents {
-		parent := db.Objects[parentID]
-		db.collectRawPropNamesRecursive(parent, names, visited)
+		propertyNamesSelfFirstRecursive(parent(parentID), parent, names, visited)
 	}
 }
 
-// collectPropertyNames returns an object's final property order after name resolution.
-func (db *Database) collectPropertyNames(obj *Object) []string {
+func (db *Database) finalPropertyOrder(obj *Object) []string {
 	if obj == nil || len(obj.PropOrder) == 0 {
 		return nil
 	}
@@ -232,7 +256,7 @@ func (db *Database) resolveWaifProperties() {
 // collectWaifPropNames returns an ordered list of ":" prefixed property names
 // from an object's ancestry. This matches Toast's waif_propdefs construction.
 func (db *Database) collectWaifPropNames(obj *Object) []string {
-	allNames := db.collectPropertyNames(obj)
+	allNames := db.finalPropertyOrder(obj)
 	var waifNames []string
 	for _, name := range allNames {
 		if strings.HasPrefix(name, ":") {
