@@ -367,6 +367,66 @@ func (s *Store) Recycle(id types.ObjID) error {
 	// ToastStunt; they remain valid (property access through a recycled parent
 	// simply raises E_PROPNF). The anon is only invalidated when recycled itself.
 
+	objParents := append([]types.ObjID(nil), obj.Parents...)
+	for _, childID := range obj.Children {
+		child := s.objects[childID]
+		if !validLiveObject(child) {
+			continue
+		}
+
+		newChildParents := []types.ObjID{}
+		seen := make(map[types.ObjID]bool)
+		for _, pid := range child.Parents {
+			if pid == id {
+				for _, op := range objParents {
+					if !seen[op] {
+						seen[op] = true
+						newChildParents = append(newChildParents, op)
+					}
+				}
+				continue
+			}
+			if !seen[pid] {
+				seen[pid] = true
+				newChildParents = append(newChildParents, pid)
+			}
+		}
+		child.Parents = newChildParents
+
+		for _, newParentID := range objParents {
+			newParent := s.objects[newParentID]
+			if validLiveObject(newParent) && !containsObjID(newParent.Children, childID) {
+				newParent.Children = append(newParent.Children, childID)
+			}
+		}
+	}
+
+	for _, contentID := range obj.Contents {
+		content := s.objects[contentID]
+		if validLiveObject(content) {
+			content.Location = types.ObjNothing
+		}
+	}
+	obj.Contents = []types.ObjID{}
+
+	if obj.Location != types.ObjNothing {
+		oldLoc := s.objects[obj.Location]
+		if validLiveObject(oldLoc) {
+			oldLoc.Contents = removeObjID(oldLoc.Contents, id)
+		}
+	}
+	obj.Location = types.ObjNothing
+
+	obj.Properties = make(map[string]*Property)
+	obj.Verbs = make(map[string]*Verb)
+
+	for _, parentID := range obj.Parents {
+		parent := s.objects[parentID]
+		if validLiveObject(parent) {
+			parent.Children = removeObjID(parent.Children, id)
+		}
+	}
+
 	// Mark as recycled and invalid
 	obj.Recycled = true
 	obj.Flags = obj.Flags.Set(FlagRecycled | FlagInvalid)

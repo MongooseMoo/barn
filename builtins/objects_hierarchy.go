@@ -576,17 +576,6 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
 	return noMatch()
 }
 
-// removeObjID removes an ObjID from a slice
-func removeObjID(slice []types.ObjID, id types.ObjID) []types.ObjID {
-	result := make([]types.ObjID, 0, len(slice))
-	for _, item := range slice {
-		if item != id {
-			result = append(result, item)
-		}
-	}
-	return result
-}
-
 // isChildOf checks if descendant is in the children tree of ancestor
 // Used for cycle detection in parent relationships
 func isChildOf(store *db.Store, descendant, ancestor types.ObjID) bool {
