@@ -359,11 +359,11 @@ func (s *Scheduler) isTrustedProxyConnection(conn *Connection) bool {
 
 // getServerOption looks up a server option from the server_options property.
 func (s *Scheduler) getServerOption(listener types.ObjID, name string) (types.Value, bool) {
-	serverOptions := s.findPropertyInherited(listener, "server_options")
-	if serverOptions == nil && listener != 0 {
-		serverOptions = s.findPropertyInherited(0, "server_options")
+	serverOptions, err := s.store.FindProperty(listener, "server_options")
+	if err != types.E_NONE && listener != 0 {
+		serverOptions, err = s.store.FindProperty(0, "server_options")
 	}
-	if serverOptions == nil {
+	if err != types.E_NONE {
 		return nil, false
 	}
 
@@ -372,38 +372,9 @@ func (s *Scheduler) getServerOption(listener types.ObjID, name string) (types.Va
 		return nil, false
 	}
 
-	prop := s.findPropertyInherited(serverOptionsObj.ID(), name)
-	if prop == nil {
+	prop, err := s.store.FindProperty(serverOptionsObj.ID(), name)
+	if err != types.E_NONE {
 		return nil, false
 	}
 	return prop.Value, true
-}
-
-// findPropertyInherited walks the parent chain to find a property.
-func (s *Scheduler) findPropertyInherited(objID types.ObjID, name string) *db.Property {
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := s.store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		if prop, ok := current.Properties[name]; ok {
-			return prop
-		}
-
-		queue = append(queue, current.Parents...)
-	}
-
-	return nil
 }

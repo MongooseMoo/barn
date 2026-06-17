@@ -59,7 +59,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Look up defined property first (with inheritance via breadth-first search)
-	prop, errCode := findProperty(vm.Store, obj, propName)
+	prop, errCode := vm.Store.FindProperty(obj.ID, propName)
 	if errCode == types.E_NONE {
 		// Check read permission
 		if err := vm.checkPropertyReadPerm(prop); err != nil {
@@ -123,7 +123,7 @@ func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	if !strings.HasPrefix(classPropName, ":") {
 		classPropName = ":" + classPropName
 	}
-	prop, errCode := findProperty(vm.Store, classObj, classPropName)
+	prop, errCode := vm.Store.FindProperty(classObj.ID, classPropName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -206,7 +206,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Property not on this object - check if inherited
-	inheritedProp, errCode := findProperty(vm.Store, obj, propName)
+	inheritedProp, errCode := vm.Store.FindProperty(obj.ID, propName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -287,54 +287,6 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 		return fmt.Errorf("E_PERM: property not writable")
 	}
 	return nil
-}
-
-// findProperty finds a property on an object with inheritance (breadth-first search).
-// Permission info (owner/perms) comes from the TARGET object's property entry,
-// while the value comes from the first non-clear ancestor. This matches Toast's
-// db_find_property where h.ptr always points to the original object's propval.
-func findProperty(store *db.Store, obj *db.Object, name string) (*db.Property, types.ErrorCode) {
-	var targetProp *db.Property // target object's property entry (for owner/perms)
-
-	queue := []types.ObjID{obj.ID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		prop, ok := current.Properties[name]
-		if ok {
-			// Save the first property entry found (the target object's) for permissions.
-			if targetProp == nil {
-				targetProp = prop
-			}
-			if !prop.Clear {
-				if targetProp != prop {
-					// Value from ancestor, but use target's owner/perms
-					result := *targetProp
-					result.Value = prop.Value
-					result.Clear = false
-					return &result, types.E_NONE
-				}
-				return prop, types.E_NONE
-			}
-		}
-
-		queue = append(queue, current.Parents...)
-	}
-
-	return nil, types.E_PROPNF
 }
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).

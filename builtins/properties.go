@@ -85,7 +85,7 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Find property (with inheritance)
-	prop, err := findPropertyInChain(objID, nameVal.Value(), store)
+	prop, err := store.FindProperty(objID, nameVal.Value())
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -255,7 +255,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// Check if property exists in ancestor chain
-	_, ancestorErr := findPropertyInChain(objID, propName, store)
+	_, ancestorErr := store.FindProperty(objID, propName)
 	if ancestorErr == types.E_NONE {
 		// Property exists in ancestor
 		return types.Err(types.E_INVARG)
@@ -448,7 +448,7 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Find property in chain
-	foundProp, err := findPropertyInChain(objID, propName, store)
+	foundProp, err := store.FindProperty(objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -517,7 +517,7 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Re
 	}
 
 	// Find where property is defined in chain
-	definingProp, err := findPropertyInChain(objID, propName, store)
+	definingProp, err := store.FindProperty(objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -598,39 +598,6 @@ func removeString(items []string, value string) []string {
 		}
 	}
 	return result
-}
-
-// findPropertyInChain finds a property anywhere in the inheritance chain
-// Returns the property and E_NONE if found, or E_PROPNF if not found
-func findPropertyInChain(objID types.ObjID, name string, store *db.Store) (*db.Property, types.ErrorCode) {
-	// Breadth-first search
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		// Check if property exists on this object
-		if prop, ok := current.Properties[name]; ok {
-			return prop, types.E_NONE
-		}
-
-		// Add parents to queue
-		queue = append(queue, current.Parents...)
-	}
-
-	return nil, types.E_PROPNF
 }
 
 // hasPropertyInDescendants checks if any descendant has a defined property with the given name

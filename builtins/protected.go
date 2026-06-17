@@ -47,8 +47,8 @@ func LoadProtectedBuiltinsFromStore(store *db.Store) {
 		return
 	}
 
-	serverOptsProp := findPropertyInherited(0, "server_options", store)
-	if serverOptsProp != nil {
+	serverOptsProp, err := store.FindProperty(0, "server_options")
+	if err == types.E_NONE {
 		if ref, ok := serverOptsProp.Value.(types.ObjValue); ok {
 			collectProtectFlags(ref.ID(), store, next)
 		}

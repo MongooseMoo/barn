@@ -76,38 +76,6 @@ func GetMaxStackDepth() int {
 	return serverOptionsCache.maxStackDepth
 }
 
-// findPropertyInherited finds a property anywhere in the inheritance chain
-// Returns the property or nil if not found
-func findPropertyInherited(objID types.ObjID, name string, store *db.Store) *db.Property {
-	queue := []types.ObjID{objID}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		// Check if property exists on this object
-		if prop, ok := current.Properties[name]; ok {
-			return prop
-		}
-
-		// Add parents to queue
-		queue = append(queue, current.Parents...)
-	}
-
-	return nil
-}
-
 func findDefinedProperty(objID types.ObjID, name string, store *db.Store) *db.Property {
 	obj := store.Get(objID)
 	if obj == nil {
@@ -150,8 +118,8 @@ func LoadServerOptionsFromStore(store *db.Store) int {
 	}
 
 	// Look up the server_options property on #0 (searching inheritance chain)
-	serverOptsProp := findPropertyInherited(0, "server_options", store)
-	if serverOptsProp == nil {
+	serverOptsProp, err := store.FindProperty(0, "server_options")
+	if err != types.E_NONE {
 		serverOptionsCache.Lock()
 		serverOptionsCache.maxStringConcat = nextString
 		serverOptionsCache.maxListValueBytes = nextList

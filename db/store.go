@@ -392,6 +392,52 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	return nil
 }
 
+// FindProperty looks up a property on an object, following the inheritance chain
+// breadth-first. Permission metadata comes from the nearest property slot, while
+// a clear slot inherits the first non-clear value from an ancestor.
+func (s *Store) FindProperty(objID types.ObjID, name string) (*Property, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var targetProp *Property
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.objects[currentID]
+		if current == nil || current.Recycled || current.Flags.Has(FlagInvalid) {
+			continue
+		}
+
+		if prop, ok := current.Properties[name]; ok {
+			if targetProp == nil {
+				targetProp = prop
+			}
+			if !prop.Clear {
+				if targetProp != prop {
+					result := *targetProp
+					result.Value = prop.Value
+					result.Clear = false
+					return &result, types.E_NONE
+				}
+				return prop, types.E_NONE
+			}
+		}
+
+		queue = append(queue, current.Parents...)
+	}
+
+	return nil, types.E_PROPNF
+}
+
 // matchVerbName checks if a search name matches a MOO verb name pattern
 // Supports MOO wildcard matching where * marks the minimum abbreviation point
 // Example: "co*nnect" matches "co", "con", "conn", "conne", "connec", "connect"
