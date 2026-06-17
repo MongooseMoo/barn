@@ -51,7 +51,7 @@ Results:
 
 ## Commit
 
-Pending.
+`5de7535 Move object assignment into store`
 
 ## Next Slice
 
