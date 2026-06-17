@@ -53,4 +53,4 @@ Known unrelated baseline reproduced:
 - `go test ./db ./server` fails only in `barn/server` `TestTLSListenerLoginAndEval`.
 
 Commit:
-- Pending
+- `38f6939 Snapshot store state before writing`
