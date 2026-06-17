@@ -57,7 +57,7 @@ All gates passed.
 
 ## Commit
 
-Pending.
+`01b51b6 Close property mutations through store`
 
 ## Next Slice
 
