@@ -43,4 +43,4 @@ Known unrelated baseline reproduced:
 - Isolated `go test -timeout 120s ./server -run "TestTLSListenerLoginAndEval"` reproduces the same failure.
 
 Commit:
-- Pending
+- `6740d02 Delete unused checkpoint manager`
