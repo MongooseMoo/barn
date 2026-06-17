@@ -84,4 +84,4 @@ Known unrelated baseline reproduced:
 - `go test ./db ./server` fails only in `barn/server` `TestTLSListenerLoginAndEval`.
 
 Commit:
-- Pending
+- `d9a42a1 Record backend pluggability decision`
