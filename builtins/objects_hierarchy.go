@@ -1085,14 +1085,6 @@ func builtinRecreate(ctx *types.TaskContext, args []types.Value) types.Result {
 		return result
 	}
 
-	objData.Properties = copyInheritedProperties(objData, store)
-	for _, parentID := range objData.Parents {
-		parent := store.Get(parentID)
-		if parent != nil {
-			parent.Children = append(parent.Children, obj.ID())
-		}
-	}
-
 	initResult := registry.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
 	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
 		return initResult

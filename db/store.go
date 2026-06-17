@@ -72,6 +72,28 @@ func (s *Store) addLoadedObject(obj *Object) {
 	s.insertObjectLocked(obj)
 }
 
+func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	newID := s.highWaterID + 1
+	if owner == types.ObjNothing {
+		owner = newID
+	}
+
+	obj := NewObject(newID, owner)
+	obj.Parents = append([]types.ObjID(nil), parents...)
+	obj.Anonymous = anonymous
+	if anonymous {
+		obj.Flags = obj.Flags.Set(FlagAnonymous)
+	}
+	obj.Properties = s.copyInheritedPropertiesLocked(obj.Parents)
+
+	s.insertObjectLocked(obj)
+	s.attachChildToParentsLocked(newID, obj.Parents, anonymous, false)
+	return newID, types.E_NONE
+}
+
 func (s *Store) insertObjectLocked(obj *Object) {
 	s.objects[obj.ID] = obj
 
@@ -85,6 +107,61 @@ func (s *Store) insertObjectLocked(obj *Object) {
 	if !obj.Anonymous && obj.ID > s.maxObjID {
 		s.maxObjID = obj.ID
 	}
+}
+
+func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.ObjID, anonymous bool, chparent bool) {
+	for _, parentID := range parents {
+		parent := s.objects[parentID]
+		if !validLiveObject(parent) {
+			continue
+		}
+		if anonymous {
+			parent.AnonymousChildren = append(parent.AnonymousChildren, childID)
+			continue
+		}
+		parent.Children = append(parent.Children, childID)
+		if chparent {
+			if parent.ChparentChildren == nil {
+				parent.ChparentChildren = make(map[types.ObjID]bool)
+			}
+			parent.ChparentChildren[childID] = true
+		}
+	}
+}
+
+func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]*Property {
+	result := make(map[string]*Property)
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), parents...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for name, prop := range current.Properties {
+			if _, exists := result[name]; exists {
+				continue
+			}
+			result[name] = &Property{
+				Name:  prop.Name,
+				Value: prop.Value,
+				Owner: prop.Owner,
+				Perms: prop.Perms,
+				Clear: true,
+			}
+		}
+		queue = append(queue, current.Parents...)
+	}
+
+	return result
 }
 
 // NextID returns the next available object ID
@@ -232,8 +309,10 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	// Reset object to fresh state
 	newObj := NewObject(id, owner)
 	newObj.Parents = []types.ObjID{parent}
+	newObj.Properties = s.copyInheritedPropertiesLocked(newObj.Parents)
 
 	s.objects[id] = newObj
+	s.attachChildToParentsLocked(id, newObj.Parents, false, false)
 
 	return nil
 }

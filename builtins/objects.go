@@ -240,50 +240,9 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Allocate new object ID
-	newID := store.NextID()
-
-	// If owner is $nothing, the new object owns itself (only for regular objects)
-	if owner == types.ObjNothing {
-		owner = newID
-	}
-
-	// Create object
-	obj := db.NewObject(newID, owner)
-	obj.Parents = parents
-	obj.Anonymous = anonymous
-	if anonymous {
-		obj.Flags = obj.Flags.Set(db.FlagAnonymous)
-	}
-
-	// Copy properties from parent chain
-	// Per spec: "All properties from the entire inheritance chain are copied"
-	copied := copyInheritedProperties(obj, store)
-	obj.Properties = copied
-
-	// Add object to store
-	if err := store.Add(obj); err != nil {
+	newID, errCode := store.CreateObject(parents, owner, anonymous)
+	if errCode != types.E_NONE {
 		return types.Err(types.E_QUOTA)
-	}
-
-	// Add to parents' children lists (only for non-anonymous objects)
-	// Anonymous objects do not appear in children() results
-	// But DO track anonymous children on parent for invalidation
-	if !anonymous {
-		for _, parentID := range parents {
-			parent := store.Get(parentID)
-			if parent != nil {
-				parent.Children = append(parent.Children, newID)
-			}
-		}
-	} else {
-		// Track anonymous children on all parents for invalidation
-		for _, parentID := range parents {
-			parent := store.Get(parentID)
-			if parent != nil {
-				parent.AnonymousChildren = append(parent.AnonymousChildren, newID)
-			}
-		}
 	}
 
 	// Call :initialize verb if it exists
