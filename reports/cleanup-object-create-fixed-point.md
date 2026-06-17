@@ -51,7 +51,7 @@ Results:
 
 ## Commit
 
-Pending.
+`ac2499a Move object creation setup into store`
 
 ## Next Slice
 
