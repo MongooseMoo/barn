@@ -209,7 +209,7 @@ Gate results:
 - Pass: `git diff --check`
 
 Commit:
-- Pending
+- `fbca560 Move world-scan metadata reads into store`
 
 Next slice:
-- This metadata-read plan is complete after the Phase 3 commit is recorded.
+- This metadata-read plan is complete.

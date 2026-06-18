@@ -152,7 +152,7 @@ Commit policy:
 
 ## Phase 3 - Name Reads and World Scan Queries
 
-Status: in progress.
+Status: complete.
 
 Slice boundary:
 - `builtins/objects_hierarchy.go`
