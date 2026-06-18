@@ -75,7 +75,7 @@ Gate results:
 - Pass: `git diff --check -- db/store.go vm/op_property.go builtins/objects_movement.go builtins/objects_hierarchy.go`
 
 Commit:
-- Pending.
+- `6a15a82 Move first metadata reads into store`
 
 Next slice:
 - Phase 2 permission-heavy runtime metadata reads in `builtins/objects.go`, `builtins/objects_players.go`, `builtins/properties.go`, `builtins/verbs.go`, `vm/registry.go`, `vm/op_verb.go`, and server scheduler/login/call-verb surfaces.

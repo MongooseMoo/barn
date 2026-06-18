@@ -52,7 +52,7 @@ Gates:
 
 ## Phase 1 - First Metadata Read Slice
 
-Status: in progress.
+Status: complete.
 
 Slice boundary:
 - `db/store.go`
@@ -107,7 +107,7 @@ Commit policy:
 
 ## Phase 2 - Permission-Heavy Runtime Metadata Reads
 
-Status: pending.
+Status: in progress.
 
 Slice boundary:
 - `builtins/objects.go`
