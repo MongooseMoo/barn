@@ -74,7 +74,7 @@ Gate results:
 - Pass: `git diff --check -- db/store.go builtins/objects_hierarchy.go builtins/objects_movement.go vm/op_property.go`
 
 Commit:
-- Pending.
+- `630fc42 Move relationship reads into store`
 
 Next slice:
 - Built-in object property read and metadata/permission reads: `ObjectName`, `ObjectOwner`, `HasObjectFlag`, `ObjectIsAnonymous`, and related caller rewrites.
