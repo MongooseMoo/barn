@@ -112,7 +112,13 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 	store := db.NewStore()
 	system := addTestObject(t, store, 0, db.FlagWizard)
 	addTestObject(t, store, 2, db.FlagUser|db.FlagProgrammer|db.FlagWizard)
-	addTestVerb(system, "do_login_command", "return #2;")
+	addTestVerb(system, "do_login_command",
+		`if (length(args) > 0 && args[1] == "connect")`,
+		"  return #2;",
+		"else",
+		"  return #-1;",
+		"endif",
+	)
 
 	scheduler := NewScheduler(store)
 	srv := &Server{scheduler: scheduler}
