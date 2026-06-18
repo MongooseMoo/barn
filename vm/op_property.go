@@ -70,7 +70,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Check for built-in properties (flag properties like .name, .owner, .wizard, etc.)
-	if val, ok := getBuiltinProperty(obj, propName); ok {
+	if val, ok := getBuiltinProperty(vm.Store, obj, propName); ok {
 		vm.Push(val)
 		return nil
 	}
@@ -284,37 +284,42 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 }
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
-func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
+func getBuiltinProperty(store *db.Store, obj *db.Object, name string) (types.Value, bool) {
 	switch name {
 	case "name":
 		return types.NewStr(obj.Name), true
 	case "owner":
 		return types.NewObj(obj.Owner), true
 	case "location":
-		return types.NewObj(obj.Location), true
+		locationID, errCode := store.Location(obj.ID)
+		if errCode != types.E_NONE {
+			return nil, false
+		}
+		return types.NewObj(locationID), true
 	case "contents":
-		vals := make([]types.Value, len(obj.Contents))
-		for i, id := range obj.Contents {
-			vals[i] = types.NewObj(id)
+		contentsIDs, errCode := store.Contents(obj.ID)
+		if errCode != types.E_NONE {
+			return nil, false
 		}
-		return types.NewList(vals), true
+		return types.NewList(objIDsToValues(contentsIDs)), true
 	case "parents":
-		vals := make([]types.Value, len(obj.Parents))
-		for i, id := range obj.Parents {
-			vals[i] = types.NewObj(id)
+		parentIDs, errCode := store.Parents(obj.ID)
+		if errCode != types.E_NONE {
+			return nil, false
 		}
-		return types.NewList(vals), true
+		return types.NewList(objIDsToValues(parentIDs)), true
 	case "parent":
-		if len(obj.Parents) > 0 {
-			return types.NewObj(obj.Parents[0]), true
+		parentID, errCode := store.Parent(obj.ID)
+		if errCode != types.E_NONE {
+			return nil, false
 		}
-		return types.NewObj(types.ObjNothing), true
+		return types.NewObj(parentID), true
 	case "children":
-		vals := make([]types.Value, len(obj.Children))
-		for i, id := range obj.Children {
-			vals[i] = types.NewObj(id)
+		childIDs, errCode := store.Children(obj.ID)
+		if errCode != types.E_NONE {
+			return nil, false
 		}
-		return types.NewList(vals), true
+		return types.NewList(objIDsToValues(childIDs)), true
 	case "programmer":
 		if obj.Flags.Has(db.FlagProgrammer) {
 			return types.NewInt(1), true
@@ -353,6 +358,14 @@ func getBuiltinProperty(obj *db.Object, name string) (types.Value, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func objIDsToValues(ids []types.ObjID) []types.Value {
+	values := make([]types.Value, len(ids))
+	for i, id := range ids {
+		values[i] = types.NewObj(id)
+	}
+	return values
 }
 
 // setBuiltinProperty sets a built-in object property.

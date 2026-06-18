@@ -341,6 +341,222 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	return types.E_NONE
 }
 
+func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.ObjNothing, types.E_INVIND
+	}
+	if len(obj.Parents) == 0 {
+		return types.ObjNothing, types.E_NONE
+	}
+	return obj.Parents[0], types.E_NONE
+}
+
+func (s *Store) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	return append([]types.ObjID(nil), obj.Parents...), types.E_NONE
+}
+
+func (s *Store) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	return append([]types.ObjID(nil), obj.Children...), types.E_NONE
+}
+
+func (s *Store) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	return append([]types.ObjID(nil), obj.Contents...), types.E_NONE
+}
+
+func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.ObjNothing, types.E_INVIND
+	}
+	return obj.Location, types.E_NONE
+}
+
+func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	result := make([]types.ObjID, 0)
+	seen := make(map[types.ObjID]bool)
+	queue := make([]types.ObjID, 0, len(obj.Parents))
+	if includeSelf {
+		result = append(result, objID)
+		seen[objID] = true
+	}
+	queue = append(queue, obj.Parents...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+		result = append(result, currentID)
+		current := s.objects[currentID]
+		if validLiveObject(current) {
+			queue = append(queue, current.Parents...)
+		}
+	}
+
+	return result, types.E_NONE
+}
+
+func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	result := make([]types.ObjID, 0)
+	seen := make(map[types.ObjID]bool)
+	queue := make([]types.ObjID, 0, len(obj.Children))
+	if includeSelf {
+		result = append(result, objID)
+		seen[objID] = true
+	}
+	queue = append(queue, obj.Children...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+		result = append(result, currentID)
+		current := s.objects[currentID]
+		if validLiveObject(current) {
+			queue = append(queue, current.Children...)
+		}
+	}
+
+	return result, types.E_NONE
+}
+
+func (s *Store) HasAncestor(objID, ancestorID types.ObjID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) || !validLiveObject(s.objects[ancestorID]) {
+		return false
+	}
+	if objID == ancestorID {
+		return true
+	}
+
+	seen := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), obj.Parents...)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+		if currentID == ancestorID {
+			return true
+		}
+		current := s.objects[currentID]
+		if validLiveObject(current) {
+			queue = append(queue, current.Parents...)
+		}
+	}
+	return false
+}
+
+func (s *Store) HasDescendant(objID, descendantID types.ObjID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false
+	}
+	return s.hasDescendantLocked(obj, descendantID)
+}
+
+func (s *Store) hasDescendantLocked(obj *Object, descendantID types.ObjID) bool {
+	for _, childID := range obj.Children {
+		if childID == descendantID {
+			return true
+		}
+		child := s.objects[childID]
+		if validLiveObject(child) && s.hasDescendantLocked(child, descendantID) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) HasContentDescendant(objID, targetID types.ObjID) bool {
+	if objID == targetID {
+		return true
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return false
+	}
+
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		if currentID == targetID {
+			return true
+		}
+		current := s.objects[currentID]
+		if validLiveObject(current) {
+			queue = append(queue, current.Contents...)
+		}
+	}
+	return false
+}
+
 func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()

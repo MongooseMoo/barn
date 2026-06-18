@@ -43,12 +43,12 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if store.Get(whatVal.ID()) == nil {
+	if !store.Valid(whatVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
 	// Check for recursive move (moving into self or descendant)
-	if isDescendant(whatVal.ID(), whereVal.ID(), store) {
+	if store.HasContentDescendant(whatVal.ID(), whereVal.ID()) {
 		return types.Err(types.E_RECMOVE)
 	}
 
@@ -106,8 +106,7 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
-		obj := store.Get(objVal.ID())
-		if obj == nil || obj.Recycled {
+		if !store.Valid(objVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -142,38 +141,13 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	// Helper to check if object isa any of the parents
 	isaAnyParent := func(objID types.ObjID) bool {
-		obj := store.Get(objID)
-		if obj == nil {
+		if !store.Valid(objID) {
 			return false
 		}
 
 		for _, parentID := range parents {
-			// Object is always its own ancestor
-			if objID == parentID {
+			if store.HasAncestor(objID, parentID) {
 				return true
-			}
-
-			// BFS through ancestry chain
-			seen := make(map[types.ObjID]bool)
-			queue := obj.Parents[:]
-
-			for len(queue) > 0 {
-				currentID := queue[0]
-				queue = queue[1:]
-
-				if seen[currentID] {
-					continue
-				}
-				seen[currentID] = true
-
-				if currentID == parentID {
-					return true
-				}
-
-				current := store.Get(currentID)
-				if current != nil {
-					queue = append(queue, current.Parents...)
-				}
 			}
 		}
 		return false

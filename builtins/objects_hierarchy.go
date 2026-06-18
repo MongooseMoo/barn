@@ -29,8 +29,8 @@ func builtinParent(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	parentID, errCode := store.Parent(objVal.ID())
+	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
 		if store.IsRecycled(objVal.ID()) {
 			return types.Err(types.E_INVARG)
@@ -38,11 +38,7 @@ func builtinParent(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	if len(obj.Parents) == 0 {
-		return types.Ok(types.NewObj(types.ObjNothing))
-	}
-
-	return types.Ok(types.NewObj(obj.Parents[0]))
+	return types.Ok(types.NewObj(parentID))
 }
 
 // builtinParents implements parents(object)
@@ -73,8 +69,8 @@ func builtinParents(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	parentIDs, errCode := store.Parents(objVal.ID())
+	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
 		if store.IsRecycled(objVal.ID()) {
 			return types.Err(types.E_INVARG)
@@ -82,13 +78,7 @@ func builtinParents(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	// Convert []ObjID to []Value
-	parents := make([]types.Value, len(obj.Parents))
-	for i, parentID := range obj.Parents {
-		parents[i] = types.NewObj(parentID)
-	}
-
-	return types.Ok(types.NewList(parents))
+	return types.Ok(types.NewList(objIDsToValues(parentIDs)))
 }
 
 // builtinChildren implements children(object)
@@ -119,8 +109,8 @@ func builtinChildren(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	childIDs, errCode := store.Children(objVal.ID())
+	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
 		if store.IsRecycled(objVal.ID()) {
 			return types.Err(types.E_INVARG)
@@ -128,13 +118,15 @@ func builtinChildren(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	// Convert []ObjID to []Value
-	children := make([]types.Value, len(obj.Children))
-	for i, childID := range obj.Children {
-		children[i] = types.NewObj(childID)
-	}
+	return types.Ok(types.NewList(objIDsToValues(childIDs)))
+}
 
-	return types.Ok(types.NewList(children))
+func objIDsToValues(ids []types.ObjID) []types.Value {
+	values := make([]types.Value, len(ids))
+	for i, id := range ids {
+		values[i] = types.NewObj(id)
+	}
+	return values
 }
 
 // builtinChparent implements chparent(object, new_parent)
@@ -192,7 +184,7 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Check if new parent is a descendant of object (would create cycle)
-	if newParentVal.ID() != types.ObjNothing && isChildOf(store, newParentVal.ID(), objVal.ID()) {
+	if newParentVal.ID() != types.ObjNothing && store.HasDescendant(objVal.ID(), newParentVal.ID()) {
 		return types.Err(types.E_RECMOVE)
 	}
 
@@ -301,7 +293,7 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 
 		// Check if parent is a descendant of object (would create cycle)
-		if isChildOf(store, parentID, objVal.ID()) {
+		if store.HasDescendant(objVal.ID(), parentID) {
 			return types.Err(types.E_RECMOVE)
 		}
 
@@ -379,49 +371,17 @@ func builtinAncestors(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
-		return types.Err(types.E_INVARG)
-	}
-
 	includeSelf := false
 	if len(args) == 2 {
 		includeSelf = args[1].Truthy()
 	}
 
-	// Collect ancestors in BFS order, maintaining insertion order
-	var result []types.Value
-	seen := make(map[types.ObjID]bool)
-	queue := make([]types.ObjID, 0)
-
-	// Optionally include self first
-	if includeSelf {
-		result = append(result, types.NewObj(objVal.ID()))
-		seen[objVal.ID()] = true
+	ancestorIDs, errCode := store.Ancestors(objVal.ID(), includeSelf)
+	if errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
 	}
 
-	// Start with direct parents
-	queue = append(queue, obj.Parents...)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if seen[currentID] {
-			continue
-		}
-		seen[currentID] = true
-
-		result = append(result, types.NewObj(currentID))
-
-		// Add this ancestor's parents
-		current := store.Get(currentID)
-		if current != nil {
-			queue = append(queue, current.Parents...)
-		}
-	}
-
-	return types.Ok(types.NewList(result))
+	return types.Ok(types.NewList(objIDsToValues(ancestorIDs)))
 }
 
 // builtinDescendants implements descendants(object [, include_self])
@@ -441,49 +401,17 @@ func builtinDescendants(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
-		return types.Err(types.E_INVARG)
-	}
-
 	includeSelf := false
 	if len(args) == 2 {
 		includeSelf = args[1].Truthy()
 	}
 
-	// Collect descendants in BFS order
-	var result []types.Value
-	seen := make(map[types.ObjID]bool)
-	queue := make([]types.ObjID, 0)
-
-	// Optionally include self first
-	if includeSelf {
-		result = append(result, types.NewObj(objVal.ID()))
-		seen[objVal.ID()] = true
+	descendantIDs, errCode := store.Descendants(objVal.ID(), includeSelf)
+	if errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
 	}
 
-	// Start with direct children
-	queue = append(queue, obj.Children...)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if seen[currentID] {
-			continue
-		}
-		seen[currentID] = true
-
-		result = append(result, types.NewObj(currentID))
-
-		// Add this descendant's children
-		current := store.Get(currentID)
-		if current != nil {
-			queue = append(queue, current.Children...)
-		}
-	}
-
-	return types.Ok(types.NewList(result))
+	return types.Ok(types.NewList(objIDsToValues(descendantIDs)))
 }
 
 // builtinIsa implements isa(object, ancestor[, return_object])
@@ -528,8 +456,7 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	if !store.Valid(objVal.ID()) {
 		return noMatch()
 	}
 
@@ -538,64 +465,15 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
 			continue
 		}
 
-		// Object is always its own ancestor.
-		if objVal.ID() == ancestorID {
+		if store.HasAncestor(objVal.ID(), ancestorID) {
 			if returnObject {
 				return types.Ok(types.NewObj(ancestorID))
 			}
 			return types.Ok(types.NewInt(1))
 		}
-
-		// BFS through ancestry chain.
-		seen := make(map[types.ObjID]bool)
-		queue := obj.Parents[:]
-
-		for len(queue) > 0 {
-			currentID := queue[0]
-			queue = queue[1:]
-
-			if seen[currentID] {
-				continue
-			}
-			seen[currentID] = true
-
-			if currentID == ancestorID {
-				if returnObject {
-					return types.Ok(types.NewObj(ancestorID))
-				}
-				return types.Ok(types.NewInt(1))
-			}
-
-			current := store.Get(currentID)
-			if current != nil {
-				queue = append(queue, current.Parents...)
-			}
-		}
 	}
 
 	return noMatch()
-}
-
-// isChildOf checks if descendant is in the children tree of ancestor
-// Used for cycle detection in parent relationships
-func isChildOf(store *db.Store, descendant, ancestor types.ObjID) bool {
-	obj := store.Get(ancestor)
-	if obj == nil {
-		return false
-	}
-
-	// Check direct children
-	for _, childID := range obj.Children {
-		if childID == descendant {
-			return true
-		}
-		// Recursively check children's children
-		if isChildOf(store, descendant, childID) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // collectAncestorProperties collects all defined property names from an object
@@ -626,8 +504,10 @@ func collectAncestorProperties(store *db.Store, objID types.ObjID) map[string]bo
 			}
 		}
 
-		// Add parents to queue
-		queue = append(queue, current.Parents...)
+		parentIDs, errCode := store.Parents(currentID)
+		if errCode == types.E_NONE {
+			queue = append(queue, parentIDs...)
+		}
 	}
 
 	return props
@@ -675,39 +555,6 @@ func hasChparentDescendantConflict(store *db.Store, obj *db.Object, ancestorProp
 	}
 
 	return checkChparentDescendants(obj)
-}
-
-// isDescendant checks if target is a descendant of ancestor
-func isDescendant(ancestor, target types.ObjID, store *db.Store) bool {
-	if ancestor == target {
-		return true
-	}
-
-	// Breadth-first search through location chain
-	queue := []types.ObjID{ancestor}
-	visited := make(map[types.ObjID]bool)
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] {
-			continue
-		}
-		visited[currentID] = true
-
-		if currentID == target {
-			return true
-		}
-
-		current := store.Get(currentID)
-		if current != nil {
-			// Add all contents to queue
-			queue = append(queue, current.Contents...)
-		}
-	}
-
-	return false
 }
 
 func builtinLocateByName(ctx *types.TaskContext, args []types.Value) types.Result {
@@ -772,8 +619,7 @@ func builtinLocations(ctx *types.TaskContext, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	if !store.Valid(objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -799,52 +645,27 @@ func builtinLocations(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	out := make([]types.Value, 0)
-	current := obj
-	for current != nil && current.Location != types.ObjNothing {
-		locID := current.Location
+	currentID := objVal.ID()
+	for {
+		locID, errCode := store.Location(currentID)
+		if errCode != types.E_NONE || locID == types.ObjNothing {
+			break
+		}
 
 		if hasBase {
 			if !checkParent && locID == baseID {
 				break
 			}
-			if checkParent && objectHasAncestor(store, locID, baseID) {
+			if checkParent && (locID == baseID || store.HasAncestor(locID, baseID)) {
 				break
 			}
 		}
 
 		out = append(out, types.NewObj(locID))
-		current = store.Get(locID)
+		currentID = locID
 	}
 
 	return types.Ok(types.NewList(out))
-}
-
-func objectHasAncestor(store *db.Store, objID, ancestorID types.ObjID) bool {
-	if objID == ancestorID {
-		return true
-	}
-	obj := store.Get(objID)
-	if obj == nil {
-		return false
-	}
-	visited := map[types.ObjID]bool{}
-	queue := append([]types.ObjID{}, obj.Parents...)
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		if visited[id] {
-			continue
-		}
-		visited[id] = true
-		if id == ancestorID {
-			return true
-		}
-		parent := store.Get(id)
-		if parent != nil {
-			queue = append(queue, parent.Parents...)
-		}
-	}
-	return false
 }
 
 func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value) types.Result {
