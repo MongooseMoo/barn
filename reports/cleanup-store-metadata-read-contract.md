@@ -148,3 +148,68 @@ Commit:
 
 Next slice:
 - Phase 3 name reads and world-scan queries in `builtins/objects_hierarchy.go`, `server/matcher.go`, and `builtins/objects_misc.go`.
+
+## Iteration 3 - Phase 3 name reads and world-scan queries
+
+Slice read:
+- `plans/store-metadata-read-cleanup-plan.md`
+- `db/store.go`
+- `builtins/objects_hierarchy.go`
+- `server/matcher.go`
+- `builtins/objects_misc.go`
+
+Surfaces:
+- `db.Store` world-scan and alias read methods
+  - Disposition: move
+  - Owner after cleanup: `db.Store`
+  - Action: Added `ObjectIDsByNameSubstring`, `ObjectsOwnedBy`, `AliasStrings`, and `ObjectByteEstimate`.
+  - Evidence: Callers no longer scan object `Name`, `Owner`, `Properties["aliases"]`, or byte-estimate internals directly.
+- `builtins/objects_hierarchy.go` `locate_by_name`
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Replaced direct `store.All()` plus `obj.Name` scan with `ObjectIDsByNameSubstring`.
+  - Evidence: Targeted field search has no direct object metadata hits in this function.
+- `builtins/objects_hierarchy.go` `owned_objects`
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Replaced direct `store.All()` plus `obj.Owner` scan with `ObjectsOwnedBy`.
+  - Evidence: Targeted field search has no direct object metadata hits in this function.
+- `server/matcher.go` command object matching
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Replaced direct object content/name/alias reads with `Contents`, `ObjectName`, and `AliasStrings`; deleted the caller-local `getAliases` object helper.
+  - Evidence: `server/matcher.go` has no remaining `store.Get` or direct object metadata field hits.
+- `builtins/objects_misc.go` `new_waif` and `object_bytes`
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Replaced anonymous class validation with `ObjectIsAnonymous`; moved the approximate object byte estimator into `db.Store`.
+  - Evidence: Deleted caller-local `calculateObjectBytes` and `calculateValueBytes`; `objects_misc.go` has no remaining direct object metadata field hits.
+- `builtins/objects_hierarchy.go` property-conflict traversal
+  - Disposition: keep for later property-structure slice
+  - Owner after cleanup: pending store-owned property-structure query methods
+  - Action: Recorded remaining `store.Get` calls as property-map and chparent-child traversal, not scalar object metadata reads.
+  - Evidence: The Phase 3 search gate reports `store.Get` at lines for `chparent`, `chparents`, `collectAncestorProperties`, and `hasChparentDescendantConflict`.
+- Broad remaining hits outside this plan
+  - Disposition: keep recorded
+  - Owner after cleanup: pending future slices or non-object surfaces
+  - Action: Recorded remaining broad-audit hits in tasks, signatures, anonymous GC, scheduler task ownership, `Property.Owner`, `Verb.Owner`, waif owner, AST/file names, and file I/O names.
+  - Evidence: These are outside the Phase 3 boundary or are non-object metadata surfaces matched by the broad regex.
+
+Gate results:
+- Pass with recorded property-structure deferrals: `rg -n --pcre2 "\.(Name|Owner|Flags|Anonymous)\b|\.Flags\.Has|store\.Get\(" builtins/objects_hierarchy.go server/matcher.go builtins/objects_misc.go --glob "!**/*_test.go"`
+  - Remaining targeted hits are `store.Get` calls in property-conflict traversal only.
+- Pass: `rg -n --pcre2 "(?<!waif)\.(Name|Owner|Flags|Anonymous)\b|\.Flags\.Has" builtins/objects_hierarchy.go server/matcher.go builtins/objects_misc.go --glob "!**/*_test.go"` (zero hits)
+- Pass with recorded deferrals: `rg -n --pcre2 "(?<!waif)\.(Name|Owner|Flags|Anonymous)\b|\.Flags\.Has" builtins vm server --glob "!**/*_test.go"`
+  - Remaining broad hits are non-object names, task owner fields, `Property.Owner`, `Verb.Owner`, waif owner, anonymous-GC direct object internals, task/signature direct object internals, and file/stat names.
+- Pass: `go test ./db ./builtins ./vm ./server`
+- Pass: `go test -timeout 120s ./builtins -run "Test.*(Locate|Owned|Object|Bytes)"` (`[no tests to run]`)
+- Pass: `go test -timeout 120s ./server -run "Test.*(Match|Command)"`
+- Pass: `go build -o barn.exe ./cmd/barn/`
+- Pass: `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"` (`3871 passed, 131 skipped in 141.53s`)
+- Pass: `git diff --check`
+
+Commit:
+- Pending
+
+Next slice:
+- This metadata-read plan is complete after the Phase 3 commit is recorded.

@@ -396,6 +396,69 @@ func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
 	return obj.Anonymous, types.E_NONE
 }
 
+func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []types.ObjID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	searchNeedle := needle
+	if !caseSensitive {
+		searchNeedle = strings.ToLower(searchNeedle)
+	}
+
+	result := make([]types.ObjID, 0)
+	for _, obj := range s.objects {
+		if !validLiveObject(obj) {
+			continue
+		}
+		name := strings.TrimSpace(obj.Name)
+		if !caseSensitive {
+			name = strings.ToLower(name)
+		}
+		if strings.Contains(name, searchNeedle) {
+			result = append(result, obj.ID)
+		}
+	}
+	return result
+}
+
+func (s *Store) ObjectsOwnedBy(owner types.ObjID) []types.ObjID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]types.ObjID, 0)
+	for _, obj := range s.objects {
+		if validLiveObject(obj) && obj.Owner == owner {
+			result = append(result, obj.ID)
+		}
+	}
+	return result
+}
+
+func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	prop := obj.Properties["aliases"]
+	if prop == nil {
+		return nil, types.E_NONE
+	}
+	listVal, ok := prop.Value.(types.ListValue)
+	if !ok {
+		return nil, types.E_NONE
+	}
+	aliases := make([]string, 0, listVal.Len())
+	for i := 1; i <= listVal.Len(); i++ {
+		if strVal, ok := listVal.Get(i).(types.StrValue); ok {
+			aliases = append(aliases, strVal.Value())
+		}
+	}
+	return aliases, types.E_NONE
+}
+
 func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -896,6 +959,73 @@ func (s *Store) All() []*Object {
 		}
 	}
 	return result
+}
+
+func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return 0, types.E_INVIND
+	}
+	return calculateObjectBytes(obj), types.E_NONE
+}
+
+func calculateObjectBytes(obj *Object) int {
+	count := 64 + 8
+
+	count += len(obj.Name) + 1
+
+	for _, verb := range obj.Verbs {
+		count += 32
+		count += len(verb.Name) + 1
+		if verb.Program != nil {
+			count += len(verb.Program.Statements) * 64
+		}
+	}
+
+	for _, prop := range obj.Properties {
+		if prop.Defined {
+			count += 32
+			count += len(prop.Name) + 1
+		}
+	}
+
+	for _, prop := range obj.Properties {
+		count += 24
+		count += calculateValueBytes(prop.Value)
+	}
+
+	return count
+}
+
+func calculateValueBytes(v types.Value) int {
+	size := 16
+
+	switch val := v.(type) {
+	case types.StrValue:
+		size += len(val.Value()) + 1
+	case types.FloatValue:
+		size += 8
+	case types.ListValue:
+		elements := val.Elements()
+		size += len(elements) * 16
+		for _, elem := range elements {
+			size += calculateValueBytes(elem)
+		}
+	case types.MapValue:
+		pairs := val.Pairs()
+		size += len(pairs) * 32
+		for _, pair := range pairs {
+			size += calculateValueBytes(pair[0])
+			size += calculateValueBytes(pair[1])
+		}
+	case types.WaifValue:
+		size += 64
+	}
+
+	return size
 }
 
 // Players returns all objects with the player flag set

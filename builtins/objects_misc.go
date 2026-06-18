@@ -80,12 +80,11 @@ func builtinNewWaif(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 
-	// Check if class object is anonymous (anonymous objects cannot be waif parents)
-	classObj := store.Get(callerID)
-	if classObj == nil {
+	isAnonymous, errCode := store.ObjectIsAnonymous(callerID)
+	if errCode != types.E_NONE {
 		return types.Err(types.E_INVIND)
 	}
-	if classObj.Anonymous {
+	if isAnonymous {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -135,83 +134,9 @@ func builtinObjectBytes(ctx *types.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_PERM)
 	}
 
-	obj := store.Get(objID)
-	if obj == nil {
+	bytes, errCode := store.ObjectByteEstimate(objID)
+	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
-
-	// Calculate approximate byte size
-	bytes := calculateObjectBytes(obj, store)
 	return types.Ok(types.NewInt(int64(bytes)))
-}
-
-// calculateObjectBytes calculates approximate memory usage of an object
-// Based on ToastStunt's db_object_bytes implementation
-func calculateObjectBytes(obj *db.Object, store *db.Store) int {
-	// Start with object header size
-	// sizeof(Object) + sizeof(Object*) in C
-	count := 64 + 8 // Approximation for Go struct overhead
-
-	// Object name
-	count += len(obj.Name) + 1
-
-	// Verbs
-	for _, verb := range obj.Verbs {
-		count += 32 // Verb struct overhead
-		count += len(verb.Name) + 1
-		// Program AST size (if compiled)
-		if verb.Program != nil {
-			count += len(verb.Program.Statements) * 64 // Approximate statement size
-		}
-	}
-
-	// Property definitions (properties defined on this object)
-	for _, prop := range obj.Properties {
-		if prop.Defined {
-			count += 32 // Propdef struct overhead
-			count += len(prop.Name) + 1
-		}
-	}
-
-	// Property values (all properties including inherited)
-	for _, prop := range obj.Properties {
-		count += 24 // Pval struct overhead (minus Var size)
-		count += calculateValueBytes(prop.Value)
-	}
-
-	return count
-}
-
-// calculateValueBytes calculates approximate memory usage of a value
-// Based on ToastStunt's value_bytes function
-func calculateValueBytes(v types.Value) int {
-	size := 16 // Base Var struct size
-
-	switch val := v.(type) {
-	case types.StrValue:
-		size += len(val.Value()) + 1
-	case types.FloatValue:
-		size += 8 // sizeof(double)
-	case types.ListValue:
-		elements := val.Elements()
-		size += len(elements) * 16 // List overhead
-		for _, elem := range elements {
-			size += calculateValueBytes(elem)
-		}
-	case types.MapValue:
-		// Approximate map overhead
-		pairs := val.Pairs()
-		size += len(pairs) * 32 // Map node overhead
-		for _, pair := range pairs {
-			size += calculateValueBytes(pair[0]) // Key
-			size += calculateValueBytes(pair[1]) // Value
-		}
-	case types.WaifValue:
-		// Waif overhead - basic struct size
-		size += 64
-		// Note: Waif properties are stored on the class object, not the waif instance
-		// So we just count the waif struct overhead
-	}
-
-	return size
 }

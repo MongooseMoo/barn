@@ -592,20 +592,10 @@ func builtinLocateByName(ctx *types.TaskContext, args []types.Value) types.Resul
 		caseSensitive = cs.Val != 0
 	}
 
-	searchNeedle := needleStr
-	if !caseSensitive {
-		searchNeedle = strings.ToLower(searchNeedle)
-	}
-
-	matches := make([]types.Value, 0)
-	for _, obj := range store.All() {
-		name := strings.TrimSpace(obj.Name)
-		if !caseSensitive {
-			name = strings.ToLower(name)
-		}
-		if strings.Contains(name, searchNeedle) {
-			matches = append(matches, types.NewObj(obj.ID))
-		}
+	matchingIDs := store.ObjectIDsByNameSubstring(needleStr, caseSensitive)
+	matches := make([]types.Value, 0, len(matchingIDs))
+	for _, id := range matchingIDs {
+		matches = append(matches, types.NewObj(id))
 	}
 	return types.Ok(types.NewList(matches))
 }
@@ -689,11 +679,10 @@ func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value) types.Resul
 	if !store.Valid(owner.ID()) {
 		return types.Err(types.E_INVIND)
 	}
-	out := make([]types.Value, 0)
-	for _, obj := range store.All() {
-		if obj.Owner == owner.ID() {
-			out = append(out, types.NewObj(obj.ID))
-		}
+	ownedIDs := store.ObjectsOwnedBy(owner.ID())
+	out := make([]types.Value, 0, len(ownedIDs))
+	for _, id := range ownedIDs {
+		out = append(out, types.NewObj(id))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].(types.ObjValue).ID() < out[j].(types.ObjValue).ID()
@@ -798,8 +787,7 @@ func builtinRecreate(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	result := types.Ok(types.NewObj(obj.ID()))
-	objData := store.Get(obj.ID())
-	if objData == nil {
+	if !store.Valid(obj.ID()) {
 		return result
 	}
 

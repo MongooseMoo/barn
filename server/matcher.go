@@ -42,17 +42,14 @@ func MatchObject(store *db.Store, player types.ObjID, location types.ObjID, name
 		return location
 	}
 
-	// Get player object for inventory search
-	playerObj := store.Get(player)
-	if playerObj == nil {
+	inventory, errCode := store.Contents(player)
+	if errCode != types.E_NONE {
 		return types.ObjFailedMatch
 	}
 
-	inventory := playerObj.Contents
 	roomContents := make([]types.ObjID, 0)
-	roomObj := store.Get(location)
-	if roomObj != nil {
-		roomContents = append(roomContents, roomObj.Contents...)
+	if contents, errCode := store.Contents(location); errCode == types.E_NONE {
+		roomContents = append(roomContents, contents...)
 	}
 
 	if matches := findExactMatches(store, inventory, roomContents, name); len(matches) > 0 {
@@ -76,16 +73,20 @@ func findExactMatches(store *db.Store, inventory []types.ObjID, room []types.Obj
 	var matches []types.ObjID
 
 	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
-		obj := store.Get(objID)
-		if obj == nil {
+		name, errCode := store.ObjectName(objID)
+		if errCode != types.E_NONE {
 			continue
 		}
-		if strings.ToLower(obj.Name) == searchLower {
+		if strings.ToLower(name) == searchLower {
 			matches = appendUniqueMatch(matches, objID)
 			continue
 		}
-		for _, alias := range getAliases(obj) {
-			if alias == searchLower {
+		aliases, errCode := store.AliasStrings(objID)
+		if errCode != types.E_NONE {
+			continue
+		}
+		for _, alias := range aliases {
+			if strings.ToLower(alias) == searchLower {
 				matches = appendUniqueMatch(matches, objID)
 				break
 			}
@@ -108,42 +109,24 @@ func findPrefixMatches(store *db.Store, inventory []types.ObjID, room []types.Ob
 	var matches []types.ObjID
 
 	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
-		obj := store.Get(objID)
-		if obj == nil {
+		name, errCode := store.ObjectName(objID)
+		if errCode != types.E_NONE {
 			continue
 		}
-		if strings.HasPrefix(strings.ToLower(obj.Name), searchLower) {
+		if strings.HasPrefix(strings.ToLower(name), searchLower) {
 			matches = appendUniqueMatch(matches, objID)
 			continue
 		}
-		for _, alias := range getAliases(obj) {
-			if strings.HasPrefix(alias, searchLower) {
+		aliases, errCode := store.AliasStrings(objID)
+		if errCode != types.E_NONE {
+			continue
+		}
+		for _, alias := range aliases {
+			if strings.HasPrefix(strings.ToLower(alias), searchLower) {
 				matches = appendUniqueMatch(matches, objID)
 				break
 			}
 		}
 	}
 	return matches
-}
-
-// getAliases gets the aliases list for an object
-func getAliases(obj *db.Object) []string {
-	prop, ok := obj.Properties["aliases"]
-	if !ok || prop == nil {
-		return nil
-	}
-
-	// Aliases should be a list of strings
-	listVal, ok := prop.Value.(types.ListValue)
-	if !ok {
-		return nil
-	}
-
-	aliases := make([]string, 0, listVal.Len())
-	for i := 1; i <= listVal.Len(); i++ {
-		if strVal, ok := listVal.Get(i).(types.StrValue); ok {
-			aliases = append(aliases, strings.ToLower(strVal.Value()))
-		}
-	}
-	return aliases
 }
