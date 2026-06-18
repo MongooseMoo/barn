@@ -41,7 +41,7 @@ Allowed remaining hits must be recorded explicitly, for example:
 
 ## Phase 0 - Plan Commit
 
-Status: in progress.
+Status: complete.
 
 Work:
 - Write this plan to `plans/store-metadata-read-cleanup-plan.md`.
@@ -52,7 +52,7 @@ Gates:
 
 ## Phase 1 - First Metadata Read Slice
 
-Status: pending.
+Status: in progress.
 
 Slice boundary:
 - `db/store.go`
@@ -85,7 +85,9 @@ rg -n --pcre2 "(?<!waif)\.(Name|Owner|Flags|Anonymous)\b|\.Flags\.Has" vm/op_pro
 ```
 
 Expected:
-- Zero object metadata hits in the active slice, or only explicitly recorded non-object metadata hits.
+- Zero object metadata hits for the Phase 1 work items.
+- `builtins/objects_hierarchy.go` hits in `locate_by_name` and `owned_objects` are Phase 3 deferrals and must be recorded if still present.
+- `Property.Owner` hits in VM permission checks are non-object metadata and must be recorded if still present.
 - Remaining `store.Get` in the active slice must be metadata/property-map work recorded for a later phase.
 
 Runtime gates:
