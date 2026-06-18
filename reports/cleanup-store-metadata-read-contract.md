@@ -144,7 +144,7 @@ Gate results:
 - Pass: `git diff --check`
 
 Commit:
-- Pending
+- `5816e96 Move permission metadata reads into store`
 
 Next slice:
 - Phase 3 name reads and world-scan queries in `builtins/objects_hierarchy.go`, `server/matcher.go`, and `builtins/objects_misc.go`.

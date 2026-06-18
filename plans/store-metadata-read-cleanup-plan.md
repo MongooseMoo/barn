@@ -107,7 +107,7 @@ Commit policy:
 
 ## Phase 2 - Permission-Heavy Runtime Metadata Reads
 
-Status: in progress.
+Status: complete.
 
 Slice boundary:
 - `builtins/objects.go`
@@ -152,7 +152,7 @@ Commit policy:
 
 ## Phase 3 - Name Reads and World Scan Queries
 
-Status: pending.
+Status: in progress.
 
 Slice boundary:
 - `builtins/objects_hierarchy.go`
