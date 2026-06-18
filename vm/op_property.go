@@ -70,7 +70,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Check for built-in properties (flag properties like .name, .owner, .wizard, etc.)
-	if val, ok := getBuiltinProperty(vm.Store, obj, propName); ok {
+	if val, ok := getBuiltinProperty(vm.Store, obj.ID, propName); ok {
 		vm.Push(val)
 		return nil
 	}
@@ -185,7 +185,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Check for built-in property assignment first
-	if isBuiltin, errCode := setBuiltinProperty(vm.Store, obj, propName, value, vm.Context); isBuiltin {
+	if isBuiltin, errCode := setBuiltinProperty(vm.Store, obj.ID, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
@@ -284,80 +284,86 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 }
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
-func getBuiltinProperty(store *db.Store, obj *db.Object, name string) (types.Value, bool) {
+func getBuiltinProperty(store *db.Store, objID types.ObjID, name string) (types.Value, bool) {
 	switch name {
 	case "name":
-		return types.NewStr(obj.Name), true
+		name, errCode := store.ObjectName(objID)
+		if errCode != types.E_NONE {
+			return nil, false
+		}
+		return types.NewStr(name), true
 	case "owner":
-		return types.NewObj(obj.Owner), true
+		ownerID, errCode := store.ObjectOwner(objID)
+		if errCode != types.E_NONE {
+			return nil, false
+		}
+		return types.NewObj(ownerID), true
 	case "location":
-		locationID, errCode := store.Location(obj.ID)
+		locationID, errCode := store.Location(objID)
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewObj(locationID), true
 	case "contents":
-		contentsIDs, errCode := store.Contents(obj.ID)
+		contentsIDs, errCode := store.Contents(objID)
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewList(objIDsToValues(contentsIDs)), true
 	case "parents":
-		parentIDs, errCode := store.Parents(obj.ID)
+		parentIDs, errCode := store.Parents(objID)
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewList(objIDsToValues(parentIDs)), true
 	case "parent":
-		parentID, errCode := store.Parent(obj.ID)
+		parentID, errCode := store.Parent(objID)
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewObj(parentID), true
 	case "children":
-		childIDs, errCode := store.Children(obj.ID)
+		childIDs, errCode := store.Children(objID)
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewList(objIDsToValues(childIDs)), true
 	case "programmer":
-		if obj.Flags.Has(db.FlagProgrammer) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
+		return boolPropertyValue(store, objID, db.FlagProgrammer)
 	case "wizard":
-		if obj.Flags.Has(db.FlagWizard) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
+		return boolPropertyValue(store, objID, db.FlagWizard)
 	case "player":
-		if obj.Flags.Has(db.FlagUser) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
+		return boolPropertyValue(store, objID, db.FlagUser)
 	case "r":
-		if obj.Flags.Has(db.FlagRead) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
+		return boolPropertyValue(store, objID, db.FlagRead)
 	case "w":
-		if obj.Flags.Has(db.FlagWrite) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
+		return boolPropertyValue(store, objID, db.FlagWrite)
 	case "f":
-		if obj.Flags.Has(db.FlagFertile) {
-			return types.NewInt(1), true
-		}
-		return types.NewInt(0), true
+		return boolPropertyValue(store, objID, db.FlagFertile)
 	case "a":
-		if obj.Flags.Has(db.FlagAnonymous) || obj.Anonymous {
+		hasFlag, flagErr := store.HasObjectFlag(objID, db.FlagAnonymous)
+		isAnonymous, anonErr := store.ObjectIsAnonymous(objID)
+		if flagErr != types.E_NONE || anonErr != types.E_NONE {
+			return nil, false
+		}
+		if hasFlag || isAnonymous {
 			return types.NewInt(1), true
 		}
 		return types.NewInt(0), true
 	default:
 		return nil, false
 	}
+}
+
+func boolPropertyValue(store *db.Store, objID types.ObjID, flag db.ObjectFlags) (types.Value, bool) {
+	hasFlag, errCode := store.HasObjectFlag(objID, flag)
+	if errCode != types.E_NONE {
+		return nil, false
+	}
+	if hasFlag {
+		return types.NewInt(1), true
+	}
+	return types.NewInt(0), true
 }
 
 func objIDsToValues(ids []types.ObjID) []types.Value {
@@ -369,71 +375,83 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets a built-in object property.
-func setBuiltinProperty(store *db.Store, obj *db.Object, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(store *db.Store, objID types.ObjID, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
-			return true, store.SetObjectName(obj.ID, str.Value())
+			return true, store.SetObjectName(objID, str.Value())
 		}
 		return false, types.E_NONE
 	case "owner":
 		if objVal, ok := value.(types.ObjValue); ok {
-			if obj.Anonymous && ctx != nil && !ctx.IsWizard {
+			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+			if errCode != types.E_NONE {
+				return true, errCode
+			}
+			if isAnonymous && ctx != nil && !ctx.IsWizard {
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectOwner(obj.ID, objVal.ID())
+			return true, store.SetObjectOwner(objID, objVal.ID())
 		}
 		return false, types.E_NONE
 	case "location":
 		if objVal, ok := value.(types.ObjValue); ok {
-			return true, store.SetObjectLocationRaw(obj.ID, objVal.ID())
+			return true, store.SetObjectLocationRaw(objID, objVal.ID())
 		}
 		return false, types.E_NONE
 	case "programmer":
 		if intVal, ok := value.(types.IntValue); ok {
-			if obj.Anonymous {
+			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+			if errCode != types.E_NONE {
+				return true, errCode
+			}
+			if isAnonymous {
 				if ctx != nil && ctx.IsWizard {
 					return true, types.E_INVARG
 				}
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectFlag(obj.ID, db.FlagProgrammer, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagProgrammer, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "wizard":
 		if intVal, ok := value.(types.IntValue); ok {
-			if obj.Anonymous {
+			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+			if errCode != types.E_NONE {
+				return true, errCode
+			}
+			if isAnonymous {
 				if ctx != nil && ctx.IsWizard {
 					return true, types.E_INVARG
 				}
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectFlag(obj.ID, db.FlagWizard, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagWizard, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "player":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(obj.ID, db.FlagUser, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagUser, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "r":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(obj.ID, db.FlagRead, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagRead, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "w":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(obj.ID, db.FlagWrite, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagWrite, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "f":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(obj.ID, db.FlagFertile, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagFertile, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "a":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(obj.ID, db.FlagAnonymous, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, db.FlagAnonymous, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	default:

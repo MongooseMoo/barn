@@ -160,9 +160,7 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
 		objVal := item.(types.ObjValue) // Already validated
 		objID := objVal.ID()
 
-		// Skip objects that became invalid during this call.
-		obj := store.Get(objID)
-		if obj == nil || obj.Recycled {
+		if !store.Valid(objID) {
 			continue
 		}
 
@@ -178,7 +176,11 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 
 		// Check player flag filter
-		playerMatches := !checkPlayerFlag || obj.Flags.Has(db.FlagUser)
+		playerMatches := true
+		if checkPlayerFlag {
+			hasPlayerFlag, errCode := store.HasObjectFlag(objID, db.FlagUser)
+			playerMatches = errCode == types.E_NONE && hasPlayerFlag
+		}
 
 		// Add to results if both conditions pass
 		if parentMatches && playerMatches {

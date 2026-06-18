@@ -341,6 +341,61 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	return types.E_NONE
 }
 
+func (s *Store) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return "", types.E_INVIND
+	}
+	return obj.Name, types.E_NONE
+}
+
+func (s *Store) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.ObjNothing, types.E_INVIND
+	}
+	return obj.Owner, types.E_NONE
+}
+
+func (s *Store) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return 0, types.E_INVIND
+	}
+	return obj.Flags, types.E_NONE
+}
+
+func (s *Store) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	return obj.Flags.Has(flag), types.E_NONE
+}
+
+func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	return obj.Anonymous, types.E_NONE
+}
+
 func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

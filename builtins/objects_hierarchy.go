@@ -175,10 +175,8 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	var newParent *db.Object
 	if newParentVal.ID() != types.ObjNothing {
-		newParent = store.Get(newParentVal.ID())
-		if newParent == nil {
+		if !store.Valid(newParentVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -212,8 +210,15 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	if !ctx.IsWizard && newParentVal.ID() != types.ObjNothing {
-		isOwner := newParent.Owner == ctx.Programmer
-		hasFertile := newParent.Flags.Has(db.FlagFertile)
+		ownerID, errCode := store.ObjectOwner(newParentVal.ID())
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		hasFertile, errCode := store.HasObjectFlag(newParentVal.ID(), db.FlagFertile)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		isOwner := ownerID == ctx.Programmer
 		if !isOwner && !hasFertile {
 			return types.Err(types.E_PERM)
 		}
