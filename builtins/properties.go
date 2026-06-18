@@ -90,8 +90,8 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check read permission (unless wizard or owner)
-	wizObj := store.Get(ctx.Programmer)
-	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == prop.Owner
 	if !isWizard && !isOwner && !prop.Perms.Has(db.PropRead) {
 		return types.Err(types.E_PERM)
@@ -247,7 +247,11 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	// Anonymous objects are instances, not classes: their property structure
 	// cannot be modified. ToastStunt raises E_TYPE for add_property on an
 	// anonymous object.
-	if obj.Anonymous {
+	isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if isAnonymous {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -322,14 +326,13 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// Validate owner is a valid object
-	ownerObj := store.Get(owner)
-	if ownerObj == nil || store.IsRecycled(owner) {
+	if !store.Valid(owner) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Check permissions: only wizard can set owner to someone else
-	wizObj := store.Get(ctx.Programmer)
-	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
 	if !isWizard && owner != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
@@ -459,8 +462,8 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Check write permission (unless wizard or owner)
-	wizObj := store.Get(ctx.Programmer)
-	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == foundProp.Owner
 	if !isWizard && !isOwner && !foundProp.Perms.Has(db.PropWrite) {
 		return types.Err(types.E_PERM)
@@ -528,8 +531,8 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Re
 	}
 
 	// NOW check read permission (unless wizard or owner)
-	wizObj := store.Get(ctx.Programmer)
-	isWizard := wizObj != nil && wizObj.Flags.Has(db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == definingProp.Owner
 	hasReadPerm := definingProp.Perms.Has(db.PropRead)
 	if !isWizard && !isOwner && !hasReadPerm {

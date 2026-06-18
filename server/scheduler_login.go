@@ -74,8 +74,8 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 	if objVal, ok := result.Val.(types.ObjValue); ok {
 		playerID := objVal.ID()
 		if playerID > 0 {
-			obj := s.store.Get(playerID)
-			if obj != nil && obj.Flags.Has(db.FlagUser) {
+			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, db.FlagUser)
+			if errCode == types.E_NONE && hasPlayerFlag {
 				return playerID, nil
 			}
 		}

@@ -79,3 +79,72 @@ Commit:
 
 Next slice:
 - Phase 2 permission-heavy runtime metadata reads in `builtins/objects.go`, `builtins/objects_players.go`, `builtins/properties.go`, `builtins/verbs.go`, `vm/registry.go`, `vm/op_verb.go`, and server scheduler/login/call-verb surfaces.
+
+## Iteration 2 - Phase 2 permission-heavy metadata reads
+
+Slice read:
+- `plans/store-metadata-read-cleanup-plan.md`
+- `builtins/objects.go`
+- `builtins/objects_players.go`
+- `builtins/properties.go`
+- `builtins/verbs.go`
+- `vm/registry.go`
+- `vm/op_verb.go`
+- `server/scheduler.go`
+- `server/scheduler_login.go`
+- `server/scheduler_call_verb.go`
+
+Surfaces:
+- `builtins/objects_players.go` player and wizard flag checks
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Rewrote wizard, player, and anonymous checks to use `HasObjectFlag`, `ObjectIsAnonymous`, and `Valid`.
+  - Evidence: The scoped Phase 2 search reports no object metadata field reads in this file.
+- `builtins/objects.go` `create()` owner and parent permission checks
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Rewrote explicit owner validation to `Valid`, and parent owner/fertile/anonymous permission checks to `ObjectOwner` and `HasObjectFlag`.
+  - Evidence: The scoped Phase 2 search reports no object metadata field reads in the converted permission path.
+- `builtins/properties.go` property permission checks
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Rewrote programmer wizard checks and `add_property` anonymous guard to store-owned metadata methods.
+  - Evidence: Remaining hits are `Property.Owner`, not object metadata.
+- `builtins/verbs.go` verb permission checks
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Rewrote object readable, write, owner, and anonymous checks in `respond_to` and `add_verb` to store-owned metadata methods.
+  - Evidence: Remaining hits are `Verb.Owner`, not object metadata.
+- `vm/registry.go` programmer permission check
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Rewrote programmer flag validation to `HasObjectFlag`.
+  - Evidence: The file has no remaining object metadata field hits.
+- `vm/op_verb.go` and server scheduler call/login helpers
+  - Disposition: rewrite
+  - Owner after cleanup: `db.Store`
+  - Action: Rewrote verb-owner wizard checks, login player flag validation, server-call anonymous `this`, and scheduler `isWizard` to use store-owned metadata methods.
+  - Evidence: Remaining hits are `Verb.Owner` and task owner fields.
+- Out-of-scope hits from the broad Phase 2 gate
+  - Disposition: keep for later slices
+  - Owner after cleanup: pending
+  - Action: Recorded `vm/anonymous_gc.go`, `builtins/tasks.go`, `builtins/signatures.go`, `builtins/objects_misc.go`, `builtins/objects_hierarchy.go`, and scheduler task factory/runtime surfaces as outside this Phase 2 boundary.
+  - Evidence: The broad gate reports these as remaining object metadata, task owner, waif owner, or Phase 3 world-scan/debug surfaces.
+
+Gate results:
+- Pass with recorded deferrals: `rg -n --pcre2 "\.(Owner|Flags|Anonymous)\b|\.Flags\.Has" builtins/objects.go builtins/objects_players.go builtins/properties.go builtins/verbs.go vm/registry.go vm/op_verb.go server/scheduler.go server/scheduler_login.go server/scheduler_call_verb.go --glob "!**/*_test.go"`
+  - Remaining Phase 2 boundary hits are `Property.Owner`, `Verb.Owner`, and task owner fields.
+- Pass with recorded deferrals: `rg -n --pcre2 "\.(Owner|Flags|Anonymous)\b|\.Flags\.Has" builtins vm server --glob "!**/*_test.go"`
+  - Remaining broad hits include Phase 3 `objects_hierarchy.go` and `objects_misc.go`, future anonymous-GC/task/signature surfaces, plus `Property.Owner`, `Verb.Owner`, waif owner, and task owner fields.
+- Pass: `go test ./db ./builtins ./vm ./server`
+- Pass: `go test -timeout 120s ./builtins -run "Test.*(Property|Verb|Player|Object|Perm|Wizard)"` (`[no tests to run]`)
+- Pass: `go test -timeout 120s ./vm -run "Test.*(Verb|Property|Perm|Wizard)"`
+- Pass: `go build -o barn.exe ./cmd/barn/`
+- Pass: `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"` (`3871 passed, 131 skipped in 141.40s`)
+- Pass: `git diff --check`
+
+Commit:
+- Pending
+
+Next slice:
+- Phase 3 name reads and world-scan queries in `builtins/objects_hierarchy.go`, `server/matcher.go`, and `builtins/objects_misc.go`.

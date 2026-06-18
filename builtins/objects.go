@@ -199,7 +199,7 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 			// These automatically create anonymous objects (force anonymous flag)
 			anonymous = true
 			owner = ctx.Programmer // Use programmer as owner
-		} else if owner != types.ObjNothing && store.Get(owner) == nil {
+		} else if owner != types.ObjNothing && !store.Valid(owner) {
 			return types.Err(types.E_INVARG)
 		} else if owner == types.ObjNothing && !playerIsWizard {
 			// Only wizards can specify $nothing as owner (makes object own itself)
@@ -216,18 +216,24 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 	// - For regular objects: non-wizards need to own parent OR parent has FlagFertile
 	if !playerIsWizard {
 		for _, parentID := range parents {
-			parent := store.Get(parentID)
-			if parent == nil {
+			parentOwner, errCode := store.ObjectOwner(parentID)
+			if errCode != types.E_NONE {
 				continue
 			}
-			isOwner := parent.Owner == ctx.Programmer
+			isOwner := parentOwner == ctx.Programmer
 			if anonymous {
-				hasAnonFlag := parent.Flags.Has(db.FlagAnonymous)
+				hasAnonFlag, errCode := store.HasObjectFlag(parentID, db.FlagAnonymous)
+				if errCode != types.E_NONE {
+					continue
+				}
 				if !isOwner && !hasAnonFlag {
 					return types.Err(types.E_PERM)
 				}
 			} else {
-				hasFertile := parent.Flags.Has(db.FlagFertile)
+				hasFertile, errCode := store.HasObjectFlag(parentID, db.FlagFertile)
+				if errCode != types.E_NONE {
+					continue
+				}
 				if !isOwner && !hasFertile {
 					return types.Err(types.E_PERM)
 				}

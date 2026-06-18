@@ -65,7 +65,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 
 	thisVal := types.Value(types.NewObj(objID))
 	var frameThisValue types.Value
-	if target := s.store.Get(objID); target != nil && target.Anonymous {
+	if isAnonymous, errCode := s.store.ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon
 		frameThisValue = anon

@@ -119,7 +119,10 @@ func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Check if caller can see details: wizard, owner, or verb readable, or object readable
 	hasRead := verb.Perms.Has(db.VerbRead)
 	isOwner := verb.Owner == ctx.Player
-	objReadable := obj.Flags.Has(db.FlagRead)
+	objReadable, errCode := store.HasObjectFlag(objID, db.FlagRead)
+	if errCode != types.E_NONE {
+		objReadable = false
+	}
 
 	if ctx.IsWizard || isOwner || hasRead || objReadable {
 		// Return {defining_object, verb_name}
@@ -408,7 +411,11 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 
 	// Anonymous objects are instances, not classes: their verb structure cannot
 	// be modified. ToastStunt raises E_TYPE for add_verb on an anonymous object.
-	if obj.Anonymous {
+	isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if isAnonymous {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -482,7 +489,15 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 	// - Must be the owner specified in verbinfo (or be wizard)
 	if !ctx.IsWizard {
 		// Check write permission on object
-		if !obj.Flags.Has(db.FlagWrite) && obj.Owner != ctx.Player {
+		hasWrite, errCode := store.HasObjectFlag(objID, db.FlagWrite)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		objectOwner, errCode := store.ObjectOwner(objID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		if !hasWrite && objectOwner != ctx.Player {
 			return types.Err(types.E_PERM)
 		}
 		// Check caller is the owner in verbinfo

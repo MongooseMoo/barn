@@ -233,9 +233,8 @@ func (vm *VM) executeCallVerb() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			if programmerObj := vm.Store.Get(verb.Owner); programmerObj != nil {
-				isWizard = programmerObj.Flags.Has(db.FlagWizard)
-			}
+			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, db.FlagWizard)
+			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = objID
 		vm.Context.ThisValue = thisValue // waif/primitive/anonymous value, or nil for normal
@@ -437,9 +436,8 @@ func (vm *VM) executePass() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			if programmerObj := vm.Store.Get(verb.Owner); programmerObj != nil {
-				isWizard = programmerObj.Flags.Has(db.FlagWizard)
-			}
+			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, db.FlagWizard)
+			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = frame.This
 		vm.Context.ThisValue = passThisValue

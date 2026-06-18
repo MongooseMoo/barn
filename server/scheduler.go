@@ -687,11 +687,8 @@ func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 
 // isWizard checks if an object has wizard permissions
 func (s *Scheduler) isWizard(objID types.ObjID) bool {
-	obj := s.store.Get(objID)
-	if obj == nil {
-		return false
-	}
-	return obj.Flags.Has(db.FlagWizard)
+	hasWizard, errCode := s.store.HasObjectFlag(objID, db.FlagWizard)
+	return errCode == types.E_NONE && hasWizard
 }
 
 // Error definitions

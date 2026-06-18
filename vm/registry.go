@@ -26,8 +26,8 @@ func BuildVMRegistry() *builtins.Registry {
 			return types.Err(types.E_INVARG)
 		}
 
-		progObj := store.Get(ctx.Programmer)
-		if progObj == nil || !progObj.Flags.Has(db.FlagProgrammer) {
+		hasProgrammer, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagProgrammer)
+		if errCode != types.E_NONE || !hasProgrammer {
 			return types.Err(types.E_PERM)
 		}
 

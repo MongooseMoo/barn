@@ -7,11 +7,8 @@ import (
 
 // isPlayerWizard checks if a player object has wizard permissions
 func isPlayerWizard(store *db.Store, objID types.ObjID) bool {
-	obj := store.Get(objID)
-	if obj == nil {
-		return false
-	}
-	return obj.Flags.Has(db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(objID, db.FlagWizard)
+	return errCode == types.E_NONE && hasWizard
 }
 
 // builtinPlayers implements players()
@@ -61,17 +58,24 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	if !store.Valid(objVal.ID()) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot be players - E_TYPE per MOO spec
-	if obj.Anonymous {
+	isAnonymous, errCode := store.ObjectIsAnonymous(objVal.ID())
+	if errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
+	}
+	if isAnonymous {
 		return types.Err(types.E_TYPE)
 	}
 
-	if obj.Flags.Has(db.FlagUser) {
+	hasPlayerFlag, errCode := store.HasObjectFlag(objVal.ID(), db.FlagUser)
+	if errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
+	}
+	if hasPlayerFlag {
 		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
@@ -103,13 +107,16 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_INVARG)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	if !store.Valid(objVal.ID()) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot have player flag set - E_TYPE per MOO spec
-	if obj.Anonymous {
+	isAnonymous, errCode := store.ObjectIsAnonymous(objVal.ID())
+	if errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
+	}
+	if isAnonymous {
 		return types.Err(types.E_TYPE)
 	}
 
