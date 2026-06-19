@@ -26,8 +26,8 @@ func LoadAllTests() ([]LoadedTest, error) {
 	// Try multiple path resolutions since tests run from different locations
 	testDir := ""
 	candidates := []string{
-		TestPath,                                    // relative to cwd
-		filepath.Join("..", TestPath),               // if running from conformance/
+		TestPath,                      // relative to cwd
+		filepath.Join("..", TestPath), // if running from conformance/
 		filepath.Join("../..", "cow_py", "tests", "conformance"), // absolute fallback
 	}
 

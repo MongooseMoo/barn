@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"sync"
 )
@@ -37,7 +37,7 @@ func IsProtectedBuiltin(name string) bool {
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
 // flags and replaces the protected-builtin set. Called from
 // LoadServerOptionsFromStore so it stays in sync with Toast's cache refresh.
-func LoadProtectedBuiltinsFromStore(store *db.Store) {
+func LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 	next := map[string]bool{}
 	if store == nil {
 		protectedBuiltins.Lock()

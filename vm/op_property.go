@@ -1,7 +1,7 @@
 package vm
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"fmt"
 	"strings"
@@ -245,7 +245,7 @@ func (vm *VM) setWaifProp(waif types.WaifValue, propName string, value types.Val
 
 // checkPropertyReadPerm checks if the current programmer has read permission on a property.
 // Wizards and property owners always have access.
-func (vm *VM) checkPropertyReadPerm(prop *db.Property) error {
+func (vm *VM) checkPropertyReadPerm(prop *dbstore.Property) error {
 	if vm.Context == nil {
 		return nil // No context = no permission check
 	}
@@ -255,7 +255,7 @@ func (vm *VM) checkPropertyReadPerm(prop *db.Property) error {
 	if vm.Context.Programmer == prop.Owner {
 		return nil
 	}
-	if !prop.Perms.Has(db.PropRead) {
+	if !prop.Perms.Has(dbstore.PropRead) {
 		return fmt.Errorf("E_PERM: property not readable")
 	}
 	return nil
@@ -263,7 +263,7 @@ func (vm *VM) checkPropertyReadPerm(prop *db.Property) error {
 
 // checkPropertyWritePerm checks if the current programmer has write permission on a property.
 // Wizards and property owners always have access.
-func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
+func (vm *VM) checkPropertyWritePerm(prop *dbstore.Property) error {
 	if vm.Context == nil {
 		return nil // No context = no permission check
 	}
@@ -273,14 +273,14 @@ func (vm *VM) checkPropertyWritePerm(prop *db.Property) error {
 	if vm.Context.Programmer == prop.Owner {
 		return nil
 	}
-	if !prop.Perms.Has(db.PropWrite) {
+	if !prop.Perms.Has(dbstore.PropWrite) {
 		return fmt.Errorf("E_PERM: property not writable")
 	}
 	return nil
 }
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
-func getBuiltinProperty(store *db.Store, objID types.ObjID, name string) (types.Value, bool) {
+func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (types.Value, bool) {
 	switch name {
 	case "name":
 		name, errCode := store.ObjectName(objID)
@@ -325,19 +325,19 @@ func getBuiltinProperty(store *db.Store, objID types.ObjID, name string) (types.
 		}
 		return types.NewList(objIDsToValues(childIDs)), true
 	case "programmer":
-		return boolPropertyValue(store, objID, db.FlagProgrammer)
+		return boolPropertyValue(store, objID, dbstore.FlagProgrammer)
 	case "wizard":
-		return boolPropertyValue(store, objID, db.FlagWizard)
+		return boolPropertyValue(store, objID, dbstore.FlagWizard)
 	case "player":
-		return boolPropertyValue(store, objID, db.FlagUser)
+		return boolPropertyValue(store, objID, dbstore.FlagUser)
 	case "r":
-		return boolPropertyValue(store, objID, db.FlagRead)
+		return boolPropertyValue(store, objID, dbstore.FlagRead)
 	case "w":
-		return boolPropertyValue(store, objID, db.FlagWrite)
+		return boolPropertyValue(store, objID, dbstore.FlagWrite)
 	case "f":
-		return boolPropertyValue(store, objID, db.FlagFertile)
+		return boolPropertyValue(store, objID, dbstore.FlagFertile)
 	case "a":
-		hasFlag, flagErr := store.HasObjectFlag(objID, db.FlagAnonymous)
+		hasFlag, flagErr := store.HasObjectFlag(objID, dbstore.FlagAnonymous)
 		isAnonymous, anonErr := store.ObjectIsAnonymous(objID)
 		if flagErr != types.E_NONE || anonErr != types.E_NONE {
 			return nil, false
@@ -351,7 +351,7 @@ func getBuiltinProperty(store *db.Store, objID types.ObjID, name string) (types.
 	}
 }
 
-func boolPropertyValue(store *db.Store, objID types.ObjID, flag db.ObjectFlags) (types.Value, bool) {
+func boolPropertyValue(store *dbstore.Store, objID types.ObjID, flag dbstore.ObjectFlags) (types.Value, bool) {
 	hasFlag, errCode := store.HasObjectFlag(objID, flag)
 	if errCode != types.E_NONE {
 		return nil, false
@@ -371,7 +371,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets a built-in object property.
-func setBuiltinProperty(store *db.Store, objID types.ObjID, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, value types.Value, ctx *types.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
@@ -407,7 +407,7 @@ func setBuiltinProperty(store *db.Store, objID types.ObjID, name string, value t
 				}
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectFlag(objID, db.FlagProgrammer, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagProgrammer, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "wizard":
@@ -422,32 +422,32 @@ func setBuiltinProperty(store *db.Store, objID types.ObjID, name string, value t
 				}
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectFlag(objID, db.FlagWizard, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagWizard, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "player":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, db.FlagUser, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagUser, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "r":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, db.FlagRead, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagRead, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "w":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, db.FlagWrite, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagWrite, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "f":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, db.FlagFertile, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagFertile, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "a":
 		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, db.FlagAnonymous, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagAnonymous, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	default:

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/types"
 	"fmt"
 	"sort"
@@ -27,7 +28,7 @@ func (db *Database) validObjectID(id types.ObjID) bool {
 		return id == types.ObjNothing
 	}
 	obj := db.Objects[id]
-	return obj != nil && !obj.Recycled && !obj.Flags.Has(FlagInvalid)
+	return obj != nil && !obj.Recycled && !obj.Flags.Has(store.FlagInvalid)
 }
 
 func containsObjID(ids []types.ObjID, target types.ObjID) bool {

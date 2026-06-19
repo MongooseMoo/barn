@@ -1,7 +1,7 @@
 package vm
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -122,7 +122,7 @@ func (vm *VM) executeCallVerb() error {
 
 	// A verb without the execute flag is not callable: ToastStunt treats it as
 	// nonexistent for call dispatch (E_VERBNF), not a permission error.
-	if !verb.Perms.Has(db.VerbExecute) {
+	if !verb.Perms.Has(dbstore.VerbExecute) {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
@@ -176,7 +176,7 @@ func (vm *VM) executeCallVerb() error {
 		LoopStack:       make([]LoopState, 0, 4),
 		ExceptStack:     make([]Handler, 0, 4),
 		IsVerbCall:      true,
-		VerbDebug:       verb.Perms.Has(db.VerbDebug),
+		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
 		SavedThisObj:    savedThisObj,
 		SavedThisValue:  savedThisValue,
 		SavedVerb:       savedVerb,
@@ -233,7 +233,7 @@ func (vm *VM) executeCallVerb() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, db.FlagWizard)
+			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, dbstore.FlagWizard)
 			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = objID
@@ -332,7 +332,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Check execute permission
-	if !verb.Perms.Has(db.VerbExecute) {
+	if !verb.Perms.Has(dbstore.VerbExecute) {
 		return fmt.Errorf("E_PERM: parent verb %s is not executable", verbName)
 	}
 
@@ -384,7 +384,7 @@ func (vm *VM) executePass() error {
 		LoopStack:       make([]LoopState, 0, 4),
 		ExceptStack:     make([]Handler, 0, 4),
 		IsVerbCall:      true,
-		VerbDebug:       verb.Perms.Has(db.VerbDebug),
+		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
 		SavedThisObj:    savedThisObj,
 		SavedThisValue:  savedThisValue,
 		SavedVerb:       savedVerb,
@@ -436,7 +436,7 @@ func (vm *VM) executePass() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, db.FlagWizard)
+			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, dbstore.FlagWizard)
 			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = frame.This

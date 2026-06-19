@@ -3,6 +3,7 @@ package server
 import (
 	"barn/builtins"
 	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"barn/vm"
 	"context"
@@ -18,7 +19,7 @@ import (
 
 // Server represents the MOO server
 type Server struct {
-	store              *db.Store
+	store              *dbstore.Store
 	database           *db.Database
 	scheduler          *Scheduler
 	connManager        *ConnectionManager
@@ -102,7 +103,7 @@ func (s *Server) LoadDatabase() error {
 }
 
 // GetStore returns the object store
-func (s *Server) GetStore() *db.Store {
+func (s *Server) GetStore() *dbstore.Store {
 	return s.store
 }
 
@@ -204,7 +205,7 @@ func (s *Server) checkpoint() error {
 		return fmt.Errorf("create temp file: %w", err)
 	}
 
-	writer := db.NewWriter(tempFile, s.store)
+	writer := db.NewWriter(tempFile, s.store.Snapshot())
 	writer.SetPendingFinalizations(s.database.PendingFinalizations)
 	writer.SetTasks(s.scheduler.QueuedTasks(), s.scheduler.SuspendedTasks())
 	if err := writer.WriteDatabase(); err != nil {

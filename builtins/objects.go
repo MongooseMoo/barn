@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"sort"
 	"sync"
@@ -19,7 +19,7 @@ import (
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
 func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -210,7 +210,7 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 			}
 			isOwner := parentOwner == ctx.Programmer
 			if anonymous {
-				hasAnonFlag, errCode := store.HasObjectFlag(parentID, db.FlagAnonymous)
+				hasAnonFlag, errCode := store.HasObjectFlag(parentID, dbstore.FlagAnonymous)
 				if errCode != types.E_NONE {
 					continue
 				}
@@ -218,7 +218,7 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 					return types.Err(types.E_PERM)
 				}
 			} else {
-				hasFertile, errCode := store.HasObjectFlag(parentID, db.FlagFertile)
+				hasFertile, errCode := store.HasObjectFlag(parentID, dbstore.FlagFertile)
 				if errCode != types.E_NONE {
 					continue
 				}
@@ -305,7 +305,7 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.ObjValue) {
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
 func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -390,7 +390,7 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
 func builtinValid(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -424,7 +424,7 @@ func builtinValid(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object ID
 func builtinMaxObject(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}

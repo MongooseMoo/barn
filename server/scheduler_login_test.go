@@ -3,13 +3,13 @@ package server
 import (
 	"testing"
 
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
-func addTestObject(t *testing.T, store *db.Store, id types.ObjID, flags db.ObjectFlags) *db.Object {
+func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbstore.ObjectFlags) *dbstore.Object {
 	t.Helper()
-	obj := db.NewObject(id, 2)
+	obj := dbstore.NewObject(id, 2)
 	obj.Name = "test"
 	obj.Flags = flags
 	if err := store.Add(obj); err != nil {
@@ -18,13 +18,13 @@ func addTestObject(t *testing.T, store *db.Store, id types.ObjID, flags db.Objec
 	return obj
 }
 
-func addTestVerb(obj *db.Object, name string, code ...string) {
-	verb := &db.Verb{
+func addTestVerb(obj *dbstore.Object, name string, code ...string) {
+	verb := &dbstore.Verb{
 		Name:  name,
 		Names: []string{name},
 		Owner: 2,
-		Perms: db.VerbRead | db.VerbExecute,
-		ArgSpec: db.VerbArgs{
+		Perms: dbstore.VerbRead | dbstore.VerbExecute,
+		ArgSpec: dbstore.VerbArgs{
 			This: "this",
 			Prep: "none",
 			That: "this",
@@ -36,11 +36,11 @@ func addTestVerb(obj *db.Object, name string, code ...string) {
 }
 
 func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
-	store := db.NewStore()
-	system := addTestObject(t, store, 0, db.FlagWizard)
-	addTestObject(t, store, 2, db.FlagUser|db.FlagWizard)
-	addTestObject(t, store, 3, db.FlagUser)
-	listener := addTestObject(t, store, 10, db.FlagWizard)
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	addTestObject(t, store, 3, dbstore.FlagUser)
+	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
 	addTestVerb(system, "do_login_command", "return #3;")
 	addTestVerb(listener, "do_login_command",
@@ -65,12 +65,12 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 }
 
 func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
-	store := db.NewStore()
-	system := addTestObject(t, store, 0, db.FlagWizard)
-	system.Properties["created"] = &db.Property{Name: "created", Value: types.NewObj(types.ObjNothing), Owner: 2, Perms: db.PropRead | db.PropWrite}
-	system.Properties["connected"] = &db.Property{Name: "connected", Value: types.NewObj(types.ObjNothing), Owner: 2, Perms: db.PropRead | db.PropWrite}
-	addTestObject(t, store, 2, db.FlagUser|db.FlagWizard)
-	listener := addTestObject(t, store, 10, db.FlagWizard)
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	system.Properties["created"] = &dbstore.Property{Name: "created", Value: types.NewObj(types.ObjNothing), Owner: 2, Perms: dbstore.PropRead | dbstore.PropWrite}
+	system.Properties["connected"] = &dbstore.Property{Name: "connected", Value: types.NewObj(types.ObjNothing), Owner: 2, Perms: dbstore.PropRead | dbstore.PropWrite}
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
 	addTestVerb(listener, "user_created", "#0.created = args[1];")
 	addTestVerb(listener, "user_connected", "#0.connected = args[1];")

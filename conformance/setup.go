@@ -1,7 +1,7 @@
 package conformance
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
 	"fmt"
@@ -9,27 +9,27 @@ import (
 
 // setupStoreForTests applies test-required properties to the store
 // This ensures $sysobj, $anon, prototype properties etc. exist
-func setupStoreForTests(store *db.Store) {
+func setupStoreForTests(store *dbstore.Store) {
 	// Ensure standard MOO system properties exist on #0
 	// These are expected by conformance tests (same as cow_py transport.py)
 	if obj := store.Get(0); obj != nil {
 		// $sysobj -> #0 (the system object itself)
 		if _, ok := obj.Properties["sysobj"]; !ok {
-			obj.Properties["sysobj"] = &db.Property{
+			obj.Properties["sysobj"] = &dbstore.Property{
 				Name:    "sysobj",
 				Value:   types.NewObj(0),
 				Owner:   0,
-				Perms:   db.PropRead,
+				Perms:   dbstore.PropRead,
 				Defined: true,
 			}
 		}
 		// $object -> #1 (root object class)
 		if _, ok := obj.Properties["object"]; !ok {
-			obj.Properties["object"] = &db.Property{
+			obj.Properties["object"] = &dbstore.Property{
 				Name:    "object",
 				Value:   types.NewObj(1),
 				Owner:   0,
-				Perms:   db.PropRead,
+				Perms:   dbstore.PropRead,
 				Defined: true,
 			}
 		}
@@ -45,7 +45,7 @@ func setupStoreForTests(store *db.Store) {
 			// If no $anonymous property, find an object with anonymous flag
 			if anonID == -1 {
 				for id := types.ObjID(0); id <= store.MaxObject(); id++ {
-					if o := store.Get(id); o != nil && o.Flags.Has(db.FlagAnonymous) {
+					if o := store.Get(id); o != nil && o.Flags.Has(dbstore.FlagAnonymous) {
 						anonID = id
 						break
 					}
@@ -54,17 +54,17 @@ func setupStoreForTests(store *db.Store) {
 			// If still not found, create one
 			if anonID == -1 {
 				anonID = store.NextID()
-				anonObj := db.NewObject(anonID, 0)
+				anonObj := dbstore.NewObject(anonID, 0)
 				anonObj.Name = "Anonymous Object Parent"
 				anonObj.Anonymous = true
-				anonObj.Flags = anonObj.Flags.Set(db.FlagAnonymous).Set(db.FlagFertile)
+				anonObj.Flags = anonObj.Flags.Set(dbstore.FlagAnonymous).Set(dbstore.FlagFertile)
 				store.Add(anonObj)
 			}
-			obj.Properties["anon"] = &db.Property{
+			obj.Properties["anon"] = &dbstore.Property{
 				Name:    "anon",
 				Value:   types.NewObj(anonID),
 				Owner:   0,
-				Perms:   db.PropRead,
+				Perms:   dbstore.PropRead,
 				Defined: true,
 			}
 		}
@@ -72,7 +72,7 @@ func setupStoreForTests(store *db.Store) {
 		if anonProp, ok := obj.Properties["anon"]; ok {
 			if anonObjVal, ok := anonProp.Value.(types.ObjValue); ok {
 				if anonObj := store.Get(anonObjVal.ID()); anonObj != nil {
-					anonObj.Flags = anonObj.Flags.Set(db.FlagFertile).Set(db.FlagAnonymous)
+					anonObj.Flags = anonObj.Flags.Set(dbstore.FlagFertile).Set(dbstore.FlagAnonymous)
 				}
 			}
 		}
@@ -80,7 +80,7 @@ func setupStoreForTests(store *db.Store) {
 		if anonymousProp, ok := obj.Properties["anonymous"]; ok {
 			if anonObjVal, ok := anonymousProp.Value.(types.ObjValue); ok {
 				if anonObj := store.Get(anonObjVal.ID()); anonObj != nil {
-					anonObj.Flags = anonObj.Flags.Set(db.FlagFertile).Set(db.FlagAnonymous)
+					anonObj.Flags = anonObj.Flags.Set(dbstore.FlagFertile).Set(dbstore.FlagAnonymous)
 				}
 			}
 		}
@@ -89,11 +89,11 @@ func setupStoreForTests(store *db.Store) {
 		protoProps := []string{"int_proto", "str_proto", "list_proto", "map_proto", "float_proto", "err_proto"}
 		for _, propName := range protoProps {
 			if _, ok := obj.Properties[propName]; !ok {
-				obj.Properties[propName] = &db.Property{
+				obj.Properties[propName] = &dbstore.Property{
 					Name:    propName,
 					Value:   types.NewObj(-1), // $nothing by default
 					Owner:   0,
-					Perms:   db.PropRead | db.PropWrite,
+					Perms:   dbstore.PropRead | dbstore.PropWrite,
 					Defined: true,
 				}
 			}

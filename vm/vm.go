@@ -2,7 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -15,7 +15,7 @@ type VM struct {
 	SP            int                // Stack pointer
 	Frames        []*StackFrame      // Call stack
 	FP            int                // Frame pointer
-	Store         *db.Store          // Object store
+	Store         *dbstore.Store     // Object store
 	Builtins      *builtins.Registry // Builtin function registry
 	Context       *types.TaskContext // Task context for builtins
 	TickLimit     int64              // Maximum ticks before E_MAXREC
@@ -57,7 +57,7 @@ type StackFrame struct {
 }
 
 // NewVM creates a new virtual machine
-func NewVM(store *db.Store, registry *builtins.Registry) *VM {
+func NewVM(store *dbstore.Store, registry *builtins.Registry) *VM {
 	return &VM{
 		Stack:         make([]types.Value, 0, 256),
 		SP:            0,

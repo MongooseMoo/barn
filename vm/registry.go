@@ -2,7 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
@@ -21,12 +21,12 @@ func BuildVMRegistry() *builtins.Registry {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
 		}
-		store, ok := ctx.Store.(*db.Store)
+		store, ok := ctx.Store.(*dbstore.Store)
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
 
-		hasProgrammer, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagProgrammer)
+		hasProgrammer, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagProgrammer)
 		if errCode != types.E_NONE || !hasProgrammer {
 			return types.Err(types.E_PERM)
 		}

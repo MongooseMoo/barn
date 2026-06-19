@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"barn/vm"
 )
@@ -46,7 +46,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.Wai
 	if err != nil || verb == nil {
 		return
 	}
-	if !verb.Perms.Has(db.VerbExecute) {
+	if !verb.Perms.Has(dbstore.VerbExecute) {
 		return
 	}
 
@@ -75,7 +75,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.Wai
 	recycleVM.Context = recycleCtx
 	recycleVM.TickLimit = 300000
 	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
-	frame.VerbDebug = verb.Perms.Has(db.VerbDebug)
+	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
 	vm.SetLocalByName(frame, prog, "this", waif)
 	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
 	vm.SetLocalByName(frame, prog, "caller", types.NewObj(parentCtx.ThisObj))

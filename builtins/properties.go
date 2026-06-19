@@ -1,14 +1,14 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
 // builtinProperties implements properties(object)
 // Returns list of property names defined on object (not inherited)
 func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -47,7 +47,7 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result 
 // builtinPropertyInfo implements property_info(object, name)
 // Returns {owner, perms} where perms is a string like "rw"
 func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -82,10 +82,10 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check read permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == prop.Owner
-	if !isWizard && !isOwner && !prop.Perms.Has(db.PropRead) {
+	if !isWizard && !isOwner && !prop.Perms.Has(dbstore.PropRead) {
 		return types.Err(types.E_PERM)
 	}
 
@@ -104,7 +104,7 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
 // info can be {owner, perms}, just perms string, or just owner ObjValue
 func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -202,7 +202,7 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 // builtinAddProperty implements add_property(object, name, value, info)
 // Adds a new property to object
 func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -269,7 +269,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 
 	// Parse info argument (same as set_property_info)
 	var owner types.ObjID
-	var perms db.PropertyPerms
+	var perms dbstore.PropertyPerms
 
 	switch info := args[3].(type) {
 	case types.StrValue:
@@ -315,13 +315,13 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// Check permissions: only wizard can set owner to someone else
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	if !isWizard && owner != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
-	prop := db.Property{
+	prop := dbstore.Property{
 		Name:    propName,
 		Value:   value,
 		Owner:   owner,
@@ -342,7 +342,7 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 // builtinDeleteProperty implements delete_property(object, name)
 // Removes property from object
 func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -391,7 +391,7 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Res
 // builtinClearProperty implements clear_property(object, name)
 // Clears property to inherit from parent
 func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -438,10 +438,10 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Check write permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == foundProp.Owner
-	if !isWizard && !isOwner && !foundProp.Perms.Has(db.PropWrite) {
+	if !isWizard && !isOwner && !foundProp.Perms.Has(dbstore.PropWrite) {
 		return types.Err(types.E_PERM)
 	}
 
@@ -456,7 +456,7 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 // Tests if property is cleared (inheriting)
 // Returns 1 if property is clear or only inherited, 0 if has local value
 func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -503,10 +503,10 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Re
 	}
 
 	// NOW check read permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == definingProp.Owner
-	hasReadPerm := definingProp.Perms.Has(db.PropRead)
+	hasReadPerm := definingProp.Perms.Has(dbstore.PropRead)
 	if !isWizard && !isOwner && !hasReadPerm {
 		return types.Err(types.E_PERM)
 	}
@@ -534,16 +534,16 @@ func isBuiltinProperty(name string) bool {
 
 // parsePerms converts a permission string like "rw" to PropertyPerms flags
 // Returns error code if invalid characters found
-func parsePerms(s string) (db.PropertyPerms, types.ErrorCode) {
-	var perms db.PropertyPerms
+func parsePerms(s string) (dbstore.PropertyPerms, types.ErrorCode) {
+	var perms dbstore.PropertyPerms
 	for _, c := range s {
 		switch c {
 		case 'r', 'R':
-			perms |= db.PropRead
+			perms |= dbstore.PropRead
 		case 'w', 'W':
-			perms |= db.PropWrite
+			perms |= dbstore.PropWrite
 		case 'c', 'C':
-			perms |= db.PropChown
+			perms |= dbstore.PropChown
 		default:
 			return 0, types.E_INVARG
 		}

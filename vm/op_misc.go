@@ -1,7 +1,7 @@
 package vm
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"fmt"
 )
@@ -74,7 +74,7 @@ func (vm *VM) executeCallBuiltin() error {
 // by reading the appropriate property (str_proto, int_proto, etc.) from #0.
 // Returns ObjNothing if no prototype is configured for this type.
 // Primitive prototypes are configured through #0's *_proto properties.
-func getPrimitivePrototypeFromStore(store *db.Store, val types.Value) types.ObjID {
+func getPrimitivePrototypeFromStore(store *dbstore.Store, val types.Value) types.ObjID {
 	var propName string
 	switch val.(type) {
 	case types.IntValue:

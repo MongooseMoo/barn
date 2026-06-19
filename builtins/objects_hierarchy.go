@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"sort"
 	"strings"
@@ -10,7 +10,7 @@ import (
 // builtinParent implements parent(object)
 // Returns the first parent of an object
 func builtinParent(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -45,7 +45,7 @@ func builtinParent(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns list of all direct parents
 // Waifs have no parents (E_INVARG)
 func builtinParents(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -85,7 +85,7 @@ func builtinParents(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns list of direct children
 // Waifs have no children (E_INVARG)
 func builtinChildren(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -132,7 +132,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
 func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -219,7 +219,7 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		hasFertile, errCode := store.HasObjectFlag(newParentVal.ID(), db.FlagFertile)
+		hasFertile, errCode := store.HasObjectFlag(newParentVal.ID(), dbstore.FlagFertile)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -248,7 +248,7 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinChparents implements chparents(object, parents_list)
 // Changes object's parents (multiple inheritance)
 func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -362,7 +362,7 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinAncestors implements ancestors(object [, include_self])
 // Returns list of all ancestors in inheritance order
 func builtinAncestors(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -392,7 +392,7 @@ func builtinAncestors(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinDescendants implements descendants(object [, include_self])
 // Returns list of all descendants in inheritance order
 func builtinDescendants(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -423,7 +423,7 @@ func builtinDescendants(ctx *types.TaskContext, args []types.Value) types.Result
 // Returns true if object inherits from ancestor, or the matching ancestor object
 // when return_object is truthy.
 func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -482,7 +482,7 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinLocateByName(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -520,7 +520,7 @@ func builtinLocateByName(ctx *types.TaskContext, args []types.Value) types.Resul
 }
 
 func builtinLocations(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -583,7 +583,7 @@ func builtinLocations(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -610,7 +610,7 @@ func builtinOwnedObjects(ctx *types.TaskContext, args []types.Value) types.Resul
 }
 
 func builtinRecycledObjects(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -629,7 +629,7 @@ func builtinRecycledObjects(ctx *types.TaskContext, args []types.Value) types.Re
 }
 
 func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -666,7 +666,7 @@ func builtinNextRecycledObject(ctx *types.TaskContext, args []types.Value) types
 }
 
 func builtinRecreate(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -718,7 +718,7 @@ func builtinRecreate(ctx *types.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinWaifStats(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}

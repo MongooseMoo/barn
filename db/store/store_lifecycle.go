@@ -1,8 +1,9 @@
-package db
+package store
 
 import (
 	"barn/types"
 	"fmt"
+	"slices"
 )
 
 func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
@@ -174,7 +175,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 
 		for _, newParentID := range objParents {
 			newParent := s.objects[newParentID]
-			if validLiveObject(newParent) && !containsObjID(newParent.Children, childID) {
+			if validLiveObject(newParent) && !slices.Contains(newParent.Children, childID) {
 				newParent.Children = append(newParent.Children, childID)
 			}
 		}

@@ -1,14 +1,14 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
 // builtinMove implements move(what, where[, position])
 // Moves object to new location
 func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -84,7 +84,7 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 // With 3+ args: also filters by player flag
 // With 4 args: inverts the parent check
 func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -178,7 +178,7 @@ func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
 		// Check player flag filter
 		playerMatches := true
 		if checkPlayerFlag {
-			hasPlayerFlag, errCode := store.HasObjectFlag(objID, db.FlagUser)
+			hasPlayerFlag, errCode := store.HasObjectFlag(objID, dbstore.FlagUser)
 			playerMatches = errCode == types.E_NONE && hasPlayerFlag
 		}
 

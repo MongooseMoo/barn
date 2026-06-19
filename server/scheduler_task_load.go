@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -26,7 +27,7 @@ func (s *Scheduler) LoadQueuedTasks(queued []*db.QueuedTask) {
 }
 
 func (s *Scheduler) loadQueuedTask(saved *db.QueuedTask) error {
-	program, errors := db.CompileVerb(saved.Code)
+	program, errors := dbstore.CompileVerb(saved.Code)
 	if len(errors) > 0 {
 		return fmt.Errorf("%s", errors[0])
 	}

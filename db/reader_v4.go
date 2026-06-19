@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/types"
 	"bufio"
 	"fmt"
@@ -97,7 +98,7 @@ func (db *Database) readPlayersV4(r *bufio.Reader) error {
 }
 
 // readObjectV4 reads a single object in version 4 format
-func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
+func (db *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -129,10 +130,10 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		return nil, nil
 	}
 
-	obj := &Object{
+	obj := &store.Object{
 		ID:         objID,
-		Properties: make(map[string]*Property),
-		Verbs:      make(map[string]*Verb),
+		Properties: make(map[string]*store.Property),
+		Verbs:      make(map[string]*store.Verb),
 	}
 
 	// Read name
@@ -152,7 +153,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	obj.Flags = ObjectFlags(flags)
+	obj.Flags = store.ObjectFlags(flags)
 
 	// Read owner
 	obj.Owner, err = readObjID(r)
@@ -202,9 +203,9 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 	}
 
 	// Read verb metadata
-	obj.VerbList = make([]*Verb, verbCount)
+	obj.VerbList = make([]*store.Verb, verbCount)
 	for i := 0; i < verbCount; i++ {
-		verb := &Verb{}
+		verb := &store.Verb{}
 
 		// Verb name
 		verb.Name, err = r.ReadString('\n')
@@ -225,7 +226,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		verb.Perms = VerbPerms(perms & 0xF) // Lower 4 bits are permissions
+		verb.Perms = store.VerbPerms(perms & 0xF) // Lower 4 bits are permissions
 
 		// Extract dobj and iobj from perms
 		dobj := (perms >> 4) & 0x3
@@ -286,7 +287,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		// The first propDefCount entries are the property definitions added on
 		// this object (vs. inherited slots). Mark them Defined so properties()
 		// reports them, matching Toast.
-		prop := &Property{Name: propName, Defined: i < propDefCount}
+		prop := &store.Property{Name: propName, Defined: i < propDefCount}
 
 		// Value
 		prop.Value, err = db.readValue(r)
@@ -311,7 +312,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		prop.Perms = PropertyPerms(perms)
+		prop.Perms = store.PropertyPerms(perms)
 
 		obj.Properties[propName] = prop
 	}

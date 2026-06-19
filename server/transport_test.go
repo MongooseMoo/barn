@@ -14,12 +14,12 @@ type fakeConn struct {
 }
 
 func (f *fakeConn) Write(b []byte) (int, error)        { return 0, nil }
-func (f *fakeConn) Close() error                        { return nil }
-func (f *fakeConn) LocalAddr() net.Addr                 { return nil }
-func (f *fakeConn) RemoteAddr() net.Addr                { return &net.TCPAddr{} }
-func (f *fakeConn) SetDeadline(t time.Time) error       { return nil }
-func (f *fakeConn) SetReadDeadline(t time.Time) error   { return nil }
-func (f *fakeConn) SetWriteDeadline(t time.Time) error  { return nil }
+func (f *fakeConn) Close() error                       { return nil }
+func (f *fakeConn) LocalAddr() net.Addr                { return nil }
+func (f *fakeConn) RemoteAddr() net.Addr               { return &net.TCPAddr{} }
+func (f *fakeConn) SetDeadline(t time.Time) error      { return nil }
+func (f *fakeConn) SetReadDeadline(t time.Time) error  { return nil }
+func (f *fakeConn) SetWriteDeadline(t time.Time) error { return nil }
 
 func newTestTransport(data []byte) *TCPTransport {
 	conn := &fakeConn{bytes.NewReader(data)}

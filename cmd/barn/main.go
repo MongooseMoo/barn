@@ -3,6 +3,7 @@ package main
 import (
 	"barn/builtins"
 	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/server"
 	"barn/trace"
@@ -66,7 +67,7 @@ func main() {
 			log.Fatalf("Failed to create dump file: %v", err)
 		}
 
-		writer := db.NewWriter(f, store)
+		writer := db.NewWriter(f, store.Snapshot())
 		writer.SetPendingFinalizations(database.PendingFinalizations)
 		if err := writer.WriteDatabase(); err != nil {
 			f.Close()
@@ -219,7 +220,7 @@ func parseObjVerb(s string) (types.ObjID, string, error) {
 }
 
 // dumpVerbCode dumps verb source code
-func dumpVerbCode(store *db.Store, spec string) {
+func dumpVerbCode(store *dbstore.Store, spec string) {
 	objID, verbName, err := parseObjVerb(spec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -243,7 +244,7 @@ func dumpVerbCode(store *db.Store, spec string) {
 }
 
 // dumpListVerbs lists all verbs on an object
-func dumpListVerbs(store *db.Store, spec string) {
+func dumpListVerbs(store *dbstore.Store, spec string) {
 	objID, err := parseObjID(spec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -266,7 +267,7 @@ func dumpListVerbs(store *db.Store, spec string) {
 }
 
 // dumpObjInfo shows detailed object info
-func dumpObjInfo(store *db.Store, spec string) {
+func dumpObjInfo(store *dbstore.Store, spec string) {
 	objID, err := parseObjID(spec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -287,22 +288,22 @@ func dumpObjInfo(store *db.Store, spec string) {
 
 	// Decode flags
 	var flagNames []string
-	if obj.Flags.Has(db.FlagUser) {
+	if obj.Flags.Has(dbstore.FlagUser) {
 		flagNames = append(flagNames, "player")
 	}
-	if obj.Flags.Has(db.FlagProgrammer) {
+	if obj.Flags.Has(dbstore.FlagProgrammer) {
 		flagNames = append(flagNames, "programmer")
 	}
-	if obj.Flags.Has(db.FlagWizard) {
+	if obj.Flags.Has(dbstore.FlagWizard) {
 		flagNames = append(flagNames, "wizard")
 	}
-	if obj.Flags.Has(db.FlagRead) {
+	if obj.Flags.Has(dbstore.FlagRead) {
 		flagNames = append(flagNames, "r")
 	}
-	if obj.Flags.Has(db.FlagWrite) {
+	if obj.Flags.Has(dbstore.FlagWrite) {
 		flagNames = append(flagNames, "w")
 	}
-	if obj.Flags.Has(db.FlagFertile) {
+	if obj.Flags.Has(dbstore.FlagFertile) {
 		flagNames = append(flagNames, "f")
 	}
 	if len(flagNames) > 0 {
@@ -364,7 +365,7 @@ func dumpObjInfo(store *db.Store, spec string) {
 }
 
 // evalExpression parses and evaluates a MOO expression
-func evalExpression(store *db.Store, expr string) {
+func evalExpression(store *dbstore.Store, expr string) {
 	p := parser.NewParser(expr)
 	node, err := p.ParseExpression(0)
 	if err != nil {
@@ -399,7 +400,7 @@ func evalExpression(store *db.Store, expr string) {
 }
 
 // dumpObjRawCommand dumps raw database fields for debugging
-func dumpObjRawCommand(store *db.Store, spec string) {
+func dumpObjRawCommand(store *dbstore.Store, spec string) {
 	objID, err := parseObjID(spec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -463,7 +464,7 @@ func dumpObjRawCommand(store *db.Store, spec string) {
 }
 
 // verbLookupCommand shows where a verb would be found (which parent)
-func verbLookupCommand(store *db.Store, spec string) {
+func verbLookupCommand(store *dbstore.Store, spec string) {
 	objID, verbName, err := parseObjVerb(spec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -569,7 +570,7 @@ func verbLookupCommand(store *db.Store, spec string) {
 }
 
 // ancestryCommand shows the full parent chain
-func ancestryCommand(store *db.Store, spec string) {
+func ancestryCommand(store *dbstore.Store, spec string) {
 	objID, err := parseObjID(spec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

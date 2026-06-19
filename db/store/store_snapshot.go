@@ -1,8 +1,8 @@
-package db
+package store
 
 import "barn/types"
 
-type storeSnapshot struct {
+type Snapshot struct {
 	MaxObject        types.ObjID
 	Players          []types.ObjID
 	Objects          map[types.ObjID]*Object
@@ -11,13 +11,11 @@ type storeSnapshot struct {
 	PropertyNames    map[types.ObjID][]string
 }
 
-// NewStore creates a new empty object store
-
-func (s *Store) snapshot() storeSnapshot {
+func (s *Store) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	snapshot := storeSnapshot{
+	snapshot := Snapshot{
 		MaxObject:     s.maxObjID,
 		Objects:       make(map[types.ObjID]*Object, len(s.objects)),
 		PropertyNames: make(map[types.ObjID][]string, len(s.objects)),
@@ -44,13 +42,40 @@ func (s *Store) snapshot() storeSnapshot {
 			snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, obj)
 		}
 		if validLiveObject(obj) {
-			snapshot.PropertyNames[obj.ID] = propertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
+			snapshot.PropertyNames[obj.ID] = snapshotPropertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
 				return snapshot.Objects[id]
 			})
 		}
 	}
 
 	return snapshot
+}
+
+func snapshotPropertyNamesSelfFirst(obj *Object, parent func(types.ObjID) *Object) []string {
+	names := make([]string, 0, len(obj.PropOrder))
+	visited := make(map[string]bool)
+	snapshotPropertyNamesSelfFirstRecursive(obj, parent, &names, visited)
+	return names
+}
+
+func snapshotPropertyNamesSelfFirstRecursive(obj *Object, parent func(types.ObjID) *Object, names *[]string, visited map[string]bool) {
+	if obj == nil {
+		return
+	}
+	localCount := obj.PropDefsCount
+	if localCount > len(obj.PropOrder) {
+		localCount = len(obj.PropOrder)
+	}
+	for i := 0; i < localCount; i++ {
+		name := obj.PropOrder[i]
+		if !visited[name] {
+			*names = append(*names, name)
+			visited[name] = true
+		}
+	}
+	for _, parentID := range obj.Parents {
+		snapshotPropertyNamesSelfFirstRecursive(parent(parentID), parent, names, visited)
+	}
 }
 
 func cloneObjectForSnapshot(obj *Object) *Object {

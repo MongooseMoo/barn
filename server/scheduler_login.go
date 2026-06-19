@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -72,7 +72,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 	if objVal, ok := result.Val.(types.ObjValue); ok {
 		playerID := objVal.ID()
 		if playerID > 0 {
-			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, db.FlagUser)
+			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
 				return playerID, nil
 			}

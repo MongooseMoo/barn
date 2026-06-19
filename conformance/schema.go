@@ -27,7 +27,7 @@ type SetupBlock struct {
 type TestCase struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description,omitempty"`
-	Skip        interface{} `yaml:"skip,omitempty"`      // bool or string
+	Skip        interface{} `yaml:"skip,omitempty"` // bool or string
 	SkipIf      string      `yaml:"skip_if,omitempty"`
 	Permission  string      `yaml:"permission,omitempty"` // programmer|wizard
 	Code        string      `yaml:"code,omitempty"`       // expression (wrapped in return)

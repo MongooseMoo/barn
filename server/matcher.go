@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"strconv"
 	"strings"
@@ -9,7 +9,7 @@ import (
 
 // MatchObject resolves an object name string to an object ID
 // Searches: special syntax (#N, me, here) → inventory → room contents
-func MatchObject(store *db.Store, player types.ObjID, location types.ObjID, name string) types.ObjID {
+func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID, name string) types.ObjID {
 	// Handle empty/whitespace
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -68,7 +68,7 @@ func MatchObject(store *db.Store, player types.ObjID, location types.ObjID, name
 	return types.ObjFailedMatch
 }
 
-func findExactMatches(store *db.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
+func findExactMatches(store *dbstore.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
 	searchLower := strings.ToLower(search)
 	var matches []types.ObjID
 
@@ -104,7 +104,7 @@ func appendUniqueMatch(matches []types.ObjID, objID types.ObjID) []types.ObjID {
 	return append(matches, objID)
 }
 
-func findPrefixMatches(store *db.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
+func findPrefixMatches(store *dbstore.Store, inventory []types.ObjID, room []types.ObjID, search string) []types.ObjID {
 	searchLower := strings.ToLower(search)
 	var matches []types.ObjID
 

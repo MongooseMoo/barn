@@ -2,7 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
 	"fmt"
@@ -158,9 +158,9 @@ func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 
 // CompileVerbBytecode compiles a verb's AST to bytecode, caching the result on the verb.
 // If the verb already has cached bytecode, returns it immediately.
-// If the verb has no parsed AST, parses the source code first via db.CompileVerb.
+// If the verb has no parsed AST, parses the source code first via dbstore.CompileVerb.
 // Returns the compiled *Program or an error.
-func CompileVerbBytecode(verb *db.Verb, registry *builtins.Registry) (*Program, error) {
+func CompileVerbBytecode(verb *dbstore.Verb, registry *builtins.Registry) (*Program, error) {
 	// Check cache first
 	if verb.BytecodeCache != nil {
 		if prog, ok := verb.BytecodeCache.(*Program); ok {
@@ -170,7 +170,7 @@ func CompileVerbBytecode(verb *db.Verb, registry *builtins.Registry) (*Program, 
 
 	// Ensure verb has parsed AST
 	if verb.Program == nil {
-		vp, errs := db.CompileVerb(verb.Code)
+		vp, errs := dbstore.CompileVerb(verb.Code)
 		if errs != nil {
 			return nil, fmt.Errorf("parse error: %v", errs[0])
 		}

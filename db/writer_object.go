@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/types"
 	"fmt"
 )
@@ -75,7 +76,7 @@ func (w *Writer) writeAnonymousObjects() error {
 }
 
 // writeObject writes a single object
-func (w *Writer) writeObject(obj *Object) error {
+func (w *Writer) writeObject(obj *store.Object) error {
 	// Object ID line
 	if err := w.writeString(fmt.Sprintf("#%d", obj.ID)); err != nil {
 		return err
@@ -165,7 +166,7 @@ func (w *Writer) writeParents(parents []types.ObjID) error {
 }
 
 // writeVerbMetadata writes verb metadata (not code)
-func (w *Writer) writeVerbMetadata(verb *Verb) error {
+func (w *Writer) writeVerbMetadata(verb *store.Verb) error {
 	// Verb name (all names joined by space)
 	if err := w.writeString(verb.Name); err != nil {
 		return err
@@ -191,7 +192,7 @@ func (w *Writer) writeVerbMetadata(verb *Verb) error {
 // writeProperties writes property definitions and values.
 // Property order is recomputed from the parent chain at dump time to ensure
 // round-trip correctness even when properties are added/modified at runtime.
-func (w *Writer) writeProperties(obj *Object) error {
+func (w *Writer) writeProperties(obj *store.Object) error {
 	propNames := w.snapshot.PropertyNames[obj.ID]
 
 	// Write propdef count (properties defined on this object)
@@ -242,7 +243,7 @@ func (w *Writer) writeProperties(obj *Object) error {
 }
 
 // writeProperty writes a single property value, owner, and perms
-func (w *Writer) writeProperty(prop *Property) error {
+func (w *Writer) writeProperty(prop *store.Property) error {
 	// Value (or CLEAR type code if clear)
 	if prop.Clear {
 		if err := w.writeInt(TypeClear); err != nil {

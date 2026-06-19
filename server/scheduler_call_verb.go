@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -106,7 +106,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, player, verbName, defObjID, args)
-	frame.VerbDebug = verb.Perms.Has(db.VerbDebug)
+	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
 	vm.SetLocalByName(frame, prog, "this", thisVal)
 	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
 	vm.SetLocalByName(frame, prog, "caller", types.NewObj(player))

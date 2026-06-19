@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
@@ -401,7 +401,7 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *types.TaskContext, a
 	if !IsProtectedBuiltin(name) {
 		return types.Result{}, false
 	}
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok || store == nil {
 		return types.Result{}, false
 	}

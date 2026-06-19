@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"bufio"
 	"fmt"
 )
@@ -74,7 +75,7 @@ func (db *Database) parseV5(r *bufio.Reader) (*Database, error) {
 // readObjectV5 reads a version 5 object body.
 // Version 5 uses typed location/contents/parents/children fields but does not
 // include the v17 last_move slot.
-func (db *Database) readObjectV5(r *bufio.Reader) (*Object, error) {
+func (db *Database) readObjectV5(r *bufio.Reader) (*store.Object, error) {
 	obj, err := db.readObjectCommon(r, false)
 	if err != nil {
 		return nil, err

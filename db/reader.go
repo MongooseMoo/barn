@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/types"
 	"bufio"
 	"fmt"
@@ -12,7 +13,7 @@ import (
 // Database represents a loaded MOO database
 type Database struct {
 	Version              int
-	Objects              map[types.ObjID]*Object
+	Objects              map[types.ObjID]*store.Object
 	Players              []types.ObjID
 	RecycledObjs         []types.ObjID
 	PendingFinalizations []types.Value
@@ -33,12 +34,14 @@ type waifLoadData struct {
 }
 
 // NewStoreFromDatabase creates a Store from a loaded database
-func (db *Database) NewStoreFromDatabase() *Store {
-	store := NewStore()
+func (db *Database) NewStoreFromDatabase() *store.Store {
+	s := store.NewStore()
 	for _, obj := range db.Objects {
-		store.addLoadedObject(obj)
+		if err := s.Add(obj); err != nil {
+			panic(err)
+		}
 	}
-	return store
+	return s
 }
 
 // QueuedTask represents a task waiting to run
@@ -82,7 +85,7 @@ func LoadDatabase(path string) (*Database, error) {
 // parseDatabase parses database from reader
 func parseDatabase(r *bufio.Reader) (*Database, error) {
 	db := &Database{
-		Objects: make(map[types.ObjID]*Object),
+		Objects: make(map[types.ObjID]*store.Object),
 	}
 
 	// Read header

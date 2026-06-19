@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	writer := db.NewWriter(outFile, store)
+	writer := db.NewWriter(outFile, store.Snapshot())
 	if err := writer.WriteDatabase(); err != nil {
 		outFile.Close()
 		fmt.Fprintf(os.Stderr, "Error writing database: %v\n", err)

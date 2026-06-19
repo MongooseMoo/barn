@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
 	"log"
@@ -443,7 +443,7 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 		player = obj.ID()
 		if !ctx.IsWizard {
-			store, ok := ctx.Store.(*db.Store)
+			store, ok := ctx.Store.(*dbstore.Store)
 			if !ok {
 				return types.Err(types.E_PERM)
 			}

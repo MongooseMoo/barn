@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/task"
 	"barn/types"
 	"bufio"
@@ -29,8 +30,7 @@ const (
 // Writer handles serialization of MOO databases to v17 format
 type Writer struct {
 	w                    *bufio.Writer
-	store                *Store
-	snapshot             storeSnapshot
+	snapshot             store.Snapshot
 	waifIndex            map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
 	nextWaifID           int
 	pendingFinalizations []types.Value
@@ -39,10 +39,10 @@ type Writer struct {
 }
 
 // NewWriter creates a writer for database serialization
-func NewWriter(w io.Writer, store *Store) *Writer {
+func NewWriter(w io.Writer, snapshot store.Snapshot) *Writer {
 	return &Writer{
 		w:          bufio.NewWriter(w),
-		store:      store,
+		snapshot:   snapshot,
 		waifIndex:  make(map[interface{}]int),
 		nextWaifID: 0,
 	}
@@ -55,8 +55,6 @@ func (w *Writer) Flush() error {
 
 // WriteDatabase writes a complete database to the writer
 func (w *Writer) WriteDatabase() error {
-	w.snapshot = w.store.snapshot()
-
 	// 1. Version header
 	if err := w.writeString("** LambdaMOO Database, Format Version 17 **"); err != nil {
 		return fmt.Errorf("write version: %w", err)
@@ -366,7 +364,7 @@ func (w *Writer) writeWaif(waif types.WaifValue) error {
 	// Build WAIF propdef list from the class object's ":" prefixed properties.
 	var waifPropNames []string
 	classObj := w.snapshot.Objects[waif.Class()]
-	if validLiveObject(classObj) {
+	if classObj != nil && !classObj.Recycled && !classObj.Flags.Has(store.FlagInvalid) {
 		for _, name := range w.snapshot.PropertyNames[classObj.ID] {
 			if len(name) > 0 && name[0] == ':' {
 				waifPropNames = append(waifPropNames, name)

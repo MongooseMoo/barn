@@ -2,7 +2,7 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
@@ -98,7 +98,7 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 	}
 
 	if verb.Program == nil && len(verb.Code) > 0 {
-		program, errors := db.CompileVerb(verb.Code)
+		program, errors := dbstore.CompileVerb(verb.Code)
 		if len(errors) > 0 {
 			return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
 		}
@@ -181,7 +181,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		frame.IsVerbCall = true
 		// Inherit verb debug flag from the parent verb
 		if forkVerb, _, vErr := s.store.FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil && forkVerb != nil {
-			frame.VerbDebug = forkVerb.Perms.Has(db.VerbDebug)
+			frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
 		}
 
 		// Copy inherited variable values from the parent

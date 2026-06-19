@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/types"
 	"os"
 	"path/filepath"
@@ -13,14 +14,14 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	store := loaded.NewStoreFromDatabase()
-	parent := store.Get(1)
-	child := store.Get(0)
+	objectStore := loaded.NewStoreFromDatabase()
+	parent := objectStore.Get(1)
+	child := objectStore.Get(0)
 	if parent == nil || child == nil {
 		t.Fatalf("missing parent=%v child=%v", parent, child)
 	}
 
-	prop := &Property{
+	prop := &store.Property{
 		Name:    "persist_prop",
 		Value:   types.NewStr("base"),
 		Owner:   3,
@@ -38,7 +39,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	parent.PropOrder[pos] = prop.Name
 	parent.PropDefsCount++
 
-	child.Properties[prop.Name] = &Property{
+	child.Properties[prop.Name] = &store.Property{
 		Name:    prop.Name,
 		Value:   types.NewStr("child-override"),
 		Owner:   prop.Owner,
@@ -53,7 +54,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 	defer tmpFile.Close()
 
-	writer := NewWriter(tmpFile, store)
+	writer := NewWriter(tmpFile, objectStore.Snapshot())
 	if err := writer.WriteDatabase(); err != nil {
 		t.Fatalf("WriteDatabase failed: %v", err)
 	}

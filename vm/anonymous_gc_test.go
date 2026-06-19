@@ -1,28 +1,28 @@
 package vm
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"testing"
 )
 
-func testObject(id types.ObjID, anonymous bool) *db.Object {
-	flags := db.FlagRead
+func testObject(id types.ObjID, anonymous bool) *dbstore.Object {
+	flags := dbstore.FlagRead
 	if anonymous {
-		flags = flags.Set(db.FlagAnonymous)
+		flags = flags.Set(dbstore.FlagAnonymous)
 	}
-	return &db.Object{
+	return &dbstore.Object{
 		ID:         id,
 		Owner:      0,
 		Flags:      flags,
 		Anonymous:  anonymous,
-		Properties: map[string]*db.Property{},
-		Verbs:      map[string]*db.Verb{},
+		Properties: map[string]*dbstore.Property{},
+		Verbs:      map[string]*dbstore.Verb{},
 	}
 }
 
 func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *testing.T) {
-	store := db.NewStore()
+	store := dbstore.NewStore()
 
 	root := testObject(0, false)
 	anon := testObject(4, true)
@@ -57,31 +57,31 @@ func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *tes
 }
 
 func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing.T) {
-	store := db.NewStore()
+	store := dbstore.NewStore()
 
 	root := testObject(0, false)
 	holder := testObject(4, false)
 	anon := testObject(5, true)
-	holder.Properties["two"] = &db.Property{
+	holder.Properties["two"] = &dbstore.Property{
 		Name:  "two",
 		Value: types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}),
 		Owner: 0,
-		Perms: db.PropRead,
+		Perms: dbstore.PropRead,
 	}
-	root.Properties["one"] = &db.Property{
+	root.Properties["one"] = &dbstore.Property{
 		Name:  "one",
 		Value: types.NewObj(4),
 		Owner: 0,
-		Perms: db.PropRead,
+		Perms: dbstore.PropRead,
 	}
-	anon.Properties["foo"] = &db.Property{
+	anon.Properties["foo"] = &dbstore.Property{
 		Name:  "foo",
 		Value: types.NewAnon(5),
 		Owner: 0,
-		Perms: db.PropRead,
+		Perms: dbstore.PropRead,
 	}
 
-	for _, obj := range []*db.Object{root, holder, anon} {
+	for _, obj := range []*dbstore.Object{root, holder, anon} {
 		if err := store.Add(obj); err != nil {
 			t.Fatalf("add #%d: %v", obj.ID, err)
 		}
@@ -103,13 +103,13 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 }
 
 func TestCollectPendingFinalizationValuesSkipsBareAnonymousLocals(t *testing.T) {
-	store := db.NewStore()
+	store := dbstore.NewStore()
 
 	root := testObject(0, false)
 	anonA := testObject(4, true)
 	anonB := testObject(5, true)
 
-	for _, obj := range []*db.Object{root, anonA, anonB} {
+	for _, obj := range []*dbstore.Object{root, anonA, anonB} {
 		if err := store.Add(obj); err != nil {
 			t.Fatalf("add #%d: %v", obj.ID, err)
 		}

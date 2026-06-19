@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/db/store"
 	"barn/types"
 	"bufio"
 	"os"
@@ -214,7 +215,7 @@ inner_verb
 	r := bufio.NewReader(strings.NewReader(taskData))
 	db := &Database{
 		Version: 17,
-		Objects: make(map[types.ObjID]*Object),
+		Objects: make(map[types.ObjID]*store.Object),
 	}
 
 	err := db.readSuspendedTasks(r)
@@ -322,8 +323,8 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
-	store := loaded.NewStoreFromDatabase()
-	beforeObj := store.Get(101)
+	objectStore := loaded.NewStoreFromDatabase()
+	beforeObj := objectStore.Get(101)
 	if beforeObj == nil {
 		t.Fatal("Object #101 not found")
 	}
@@ -341,7 +342,7 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	}
 	defer tmpFile.Close()
 
-	writer := NewWriter(tmpFile, store)
+	writer := NewWriter(tmpFile, objectStore.Snapshot())
 	if err := writer.WriteDatabase(); err != nil {
 		t.Fatalf("WriteDatabase failed: %v", err)
 	}

@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"math"
 	"sync"
@@ -76,7 +76,7 @@ func GetMaxStackDepth() int {
 	return serverOptionsCache.maxStackDepth
 }
 
-func findDefinedProperty(objID types.ObjID, name string, store *db.Store) *db.Property {
+func findDefinedProperty(objID types.ObjID, name string, store *dbstore.Store) *dbstore.Property {
 	prop, ok, err := store.DefinedProperty(objID, name)
 	if err != types.E_NONE || !ok {
 		return nil
@@ -87,7 +87,7 @@ func findDefinedProperty(objID types.ObjID, name string, store *db.Store) *db.Pr
 // LoadServerOptionsFromStore reads limits from $server_options object and caches them.
 // This is called by the load_server_options() builtin.
 // Returns the number of options successfully loaded.
-func LoadServerOptionsFromStore(store *db.Store) int {
+func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	// Reset to defaults on every load, matching Toast's cache refresh behavior.
 	nextString := defaultMaxStringConcat
 	nextList := defaultMaxListValueBytes

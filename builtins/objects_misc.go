@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
@@ -9,7 +9,7 @@ import (
 // Reassigns object to lowest available object ID
 // Returns the new object ID
 func builtinRenumber(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -57,7 +57,7 @@ func builtinRenumber(ctx *types.TaskContext, args []types.Value) types.Result {
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
 func builtinNewWaif(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -100,7 +100,7 @@ func builtinNewWaif(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
 func builtinObjectBytes(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}

@@ -1,20 +1,20 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
 // isPlayerWizard checks if a player object has wizard permissions
-func isPlayerWizard(store *db.Store, objID types.ObjID) bool {
-	hasWizard, errCode := store.HasObjectFlag(objID, db.FlagWizard)
+func isPlayerWizard(store *dbstore.Store, objID types.ObjID) bool {
+	hasWizard, errCode := store.HasObjectFlag(objID, dbstore.FlagWizard)
 	return errCode == types.E_NONE && hasWizard
 }
 
 // builtinPlayers implements players()
 // Returns a list of all player objects
 func builtinPlayers(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -36,7 +36,7 @@ func builtinPlayers(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns 1 if object is a player, 0 otherwise
 // Waifs can't be players (E_TYPE)
 func builtinIsPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -71,7 +71,7 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	hasPlayerFlag, errCode := store.HasObjectFlag(objVal.ID(), db.FlagUser)
+	hasPlayerFlag, errCode := store.HasObjectFlag(objVal.ID(), dbstore.FlagUser)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -85,7 +85,7 @@ func builtinIsPlayer(ctx *types.TaskContext, args []types.Value) types.Result {
 // Sets or clears the player flag on an object
 // Waifs can't have player flag set (E_TYPE)
 func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -126,11 +126,11 @@ func builtinSetPlayerFlag(ctx *types.TaskContext, args []types.Value) types.Resu
 
 	// Set or clear the player flag
 	if args[1].Truthy() {
-		if errCode := store.SetObjectFlag(objVal.ID(), db.FlagUser, true); errCode != types.E_NONE {
+		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, true); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	} else {
-		if errCode := store.SetObjectFlag(objVal.ID(), db.FlagUser, false); errCode != types.E_NONE {
+		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, false); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		// Clearing the player flag on a currently-connected player terminates

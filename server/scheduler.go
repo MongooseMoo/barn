@@ -2,7 +2,7 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -34,7 +34,7 @@ type Scheduler struct {
 	nextTaskID              int64
 	queueSeq                int64
 	registry                *builtins.Registry // Shared builtins registry for bytecode VMs
-	store                   *db.Store
+	store                   *dbstore.Store
 	connManager             *ConnectionManager
 	inputQueue              chan InputEvent
 	pendingFinalizationSink func([]types.Value)
@@ -45,7 +45,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new task scheduler
-func NewScheduler(store *db.Store) *Scheduler {
+func NewScheduler(store *dbstore.Store) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
@@ -447,7 +447,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 			}
 
 			if huhMatch.Verb.Program == nil && len(huhMatch.Verb.Code) > 0 {
-				program, errors := db.CompileVerb(huhMatch.Verb.Code)
+				program, errors := dbstore.CompileVerb(huhMatch.Verb.Code)
 				if len(errors) > 0 {
 					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
 					if outputSuffix != "" {
@@ -479,7 +479,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 
 	// Compile verb if needed (lazy compilation)
 	if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
-		program, errors := db.CompileVerb(match.Verb.Code)
+		program, errors := dbstore.CompileVerb(match.Verb.Code)
 		if len(errors) > 0 {
 			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
 			if outputSuffix != "" {
@@ -525,7 +525,7 @@ func (s *Scheduler) processProgrammingInput(conn *Connection, line string) bool 
 		conn.Send("Verb not found")
 		return true
 	}
-	program, errors := db.CompileVerb(lines)
+	program, errors := dbstore.CompileVerb(lines)
 	if len(errors) > 0 {
 		for _, errText := range errors {
 			conn.Send(errText)
@@ -686,7 +686,7 @@ func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 
 // isWizard checks if an object has wizard permissions
 func (s *Scheduler) isWizard(objID types.ObjID) bool {
-	hasWizard, errCode := s.store.HasObjectFlag(objID, db.FlagWizard)
+	hasWizard, errCode := s.store.HasObjectFlag(objID, dbstore.FlagWizard)
 	return errCode == types.E_NONE && hasWizard
 }
 

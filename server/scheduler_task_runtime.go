@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
@@ -153,7 +153,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// Set verb debug flag from the actual verb permissions, and record the
 			// verb's stored name spec (incl. wildcards) for printed tracebacks.
 			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && taskVerb != nil {
-				frame.VerbDebug = taskVerb.Perms.Has(db.VerbDebug)
+				frame.VerbDebug = taskVerb.Perms.Has(dbstore.VerbDebug)
 				frame.StoredVerb = strings.Join(taskVerb.Names, " ")
 			}
 

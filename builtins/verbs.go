@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
 	"fmt"
@@ -77,7 +77,7 @@ func unparsePrepSpec(prepStr string) string {
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
 func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -108,14 +108,14 @@ func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Non-executable verbs always return 0
-	if !verb.Perms.Has(db.VerbExecute) {
+	if !verb.Perms.Has(dbstore.VerbExecute) {
 		return types.Ok(types.NewInt(0))
 	}
 
 	// Check if caller can see details: wizard, owner, or verb readable, or object readable
-	hasRead := verb.Perms.Has(db.VerbRead)
+	hasRead := verb.Perms.Has(dbstore.VerbRead)
 	isOwner := verb.Owner == ctx.Player
-	objReadable, errCode := store.HasObjectFlag(objID, db.FlagRead)
+	objReadable, errCode := store.HasObjectFlag(objID, dbstore.FlagRead)
 	if errCode != types.E_NONE {
 		objReadable = false
 	}
@@ -134,7 +134,7 @@ func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinVerbs: verbs(object) → LIST
 // Returns list of verb names defined on object
 func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -170,7 +170,7 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -189,7 +189,7 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	var verb *db.Verb
+	var verb *dbstore.Verb
 
 	// Accept string (verb name) or integer (verb index)
 	switch v := args[1].(type) {
@@ -218,7 +218,7 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
-	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
+	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
 		return types.Err(types.E_PERM)
 	}
 
@@ -239,7 +239,7 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -258,7 +258,7 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	var verb *db.Verb
+	var verb *dbstore.Verb
 
 	// Accept string (verb name) or integer (verb index)
 	switch v := args[1].(type) {
@@ -287,7 +287,7 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
-	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
+	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
 		return types.Err(types.E_PERM)
 	}
 
@@ -304,7 +304,7 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinVerbCode: verb_code(object, name [, fully_paren [, indent]]) → LIST
 // Returns verb source code as list of lines
 func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -334,7 +334,7 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Check read permission (wizards can always read)
-	if !verb.Perms.Has(db.VerbRead) && !ctx.IsWizard {
+	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 
@@ -356,7 +356,7 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -465,7 +465,7 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 	// - Must be the owner specified in verbinfo (or be wizard)
 	if !ctx.IsWizard {
 		// Check write permission on object
-		hasWrite, errCode := store.HasObjectFlag(objID, db.FlagWrite)
+		hasWrite, errCode := store.HasObjectFlag(objID, dbstore.FlagWrite)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -486,12 +486,12 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 	perms := parseVerbPerms(permsStr.Value())
 
 	// Create the verb
-	verb := db.Verb{
+	verb := dbstore.Verb{
 		Name:  names[0],
 		Names: names,
 		Owner: ownerID,
 		Perms: perms,
-		ArgSpec: db.VerbArgs{
+		ArgSpec: dbstore.VerbArgs{
 			This: dobjStr,
 			Prep: prepStr,
 			That: iobjStr,
@@ -511,7 +511,7 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -548,7 +548,7 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value) types.Result 
 // Changes verb metadata
 // info: {owner, perms, names}
 func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -616,7 +616,7 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
 func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -662,7 +662,7 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 	prepStr := valueToArgSpec(argsList.Get(2))
 	iobjStr := valueToArgSpec(argsList.Get(3))
 
-	argSpec := db.VerbArgs{
+	argSpec := dbstore.VerbArgs{
 		This: dobjStr,
 		Prep: prepStr,
 		That: iobjStr,
@@ -678,7 +678,7 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
 func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -698,7 +698,7 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
-	var verb *db.Verb
+	var verb *dbstore.Verb
 	switch v := args[1].(type) {
 	case types.StrValue:
 		found, _, err := store.FindVerb(objID, v.Value())
@@ -748,10 +748,10 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 
 	// Compile the code. Toast verb_code() returns source without semicolons for
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
-	program, errors := db.CompileVerb(lines)
+	program, errors := dbstore.CompileVerb(lines)
 	if len(errors) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
-			program, errors = db.CompileVerb(normalized)
+			program, errors = dbstore.CompileVerb(normalized)
 		}
 	}
 	if len(errors) > 0 {
@@ -832,18 +832,18 @@ func valueToArgSpec(v types.Value) string {
 }
 
 // parseVerbPerms converts permission string like "rxd" to VerbPerms
-func parseVerbPerms(s string) db.VerbPerms {
-	var perms db.VerbPerms
+func parseVerbPerms(s string) dbstore.VerbPerms {
+	var perms dbstore.VerbPerms
 	for _, ch := range s {
 		switch ch {
 		case 'r':
-			perms |= db.VerbRead
+			perms |= dbstore.VerbRead
 		case 'w':
-			perms |= db.VerbWrite
+			perms |= dbstore.VerbWrite
 		case 'x':
-			perms |= db.VerbExecute
+			perms |= dbstore.VerbExecute
 		case 'd':
-			perms |= db.VerbDebug
+			perms |= dbstore.VerbDebug
 		}
 	}
 	return perms
@@ -852,7 +852,7 @@ func parseVerbPerms(s string) db.VerbPerms {
 // builtinDisassemble: disassemble(object, name) → LIST
 // Returns bytecode disassembly (wizard only)
 func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -872,7 +872,7 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
-	var verb *db.Verb
+	var verb *dbstore.Verb
 	switch v := args[1].(type) {
 	case types.StrValue:
 		found, _, err := store.FindVerb(objID, v.Value())
@@ -895,7 +895,7 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	// Check read permission: wizard, owner, or verb has 'r' flag
-	hasRead := verb.Perms.Has(db.VerbRead)
+	hasRead := verb.Perms.Has(dbstore.VerbRead)
 	isOwner := verb.Owner == ctx.Player
 	if !ctx.IsWizard && !isOwner && !hasRead {
 		return types.Err(types.E_PERM)

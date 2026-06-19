@@ -1,10 +1,11 @@
 package main
 
 import (
+	"barn/db"
+	dbstore "barn/db/store"
+	"barn/types"
 	"fmt"
 	"os"
-	"barn/db"
-	"barn/types"
 )
 
 func main() {
@@ -50,7 +51,7 @@ func main() {
 	}
 }
 
-func findPassword(store *db.Store, objID types.ObjID, visited map[types.ObjID]bool, depth int) {
+func findPassword(store *dbstore.Store, objID types.ObjID, visited map[types.ObjID]bool, depth int) {
 	if visited[objID] {
 		return
 	}

@@ -2,7 +2,7 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
@@ -109,9 +109,9 @@ func TestTLSLineTransportReadsAfterHandshake(t *testing.T) {
 
 func TestTLSListenerLoginAndEval(t *testing.T) {
 	certPath, keyPath := writeSelfSignedCertificate(t)
-	store := db.NewStore()
-	system := addTestObject(t, store, 0, db.FlagWizard)
-	addTestObject(t, store, 2, db.FlagUser|db.FlagProgrammer|db.FlagWizard)
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagProgrammer|dbstore.FlagWizard)
 	addTestVerb(system, "do_login_command",
 		`if (length(args) > 0 && args[1] == "connect")`,
 		"  return #2;",

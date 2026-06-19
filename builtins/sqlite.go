@@ -14,17 +14,17 @@ import (
 )
 
 type sqliteHandle struct {
-	id              int64
-	path            string
-	db              *sql.DB
-	conn            *sql.Conn
-	limits          map[int64]int64
-	mu              sync.Mutex
-	cond            *sync.Cond
-	activeOps       int
-	currentCancel   context.CancelFunc
+	id               int64
+	path             string
+	db               *sql.DB
+	conn             *sql.Conn
+	limits           map[int64]int64
+	mu               sync.Mutex
+	cond             *sync.Cond
+	activeOps        int
+	currentCancel    context.CancelFunc
 	pendingInterrupt bool
-	closed          bool
+	closed           bool
 }
 
 var sqliteLimitNames = map[string]int64{

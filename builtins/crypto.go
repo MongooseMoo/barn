@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"crypto/hmac"
 	"crypto/md5"
@@ -316,7 +316,7 @@ func hexValue(c byte) int {
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2b$)
 func builtinCrypt(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}

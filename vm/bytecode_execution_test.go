@@ -1,17 +1,17 @@
 package vm
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
 	"testing"
 )
 
-func runBytecodeProgram(t *testing.T, code string, store *db.Store, ctx *types.TaskContext) types.Result {
+func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *types.TaskContext) types.Result {
 	t.Helper()
 	if store == nil {
-		store = db.NewStore()
+		store = dbstore.NewStore()
 	}
 	if ctx == nil {
 		ctx = types.NewTaskContext()
@@ -149,34 +149,34 @@ func TestBytecodeScatterAssignment(t *testing.T) {
 	})
 }
 
-func newBytecodeVerbStore() *db.Store {
-	store := db.NewStore()
-	root := db.NewObject(0, 0)
+func newBytecodeVerbStore() *dbstore.Store {
+	store := dbstore.NewStore()
+	root := dbstore.NewObject(0, 0)
 	root.Name = "Root"
-	root.Flags = db.FlagRead | db.FlagWrite | db.FlagProgrammer
-	root.Verbs["test_return"] = &db.Verb{
+	root.Flags = dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagProgrammer
+	root.Verbs["test_return"] = &dbstore.Verb{
 		Name: "test_return", Names: []string{"test_return"}, Owner: 0,
-		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute,
+		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute,
 		Code:  []string{"return 42;"},
 	}
-	root.Verbs["test_throw"] = &db.Verb{
+	root.Verbs["test_throw"] = &dbstore.Verb{
 		Name: "test_throw", Names: []string{"test_throw"}, Owner: 0,
-		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute | db.VerbDebug,
+		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug,
 		Code:  []string{"return 1 / 0;"},
 	}
-	root.Verbs["test_chain_b"] = &db.Verb{
+	root.Verbs["test_chain_b"] = &dbstore.Verb{
 		Name: "test_chain_b", Names: []string{"test_chain_b"}, Owner: 0,
-		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute | db.VerbDebug,
+		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug,
 		Code:  []string{"return this:test_chain_c();"},
 	}
-	root.Verbs["test_chain_c"] = &db.Verb{
+	root.Verbs["test_chain_c"] = &dbstore.Verb{
 		Name: "test_chain_c", Names: []string{"test_chain_c"}, Owner: 0,
-		Perms: db.VerbRead | db.VerbWrite | db.VerbExecute | db.VerbDebug,
+		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug,
 		Code:  []string{"return 1 / 0;"},
 	}
-	root.Verbs["test_no_exec"] = &db.Verb{
+	root.Verbs["test_no_exec"] = &dbstore.Verb{
 		Name: "test_no_exec", Names: []string{"test_no_exec"}, Owner: 0,
-		Perms: db.VerbRead | db.VerbWrite,
+		Perms: dbstore.VerbRead | dbstore.VerbWrite,
 		Code:  []string{"return 1;"},
 	}
 	store.Add(root)

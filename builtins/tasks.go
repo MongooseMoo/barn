@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
 	"sort"
@@ -179,7 +179,7 @@ func builtinResume(ctx *types.TaskContext, args []types.Value) types.Result {
 // Changes the permission context for the current task
 // Wizard only - allows running code with different permissions
 func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -197,7 +197,7 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 	// Toast compares the target against the currently running verb's programmer
 	// (RUN_ACTIV.progr), not the connected player: set_task_perms(who) is allowed
 	// when the current programmer is a wizard or who is the current programmer.
-	progIsWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	progIsWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
 	if errCode != types.E_NONE {
 		progIsWizard = false
 	}
@@ -210,7 +210,7 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 	// Update ctx.IsWizard to reflect the new programmer's actual status.
 	// In Toast, the progr field determines wizard checks dynamically;
 	// Barn caches IsWizard so we must update it here.
-	ctx.IsWizard, errCode = store.HasObjectFlag(whoVal.ID(), db.FlagWizard)
+	ctx.IsWizard, errCode = store.HasObjectFlag(whoVal.ID(), dbstore.FlagWizard)
 	if errCode != types.E_NONE {
 		ctx.IsWizard = false
 	}
@@ -360,7 +360,7 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 // player ({location, "eval", player, location, player}).
 func evalWrapperFrames(ctx *types.TaskContext, includeLineNumbers bool) []types.Value {
 	location := types.ObjNothing
-	if store, ok := ctx.Store.(*db.Store); ok {
+	if store, ok := ctx.Store.(*dbstore.Store); ok {
 		loc, errCode := store.Location(ctx.Player)
 		if errCode == types.E_NONE {
 			location = loc

@@ -2,7 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 )
 
@@ -49,14 +49,14 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	}
 }
 
-func buildPersistentAnonymousReachability(store *db.Store) map[types.ObjID]struct{} {
+func buildPersistentAnonymousReachability(store *dbstore.Store) map[types.ObjID]struct{} {
 	if store == nil {
 		return map[types.ObjID]struct{}{}
 	}
 	return store.PersistentAnonymousReachability()
 }
 
-func pendingFinalizationValues(store *db.Store, refs map[types.ObjID]struct{}) []types.Value {
+func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct{}) []types.Value {
 	if len(refs) == 0 || store == nil {
 		return nil
 	}
@@ -65,7 +65,7 @@ func pendingFinalizationValues(store *db.Store, refs map[types.ObjID]struct{}) [
 	return store.UnreachableAnonymousValues(reachable, refs)
 }
 
-func expandAnonymousReachability(store *db.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+func expandAnonymousReachability(store *dbstore.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if store != nil {
 		store.ExpandAnonymousReachability(reachable, refs)
 	}
@@ -75,7 +75,7 @@ func expandAnonymousReachability(store *db.Store, reachable map[types.ObjID]stru
 // a live VM and returns the bare anonymous IDs that still need pending
 // finalization because they are not already reachable from persistent object
 // properties.
-func CollectPendingFinalizationValues(store *db.Store, exec *VM) []types.Value {
+func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Value {
 	if store == nil || exec == nil {
 		return nil
 	}
@@ -98,7 +98,7 @@ func CollectPendingFinalizationValues(store *db.Store, exec *VM) []types.Value {
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
-func AutoRecycleOrphanAnonymousWith(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext) {
+func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Registry, ctx *types.TaskContext) {
 	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0)
 }
 
@@ -106,7 +106,7 @@ func AutoRecycleOrphanAnonymousWith(store *db.Store, registry *builtins.Registry
 // recycles anonymous objects with IDs >= minID. This lets task/eval callers
 // collect objects created during the current execution without sweeping
 // pre-existing database state.
-func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registry, ctx *types.TaskContext, minID types.ObjID, extraVMs ...*VM) {
+func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *types.TaskContext, minID types.ObjID, extraVMs ...*VM) {
 	if ctx == nil || store == nil || registry == nil {
 		return
 	}

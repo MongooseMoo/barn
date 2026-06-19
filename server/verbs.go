@@ -1,14 +1,14 @@
 package server
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/types"
 	"strings"
 )
 
 // VerbMatch is the result of verb lookup
 type VerbMatch struct {
-	Verb    *db.Verb
+	Verb    *dbstore.Verb
 	This    types.ObjID // Object the verb is called on ('this' in MOO)
 	VerbLoc types.ObjID // Object where verb is defined (for traceback)
 }
@@ -97,7 +97,7 @@ func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
 }
 
 // verbMatches checks if a verb matches a command
-func verbMatches(verb *db.Verb, cmd *ParsedCommand, this types.ObjID) bool {
+func verbMatches(verb *dbstore.Verb, cmd *ParsedCommand, this types.ObjID) bool {
 	// Check verb name - try all names in the verb
 	nameMatches := false
 	for _, name := range verb.Names {
@@ -130,7 +130,7 @@ func verbMatches(verb *db.Verb, cmd *ParsedCommand, this types.ObjID) bool {
 
 // hasVerbNameMatch checks dispatch search targets for any matching verb name, ignoring arg specs.
 // Search order matches command dispatch: player -> location -> dobj -> iobj.
-func hasVerbNameMatch(store *db.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) bool {
+func hasVerbNameMatch(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) bool {
 	if store.HasVerbNameInAncestry(player, cmd.Verb) {
 		return true
 	}
@@ -148,7 +148,7 @@ func hasVerbNameMatch(store *db.Store, player types.ObjID, location types.ObjID,
 
 // findDispatchVerb finds the first command verb candidate whose arg specs
 // match this parsed command.
-func findDispatchVerb(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
+func findDispatchVerb(store *dbstore.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
 	candidates, errCode := store.VerbCandidatesInAncestry(objID)
 	if errCode != types.E_NONE {
 		return nil
@@ -167,7 +167,7 @@ func findDispatchVerb(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *V
 
 // FindVerb finds a verb matching the command
 // Search order: player → location → dobj → iobj
-func FindVerb(store *db.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) *VerbMatch {
+func FindVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) *VerbMatch {
 	// 1. Search player
 	if match := findDispatchVerb(store, player, cmd); match != nil {
 		return match

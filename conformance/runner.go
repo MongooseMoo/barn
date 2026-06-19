@@ -3,6 +3,7 @@ package conformance
 import (
 	"barn/builtins"
 	"barn/db"
+	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/server"
 	"barn/types"
@@ -24,7 +25,7 @@ type TestResult struct {
 
 // Runner executes conformance tests
 type Runner struct {
-	store       *db.Store
+	store       *dbstore.Store
 	registry    *builtins.Registry
 	setupSuites map[string]bool // Track which suites have had setup run
 }
@@ -40,7 +41,7 @@ func NewRunnerWithDB(dbPath string) *Runner {
 	database, err := db.LoadDatabase(dbPath)
 	if err != nil {
 		// Fall back to empty store if database can't be loaded
-		store := db.NewStore()
+		store := dbstore.NewStore()
 		return &Runner{
 			store:       store,
 			registry:    vm.BuildVMRegistry(),

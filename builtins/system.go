@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"barn/db"
+	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
 	"bytes"
@@ -598,7 +598,7 @@ func builtinServerLog(ctx *types.TaskContext, args []types.Value) types.Result {
 // Reads properties like max_string_concat and caches them globally.
 // Requires wizard permissions.
 func builtinLoadServerOptions(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -624,7 +624,7 @@ func builtinLoadServerOptions(ctx *types.TaskContext, args []types.Value) types.
 // builtinVerbCacheStats implements verb_cache_stats()
 // Returns a compatibility structure where element 5 is a 17-int stats vector.
 func builtinVerbCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -652,7 +652,7 @@ func builtinVerbCacheStats(ctx *types.TaskContext, args []types.Value) types.Res
 // builtinResetMaxObject implements reset_max_object()
 // Recomputes max/high-water object IDs from current live objects.
 func builtinResetMaxObject(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*db.Store)
+	store, ok := ctx.Store.(*dbstore.Store)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}

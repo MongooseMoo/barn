@@ -35,7 +35,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 	defer tmpFile.Close()
 
-	writer := db.NewWriter(tmpFile, store)
+	writer := db.NewWriter(tmpFile, store.Snapshot())
 	if err := writer.WriteDatabase(); err != nil {
 		t.Fatalf("WriteDatabase failed: %v", err)
 	}
