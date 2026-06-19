@@ -128,93 +128,40 @@ func verbMatches(verb *db.Verb, cmd *ParsedCommand, this types.ObjID) bool {
 	return true
 }
 
-// hasVerbNameOnObject reports whether cmdVerb matches any verb name/alias on objID or ancestors.
-// This ignores arg specs and is used to decide between generic parse failure and :huh fallback.
-func hasVerbNameOnObject(store *db.Store, objID types.ObjID, cmdVerb string) bool {
-	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] || currentID < 0 {
-			continue
-		}
-		visited[currentID] = true
-
-		obj := store.Get(currentID)
-		if obj == nil {
-			continue
-		}
-
-		for _, verb := range obj.Verbs {
-			for _, name := range verb.Names {
-				if verbNameMatches(name, cmdVerb) {
-					return true
-				}
-			}
-		}
-
-		queue = append(queue, obj.Parents...)
-	}
-
-	return false
-}
-
 // hasVerbNameMatch checks dispatch search targets for any matching verb name, ignoring arg specs.
 // Search order matches command dispatch: player -> location -> dobj -> iobj.
 func hasVerbNameMatch(store *db.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) bool {
-	if hasVerbNameOnObject(store, player, cmd.Verb) {
+	if store.HasVerbNameInAncestry(player, cmd.Verb) {
 		return true
 	}
-	if hasVerbNameOnObject(store, location, cmd.Verb) {
+	if store.HasVerbNameInAncestry(location, cmd.Verb) {
 		return true
 	}
-	if cmd.Dobj != types.ObjNothing && hasVerbNameOnObject(store, cmd.Dobj, cmd.Verb) {
+	if cmd.Dobj != types.ObjNothing && store.HasVerbNameInAncestry(cmd.Dobj, cmd.Verb) {
 		return true
 	}
-	if cmd.Iobj != types.ObjNothing && hasVerbNameOnObject(store, cmd.Iobj, cmd.Verb) {
+	if cmd.Iobj != types.ObjNothing && store.HasVerbNameInAncestry(cmd.Iobj, cmd.Verb) {
 		return true
 	}
 	return false
 }
 
-// findVerbOnObject finds a matching verb on an object or its ancestors
-// Uses breadth-first search through inheritance chain
-func findVerbOnObject(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
-	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] || currentID < 0 {
-			continue
-		}
-		visited[currentID] = true
-
-		obj := store.Get(currentID)
-		if obj == nil {
-			continue
-		}
-
-		// Check verbs on this object
-		for _, verb := range obj.Verbs {
-			if verbMatches(verb, cmd, objID) {
-				return &VerbMatch{
-					Verb:    verb,
-					This:    objID,    // Original target object
-					VerbLoc: currentID, // Where verb is actually defined
-				}
+// findDispatchVerb finds the first command verb candidate whose arg specs
+// match this parsed command.
+func findDispatchVerb(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
+	candidates, errCode := store.VerbCandidatesInAncestry(objID)
+	if errCode != types.E_NONE {
+		return nil
+	}
+	for _, candidate := range candidates {
+		if verbMatches(candidate.Verb, cmd, objID) {
+			return &VerbMatch{
+				Verb:    candidate.Verb,
+				This:    objID,
+				VerbLoc: candidate.Definer,
 			}
 		}
-
-		// Add parents to search queue
-		queue = append(queue, obj.Parents...)
 	}
-
 	return nil
 }
 
@@ -222,25 +169,25 @@ func findVerbOnObject(store *db.Store, objID types.ObjID, cmd *ParsedCommand) *V
 // Search order: player → location → dobj → iobj
 func FindVerb(store *db.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) *VerbMatch {
 	// 1. Search player
-	if match := findVerbOnObject(store, player, cmd); match != nil {
+	if match := findDispatchVerb(store, player, cmd); match != nil {
 		return match
 	}
 
 	// 2. Search location
-	if match := findVerbOnObject(store, location, cmd); match != nil {
+	if match := findDispatchVerb(store, location, cmd); match != nil {
 		return match
 	}
 
 	// 3. Search direct object
 	if cmd.Dobj != types.ObjNothing {
-		if match := findVerbOnObject(store, cmd.Dobj, cmd); match != nil {
+		if match := findDispatchVerb(store, cmd.Dobj, cmd); match != nil {
 			return match
 		}
 	}
 
 	// 4. Search indirect object
 	if cmd.Iobj != types.ObjNothing {
-		if match := findVerbOnObject(store, cmd.Iobj, cmd); match != nil {
+		if match := findDispatchVerb(store, cmd.Iobj, cmd); match != nil {
 			return match
 		}
 	}

@@ -36,13 +36,11 @@ func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool
 // Returns the player ObjID if login succeeded, or a negative value on failure.
 func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
 	handler := conn.ListenerObject()
-	systemObj := s.store.Get(handler)
-	if systemObj == nil {
+	if errCode := s.store.ObjectExists(handler); errCode != types.E_NONE {
 		return types.ObjID(-1), fmt.Errorf("listener object not found")
 	}
 
-	verb := systemObj.Verbs["do_login_command"]
-	if verb == nil {
+	if !s.store.HasLocalVerb(handler, "do_login_command") {
 		conn.Send("Welcome! (No login handler defined)")
 		return types.ObjID(2), nil
 	}

@@ -302,8 +302,7 @@ func (s *Server) Panic(message string) {
 
 // callServerStarted calls #0:server_started()
 func (s *Server) callServerStarted() error {
-	systemObj := s.store.Get(0)
-	if systemObj == nil || systemObj.Verbs["server_started"] == nil {
+	if !s.store.HasLocalVerb(0, "server_started") {
 		return nil
 	}
 	_, err := s.scheduler.CreateServerVerbTask(0, "server_started", nil, 0)
@@ -312,8 +311,7 @@ func (s *Server) callServerStarted() error {
 
 // callCheckpointStarted calls #0:checkpoint_started()
 func (s *Server) callCheckpointStarted() error {
-	systemObj := s.store.Get(0)
-	if systemObj == nil || systemObj.Verbs["checkpoint_started"] == nil {
+	if !s.store.HasLocalVerb(0, "checkpoint_started") {
 		return nil
 	}
 	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_started", nil, 0)
@@ -322,8 +320,7 @@ func (s *Server) callCheckpointStarted() error {
 
 // callCheckpointFinished calls #0:checkpoint_finished(success)
 func (s *Server) callCheckpointFinished(success bool) error {
-	systemObj := s.store.Get(0)
-	if systemObj == nil || systemObj.Verbs["checkpoint_finished"] == nil {
+	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
 		return nil
 	}
 	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
@@ -332,8 +329,7 @@ func (s *Server) callCheckpointFinished(success bool) error {
 
 // callShutdownStarted calls #0:shutdown_started(message)
 func (s *Server) callShutdownStarted(message string) error {
-	systemObj := s.store.Get(0)
-	if systemObj == nil || systemObj.Verbs["shutdown_started"] == nil {
+	if !s.store.HasLocalVerb(0, "shutdown_started") {
 		return nil
 	}
 	_, err := s.scheduler.CreateServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)

@@ -97,12 +97,8 @@ func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Try to find the verb
@@ -153,12 +149,8 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	names, errCode := store.VerbNames(objID)
@@ -193,12 +185,8 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	var verb *db.Verb
@@ -266,12 +254,8 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	var verb *db.Verb
@@ -340,12 +324,8 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	verb, err := store.FindVerbOnObject(objID, nameVal.Value())
@@ -401,12 +381,8 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Anonymous objects are instances, not classes: their verb structure cannot
@@ -555,12 +531,8 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// TODO: Check permissions (must be owner or wizard)
@@ -601,12 +573,8 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
@@ -673,12 +641,8 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	verb, _, err := store.FindVerb(objID, nameVal.Value())
@@ -729,12 +693,8 @@ func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
@@ -907,12 +867,8 @@ func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.

@@ -396,6 +396,20 @@ func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
 	return obj.Anonymous, types.E_NONE
 }
 
+func (s *Store) ObjectExists(objID types.ObjID) types.ErrorCode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if validLiveObject(obj) {
+		return types.E_NONE
+	}
+	if obj != nil && obj.Recycled {
+		return types.E_INVARG
+	}
+	return types.E_INVIND
+}
+
 func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1806,6 +1820,82 @@ func matchVerbName(verbPattern, searchName string) bool {
 
 	// Search must be a prefix of the full name
 	return strings.HasPrefix(full, search)
+}
+
+type VerbCandidate struct {
+	Definer types.ObjID
+	Verb    *Verb
+}
+
+func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false
+	}
+	return obj.Verbs[name] != nil
+}
+
+func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID < 0 {
+			continue
+		}
+		visited[currentID] = true
+
+		obj := s.objects[currentID]
+		if !validLiveObject(obj) {
+			continue
+		}
+		for _, verb := range obj.Verbs {
+			for _, alias := range verb.Names {
+				if matchVerbName(alias, name) {
+					return true
+				}
+			}
+		}
+		queue = append(queue, obj.Parents...)
+	}
+	return false
+}
+
+func (s *Store) VerbCandidatesInAncestry(objID types.ObjID) ([]VerbCandidate, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	candidates := make([]VerbCandidate, 0)
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID < 0 {
+			continue
+		}
+		visited[currentID] = true
+
+		obj := s.objects[currentID]
+		if !validLiveObject(obj) {
+			continue
+		}
+		for _, verb := range obj.Verbs {
+			candidates = append(candidates, VerbCandidate{
+				Definer: currentID,
+				Verb:    verb,
+			})
+		}
+		queue = append(queue, obj.Parents...)
+	}
+	return candidates, types.E_NONE
 }
 
 // FindVerb looks up a verb on an object, following inheritance chain

@@ -47,3 +47,40 @@ Disposition:
 Next action:
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 2 verb dispatch and hook queries.
+
+## Phase 2 - Verb Dispatch and Hook Queries
+
+Status: ready to commit.
+
+Changes:
+- Added store-owned verb/runtime query methods in `db.Store`:
+  - `ObjectExists`
+  - `HasLocalVerb`
+  - `HasVerbNameInAncestry`
+  - `VerbCandidatesInAncestry`
+- Replaced `server/verbs.go` caller-side verb ancestry traversal with store-owned verb candidate and name queries.
+- Deleted the old `hasVerbNameOnObject` helper.
+- Renamed the remaining server dispatch helper to describe command policy, not object traversal.
+- Replaced lifecycle/checkpoint hook direct verb-map checks with `HasLocalVerb`.
+- Replaced login handler object and `do_login_command` direct verb-map checks with `ObjectExists` and `HasLocalVerb`.
+- Replaced `builtins/verbs.go` existence-only `store.Get` checks with `ObjectExists`.
+
+Search gates:
+- `rg -n --pcre2 "\.(Verbs|VerbList)\b|store\.Get\(" server/verbs.go server/server.go server/scheduler_login.go builtins/verbs.go --glob "!**/*_test.go"`: no matches.
+- `rg -n --pcre2 "hasVerbNameOnObject|findVerbOnObject" server --glob "!**/*_test.go"`: no matches.
+
+Runtime gates:
+- `go test ./db ./builtins ./vm ./server`: passed.
+- `go test -timeout 120s ./builtins -run "Test.*Verb"`: passed, no tests matched.
+- `go test -timeout 120s ./server -run "Test.*(Verb|Command|Hook|Login)"`: passed.
+- `go build -o barn.exe ./cmd/barn/`: passed.
+- `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"`: passed, `3871 passed, 131 skipped in 143.73s`.
+- `git diff --check`: passed.
+
+Disposition:
+- Kept. Phase 2 removes production verb-structure reads from the active slice without shims, fallback paths, or backend interfaces.
+
+Next action:
+- Commit Phase 2 code and record.
+- Reread `plans/store-runtime-access-cleanup-plan.md`.
+- Continue with Phase 3 anonymous and WAIF reachability.
