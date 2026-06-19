@@ -127,7 +127,10 @@ Next action:
 
 ## Phase 4 - Small Runtime Permission and Context Stragglers
 
-Status: ready to commit.
+Status: committed.
+
+Commit:
+- `d99eede Move small runtime reads into store`
 
 Changes:
 - Replaced `server/scheduler.go` player `store.Get(...).Location` with `store.Location`.
@@ -151,6 +154,5 @@ Disposition:
 - Kept. Phase 4 removes the remaining planned small runtime object reads without shims, fallback paths, or backend interfaces.
 
 Next action:
-- Commit Phase 4 code and record.
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 5 runtime fixed-point audit.
