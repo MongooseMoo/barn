@@ -65,12 +65,13 @@ func (vm *VM) executeListAppend() error {
 		return fmt.Errorf("E_TYPE: LIST_APPEND requires a list")
 	}
 
-	// Build new list with element appended
-	newElems := make([]types.Value, list.Len()+1)
-	for i := 1; i <= list.Len(); i++ {
-		newElems[i-1] = list.Get(i)
-	}
-	newElems[list.Len()] = elem
+	// Build new list with element appended. Bulk-copy the backing slice rather
+	// than re-fetching each element through Get (interface dispatch + bounds
+	// check + 1-based indexing) one at a time.
+	src := list.Elements()
+	newElems := make([]types.Value, len(src)+1)
+	copy(newElems, src)
+	newElems[len(src)] = elem
 
 	result := types.NewList(newElems)
 	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
@@ -97,14 +98,13 @@ func (vm *VM) executeListExtend() error {
 		return fmt.Errorf("E_TYPE: splice requires a list operand")
 	}
 
-	// Build new list with all elements of src appended
-	newElems := make([]types.Value, list.Len()+src.Len())
-	for i := 1; i <= list.Len(); i++ {
-		newElems[i-1] = list.Get(i)
-	}
-	for i := 1; i <= src.Len(); i++ {
-		newElems[list.Len()+i-1] = src.Get(i)
-	}
+	// Build new list with all elements of src appended. Bulk-copy both backing
+	// slices rather than re-fetching each element through Get one at a time.
+	baseElems := list.Elements()
+	srcElems := src.Elements()
+	newElems := make([]types.Value, len(baseElems)+len(srcElems))
+	copy(newElems, baseElems)
+	copy(newElems[len(baseElems):], srcElems)
 
 	result := types.NewList(newElems)
 	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {

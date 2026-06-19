@@ -1,6 +1,6 @@
 package types
 
-import "fmt"
+import "strconv"
 
 // IntValue represents a MOO integer
 type IntValue struct {
@@ -12,9 +12,11 @@ func (i IntValue) Type() TypeCode {
 	return TYPE_INT
 }
 
-// String returns the MOO literal representation
+// String returns the MOO literal representation.
+// strconv.FormatInt avoids fmt.Sprintf's reflection/alloc overhead on the
+// hot stringify path (tostr/toliteral over integers).
 func (i IntValue) String() string {
-	return fmt.Sprintf("%d", i.Val)
+	return strconv.FormatInt(i.Val, 10)
 }
 
 // Equal checks deep equality

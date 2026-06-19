@@ -13,6 +13,21 @@ func (vm *VM) executeAdd() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
+	// Fast path: numeric addition is by far the most common case in hot loops,
+	// so test it before string/list to avoid failed type assertions per op.
+	if aInt, ok := a.(types.IntValue); ok {
+		if bInt, ok := b.(types.IntValue); ok {
+			vm.Push(types.IntValue{Val: aInt.Val + bInt.Val})
+			return nil
+		}
+	}
+	if aFloat, ok := a.(types.FloatValue); ok {
+		if bFloat, ok := b.(types.FloatValue); ok {
+			vm.Push(types.FloatValue{Val: aFloat.Val + bFloat.Val})
+			return nil
+		}
+	}
+
 	// Handle string concatenation
 	if _, ok := a.(types.StrValue); ok {
 		if _, ok := b.(types.StrValue); ok {
@@ -39,24 +54,6 @@ func (vm *VM) executeAdd() error {
 		}
 		// list + any → append (new list)
 		vm.Push(aList.Append(b))
-		return nil
-	}
-
-	// Handle numeric addition
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
-
-	if aIsInt && bIsInt {
-		vm.Push(types.IntValue{Val: aInt.Val + bInt.Val})
-		return nil
-	}
-
-	if aIsFloat && bIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
-		vm.Push(types.FloatValue{Val: af + bf})
 		return nil
 	}
 

@@ -51,7 +51,7 @@ func valueToStr(val types.Value) string {
 		return v.Value()
 
 	case types.IntValue:
-		return fmt.Sprintf("%d", v.Val)
+		return strconv.FormatInt(v.Val, 10)
 
 	case types.FloatValue:
 		s := strconv.FormatFloat(v.Val, 'g', -1, 64)
