@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -243,7 +243,7 @@ func canonicalizeLimit(value, min, max int) int {
 // UpdateContextLimits updates a TaskContext with current cached limits from load_server_options().
 // This should be called by string-producing builtins before creating output.
 // If no cached limit is set, the context's default limit is used.
-func UpdateContextLimits(ctx *runtime.TaskContext) {
+func UpdateContextLimits(ctx *kernel.TaskContext) {
 	cachedLimit := GetMaxStringConcat()
 	if cachedLimit > 0 {
 		ctx.MaxStringConcat = cachedLimit
@@ -256,7 +256,7 @@ func UpdateContextLimits(ctx *runtime.TaskContext) {
 
 // builtinValueBytes implements the value_bytes(value) builtin.
 // Returns the size in bytes of any MOO value.
-func builtinValueBytes(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinValueBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

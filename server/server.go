@@ -14,7 +14,7 @@ import (
 	"barn/builtins"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 	"barn/vm"
 )
@@ -81,7 +81,7 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })
-	builtins.SetShutdownFunc(func(ctx *runtime.TaskContext) error {
+	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
 				s.appendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))

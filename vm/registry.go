@@ -6,8 +6,8 @@ import (
 
 	"barn/builtins"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/task"
 	"barn/types"
 )
@@ -19,7 +19,7 @@ import (
 func BuildVMRegistry() *builtins.Registry {
 	registry := builtins.NewRegistry()
 
-	registry.Register("eval", func(ctx *runtime.TaskContext, args []types.Value) types.Result {
+	registry.Register("eval", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
 		}
@@ -147,7 +147,7 @@ func BuildVMRegistry() *builtins.Registry {
 		return types.Result{Flow: types.FlowEvalPush}
 	})
 
-	registry.Register("pass", func(ctx *runtime.TaskContext, args []types.Value) types.Result {
+	registry.Register("pass", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	})
 

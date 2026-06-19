@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	dbformat "barn/db/format"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -17,7 +17,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 
 	store := loaded.NewStoreFromDatabase()
-	ctx := runtime.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = 3
 	ctx.Programmer = 3
 	ctx.IsWizard = true

@@ -3,7 +3,7 @@ package builtins
 import (
 	"sort"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -15,7 +15,7 @@ import (
 // mapkeys(map) -> list
 // Sorting order: integers (by value), floats (by value), objects (by ID),
 // errors (by code), strings (case-insensitive alphabetical)
-func builtinMapkeys(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -48,7 +48,7 @@ func sortMapPairs(pairs [][2]types.Value) {
 
 // builtinMapvalues returns a list of all values in the map, sorted by key order
 // mapvalues(map) -> list
-func builtinMapvalues(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -92,7 +92,7 @@ func builtinMapvalues(ctx *runtime.TaskContext, args []types.Value) types.Result
 
 // builtinMapdelete returns a new map with the key removed
 // mapdelete(map, key) -> map
-func builtinMapdelete(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -144,7 +144,7 @@ func builtinMapdelete(ctx *runtime.TaskContext, args []types.Value) types.Result
 
 // builtinMaphaskey tests if a key exists in the map
 // maphaskey(map, key) -> int (1 if found, 0 if not)
-func builtinMaphaskey(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -179,7 +179,7 @@ func builtinMaphaskey(ctx *runtime.TaskContext, args []types.Value) types.Result
 
 // builtinMapmerge merges two maps (map2 values override map1 on duplicates)
 // mapmerge(map1, map2) -> map
-func builtinMapmerge(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinMapmerge(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

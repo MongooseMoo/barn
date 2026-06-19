@@ -1,14 +1,14 @@
 package builtins
 
 import (
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
 // builtinRenumber implements renumber(obj) - wizard only
 // Reassigns object to lowest available object ID
 // Returns the new object ID
-func builtinRenumber(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {
@@ -53,7 +53,7 @@ func builtinRenumber(ctx *runtime.TaskContext, args []types.Value) types.Result 
 // builtinNewWaif implements new_waif() - creates a new waif instance
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
-func builtinNewWaif(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinNewWaif(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {
@@ -93,7 +93,7 @@ func builtinNewWaif(ctx *runtime.TaskContext, args []types.Value) types.Result {
 // builtinObjectBytes implements object_bytes(object)
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
-func builtinObjectBytes(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -15,7 +15,7 @@ import (
 // builtinListappend inserts value after the specified position
 // listappend(list, value [, index]) -> list
 // Index range: 0 to length(list), default: length(list) (appends)
-func builtinListappend(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -55,7 +55,7 @@ func builtinListappend(ctx *runtime.TaskContext, args []types.Value) types.Resul
 // listinsert(list, value [, index]) -> list
 // Index range: 1 to length(list)+1, default: 1 (prepend)
 // Out of bounds indices are clamped
-func builtinListinsert(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -96,7 +96,7 @@ func builtinListinsert(ctx *runtime.TaskContext, args []types.Value) types.Resul
 
 // builtinListdelete removes element at index
 // listdelete(list, index) -> list
-func builtinListdelete(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinListdelete(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -128,7 +128,7 @@ func builtinListdelete(ctx *runtime.TaskContext, args []types.Value) types.Resul
 
 // builtinListset replaces element at index
 // listset(list, value, index) -> list
-func builtinListset(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -162,7 +162,7 @@ func builtinListset(ctx *runtime.TaskContext, args []types.Value) types.Result {
 
 // builtinSetadd adds value if not already present
 // setadd(list, value) -> list
-func builtinSetadd(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -194,7 +194,7 @@ func builtinSetadd(ctx *runtime.TaskContext, args []types.Value) types.Result {
 
 // builtinSetremove removes first occurrence of value
 // setremove(list, value) -> list
-func builtinSetremove(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -226,7 +226,7 @@ func builtinSetremove(ctx *runtime.TaskContext, args []types.Value) types.Result
 
 // builtinIsMember tests if value is in list
 // is_member(value, list) -> int (1-based index or 0)
-func builtinIsMember(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -263,7 +263,7 @@ func builtinIsMember(ctx *runtime.TaskContext, args []types.Value) types.Result 
 
 // builtinSort sorts a list
 // sort(list [, keys] [, natural] [, reverse]) -> list
-func builtinSort(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -293,7 +293,7 @@ func builtinSort(ctx *runtime.TaskContext, args []types.Value) types.Result {
 // builtinReverse reverses a list or string
 // reverse(list) -> list
 // reverse(str) -> str
-func builtinReverse(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinReverse(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -319,7 +319,7 @@ func builtinReverse(ctx *runtime.TaskContext, args []types.Value) types.Result {
 
 // builtinUnique removes duplicate elements
 // unique(list) -> list
-func builtinUnique(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -426,7 +426,7 @@ func compareValues(a, b types.Value) int {
 
 // builtinSlice: slice(list [, index] [, default_value]) → LIST
 // Extracts elements from each item in a list of lists, strings, or maps.
-func builtinSlice(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}

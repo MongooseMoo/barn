@@ -4,7 +4,7 @@ import (
 	"log"
 
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -73,7 +73,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		frameThisValue = anon
 	}
 
-	ctx := runtime.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = player
 	ctx.Programmer = verb.Owner           // Programmer is verb owner, not player
 	ctx.IsWizard = s.isWizard(verb.Owner) // Set wizard flag based on verb owner

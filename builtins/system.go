@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	mooruntime "barn/runtime"
+	kernel "barn/kernel"
 
 	"barn/task"
 	"barn/types"
@@ -24,7 +24,7 @@ import (
 // builtinGetenv implements getenv(name)
 // Returns environment variable value or 0 if not found
 // Requires wizard permissions
-func builtinGetenv(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinGetenv(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -62,7 +62,7 @@ func builtinGetenv(ctx *mooruntime.TaskContext, args []types.Value) types.Result
 // builtinTaskLocal implements task_local()
 // Returns the task-local storage for the current task
 // Requires wizard permissions
-func builtinTaskLocal(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -90,7 +90,7 @@ func builtinTaskLocal(ctx *mooruntime.TaskContext, args []types.Value) types.Res
 // builtinSetTaskLocal implements set_task_local(value)
 // Sets the task-local storage for the current task
 // Requires wizard permissions
-func builtinSetTaskLocal(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinSetTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -118,7 +118,7 @@ func builtinSetTaskLocal(ctx *mooruntime.TaskContext, args []types.Value) types.
 
 // builtinTaskID implements task_id()
 // Returns the current task's ID
-func builtinTaskID(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinTaskID(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -135,7 +135,7 @@ func builtinTaskID(ctx *mooruntime.TaskContext, args []types.Value) types.Result
 
 // builtinTicksLeft implements ticks_left()
 // Returns the number of ticks remaining for the current task
-func builtinTicksLeft(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinTicksLeft(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -160,7 +160,7 @@ func builtinTicksLeft(ctx *mooruntime.TaskContext, args []types.Value) types.Res
 
 // builtinSecondsLeft implements seconds_left()
 // Returns the number of seconds remaining for the current task
-func builtinSecondsLeft(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinSecondsLeft(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -182,7 +182,7 @@ func builtinSecondsLeft(ctx *mooruntime.TaskContext, args []types.Value) types.R
 // builtinExec implements exec(command [, input]) → LIST
 // Executes external command and returns {exit_code, stdout, stderr}
 // Requires wizard permissions
-func builtinExec(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -474,7 +474,7 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 
 // builtinTime implements time()
 // Returns the current time as a Unix timestamp (seconds since epoch)
-func builtinTime(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinTime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -484,7 +484,7 @@ func builtinTime(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
 // builtinFtime implements ftime([time])
 // Returns current time as float (seconds since epoch with fractional seconds)
 // If time is provided, returns that time as a float
-func builtinFtime(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinFtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) == 0 {
 		now := time.Now()
 		secs := float64(now.Unix()) + float64(now.Nanosecond())/1e9
@@ -502,7 +502,7 @@ func builtinFtime(ctx *mooruntime.TaskContext, args []types.Value) types.Result 
 
 // builtinCtime implements ctime([time])
 // Converts a Unix timestamp to a human-readable string
-func builtinCtime(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinCtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -524,7 +524,7 @@ func builtinCtime(ctx *mooruntime.TaskContext, args []types.Value) types.Result 
 // Returns server version information
 // With no args: returns version string like "1.0.0"
 // With arg: returns specific version info (not fully implemented yet)
-func builtinServerVersion(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	const versionString = "1.0.0-barn"
 	features := types.NewList([]types.Value{types.NewStr("64bit")})
 	versionInfo := []types.Value{
@@ -570,7 +570,7 @@ func builtinServerVersion(ctx *mooruntime.TaskContext, args []types.Value) types
 
 // builtinServerLog implements server_log(message)
 // Logs a message to the server log. Requires wizard permissions.
-func builtinServerLog(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinServerLog(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -600,7 +600,7 @@ func builtinServerLog(ctx *mooruntime.TaskContext, args []types.Value) types.Res
 // Reloads server configuration from $server_options object.
 // Reads properties like max_string_concat and caches them globally.
 // Requires wizard permissions.
-func builtinLoadServerOptions(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinLoadServerOptions(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {
@@ -623,7 +623,7 @@ func builtinLoadServerOptions(ctx *mooruntime.TaskContext, args []types.Value) t
 
 // builtinVerbCacheStats implements verb_cache_stats()
 // Returns a compatibility structure where element 5 is a 17-int stats vector.
-func builtinVerbCacheStats(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinVerbCacheStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {
@@ -648,7 +648,7 @@ func builtinVerbCacheStats(ctx *mooruntime.TaskContext, args []types.Value) type
 
 // builtinResetMaxObject implements reset_max_object()
 // Recomputes max/high-water object IDs from current live objects.
-func builtinResetMaxObject(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
+func builtinResetMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {

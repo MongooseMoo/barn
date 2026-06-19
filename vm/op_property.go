@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -373,7 +373,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets a built-in object property.
-func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, value types.Value, ctx *runtime.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -67,7 +67,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	}
 
 	// Execute the code synchronously
-	ctx := runtime.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)

@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -15,7 +15,7 @@ const parseJSONTabSentinel = "\uE000"
 
 // builtinGenerateJson converts MOO value to JSON string
 // Signature: generate_json(value [, options]) → STR
-func builtinGenerateJson(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinGenerateJson(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -191,7 +191,7 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 // builtinParseJson parses JSON string to MOO value
 // Signature: parse_json(string [, mode]) → VALUE
 // Modes: "common-subset", "embedded-types", or default (no mode)
-func builtinParseJson(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinParseJson(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}

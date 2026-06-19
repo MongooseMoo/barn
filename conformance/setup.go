@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/types"
 )
 
@@ -104,7 +104,7 @@ func setupStoreForTests(store *dbstore.Store) {
 }
 
 // runSetupBlock executes a setup or teardown block
-func (r *Runner) runSetupBlock(block *SetupBlock, ctx *runtime.TaskContext) error {
+func (r *Runner) runSetupBlock(block *SetupBlock, ctx *kernel.TaskContext) error {
 	if block == nil {
 		return nil
 	}

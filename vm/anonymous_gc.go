@@ -3,7 +3,7 @@ package vm
 import (
 	"barn/builtins"
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -99,7 +99,7 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
-func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Registry, ctx *runtime.TaskContext) {
+func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext) {
 	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0)
 }
 
@@ -107,7 +107,7 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Reg
 // recycles anonymous objects with IDs >= minID. This lets task/eval callers
 // collect objects created during the current execution without sweeping
 // pre-existing database state.
-func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *runtime.TaskContext, minID types.ObjID, extraVMs ...*VM) {
+func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext, minID types.ObjID, extraVMs ...*VM) {
 	if ctx == nil || store == nil || registry == nil {
 		return
 	}

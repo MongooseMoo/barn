@@ -4,11 +4,11 @@ import (
 	"net/url"
 	"strings"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
-func builtinUrlEncode(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinUrlEncode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -26,7 +26,7 @@ func builtinUrlEncode(ctx *runtime.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewStr(strings.ReplaceAll(url.QueryEscape(s.Value()), "+", "%20")))
 }
 
-func builtinUrlDecode(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinUrlDecode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

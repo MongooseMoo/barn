@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
-func builtinCurl(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}

@@ -8,8 +8,8 @@ import (
 
 	"barn/builtins"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -143,7 +143,7 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt,
 }
 
 // Fork creates a forked task with a delay
-func (s *Scheduler) Fork(ctx *runtime.TaskContext, code []parser.Stmt, delay time.Duration) int64 {
+func (s *Scheduler) Fork(ctx *kernel.TaskContext, code []parser.Stmt, delay time.Duration) int64 {
 	return s.CreateBackgroundTask(ctx.Player, code, delay)
 }
 

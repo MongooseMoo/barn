@@ -4,19 +4,19 @@ import (
 	"testing"
 
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/task"
 	"barn/types"
 )
 
-func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *runtime.TaskContext) types.Result {
+func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *kernel.TaskContext) types.Result {
 	t.Helper()
 	if store == nil {
 		store = dbstore.NewStore()
 	}
 	if ctx == nil {
-		ctx = runtime.NewTaskContext()
+		ctx = kernel.NewTaskContext()
 	}
 	if ctx.Task == nil {
 		ctx.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)

@@ -118,3 +118,32 @@ semantically transparent.
 - One atomic commit on `feat/runtime-package`. `barn.exe` not committed (`.gitignore` has `*.exe`).
 - master untouched; no merge/rebase.
 - Diff: 60 files changed, +579 / -794 (the deletions are the collapsed `if !ok` blocks).
+
+---
+
+## Follow-up: rename package `runtime` -> `kernel`
+
+Pure rename on the same branch (`feat/runtime-package`), no behavior change. Q chose to
+rename the package created above from `runtime` to `kernel`.
+
+- `git mv runtime kernel`; `package runtime` -> `package kernel` in
+  `kernel/context.go` + `kernel/context_test.go`.
+- Import path `barn/runtime` -> `barn/kernel` everywhere (44 files), and qualifier
+  `runtime.TaskContext`/`runtime.NewTaskContext` -> `kernel.TaskContext`/`kernel.NewTaskContext`.
+- **Dropped the `mooruntime` alias** in `builtins/gc.go`, `builtins/signatures.go`,
+  `builtins/system.go`: those now `import kernel "barn/kernel"` and use `kernel.TaskContext`
+  / `kernel.NewTaskContext`. The stdlib `runtime` calls (GC / MemStats / GOOS) in those files
+  are left untouched — no collision now that the package name is `kernel`.
+- Grep confirms ZERO remaining `barn/runtime` or `mooruntime` references anywhere.
+
+### Gate output
+- `go build ./...` — EXIT 0.
+- `go vet ./...` — same 2 pre-existing findings (cmd/moo_client IPv6, vm/stack.go ReadByte),
+  zero new.
+- `go test ./...` — `barn/kernel` PASS; all code packages PASS; only the same pre-existing
+  fixture-path failures (conformance dir, mongoose7_snapshot.db) — no new failures.
+- Conformance (managed harness, one run): `3871 passed, 131 skipped` / 0 failed — identical
+  to baseline, as required for a pure rename.
+
+### Commit
+New commit on `feat/runtime-package`: "Rename runtime package to kernel" — hash recorded below.

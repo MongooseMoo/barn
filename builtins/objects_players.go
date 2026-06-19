@@ -2,7 +2,7 @@ package builtins
 
 import (
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -14,7 +14,7 @@ func isPlayerWizard(store *dbstore.Store, objID types.ObjID) bool {
 
 // builtinPlayers implements players()
 // Returns a list of all player objects
-func builtinPlayers(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinPlayers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {
@@ -33,7 +33,7 @@ func builtinPlayers(ctx *runtime.TaskContext, args []types.Value) types.Result {
 // builtinIsPlayer implements is_player(object)
 // Returns 1 if object is a player, 0 otherwise
 // Waifs can't be players (E_TYPE)
-func builtinIsPlayer(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {
@@ -79,7 +79,7 @@ func builtinIsPlayer(ctx *runtime.TaskContext, args []types.Value) types.Result 
 // builtinSetPlayerFlag implements set_player_flag(object, value)
 // Sets or clears the player flag on an object
 // Waifs can't have player flag set (E_TYPE)
-func builtinSetPlayerFlag(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {

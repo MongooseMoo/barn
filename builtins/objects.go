@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -20,7 +20,7 @@ import (
 //
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
-func builtinCreate(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 	registry, ok := ctx.Registry.(*Registry)
 	if !ok {
@@ -303,7 +303,7 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.ObjValue) {
 
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
-func builtinRecycle(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 	registry, ok := ctx.Registry.(*Registry)
 	if !ok {
@@ -385,7 +385,7 @@ func builtinRecycle(ctx *runtime.TaskContext, args []types.Value) types.Result {
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
-func builtinValid(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {
@@ -416,7 +416,7 @@ func builtinValid(ctx *runtime.TaskContext, args []types.Value) types.Result {
 
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object ID
-func builtinMaxObject(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {

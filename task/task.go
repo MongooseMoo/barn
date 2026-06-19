@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -132,14 +132,14 @@ type Task struct {
 	IsForked bool            // True if this is a forked task
 
 	// Execution fields (use interface{} to avoid circular imports)
-	Code           interface{}          // []parser.Stmt - parsed code compiled on first run
-	BytecodeVM     interface{}          // *vm.VM - bytecode VM for execution (saved across suspend/resume)
-	Context        *runtime.TaskContext // Task execution context
-	Result         types.Result         // Last execution result
-	ForkCreator    ForkCreator          // For creating forked tasks
-	CancelFunc     context.CancelFunc   // For cancellation (exported for scheduler)
-	ExecCancelFunc context.CancelFunc   // For cancelling an exec() subprocess
-	StmtIndex      int                  // Current statement index (for suspend/resume)
+	Code           interface{}         // []parser.Stmt - parsed code compiled on first run
+	BytecodeVM     interface{}         // *vm.VM - bytecode VM for execution (saved across suspend/resume)
+	Context        *kernel.TaskContext // Task execution context
+	Result         types.Result        // Last execution result
+	ForkCreator    ForkCreator         // For creating forked tasks
+	CancelFunc     context.CancelFunc  // For cancellation (exported for scheduler)
+	ExecCancelFunc context.CancelFunc  // For cancelling an exec() subprocess
+	StmtIndex      int                 // Current statement index (for suspend/resume)
 
 	// Verb context (set for verb tasks)
 	VerbName            string
@@ -190,7 +190,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 
 // NewTaskFull creates a task with full execution context.
 func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64, secondsLimit float64) *Task {
-	ctx := runtime.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = owner
 	ctx.Programmer = owner
 	ctx.TicksRemaining = tickLimit

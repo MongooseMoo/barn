@@ -12,7 +12,7 @@ import (
 
 	"barn/builtins"
 	dbstore "barn/db/store"
-	"barn/runtime"
+	"barn/kernel"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -63,7 +63,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 
 	// Builtins like create()/recycle() need verb callbacks in VM mode.
 	// Route builtin CallVerb() through scheduler CallVerb().
-	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *runtime.TaskContext) types.Result {
+	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
 		player := types.ObjNothing
 		if tc != nil {
 			player = tc.Player
@@ -73,7 +73,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
-	builtins.SetRunGCFunc(func(ctx *runtime.TaskContext) error {
+	builtins.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
 		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
 		return nil
 	})
@@ -81,7 +81,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 	return s
 }
 
-func (s *Scheduler) populateTaskContextDependencies(ctx *runtime.TaskContext) {
+func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	if ctx == nil {
 		return
 	}

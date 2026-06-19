@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"barn/runtime"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -29,8 +29,8 @@ func resetSQLiteTestState(t *testing.T) {
 	}
 }
 
-func sqliteWizardCtx() *runtime.TaskContext {
-	ctx := runtime.NewTaskContext()
+func sqliteWizardCtx() *kernel.TaskContext {
+	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 	ctx.Player = 3
 	ctx.Programmer = 3

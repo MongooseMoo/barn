@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/types"
 )
 
@@ -78,7 +78,7 @@ func unparsePrepSpec(prepStr string) string {
 
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
-func builtinRespondTo(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -132,7 +132,7 @@ func builtinRespondTo(ctx *runtime.TaskContext, args []types.Value) types.Result
 
 // builtinVerbs: verbs(object) → LIST
 // Returns list of verb names defined on object
-func builtinVerbs(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {
@@ -165,7 +165,7 @@ func builtinVerbs(ctx *runtime.TaskContext, args []types.Value) types.Result {
 // builtinVerbInfo: verb_info(object, name-or-index) → LIST
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
-func builtinVerbInfo(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -231,7 +231,7 @@ func builtinVerbInfo(ctx *runtime.TaskContext, args []types.Value) types.Result 
 // builtinVerbArgs: verb_args(object, name-or-index) → LIST
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
-func builtinVerbArgs(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -293,7 +293,7 @@ func builtinVerbArgs(ctx *runtime.TaskContext, args []types.Value) types.Result 
 
 // builtinVerbCode: verb_code(object, name [, fully_paren [, indent]]) → LIST
 // Returns verb source code as list of lines
-func builtinVerbCode(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) < 2 || len(args) > 4 {
@@ -342,7 +342,7 @@ func builtinVerbCode(ctx *runtime.TaskContext, args []types.Value) types.Result 
 // Adds a new verb to object and returns 1-based verb index
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
-func builtinAddVerb(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -494,7 +494,7 @@ func builtinAddVerb(ctx *runtime.TaskContext, args []types.Value) types.Result {
 
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
-func builtinDeleteVerb(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -528,7 +528,7 @@ func builtinDeleteVerb(ctx *runtime.TaskContext, args []types.Value) types.Resul
 // builtinSetVerbInfo: set_verb_info(object, name, info) → none
 // Changes verb metadata
 // info: {owner, perms, names}
-func builtinSetVerbInfo(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -593,7 +593,7 @@ func builtinSetVerbInfo(ctx *runtime.TaskContext, args []types.Value) types.Resu
 // builtinSetVerbArgs: set_verb_args(object, name, args) → none
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
-func builtinSetVerbArgs(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -652,7 +652,7 @@ func builtinSetVerbArgs(ctx *runtime.TaskContext, args []types.Value) types.Resu
 // builtinSetVerbCode: set_verb_code(object, name, code) → LIST
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
-func builtinSetVerbCode(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -823,7 +823,7 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 
 // builtinDisassemble: disassemble(object, name) → LIST
 // Returns bytecode disassembly (wizard only)
-func builtinDisassemble(ctx *runtime.TaskContext, args []types.Value) types.Result {
+func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {

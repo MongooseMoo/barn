@@ -12,8 +12,8 @@ import (
 	"barn/builtins"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
-	"barn/runtime"
 	"barn/server"
 	"barn/trace"
 	"barn/types"
@@ -383,7 +383,7 @@ func evalExpression(store *dbstore.Store, expr string) {
 		os.Exit(1)
 	}
 
-	ctx := runtime.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Store = store
 	ctx.Registry = registry
 
