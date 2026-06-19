@@ -3,7 +3,6 @@ package builtins
 import (
 	"barn/db"
 	"barn/types"
-	"strings"
 	"sync"
 )
 
@@ -50,54 +49,14 @@ func LoadProtectedBuiltinsFromStore(store *db.Store) {
 	serverOptsProp, err := store.FindProperty(0, "server_options")
 	if err == types.E_NONE {
 		if ref, ok := serverOptsProp.Value.(types.ObjValue); ok {
-			collectProtectFlags(ref.ID(), store, next)
+			flags, errCode := store.TruthyPropertiesWithPrefixInAncestry(ref.ID(), protectPrefix)
+			if errCode == types.E_NONE {
+				next = flags
+			}
 		}
 	}
 
 	protectedBuiltins.Lock()
 	protectedBuiltins.set = next
 	protectedBuiltins.Unlock()
-}
-
-// collectProtectFlags walks the server_options object and its ancestors,
-// recording every `protect_<name>` property whose value is truthy. Nearer
-// definitions win (standard MOO inheritance), so we only record a name the
-// first time we see it.
-func collectProtectFlags(objID types.ObjID, store *db.Store, out map[string]bool) {
-	seen := map[types.ObjID]bool{}
-	queue := []types.ObjID{objID}
-	decided := map[string]bool{} // name -> already resolved by a nearer object
-
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		if seen[cur] {
-			continue
-		}
-		seen[cur] = true
-
-		obj := store.Get(cur)
-		if obj == nil {
-			continue
-		}
-		for propName, prop := range obj.Properties {
-			if !strings.HasPrefix(propName, protectPrefix) {
-				continue
-			}
-			name := propName[len(protectPrefix):]
-			if name == "" || decided[name] {
-				continue
-			}
-			// A "clear" slot defers to the parent's value, so don't resolve the
-			// name here — let a nearer-to-root ancestor provide the value.
-			if prop.Clear {
-				continue
-			}
-			decided[name] = true
-			if prop.Value != nil && prop.Value.Truthy() {
-				out[name] = true
-			}
-		}
-		queue = append(queue, obj.Parents...)
-	}
 }

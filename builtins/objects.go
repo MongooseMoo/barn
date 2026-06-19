@@ -94,8 +94,7 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 		seenParents[parentID] = true
-		parent := store.Get(parentID)
-		if parent == nil {
+		if !store.Valid(parentID) {
 			return types.Err(types.E_INVARG)
 		}
 		// Permission check deferred until after anonymous flag is parsed
@@ -103,23 +102,12 @@ func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 	parents = validParents
 
-	// Check for duplicate property definitions among parents
-	// Each parent's defined properties must not conflict with any other parent
-	allPropNames := make(map[string]bool)
-	for _, parentID := range parents {
-		parent := store.Get(parentID)
-		if parent == nil {
-			continue
-		}
-		// Get properties DEFINED on this parent (Defined=true)
-		for name, prop := range parent.Properties {
-			if prop.Defined {
-				if allPropNames[name] {
-					return types.Err(types.E_INVARG)
-				}
-				allPropNames[name] = true
-			}
-		}
+	duplicateProps, errCode := store.HasDuplicateDefinedPropertyAmong(parents)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if duplicateProps {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Parse optional arguments
@@ -342,8 +330,7 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 	defer endRecycle(objID)
 
-	obj := store.Get(objID)
-	if obj == nil {
+	if !store.Valid(objID) {
 		// Object doesn't exist or was already recycled - both are E_INVARG.
 		return types.Err(types.E_INVARG)
 	}
@@ -359,11 +346,12 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
 	anonRefs := make(map[types.ObjID]types.ObjValue)
-	for _, prop := range obj.Properties {
-		if prop == nil {
-			continue
-		}
-		collectAnonymousRefs(prop.Value, anonRefs)
+	propValues, errCode := store.PropertyValues(objID)
+	if errCode != types.E_NONE {
+		return types.Err(types.E_INVARG)
+	}
+	for _, value := range propValues {
+		collectAnonymousRefs(value, anonRefs)
 	}
 
 	if len(anonRefs) > 0 {

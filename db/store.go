@@ -1261,6 +1261,204 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 	return names, types.E_NONE
 }
 
+// DefinedPropertyNamesInAncestry returns every property name defined on objID
+// or its ancestors.
+func (s *Store) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return nil, types.E_INVIND
+	}
+	return s.definedPropertyNamesInAncestryLocked([]types.ObjID{objID}), types.E_NONE
+}
+
+func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[string]bool {
+	names := make(map[string]bool)
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), start...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID == types.ObjNothing {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for name, prop := range current.Properties {
+			if prop != nil && prop.Defined {
+				names[name] = true
+			}
+		}
+		queue = append(queue, current.Parents...)
+	}
+
+	return names
+}
+
+func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		obj := s.objects[id]
+		if !validLiveObject(obj) {
+			return false, types.E_INVARG
+		}
+		for name, prop := range obj.Properties {
+			if prop == nil || !prop.Defined {
+				continue
+			}
+			if seen[name] {
+				return true, types.E_NONE
+			}
+			seen[name] = true
+		}
+	}
+	return false, types.E_NONE
+}
+
+func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	for _, parentID := range parentIDs {
+		if !validLiveObject(s.objects[parentID]) {
+			return false, types.E_INVARG
+		}
+	}
+
+	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
+	for name, prop := range obj.Properties {
+		if prop != nil && prop.Defined && ancestorNames[name] {
+			return true, types.E_NONE
+		}
+	}
+	return false, types.E_NONE
+}
+
+func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+
+	visited := make(map[types.ObjID]bool)
+	var check func(*Object) bool
+	check = func(current *Object) bool {
+		if current == nil || visited[current.ID] {
+			return false
+		}
+		visited[current.ID] = true
+		for childID := range current.ChparentChildren {
+			child := s.objects[childID]
+			if !validLiveObject(child) {
+				continue
+			}
+			for name, prop := range child.Properties {
+				if prop != nil && prop.Defined && names[name] {
+					return true
+				}
+			}
+			if check(child) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return check(obj), types.E_NONE
+}
+
+func (s *Store) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
+	prop, errCode := s.FindProperty(objID, name)
+	if errCode != types.E_NONE {
+		return nil, errCode
+	}
+	if prop == nil {
+		return nil, types.E_PROPNF
+	}
+	return prop.Value, types.E_NONE
+}
+
+func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	values := make([]types.Value, 0, len(obj.Properties))
+	for _, prop := range obj.Properties {
+		if prop != nil {
+			values = append(values, prop.Value)
+		}
+	}
+	return values, types.E_NONE
+}
+
+func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return nil, types.E_INVIND
+	}
+
+	result := make(map[string]bool)
+	seenObjects := make(map[types.ObjID]bool)
+	decidedNames := make(map[string]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seenObjects[currentID] {
+			continue
+		}
+		seenObjects[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for propName, prop := range current.Properties {
+			if prop == nil || !strings.HasPrefix(propName, prefix) {
+				continue
+			}
+			name := propName[len(prefix):]
+			if name == "" || decidedNames[name] {
+				continue
+			}
+			if prop.Clear {
+				continue
+			}
+			decidedNames[name] = true
+			if prop.Value != nil && prop.Value.Truthy() {
+				result[name] = true
+			}
+		}
+		queue = append(queue, current.Parents...)
+	}
+
+	return result, types.E_NONE
+}
+
 // LocalProperty returns a copy of the property slot defined on the object
 // itself. It does not search ancestors.
 func (s *Store) LocalProperty(objID types.ObjID, name string) (*Property, bool, types.ErrorCode) {

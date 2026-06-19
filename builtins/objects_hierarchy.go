@@ -158,8 +158,7 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	if !store.Valid(objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -190,21 +189,27 @@ func builtinChparent(ctx *types.TaskContext, args []types.Value) types.Result {
 	// If obj defines a property that new_parent or its ancestors also define, that's E_INVARG
 	// (This is different from inherited properties, which can be shadowed)
 	if newParentVal.ID() != types.ObjNothing {
-		newParentProps := collectAncestorProperties(store, newParentVal.ID())
-
-		// Check properties DEFINED on obj (Defined=true)
-		for name, prop := range obj.Properties {
-			if prop.Defined && newParentProps[name] {
-				return types.Err(types.E_INVARG)
-			}
+		conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		if conflict {
+			return types.Err(types.E_INVARG)
 		}
 	}
 
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new_parent or its ancestors.
 	if newParentVal.ID() != types.ObjNothing {
-		newParentProps := collectAncestorProperties(store, newParentVal.ID())
-		if hasChparentDescendantConflict(store, obj, newParentProps) {
+		newParentProps, errCode := store.DefinedPropertyNamesInAncestry(newParentVal.ID())
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		conflict, errCode := store.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		if conflict {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -262,8 +267,7 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	obj := store.Get(objVal.ID())
-	if obj == nil {
+	if !store.Valid(objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -292,8 +296,7 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 		seenParents[parentID] = true
 
 		// Now validate parent exists
-		parent := store.Get(parentID)
-		if parent == nil {
+		if !store.Valid(parentID) {
 			return types.Err(types.E_INVARG)
 		}
 
@@ -305,45 +308,42 @@ func builtinChparents(ctx *types.TaskContext, args []types.Value) types.Result {
 		newParents[i] = parentID
 	}
 
-	// Check for duplicate property definitions among new parents
-	// Each parent's defined properties must not conflict with any other parent
-	allPropNames := make(map[string]bool)
-	for _, parentID := range newParents {
-		parent := store.Get(parentID)
-		if parent == nil {
-			continue
-		}
-		// Get properties DEFINED on this parent (Defined=true)
-		for name, prop := range parent.Properties {
-			if prop.Defined {
-				if allPropNames[name] {
-					return types.Err(types.E_INVARG)
-				}
-				allPropNames[name] = true
-			}
-		}
+	duplicateProps, errCode := store.HasDuplicateDefinedPropertyAmong(newParents)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if duplicateProps {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Check for direct property conflicts between obj and new parents
 	// If obj defines a property that any new parent or their ancestors also define, that's E_INVARG
 	allNewParentProps := make(map[string]bool)
 	for _, parentID := range newParents {
-		props := collectAncestorProperties(store, parentID)
+		props, errCode := store.DefinedPropertyNamesInAncestry(parentID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 		for name := range props {
 			allNewParentProps[name] = true
 		}
 	}
 
-	// Check properties DEFINED on obj (Defined=true)
-	for name, prop := range obj.Properties {
-		if prop.Defined && allNewParentProps[name] {
-			return types.Err(types.E_INVARG)
-		}
+	conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if conflict {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new parents or their ancestors.
-	if hasChparentDescendantConflict(store, obj, allNewParentProps) {
+	conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if conflict {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -479,87 +479,6 @@ func builtinIsa(ctx *types.TaskContext, args []types.Value) types.Result {
 	}
 
 	return noMatch()
-}
-
-// collectAncestorProperties collects all defined property names from an object
-// and its entire ancestor chain (BFS traversal)
-func collectAncestorProperties(store *db.Store, objID types.ObjID) map[string]bool {
-	props := make(map[string]bool)
-	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
-
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-
-		if visited[currentID] || currentID == types.ObjNothing {
-			continue
-		}
-		visited[currentID] = true
-
-		current := store.Get(currentID)
-		if current == nil {
-			continue
-		}
-
-		// Collect defined properties
-		for name, prop := range current.Properties {
-			if prop.Defined {
-				props[name] = true
-			}
-		}
-
-		parentIDs, errCode := store.Parents(currentID)
-		if errCode == types.E_NONE {
-			queue = append(queue, parentIDs...)
-		}
-	}
-
-	return props
-}
-
-// hasChparentDescendantConflict checks if any chparent-added descendant has
-// a defined property that conflicts with the given property set.
-// ONLY checks descendants that were added via chparent(), not via create().
-// The object being reparented itself is NOT checked - it can shadow parent properties.
-func hasChparentDescendantConflict(store *db.Store, obj *db.Object, ancestorProps map[string]bool) bool {
-	visited := make(map[types.ObjID]bool)
-
-	var checkChparentDescendants func(o *db.Object) bool
-	checkChparentDescendants = func(o *db.Object) bool {
-		if o == nil || visited[o.ID] {
-			return false
-		}
-		visited[o.ID] = true
-
-		// Check only chparent-added children of this object
-		if o.ChparentChildren == nil {
-			return false
-		}
-
-		for childID := range o.ChparentChildren {
-			child := store.Get(childID)
-			if child == nil {
-				continue
-			}
-
-			// Check this chparent-added child's defined properties for conflicts
-			for name, prop := range child.Properties {
-				if prop.Defined && ancestorProps[name] {
-					return true // Conflict found
-				}
-			}
-
-			// Recursively check this child's chparent-added descendants
-			if checkChparentDescendants(child) {
-				return true
-			}
-		}
-
-		return false
-	}
-
-	return checkChparentDescendants(obj)
 }
 
 func builtinLocateByName(ctx *types.TaskContext, args []types.Value) types.Result {
