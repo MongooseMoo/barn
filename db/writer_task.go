@@ -6,28 +6,17 @@ import (
 	"fmt"
 )
 
-// TaskSource provides task lists for serialization
-// This interface allows the writer to get tasks without directly depending on server/scheduler
-type TaskSource interface {
-	QueuedTasks() []*task.Task
-	SuspendedTasks() []*task.Task
-}
-
-// SetTaskSource sets the task source for serialization
-func (w *Writer) SetTaskSource(ts TaskSource) {
-	w.taskSource = ts
+// SetTasks sets queued and suspended task snapshots for serialization.
+func (w *Writer) SetTasks(queued, suspended []*task.Task) {
+	w.queuedTasks = append([]*task.Task(nil), queued...)
+	w.suspendedTasks = append([]*task.Task(nil), suspended...)
 }
 
 // writeQueuedTasks writes all queued (forked) tasks
 func (w *Writer) writeQueuedTasks() error {
-	var tasks []*task.Task
-	if w.taskSource != nil {
-		tasks = w.taskSource.QueuedTasks()
-	}
-
 	// Filter to only tasks that have source lines available
 	var serializableTasks []*task.Task
-	for _, t := range tasks {
+	for _, t := range w.queuedTasks {
 		if t.ForkInfo != nil && len(t.ForkInfo.SourceLines) > 0 {
 			serializableTasks = append(serializableTasks, t)
 		}
@@ -95,11 +84,6 @@ func (w *Writer) writeQueuedTask(t *task.Task) error {
 
 // writeSuspendedTasks writes all suspended tasks
 func (w *Writer) writeSuspendedTasks() error {
-	var tasks []*task.Task
-	if w.taskSource != nil {
-		tasks = w.taskSource.SuspendedTasks()
-	}
-
 	// For now, we can only serialize suspended tasks if we have source reconstruction
 	// This requires more work, so for now write 0 suspended tasks
 	// TODO: Implement full VM serialization when source line capture is available
@@ -116,7 +100,7 @@ func (w *Writer) writeSuspendedTasks() error {
 		}
 	}
 
-	_ = tasks // Silence unused warning until we implement
+	_ = w.suspendedTasks // Reserved until suspended task serialization is implemented.
 
 	return nil
 }

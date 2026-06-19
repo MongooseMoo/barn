@@ -1,6 +1,7 @@
 package db
 
 import (
+	"barn/task"
 	"barn/types"
 	"bufio"
 	"fmt"
@@ -33,7 +34,8 @@ type Writer struct {
 	waifIndex            map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
 	nextWaifID           int
 	pendingFinalizations []types.Value
-	taskSource           TaskSource // Optional: provides queued/suspended tasks for serialization
+	queuedTasks          []*task.Task
+	suspendedTasks       []*task.Task
 }
 
 // NewWriter creates a writer for database serialization

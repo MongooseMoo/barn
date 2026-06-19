@@ -187,3 +187,36 @@ Disposition:
 Next action:
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 6 snapshot/checkpoint ownership reassessment.
+
+## Phase 6 - Snapshot/Checkpoint Ownership Reassessment
+
+Status: ready to commit.
+
+Changes:
+- Reassessed checkpoint ownership in current code.
+- Confirmed no `db.CheckpointManager` production path remains; `server.checkpoint` is the single checkpoint orchestration owner.
+- Kept `db.Store.snapshot()` as the stable live-store snapshot boundary.
+- Kept `db.Writer` as the v17 serialization owner.
+- Deleted the narrow `db.TaskSource` interface and `Writer.SetTaskSource` hook.
+- Replaced the implicit task-source dependency with explicit task snapshots via `Writer.SetTasks`.
+- Kept suspended-task serialization limitations explicit: suspended tasks are still intentionally not serialized until full VM/source reconstruction exists.
+
+Search gates:
+- `rg -n "TaskSource|SetTaskSource|SetTasks\(" db server cmd builtins --glob "!**/*_test.go"`: only `Writer.SetTasks` and the server checkpoint caller remain.
+- `rg -n --pcre2 "NewWriter\(|WriteDatabase\(|SetTaskSource|Checkpoint|checkpoint" db server cmd --glob "!**/*_test.go"`: remaining hits classify as `db.Writer` serialization, server checkpoint timing/hooks, debug/CLI dump/roundtrip callers, transport bufio writers, and checkpoint comments; no `SetTaskSource` or `CheckpointManager` remains.
+- `rg -n --pcre2 "store\.snapshot\(|storeSnapshot|cloneObjectForSnapshot" db server cmd --glob "!**/*_test.go"`: remaining hits are only the `db.Store` snapshot boundary and `db.Writer`'s snapshot field/use.
+
+Runtime gates:
+- `go test ./db ./server`: passed.
+- `go test -timeout 120s ./db -run "Test.*(RoundTrip|Load|Repair|Persistence|Task)"`: passed.
+- `go build -o barn.exe ./cmd/barn/`: passed.
+- `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"`: passed, `3871 passed, 131 skipped in 142.67s`.
+- `git diff --check`: passed.
+
+Disposition:
+- Kept. Phase 6 removes the remaining task-source interface hook and records the current ownership boundaries without introducing backend pluggability, adapters, shims, or fallback checkpoint paths.
+
+Next action:
+- Commit Phase 6 code plus this record.
+- Reread `plans/store-runtime-access-cleanup-plan.md`.
+- Verify completion criteria and record the final commit hash.
