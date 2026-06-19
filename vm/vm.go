@@ -257,9 +257,9 @@ func (vm *VM) executeLoop() types.Result {
 			// End of program - implicit return 0
 			vm.Return(types.IntValue{Val: 0})
 		} else {
-			op := OpCode(cur.Program.Code[cur.IP])
+			op := bytecode.OpCode(cur.Program.Code[cur.IP])
 			cur.IP++
-			if CountsTick(op) {
+			if bytecode.CountsTick(op) {
 				vm.Ticks++
 				vm.syncContextTicks()
 			}

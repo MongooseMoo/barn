@@ -10,6 +10,7 @@ package vm
 
 import (
 	"barn/builtins"
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -31,7 +32,7 @@ var vmBenchWorkloads = []struct {
 	{"nested_1k", "c = 0; for i in [1..1000]; for j in [1..1000]; c = c + 1; endfor; endfor; return c;"},
 }
 
-func compileBench(b *testing.B, code string) (*Program, *builtins.Registry) {
+func compileBench(b *testing.B, code string) (*bytecode.Program, *builtins.Registry) {
 	b.Helper()
 	registry := BuildVMRegistry()
 	p := parser.NewParser(code)
@@ -39,7 +40,7 @@ func compileBench(b *testing.B, code string) (*Program, *builtins.Registry) {
 	if err != nil {
 		b.Fatalf("parse failed: %v", err)
 	}
-	compiler := NewCompilerWithRegistry(registry)
+	compiler := bytecode.NewCompilerWithRegistry(registry)
 	prog, err := compiler.CompileStatements(stmts)
 	if err != nil {
 		b.Fatalf("compile failed: %v", err)
