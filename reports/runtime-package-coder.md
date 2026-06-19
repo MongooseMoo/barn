@@ -146,4 +146,4 @@ rename the package created above from `runtime` to `kernel`.
   to baseline, as required for a pure rename.
 
 ### Commit
-New commit on `feat/runtime-package`: "Rename runtime package to kernel" — hash recorded below.
+New commit on `feat/runtime-package`: "Rename runtime package to kernel" — commit 692c230.
