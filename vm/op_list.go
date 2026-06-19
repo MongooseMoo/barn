@@ -65,15 +65,9 @@ func (vm *VM) executeListAppend() error {
 		return fmt.Errorf("E_TYPE: LIST_APPEND requires a list")
 	}
 
-	// Build new list with element appended. Bulk-copy the backing slice rather
-	// than re-fetching each element through Get (interface dispatch + bounds
-	// check + 1-based indexing) one at a time.
-	src := list.Elements()
-	newElems := make([]types.Value, len(src)+1)
-	copy(newElems, src)
-	newElems[len(src)] = elem
-
-	result := types.NewList(newElems)
+	// Append (COW). list.Append maintains the cached byte-size incrementally so
+	// the quota check below stays O(1) instead of re-walking the whole list.
+	result := list.Append(elem)
 	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
@@ -98,15 +92,9 @@ func (vm *VM) executeListExtend() error {
 		return fmt.Errorf("E_TYPE: splice requires a list operand")
 	}
 
-	// Build new list with all elements of src appended. Bulk-copy both backing
-	// slices rather than re-fetching each element through Get one at a time.
-	baseElems := list.Elements()
-	srcElems := src.Elements()
-	newElems := make([]types.Value, len(baseElems)+len(srcElems))
-	copy(newElems, baseElems)
-	copy(newElems[len(baseElems):], srcElems)
-
-	result := types.NewList(newElems)
+	// Concat (COW). list.Concat maintains the cached byte-size incrementally so
+	// the quota check below stays O(1) instead of re-walking the whole list.
+	result := list.Concat(src)
 	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}

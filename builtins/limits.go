@@ -267,48 +267,11 @@ func builtinValueBytes(ctx *kernel.TaskContext, args []types.Value) types.Result
 // ValueBytes calculates the byte size of a MOO value.
 // This matches Toast's value_bytes() algorithm from src/utils.cc.
 // Toast uses sizeof(Var) = 16 bytes as the base size for all values.
+// The canonical implementation lives in the types package so list values can
+// cache their own size incrementally (O(1) append accounting); this wrapper
+// preserves the existing builtins.ValueBytes call sites.
 func ValueBytes(v types.Value) int {
-	const varSize = 16 // sizeof(Var) in Toast - base size for any value
-
-	switch val := v.(type) {
-	case types.IntValue:
-		// Integer fits in Var structure
-		return varSize
-	case types.FloatValue:
-		// Var + separate double storage
-		return varSize + 8
-	case types.StrValue:
-		// Var + string data + null terminator
-		return varSize + len(val.Value()) + 1
-	case types.ObjValue:
-		// Object ID fits in Var structure
-		return varSize
-	case types.ErrValue:
-		// Error code fits in Var structure
-		return varSize
-	case types.ListValue:
-		// List contains: Var for the list itself + Var for length + elements
-		// Toast: sizeof(Var) + list_sizeof() where list_sizeof = sizeof(Var) + elements
-		size := varSize + varSize // list Var + length Var
-		for i := 1; i <= val.Len(); i++ {
-			size += ValueBytes(val.Get(i))
-		}
-		return size
-	case types.MapValue:
-		// Similar to list: Var for map + overhead + entries
-		size := varSize + varSize // map Var + overhead
-		for _, pair := range val.Pairs() {
-			size += ValueBytes(pair[0]) + ValueBytes(pair[1])
-		}
-		return size
-	case types.WaifValue:
-		// Waif: Var + class reference
-		size := varSize + varSize // waif Var + class ref
-		// Note: actual waif properties not included here (matches Toast behavior)
-		return size
-	default:
-		return varSize
-	}
+	return types.ValueBytes(v)
 }
 
 // GetMaxListValueBytes returns the cached max_list_value_bytes limit.

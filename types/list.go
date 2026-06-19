@@ -10,15 +10,42 @@ type MooList interface {
 	Append(v Value) MooList
 	Slice(start, end int) MooList
 	Elements() []Value // For iteration
+	ByteSize() int     // ValueBytes of the list (cached)
 }
 
-// sliceList is the concrete implementation (private)
+// sliceList is the concrete implementation (private).
+// byteSize caches ValueBytes(list); a negative value means "not yet computed".
 type sliceList struct {
 	elements []Value
+	byteSize int
+}
+
+// newSliceList wraps elements with an uncomputed size cache (filled lazily).
+func newSliceList(elements []Value) *sliceList {
+	return &sliceList{elements: elements, byteSize: -1}
+}
+
+// newSliceListSized wraps elements with a known, pre-computed size cache. Used
+// on the append/concat hot path so size accounting stays O(1) per operation.
+func newSliceListSized(elements []Value, byteSize int) *sliceList {
+	return &sliceList{elements: elements, byteSize: byteSize}
 }
 
 func (s *sliceList) Len() int {
 	return len(s.elements)
+}
+
+// ByteSize returns the cached ValueBytes of the list, computing it once on first
+// use. Lists are immutable, so the cached value never goes stale.
+func (s *sliceList) ByteSize() int {
+	if s.byteSize < 0 {
+		size := listVarOverhead
+		for _, e := range s.elements {
+			size += ValueBytes(e)
+		}
+		s.byteSize = size
+	}
+	return s.byteSize
 }
 
 func (s *sliceList) Get(i int) Value {
@@ -35,14 +62,19 @@ func (s *sliceList) Set(i int, v Value) MooList {
 	newElems := make([]Value, len(s.elements))
 	copy(newElems, s.elements)
 	newElems[i-1] = v
-	return &sliceList{elements: newElems}
+	// Size changes by the delta of the replaced element; compute incrementally
+	// when the current size is already known, else leave it lazy.
+	if s.byteSize >= 0 {
+		return newSliceListSized(newElems, s.byteSize-ValueBytes(s.elements[i-1])+ValueBytes(v))
+	}
+	return newSliceList(newElems)
 }
 
 func (s *sliceList) Append(v Value) MooList {
 	newElems := make([]Value, len(s.elements)+1)
 	copy(newElems, s.elements)
 	newElems[len(s.elements)] = v
-	return &sliceList{elements: newElems}
+	return newSliceListSized(newElems, s.ByteSize()+ValueBytes(v))
 }
 
 func (s *sliceList) Slice(start, end int) MooList {
@@ -54,11 +86,11 @@ func (s *sliceList) Slice(start, end int) MooList {
 		end = len(s.elements)
 	}
 	if start > end {
-		return &sliceList{elements: []Value{}}
+		return newSliceList([]Value{})
 	}
 	newElems := make([]Value, end-start+1)
 	copy(newElems, s.elements[start-1:end])
-	return &sliceList{elements: newElems}
+	return newSliceList(newElems)
 }
 
 func (s *sliceList) Elements() []Value {
@@ -72,12 +104,12 @@ type ListValue struct {
 
 // NewList creates a new list value
 func NewList(elements []Value) ListValue {
-	return ListValue{data: &sliceList{elements: elements}}
+	return ListValue{data: newSliceList(elements)}
 }
 
 // NewEmptyList creates an empty list
 func NewEmptyList() ListValue {
-	return ListValue{data: &sliceList{elements: []Value{}}}
+	return ListValue{data: newSliceListSized([]Value{}, listVarOverhead)}
 }
 
 // String returns the MOO string representation
@@ -149,6 +181,23 @@ func (l ListValue) Append(value Value) ListValue {
 	return ListValue{data: l.data.Append(value)}
 }
 
+// ByteSize returns the cached ValueBytes of the list (O(1) after first use).
+func (l ListValue) ByteSize() int {
+	return l.data.ByteSize()
+}
+
+// Concat returns a new list with all elements of other appended (COW). Size
+// accounting is incremental: other's elements contribute its size minus the
+// fixed list overhead.
+func (l ListValue) Concat(other ListValue) ListValue {
+	a := l.data.Elements()
+	b := other.data.Elements()
+	newElems := make([]Value, len(a)+len(b))
+	copy(newElems, a)
+	copy(newElems[len(a):], b)
+	return ListValue{data: newSliceListSized(newElems, l.ByteSize()+other.ByteSize()-listVarOverhead)}
+}
+
 // Elements returns the internal slice for iteration
 func (l ListValue) Elements() []Value {
 	return l.data.Elements()
@@ -181,7 +230,7 @@ func (l ListValue) InsertAt(index int, value Value) ListValue {
 	// Copy elements after insertion point
 	copy(newElems[idx0+1:], elements[idx0:])
 
-	return ListValue{data: &sliceList{elements: newElems}}
+	return ListValue{data: newSliceList(newElems)}
 }
 
 // DeleteAt returns a new list with element at index removed (1-based, COW)
@@ -205,7 +254,7 @@ func (l ListValue) DeleteAt(index int) ListValue {
 	// Copy elements after deletion point
 	copy(newElems[idx0:], elements[idx0+1:])
 
-	return ListValue{data: &sliceList{elements: newElems}}
+	return ListValue{data: newSliceList(newElems)}
 }
 
 // Slice returns a new list containing elements from start to end (1-based, inclusive)
