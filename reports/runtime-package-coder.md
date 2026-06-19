@@ -4,7 +4,7 @@
 
 - Worktree: `C:/Users/Q/code/barn-runtime-move`
 - Branch: `feat/runtime-package` (base master HEAD `2f39aad`)
-- Commit: see bottom (filled after commit).
+- Commit: `561ea92` (`561ea9293b699b8e430102806d6da03f592c4b0f`).
 - Gates: `go build ./...` EXIT 0, `go vet ./...` zero NEW findings, `go test ./...` zero regressions, conformance **identical** to a same-harness master baseline (3871 passed / 131 skipped / 0 failed on both).
 
 ---
