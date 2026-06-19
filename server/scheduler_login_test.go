@@ -67,8 +67,10 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
-	system.Properties["created"] = &dbstore.Property{Name: "created", Value: types.NewObj(types.ObjNothing), Owner: 2, Perms: dbstore.PropRead | dbstore.PropWrite}
-	system.Properties["connected"] = &dbstore.Property{Name: "connected", Value: types.NewObj(types.ObjNothing), Owner: 2, Perms: dbstore.PropRead | dbstore.PropWrite}
+	createdProp := dbstore.NewProperty("created", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, false)
+	system.Properties["created"] = &createdProp
+	connectedProp := dbstore.NewProperty("connected", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, false)
+	system.Properties["connected"] = &connectedProp
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
@@ -83,12 +85,12 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 
 	s.loginPlayer(conn, 2, true)
 
-	created, ok := system.Properties["created"].Value.(types.ObjValue)
+	created, ok := system.Properties["created"].View().Value.(types.ObjValue)
 	if !ok || created.ID() != 2 {
-		t.Fatalf("created hook value = %v, want #2", system.Properties["created"].Value)
+		t.Fatalf("created hook value = %v, want #2", system.Properties["created"].View().Value)
 	}
-	connected, ok := system.Properties["connected"].Value.(types.ObjValue)
+	connected, ok := system.Properties["connected"].View().Value.(types.ObjValue)
 	if !ok || connected.ID() != 2 {
-		t.Fatalf("connected hook value = %v, want #2", system.Properties["connected"].Value)
+		t.Fatalf("connected hook value = %v, want #2", system.Properties["connected"].View().Value)
 	}
 }

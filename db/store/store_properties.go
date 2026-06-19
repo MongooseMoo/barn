@@ -27,11 +27,11 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 				continue
 			}
 			result[name] = &Property{
-				Name:  prop.Name,
-				Value: prop.Value,
-				Owner: prop.Owner,
-				Perms: prop.Perms,
-				Clear: true,
+				name:  prop.name,
+				value: prop.value,
+				owner: prop.owner,
+				perms: prop.perms,
+				clear: true,
 			}
 		}
 		queue = append(queue, current.Parents...)
@@ -43,18 +43,25 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
 	newProps := s.copyInheritedPropertiesLocked(obj.Parents)
 	for name, prop := range obj.Properties {
-		if prop.Defined {
+		if prop.defined {
 			newProps[name] = prop
 		}
 	}
 	obj.Properties = newProps
 }
 
-func (s *Store) FindProperty(objID types.ObjID, name string) (*Property, types.ErrorCode) {
+// FindProperty resolves a property (with inheritance) and returns a flat,
+// read-only PropertyView value. The store never hands out a live *Property to
+// external callers.
+func (s *Store) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.findPropertyLocked(objID, name)
+	prop, errCode := s.findPropertyLocked(objID, name)
+	if errCode != types.E_NONE {
+		return PropertyView{}, errCode
+	}
+	return prop.View(), types.E_NONE
 }
 
 func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, types.ErrorCode) {
@@ -80,11 +87,11 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, t
 			if targetProp == nil {
 				targetProp = prop
 			}
-			if !prop.Clear {
+			if !prop.clear {
 				if targetProp != prop {
 					result := *targetProp
-					result.Value = prop.Value
-					result.Clear = false
+					result.value = prop.value
+					result.clear = false
 					return &result, types.E_NONE
 				}
 				return prop, types.E_NONE
@@ -124,7 +131,7 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 	names := make([]string, 0, len(obj.Properties))
 	for _, name := range obj.PropOrder {
 		prop := obj.Properties[name]
-		if prop != nil && prop.Defined {
+		if prop != nil && prop.defined {
 			names = append(names, name)
 		}
 	}
@@ -162,7 +169,7 @@ func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[st
 			continue
 		}
 		for name, prop := range current.Properties {
-			if prop != nil && prop.Defined {
+			if prop != nil && prop.defined {
 				names[name] = true
 			}
 		}
@@ -183,7 +190,7 @@ func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types
 			return false, types.E_INVARG
 		}
 		for name, prop := range obj.Properties {
-			if prop == nil || !prop.Defined {
+			if prop == nil || !prop.defined {
 				continue
 			}
 			if seen[name] {
@@ -211,7 +218,7 @@ func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parent
 
 	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
 	for name, prop := range obj.Properties {
-		if prop != nil && prop.Defined && ancestorNames[name] {
+		if prop != nil && prop.defined && ancestorNames[name] {
 			return true, types.E_NONE
 		}
 	}
@@ -240,7 +247,7 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 				continue
 			}
 			for name, prop := range child.Properties {
-				if prop != nil && prop.Defined && names[name] {
+				if prop != nil && prop.defined && names[name] {
 					return true
 				}
 			}
@@ -259,9 +266,6 @@ func (s *Store) PropertyValue(objID types.ObjID, name string) (types.Value, type
 	if errCode != types.E_NONE {
 		return nil, errCode
 	}
-	if prop == nil {
-		return nil, types.E_PROPNF
-	}
 	return prop.Value, types.E_NONE
 }
 
@@ -277,7 +281,7 @@ func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCod
 	values := make([]types.Value, 0, len(obj.Properties))
 	for _, prop := range obj.Properties {
 		if prop != nil {
-			values = append(values, prop.Value)
+			values = append(values, prop.value)
 		}
 	}
 	return values, types.E_NONE
@@ -316,11 +320,11 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 			if name == "" || decidedNames[name] {
 				continue
 			}
-			if prop.Clear {
+			if prop.clear {
 				continue
 			}
 			decidedNames[name] = true
-			if prop.Value != nil && prop.Value.Truthy() {
+			if prop.value != nil && prop.value.Truthy() {
 				result[name] = true
 			}
 		}
@@ -330,27 +334,30 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 	return result, types.E_NONE
 }
 
-func (s *Store) LocalProperty(objID types.ObjID, name string) (*Property, bool, types.ErrorCode) {
+// LocalProperty returns a flat read-only view of a property slot defined or
+// inherited directly on objID (not resolved up the parent chain).
+func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	obj := s.objects[objID]
 	if !validLiveObject(obj) {
-		return nil, false, types.E_INVIND
+		return PropertyView{}, false, types.E_INVIND
 	}
 	prop, ok := obj.Properties[name]
 	if !ok {
-		return nil, false, types.E_NONE
+		return PropertyView{}, false, types.E_NONE
 	}
-	return cloneProperty(prop), true, types.E_NONE
+	return prop.View(), true, types.E_NONE
 }
 
-// DefinedProperty returns a copy of a property defined directly on the object.
+// DefinedProperty returns a read-only view of a property defined directly on the
+// object.
 
-func (s *Store) DefinedProperty(objID types.ObjID, name string) (*Property, bool, types.ErrorCode) {
+func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
 	prop, ok, err := s.LocalProperty(objID, name)
 	if err != types.E_NONE || !ok || !prop.Defined {
-		return nil, false, err
+		return PropertyView{}, false, err
 	}
 	return prop, true, types.E_NONE
 }
@@ -380,10 +387,10 @@ func (s *Store) PropertyClearState(objID types.ObjID, name string) (bool, types.
 	if !exists {
 		return true, types.E_NONE
 	}
-	if prop.Defined {
+	if prop.defined {
 		return false, types.E_NONE
 	}
-	return prop.Clear, types.E_NONE
+	return prop.clear, types.E_NONE
 }
 
 // SetPropertyInfo updates owner and/or permissions on a local property slot.
@@ -401,10 +408,10 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 		return types.E_PROPNF
 	}
 	if owner != nil {
-		prop.Owner = *owner
+		prop.owner = *owner
 	}
 	if perms != nil {
-		prop.Perms = *perms
+		prop.perms = *perms
 	}
 	return types.E_NONE
 }
@@ -421,8 +428,8 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 		return types.E_INVIND
 	}
 	if prop := obj.Properties[name]; prop != nil {
-		prop.Clear = false
-		prop.Value = value
+		prop.clear = false
+		prop.value = value
 		return types.E_NONE
 	}
 
@@ -431,12 +438,12 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 		return err
 	}
 	obj.Properties[name] = &Property{
-		Name:    name,
-		Value:   value,
-		Owner:   inherited.Owner,
-		Perms:   inherited.Perms,
-		Clear:   false,
-		Defined: false,
+		name:    name,
+		value:   value,
+		owner:   inherited.owner,
+		perms:   inherited.perms,
+		clear:   false,
+		defined: false,
 	}
 	return types.E_NONE
 }
@@ -452,12 +459,12 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if _, exists := obj.Properties[prop.Name]; exists {
+	if _, exists := obj.Properties[prop.name]; exists {
 		return types.E_INVARG
 	}
-	prop.Defined = true
-	prop.Clear = false
-	obj.Properties[prop.Name] = cloneProperty(&prop)
+	prop.defined = true
+	prop.clear = false
+	obj.Properties[prop.name] = cloneProperty(&prop)
 
 	pos := obj.PropDefsCount
 	if pos > len(obj.PropOrder) {
@@ -465,7 +472,7 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	}
 	obj.PropOrder = append(obj.PropOrder, "")
 	copy(obj.PropOrder[pos+1:], obj.PropOrder[pos:])
-	obj.PropOrder[pos] = prop.Name
+	obj.PropOrder[pos] = prop.name
 	obj.PropDefsCount++
 
 	s.propagatePropertyToDescendantsLocked(objID, &prop)
@@ -484,7 +491,7 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 		return types.E_INVIND
 	}
 	prop := obj.Properties[name]
-	if prop == nil || !prop.Defined {
+	if prop == nil || !prop.defined {
 		return types.E_PROPNF
 	}
 
@@ -534,7 +541,7 @@ func (s *Store) HasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 			if !validLiveObject(child) {
 				continue
 			}
-			if prop, ok := child.Properties[name]; ok && prop.Defined {
+			if prop, ok := child.Properties[name]; ok && prop.defined {
 				return true
 			}
 			queue = append(queue, childID)
@@ -552,7 +559,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 		return types.E_INVIND
 	}
 	for name, prop := range obj.Properties {
-		if !prop.Defined {
+		if !prop.defined {
 			delete(obj.Properties, name)
 		}
 	}
@@ -578,12 +585,12 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 			if !validLiveObject(child) {
 				continue
 			}
-			child.Properties[prop.Name] = &Property{
-				Name:  prop.Name,
-				Value: prop.Value,
-				Owner: prop.Owner,
-				Perms: prop.Perms,
-				Clear: true,
+			child.Properties[prop.name] = &Property{
+				name:  prop.name,
+				value: prop.value,
+				owner: prop.owner,
+				perms: prop.perms,
+				clear: true,
 			}
 			queue = append(queue, childID)
 		}
@@ -609,7 +616,7 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string) {
 			if !validLiveObject(child) {
 				continue
 			}
-			if prop, ok := child.Properties[name]; ok && !prop.Defined {
+			if prop, ok := child.Properties[name]; ok && !prop.defined {
 				delete(child.Properties, name)
 			}
 			queue = append(queue, childID)

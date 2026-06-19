@@ -63,24 +63,12 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 	root := testObject(0, false)
 	holder := testObject(4, false)
 	anon := testObject(5, true)
-	holder.Properties["two"] = &dbstore.Property{
-		Name:  "two",
-		Value: types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}),
-		Owner: 0,
-		Perms: dbstore.PropRead,
-	}
-	root.Properties["one"] = &dbstore.Property{
-		Name:  "one",
-		Value: types.NewObj(4),
-		Owner: 0,
-		Perms: dbstore.PropRead,
-	}
-	anon.Properties["foo"] = &dbstore.Property{
-		Name:  "foo",
-		Value: types.NewAnon(5),
-		Owner: 0,
-		Perms: dbstore.PropRead,
-	}
+	holderProp := dbstore.NewProperty("two", types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false)
+	holder.Properties["two"] = &holderProp
+	rootProp := dbstore.NewProperty("one", types.NewObj(4), 0, dbstore.PropRead, false, false)
+	root.Properties["one"] = &rootProp
+	anonProp := dbstore.NewProperty("foo", types.NewAnon(5), 0, dbstore.PropRead, false, false)
+	anon.Properties["foo"] = &anonProp
 
 	for _, obj := range []*dbstore.Object{root, holder, anon} {
 		if err := store.Add(obj); err != nil {

@@ -244,24 +244,25 @@ func (w *Writer) writeProperties(obj *store.Object) error {
 
 // writeProperty writes a single property value, owner, and perms
 func (w *Writer) writeProperty(prop *store.Property) error {
+	view := prop.View()
 	// Value (or CLEAR type code if clear)
-	if prop.Clear {
+	if view.Clear {
 		if err := w.writeInt(TypeClear); err != nil {
 			return err
 		}
 	} else {
-		if err := w.writeValue(prop.Value); err != nil {
+		if err := w.writeValue(view.Value); err != nil {
 			return err
 		}
 	}
 
 	// Owner
-	if err := w.writeObjID(prop.Owner); err != nil {
+	if err := w.writeObjID(view.Owner); err != nil {
 		return err
 	}
 
 	// Perms
-	return w.writeInt(int(prop.Perms))
+	return w.writeInt(int(view.Perms))
 }
 
 // writeVerbPrograms writes all verb code sections

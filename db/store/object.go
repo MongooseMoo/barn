@@ -37,14 +37,59 @@ type Object struct {
 	AnonymousChildren []types.ObjID
 }
 
-// Property represents a property on an object
+// Property represents a property on an object.
+//
+// All fields are unexported: the store is the sole owner of Property state.
+// External packages read properties through the flat, read-only PropertyView
+// value (returned by FindProperty/LocalProperty/DefinedProperty, or via the
+// View method on a raw *Property obtained from an Object's map) and construct
+// properties through NewProperty. A direct field write to Property from outside
+// db/store is a compile error.
 type Property struct {
+	name    string
+	value   types.Value
+	owner   types.ObjID
+	perms   PropertyPerms
+	clear   bool // If true, inherits from parent
+	defined bool // If true, was added via add_property on this object
+}
+
+// PropertyView is a flat, read-only snapshot of a Property. It is a value (a
+// copy): field access is a plain load with no allocation and no locking, so it
+// is safe to read on the execution hot path.
+type PropertyView struct {
 	Name    string
 	Value   types.Value
 	Owner   types.ObjID
 	Perms   PropertyPerms
-	Clear   bool // If true, inherits from parent
-	Defined bool // If true, was added via add_property on this object
+	Clear   bool
+	Defined bool
+}
+
+// NewProperty builds a Property value from its fields. It is the only way for
+// external packages (the loader in db/format, the conformance fixture, and
+// tests) to construct a Property without touching unexported fields.
+func NewProperty(name string, value types.Value, owner types.ObjID, perms PropertyPerms, clear, defined bool) Property {
+	return Property{
+		name:    name,
+		value:   value,
+		owner:   owner,
+		perms:   perms,
+		clear:   clear,
+		defined: defined,
+	}
+}
+
+// View returns a flat read-only snapshot of the property.
+func (p *Property) View() PropertyView {
+	return PropertyView{
+		Name:    p.name,
+		Value:   p.value,
+		Owner:   p.owner,
+		Perms:   p.perms,
+		Clear:   p.clear,
+		Defined: p.defined,
+	}
 }
 
 // Verb represents a verb on an object

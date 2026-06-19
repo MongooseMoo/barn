@@ -27,15 +27,15 @@ func calculateObjectBytes(obj *Object) int {
 	}
 
 	for _, prop := range obj.Properties {
-		if prop.Defined {
+		if prop.defined {
 			count += 32
-			count += len(prop.Name) + 1
+			count += len(prop.name) + 1
 		}
 	}
 
 	for _, prop := range obj.Properties {
 		count += 24
-		count += calculateValueBytes(prop.Value)
+		count += calculateValueBytes(prop.value)
 	}
 
 	return count

@@ -310,14 +310,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	prop := dbstore.Property{
-		Name:    propName,
-		Value:   value,
-		Owner:   owner,
-		Perms:   perms,
-		Clear:   false,
-		Defined: true,
-	}
+	prop := dbstore.NewProperty(propName, value, owner, perms, false, true)
 	if err := store.DefineProperty(objID, prop); err != types.E_NONE {
 		return types.Err(err)
 	}

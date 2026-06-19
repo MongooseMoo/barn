@@ -272,21 +272,6 @@ func (s *Store) Players() []types.ObjID {
 	return result
 }
 
-// GetAnonymousObjects returns all anonymous (non-recycled) objects
-
-func (s *Store) GetAnonymousObjects() []*Object {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	result := make([]*Object, 0)
-	for _, obj := range s.objects {
-		if !obj.Recycled && obj.Anonymous {
-			result = append(result, obj)
-		}
-	}
-	return result
-}
-
 // LowestFreeID finds the lowest available object ID
 // Checks recycled slots and gaps in the ID sequence
 

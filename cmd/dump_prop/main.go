@@ -45,5 +45,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("#%d.%s = %v\n", objNum, propName, prop.Value)
+	fmt.Printf("#%d.%s = %v\n", objNum, propName, prop.View().Value)
 }

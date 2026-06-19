@@ -17,30 +17,20 @@ func setupStoreForTests(store *dbstore.Store) {
 	if obj := store.Get(0); obj != nil {
 		// $sysobj -> #0 (the system object itself)
 		if _, ok := obj.Properties["sysobj"]; !ok {
-			obj.Properties["sysobj"] = &dbstore.Property{
-				Name:    "sysobj",
-				Value:   types.NewObj(0),
-				Owner:   0,
-				Perms:   dbstore.PropRead,
-				Defined: true,
-			}
+			p := dbstore.NewProperty("sysobj", types.NewObj(0), 0, dbstore.PropRead, false, true)
+			obj.Properties["sysobj"] = &p
 		}
 		// $object -> #1 (root object class)
 		if _, ok := obj.Properties["object"]; !ok {
-			obj.Properties["object"] = &dbstore.Property{
-				Name:    "object",
-				Value:   types.NewObj(1),
-				Owner:   0,
-				Perms:   dbstore.PropRead,
-				Defined: true,
-			}
+			p := dbstore.NewProperty("object", types.NewObj(1), 0, dbstore.PropRead, false, true)
+			obj.Properties["object"] = &p
 		}
 		// $anon -> anonymous object parent
 		// First check if $anonymous exists, reuse that
 		if _, ok := obj.Properties["anon"]; !ok {
 			var anonID types.ObjID = -1
 			if anonymousProp, exists := obj.Properties["anonymous"]; exists {
-				if objVal, ok := anonymousProp.Value.(types.ObjValue); ok {
+				if objVal, ok := anonymousProp.View().Value.(types.ObjValue); ok {
 					anonID = objVal.ID()
 				}
 			}
@@ -62,17 +52,12 @@ func setupStoreForTests(store *dbstore.Store) {
 				anonObj.Flags = anonObj.Flags.Set(dbstore.FlagAnonymous).Set(dbstore.FlagFertile)
 				store.Add(anonObj)
 			}
-			obj.Properties["anon"] = &dbstore.Property{
-				Name:    "anon",
-				Value:   types.NewObj(anonID),
-				Owner:   0,
-				Perms:   dbstore.PropRead,
-				Defined: true,
-			}
+			p := dbstore.NewProperty("anon", types.NewObj(anonID), 0, dbstore.PropRead, false, true)
+			obj.Properties["anon"] = &p
 		}
 		// Ensure the anonymous parent has the fertile flag so non-wizards can create from it
 		if anonProp, ok := obj.Properties["anon"]; ok {
-			if anonObjVal, ok := anonProp.Value.(types.ObjValue); ok {
+			if anonObjVal, ok := anonProp.View().Value.(types.ObjValue); ok {
 				if anonObj := store.Get(anonObjVal.ID()); anonObj != nil {
 					anonObj.Flags = anonObj.Flags.Set(dbstore.FlagFertile).Set(dbstore.FlagAnonymous)
 				}
@@ -80,7 +65,7 @@ func setupStoreForTests(store *dbstore.Store) {
 		}
 		// Also ensure $anonymous has fertile flag if it exists
 		if anonymousProp, ok := obj.Properties["anonymous"]; ok {
-			if anonObjVal, ok := anonymousProp.Value.(types.ObjValue); ok {
+			if anonObjVal, ok := anonymousProp.View().Value.(types.ObjValue); ok {
 				if anonObj := store.Get(anonObjVal.ID()); anonObj != nil {
 					anonObj.Flags = anonObj.Flags.Set(dbstore.FlagFertile).Set(dbstore.FlagAnonymous)
 				}
@@ -91,13 +76,8 @@ func setupStoreForTests(store *dbstore.Store) {
 		protoProps := []string{"int_proto", "str_proto", "list_proto", "map_proto", "float_proto", "err_proto"}
 		for _, propName := range protoProps {
 			if _, ok := obj.Properties[propName]; !ok {
-				obj.Properties[propName] = &dbstore.Property{
-					Name:    propName,
-					Value:   types.NewObj(-1), // $nothing by default
-					Owner:   0,
-					Perms:   dbstore.PropRead | dbstore.PropWrite,
-					Defined: true,
-				}
+				p := dbstore.NewProperty(propName, types.NewObj(-1), 0, dbstore.PropRead|dbstore.PropWrite, false, true)
+				obj.Properties[propName] = &p
 			}
 		}
 	}

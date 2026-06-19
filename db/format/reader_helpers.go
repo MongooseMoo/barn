@@ -159,8 +159,9 @@ func (database *Database) resolvePropertyNames() {
 				newName = oldName
 			}
 
-			prop.Name = newName
-			newProperties[newName] = prop
+			v := prop.View()
+			renamed := store.NewProperty(newName, v.Value, v.Owner, v.Perms, v.Clear, v.Defined)
+			newProperties[newName] = &renamed
 			newPropOrder = append(newPropOrder, newName)
 		}
 

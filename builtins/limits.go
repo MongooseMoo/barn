@@ -78,12 +78,12 @@ func GetMaxStackDepth() int {
 	return serverOptionsCache.maxStackDepth
 }
 
-func findDefinedProperty(objID types.ObjID, name string, store *dbstore.Store) *dbstore.Property {
+func findDefinedProperty(objID types.ObjID, name string, store *dbstore.Store) (dbstore.PropertyView, bool) {
 	prop, ok, err := store.DefinedProperty(objID, name)
 	if err != types.E_NONE || !ok {
-		return nil
+		return dbstore.PropertyView{}, false
 	}
-	return prop
+	return prop, true
 }
 
 // LoadServerOptionsFromStore reads limits from $server_options object and caches them.
@@ -151,7 +151,7 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	serverOptsID := serverOptsRef.ID()
 
 	// Read max_string_concat (searching inheritance chain)
-	if prop := findDefinedProperty(serverOptsID, "max_string_concat", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "max_string_concat", store); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextString = canonicalizeLimit(int(intVal.Val), minStringConcatLimit, maxStringConcatLimit)
 			loaded++
@@ -159,7 +159,7 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 
 	// Read max_list_value_bytes
-	if prop := findDefinedProperty(serverOptsID, "max_list_value_bytes", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "max_list_value_bytes", store); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextList = canonicalizeLimit(int(intVal.Val), minListValueBytesLimit, maxListValueBytesLimit)
 			loaded++
@@ -167,38 +167,38 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 
 	// Read max_map_value_bytes
-	if prop := findDefinedProperty(serverOptsID, "max_map_value_bytes", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "max_map_value_bytes", store); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextMap = canonicalizeLimit(int(intVal.Val), minMapValueBytesLimit, maxMapValueBytesLimit)
 			loaded++
 		}
 	}
 
-	if prop := findDefinedProperty(serverOptsID, "fg_ticks", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "fg_ticks", store); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
 			nextFgTicks = intVal.Val
 			loaded++
 		}
 	}
-	if prop := findDefinedProperty(serverOptsID, "bg_ticks", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "bg_ticks", store); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
 			nextBgTicks = intVal.Val
 			loaded++
 		}
 	}
-	if prop := findDefinedProperty(serverOptsID, "fg_seconds", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "fg_seconds", store); ok {
 		if seconds, ok := numericSeconds(prop.Value); ok && seconds > 0 {
 			nextFgSeconds = seconds
 			loaded++
 		}
 	}
-	if prop := findDefinedProperty(serverOptsID, "bg_seconds", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "bg_seconds", store); ok {
 		if seconds, ok := numericSeconds(prop.Value); ok && seconds > 0 {
 			nextBgSeconds = seconds
 			loaded++
 		}
 	}
-	if prop := findDefinedProperty(serverOptsID, "max_stack_depth", store); prop != nil {
+	if prop, ok := findDefinedProperty(serverOptsID, "max_stack_depth", store); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
 			nextMaxStackDepth = int(intVal.Val)
 			loaded++

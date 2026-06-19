@@ -35,7 +35,8 @@ func main() {
 	// Look for password property directly
 	fmt.Println("\nDirect password property:")
 	if prop, ok := wizard.Properties["password"]; ok {
-		fmt.Printf("  password = %q (Clear=%v, Owner=#%d)\n", prop.Value, prop.Clear, prop.Owner)
+		v := prop.View()
+		fmt.Printf("  password = %q (Clear=%v, Owner=#%d)\n", v.Value, v.Clear, v.Owner)
 	} else {
 		fmt.Println("  No direct password property")
 	}
@@ -48,7 +49,8 @@ func main() {
 	// Show all properties on wizard
 	fmt.Println("\nAll properties on wizard #2:")
 	for name, prop := range wizard.Properties {
-		fmt.Printf("  %s = %v (Clear=%v)\n", name, prop.Value, prop.Clear)
+		v := prop.View()
+		fmt.Printf("  %s = %v (Clear=%v)\n", name, v.Value, v.Clear)
 	}
 }
 
@@ -72,7 +74,8 @@ func findPassword(store *dbstore.Store, objID types.ObjID, visited map[types.Obj
 
 	// Check Properties for password
 	if prop, ok := obj.Properties["password"]; ok {
-		fmt.Printf("%s  .password = %v (type: %T, Clear=%v)\n", indent, prop.Value, prop.Value, prop.Clear)
+		v := prop.View()
+		fmt.Printf("%s  .password = %v (type: %T, Clear=%v)\n", indent, v.Value, v.Value, v.Clear)
 	}
 
 	// Recurse to parents

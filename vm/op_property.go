@@ -247,7 +247,7 @@ func (vm *VM) setWaifProp(waif types.WaifValue, propName string, value types.Val
 
 // checkPropertyReadPerm checks if the current programmer has read permission on a property.
 // Wizards and property owners always have access.
-func (vm *VM) checkPropertyReadPerm(prop *dbstore.Property) error {
+func (vm *VM) checkPropertyReadPerm(prop dbstore.PropertyView) error {
 	if vm.Context == nil {
 		return nil // No context = no permission check
 	}
@@ -265,7 +265,7 @@ func (vm *VM) checkPropertyReadPerm(prop *dbstore.Property) error {
 
 // checkPropertyWritePerm checks if the current programmer has write permission on a property.
 // Wizards and property owners always have access.
-func (vm *VM) checkPropertyWritePerm(prop *dbstore.Property) error {
+func (vm *VM) checkPropertyWritePerm(prop dbstore.PropertyView) error {
 	if vm.Context == nil {
 		return nil // No context = no permission check
 	}

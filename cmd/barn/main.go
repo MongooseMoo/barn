@@ -350,7 +350,7 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 	}
 	sort.Strings(propNames)
 	for _, name := range propNames {
-		prop := obj.Properties[name]
+		prop := obj.Properties[name].View()
 		valStr := fmt.Sprintf("%v", prop.Value)
 		if len(valStr) > 60 {
 			valStr = valStr[:57] + "..."
@@ -460,7 +460,8 @@ func dumpObjRawCommand(store *dbstore.Store, spec string) {
 	fmt.Printf("\nVerbs map:  %d entries\n", len(obj.Verbs))
 
 	fmt.Printf("\nProperties: %d entries\n", len(obj.Properties))
-	for name, prop := range obj.Properties {
+	for name, rawProp := range obj.Properties {
+		prop := rawProp.View()
 		fmt.Printf("  %q: owner=#%d perms=%s type=%T\n",
 			name, prop.Owner, prop.Perms.String(), prop.Value)
 	}

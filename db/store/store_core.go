@@ -256,7 +256,7 @@ func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
 	if prop == nil {
 		return nil, types.E_NONE
 	}
-	listVal, ok := prop.Value.(types.ListValue)
+	listVal, ok := prop.value.(types.ListValue)
 	if !ok {
 		return nil, types.E_NONE
 	}

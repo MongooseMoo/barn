@@ -328,10 +328,11 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	if beforeObj == nil {
 		t.Fatal("Object #101 not found")
 	}
-	beforeProp, ok := beforeObj.Properties["index_cache"]
+	beforeRaw, ok := beforeObj.Properties["index_cache"]
 	if !ok {
 		t.Fatal(`Object #101 missing property "index_cache"`)
 	}
+	beforeProp := beforeRaw.View()
 	if beforeProp.Clear {
 		t.Fatal(`Expected #101.index_cache to be a local override (clear=false) before round trip`)
 	}
@@ -355,10 +356,11 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	if afterObj == nil {
 		t.Fatal("Reloaded object #101 not found")
 	}
-	afterProp, ok := afterObj.Properties["index_cache"]
+	afterRaw, ok := afterObj.Properties["index_cache"]
 	if !ok {
 		t.Fatal(`Reloaded object #101 missing property "index_cache"`)
 	}
+	afterProp := afterRaw.View()
 
 	if afterProp.Clear {
 		t.Fatal(`Round trip corrupted #101.index_cache into clear=true`)

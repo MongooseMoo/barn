@@ -287,22 +287,20 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		// The first propDefCount entries are the property definitions added on
 		// this object (vs. inherited slots). Mark them Defined so properties()
 		// reports them, matching Toast.
-		prop := &store.Property{Name: propName, Defined: i < propDefCount}
+		defined := i < propDefCount
 
 		// Value
-		prop.Value, err = database.readValue(r)
+		propValue, err := database.readValue(r)
 		if err != nil {
 			return nil, err
 		}
 
 		// If value is nil, this is a CLEAR property (type code 5)
 		// It should inherit its value from the parent object
-		if prop.Value == nil {
-			prop.Clear = true
-		}
+		clear := propValue == nil
 
 		// Owner
-		prop.Owner, err = readObjID(r)
+		propOwner, err := readObjID(r)
 		if err != nil {
 			return nil, err
 		}
@@ -312,9 +310,9 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		prop.Perms = store.PropertyPerms(perms)
 
-		obj.Properties[propName] = prop
+		prop := store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined)
+		obj.Properties[propName] = &prop
 	}
 
 	return obj, nil
