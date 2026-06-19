@@ -1,0 +1,475 @@
+package db
+
+import (
+	"barn/types"
+	"fmt"
+	"strings"
+)
+
+func matchVerbName(verbPattern, searchName string) bool {
+	// Case-insensitive matching
+	pattern := strings.ToLower(verbPattern)
+	search := strings.ToLower(searchName)
+
+	// Strip leading colon from pattern if present
+	// Verbs like ":initialize" should match "initialize" when called as obj:initialize()
+	if strings.HasPrefix(pattern, ":") {
+		pattern = pattern[1:]
+	}
+
+	// Find the wildcard position
+	starPos := strings.Index(pattern, "*")
+	if starPos == -1 {
+		// No wildcard, exact match required
+		return pattern == search
+	}
+
+	// Special case: catch-all "*" verb matches any verb name
+	if pattern == "*" {
+		return true
+	}
+
+	// MOO wildcard semantics:
+	// Pattern "get_conj*ugation" matches any search that:
+	// 1. Starts with the prefix "get_conj" (required minimum)
+	// 2. Is a prefix of the full name "get_conjugation" (remove the *)
+	//
+	// Valid: "get_conj", "get_conju", "get_conjug", "get_conjugation"
+	// Invalid: "get_con", "get_conjugate"
+
+	prefix := pattern[:starPos] // "get_conj" - required minimum
+
+	// Trailing star: the verb name matches any requested name that begins with
+	// the pre-star prefix (e.g. "audittrail*" matches "audittrailing_suffix").
+	if starPos == len(pattern)-1 {
+		return strings.HasPrefix(search, prefix)
+	}
+
+	full := pattern[:starPos] + pattern[starPos+1:] // "get_conjugation" - full name
+
+	// Search must start with the required prefix
+	if !strings.HasPrefix(search, prefix) {
+		return false
+	}
+
+	// Search must be a prefix of the full name
+	return strings.HasPrefix(full, search)
+}
+
+type VerbCandidate struct {
+	Definer types.ObjID
+	Verb    *Verb
+}
+
+func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false
+	}
+	return obj.Verbs[name] != nil
+}
+
+func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID < 0 {
+			continue
+		}
+		visited[currentID] = true
+
+		obj := s.objects[currentID]
+		if !validLiveObject(obj) {
+			continue
+		}
+		for _, verb := range obj.Verbs {
+			for _, alias := range verb.Names {
+				if matchVerbName(alias, name) {
+					return true
+				}
+			}
+		}
+		queue = append(queue, obj.Parents...)
+	}
+	return false
+}
+
+func (s *Store) VerbCandidatesInAncestry(objID types.ObjID) ([]VerbCandidate, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	candidates := make([]VerbCandidate, 0)
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID < 0 {
+			continue
+		}
+		visited[currentID] = true
+
+		obj := s.objects[currentID]
+		if !validLiveObject(obj) {
+			continue
+		}
+		for _, verb := range obj.Verbs {
+			candidates = append(candidates, VerbCandidate{
+				Definer: currentID,
+				Verb:    verb,
+			})
+		}
+		queue = append(queue, obj.Parents...)
+	}
+	return candidates, types.E_NONE
+}
+
+// FindVerb looks up a verb on an object, following inheritance chain
+// Uses breadth-first search per spec
+// Returns the verb and the object it's defined on, or error
+
+func (s *Store) FindVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.findVerbLocked(objID, verbName)
+}
+
+func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	// Track visited objects to prevent infinite loops
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		// Pop from front (FIFO for breadth-first)
+		current := queue[0]
+		queue = queue[1:]
+
+		// Skip if already visited (cycle detection)
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		// Get object (skip if invalid)
+		obj := s.objects[current]
+		if obj == nil || obj.Recycled {
+			continue
+		}
+
+		// Scan this object's verbs in definition order and return the first whose
+		// name or alias matches. Toast resolves alias collisions by definition
+		// order (the first-declared verb wins), so iterate the ordered VerbList
+		// rather than the unordered Verbs map.
+		for _, verb := range obj.VerbList {
+			for _, alias := range verb.Names {
+				if matchVerbName(alias, verbName) {
+					return verb, current, nil
+				}
+			}
+		}
+		// Fallback for verbs present in the map but not matched above (e.g. verbs
+		// with an unpopulated Names slice): exact and colon-prefixed map lookups.
+		// The map is keyed by the full stored name, so a lookup string containing
+		// "*" would otherwise match a wildcard verb by its literal spec (e.g.
+		// "foo*bar") — but "*" is special only in the stored name, not in the
+		// lookup word, so Toast's verbcasecmp rejects it. Skip the literal
+		// fallback for such lookups; the wildcard scan above already handled any
+		// legitimate match.
+		if !strings.Contains(verbName, "*") {
+			if verb, ok := obj.Verbs[verbName]; ok {
+				return verb, current, nil
+			}
+			if verb, ok := obj.Verbs[":"+verbName]; ok {
+				return verb, current, nil
+			}
+		}
+
+		// Not found on this object, add parents to queue
+		queue = append(queue, obj.Parents...)
+	}
+
+	// Verb not found in entire inheritance chain
+	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+}
+
+// FindVerbOnObject finds a verb by name on objID itself only, WITHOUT searching
+// the inheritance chain. The verb-metadata builtins (verb_info, verb_args,
+// verb_code) inspect only an object's own verbs: ToastStunt returns E_VERBNF
+// when the name resolves only to an inherited verb. Matching honors aliases and
+// the `*` wildcard, exactly like FindVerb but limited to this one object.
+
+func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (*Verb, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.findVerbOnObjectLocked(objID, verbName)
+}
+
+func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Verb, error) {
+	obj := s.objects[objID]
+	if obj == nil || obj.Recycled {
+		return nil, fmt.Errorf("verb not found: %s", verbName)
+	}
+
+	// Definition-order scan (see FindVerb) so colliding aliases resolve to the
+	// first-declared verb.
+	for _, verb := range obj.VerbList {
+		for _, alias := range verb.Names {
+			if matchVerbName(alias, verbName) {
+				return verb, nil
+			}
+		}
+	}
+	// See FindVerb: a lookup string containing "*" must not match a stored
+	// wildcard name literally (Toast's verbcasecmp rejects "*" in the lookup
+	// word). The wildcard scan above already handled any legitimate match.
+	if !strings.Contains(verbName, "*") {
+		if verb, ok := obj.Verbs[verbName]; ok {
+			return verb, nil
+		}
+		if verb, ok := obj.Verbs[":"+verbName]; ok {
+			return verb, nil
+		}
+	}
+	return nil, fmt.Errorf("verb not found: %s", verbName)
+}
+
+func (s *Store) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	names := make([]string, 0, len(obj.VerbList))
+	for _, verb := range obj.VerbList {
+		names = append(names, verb.Name)
+	}
+	return names, types.E_NONE
+}
+
+func (s *Store) VerbByIndex(objID types.ObjID, index int) (*Verb, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.VerbList) {
+		return nil, types.E_RANGE
+	}
+	return obj.VerbList[index], types.E_NONE
+}
+
+func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return 0, types.E_INVIND
+	}
+
+	verbCopy := verb
+	verbPtr := &verbCopy
+	obj.Verbs[verbPtr.Name] = verbPtr
+	obj.VerbList = append(obj.VerbList, verbPtr)
+	return len(obj.VerbList), types.E_NONE
+}
+
+func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+
+	verb, _, err := s.findVerbLocked(objID, name)
+	if err != nil || verb == nil {
+		return types.E_VERBNF
+	}
+
+	keysToRefresh := make([]string, 0, 1)
+	for key, entry := range obj.Verbs {
+		if entry == verb {
+			keysToRefresh = append(keysToRefresh, key)
+			delete(obj.Verbs, key)
+		}
+	}
+
+	for i, entry := range obj.VerbList {
+		if entry == verb {
+			obj.VerbList = append(obj.VerbList[:i], obj.VerbList[i+1:]...)
+			break
+		}
+	}
+
+	for _, key := range keysToRefresh {
+		for i := len(obj.VerbList) - 1; i >= 0; i-- {
+			candidate := obj.VerbList[i]
+			if candidate.Name == key {
+				obj.Verbs[key] = candidate
+				break
+			}
+		}
+	}
+	return types.E_NONE
+}
+
+func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, perms VerbPerms, names []string) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	verb, _, err := s.findVerbLocked(objID, name)
+	if err != nil {
+		return types.E_VERBNF
+	}
+
+	oldName := verb.Name
+	verb.Owner = owner
+	verb.Perms = perms
+	verb.Names = append([]string(nil), names...)
+	if len(verb.Names) > 0 {
+		verb.Name = verb.Names[0]
+	}
+
+	if oldName != verb.Name {
+		if current, ok := obj.Verbs[oldName]; ok && current == verb {
+			delete(obj.Verbs, oldName)
+		}
+		obj.Verbs[verb.Name] = verb
+	}
+	return types.E_NONE
+}
+
+func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return types.E_INVIND
+	}
+	verb, _, err := s.findVerbLocked(objID, name)
+	if err != nil {
+		return types.E_VERBNF
+	}
+	verb.ArgSpec = argSpec
+	return types.E_NONE
+}
+
+func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string, program *VerbProgram) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return types.E_INVIND
+	}
+	verb, _, err := s.findVerbLocked(objID, name)
+	if err != nil {
+		return types.E_VERBNF
+	}
+	verb.Code = append([]string(nil), lines...)
+	verb.Program = program
+	verb.BytecodeCache = nil
+	return types.E_NONE
+}
+
+func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string, program *VerbProgram) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.VerbList) {
+		return types.E_RANGE
+	}
+	verb := obj.VerbList[index]
+	verb.Code = append([]string(nil), lines...)
+	verb.Program = program
+	verb.BytecodeCache = nil
+	return types.E_NONE
+}
+
+func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	verbLocObj := s.objects[verbLoc]
+	if !validLiveObject(verbLocObj) {
+		return nil, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
+	}
+
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), verbLocObj.Parents...)
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if visited[current] {
+			continue
+		}
+		visited[current] = true
+
+		obj := s.objects[current]
+		if !validLiveObject(obj) {
+			continue
+		}
+		if verb, ok := obj.Verbs[verbName]; ok {
+			return verb, current, nil
+		}
+		for _, verb := range obj.VerbList {
+			for _, alias := range verb.Names {
+				if alias == verbName {
+					return verb, current, nil
+				}
+			}
+		}
+		queue = append(queue, obj.Parents...)
+	}
+	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+}
+
+func (s *Store) FindLocalVerbForProgramming(objID types.ObjID, verbName string) (*Verb, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, fmt.Errorf("verb not found: %s", verbName)
+	}
+	if verb, ok := obj.Verbs[verbName]; ok {
+		return verb, nil
+	}
+	if verb, ok := obj.Verbs[":"+verbName]; ok {
+		return verb, nil
+	}
+	for _, verb := range obj.VerbList {
+		for _, alias := range verb.Names {
+			if matchVerbName(alias, verbName) {
+				return verb, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("verb not found: %s", verbName)
+}
+
+// RegisterWaif registers a waif with its class object for invalidation tracking

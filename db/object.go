@@ -51,12 +51,12 @@ type Property struct {
 // Verb represents a verb on an object
 type Verb struct {
 	Name    string
-	Names   []string        // All verb names (aliases) - first is primary
+	Names   []string // All verb names (aliases) - first is primary
 	Owner   types.ObjID
 	Perms   VerbPerms
 	ArgSpec VerbArgs
-	Code    []string        // Source lines
-	Program *VerbProgram    // Compiled AST (added in Layer 9.2)
+	Code    []string     // Source lines
+	Program *VerbProgram // Compiled AST (added in Layer 9.2)
 
 	// BytecodeCache holds compiled bytecode (*vm.Program) for the bytecode VM.
 	// Typed as any to avoid circular import between db and vm packages.

@@ -1,0 +1,636 @@
+package db
+
+import (
+	"barn/types"
+	"strings"
+)
+
+func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]*Property {
+	result := make(map[string]*Property)
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), parents...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for name, prop := range current.Properties {
+			if _, exists := result[name]; exists {
+				continue
+			}
+			result[name] = &Property{
+				Name:  prop.Name,
+				Value: prop.Value,
+				Owner: prop.Owner,
+				Perms: prop.Perms,
+				Clear: true,
+			}
+		}
+		queue = append(queue, current.Parents...)
+	}
+
+	return result
+}
+
+func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
+	newProps := s.copyInheritedPropertiesLocked(obj.Parents)
+	for name, prop := range obj.Properties {
+		if prop.Defined {
+			newProps[name] = prop
+		}
+	}
+	obj.Properties = newProps
+}
+
+func (s *Store) FindProperty(objID types.ObjID, name string) (*Property, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.findPropertyLocked(objID, name)
+}
+
+func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, types.ErrorCode) {
+	var targetProp *Property
+	visited := make(map[types.ObjID]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+
+		if prop, ok := current.Properties[name]; ok {
+			if targetProp == nil {
+				targetProp = prop
+			}
+			if !prop.Clear {
+				if targetProp != prop {
+					result := *targetProp
+					result.Value = prop.Value
+					result.Clear = false
+					return &result, types.E_NONE
+				}
+				return prop, types.E_NONE
+			}
+		}
+
+		queue = append(queue, current.Parents...)
+	}
+
+	return nil, types.E_PROPNF
+}
+
+func validLiveObject(obj *Object) bool {
+	return obj != nil && !obj.Recycled && !obj.Flags.Has(FlagInvalid)
+}
+
+func cloneProperty(prop *Property) *Property {
+	if prop == nil {
+		return nil
+	}
+	clone := *prop
+	return &clone
+}
+
+// DefinedPropertyNames returns properties defined directly on an object in
+// definition order.
+
+func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	names := make([]string, 0, len(obj.Properties))
+	for _, name := range obj.PropOrder {
+		prop := obj.Properties[name]
+		if prop != nil && prop.Defined {
+			names = append(names, name)
+		}
+	}
+	return names, types.E_NONE
+}
+
+// DefinedPropertyNamesInAncestry returns every property name defined on objID
+// or its ancestors.
+
+func (s *Store) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return nil, types.E_INVIND
+	}
+	return s.definedPropertyNamesInAncestryLocked([]types.ObjID{objID}), types.E_NONE
+}
+
+func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[string]bool {
+	names := make(map[string]bool)
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), start...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID == types.ObjNothing {
+			continue
+		}
+		visited[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for name, prop := range current.Properties {
+			if prop != nil && prop.Defined {
+				names[name] = true
+			}
+		}
+		queue = append(queue, current.Parents...)
+	}
+
+	return names
+}
+
+func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		obj := s.objects[id]
+		if !validLiveObject(obj) {
+			return false, types.E_INVARG
+		}
+		for name, prop := range obj.Properties {
+			if prop == nil || !prop.Defined {
+				continue
+			}
+			if seen[name] {
+				return true, types.E_NONE
+			}
+			seen[name] = true
+		}
+	}
+	return false, types.E_NONE
+}
+
+func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	for _, parentID := range parentIDs {
+		if !validLiveObject(s.objects[parentID]) {
+			return false, types.E_INVARG
+		}
+	}
+
+	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
+	for name, prop := range obj.Properties {
+		if prop != nil && prop.Defined && ancestorNames[name] {
+			return true, types.E_NONE
+		}
+	}
+	return false, types.E_NONE
+}
+
+func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+
+	visited := make(map[types.ObjID]bool)
+	var check func(*Object) bool
+	check = func(current *Object) bool {
+		if current == nil || visited[current.ID] {
+			return false
+		}
+		visited[current.ID] = true
+		for childID := range current.ChparentChildren {
+			child := s.objects[childID]
+			if !validLiveObject(child) {
+				continue
+			}
+			for name, prop := range child.Properties {
+				if prop != nil && prop.Defined && names[name] {
+					return true
+				}
+			}
+			if check(child) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return check(obj), types.E_NONE
+}
+
+func (s *Store) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
+	prop, errCode := s.FindProperty(objID, name)
+	if errCode != types.E_NONE {
+		return nil, errCode
+	}
+	if prop == nil {
+		return nil, types.E_PROPNF
+	}
+	return prop.Value, types.E_NONE
+}
+
+func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	values := make([]types.Value, 0, len(obj.Properties))
+	for _, prop := range obj.Properties {
+		if prop != nil {
+			values = append(values, prop.Value)
+		}
+	}
+	return values, types.E_NONE
+}
+
+func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if !validLiveObject(s.objects[objID]) {
+		return nil, types.E_INVIND
+	}
+
+	result := make(map[string]bool)
+	seenObjects := make(map[types.ObjID]bool)
+	decidedNames := make(map[string]bool)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seenObjects[currentID] {
+			continue
+		}
+		seenObjects[currentID] = true
+
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for propName, prop := range current.Properties {
+			if prop == nil || !strings.HasPrefix(propName, prefix) {
+				continue
+			}
+			name := propName[len(prefix):]
+			if name == "" || decidedNames[name] {
+				continue
+			}
+			if prop.Clear {
+				continue
+			}
+			decidedNames[name] = true
+			if prop.Value != nil && prop.Value.Truthy() {
+				result[name] = true
+			}
+		}
+		queue = append(queue, current.Parents...)
+	}
+
+	return result, types.E_NONE
+}
+
+func (s *Store) LocalProperty(objID types.ObjID, name string) (*Property, bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, false, types.E_INVIND
+	}
+	prop, ok := obj.Properties[name]
+	if !ok {
+		return nil, false, types.E_NONE
+	}
+	return cloneProperty(prop), true, types.E_NONE
+}
+
+// DefinedProperty returns a copy of a property defined directly on the object.
+
+func (s *Store) DefinedProperty(objID types.ObjID, name string) (*Property, bool, types.ErrorCode) {
+	prop, ok, err := s.LocalProperty(objID, name)
+	if err != types.E_NONE || !ok || !prop.Defined {
+		return nil, false, err
+	}
+	return prop, true, types.E_NONE
+}
+
+func (s *Store) HasLocalProperty(objID types.ObjID, name string) (bool, types.ErrorCode) {
+	_, ok, err := s.LocalProperty(objID, name)
+	return ok, err
+}
+
+func (s *Store) IsPropertyDefinedOnObject(objID types.ObjID, name string) (bool, types.ErrorCode) {
+	_, ok, err := s.DefinedProperty(objID, name)
+	return ok, err
+}
+
+// PropertyClearState reports whether an existing inherited property is clear on
+// the target object. A missing local slot means the property is inherited.
+
+func (s *Store) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	prop, exists := obj.Properties[name]
+	if !exists {
+		return true, types.E_NONE
+	}
+	if prop.Defined {
+		return false, types.E_NONE
+	}
+	return prop.Clear, types.E_NONE
+}
+
+// SetPropertyInfo updates owner and/or permissions on a local property slot.
+
+func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	prop := obj.Properties[name]
+	if prop == nil {
+		return types.E_PROPNF
+	}
+	if owner != nil {
+		prop.Owner = *owner
+	}
+	if perms != nil {
+		prop.Perms = *perms
+	}
+	return types.E_NONE
+}
+
+// SetPropertyValue updates an existing local property slot or creates a local
+// override for an inherited property.
+
+func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if prop := obj.Properties[name]; prop != nil {
+		prop.Clear = false
+		prop.Value = value
+		return types.E_NONE
+	}
+
+	inherited, err := s.findPropertyLocked(objID, name)
+	if err != types.E_NONE {
+		return err
+	}
+	obj.Properties[name] = &Property{
+		Name:    name,
+		Value:   value,
+		Owner:   inherited.Owner,
+		Perms:   inherited.Perms,
+		Clear:   false,
+		Defined: false,
+	}
+	return types.E_NONE
+}
+
+// DefineProperty adds a new property definition to an object and propagates
+// inherited clear slots to existing descendants.
+
+func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if _, exists := obj.Properties[prop.Name]; exists {
+		return types.E_INVARG
+	}
+	prop.Defined = true
+	prop.Clear = false
+	obj.Properties[prop.Name] = cloneProperty(&prop)
+
+	pos := obj.PropDefsCount
+	if pos > len(obj.PropOrder) {
+		pos = len(obj.PropOrder)
+	}
+	obj.PropOrder = append(obj.PropOrder, "")
+	copy(obj.PropOrder[pos+1:], obj.PropOrder[pos:])
+	obj.PropOrder[pos] = prop.Name
+	obj.PropDefsCount++
+
+	s.propagatePropertyToDescendantsLocked(objID, &prop)
+	return types.E_NONE
+}
+
+// DeleteDefinedProperty removes a property defined directly on an object and
+// removes inherited copies from descendants.
+
+func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	prop := obj.Properties[name]
+	if prop == nil || !prop.Defined {
+		return types.E_PROPNF
+	}
+
+	delete(obj.Properties, name)
+	obj.PropOrder = removeString(obj.PropOrder, name)
+	if obj.PropDefsCount > 0 {
+		obj.PropDefsCount--
+	}
+	s.removeInheritedPropertyLocked(objID, name)
+	return types.E_NONE
+}
+
+// ClearPropertyOverride removes a local inherited-property slot so reads fall
+// through to the parent chain.
+
+func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	delete(obj.Properties, name)
+	return types.E_NONE
+}
+
+func (s *Store) HasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for _, childID := range current.Children {
+			child := s.objects[childID]
+			if !validLiveObject(child) {
+				continue
+			}
+			if prop, ok := child.Properties[name]; ok && prop.Defined {
+				return true
+			}
+			queue = append(queue, childID)
+		}
+	}
+	return false
+}
+
+func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	obj := s.objects[objID]
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	for name, prop := range obj.Properties {
+		if !prop.Defined {
+			delete(obj.Properties, name)
+		}
+	}
+	return types.E_NONE
+}
+
+func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Property) {
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for _, childID := range current.Children {
+			child := s.objects[childID]
+			if !validLiveObject(child) {
+				continue
+			}
+			child.Properties[prop.Name] = &Property{
+				Name:  prop.Name,
+				Value: prop.Value,
+				Owner: prop.Owner,
+				Perms: prop.Perms,
+				Clear: true,
+			}
+			queue = append(queue, childID)
+		}
+	}
+}
+
+func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string) {
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := s.objects[currentID]
+		if !validLiveObject(current) {
+			continue
+		}
+		for _, childID := range current.Children {
+			child := s.objects[childID]
+			if !validLiveObject(child) {
+				continue
+			}
+			if prop, ok := child.Properties[name]; ok && !prop.Defined {
+				delete(child.Properties, name)
+			}
+			queue = append(queue, childID)
+		}
+	}
+}
+
+func removeString(items []string, value string) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if item != value {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// matchVerbName checks if a search name matches a MOO verb name pattern
+// Supports MOO wildcard matching where * marks the minimum abbreviation point
+// Example: "co*nnect" matches "co", "con", "conn", "conne", "connec", "connect"
+//   - Must type at least "co" (prefix before *)
+//   - Can type any prefix of the full name "connect"
+//
+// Example: "get_conj*ugation" matches "get_conj", "get_conju", ..., "get_conjugation"
