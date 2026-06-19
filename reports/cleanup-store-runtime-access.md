@@ -190,7 +190,10 @@ Next action:
 
 ## Phase 6 - Snapshot/Checkpoint Ownership Reassessment
 
-Status: ready to commit.
+Status: committed.
+
+Commit:
+- `a4f96d9 Clarify checkpoint writer task inputs`
 
 Changes:
 - Reassessed checkpoint ownership in current code.
@@ -217,6 +220,5 @@ Disposition:
 - Kept. Phase 6 removes the remaining task-source interface hook and records the current ownership boundaries without introducing backend pluggability, adapters, shims, or fallback checkpoint paths.
 
 Next action:
-- Commit Phase 6 code plus this record.
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Verify completion criteria and record the final commit hash.
