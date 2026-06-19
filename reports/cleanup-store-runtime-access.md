@@ -159,7 +159,10 @@ Next action:
 
 ## Phase 5 - Runtime Fixed-Point Audit
 
-Status: ready to commit.
+Status: committed.
+
+Commit:
+- `793f34f Complete runtime store access audit`
 
 Changes:
 - Replaced the remaining production `store.Get` existence checks in `builtins/properties.go` with `store.ObjectExists`.
@@ -182,6 +185,5 @@ Disposition:
 - Kept. Phase 5 reaches the runtime fixed point for `builtins`, `server`, and `vm`: no production direct `Store.Get`, `Store.GetUnsafe`, `Store.All`, `Store.GetAnonymousObjects`, property-structure fields, or verb-structure fields remain outside `db`.
 
 Next action:
-- Commit Phase 5 code plus this record.
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 6 snapshot/checkpoint ownership reassessment.
