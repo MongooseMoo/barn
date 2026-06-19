@@ -1,14 +1,17 @@
 package builtins
 
 import (
-	"barn/types"
 	"runtime"
+
+	mooruntime "barn/runtime"
+
+	"barn/types"
 )
 
-var globalRunGCFunc func(ctx *types.TaskContext) error
+var globalRunGCFunc func(ctx *mooruntime.TaskContext) error
 
 // SetRunGCFunc sets the callback for MOO-level anonymous-object collection.
-func SetRunGCFunc(f func(ctx *types.TaskContext) error) {
+func SetRunGCFunc(f func(ctx *mooruntime.TaskContext) error) {
 	globalRunGCFunc = f
 }
 
@@ -19,7 +22,7 @@ func SetRunGCFunc(f func(ctx *types.TaskContext) error) {
 // builtinRunGC implements run_gc()
 // Triggers garbage collection (wizard only)
 // Returns 0 on success
-func builtinRunGC(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRunGC(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -47,7 +50,7 @@ func builtinRunGC(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinGCStats implements gc_stats()
 // Returns GC statistics map (wizard only)
 // Returns map with color keys: green, yellow, black, gray, white, purple, pink
-func builtinGCStats(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinGCStats(ctx *mooruntime.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}

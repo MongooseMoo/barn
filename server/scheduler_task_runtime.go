@@ -1,11 +1,6 @@
 package server
 
 import (
-	dbstore "barn/db/store"
-	"barn/parser"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
 	"container/heap"
 	"context"
 	"errors"
@@ -14,6 +9,12 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	dbstore "barn/db/store"
+	"barn/parser"
+	"barn/task"
+	"barn/types"
+	"barn/vm"
 )
 
 // runTask executes a task's code using the bytecode VM

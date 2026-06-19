@@ -1,9 +1,10 @@
 package server
 
 import (
+	"strings"
+
 	dbstore "barn/db/store"
 	"barn/types"
-	"strings"
 )
 
 // VerbMatch is the result of verb lookup

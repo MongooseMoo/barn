@@ -1,8 +1,6 @@
 package server
 
 import (
-	"barn/builtins"
-	dbstore "barn/db/store"
 	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
@@ -18,6 +16,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"barn/builtins"
+	dbstore "barn/db/store"
 )
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {

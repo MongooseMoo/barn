@@ -1,11 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/types"
-	"fmt"
-	"os"
 )
 
 func main() {

@@ -1,14 +1,16 @@
 package builtins
 
 import (
-	"barn/types"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"barn/runtime"
+	"barn/types"
 )
 
-func builtinCurl(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinCurl(ctx *runtime.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}

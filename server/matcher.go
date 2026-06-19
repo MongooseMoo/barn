@@ -1,10 +1,11 @@
 package server
 
 import (
-	dbstore "barn/db/store"
-	"barn/types"
 	"strconv"
 	"strings"
+
+	dbstore "barn/db/store"
+	"barn/types"
 )
 
 // MatchObject resolves an object name string to an object ID

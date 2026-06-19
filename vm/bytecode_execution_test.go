@@ -1,20 +1,22 @@
 package vm
 
 import (
+	"testing"
+
 	dbstore "barn/db/store"
 	"barn/parser"
+	"barn/runtime"
 	"barn/task"
 	"barn/types"
-	"testing"
 )
 
-func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *types.TaskContext) types.Result {
+func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *runtime.TaskContext) types.Result {
 	t.Helper()
 	if store == nil {
 		store = dbstore.NewStore()
 	}
 	if ctx == nil {
-		ctx = types.NewTaskContext()
+		ctx = runtime.NewTaskContext()
 	}
 	if ctx.Task == nil {
 		ctx.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)

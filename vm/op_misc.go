@@ -1,9 +1,10 @@
 package vm
 
 import (
+	"fmt"
+
 	dbstore "barn/db/store"
 	"barn/types"
-	"fmt"
 )
 
 func (vm *VM) executeCallBuiltin() error {

@@ -1,10 +1,12 @@
 package conformance
 
 import (
+	"fmt"
+
 	dbstore "barn/db/store"
 	"barn/parser"
+	"barn/runtime"
 	"barn/types"
-	"fmt"
 )
 
 // setupStoreForTests applies test-required properties to the store
@@ -102,7 +104,7 @@ func setupStoreForTests(store *dbstore.Store) {
 }
 
 // runSetupBlock executes a setup or teardown block
-func (r *Runner) runSetupBlock(block *SetupBlock, ctx *types.TaskContext) error {
+func (r *Runner) runSetupBlock(block *SetupBlock, ctx *runtime.TaskContext) error {
 	if block == nil {
 		return nil
 	}

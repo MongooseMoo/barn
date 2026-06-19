@@ -1,9 +1,10 @@
 package builtins
 
 import (
+	"sync"
+
 	dbstore "barn/db/store"
 	"barn/types"
-	"sync"
 )
 
 // Protected built-in function support.

@@ -1,12 +1,13 @@
 package vm
 
 import (
+	"fmt"
+	"strings"
+
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
-	"fmt"
-	"strings"
 )
 
 // executeCallVerb handles OP_CALL_VERB: call a verb on an object.
