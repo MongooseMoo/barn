@@ -53,13 +53,12 @@ func (vm *VM) executeGetProp() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	obj := vm.Store.Get(objID)
-	if obj == nil {
+	if errCode := vm.Store.ObjectExists(objID); errCode != types.E_NONE {
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
 
 	// Look up defined property first (with inheritance via breadth-first search)
-	prop, errCode := vm.Store.FindProperty(obj.ID, propName)
+	prop, errCode := vm.Store.FindProperty(objID, propName)
 	if errCode == types.E_NONE {
 		// Check read permission
 		if err := vm.checkPropertyReadPerm(prop); err != nil {
@@ -70,7 +69,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Check for built-in properties (flag properties like .name, .owner, .wizard, etc.)
-	if val, ok := getBuiltinProperty(vm.Store, obj.ID, propName); ok {
+	if val, ok := getBuiltinProperty(vm.Store, objID, propName); ok {
 		vm.Push(val)
 		return nil
 	}
@@ -91,8 +90,7 @@ func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 		classID := waif.Class()
 		// Check if class object has been recycled
 		if vm.Store != nil {
-			classObj := vm.Store.Get(classID)
-			if classObj == nil {
+			if errCode := vm.Store.ObjectExists(classID); errCode != types.E_NONE {
 				// Class has been recycled - return #-1
 				vm.Push(types.NewObj(types.ObjNothing))
 				return nil
@@ -114,8 +112,7 @@ func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	}
 
 	classID := waif.Class()
-	classObj := vm.Store.Get(classID)
-	if classObj == nil {
+	if errCode := vm.Store.ObjectExists(classID); errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
 
@@ -123,7 +120,7 @@ func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	if !strings.HasPrefix(classPropName, ":") {
 		classPropName = ":" + classPropName
 	}
-	prop, errCode := vm.Store.FindProperty(classObj.ID, classPropName)
+	prop, errCode := vm.Store.FindProperty(classID, classPropName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -179,36 +176,35 @@ func (vm *VM) executeSetProp() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	obj := vm.Store.Get(objID)
-	if obj == nil {
+	if errCode := vm.Store.ObjectExists(objID); errCode != types.E_NONE {
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
 
 	// Check for built-in property assignment first
-	if isBuiltin, errCode := setBuiltinProperty(vm.Store, obj.ID, propName, value, vm.Context); isBuiltin {
+	if isBuiltin, errCode := setBuiltinProperty(vm.Store, objID, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
 		return nil
 	}
 
-	prop, ok, errCode := vm.Store.LocalProperty(obj.ID, propName)
+	prop, ok, errCode := vm.Store.LocalProperty(objID, propName)
 	if errCode != types.E_NONE {
-		return fmt.Errorf("%s: invalid object #%d", errCode, obj.ID)
+		return fmt.Errorf("%s: invalid object #%d", errCode, objID)
 	}
 	if ok {
 		// Check write permission
 		if err := vm.checkPropertyWritePerm(prop); err != nil {
 			return err
 		}
-		if errCode := vm.Store.SetPropertyValue(obj.ID, propName, value); errCode != types.E_NONE {
+		if errCode := vm.Store.SetPropertyValue(objID, propName, value); errCode != types.E_NONE {
 			return fmt.Errorf("%s: property not set: %s", errCode, propName)
 		}
 		return nil
 	}
 
 	// Property not on this object - check if inherited
-	inheritedProp, errCode := vm.Store.FindProperty(obj.ID, propName)
+	inheritedProp, errCode := vm.Store.FindProperty(objID, propName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -218,7 +214,7 @@ func (vm *VM) executeSetProp() error {
 		return err
 	}
 
-	if errCode := vm.Store.SetPropertyValue(obj.ID, propName, value); errCode != types.E_NONE {
+	if errCode := vm.Store.SetPropertyValue(objID, propName, value); errCode != types.E_NONE {
 		return fmt.Errorf("%s: property not set: %s", errCode, propName)
 	}
 	return nil

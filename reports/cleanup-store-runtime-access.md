@@ -156,3 +156,32 @@ Disposition:
 Next action:
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 5 runtime fixed-point audit.
+
+## Phase 5 - Runtime Fixed-Point Audit
+
+Status: ready to commit.
+
+Changes:
+- Replaced the remaining production `store.Get` existence checks in `builtins/properties.go` with `store.ObjectExists`.
+- Replaced the remaining production `vm.Store.Get` object reads in `vm/op_property.go` with store-owned existence and property queries.
+- Kept property and builtin-property policy in `builtins`/`vm`; only object existence and traversal moved behind `db.Store`.
+
+Search gates:
+- `rg -n --pcre2 "\b(store|s\.store|vm\.Store)\.(Get|GetUnsafe|All|GetAnonymousObjects)\(" builtins server vm --glob "!**/*_test.go"`: no matches.
+- `rg -n --pcre2 "\.(PropOrder|PropDefsCount|ChparentChildren|VerbList|Properties|Verbs)\b" builtins server vm --glob "!**/*_test.go"`: no matches.
+- `rg -n --pcre2 "\b(obj|object|playerObj|parent|child|current|systemObj|classObj|base|target|ownerObj)\.(Parents|Children|Contents|Location|Flags|Anonymous|Owner|Name|Recycled)\b" builtins server vm --glob "!**/*_test.go"`: remaining matches are compiler AST target `Name` fields, not object internals.
+- Full field gate `rg -n --pcre2 "\.(Properties|PropOrder|PropDefsCount|Verbs|VerbList|Parents|Children|Contents|Location|Flags|Anonymous|Owner|Name|Recycled|ChparentChildren)\b" builtins server vm --glob "!**/*_test.go"`: remaining matches classify as non-object fields/accessors (`task.Task.Owner`, `db.Verb.Owner`, `db.Verb.Name`, `db.Property.Owner`, parser/compiler AST `Name`, WAIF value accessors, file stat names) or store-owned query method calls (`store.Location`, `store.Contents`, `store.Parents`, `store.Children`).
+
+Runtime gates:
+- `go test ./db ./builtins ./vm ./server`: passed.
+- `go build -o barn.exe ./cmd/barn/`: passed.
+- `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"`: passed, `3871 passed, 131 skipped in 142.51s`.
+- `git diff --check`: passed.
+
+Disposition:
+- Kept. Phase 5 reaches the runtime fixed point for `builtins`, `server`, and `vm`: no production direct `Store.Get`, `Store.GetUnsafe`, `Store.All`, `Store.GetAnonymousObjects`, property-structure fields, or verb-structure fields remain outside `db`.
+
+Next action:
+- Commit Phase 5 code plus this record.
+- Reread `plans/store-runtime-access-cleanup-plan.md`.
+- Continue with Phase 6 snapshot/checkpoint ownership reassessment.

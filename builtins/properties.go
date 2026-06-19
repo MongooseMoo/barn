@@ -27,12 +27,8 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	names, err := store.DefinedPropertyNames(objID)
@@ -75,12 +71,8 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Find property (with inheritance)
@@ -136,12 +128,8 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	propName := nameVal.Value()
@@ -236,12 +224,8 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 	value := args[2]
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Anonymous objects are instances, not classes: their property structure
@@ -378,12 +362,8 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Res
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	propName := nameVal.Value()
@@ -431,12 +411,8 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	propName := nameVal.Value()
@@ -504,12 +480,8 @@ func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Re
 	}
 
 	objID := objVal.ID()
-	obj := store.Get(objID)
-	if obj == nil {
-		if store.IsRecycled(objID) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	propName := nameVal.Value()
