@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
@@ -129,7 +130,7 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Try to compile verb to bytecode
-	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
 	if compileErr != nil {
 		return fmt.Errorf("E_VERBNF: compile error in %s: %v", verbName, compileErr)
 	}
@@ -338,7 +339,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Compile the parent verb to bytecode
-	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
 	if compileErr != nil {
 		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %v", verbName, compileErr)
 	}

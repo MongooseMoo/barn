@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -480,8 +481,7 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			Prep: prepStr,
 			That: iobjStr,
 		},
-		Code:    []string{},
-		Program: nil,
+		Code: []string{},
 	}
 
 	index, errCode := store.AddVerb(objID, verb)
@@ -720,10 +720,10 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	// Compile the code. Toast verb_code() returns source without semicolons for
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
-	program, errors := dbstore.CompileVerb(lines)
+	_, errors := bytecode.CompileVerb(lines)
 	if len(errors) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
-			program, errors = dbstore.CompileVerb(normalized)
+			_, errors = bytecode.CompileVerb(normalized)
 		}
 	}
 	if len(errors) > 0 {
@@ -737,11 +737,11 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	switch v := args[1].(type) {
 	case types.StrValue:
-		if errCode := store.SetVerbCode(objID, v.Value(), lines, program); errCode != types.E_NONE {
+		if errCode := store.SetVerbCode(objID, v.Value(), lines); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	case types.IntValue:
-		if errCode := store.SetVerbCodeByIndex(objID, int(v.Val)-1, lines, program); errCode != types.E_NONE {
+		if errCode := store.SetVerbCodeByIndex(objID, int(v.Val)-1, lines); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	}
@@ -870,15 +870,17 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	// If verb has no compiled program, return empty list
-	if verb.Program == nil || len(verb.Program.Statements) == 0 {
+	// AST no longer lives on the verb (moved to barn/bytecode); compile from
+	// source on demand to walk it.
+	vp, _ := bytecode.CompileVerb(verb.Code)
+	if vp == nil || len(vp.Statements) == 0 {
 		return types.Ok(types.NewList([]types.Value{types.NewStr("Main code vector:")}))
 	}
 
 	// Walk AST to produce pseudo-disassembly with opcode names.
 	// ToastStunt includes this header in disassembly output.
 	lines := []string{"Main code vector:"}
-	for _, stmt := range verb.Program.Statements {
+	for _, stmt := range vp.Statements {
 		lines = append(lines, disassembleStmt(stmt)...)
 	}
 

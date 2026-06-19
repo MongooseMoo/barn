@@ -1,7 +1,6 @@
 package store
 
 import (
-	"barn/parser"
 	"barn/types"
 )
 
@@ -55,18 +54,13 @@ type Verb struct {
 	Owner   types.ObjID
 	Perms   VerbPerms
 	ArgSpec VerbArgs
-	Code    []string     // Source lines
-	Program *VerbProgram // Compiled AST (added in Layer 9.2)
+	Code    []string // Source lines
 
-	// BytecodeCache holds compiled bytecode (*vm.Program) for the bytecode VM.
-	// Typed as any to avoid circular import between db and vm packages.
-	// This field is NOT serialized — it's a runtime cache populated on first execution.
-	BytecodeCache any
-}
-
-// VerbProgram holds compiled verb code
-type VerbProgram struct {
-	Statements []parser.Stmt // Compiled AST statements
+	// NOTE (verbcache spike): the runtime-derived fields Program (*VerbProgram,
+	// AST) and BytecodeCache (any, *vm.Program) have been REMOVED from the world
+	// model. The compiled AST + bytecode cache now live in the barn/bytecode
+	// package, keyed externally. db/store holds only persistent state (source),
+	// and no longer imports barn/parser.
 }
 
 // ObjectFlags represents object permission flags

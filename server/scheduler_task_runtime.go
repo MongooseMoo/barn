@@ -358,7 +358,7 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner

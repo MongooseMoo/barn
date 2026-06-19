@@ -2,6 +2,7 @@ package main
 
 import (
 	"barn/builtins"
+	"barn/bytecode"
 	dbformat "barn/db/format"
 	"barn/types"
 	"barn/vm"
@@ -66,7 +67,7 @@ func main() {
 	}
 
 	if os.Getenv("DISASM") == "1" {
-		prog, err := vm.CompileVerbBytecode(verb, builtins.NewRegistry())
+		prog, err := bytecode.CompileVerbBytecode(verb.Code, builtins.NewRegistry())
 		if err != nil {
 			fmt.Printf("\n[disasm] compile error: %v\n", err)
 			return
