@@ -95,4 +95,14 @@ touched only type references in the VM, no executed logic changed, so the perf p
 identical to baseline within measurement noise.
 
 ## VERDICT: rebase clean (2 mechanical retargets, no ambiguity, all perf preserved), all gates green.
-New branch tip recorded below after committing the 2 retarget fixes.
+
+## Final state
+- New base: 507b3b7 (confirmed via merge-base).
+- New branch tip: `521e5d7` ("Rebase onto 507b3b7: retarget perf hot-path code to bytecode package").
+  History: 521e5d7 (rebase fixes) -> 7979d6f (extraction+cache) -> 3b20d14 (spike) -> 507b3b7 (master).
+  Merge squashes, so granularity is immaterial.
+- Backup tag `backup-pre-rebase-aa4de1e` points at the pre-rebase tip (aa4de1e) for safety.
+- NOT merged (verifier re-gates next). Main tree, master, spike branches untouched.
+- Nothing stopped on: no ambiguous conflicts; every conflict was the expected
+  "keep perf code, retarget moved type to bytecode.X" pattern, caught by the compiler and
+  verified against master's diff (perf logic byte-identical).
