@@ -7,7 +7,10 @@
 
 ## Phase 1 - Property Structure Queries
 
-Status: ready to commit.
+Status: committed.
+
+Commit:
+- `fc3576a Move property structure reads into store`
 
 Changes:
 - Added store-owned property traversal queries in `db.Store`:
@@ -42,6 +45,5 @@ Disposition:
 - Kept. Phase 1 removes production property-structure reads from the active slice without shims, fallback paths, or backend interfaces.
 
 Next action:
-- Commit Phase 1 code and record.
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 2 verb dispatch and hook queries.
