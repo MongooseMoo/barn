@@ -92,7 +92,7 @@ func (vm *VM) Return(value types.Value) {
 			}
 		}
 		vm.SP = frame.BasePointer
-		vm.Frames = vm.Frames[:len(vm.Frames)-1]
+		vm.popFrame()
 		vm.Push(wrapped)
 		return
 	}
@@ -115,6 +115,6 @@ func (vm *VM) Return(value types.Value) {
 	}
 
 	vm.SP = frame.BasePointer
-	vm.Frames = vm.Frames[:len(vm.Frames)-1]
+	vm.popFrame()
 	vm.Push(value)
 }

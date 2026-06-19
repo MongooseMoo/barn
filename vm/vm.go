@@ -25,8 +25,26 @@ type VM struct {
 	Ticks         int64               // Current tick count
 	PendingWaifs  []types.WaifValue
 
+	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
+}
+
+// pushFrame appends a call frame and updates the cached current-frame pointer.
+func (vm *VM) pushFrame(f *StackFrame) {
+	vm.Frames = append(vm.Frames, f)
+	vm.frame = f
+}
+
+// popFrame removes the top call frame and updates the cached current-frame
+// pointer to the new top (nil when the call stack is empty).
+func (vm *VM) popFrame() {
+	vm.Frames = vm.Frames[:len(vm.Frames)-1]
+	if n := len(vm.Frames); n > 0 {
+		vm.frame = vm.Frames[n-1]
+	} else {
+		vm.frame = nil
+	}
 }
 
 // StackFrame represents a call frame
@@ -107,7 +125,7 @@ func (vm *VM) Run(prog *Program) types.Result {
 		frame.Locals[i] = types.UnboundValue{}
 	}
 
-	vm.Frames = append(vm.Frames, frame)
+	vm.pushFrame(frame)
 	vm.FP = 0
 	vm.syncContextTicks()
 
@@ -177,7 +195,7 @@ func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.
 		frame.Locals[i] = types.UnboundValue{}
 	}
 
-	vm.Frames = append(vm.Frames, frame)
+	vm.pushFrame(frame)
 	vm.FP = 0
 	return frame
 }
@@ -229,7 +247,24 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 // executeLoop is the core execution loop shared by Run() and Resume().
 func (vm *VM) executeLoop() types.Result {
 	for len(vm.Frames) > 0 {
-		if err := vm.Step(); err != nil {
+		// Inlined Step(): fetch the cached current frame once and dispatch the
+		// next opcode directly, avoiding a call layer and repeated CurrentFrame
+		// lookups on the hottest path in the interpreter.
+		cur := vm.frame
+		var err error
+		if cur.IP >= len(cur.Program.Code) {
+			// End of program - implicit return 0
+			vm.Return(types.IntValue{Val: 0})
+		} else {
+			op := OpCode(cur.Program.Code[cur.IP])
+			cur.IP++
+			if CountsTick(op) {
+				vm.Ticks++
+				vm.syncContextTicks()
+			}
+			err = vm.Execute(op)
+		}
+		if err != nil {
 			// Verb debug flag check: when the current frame's VerbDebug is false,
 			// push the error as a value instead of propagating it as an exception.
 			// This applies to ALL errors including explicit raise().
@@ -563,10 +598,7 @@ func (vm *VM) Execute(op OpCode) error {
 
 // CurrentFrame returns the current stack frame
 func (vm *VM) CurrentFrame() *StackFrame {
-	if len(vm.Frames) == 0 {
-		return nil
-	}
-	return vm.Frames[len(vm.Frames)-1]
+	return vm.frame
 }
 
 // CurrentLine returns the source line number for the current instruction pointer.
@@ -697,7 +729,7 @@ func (vm *VM) HandleError(err error) bool {
 				}
 			}
 			vm.SP = frame.BasePointer
-			vm.Frames = vm.Frames[:len(vm.Frames)-1]
+			vm.popFrame()
 			continue
 		}
 
@@ -719,7 +751,7 @@ func (vm *VM) HandleError(err error) bool {
 			}
 		}
 		vm.SP = frame.BasePointer
-		vm.Frames = vm.Frames[:len(vm.Frames)-1]
+		vm.popFrame()
 		// Continue searching in the caller frame
 	}
 

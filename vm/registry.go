@@ -143,7 +143,7 @@ func BuildVMRegistry() *builtins.Registry {
 			}
 		}
 
-		callerVM.Frames = append(callerVM.Frames, frame)
+		callerVM.pushFrame(frame)
 		return types.Result{Flow: types.FlowEvalPush}
 	})
 
