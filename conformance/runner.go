@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -177,7 +178,7 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 }
 
 func (r *Runner) executeStatements(stmts []parser.Stmt, ctx *kernel.TaskContext) types.Result {
-	compiler := vm.NewCompilerWithRegistry(r.registry)
+	compiler := bytecode.NewCompilerWithRegistry(r.registry)
 	prog, err := compiler.CompileStatements(stmts)
 	if err != nil {
 		return types.Result{Flow: types.FlowParseError, Val: types.NewStr(err.Error())}

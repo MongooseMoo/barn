@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
@@ -129,7 +130,7 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Try to compile verb to bytecode
-	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
 	if compileErr != nil {
 		return fmt.Errorf("E_VERBNF: compile error in %s: %v", verbName, compileErr)
 	}
@@ -174,8 +175,8 @@ func (vm *VM) executeCallVerb() error {
 		Caller:          callerObj,
 		VerbLoc:         defObjID,
 		Args:            args,
-		LoopStack:       make([]LoopState, 0, 4),
-		ExceptStack:     make([]Handler, 0, 4),
+		LoopStack:       make([]bytecode.LoopState, 0, 4),
+		ExceptStack:     make([]bytecode.Handler, 0, 4),
 		IsVerbCall:      true,
 		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
 		SavedThisObj:    savedThisObj,
@@ -338,7 +339,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Compile the parent verb to bytecode
-	prog, compileErr := CompileVerbBytecode(verb, vm.Builtins)
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
 	if compileErr != nil {
 		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %v", verbName, compileErr)
 	}
@@ -382,8 +383,8 @@ func (vm *VM) executePass() error {
 		Caller:          verbLoc,
 		VerbLoc:         defObjID,
 		Args:            passArgs,
-		LoopStack:       make([]LoopState, 0, 4),
-		ExceptStack:     make([]Handler, 0, 4),
+		LoopStack:       make([]bytecode.LoopState, 0, 4),
+		ExceptStack:     make([]bytecode.Handler, 0, 4),
 		IsVerbCall:      true,
 		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
 		SavedThisObj:    savedThisObj,

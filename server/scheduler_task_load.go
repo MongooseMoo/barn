@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"barn/bytecode"
 	dbformat "barn/db/format"
-	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -28,17 +28,17 @@ func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 }
 
 func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
-	program, errors := dbstore.CompileVerb(saved.Code)
+	program, errors := bytecode.CompileVerb(saved.Code)
 	if len(errors) > 0 {
 		return fmt.Errorf("%s", errors[0])
 	}
 
-	compiler := vm.NewCompilerWithRegistry(s.registry)
-	bytecode, err := compiler.CompileStatements(program.Statements)
+	compiler := bytecode.NewCompilerWithRegistry(s.registry)
+	prog, err := compiler.CompileStatements(program.Statements)
 	if err != nil {
 		return err
 	}
-	bytecode.Source = append([]string(nil), saved.Code...)
+	prog.Source = append([]string(nil), saved.Code...)
 
 	ticks, seconds := backgroundTaskLimits()
 	t := task.NewTaskFull(saved.ID, saved.Player, nil, ticks, seconds)
@@ -79,9 +79,9 @@ func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	machine.Context = t.Context
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine)
-	frame := machine.PrepareVerbFrame(bytecode, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
+	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
 	for name, value := range saved.Variables {
-		vm.SetLocalByName(frame, bytecode, name, value)
+		vm.SetLocalByName(frame, prog, name, value)
 	}
 	t.BytecodeVM = machine
 

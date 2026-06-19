@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -61,7 +62,7 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) <-chan struct{} {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Task runs with verb owner permissions (MOO programmer semantics).
@@ -99,20 +100,17 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	if verb.Program == nil && len(verb.Code) > 0 {
-		program, errors := dbstore.CompileVerb(verb.Code)
-		if len(errors) > 0 {
-			return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
-		}
-		verb.Program = program
+	program, errors := bytecode.CompileVerb(verb.Code)
+	if len(errors) > 0 {
+		return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
 	}
-	if verb.Program == nil {
+	if len(program.Statements) == 0 && len(verb.Code) == 0 {
 		return 0, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, verb.Program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
@@ -155,7 +153,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	var t *task.Task
 
 	if bcFork, ok := forkInfo.Body.([3]interface{}); ok {
-		parentProg, ok1 := bcFork[0].(*vm.Program)
+		parentProg, ok1 := bcFork[0].(*bytecode.Program)
 		bodyIP, ok2 := bcFork[1].(int)
 		bodyLen, ok3 := bcFork[2].(int)
 		if !ok1 || !ok2 || !ok3 {

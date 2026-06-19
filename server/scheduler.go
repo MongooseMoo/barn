@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
@@ -448,8 +449,8 @@ func (s *Scheduler) processCommand(input InputEvent) {
 				VerbLoc: huhVerbLoc,
 			}
 
-			if huhMatch.Verb.Program == nil && len(huhMatch.Verb.Code) > 0 {
-				program, errors := dbstore.CompileVerb(huhMatch.Verb.Code)
+			if huhMatch.Statements == nil && len(huhMatch.Verb.Code) > 0 {
+				program, errors := bytecode.CompileVerb(huhMatch.Verb.Code)
 				if len(errors) > 0 {
 					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
 					if outputSuffix != "" {
@@ -457,10 +458,10 @@ func (s *Scheduler) processCommand(input InputEvent) {
 					}
 					return
 				}
-				huhMatch.Verb.Program = program
+				huhMatch.Statements = program.Statements
 			}
 
-			if huhMatch.Verb.Program == nil || len(huhMatch.Verb.Program.Statements) == 0 {
+			if len(huhMatch.Statements) == 0 {
 				conn.Send("I couldn't understand that.")
 				if outputSuffix != "" {
 					_ = conn.Send(outputSuffix)
@@ -480,8 +481,8 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 
 	// Compile verb if needed (lazy compilation)
-	if match.Verb.Program == nil && len(match.Verb.Code) > 0 {
-		program, errors := dbstore.CompileVerb(match.Verb.Code)
+	if match.Statements == nil && len(match.Verb.Code) > 0 {
+		program, errors := bytecode.CompileVerb(match.Verb.Code)
 		if len(errors) > 0 {
 			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
 			if outputSuffix != "" {
@@ -489,11 +490,11 @@ func (s *Scheduler) processCommand(input InputEvent) {
 			}
 			return
 		}
-		match.Verb.Program = program
+		match.Statements = program.Statements
 	}
 
 	// Execute the verb
-	if match.Verb.Program == nil || len(match.Verb.Program.Statements) == 0 {
+	if len(match.Statements) == 0 {
 		conn.Send(fmt.Sprintf("[%s has no code]", match.Verb.Name))
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
@@ -527,14 +528,14 @@ func (s *Scheduler) processProgrammingInput(conn *Connection, line string) bool 
 		conn.Send("Verb not found")
 		return true
 	}
-	program, errors := dbstore.CompileVerb(lines)
+	_, errors := bytecode.CompileVerb(lines)
 	if len(errors) > 0 {
 		for _, errText := range errors {
 			conn.Send(errText)
 		}
 		return true
 	}
-	if errCode := s.store.SetVerbCode(target, verbName, lines, program); errCode != types.E_NONE {
+	if errCode := s.store.SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
 		conn.Send("Verb not found")
 		return true
 	}

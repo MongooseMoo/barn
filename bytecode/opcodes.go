@@ -1,4 +1,4 @@
-package vm
+package bytecode
 
 // OpCode represents a bytecode instruction
 type OpCode byte

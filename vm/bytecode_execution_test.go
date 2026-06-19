@@ -3,6 +3,7 @@ package vm
 import (
 	"testing"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -32,7 +33,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	compiler := NewCompilerWithRegistry(registry)
+	compiler := bytecode.NewCompilerWithRegistry(registry)
 	prog, err := compiler.CompileStatements(stmts)
 	if err != nil {
 		t.Fatalf("compile failed: %v", err)

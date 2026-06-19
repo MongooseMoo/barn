@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"barn/bytecode"
 	"barn/kernel"
 	"barn/parser"
 	"barn/task"
@@ -86,7 +87,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	ctx.TaskID = t.ID
 
 	// Compile AST to bytecode
-	compiler := vm.NewCompilerWithRegistry(s.registry)
+	compiler := bytecode.NewCompilerWithRegistry(s.registry)
 	prog, compileErr := compiler.CompileStatements(stmts)
 	if compileErr != nil {
 		// Compilation failed - send error

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
@@ -51,7 +52,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Wa
 		return
 	}
 
-	prog, compileErr := vm.CompileVerbBytecode(verb, s.registry)
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
 	if compileErr != nil {
 		return
 	}

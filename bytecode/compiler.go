@@ -1,29 +1,37 @@
-package vm
+package bytecode
 
 import (
 	"fmt"
 	"math"
 	"strconv"
 
-	"barn/builtins"
-	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
 )
 
+// Registry is the narrow interface the compiler needs from the builtins
+// registry: resolve a builtin function name to its numeric ID at compile time.
+// Defined here so the bytecode package does NOT import barn/builtins (which would
+// create an import cycle, since builtins imports bytecode). *builtins.Registry
+// satisfies this structurally. The single GetID call happens once per verb at
+// COMPILE time, never on the per-instruction execution hot path.
+type Registry interface {
+	GetID(name string) (int, bool)
+}
+
 // Compiler compiles AST nodes to bytecode
 type Compiler struct {
 	program         *Program
-	constants       map[string]int     // Constant deduplication (Value.String() -> index)
-	variables       map[string]int     // Variable name -> index mapping
-	loops           []LoopContext      // Loop context stack for break/continue
-	scopes          []Scope            // Variable scope stack
-	tempCount       int                // Counter for unique temporary variable names
-	registry        *builtins.Registry // Builtin function registry for name->ID resolution
-	indexContextVar int                // Variable slot used by index-marker compilation (-1 = none)
-	indexMarkerMode indexMarkerMode    // Controls ^/$ compilation semantics in current context
-	lastLine        int                // Last emitted line number for LineInfo deduplication
-	err             error              // First overflow/limit error; checked at Compile boundaries
+	constants       map[string]int  // Constant deduplication (Value.String() -> index)
+	variables       map[string]int  // Variable name -> index mapping
+	loops           []LoopContext   // Loop context stack for break/continue
+	scopes          []Scope         // Variable scope stack
+	tempCount       int             // Counter for unique temporary variable names
+	registry        Registry        // Builtin function registry for name->ID resolution
+	indexContextVar int             // Variable slot used by index-marker compilation (-1 = none)
+	indexMarkerMode indexMarkerMode // Controls ^/$ compilation semantics in current context
+	lastLine        int             // Last emitted line number for LineInfo deduplication
+	err             error           // First overflow/limit error; checked at Compile boundaries
 }
 
 type indexMarkerMode int
@@ -73,7 +81,7 @@ func NewCompiler() *Compiler {
 
 // NewCompilerWithRegistry creates a new compiler with a builtins registry
 // for resolving builtin function names to IDs at compile time.
-func NewCompilerWithRegistry(registry *builtins.Registry) *Compiler {
+func NewCompilerWithRegistry(registry Registry) *Compiler {
 	c := NewCompiler()
 	c.registry = registry
 	return c
@@ -157,39 +165,44 @@ func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 	return c.program, nil
 }
 
-// CompileVerbBytecode compiles a verb's AST to bytecode, caching the result on the verb.
-// If the verb already has cached bytecode, returns it immediately.
-// If the verb has no parsed AST, parses the source code first via dbstore.CompileVerb.
+// CompileVerbBytecode compiles verb source (code lines) to bytecode, backed by a
+// content-addressed cache.
+//
+// In the relocated topology the bytecode package owns the cache and the parser
+// bridge. The caller passes only persistent state (the source lines) plus the
+// registry; bytecode no longer reaches into a db/store.Verb struct, so it does
+// NOT import db/store.
+//
+// The cache is keyed by a hash of the RAW stored source (the code lines). On a
+// hit the cached *Program is returned directly (a cheap map lookup, no parse, no
+// compile). On a miss the source is parsed + compiled, the result is stored, and
+// returned. Correctness is automatic: changed source hashes to a new key and
+// recompiles; eviction (LRU) is memory-management only and at worst forces a
+// recompile. The cached *Program is immutable (all per-execution state lives on
+// the VM StackFrame), so sharing it across executions is safe.
+//
 // Returns the compiled *Program or an error.
-func CompileVerbBytecode(verb *dbstore.Verb, registry *builtins.Registry) (*Program, error) {
-	// Check cache first
-	if verb.BytecodeCache != nil {
-		if prog, ok := verb.BytecodeCache.(*Program); ok {
-			return prog, nil
-		}
+func CompileVerbBytecode(code []string, registry Registry) (*Program, error) {
+	key := hashCode(code)
+	if prog, ok := verbProgramCache.get(key); ok {
+		return prog, nil
 	}
 
-	// Ensure verb has parsed AST
-	if verb.Program == nil {
-		vp, errs := dbstore.CompileVerb(verb.Code)
-		if errs != nil {
-			return nil, fmt.Errorf("parse error: %v", errs[0])
-		}
-		verb.Program = vp
+	vp, errs := CompileVerb(code)
+	if errs != nil {
+		return nil, fmt.Errorf("parse error: %v", errs[0])
 	}
 
-	// Compile AST to bytecode
 	c := NewCompilerWithRegistry(registry)
-	prog, err := c.CompileStatements(verb.Program.Statements)
+	prog, err := c.CompileStatements(vp.Statements)
 	if err != nil {
 		return nil, fmt.Errorf("bytecode compile error: %w", err)
 	}
-	if len(verb.Code) > 0 {
-		prog.Source = append([]string(nil), verb.Code...)
+	if len(code) > 0 {
+		prog.Source = append([]string(nil), code...)
 	}
 
-	// Cache the result
-	verb.BytecodeCache = prog
+	verbProgramCache.put(key, prog)
 	return prog, nil
 }
 

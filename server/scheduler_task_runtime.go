@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/task"
@@ -99,7 +100,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 
 		// Compile AST to bytecode
-		compiler := vm.NewCompilerWithRegistry(s.registry)
+		compiler := bytecode.NewCompilerWithRegistry(s.registry)
 		prog, compileErr := compiler.CompileStatements(code)
 		if compileErr != nil {
 			t.SetState(task.TaskKilled)
@@ -358,7 +359,7 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Verb.Program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner

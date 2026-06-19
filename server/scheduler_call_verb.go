@@ -3,6 +3,7 @@ package server
 import (
 	"log"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
@@ -53,7 +54,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	}
 
 	// Compile verb to bytecode
-	prog, compileErr := vm.CompileVerbBytecode(verb, s.registry)
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
 	if compileErr != nil {
 		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %v", verbName, defObjID, compileErr)
 		return types.Result{

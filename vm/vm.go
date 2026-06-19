@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
@@ -49,21 +50,21 @@ func (vm *VM) popFrame() {
 
 // StackFrame represents a call frame
 type StackFrame struct {
-	Program      *Program      // Bytecode program
-	IP           int           // Instruction pointer
-	BasePointer  int           // Stack base for this frame
-	Locals       []types.Value // Local variables
-	This         types.ObjID   // Current object
-	Player       types.ObjID   // Player context
-	Verb         string        // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
-	StoredVerb   string        // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
-	Caller       types.ObjID   // Calling object
-	VerbLoc      types.ObjID   // Object where the current verb is defined (for pass())
-	Args         []types.Value // Original args passed to this verb (for pass() inheritance)
-	LoopStack    []LoopState   // Nested loop state
-	ExceptStack  []Handler     // Exception handlers
-	PendingError error         // Error saved during finally execution
-	VerbDebug    bool          // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
+	Program      *bytecode.Program    // Bytecode program
+	IP           int                  // Instruction pointer
+	BasePointer  int                  // Stack base for this frame
+	Locals       []types.Value        // Local variables
+	This         types.ObjID          // Current object
+	Player       types.ObjID          // Player context
+	Verb         string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
+	StoredVerb   string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
+	Caller       types.ObjID          // Calling object
+	VerbLoc      types.ObjID          // Object where the current verb is defined (for pass())
+	Args         []types.Value        // Original args passed to this verb (for pass() inheritance)
+	LoopStack    []bytecode.LoopState // Nested loop state
+	ExceptStack  []bytecode.Handler   // Exception handlers
+	PendingError error                // Error saved during finally execution
+	VerbDebug    bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
@@ -102,7 +103,7 @@ func (vm *VM) checkFrameLimit() error {
 // The returned Result encodes the flow control: FlowReturn for normal completion,
 // FlowException for uncaught errors, FlowSuspend when a suspend() yields control,
 // and FlowFork when a fork statement yields control.
-func (vm *VM) Run(prog *Program) types.Result {
+func (vm *VM) Run(prog *bytecode.Program) types.Result {
 	vm.ensureContextDependencies()
 
 	// Create initial frame
@@ -115,8 +116,8 @@ func (vm *VM) Run(prog *Program) types.Result {
 		Player:      types.ObjNothing,
 		Verb:        "",
 		Caller:      types.ObjNothing,
-		LoopStack:   make([]LoopState, 0, 4),
-		ExceptStack: make([]Handler, 0, 4),
+		LoopStack:   make([]bytecode.LoopState, 0, 4),
+		ExceptStack: make([]bytecode.Handler, 0, 4),
 		VerbDebug:   true, // Default: errors propagate as exceptions
 	}
 
@@ -135,7 +136,7 @@ func (vm *VM) Run(prog *Program) types.Result {
 // RunWithVerbContext executes a program with verb context variables pre-populated
 // in the initial frame. This is used by the scheduler for top-level verb execution
 // (command verbs and server hooks like do_login_command).
-func (vm *VM) RunWithVerbContext(prog *Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) types.Result {
+func (vm *VM) RunWithVerbContext(prog *bytecode.Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) types.Result {
 	vm.ensureContextDependencies()
 
 	frame := vm.PrepareVerbFrame(prog, thisObj, player, caller, verbName, verbLoc, args)
@@ -173,7 +174,7 @@ func (vm *VM) ensureContextDependencies() {
 // PrepareVerbFrame creates and pushes an initial frame for a verb without starting
 // execution. Returns the frame so the caller can set additional local variables
 // (e.g. argstr, dobjstr, etc.) before calling ExecuteLoop().
-func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) *StackFrame {
+func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) *StackFrame {
 	frame := &StackFrame{
 		Program:     prog,
 		IP:          0,
@@ -185,8 +186,8 @@ func (vm *VM) PrepareVerbFrame(prog *Program, thisObj types.ObjID, player types.
 		Caller:      caller,
 		VerbLoc:     verbLoc,
 		Args:        args,
-		LoopStack:   make([]LoopState, 0, 4),
-		ExceptStack: make([]Handler, 0, 4),
+		LoopStack:   make([]bytecode.LoopState, 0, 4),
+		ExceptStack: make([]bytecode.Handler, 0, 4),
 		VerbDebug:   true, // Default: errors propagate as exceptions
 	}
 
@@ -256,9 +257,9 @@ func (vm *VM) executeLoop() types.Result {
 			// End of program - implicit return 0
 			vm.Return(types.IntValue{Val: 0})
 		} else {
-			op := OpCode(cur.Program.Code[cur.IP])
+			op := bytecode.OpCode(cur.Program.Code[cur.IP])
 			cur.IP++
-			if CountsTick(op) {
+			if bytecode.CountsTick(op) {
 				vm.Ticks++
 				vm.syncContextTicks()
 			}
@@ -395,11 +396,11 @@ func (vm *VM) Step() error {
 		return nil
 	}
 
-	op := OpCode(frame.Program.Code[frame.IP])
+	op := bytecode.OpCode(frame.Program.Code[frame.IP])
 	frame.IP++
 
 	// Count ticks for expensive operations
-	if CountsTick(op) {
+	if bytecode.CountsTick(op) {
 		vm.Ticks++
 		vm.syncContextTicks()
 	}
@@ -408,28 +409,28 @@ func (vm *VM) Step() error {
 }
 
 // Execute dispatches an opcode
-func (vm *VM) Execute(op OpCode) error {
+func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Check for immediate integer
-	if IsImmediateInt(op) {
-		val := GetImmediateValue(op)
+	if bytecode.IsImmediateInt(op) {
+		val := bytecode.GetImmediateValue(op)
 		vm.Push(types.IntValue{Val: int64(val)})
 		return nil
 	}
 
 	switch op {
 	// Stack operations
-	case OP_PUSH:
+	case bytecode.OP_PUSH:
 		idx := vm.ReadByte()
 		vm.Push(vm.CurrentFrame().Program.Constants[idx])
 
-	case OP_POP:
+	case bytecode.OP_POP:
 		vm.Pop()
 
-	case OP_DUP:
+	case bytecode.OP_DUP:
 		vm.Push(vm.Peek(0))
 
 	// Variable operations
-	case OP_GET_VAR:
+	case bytecode.OP_GET_VAR:
 		idx := vm.ReadByte()
 		val := vm.CurrentFrame().Locals[idx]
 		if _, unbound := val.(types.UnboundValue); unbound {
@@ -437,156 +438,156 @@ func (vm *VM) Execute(op OpCode) error {
 		}
 		vm.Push(val)
 
-	case OP_SET_VAR:
+	case bytecode.OP_SET_VAR:
 		idx := vm.ReadByte()
 		vm.CurrentFrame().Locals[idx] = vm.Pop()
 
 	// Property operations
-	case OP_GET_PROP:
+	case bytecode.OP_GET_PROP:
 		return vm.executeGetProp()
-	case OP_SET_PROP:
+	case bytecode.OP_SET_PROP:
 		return vm.executeSetProp()
 
 	// Arithmetic operations
-	case OP_ADD:
+	case bytecode.OP_ADD:
 		return vm.executeAdd()
-	case OP_SUB:
+	case bytecode.OP_SUB:
 		return vm.executeSub()
-	case OP_MUL:
+	case bytecode.OP_MUL:
 		return vm.executeMul()
-	case OP_DIV:
+	case bytecode.OP_DIV:
 		return vm.executeDiv()
-	case OP_MOD:
+	case bytecode.OP_MOD:
 		return vm.executeMod()
-	case OP_POW:
+	case bytecode.OP_POW:
 		return vm.executePow()
-	case OP_NEG:
+	case bytecode.OP_NEG:
 		return vm.executeNeg()
 
 	// Comparison operations
-	case OP_EQ:
+	case bytecode.OP_EQ:
 		return vm.executeEq()
-	case OP_NE:
+	case bytecode.OP_NE:
 		return vm.executeNe()
-	case OP_LT:
+	case bytecode.OP_LT:
 		return vm.executeLt()
-	case OP_LE:
+	case bytecode.OP_LE:
 		return vm.executeLe()
-	case OP_GT:
+	case bytecode.OP_GT:
 		return vm.executeGt()
-	case OP_GE:
+	case bytecode.OP_GE:
 		return vm.executeGe()
-	case OP_IN:
+	case bytecode.OP_IN:
 		return vm.executeIn()
 
 	// Logical operations
-	case OP_NOT:
+	case bytecode.OP_NOT:
 		return vm.executeNot()
-	case OP_AND:
+	case bytecode.OP_AND:
 		return vm.executeAnd()
-	case OP_OR:
+	case bytecode.OP_OR:
 		return vm.executeOr()
 
 	// Bitwise operations
-	case OP_BITOR:
+	case bytecode.OP_BITOR:
 		return vm.executeBitOr()
-	case OP_BITAND:
+	case bytecode.OP_BITAND:
 		return vm.executeBitAnd()
-	case OP_BITXOR:
+	case bytecode.OP_BITXOR:
 		return vm.executeBitXor()
-	case OP_BITNOT:
+	case bytecode.OP_BITNOT:
 		return vm.executeBitNot()
-	case OP_SHL:
+	case bytecode.OP_SHL:
 		return vm.executeShl()
-	case OP_SHR:
+	case bytecode.OP_SHR:
 		return vm.executeShr()
 
 	// Control flow
-	case OP_JUMP:
+	case bytecode.OP_JUMP:
 		offset := vm.ReadShort()
 		vm.CurrentFrame().IP += int(offset)
 
-	case OP_JUMP_IF_FALSE:
+	case bytecode.OP_JUMP_IF_FALSE:
 		offset := vm.ReadShort()
 		if !vm.Pop().Truthy() {
 			vm.CurrentFrame().IP += int(offset)
 		}
 
-	case OP_JUMP_IF_TRUE:
+	case bytecode.OP_JUMP_IF_TRUE:
 		offset := vm.ReadShort()
 		if vm.Pop().Truthy() {
 			vm.CurrentFrame().IP += int(offset)
 		}
 
-	case OP_RETURN:
+	case bytecode.OP_RETURN:
 		val := vm.Pop()
 		vm.Return(val)
 
-	case OP_LOOP:
+	case bytecode.OP_LOOP:
 		offset := vm.ReadShort()
 		vm.CurrentFrame().IP -= int(offset)
 
-	case OP_RETURN_NONE:
+	case bytecode.OP_RETURN_NONE:
 		vm.Return(types.IntValue{Val: 0})
 
 	// Collection operations
-	case OP_INDEX:
+	case bytecode.OP_INDEX:
 		return vm.executeIndex()
-	case OP_INDEX_SET:
+	case bytecode.OP_INDEX_SET:
 		return vm.executeIndexSet()
-	case OP_RANGE:
+	case bytecode.OP_RANGE:
 		return vm.executeRange()
-	case OP_RANGE_SET:
+	case bytecode.OP_RANGE_SET:
 		return vm.executeRangeSet()
-	case OP_MAKE_LIST:
+	case bytecode.OP_MAKE_LIST:
 		return vm.executeMakeList()
-	case OP_MAKE_MAP:
+	case bytecode.OP_MAKE_MAP:
 		return vm.executeMakeMap()
-	case OP_LENGTH:
+	case bytecode.OP_LENGTH:
 		return vm.executeLength()
-	case OP_INDEX_MARKER:
+	case bytecode.OP_INDEX_MARKER:
 		return vm.executeIndexMarker()
-	case OP_LIST_RANGE:
+	case bytecode.OP_LIST_RANGE:
 		return vm.executeListRange()
-	case OP_LIST_APPEND:
+	case bytecode.OP_LIST_APPEND:
 		return vm.executeListAppend()
-	case OP_LIST_EXTEND:
+	case bytecode.OP_LIST_EXTEND:
 		return vm.executeListExtend()
-	case OP_SPLICE:
+	case bytecode.OP_SPLICE:
 		return vm.executeSplice()
 
 	// Scatter assignment
-	case OP_SCATTER:
+	case bytecode.OP_SCATTER:
 		return vm.executeScatter()
 
 	// Iteration preparation
-	case OP_ITER_PREP:
+	case bytecode.OP_ITER_PREP:
 		return vm.executeIterPrep()
 
 	// Builtin calls
-	case OP_CALL_BUILTIN:
+	case bytecode.OP_CALL_BUILTIN:
 		return vm.executeCallBuiltin()
 
 	// Verb calls
-	case OP_CALL_VERB:
+	case bytecode.OP_CALL_VERB:
 		return vm.executeCallVerb()
 
 	// Fork
-	case OP_FORK:
+	case bytecode.OP_FORK:
 		return vm.executeFork()
 
 	// Pass (parent verb call)
-	case OP_PASS:
+	case bytecode.OP_PASS:
 		return vm.executePass()
 
 	// Exception handling
-	case OP_TRY_EXCEPT:
+	case bytecode.OP_TRY_EXCEPT:
 		return vm.executeTryExcept()
-	case OP_END_EXCEPT:
+	case bytecode.OP_END_EXCEPT:
 		vm.executeEndExcept()
-	case OP_TRY_FINALLY:
+	case bytecode.OP_TRY_FINALLY:
 		return vm.executeTryFinally()
-	case OP_END_FINALLY:
+	case bytecode.OP_END_FINALLY:
 		return vm.executeEndFinally()
 
 	default:
@@ -675,7 +676,7 @@ func (vm *VM) HandleError(err error) bool {
 		for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
 			handler := frame.ExceptStack[i]
 
-			if handler.Type == HandlerFinally {
+			if handler.Type == bytecode.HandlerFinally {
 				// Finally handler: run the finally block, then re-raise the error.
 				// Pop this handler and everything above it.
 				frame.ExceptStack = frame.ExceptStack[:i]
@@ -685,7 +686,7 @@ func (vm *VM) HandleError(err error) bool {
 				return true
 			}
 
-			if handler.Type == HandlerExcept && handler.Matches(errCode) {
+			if handler.Type == bytecode.HandlerExcept && handler.Matches(errCode) {
 				// Found matching except handler - jump to it
 				frame.ExceptStack = frame.ExceptStack[:i]
 				frame.IP = handler.HandlerIP

@@ -375,7 +375,11 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	return types.E_NONE
 }
 
-func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string, program *VerbProgram) types.ErrorCode {
+// SetVerbCode updates a verb's source. The AST/bytecode cache no longer lives on
+// the verb (it moved to barn/bytecode), so this only writes persistent source.
+// In a full landing this would also bump a per-verb code epoch to invalidate the
+// relocated cache; the spike proves topology only.
+func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -387,12 +391,10 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string, prog
 		return types.E_VERBNF
 	}
 	verb.Code = append([]string(nil), lines...)
-	verb.Program = program
-	verb.BytecodeCache = nil
 	return types.E_NONE
 }
 
-func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string, program *VerbProgram) types.ErrorCode {
+func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -405,8 +407,6 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string,
 	}
 	verb := obj.VerbList[index]
 	verb.Code = append([]string(nil), lines...)
-	verb.Program = program
-	verb.BytecodeCache = nil
 	return types.E_NONE
 }
 
