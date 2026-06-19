@@ -1,7 +1,7 @@
 package vm
 
 import (
-	"barn/db"
+	dbformat "barn/db/format"
 	"barn/types"
 	"os"
 	"path/filepath"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
-	loaded, err := db.LoadDatabase(filepath.Join("..", "Test_fresh2.db"))
+	loaded, err := dbformat.LoadDatabase(filepath.Join("..", "Test_fresh2.db"))
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 	defer tmpFile.Close()
 
-	writer := db.NewWriter(tmpFile, store.Snapshot())
+	writer := dbformat.NewWriter(tmpFile, store.Snapshot())
 	if err := writer.WriteDatabase(); err != nil {
 		t.Fatalf("WriteDatabase failed: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("Close failed: %v", err)
 	}
 
-	reloaded, err := db.LoadDatabase(tmpFile.Name())
+	reloaded, err := dbformat.LoadDatabase(tmpFile.Name())
 	if err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}

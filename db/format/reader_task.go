@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/types"
@@ -9,7 +9,7 @@ import (
 )
 
 // readFinalizations reads pending finalizations (v17)
-func (db *Database) readFinalizations(r *bufio.Reader) error {
+func (database *Database) readFinalizations(r *bufio.Reader) error {
 	// Format: "N values pending finalization"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -21,22 +21,22 @@ func (db *Database) readFinalizations(r *bufio.Reader) error {
 		return fmt.Errorf("parse pending finalization count: %w", err)
 	}
 
-	db.PendingFinalizations = make([]types.Value, 0, count)
+	database.PendingFinalizations = make([]types.Value, 0, count)
 	for i := 0; i < count; i++ {
-		val, err := db.readValue(r)
+		val, err := database.readValue(r)
 		if err != nil {
 			return fmt.Errorf("read pending finalization %d: %w", i, err)
 		}
 		if objVal, ok := val.(types.ObjValue); ok && objVal.IsAnonymous() && objVal.ID() < 0 {
 			continue
 		}
-		db.PendingFinalizations = append(db.PendingFinalizations, val)
+		database.PendingFinalizations = append(database.PendingFinalizations, val)
 	}
 	return nil
 }
 
 // readClocks reads clocks section (obsolete)
-func (db *Database) readClocks(r *bufio.Reader) error {
+func (database *Database) readClocks(r *bufio.Reader) error {
 	// Format: "N clocks" where N is usually 0
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -48,7 +48,7 @@ func (db *Database) readClocks(r *bufio.Reader) error {
 }
 
 // readQueuedTasks reads queued tasks
-func (db *Database) readQueuedTasks(r *bufio.Reader) error {
+func (database *Database) readQueuedTasks(r *bufio.Reader) error {
 	// Format: "N queued tasks"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -62,18 +62,18 @@ func (db *Database) readQueuedTasks(r *bufio.Reader) error {
 		return fmt.Errorf("parse queued tasks count: %w", err)
 	}
 
-	db.QueuedTasks = make([]*QueuedTask, 0, count)
+	database.QueuedTasks = make([]*QueuedTask, 0, count)
 	for i := 0; i < count; i++ {
-		task, err := db.readQueuedTask(r)
+		task, err := database.readQueuedTask(r)
 		if err != nil {
 			return fmt.Errorf("read queued task %d: %w", i, err)
 		}
-		db.QueuedTasks = append(db.QueuedTasks, task)
+		database.QueuedTasks = append(database.QueuedTasks, task)
 	}
 	return nil
 }
 
-func (db *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
+func (database *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 	header, err := r.ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("read queued task header: %w", err)
@@ -87,10 +87,10 @@ func (db *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 	_ = unused
 	_ = firstLine
 
-	if err := db.readQueuedTaskActivation(r, task); err != nil {
+	if err := database.readQueuedTaskActivation(r, task); err != nil {
 		return nil, err
 	}
-	vars, err := db.readRtEnv(r)
+	vars, err := database.readRtEnv(r)
 	if err != nil {
 		return nil, err
 	}
@@ -110,16 +110,16 @@ func (db *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 	return task, nil
 }
 
-func (db *Database) readQueuedTaskActivation(r *bufio.Reader, task *QueuedTask) error {
-	if _, err := db.readValue(r); err != nil {
+func (database *Database) readQueuedTaskActivation(r *bufio.Reader, task *QueuedTask) error {
+	if _, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read activation temp value: %w", err)
 	}
-	if tempThis, err := db.readValue(r); err != nil {
+	if tempThis, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read activation this value: %w", err)
 	} else if obj, ok := tempThis.(types.ObjValue); ok {
 		task.This = obj.ID()
 	}
-	if tempVerbLoc, err := db.readValue(r); err != nil {
+	if tempVerbLoc, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read activation verb location: %w", err)
 	} else if obj, ok := tempVerbLoc.(types.ObjValue); ok {
 		task.VerbLoc = obj.ID()
@@ -163,7 +163,7 @@ func (db *Database) readQueuedTaskActivation(r *bufio.Reader, task *QueuedTask) 
 	return nil
 }
 
-func (db *Database) readRtEnv(r *bufio.Reader) (map[string]types.Value, error) {
+func (database *Database) readRtEnv(r *bufio.Reader) (map[string]types.Value, error) {
 	line, err := r.ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("read runtime environment header: %w", err)
@@ -180,7 +180,7 @@ func (db *Database) readRtEnv(r *bufio.Reader) (map[string]types.Value, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read runtime variable %d name: %w", i, err)
 		}
-		value, err := db.readValue(r)
+		value, err := database.readValue(r)
 		if err != nil {
 			return nil, fmt.Errorf("read runtime variable %q: %w", name, err)
 		}
@@ -190,7 +190,7 @@ func (db *Database) readRtEnv(r *bufio.Reader) (map[string]types.Value, error) {
 }
 
 // readSuspendedTasks reads suspended tasks
-func (db *Database) readSuspendedTasks(r *bufio.Reader) error {
+func (database *Database) readSuspendedTasks(r *bufio.Reader) error {
 	// Format: "N suspended tasks"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -204,9 +204,9 @@ func (db *Database) readSuspendedTasks(r *bufio.Reader) error {
 		return fmt.Errorf("parse suspended tasks count: %w", err)
 	}
 
-	db.SuspendedTasks = make([]*SuspendedTask, 0, count)
+	database.SuspendedTasks = make([]*SuspendedTask, 0, count)
 	for i := 0; i < count; i++ {
-		if err := db.skipSuspendedTask(r); err != nil {
+		if err := database.skipSuspendedTask(r); err != nil {
 			return fmt.Errorf("skip suspended task %d: %w", i, err)
 		}
 	}
@@ -217,7 +217,7 @@ func (db *Database) readSuspendedTasks(r *bufio.Reader) error {
 // A suspended task contains a VM with multiple activations (stack frames),
 // each terminated by a period. We must parse the VM header to know how many
 // activations to skip.
-func (db *Database) skipSuspendedTask(r *bufio.Reader) error {
+func (database *Database) skipSuspendedTask(r *bufio.Reader) error {
 	// Task header: "<start_time> <task_id> <type_code>"
 	// The type_code is the start of the suspend value.
 	// Format: "1767134605 2112268937 0" where 0 is INT type code
@@ -239,13 +239,13 @@ func (db *Database) skipSuspendedTask(r *bufio.Reader) error {
 			return fmt.Errorf("parse suspend value type: %w", err)
 		}
 		// Read the rest of the suspend value (type code already parsed)
-		if err := db.skipValueAfterType(r, typeCode); err != nil {
+		if err := database.skipValueAfterType(r, typeCode); err != nil {
 			return fmt.Errorf("read suspend value: %w", err)
 		}
 	}
 
 	// Read VM local var
-	if _, err := db.readValue(r); err != nil {
+	if _, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read VM local: %w", err)
 	}
 
@@ -264,7 +264,7 @@ func (db *Database) skipSuspendedTask(r *bufio.Reader) error {
 	// Read activations: indices 0 through topActivStack (inclusive)
 	numActivations := topActivStack + 1
 	for a := 0; a < numActivations; a++ {
-		if err := db.skipActivation(r); err != nil {
+		if err := database.skipActivation(r); err != nil {
 			return fmt.Errorf("skip activation %d: %w", a, err)
 		}
 	}
@@ -273,7 +273,7 @@ func (db *Database) skipSuspendedTask(r *bufio.Reader) error {
 }
 
 // skipActivation skips over a single activation (stack frame) in a suspended task.
-func (db *Database) skipActivation(r *bufio.Reader) error {
+func (database *Database) skipActivation(r *bufio.Reader) error {
 	// "language version N"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -311,7 +311,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 			return fmt.Errorf("read variable %d name: %w", i, err)
 		}
 		// Variable value (type code + value)
-		if _, err := db.readValue(r); err != nil {
+		if _, err := database.readValue(r); err != nil {
 			return fmt.Errorf("read variable %d value: %w", i, err)
 		}
 	}
@@ -331,7 +331,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 
 	// Skip stack slot values
 	for i := 0; i < numStackSlots; i++ {
-		if _, err := db.readValue(r); err != nil {
+		if _, err := database.readValue(r); err != nil {
 			return fmt.Errorf("read stack slot %d: %w", i, err)
 		}
 	}
@@ -349,7 +349,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 
 	// Read 3 MOO values (dummy, _this, vloc)
 	for i := 0; i < 3; i++ {
-		if _, err := db.readValue(r); err != nil {
+		if _, err := database.readValue(r); err != nil {
 			return fmt.Errorf("read activ value %d: %w", i, err)
 		}
 	}
@@ -380,7 +380,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 	}
 
 	// Read temp value
-	if _, err := db.readValue(r); err != nil {
+	if _, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read temp value: %w", err)
 	}
 
@@ -393,7 +393,7 @@ func (db *Database) skipActivation(r *bufio.Reader) error {
 }
 
 // readInterruptedTasks reads interrupted tasks
-func (db *Database) readInterruptedTasks(r *bufio.Reader) error {
+func (database *Database) readInterruptedTasks(r *bufio.Reader) error {
 	// Format: "N interrupted tasks"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -409,7 +409,7 @@ func (db *Database) readInterruptedTasks(r *bufio.Reader) error {
 
 	// Skip interrupted task data
 	for i := 0; i < count; i++ {
-		if err := db.skipInterruptedTask(r); err != nil {
+		if err := database.skipInterruptedTask(r); err != nil {
 			return fmt.Errorf("skip interrupted task %d: %w", i, err)
 		}
 	}
@@ -418,7 +418,7 @@ func (db *Database) readInterruptedTasks(r *bufio.Reader) error {
 
 // skipInterruptedTask skips over a complete interrupted task.
 // Format: "<task_id> <status_string>\n" followed by a VM.
-func (db *Database) skipInterruptedTask(r *bufio.Reader) error {
+func (database *Database) skipInterruptedTask(r *bufio.Reader) error {
 	// Task header: "<task_id> <status_string>"
 	// e.g., "1638619699 interrupted reading task"
 	if _, err := r.ReadString('\n'); err != nil {
@@ -427,7 +427,7 @@ func (db *Database) skipInterruptedTask(r *bufio.Reader) error {
 
 	// Read VM (same as suspended task VM, but no suspend value)
 	// VM local var
-	if _, err := db.readValue(r); err != nil {
+	if _, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read VM local: %w", err)
 	}
 
@@ -445,7 +445,7 @@ func (db *Database) skipInterruptedTask(r *bufio.Reader) error {
 	// Read activations
 	numActivations := topActivStack + 1
 	for a := 0; a < numActivations; a++ {
-		if err := db.skipActivation(r); err != nil {
+		if err := database.skipActivation(r); err != nil {
 			return fmt.Errorf("skip activation %d: %w", a, err)
 		}
 	}
@@ -454,7 +454,7 @@ func (db *Database) skipInterruptedTask(r *bufio.Reader) error {
 }
 
 // readActiveConnections reads active connections
-func (db *Database) readActiveConnections(r *bufio.Reader) error {
+func (database *Database) readActiveConnections(r *bufio.Reader) error {
 	// Format: "N active connections" or "N active connections with listeners"
 	line, err := r.ReadString('\n')
 	if err != nil {

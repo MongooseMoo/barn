@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/types"
@@ -7,39 +7,39 @@ import (
 )
 
 // parseV17 parses a version 17 database
-func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
+func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	// Players section
-	if err := db.readPlayersV17(r); err != nil {
+	if err := database.readPlayersV17(r); err != nil {
 		return nil, fmt.Errorf("read players: %w", err)
 	}
 
 	// Pending finalizations
-	if err := db.readFinalizations(r); err != nil {
+	if err := database.readFinalizations(r); err != nil {
 		return nil, fmt.Errorf("read finalizations: %w", err)
 	}
 
 	// Clocks (obsolete, should be 0)
-	if err := db.readClocks(r); err != nil {
+	if err := database.readClocks(r); err != nil {
 		return nil, fmt.Errorf("read clocks: %w", err)
 	}
 
 	// Queued tasks
-	if err := db.readQueuedTasks(r); err != nil {
+	if err := database.readQueuedTasks(r); err != nil {
 		return nil, fmt.Errorf("read queued tasks: %w", err)
 	}
 
 	// Suspended tasks
-	if err := db.readSuspendedTasks(r); err != nil {
+	if err := database.readSuspendedTasks(r); err != nil {
 		return nil, fmt.Errorf("read suspended tasks: %w", err)
 	}
 
 	// Interrupted tasks
-	if err := db.readInterruptedTasks(r); err != nil {
+	if err := database.readInterruptedTasks(r); err != nil {
 		return nil, fmt.Errorf("read interrupted tasks: %w", err)
 	}
 
 	// Active connections
-	if err := db.readActiveConnections(r); err != nil {
+	if err := database.readActiveConnections(r); err != nil {
 		return nil, fmt.Errorf("read active connections: %w", err)
 	}
 
@@ -50,17 +50,17 @@ func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	}
 	// Objects
 	for i := 0; i < objCount; i++ {
-		obj, err := db.readObject(r)
+		obj, err := database.readObject(r)
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
 		if obj != nil {
-			db.Objects[obj.ID] = obj
+			database.Objects[obj.ID] = obj
 		}
 	}
 
 	// Anonymous objects
-	if err := db.readAnonymousObjects(r); err != nil {
+	if err := database.readAnonymousObjects(r); err != nil {
 		return nil, fmt.Errorf("read anonymous objects: %w", err)
 	}
 
@@ -71,35 +71,35 @@ func (db *Database) parseV17(r *bufio.Reader) (*Database, error) {
 	}
 
 	for i := 0; i < verbCount; i++ {
-		if err := db.readVerbCode(r); err != nil {
+		if err := database.readVerbCode(r); err != nil {
 			return nil, fmt.Errorf("read verb code %d: %w", i, err)
 		}
 	}
 
 	// Resolve inherited property names now that all objects are loaded
-	db.resolvePropertyNames()
+	database.resolvePropertyNames()
 
 	// Resolve WAIF property names now that all objects and their propdefs are known
-	db.resolveWaifProperties()
+	database.resolveWaifProperties()
 
-	return db, nil
+	return database, nil
 }
 
 // readPlayersV17 reads the players list for version 17 format
-func (db *Database) readPlayersV17(r *bufio.Reader) error {
+func (database *Database) readPlayersV17(r *bufio.Reader) error {
 	// Format: nplayers, player[0], player[1], ...
 	count, err := readInt(r)
 	if err != nil {
 		return err
 	}
 
-	db.Players = make([]types.ObjID, count)
+	database.Players = make([]types.ObjID, count)
 	for i := 0; i < count; i++ {
 		objID, err := readObjID(r)
 		if err != nil {
 			return err
 		}
-		db.Players[i] = objID
+		database.Players[i] = objID
 	}
 	return nil
 }

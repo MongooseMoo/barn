@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/db/store"
@@ -34,9 +34,9 @@ type waifLoadData struct {
 }
 
 // NewStoreFromDatabase creates a Store from a loaded database
-func (db *Database) NewStoreFromDatabase() *store.Store {
+func (database *Database) NewStoreFromDatabase() *store.Store {
 	s := store.NewStore()
-	for _, obj := range db.Objects {
+	for _, obj := range database.Objects {
 		if err := s.Add(obj); err != nil {
 			panic(err)
 		}
@@ -72,19 +72,19 @@ func LoadDatabase(path string) (*Database, error) {
 	defer f.Close()
 
 	reader := bufio.NewReader(f)
-	db, err := parseDatabase(reader)
+	database, err := parseDatabase(reader)
 	if err != nil {
 		return nil, err
 	}
-	for _, msg := range db.startupRepairLogs {
+	for _, msg := range database.startupRepairLogs {
 		log.Print(msg)
 	}
-	return db, nil
+	return database, nil
 }
 
 // parseDatabase parses database from reader
 func parseDatabase(r *bufio.Reader) (*Database, error) {
-	db := &Database{
+	database := &Database{
 		Objects: make(map[types.ObjID]*store.Object),
 	}
 
@@ -97,30 +97,30 @@ func parseDatabase(r *bufio.Reader) (*Database, error) {
 
 	// Parse version from header
 	if strings.Contains(header, "Format Version 4") {
-		db.Version = 4
+		database.Version = 4
 	} else if strings.Contains(header, "Format Version 5") {
-		db.Version = 5
+		database.Version = 5
 	} else if strings.Contains(header, "Format Version 17") {
-		db.Version = 17
+		database.Version = 17
 	} else {
 		return nil, fmt.Errorf("unsupported database format: %s", header)
 	}
 
 	// Version-specific parsing
-	if db.Version == 4 {
-		db, err = db.parseV4(r)
-	} else if db.Version == 5 {
-		db, err = db.parseV5(r)
+	if database.Version == 4 {
+		database, err = database.parseV4(r)
+	} else if database.Version == 5 {
+		database, err = database.parseV5(r)
 	} else {
-		db, err = db.parseV17(r)
+		database, err = database.parseV17(r)
 	}
 	if err != nil {
 		return nil, err
 	}
-	db.repairStartupIssues()
-	return db, nil
+	database.repairStartupIssues()
+	return database, nil
 }
 
-func (db *Database) recordStartupRepair(msg string) {
-	db.startupRepairLogs = append(db.startupRepairLogs, msg)
+func (database *Database) recordStartupRepair(msg string) {
+	database.startupRepairLogs = append(database.startupRepairLogs, msg)
 }

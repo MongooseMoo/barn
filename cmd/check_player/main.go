@@ -1,7 +1,7 @@
 package main
 
 import (
-	"barn/db"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/types"
 	"fmt"
@@ -14,7 +14,7 @@ func main() {
 		dbPath = os.Args[1]
 	}
 
-	database, err := db.LoadDatabase(dbPath)
+	database, err := dbformat.LoadDatabase(dbPath)
 	if err != nil {
 		panic(err)
 	}

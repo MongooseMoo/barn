@@ -2,7 +2,7 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/types"
 	"barn/vm"
@@ -20,7 +20,7 @@ import (
 // Server represents the MOO server
 type Server struct {
 	store              *dbstore.Store
-	database           *db.Database
+	database           *dbformat.Database
 	scheduler          *Scheduler
 	connManager        *ConnectionManager
 	dbPath             string
@@ -54,7 +54,7 @@ func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointI
 
 // LoadDatabase loads the database from disk
 func (s *Server) LoadDatabase() error {
-	database, err := db.LoadDatabase(s.dbPath)
+	database, err := dbformat.LoadDatabase(s.dbPath)
 	if err != nil {
 		return fmt.Errorf("load database: %w", err)
 	}
@@ -205,7 +205,7 @@ func (s *Server) checkpoint() error {
 		return fmt.Errorf("create temp file: %w", err)
 	}
 
-	writer := db.NewWriter(tempFile, s.store.Snapshot())
+	writer := dbformat.NewWriter(tempFile, s.store.Snapshot())
 	writer.SetPendingFinalizations(s.database.PendingFinalizations)
 	writer.SetTasks(s.scheduler.QueuedTasks(), s.scheduler.SuspendedTasks())
 	if err := writer.WriteDatabase(); err != nil {

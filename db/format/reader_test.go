@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/db/store"
@@ -12,48 +12,48 @@ import (
 
 func TestLoadDatabase(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
 
-	db, err := LoadDatabase(dbPath)
+	database, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
 	// Basic sanity checks
-	if db == nil {
+	if database == nil {
 		t.Fatal("Database is nil")
 	}
 
-	if db.Version != 17 {
-		t.Errorf("Expected version 17, got %d", db.Version)
+	if database.Version != 17 {
+		t.Errorf("Expected version 17, got %d", database.Version)
 	}
 
-	if len(db.Objects) == 0 {
+	if len(database.Objects) == 0 {
 		t.Error("No objects loaded")
 	}
 
 	// Check that #0 (system object) exists
-	systemObj := db.Objects[0]
+	systemObj := database.Objects[0]
 	if systemObj == nil {
 		t.Fatal("System object (#0) not found")
 	}
 
-	t.Logf("Loaded database version %d with %d objects", db.Version, len(db.Objects))
+	t.Logf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 	t.Logf("System object: %s", systemObj.Name)
-	t.Logf("Players: %d", len(db.Players))
+	t.Logf("Players: %d", len(database.Players))
 }
 
 func TestParentParsing(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
 
-	db, err := LoadDatabase(dbPath)
+	database, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
 	// Test #39 (player_db) has parent #37 (Generic Database)
-	obj39 := db.Objects[39]
+	obj39 := database.Objects[39]
 	if obj39 == nil {
 		t.Fatal("Object #39 (player_db) not found")
 	}
@@ -64,7 +64,7 @@ func TestParentParsing(t *testing.T) {
 	}
 
 	// Test #37 (Generic Database) has parent #1
-	obj37 := db.Objects[37]
+	obj37 := database.Objects[37]
 	if obj37 == nil {
 		t.Fatal("Object #37 (Generic Database) not found")
 	}
@@ -75,7 +75,7 @@ func TestParentParsing(t *testing.T) {
 	}
 
 	// Test #1 (root class) has no parent
-	obj1 := db.Objects[1]
+	obj1 := database.Objects[1]
 	if obj1 == nil {
 		t.Fatal("Object #1 (root class) not found")
 	}
@@ -86,15 +86,15 @@ func TestParentParsing(t *testing.T) {
 
 func TestVerbCount(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
 
-	db, err := LoadDatabase(dbPath)
+	database, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
 	// Test #37 (Generic Database) has verbs including find_exact
-	obj37 := db.Objects[37]
+	obj37 := database.Objects[37]
 	if obj37 == nil {
 		t.Fatal("Object #37 (Generic Database) not found")
 	}
@@ -213,12 +213,12 @@ inner_verb
 	taskData += "1 interrupted tasks\n"
 
 	r := bufio.NewReader(strings.NewReader(taskData))
-	db := &Database{
+	database := &Database{
 		Version: 17,
 		Objects: make(map[types.ObjID]*store.Object),
 	}
 
-	err := db.readSuspendedTasks(r)
+	err := database.readSuspendedTasks(r)
 	if err != nil {
 		t.Fatalf("readSuspendedTasks failed: %v", err)
 	}
@@ -239,33 +239,33 @@ func TestLoadMongooseSnapshot(t *testing.T) {
 	// Test loading the mongoose7_snapshot.db
 	dbPath := "mongoose7_snapshot.db"
 
-	db, err := LoadDatabase(filepath.Join("..", dbPath))
+	database, err := LoadDatabase(filepath.Join("..", "..", dbPath))
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
 	// Basic sanity checks
-	if db == nil {
+	if database == nil {
 		t.Fatal("Database is nil")
 	}
 
-	if db.Version != 17 {
-		t.Errorf("Expected version 17, got %d", db.Version)
+	if database.Version != 17 {
+		t.Errorf("Expected version 17, got %d", database.Version)
 	}
 
-	t.Logf("Loaded database version %d with %d objects", db.Version, len(db.Objects))
+	t.Logf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
 }
 
 func TestVerbInheritance(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
 
-	db, err := LoadDatabase(dbPath)
+	database, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
-	store := db.NewStoreFromDatabase()
+	store := database.NewStoreFromDatabase()
 
 	// Test that #39 (player_db) can find find_exact verb from parent #37
 	verb, _, err := store.FindVerb(types.ObjID(39), "find_exact")
@@ -279,7 +279,7 @@ func TestVerbInheritance(t *testing.T) {
 	}
 
 	// Test that the verb is actually from #37
-	obj37 := db.Objects[37]
+	obj37 := database.Objects[37]
 	foundOnParent := false
 	for _, v := range obj37.VerbList {
 		if v.Names[0] == "find_exact" {
@@ -293,14 +293,14 @@ func TestVerbInheritance(t *testing.T) {
 }
 
 func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
 
-	db, err := LoadDatabase(dbPath)
+	database, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
-	for objID, obj := range db.Objects {
+	for objID, obj := range database.Objects {
 		if obj == nil {
 			continue
 		}
@@ -316,7 +316,7 @@ func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
 }
 
 func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
-	dbPath := filepath.Join("..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
 
 	loaded, err := LoadDatabase(dbPath)
 	if err != nil {

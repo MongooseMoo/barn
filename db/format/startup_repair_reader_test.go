@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 )
 
 func startupRepairFixture(name string) string {
-	return filepath.Join("..", "..", "mongoose", "toaststunt", "test", "tests", name)
+	return filepath.Join("..", "..", "..", "mongoose", "toaststunt", "test", "tests", name)
 }
 
 func TestLoadDatabaseSupportsFormat5Fixtures(t *testing.T) {
@@ -47,7 +47,7 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 		name     string
 		fixture  string
 		snippets []string
-		check    func(t *testing.T, db *Database)
+		check    func(t *testing.T, database *Database)
 	}{
 		{
 			name:    "broken1",
@@ -58,8 +58,8 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 				"#0.location = #101 <invalid> ... fixed",
 				"#0.content = #102 <invalid> ... removed",
 			},
-			check: func(t *testing.T, db *Database) {
-				obj := db.Objects[0]
+			check: func(t *testing.T, database *Database) {
+				obj := database.Objects[0]
 				if obj == nil {
 					t.Fatal("object #0 missing")
 				}
@@ -104,12 +104,12 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 				"#3 not in it's location's (#2) contents",
 				"#3 not in it's parent's (#1) children",
 			},
-			check: func(t *testing.T, db *Database) {
-				if !containsObjID(db.Objects[2].Contents, 0) || !containsObjID(db.Objects[2].Contents, 3) {
-					t.Fatalf("object #2 contents not repaired: %v", db.Objects[2].Contents)
+			check: func(t *testing.T, database *Database) {
+				if !containsObjID(database.Objects[2].Contents, 0) || !containsObjID(database.Objects[2].Contents, 3) {
+					t.Fatalf("object #2 contents not repaired: %v", database.Objects[2].Contents)
 				}
-				if !containsObjID(db.Objects[1].Children, 0) || !containsObjID(db.Objects[1].Children, 3) {
-					t.Fatalf("object #1 children not repaired: %v", db.Objects[1].Children)
+				if !containsObjID(database.Objects[1].Children, 0) || !containsObjID(database.Objects[1].Children, 3) {
+					t.Fatalf("object #1 children not repaired: %v", database.Objects[1].Children)
 				}
 			},
 		},
@@ -120,12 +120,12 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 				"#1 not in it's child's (#0) parents",
 				"#2 not in it's content's (#3) location",
 			},
-			check: func(t *testing.T, db *Database) {
-				if !containsObjID(db.Objects[0].Parents, 1) {
-					t.Fatalf("object #0 parents not repaired: %v", db.Objects[0].Parents)
+			check: func(t *testing.T, database *Database) {
+				if !containsObjID(database.Objects[0].Parents, 1) {
+					t.Fatalf("object #0 parents not repaired: %v", database.Objects[0].Parents)
 				}
-				if db.Objects[3].Location != 2 {
-					t.Fatalf("object #3 location = %d, want 2", db.Objects[3].Location)
+				if database.Objects[3].Location != 2 {
+					t.Fatalf("object #3 location = %d, want 2", database.Objects[3].Location)
 				}
 			},
 		},

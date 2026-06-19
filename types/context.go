@@ -50,7 +50,7 @@ type TaskContext struct {
 
 	// Store is a reference to the object database (if available)
 	// This allows builtins and limits to read server options from $server_options
-	// Import cycle prevention: This is stored as interface{} (should be *db.Store)
+	// Import cycle prevention: This is stored as interface{} (should be *store.Store)
 	Store interface{}
 
 	// Registry is a reference to the builtins registry (if available).

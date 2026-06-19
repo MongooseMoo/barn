@@ -2,7 +2,7 @@ package main
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/server"
@@ -56,7 +56,7 @@ func main() {
 
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
-		database, err := db.LoadDatabase(*dbPath)
+		database, err := dbformat.LoadDatabase(*dbPath)
 		if err != nil {
 			log.Fatalf("Failed to load database: %v", err)
 		}
@@ -67,7 +67,7 @@ func main() {
 			log.Fatalf("Failed to create dump file: %v", err)
 		}
 
-		writer := db.NewWriter(f, store.Snapshot())
+		writer := dbformat.NewWriter(f, store.Snapshot())
 		writer.SetPendingFinalizations(database.PendingFinalizations)
 		if err := writer.WriteDatabase(); err != nil {
 			f.Close()
@@ -85,7 +85,7 @@ func main() {
 
 	if isInspection {
 		// Load database for inspection
-		database, err := db.LoadDatabase(*dbPath)
+		database, err := dbformat.LoadDatabase(*dbPath)
 		if err != nil {
 			log.Fatalf("Failed to load database: %v", err)
 		}

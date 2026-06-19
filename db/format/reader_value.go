@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/types"
@@ -9,8 +9,8 @@ import (
 )
 
 // readValue reads a MOO value from database format
-func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
-	version := db.Version
+func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
+	version := database.Version
 	typeCode, err := readInt(r)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 		}
 		elements := make([]types.Value, count)
 		for i := 0; i < count; i++ {
-			elements[i], err = db.readValue(r)
+			elements[i], err = database.readValue(r)
 			if err != nil {
 				return nil, err
 			}
@@ -100,11 +100,11 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 		}
 		pairs := make([][2]types.Value, count)
 		for i := 0; i < count; i++ {
-			key, err := db.readValue(r)
+			key, err := database.readValue(r)
 			if err != nil {
 				return nil, err
 			}
-			val, err := db.readValue(r)
+			val, err := database.readValue(r)
 			if err != nil {
 				return nil, err
 			}
@@ -144,10 +144,10 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			if err != nil {
 				return nil, fmt.Errorf("parse WAIF ref index: %w", err)
 			}
-			if refIdx < 0 || refIdx >= len(db.savedWaifs) {
-				return nil, fmt.Errorf("WAIF ref index %d out of range (have %d)", refIdx, len(db.savedWaifs))
+			if refIdx < 0 || refIdx >= len(database.savedWaifs) {
+				return nil, fmt.Errorf("WAIF ref index %d out of range (have %d)", refIdx, len(database.savedWaifs))
 			}
-			return db.savedWaifs[refIdx].waif, nil
+			return database.savedWaifs[refIdx].waif, nil
 
 		} else if marker == 'c' {
 			// Creation — read full WAIF structure.
@@ -170,8 +170,8 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			// This matches Toast's order: saved_waifs[waif_count++] = w,
 			// then read properties.
 			waif := types.NewWaif(class, owner)
-			wIdx := len(db.savedWaifs)
-			db.savedWaifs = append(db.savedWaifs, waifLoadData{
+			wIdx := len(database.savedWaifs)
+			database.savedWaifs = append(database.savedWaifs, waifLoadData{
 				waif: waif,
 			})
 
@@ -185,7 +185,7 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 				if propIdx < 0 {
 					break
 				}
-				val, err := db.readValue(r)
+				val, err := database.readValue(r)
 				if err != nil {
 					return nil, err
 				}
@@ -197,7 +197,7 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			}
 
 			// Update with the properties now that they're loaded.
-			db.savedWaifs[wIdx] = waifLoadData{
+			database.savedWaifs[wIdx] = waifLoadData{
 				waif:         waif,
 				propsByIndex: propsByIndex,
 			}
@@ -222,7 +222,7 @@ func (db *Database) readValue(r *bufio.Reader) (types.Value, error) {
 
 // skipValueAfterType skips a value when the type code is already known.
 // Used when the type code appears on the same line as other data.
-func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
+func (database *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 	switch typeCode {
 	case 0: // INT
 		_, err := readInt(r)
@@ -246,7 +246,7 @@ func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 			return err
 		}
 		for i := 0; i < count; i++ {
-			if _, err := db.readValue(r); err != nil {
+			if _, err := database.readValue(r); err != nil {
 				return err
 			}
 		}
@@ -276,10 +276,10 @@ func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 			return err
 		}
 		for i := 0; i < count; i++ {
-			if _, err := db.readValue(r); err != nil {
+			if _, err := database.readValue(r); err != nil {
 				return err
 			}
-			if _, err := db.readValue(r); err != nil {
+			if _, err := database.readValue(r); err != nil {
 				return err
 			}
 		}
@@ -321,13 +321,13 @@ func (db *Database) skipValueAfterType(r *bufio.Reader, typeCode int) error {
 				if propIdx < 0 {
 					break
 				}
-				if _, err := db.readValue(r); err != nil {
+				if _, err := database.readValue(r); err != nil {
 					return err
 				}
 			}
 			const N_MAPPABLE_PROPS = 32
 			for i := N_MAPPABLE_PROPS; i < propdefsLen; i++ {
-				if _, err := db.readValue(r); err != nil {
+				if _, err := database.readValue(r); err != nil {
 					return err
 				}
 			}

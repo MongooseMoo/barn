@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/db/store"
@@ -10,11 +10,11 @@ import (
 )
 
 // readObject reads a single object
-func (db *Database) readObject(r *bufio.Reader) (*store.Object, error) {
-	return db.readObjectCommon(r, true)
+func (database *Database) readObject(r *bufio.Reader) (*store.Object, error) {
+	return database.readObjectCommon(r, true)
 }
 
-func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.Object, error) {
+func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.Object, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -43,7 +43,7 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 
 	if recycled {
 		// Recycled object - track for reuse but don't create full object
-		db.RecycledObjs = append(db.RecycledObjs, objID)
+		database.RecycledObjs = append(database.RecycledObjs, objID)
 		return nil, nil
 	}
 
@@ -74,27 +74,27 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 	}
 
 	// Read location
-	locVal, err := db.readValue(r)
+	locVal, err := database.readValue(r)
 	if err != nil {
 		return nil, err
 	}
 	if objVal, ok := locVal.(types.ObjValue); ok {
 		obj.Location = objVal.ID()
 	} else {
-		db.recordStartupRepair(fmt.Sprintf("#%d.location is not an object", objID))
+		database.recordStartupRepair(fmt.Sprintf("#%d.location is not an object", objID))
 		obj.Location = types.ObjNothing
 	}
 
 	if hasLastMove {
 		// Read last_move (skip value, not used)
-		_, err = db.readValue(r)
+		_, err = database.readValue(r)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Read contents
-	contentsVal, err := db.readValue(r)
+	contentsVal, err := database.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -108,15 +108,15 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 			}
 		}
 		if !validContents {
-			db.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
+			database.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
 			obj.Contents = nil
 		}
 	} else {
-		db.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
+		database.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
 	}
 
 	// Read parents
-	parentsVal, err := db.readValue(r)
+	parentsVal, err := database.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 			}
 		}
 		if !validParents {
-			db.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
+			database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
 			obj.Parents = nil
 		}
 	} else if objVal, ok := parentsVal.(types.ObjValue); ok {
@@ -141,11 +141,11 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 			obj.Parents = append(obj.Parents, objVal.ID())
 		}
 	} else {
-		db.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
+		database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
 	}
 
 	// Read children
-	childrenVal, err := db.readValue(r)
+	childrenVal, err := database.readValue(r)
 	if err != nil {
 		return nil, err
 	}
@@ -159,11 +159,11 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 			}
 		}
 		if !validChildren {
-			db.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
+			database.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
 			obj.Children = nil
 		}
 	} else {
-		db.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
+		database.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
 	}
 
 	// Read verb count
@@ -261,7 +261,7 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 		prop := &store.Property{Name: propName, Defined: i < propDefCount}
 
 		// Value
-		prop.Value, err = db.readValue(r)
+		prop.Value, err = database.readValue(r)
 		if err != nil {
 			return nil, fmt.Errorf("prop %d (%s) value: %w", i, propName, err)
 		}
@@ -293,7 +293,7 @@ func (db *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.
 
 // readAnonymousObjects reads anonymous objects section (v17)
 // Anonymous objects are stored in batches, terminated by a 0 count
-func (db *Database) readAnonymousObjects(r *bufio.Reader) error {
+func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 	for {
 		count, err := readInt(r)
 		if err != nil {
@@ -304,13 +304,13 @@ func (db *Database) readAnonymousObjects(r *bufio.Reader) error {
 			break
 		}
 		for i := 0; i < count; i++ {
-			obj, err := db.readObject(r)
+			obj, err := database.readObject(r)
 			if err != nil {
 				return err
 			}
 			if obj != nil {
 				obj.Anonymous = true
-				db.Objects[obj.ID] = obj
+				database.Objects[obj.ID] = obj
 			}
 		}
 	}
@@ -318,7 +318,7 @@ func (db *Database) readAnonymousObjects(r *bufio.Reader) error {
 }
 
 // readVerbCode reads verb code section
-func (db *Database) readVerbCode(r *bufio.Reader) error {
+func (database *Database) readVerbCode(r *bufio.Reader) error {
 	// Read verb reference: #objnum:verbindex
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -357,7 +357,7 @@ func (db *Database) readVerbCode(r *bufio.Reader) error {
 	}
 
 	// Store code in verb using VerbList for proper indexing
-	obj := db.Objects[types.ObjID(objID)]
+	obj := database.Objects[types.ObjID(objID)]
 	if obj != nil && verbIndex < len(obj.VerbList) {
 		obj.VerbList[verbIndex].Code = codeLines
 	}

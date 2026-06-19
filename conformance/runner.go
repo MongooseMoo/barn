@@ -2,7 +2,7 @@ package conformance
 
 import (
 	"barn/builtins"
-	"barn/db"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/server"
@@ -38,7 +38,7 @@ func NewRunner() *Runner {
 // NewRunnerWithDB creates a test runner with a specific database file
 func NewRunnerWithDB(dbPath string) *Runner {
 	// Load the database
-	database, err := db.LoadDatabase(dbPath)
+	database, err := dbformat.LoadDatabase(dbPath)
 	if err != nil {
 		// Fall back to empty store if database can't be loaded
 		store := dbstore.NewStore()

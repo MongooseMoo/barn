@@ -1,7 +1,7 @@
 package main
 
 import (
-	"barn/db"
+	dbformat "barn/db/format"
 	"barn/types"
 	"flag"
 	"fmt"
@@ -15,7 +15,7 @@ func main() {
 
 	// Load original database
 	fmt.Printf("Loading %s...\n", *dbPath)
-	database, err := db.LoadDatabase(*dbPath)
+	database, err := dbformat.LoadDatabase(*dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading database: %v\n", err)
 		os.Exit(1)
@@ -35,7 +35,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	writer := db.NewWriter(outFile, store.Snapshot())
+	writer := dbformat.NewWriter(outFile, store.Snapshot())
 	if err := writer.WriteDatabase(); err != nil {
 		outFile.Close()
 		fmt.Fprintf(os.Stderr, "Error writing database: %v\n", err)
@@ -46,7 +46,7 @@ func main() {
 
 	// Reload written database
 	fmt.Printf("Reloading %s...\n", *outPath)
-	database2, err := db.LoadDatabase(*outPath)
+	database2, err := dbformat.LoadDatabase(*outPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reloading database: %v\n", err)
 		os.Exit(1)

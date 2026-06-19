@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/db"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func (s *Scheduler) LoadQueuedTasks(queued []*db.QueuedTask) {
+func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 	restored := 0
 	for _, saved := range queued {
 		if saved == nil || saved.ID <= 0 || len(saved.Code) == 0 {
@@ -26,7 +26,7 @@ func (s *Scheduler) LoadQueuedTasks(queued []*db.QueuedTask) {
 	}
 }
 
-func (s *Scheduler) loadQueuedTask(saved *db.QueuedTask) error {
+func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	program, errors := dbstore.CompileVerb(saved.Code)
 	if len(errors) > 0 {
 		return fmt.Errorf("%s", errors[0])

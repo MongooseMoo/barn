@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/db/store"
@@ -124,7 +124,7 @@ func prepToCode(prep string) int {
 // resolvePropertyNames resolves inherited property names after all objects are loaded.
 // MOO databases store property values in order: first propDefsCount have names,
 // the rest inherit names from ancestors in depth-first order.
-func (db *Database) resolvePropertyNames() {
+func (database *Database) resolvePropertyNames() {
 	type resolvedProps struct {
 		properties map[string]*store.Property
 		propOrder  []string
@@ -132,15 +132,15 @@ func (db *Database) resolvePropertyNames() {
 
 	// Build resolved names for every object first, then apply them in a second pass.
 	// This avoids parent-order nondeterminism from map iteration.
-	resolvedByID := make(map[types.ObjID]resolvedProps, len(db.Objects))
+	resolvedByID := make(map[types.ObjID]resolvedProps, len(database.Objects))
 
-	for id, obj := range db.Objects {
+	for id, obj := range database.Objects {
 		if obj == nil {
 			continue
 		}
 
 		// Build the full list of property names by walking up the parent chain
-		allNames := db.rawPropertyNames(obj)
+		allNames := database.rawPropertyNames(obj)
 
 		// Now rename _inherited_N properties to their actual names
 		newProperties := make(map[string]*store.Property)
@@ -170,7 +170,7 @@ func (db *Database) resolvePropertyNames() {
 		}
 	}
 
-	for id, obj := range db.Objects {
+	for id, obj := range database.Objects {
 		if obj == nil {
 			continue
 		}
@@ -186,9 +186,9 @@ func (db *Database) resolvePropertyNames() {
 // rawPropertyNames builds an ordered list of all property names for an object
 // by walking up the parent chain and collecting raw propdefs.
 // Raw object state stores local propdefs in the first PropDefsCount entries.
-func (db *Database) rawPropertyNames(obj *store.Object) []string {
+func (database *Database) rawPropertyNames(obj *store.Object) []string {
 	return propertyNamesSelfFirst(obj, func(id types.ObjID) *store.Object {
-		return db.Objects[id]
+		return database.Objects[id]
 	})
 }
 
@@ -218,7 +218,7 @@ func propertyNamesSelfFirstRecursive(obj *store.Object, parent func(types.ObjID)
 	}
 }
 
-func (db *Database) finalPropertyOrder(obj *store.Object) []string {
+func (database *Database) finalPropertyOrder(obj *store.Object) []string {
 	if obj == nil || len(obj.PropOrder) == 0 {
 		return nil
 	}
@@ -229,16 +229,16 @@ func (db *Database) finalPropertyOrder(obj *store.Object) []string {
 
 // resolveWaifProperties maps raw property indices to names for all loaded WAIFs.
 // Must be called after resolvePropertyNames so that PropOrder is final.
-func (db *Database) resolveWaifProperties() {
-	for _, wd := range db.savedWaifs {
-		classObj := db.Objects[wd.waif.Class()]
+func (database *Database) resolveWaifProperties() {
+	for _, wd := range database.savedWaifs {
+		classObj := database.Objects[wd.waif.Class()]
 		if classObj == nil {
 			continue
 		}
 
 		// Collect ":" prefixed property names from the class ancestry.
 		// These form the WAIF propdef list; index N in the DB maps to entry N.
-		waifPropNames := db.collectWaifPropNames(classObj)
+		waifPropNames := database.collectWaifPropNames(classObj)
 
 		for idx, val := range wd.propsByIndex {
 			if idx < len(waifPropNames) {
@@ -251,13 +251,13 @@ func (db *Database) resolveWaifProperties() {
 	}
 
 	// Free the loading-only data.
-	db.savedWaifs = nil
+	database.savedWaifs = nil
 }
 
 // collectWaifPropNames returns an ordered list of ":" prefixed property names
 // from an object's ancestry. This matches Toast's waif_propdefs construction.
-func (db *Database) collectWaifPropNames(obj *store.Object) []string {
-	allNames := db.finalPropertyOrder(obj)
+func (database *Database) collectWaifPropNames(obj *store.Object) []string {
+	allNames := database.finalPropertyOrder(obj)
 	var waifNames []string
 	for _, name := range allNames {
 		if strings.HasPrefix(name, ":") {

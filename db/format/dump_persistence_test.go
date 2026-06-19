@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/db/store"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
-	loaded, err := LoadDatabase(filepath.Join("..", "Test_fresh2.db"))
+	loaded, err := LoadDatabase(filepath.Join("..", "..", "Test_fresh2.db"))
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}

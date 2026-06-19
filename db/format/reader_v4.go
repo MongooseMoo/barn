@@ -1,4 +1,4 @@
-package db
+package format
 
 import (
 	"barn/db/store"
@@ -10,7 +10,7 @@ import (
 )
 
 // parseV4 parses a version 4 database
-func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
+func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	// Line 1: total objects
 	objCount, err := readInt(r)
 	if err != nil {
@@ -29,40 +29,40 @@ func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	}
 
 	// Players section
-	if err := db.readPlayersV4(r); err != nil {
+	if err := database.readPlayersV4(r); err != nil {
 		return nil, fmt.Errorf("read players: %w", err)
 	}
 
 	// Objects section
 	for i := 0; i < objCount; i++ {
-		obj, err := db.readObjectV4(r)
+		obj, err := database.readObjectV4(r)
 		if err != nil {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
 		if obj != nil {
-			db.Objects[obj.ID] = obj
+			database.Objects[obj.ID] = obj
 		}
 	}
 
 	// Verb code section
 	for i := 0; i < verbCount; i++ {
-		if err := db.readVerbCode(r); err != nil {
+		if err := database.readVerbCode(r); err != nil {
 			return nil, fmt.Errorf("read verb code %d: %w", i, err)
 		}
 	}
 
 	// Clocks (obsolete)
-	if err := db.readClocks(r); err != nil {
+	if err := database.readClocks(r); err != nil {
 		return nil, fmt.Errorf("read clocks: %w", err)
 	}
 
 	// Queued tasks
-	if err := db.readQueuedTasks(r); err != nil {
+	if err := database.readQueuedTasks(r); err != nil {
 		return nil, fmt.Errorf("read queued tasks: %w", err)
 	}
 
 	// Suspended tasks
-	if err := db.readSuspendedTasks(r); err != nil {
+	if err := database.readSuspendedTasks(r); err != nil {
 		return nil, fmt.Errorf("read suspended tasks: %w", err)
 	}
 
@@ -70,35 +70,35 @@ func (db *Database) parseV4(r *bufio.Reader) (*Database, error) {
 	// We just ignore any remaining content
 
 	// Resolve inherited property names now that all objects are loaded
-	db.resolvePropertyNames()
+	database.resolvePropertyNames()
 
 	// Resolve WAIF property names now that all objects and their propdefs are known
-	db.resolveWaifProperties()
+	database.resolveWaifProperties()
 
-	return db, nil
+	return database, nil
 }
 
 // readPlayersV4 reads the players list for version 4 format
-func (db *Database) readPlayersV4(r *bufio.Reader) error {
+func (database *Database) readPlayersV4(r *bufio.Reader) error {
 	// Format: nplayers, player[0], player[1], ...
 	count, err := readInt(r)
 	if err != nil {
 		return err
 	}
 
-	db.Players = make([]types.ObjID, count)
+	database.Players = make([]types.ObjID, count)
 	for i := 0; i < count; i++ {
 		objID, err := readObjID(r)
 		if err != nil {
 			return err
 		}
-		db.Players[i] = objID
+		database.Players[i] = objID
 	}
 	return nil
 }
 
 // readObjectV4 reads a single object in version 4 format
-func (db *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
+func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -126,7 +126,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	objID = types.ObjID(id)
 
 	if recycled {
-		db.RecycledObjs = append(db.RecycledObjs, objID)
+		database.RecycledObjs = append(database.RecycledObjs, objID)
 		return nil, nil
 	}
 
@@ -290,7 +290,7 @@ func (db *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		prop := &store.Property{Name: propName, Defined: i < propDefCount}
 
 		// Value
-		prop.Value, err = db.readValue(r)
+		prop.Value, err = database.readValue(r)
 		if err != nil {
 			return nil, err
 		}

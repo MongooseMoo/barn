@@ -1,7 +1,7 @@
 package main
 
 import (
-	"barn/db"
+	dbformat "barn/db/format"
 	"barn/types"
 	"flag"
 	"fmt"
@@ -18,7 +18,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	database, err := db.LoadDatabase(*dbPath)
+	database, err := dbformat.LoadDatabase(*dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading database: %v\n", err)
 		os.Exit(1)
