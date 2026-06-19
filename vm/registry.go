@@ -1,13 +1,15 @@
 package vm
 
 import (
+	"fmt"
+	"strings"
+
 	"barn/builtins"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
-	"fmt"
-	"strings"
 )
 
 // BuildVMRegistry creates a builtins registry suitable for the bytecode VM.
@@ -17,14 +19,11 @@ import (
 func BuildVMRegistry() *builtins.Registry {
 	registry := builtins.NewRegistry()
 
-	registry.Register("eval", func(ctx *types.TaskContext, args []types.Value) types.Result {
+	registry.Register("eval", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if len(args) < 1 {
 			return types.Err(types.E_ARGS)
 		}
-		store, ok := ctx.Store.(*dbstore.Store)
-		if !ok {
-			return types.Err(types.E_INVARG)
-		}
+		store := ctx.Store
 
 		hasProgrammer, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagProgrammer)
 		if errCode != types.E_NONE || !hasProgrammer {
@@ -148,7 +147,7 @@ func BuildVMRegistry() *builtins.Registry {
 		return types.Result{Flow: types.FlowEvalPush}
 	})
 
-	registry.Register("pass", func(ctx *types.TaskContext, args []types.Value) types.Result {
+	registry.Register("pass", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	})
 

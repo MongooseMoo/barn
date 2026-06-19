@@ -1,6 +1,10 @@
-package types
+package kernel
 
-import "testing"
+import (
+	"testing"
+
+	"barn/types"
+)
 
 func TestNewTaskContext(t *testing.T) {
 	ctx := NewTaskContext()
@@ -9,15 +13,15 @@ func TestNewTaskContext(t *testing.T) {
 		t.Errorf("Expected default tick limit of 300000, got %d", ctx.TicksRemaining)
 	}
 
-	if ctx.Player != ObjNothing {
+	if ctx.Player != types.ObjNothing {
 		t.Errorf("Expected Player to be ObjNothing, got %v", ctx.Player)
 	}
 
-	if ctx.Programmer != ObjNothing {
+	if ctx.Programmer != types.ObjNothing {
 		t.Errorf("Expected Programmer to be ObjNothing, got %v", ctx.Programmer)
 	}
 
-	if ctx.ThisObj != ObjNothing {
+	if ctx.ThisObj != types.ObjNothing {
 		t.Errorf("Expected ThisObj to be ObjNothing, got %v", ctx.ThisObj)
 	}
 

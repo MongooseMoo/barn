@@ -1,10 +1,12 @@
 package builtins
 
 import (
+	"sort"
+
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/task"
 	"barn/types"
-	"sort"
 )
 
 type TaskYielder interface {
@@ -22,7 +24,7 @@ func SetTaskYielder(yielder TaskYielder) {
 // builtinQueuedTasks: queued_tasks() → LIST
 // Returns list of currently queued tasks
 // Each entry: {task_id, start_time, x, y, z, programmer, verb_loc, verb_name, line, this}
-func builtinQueuedTasks(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -69,7 +71,7 @@ func builtinQueuedTasks(ctx *types.TaskContext, args []types.Value) types.Result
 // builtinKillTask: kill_task(task_id) → none
 // Kills the specified task
 // Requires permission: must be task owner or wizard
-func builtinKillTask(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinKillTask(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -102,7 +104,7 @@ func builtinKillTask(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns the value passed to resume() when the task is resumed.
 // If no seconds are specified, suspension is indefinite until resume().
 // suspend(0) yields and resumes on the next scheduler cycle.
-func builtinSuspend(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -148,7 +150,7 @@ func builtinSuspend(ctx *types.TaskContext, args []types.Value) types.Result {
 // Resumes a suspended task with the given value
 // The value (or 0 if not specified) is returned from suspend()
 // Requires permission: must be task owner or wizard
-func builtinResume(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinResume(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -178,11 +180,8 @@ func builtinResume(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinSetTaskPerms: set_task_perms(who) → none
 // Changes the permission context for the current task
 // Wizard only - allows running code with different permissions
-func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -230,7 +229,7 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 // builtinCallerPerms: caller_perms() → OBJ
 // Returns the programmer of the calling frame (not the current frame)
 // This is used for permission checks - returns who called this verb
-func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinCallerPerms(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -269,7 +268,7 @@ func builtinCallerPerms(ctx *types.TaskContext, args []types.Value) types.Result
 // Returns the call stack
 // Each entry: {this, verb_name, programmer, verb_loc, player, line_number}
 // If include_line_numbers is false (default true), line_number is omitted
-func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -358,9 +357,9 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 // marker ({#-1, "eval", #-1, #-1, player}) and the root "eval" command frame,
 // whose `this`/verb_loc is the player's location and whose programmer is the
 // player ({location, "eval", player, location, player}).
-func evalWrapperFrames(ctx *types.TaskContext, includeLineNumbers bool) []types.Value {
+func evalWrapperFrames(ctx *kernel.TaskContext, includeLineNumbers bool) []types.Value {
 	location := types.ObjNothing
-	if store, ok := ctx.Store.(*dbstore.Store); ok {
+	if store := ctx.Store; store != nil {
 		loc, errCode := store.Location(ctx.Player)
 		if errCode == types.E_NONE {
 			location = loc
@@ -388,7 +387,7 @@ func evalWrapperFrames(ctx *types.TaskContext, includeLineNumbers bool) []types.
 // evalUserCodeFrame returns the representation of the eval'd user-code activation
 // itself ({#-1, "", player, #-1, player}) — Toast shows this when callers() is
 // invoked from a verb that was called by the eval.
-func evalUserCodeFrame(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
+func evalUserCodeFrame(ctx *kernel.TaskContext, includeLineNumbers bool) types.Value {
 	base := []types.Value{
 		types.NewObj(types.ObjNothing), // this
 		types.NewStr(""),               // verb (empty for eval'd code)
@@ -402,13 +401,13 @@ func evalUserCodeFrame(ctx *types.TaskContext, includeLineNumbers bool) types.Va
 	return types.NewList(base)
 }
 
-func syntheticEvalCallers(ctx *types.TaskContext, includeLineNumbers bool) types.Value {
+func syntheticEvalCallers(ctx *kernel.TaskContext, includeLineNumbers bool) types.Value {
 	return types.NewList(evalWrapperFrames(ctx, includeLineNumbers))
 }
 
 // builtinRaise: raise(error [, message [, value]]) → none
 // Raises an error, stopping execution until caught by try/except
-func builtinRaise(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -449,7 +448,7 @@ func builtinRaise(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinTaskStack: task_stack(task_id [, include_line_numbers]) → LIST
 // Returns the call stack for a suspended task
 // Each frame is a map with keys: this, verb, programmer, verb_loc, player, line_number
-func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -514,7 +513,7 @@ func builtinTaskStack(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinYin: yin([threshold [, ticks [, seconds]]]) → none
 // Yields execution if requested resource thresholds have been crossed.
-func builtinYin(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}

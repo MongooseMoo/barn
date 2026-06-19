@@ -2,16 +2,14 @@ package builtins
 
 import (
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/types"
 )
 
 // builtinProperties implements properties(object)
 // Returns list of property names defined on object (not inherited)
-func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -46,11 +44,8 @@ func builtinProperties(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // builtinPropertyInfo implements property_info(object, name)
 // Returns {owner, perms} where perms is a string like "rw"
-func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -103,11 +98,8 @@ func builtinPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
 // info can be {owner, perms}, just perms string, or just owner ObjValue
-func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
@@ -201,11 +193,8 @@ func builtinSetPropertyInfo(ctx *types.TaskContext, args []types.Value) types.Re
 
 // builtinAddProperty implements add_property(object, name, value, info)
 // Adds a new property to object
-func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 4 {
 		return types.Err(types.E_ARGS)
@@ -341,11 +330,8 @@ func builtinAddProperty(ctx *types.TaskContext, args []types.Value) types.Result
 
 // builtinDeleteProperty implements delete_property(object, name)
 // Removes property from object
-func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -390,11 +376,8 @@ func builtinDeleteProperty(ctx *types.TaskContext, args []types.Value) types.Res
 
 // builtinClearProperty implements clear_property(object, name)
 // Clears property to inherit from parent
-func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -455,11 +438,8 @@ func builtinClearProperty(ctx *types.TaskContext, args []types.Value) types.Resu
 // builtinIsClearProperty implements is_clear_property(object, name)
 // Tests if property is cleared (inheriting)
 // Returns 1 if property is clear or only inherited, 0 if has local value
-func builtinIsClearProperty(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)

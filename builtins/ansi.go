@@ -1,9 +1,11 @@
 package builtins
 
 import (
-	"barn/types"
 	"regexp"
 	"strings"
+
+	"barn/kernel"
+	"barn/types"
 )
 
 var ansiEscapeRe = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
@@ -44,7 +46,7 @@ var ansiTags = map[string]string{
 	"null":      "",
 }
 
-func builtinParseAnsi(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinParseAnsi(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -62,7 +64,7 @@ func builtinParseAnsi(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(converted))
 }
 
-func builtinRemoveAnsi(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRemoveAnsi(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

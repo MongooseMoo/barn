@@ -1,8 +1,10 @@
 package builtins
 
 import (
-	"barn/types"
 	"testing"
+
+	"barn/kernel"
+	"barn/types"
 )
 
 type stubConn struct {
@@ -76,7 +78,7 @@ func TestConnectionNameFormats(t *testing.T) {
 		listen: 7777,
 	}
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = 7
 
 	cases := []struct {
@@ -125,7 +127,7 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 	manager := &stubConnManager{}
 	globalConnManager = manager
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 
 	res := builtinListen(ctx, []types.Value{
@@ -160,7 +162,7 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 	manager := &stubConnManager{}
 	globalConnManager = manager
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 
 	res := builtinListen(ctx, []types.Value{
@@ -198,7 +200,7 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 	manager := &stubConnManager{}
 	globalConnManager = manager
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 
 	res := builtinListen(ctx, []types.Value{
@@ -236,7 +238,7 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	manager := &stubConnManager{}
 	globalConnManager = manager
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 
 	res := builtinUnlisten(ctx, []types.Value{
@@ -276,7 +278,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 		},
 	}
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	res := builtinListeners(ctx, []types.Value{
 		types.NewMap([][2]types.Value{
 			{types.NewStr("protocol"), types.NewStr("ws")},

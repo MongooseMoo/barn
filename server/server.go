@@ -1,11 +1,6 @@
 package server
 
 import (
-	"barn/builtins"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/types"
-	"barn/vm"
 	"context"
 	"fmt"
 	"io"
@@ -15,6 +10,13 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"barn/builtins"
+	dbformat "barn/db/format"
+	dbstore "barn/db/store"
+	"barn/kernel"
+	"barn/types"
+	"barn/vm"
 )
 
 // Server represents the MOO server
@@ -79,7 +81,7 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })
-	builtins.SetShutdownFunc(func(ctx *types.TaskContext) error {
+	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
 				s.appendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))

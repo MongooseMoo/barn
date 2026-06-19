@@ -1,8 +1,6 @@
 package builtins
 
 import (
-	dbstore "barn/db/store"
-	"barn/types"
 	"crypto/hmac"
 	"crypto/md5"
 	"crypto/rand"
@@ -15,6 +13,9 @@ import (
 	"hash"
 	"strings"
 
+	"barn/kernel"
+	"barn/types"
+
 	cryptbcrypt "github.com/go-crypt/x/bcrypt"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -26,7 +27,7 @@ import (
 // builtinEncodeBase64 encodes a string to base64
 // encode_base64(str [, url_safe]) -> str
 // Input string may contain ~XX binary escapes which are decoded first
-func builtinEncodeBase64(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinEncodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -67,7 +68,7 @@ func builtinEncodeBase64(ctx *types.TaskContext, args []types.Value) types.Resul
 // builtinDecodeBase64 decodes a base64 string
 // decode_base64(str [, url_safe]) -> str
 // Returns a binary string with ~XX escapes for non-printable bytes
-func builtinDecodeBase64(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinDecodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -115,7 +116,7 @@ func builtinDecodeBase64(ctx *types.TaskContext, args []types.Value) types.Resul
 // encode_binary(str) -> str
 // encode_binary(list of strings/ints) -> str
 // encode_binary(val1, val2, ...) -> str (varargs)
-func builtinEncodeBinary(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinEncodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) == 0 {
 		return types.Ok(types.NewStr(""))
 	}
@@ -185,7 +186,7 @@ func encodeByteHex(b byte) string {
 // builtinDecodeBinary decodes a ~XX binary-encoded string
 // decode_binary(str) -> list grouping printable chars as strings, non-printable as ints
 // decode_binary(str, "as_str") -> str (raw bytes as string)
-func builtinDecodeBinary(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -315,11 +316,8 @@ func hexValue(c byte) int {
 // - SHA256 ($5$)
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2b$)
-func builtinCrypt(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -722,7 +720,7 @@ func getHasher(algo string) (hash.Hash, bool) {
 
 // builtinStringHash hashes a string with specified algorithm
 // string_hash(str [, algo [, binary]]) -> str
-func builtinStringHash(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinStringHash(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -763,7 +761,7 @@ func builtinStringHash(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // builtinBinaryHash hashes a binary string with specified algorithm
 // binary_hash(str [, algo [, binary]]) -> str
-func builtinBinaryHash(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinBinaryHash(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -810,7 +808,7 @@ func builtinBinaryHash(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // builtinValueHash hashes any MOO value with specified algorithm
 // value_hash(val [, algo [, binary]]) -> str
-func builtinValueHash(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinValueHash(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -851,7 +849,7 @@ func builtinValueHash(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinStringHmac computes HMAC for a string
 // string_hmac(str, key [, algo [, binary]]) -> str
-func builtinStringHmac(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinStringHmac(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -904,7 +902,7 @@ func builtinStringHmac(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // builtinBinaryHmac computes HMAC for a binary string
 // binary_hmac(str, key [, algo [, binary]]) -> str
-func builtinBinaryHmac(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinBinaryHmac(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -962,7 +960,7 @@ func builtinBinaryHmac(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // builtinValueHmac computes HMAC for any MOO value
 // value_hmac(val, key [, algo [, binary]]) -> str
-func builtinValueHmac(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinValueHmac(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1035,7 +1033,7 @@ func getHmacFunc(algo string) (func() hash.Hash, bool) {
 
 // builtinSalt generates a salt string for crypt
 // salt(prefix, random_data) -> str
-func builtinSalt(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1168,7 +1166,7 @@ func builtinSalt(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinRandomBytes generates random bytes
 // random_bytes(count) -> str (binary encoded)
-func builtinRandomBytes(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRandomBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

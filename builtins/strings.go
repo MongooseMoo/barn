@@ -1,10 +1,12 @@
 package builtins
 
 import (
-	"barn/types"
 	"regexp"
 	"strings"
 	"unicode"
+
+	"barn/kernel"
+	"barn/types"
 )
 
 // ============================================================================
@@ -16,7 +18,7 @@ import (
 // length(list) -> int
 // length(map) -> int
 // For strings, returns the raw string length (number of characters), not decoded byte count
-func builtinLength(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinLength(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -64,7 +66,7 @@ func isHexDigit(c byte) bool {
 
 // builtinStrsub replaces all occurrences of old with new in subject
 // strsub(subject, old, new [, case_matters]) -> str
-func builtinStrsub(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinStrsub(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 3 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -115,7 +117,7 @@ func builtinStrsub(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinIndex finds the first occurrence of needle in haystack
 // index(haystack, needle [, case_matters [, start]]) -> int
-func builtinIndex(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinIndex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -201,7 +203,7 @@ func builtinIndex(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinRindex finds the last occurrence of needle in haystack
 // rindex(haystack, needle [, case_matters [, offset]]) -> int
 // offset is 0 or negative; specifies end position for search (from end of string)
-func builtinRindex(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRindex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -283,7 +285,7 @@ func builtinRindex(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinStrcmp compares two strings lexicographically (case-sensitive)
 // strcmp(str1, str2) -> int (negative, zero, or positive)
-func builtinStrcmp(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinStrcmp(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -303,7 +305,7 @@ func builtinStrcmp(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinUpcase converts string to uppercase
 // upcase(str) -> str
-func builtinUpcase(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinUpcase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -318,7 +320,7 @@ func builtinUpcase(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinDowncase converts string to lowercase
 // downcase(str) -> str
-func builtinDowncase(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinDowncase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -333,7 +335,7 @@ func builtinDowncase(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinCapitalize capitalizes first letter of each word
 // capitalize(str) -> str
-func builtinCapitalize(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinCapitalize(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -348,7 +350,7 @@ func builtinCapitalize(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // builtinExplode splits a string into a list of substrings
 // explode(str [, delimiter [, adjacent]]) -> list
-func builtinExplode(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinExplode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -398,7 +400,7 @@ func builtinExplode(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinImplode joins a list of strings into a single string
 // implode(list [, delimiter]) -> str
-func builtinImplode(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinImplode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -440,7 +442,7 @@ func builtinImplode(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinTrim removes leading and trailing characters
 // trim(str [, chars]) -> str
-func builtinTrim(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinTrim(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -466,7 +468,7 @@ func builtinTrim(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinLtrim removes leading characters
 // ltrim(str [, chars]) -> str
-func builtinLtrim(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinLtrim(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -492,7 +494,7 @@ func builtinLtrim(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinRtrim removes trailing characters
 // rtrim(str [, chars]) -> str
-func builtinRtrim(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRtrim(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -522,7 +524,7 @@ func builtinRtrim(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinStrtr translates characters in a string
 // strtr(str, from, to [, case_matters]) -> str
-func builtinStrtr(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinStrtr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 3 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -643,7 +645,7 @@ func replaceAllCaseInsensitive(s, old, new string) string {
 // builtinMatch implements match(subject, pattern [, case_matters]) -> list
 // MOO-style regex matching. Returns {start, end, subs, subject} or {} if no match.
 // For now, implements a simplified version that handles basic patterns.
-func builtinMatch(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinMatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -692,7 +694,7 @@ func builtinMatch(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinRmatch implements rmatch(subject, pattern [, case_matters]) -> list
 // Like match but finds the last occurrence.
-func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRmatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -755,7 +757,7 @@ func builtinRmatch(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinSubstitute implements substitute(template, match_result) -> str
 // Substitutes captured groups from match result into template.
 // Template syntax: %1, %2, etc. for captured groups, %% for literal %
-func builtinSubstitute(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

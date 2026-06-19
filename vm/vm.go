@@ -1,26 +1,28 @@
 package vm
 
 import (
+	"fmt"
+
 	"barn/builtins"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
-	"fmt"
 )
 
 // VM represents the bytecode virtual machine
 type VM struct {
-	Stack         []types.Value      // Operand stack
-	SP            int                // Stack pointer
-	Frames        []*StackFrame      // Call stack
-	FP            int                // Frame pointer
-	Store         *dbstore.Store     // Object store
-	Builtins      *builtins.Registry // Builtin function registry
-	Context       *types.TaskContext // Task context for builtins
-	TickLimit     int64              // Maximum ticks before E_MAXREC
-	MaxStackDepth int                // Maximum VM call frames before E_MAXREC
-	Ticks         int64              // Current tick count
+	Stack         []types.Value       // Operand stack
+	SP            int                 // Stack pointer
+	Frames        []*StackFrame       // Call stack
+	FP            int                 // Frame pointer
+	Store         *dbstore.Store      // Object store
+	Builtins      *builtins.Registry  // Builtin function registry
+	Context       *kernel.TaskContext // Task context for builtins
+	TickLimit     int64               // Maximum ticks before E_MAXREC
+	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
+	Ticks         int64               // Current tick count
 	PendingWaifs  []types.WaifValue
 
 	yielded     bool         // VM has yielded control (suspend/fork)
@@ -144,7 +146,7 @@ func (vm *VM) syncContextTicks() {
 
 func (vm *VM) ensureContextDependencies() {
 	if vm.Context == nil {
-		vm.Context = types.NewTaskContext()
+		vm.Context = kernel.NewTaskContext()
 	}
 	vm.Context.Store = vm.Store
 	vm.Context.Registry = vm.Builtins

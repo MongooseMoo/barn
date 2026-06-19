@@ -1,14 +1,16 @@
 package conformance
 
 import (
+	"fmt"
+
 	"barn/builtins"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
 	"barn/server"
 	"barn/types"
 	"barn/vm"
-	"fmt"
 )
 
 // Default database path (local copy)
@@ -87,7 +89,7 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 	}
 
 	// Create task context
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Store = r.store
 	ctx.Registry = r.registry
 
@@ -174,7 +176,7 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 	}
 }
 
-func (r *Runner) executeStatements(stmts []parser.Stmt, ctx *types.TaskContext) types.Result {
+func (r *Runner) executeStatements(stmts []parser.Stmt, ctx *kernel.TaskContext) types.Result {
 	compiler := vm.NewCompilerWithRegistry(r.registry)
 	prog, err := compiler.CompileStatements(stmts)
 	if err != nil {

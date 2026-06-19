@@ -1,14 +1,16 @@
 package builtins
 
 import (
-	"barn/task"
-	"barn/types"
 	"context"
 	"database/sql"
 	"errors"
 	"sort"
 	"strings"
 	"sync"
+
+	"barn/kernel"
+	"barn/task"
+	"barn/types"
 
 	_ "modernc.org/sqlite"
 )
@@ -249,7 +251,7 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 	return types.Ok(types.NewEmptyList())
 }
 
-func sqliteExecOrQueryAsync(ctx *types.TaskContext, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+func sqliteExecOrQueryAsync(ctx *kernel.TaskContext, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
 	t, ok := ctx.Task.(*task.Task)
 	if !ok {
 		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
@@ -283,7 +285,7 @@ func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
 	}
 }
 
-func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -331,7 +333,7 @@ func builtinSqliteOpen(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(id))
 }
 
-func builtinSqliteClose(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteClose(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -364,7 +366,7 @@ func builtinSqliteClose(ctx *types.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinSqliteHandles(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteHandles(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -387,7 +389,7 @@ func builtinSqliteHandles(ctx *types.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewList(out))
 }
 
-func builtinSqliteInfo(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -413,7 +415,7 @@ func builtinSqliteInfo(ctx *types.TaskContext, args []types.Value) types.Result 
 	}))
 }
 
-func builtinSqliteQuery(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteQuery(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -441,7 +443,7 @@ func builtinSqliteQuery(ctx *types.TaskContext, args []types.Value) types.Result
 	return sqliteExecOrQueryAsync(ctx, handle, sqlText.Value(), nil, includeHeaders)
 }
 
-func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteExecute(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -473,7 +475,7 @@ func builtinSqliteExecute(ctx *types.TaskContext, args []types.Value) types.Resu
 	return sqliteExecOrQueryAsync(ctx, handle, sqlText.Value(), params, false)
 }
 
-func builtinSqliteLastInsertRowID(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteLastInsertRowID(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -499,7 +501,7 @@ func builtinSqliteLastInsertRowID(ctx *types.TaskContext, args []types.Value) ty
 	return types.Ok(types.NewInt(lastID))
 }
 
-func builtinSqliteLimit(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteLimit(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -529,7 +531,7 @@ func builtinSqliteLimit(ctx *types.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewInt(prior))
 }
 
-func builtinSqliteInterrupt(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSqliteInterrupt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}

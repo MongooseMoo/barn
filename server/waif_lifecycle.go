@@ -2,6 +2,7 @@ package server
 
 import (
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/types"
 	"barn/vm"
 )
@@ -27,7 +28,7 @@ func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
 	return roots
 }
 
-func (s *Scheduler) finalizePendingWaifs(ctx *types.TaskContext, pending []types.WaifValue, rootVMs ...*vm.VM) {
+func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.WaifValue, rootVMs ...*vm.VM) {
 	if len(pending) == 0 || ctx == nil {
 		return
 	}
@@ -41,7 +42,7 @@ func (s *Scheduler) finalizePendingWaifs(ctx *types.TaskContext, pending []types
 	}
 }
 
-func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.WaifValue) {
+func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.WaifValue) {
 	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
 	if err != nil || verb == nil {
 		return
@@ -59,7 +60,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *types.TaskContext, waif types.Wai
 	if player == types.ObjNothing {
 		player = parentCtx.Programmer
 	}
-	recycleCtx := types.NewTaskContext()
+	recycleCtx := kernel.NewTaskContext()
 	recycleCtx.Player = player
 	recycleCtx.Programmer = verb.Owner
 	recycleCtx.IsWizard = s.isWizard(verb.Owner)

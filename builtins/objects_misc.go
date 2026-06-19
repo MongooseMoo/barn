@@ -1,18 +1,15 @@
 package builtins
 
 import (
-	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/types"
 )
 
 // builtinRenumber implements renumber(obj) - wizard only
 // Reassigns object to lowest available object ID
 // Returns the new object ID
-func builtinRenumber(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -56,11 +53,8 @@ func builtinRenumber(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinNewWaif implements new_waif() - creates a new waif instance
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
-func builtinNewWaif(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinNewWaif(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
@@ -99,11 +93,8 @@ func builtinNewWaif(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinObjectBytes implements object_bytes(object)
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
-func builtinObjectBytes(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)

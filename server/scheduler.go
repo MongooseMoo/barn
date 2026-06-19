@@ -1,12 +1,6 @@
 package server
 
 import (
-	"barn/builtins"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
-	"barn/vm"
 	"container/heap"
 	"context"
 	"errors"
@@ -15,6 +9,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"barn/builtins"
+	dbstore "barn/db/store"
+	"barn/kernel"
+	"barn/task"
+	"barn/trace"
+	"barn/types"
+	"barn/vm"
 )
 
 // InputEvent represents a line of input (or disconnect) from a connection.
@@ -61,7 +63,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 
 	// Builtins like create()/recycle() need verb callbacks in VM mode.
 	// Route builtin CallVerb() through scheduler CallVerb().
-	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *types.TaskContext) types.Result {
+	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
 		player := types.ObjNothing
 		if tc != nil {
 			player = tc.Player
@@ -71,7 +73,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
-	builtins.SetRunGCFunc(func(ctx *types.TaskContext) error {
+	builtins.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
 		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
 		return nil
 	})
@@ -79,7 +81,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 	return s
 }
 
-func (s *Scheduler) populateTaskContextDependencies(ctx *types.TaskContext) {
+func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	if ctx == nil {
 		return
 	}

@@ -1,9 +1,10 @@
 package vm
 
 import (
+	"testing"
+
 	dbstore "barn/db/store"
 	"barn/types"
-	"testing"
 )
 
 func testObject(id types.ObjID, anonymous bool) *dbstore.Object {

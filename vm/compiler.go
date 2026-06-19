@@ -1,13 +1,14 @@
 package vm
 
 import (
+	"fmt"
+	"math"
+	"strconv"
+
 	"barn/builtins"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
-	"fmt"
-	"math"
-	"strconv"
 )
 
 // Compiler compiles AST nodes to bytecode

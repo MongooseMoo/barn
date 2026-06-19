@@ -1,15 +1,16 @@
 package server
 
 import (
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
 	"fmt"
 	"log"
 	"net"
 	"strings"
 	"time"
+
+	dbstore "barn/db/store"
+	"barn/task"
+	"barn/trace"
+	"barn/types"
 )
 
 // shouldCallDoLoginCommand checks whether do_login_command should be called

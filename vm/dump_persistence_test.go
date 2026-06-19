@@ -1,11 +1,13 @@
 package vm
 
 import (
-	dbformat "barn/db/format"
-	"barn/types"
 	"os"
 	"path/filepath"
 	"testing"
+
+	dbformat "barn/db/format"
+	"barn/kernel"
+	"barn/types"
 )
 
 func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
@@ -15,7 +17,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 
 	store := loaded.NewStoreFromDatabase()
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = 3
 	ctx.Programmer = 3
 	ctx.IsWizard = true

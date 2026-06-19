@@ -2,16 +2,14 @@ package builtins
 
 import (
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/types"
 )
 
 // builtinMove implements move(what, where[, position])
 // Moves object to new location
-func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 	registry, ok := ctx.Registry.(*Registry)
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -83,11 +81,8 @@ func builtinMove(ctx *types.TaskContext, args []types.Value) types.Result {
 // With 2+ args: filters by parent (isa check)
 // With 3+ args: also filters by player flag
 // With 4 args: inverts the parent check
-func builtinOccupants(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)

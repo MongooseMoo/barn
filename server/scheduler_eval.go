@@ -1,14 +1,16 @@
 package server
 
 import (
-	"barn/parser"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
 	"fmt"
 	"log"
 	"strings"
 	"time"
+
+	"barn/kernel"
+	"barn/parser"
+	"barn/task"
+	"barn/types"
+	"barn/vm"
 )
 
 // evalConnection is the interface needed for eval command output
@@ -65,7 +67,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	}
 
 	// Execute the code synchronously
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Player = player
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)

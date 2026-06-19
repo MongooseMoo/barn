@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"barn/types"
 	"bufio"
 	"bytes"
 	"fmt"
@@ -12,6 +11,9 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"barn/kernel"
+	"barn/types"
 )
 
 type mooFileHandle struct {
@@ -185,7 +187,7 @@ func encodeBinaryBytes(data []byte) string {
 	return b.String()
 }
 
-func builtinFileOpen(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -221,7 +223,7 @@ func builtinFileOpen(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(id))
 }
 
-func builtinFileClose(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileClose(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -239,7 +241,7 @@ func builtinFileClose(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileName(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileName(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -253,7 +255,7 @@ func builtinFileName(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(h.name))
 }
 
-func builtinFileOpenmode(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileOpenmode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -267,7 +269,7 @@ func builtinFileOpenmode(ctx *types.TaskContext, args []types.Value) types.Resul
 	return types.Ok(types.NewStr(h.mode))
 }
 
-func builtinFileRead(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -303,7 +305,7 @@ func builtinFileRead(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(filterTextMode(data)))
 }
 
-func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileReadline(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -344,7 +346,7 @@ func builtinFileReadline(ctx *types.TaskContext, args []types.Value) types.Resul
 	return types.Ok(types.NewStr(filterTextMode(trimmed)))
 }
 
-func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileReadlines(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -390,7 +392,7 @@ func builtinFileReadlines(ctx *types.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewList(out))
 }
 
-func builtinFileWrite(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileWrite(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -425,7 +427,7 @@ func builtinFileWrite(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(int64(n)))
 }
 
-func builtinFileWriteline(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileWriteline(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -459,7 +461,7 @@ func builtinFileWriteline(ctx *types.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileFlush(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileFlush(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -500,7 +502,7 @@ func parseSeekWhence(v types.Value) (int, types.ErrorCode) {
 	}
 }
 
-func builtinFileSeek(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileSeek(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -530,7 +532,7 @@ func builtinFileSeek(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(pos))
 }
 
-func builtinFileTell(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileTell(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -548,7 +550,7 @@ func builtinFileTell(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(pos))
 }
 
-func builtinFileEOF(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileEOF(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -600,7 +602,7 @@ func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
 	}
 }
 
-func builtinFileSize(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileSize(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -614,7 +616,7 @@ func builtinFileSize(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(st.Size()))
 }
 
-func builtinFileMode(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileMode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -628,7 +630,7 @@ func builtinFileMode(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(int64(st.Mode().Perm())))
 }
 
-func builtinFileLastModify(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileLastModify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -642,21 +644,21 @@ func builtinFileLastModify(ctx *types.TaskContext, args []types.Value) types.Res
 	return types.Ok(types.NewInt(st.ModTime().Unix()))
 }
 
-func builtinFileLastAccess(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileLastAccess(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 	return builtinFileLastModify(ctx, args)
 }
 
-func builtinFileLastChange(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileLastChange(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 	return builtinFileLastModify(ctx, args)
 }
 
-func builtinFileStat(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileStat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -688,7 +690,7 @@ func builtinFileStat(ctx *types.TaskContext, args []types.Value) types.Result {
 	}))
 }
 
-func builtinFileType(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileType(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -713,7 +715,7 @@ func builtinFileType(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewStr("file"))
 }
 
-func builtinFileRemove(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileRemove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -734,7 +736,7 @@ func builtinFileRemove(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileRename(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileRename(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -763,7 +765,7 @@ func builtinFileRename(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileMkdir(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileMkdir(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -795,7 +797,7 @@ func builtinFileMkdir(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileRmdir(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileRmdir(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -816,7 +818,7 @@ func builtinFileRmdir(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileChmod(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileChmod(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -854,7 +856,7 @@ func builtinFileChmod(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinFileList(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileList(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -895,7 +897,7 @@ func builtinFileList(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList(out))
 }
 
-func builtinFileHandles(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileHandles(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -916,7 +918,7 @@ func builtinFileHandles(ctx *types.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewList(out))
 }
 
-func builtinFileCountLines(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileCountLines(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -947,7 +949,7 @@ func builtinFileCountLines(ctx *types.TaskContext, args []types.Value) types.Res
 	return types.Ok(types.NewInt(count))
 }
 
-func builtinFileGrep(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFileGrep(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}

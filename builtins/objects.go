@@ -1,10 +1,12 @@
 package builtins
 
 import (
-	dbstore "barn/db/store"
-	"barn/types"
 	"sort"
 	"sync"
+
+	dbstore "barn/db/store"
+	"barn/kernel"
+	"barn/types"
 )
 
 // builtinCreate implements create(parent [, owner] [, anonymous] [, args])
@@ -18,11 +20,8 @@ import (
 //
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
-func builtinCreate(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 	registry, ok := ctx.Registry.(*Registry)
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -304,11 +303,8 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.ObjValue) {
 
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
-func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 	registry, ok := ctx.Registry.(*Registry)
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -389,11 +385,8 @@ func builtinRecycle(ctx *types.TaskContext, args []types.Value) types.Result {
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
-func builtinValid(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -423,11 +416,8 @@ func builtinValid(ctx *types.TaskContext, args []types.Value) types.Result {
 
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object ID
-func builtinMaxObject(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
+func builtinMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	store := ctx.Store
 
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)

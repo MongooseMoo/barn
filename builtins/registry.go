@@ -1,17 +1,17 @@
 package builtins
 
 import (
-	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/types"
 )
 
 // BuiltinFunc is a function type for builtin functions
 // Takes a task context and list of arguments, returns a Result
-type BuiltinFunc func(ctx *types.TaskContext, args []types.Value) types.Result
+type BuiltinFunc func(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // VerbCallerFunc is a callback for calling verbs on objects
 // Returns the result of calling the verb, or E_VERBNF if verb not found
-type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result
+type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result
 
 // Registry holds all registered builtin functions
 type Registry struct {
@@ -331,7 +331,7 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(name string, fn BuiltinFunc) {
 	if _, ok := lookupFunctionSignature(name); ok {
 		inner := fn
-		fn = func(ctx *types.TaskContext, args []types.Value) types.Result {
+		fn = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			if err := validateFunctionArgs(name, args); err != types.E_NONE {
 				return types.Err(err)
 			}
@@ -354,7 +354,7 @@ func (r *Registry) GetID(name string) (int, bool) {
 
 // CallByID calls a builtin function by its ID, applying protected-builtin
 // redirection first.
-func (r *Registry) CallByID(id int, ctx *types.TaskContext, args []types.Value) types.Result {
+func (r *Registry) CallByID(id int, ctx *kernel.TaskContext, args []types.Value) types.Result {
 	fn, ok := r.byID[id]
 	if !ok {
 		return types.Err(types.E_VERBNF)
@@ -364,7 +364,7 @@ func (r *Registry) CallByID(id int, ctx *types.TaskContext, args []types.Value) 
 
 // CallByName calls a builtin function by name, applying protected-builtin
 // redirection first.
-func (r *Registry) CallByName(name string, ctx *types.TaskContext, args []types.Value) (types.Result, bool) {
+func (r *Registry) CallByName(name string, ctx *kernel.TaskContext, args []types.Value) (types.Result, bool) {
 	fn, ok := r.funcs[name]
 	if !ok {
 		return types.Result{}, false
@@ -374,7 +374,7 @@ func (r *Registry) CallByName(name string, ctx *types.TaskContext, args []types.
 
 // dispatch runs a builtin, first giving ToastStunt's protected-builtin
 // redirection a chance to intercept the call.
-func (r *Registry) dispatch(name string, fn BuiltinFunc, ctx *types.TaskContext, args []types.Value) types.Result {
+func (r *Registry) dispatch(name string, fn BuiltinFunc, ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if redirect, ok := r.maybeProtectedRedirect(name, ctx, args); ok {
 		return redirect
 	}
@@ -390,7 +390,7 @@ func (r *Registry) dispatch(name string, fn BuiltinFunc, ctx *types.TaskContext,
 //
 // Returns (result, true) when the call was handled by the redirect path, or
 // (_, false) when the caller should run the real builtin normally.
-func (r *Registry) maybeProtectedRedirect(name string, ctx *types.TaskContext, args []types.Value) (types.Result, bool) {
+func (r *Registry) maybeProtectedRedirect(name string, ctx *kernel.TaskContext, args []types.Value) (types.Result, bool) {
 	if ctx == nil || name == "" {
 		return types.Result{}, false
 	}
@@ -401,8 +401,8 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *types.TaskContext, a
 	if !IsProtectedBuiltin(name) {
 		return types.Result{}, false
 	}
-	store, ok := ctx.Store.(*dbstore.Store)
-	if !ok || store == nil {
+	store := ctx.Store
+	if store == nil {
 		return types.Result{}, false
 	}
 	bfName := "bf_" + name
@@ -438,7 +438,7 @@ func (r *Registry) SetVerbCaller(caller VerbCallerFunc) {
 
 // CallVerb calls a verb on an object using the registered verb caller
 // Returns E_VERBNF if no verb caller is set or if the verb is not found
-func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *types.TaskContext) types.Result {
+func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result {
 	if r.verbCaller == nil {
 		return types.Err(types.E_VERBNF)
 	}

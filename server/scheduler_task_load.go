@@ -1,15 +1,16 @@
 package server
 
 import (
+	"fmt"
+	"log"
+	"sync/atomic"
+	"time"
+
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
-	"fmt"
-	"log"
-	"sync/atomic"
-	"time"
 )
 
 func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {

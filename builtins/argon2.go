@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"barn/types"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
@@ -9,10 +8,13 @@ import (
 	"strconv"
 	"strings"
 
+	"barn/kernel"
+	"barn/types"
+
 	"golang.org/x/crypto/argon2"
 )
 
-func builtinArgon2(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinArgon2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -107,7 +109,7 @@ func parseArgon2Hash(encoded string) (uint32, uint32, uint8, []byte, []byte, err
 	return uint32(m64), uint32(t64), uint8(p64), salt, hash, nil
 }
 
-func builtinArgon2Verify(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinArgon2Verify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}

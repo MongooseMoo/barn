@@ -1,13 +1,16 @@
 package builtins
 
 import (
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/types"
 	"log"
 	"os"
 	"runtime"
+
 	"sort"
+
+	kernel "barn/kernel"
+
+	"barn/task"
+	"barn/types"
 )
 
 type functionSignature struct {
@@ -107,7 +110,7 @@ func validateFunctionArgs(name string, args []types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
-func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFunctionInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	r, ok := ctx.Registry.(*Registry)
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -141,7 +144,7 @@ func builtinFunctionInfo(ctx *types.TaskContext, args []types.Value) types.Resul
 	return types.Ok(functionInfoEntry(name, signatureForFunction(name)))
 }
 
-func builtinCallFunction(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinCallFunction(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	r, ok := ctx.Registry.(*Registry)
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -167,14 +170,14 @@ func builtinCallFunction(ctx *types.TaskContext, args []types.Value) types.Resul
 	return result
 }
 
-func builtinTaskPerms(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 	return types.Ok(types.NewObj(ctx.Programmer))
 }
 
-func builtinQueueInfo(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinQueueInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -240,7 +243,7 @@ func countBackgroundTasksFor(player types.ObjID) int64 {
 	return count
 }
 
-func builtinFinishedTasks(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFinishedTasks(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -255,7 +258,7 @@ func builtinFinishedTasks(ctx *types.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewList(result))
 }
 
-func builtinThreads(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinThreads(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -271,7 +274,7 @@ func builtinThreads(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
-func builtinThreadPool(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinThreadPool(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -289,7 +292,7 @@ func builtinThreadPool(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Err(types.E_INVARG)
 }
 
-func builtinSetThreadMode(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSetThreadMode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -301,7 +304,7 @@ func builtinSetThreadMode(ctx *types.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinUsage(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinUsage(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -325,7 +328,7 @@ func builtinUsage(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewList(result))
 }
 
-func builtinMallocStats(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinMallocStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -339,7 +342,7 @@ func builtinMallocStats(ctx *types.TaskContext, args []types.Value) types.Result
 	return types.Ok(result)
 }
 
-func builtinMemoryUsage(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinMemoryUsage(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -364,14 +367,14 @@ func builtinMemoryUsage(ctx *types.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewList(out))
 }
 
-func builtinLogCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinLogCacheStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinDbDiskSize(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -386,7 +389,7 @@ func builtinDbDiskSize(ctx *types.TaskContext, args []types.Value) types.Result 
 
 // globalDumpFunc is set by the server to trigger a database checkpoint.
 var globalDumpFunc func() error
-var globalShutdownFunc func(ctx *types.TaskContext) error
+var globalShutdownFunc func(ctx *kernel.TaskContext) error
 
 // SetDumpFunc sets the function called by dump_database() to trigger a checkpoint.
 func SetDumpFunc(f func() error) {
@@ -394,11 +397,11 @@ func SetDumpFunc(f func() error) {
 }
 
 // SetShutdownFunc sets the function called by shutdown() to stop the server.
-func SetShutdownFunc(f func(ctx *types.TaskContext) error) {
+func SetShutdownFunc(f func(ctx *kernel.TaskContext) error) {
 	globalShutdownFunc = f
 }
 
-func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -416,14 +419,14 @@ func builtinDumpDatabase(ctx *types.TaskContext, args []types.Value) types.Resul
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinBackgroundTest(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinBackgroundTest(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -443,10 +446,7 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 		}
 		player = obj.ID()
 		if !ctx.IsWizard {
-			store, ok := ctx.Store.(*dbstore.Store)
-			if !ok {
-				return types.Err(types.E_PERM)
-			}
+			store := ctx.Store
 			owner, errCode := store.ObjectOwner(player)
 			if errCode != types.E_NONE || owner != ctx.Programmer {
 				return types.Err(types.E_PERM)
@@ -487,7 +487,7 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Suspend(-1)
 }
 
-func builtinFlushInput(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinFlushInput(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -501,7 +501,7 @@ func builtinFlushInput(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinForceInput(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinForceInput(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -528,7 +528,7 @@ func builtinForceInput(ctx *types.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinBufferedOutputLength(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinBufferedOutputLength(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -558,7 +558,7 @@ func builtinBufferedOutputLength(ctx *types.TaskContext, args []types.Value) typ
 	return types.Ok(types.NewInt(int64(length)))
 }
 
-func builtinConnectionOptions(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinConnectionOptions(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -608,7 +608,7 @@ func builtinConnectionOptions(ctx *types.TaskContext, args []types.Value) types.
 	return types.Ok(types.NewList(pairs))
 }
 
-func builtinOutputDelimiters(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinOutputDelimiters(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -633,7 +633,7 @@ func builtinOutputDelimiters(ctx *types.TaskContext, args []types.Value) types.R
 	}))
 }
 
-func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -717,7 +717,7 @@ func builtinListen(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(listenerDescriptorValue(desc))
 }
 
-func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -737,7 +737,7 @@ func builtinUnlisten(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
@@ -765,7 +765,7 @@ func builtinOpenNetworkConnection(ctx *types.TaskContext, args []types.Value) ty
 	return types.Ok(types.NewObj(conn))
 }
 
-func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinShutdown(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// ToastStunt's shutdown accepts an optional (message, delay) pair; the
 	// permission check happens after argument validation.
 	if len(args) > 2 {
@@ -782,14 +782,14 @@ func builtinShutdown(ctx *types.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinReadStdin(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinReadStdin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 	return types.Ok(types.NewStr(""))
 }
 
-func builtinSpellcheck(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinSpellcheck(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

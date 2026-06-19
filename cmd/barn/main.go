@@ -1,14 +1,6 @@
 package main
 
 import (
-	"barn/builtins"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/parser"
-	"barn/server"
-	"barn/trace"
-	"barn/types"
-	"barn/vm"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +8,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"barn/builtins"
+	dbformat "barn/db/format"
+	dbstore "barn/db/store"
+	"barn/kernel"
+	"barn/parser"
+	"barn/server"
+	"barn/trace"
+	"barn/types"
+	"barn/vm"
 )
 
 type stringListFlag []string
@@ -381,7 +383,7 @@ func evalExpression(store *dbstore.Store, expr string) {
 		os.Exit(1)
 	}
 
-	ctx := types.NewTaskContext()
+	ctx := kernel.NewTaskContext()
 	ctx.Store = store
 	ctx.Registry = registry
 

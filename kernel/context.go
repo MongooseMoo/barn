@@ -1,4 +1,9 @@
-package types
+package kernel
+
+import (
+	dbstore "barn/db/store"
+	"barn/types"
+)
 
 // TaskContext holds the execution context for a MOO task
 // This is passed through all evaluator methods to track:
@@ -6,12 +11,12 @@ package types
 // - Current player/programmer (permissions)
 // - Current object and verb (for 'this', 'caller', etc.)
 type TaskContext struct {
-	TicksRemaining int64  // Infinite loop protection
-	Player         ObjID  // Current player
-	Programmer     ObjID  // Effective permissions
-	ThisObj        ObjID  // Current 'this' (might be prototype for primitives)
-	ThisValue      Value  // Actual value of 'this' (primitive value, or nil for objects)
-	Verb           string // Current verb name
+	TicksRemaining int64       // Infinite loop protection
+	Player         types.ObjID // Current player
+	Programmer     types.ObjID // Effective permissions
+	ThisObj        types.ObjID // Current 'this' (might be prototype for primitives)
+	ThisValue      types.Value // Actual value of 'this' (primitive value, or nil for objects)
+	Verb           string      // Current verb name
 
 	// IndexContext is the length of the collection currently being indexed
 	// Used to resolve ^ and $ markers in sub-expressions like list[^..^+1]
@@ -20,11 +25,11 @@ type TaskContext struct {
 
 	// MapFirstKey and MapLastKey hold the first/last keys when indexing a map
 	// These are used so ^ and $ can resolve to actual keys instead of integers
-	MapFirstKey Value
-	MapLastKey  Value
+	MapFirstKey types.Value
+	MapLastKey  types.Value
 
 	// TaskLocal stores task-local data (set via set_task_local, read via task_local)
-	TaskLocal Value
+	TaskLocal types.Value
 
 	// TaskID is the unique identifier for this task
 	TaskID int64
@@ -50,8 +55,7 @@ type TaskContext struct {
 
 	// Store is a reference to the object database (if available)
 	// This allows builtins and limits to read server options from $server_options
-	// Import cycle prevention: This is stored as interface{} (should be *store.Store)
-	Store interface{}
+	Store *dbstore.Store
 
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
@@ -70,9 +74,9 @@ type TaskContext struct {
 func NewTaskContext() *TaskContext {
 	return &TaskContext{
 		TicksRemaining:  300000, // Default tick limit (increased to handle long loops without suspend)
-		Player:          ObjNothing,
-		Programmer:      ObjNothing,
-		ThisObj:         ObjNothing,
+		Player:          types.ObjNothing,
+		Programmer:      types.ObjNothing,
+		ThisObj:         types.ObjNothing,
 		Verb:            "",
 		IndexContext:    -1,      // -1 means not in an indexing context
 		MaxStringConcat: 1000000, // Default 1MB string limit (matches test default)
@@ -88,7 +92,7 @@ func (ctx *TaskContext) ConsumeTick() bool {
 // CheckStringLimit returns E_QUOTA if the string length exceeds MaxStringConcat
 // Returns E_NONE if the string is within limits
 // Uses the global cached limit from load_server_options() if available
-func (ctx *TaskContext) CheckStringLimit(length int) ErrorCode {
+func (ctx *TaskContext) CheckStringLimit(length int) types.ErrorCode {
 	limit := ctx.MaxStringConcat
 
 	// Try to read from global cache (set by load_server_options())
@@ -96,7 +100,7 @@ func (ctx *TaskContext) CheckStringLimit(length int) ErrorCode {
 	// String builtins will need to check the cache themselves before calling this
 
 	if limit > 0 && length > limit {
-		return E_QUOTA
+		return types.E_QUOTA
 	}
-	return E_NONE
+	return types.E_NONE
 }

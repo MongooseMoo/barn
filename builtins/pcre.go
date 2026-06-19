@@ -1,13 +1,15 @@
 package builtins
 
 import (
-	"barn/types"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"barn/kernel"
+	"barn/types"
 )
 
-func builtinPcreMatch(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -97,7 +99,7 @@ func buildPcreCapture(subject string, start, end int) types.Value {
 	})
 }
 
-func builtinPcreReplace(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinPcreReplace(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -200,7 +202,7 @@ func readDelimited(s string, start int, delim byte) (string, int, bool) {
 	return "", 0, false
 }
 
-func builtinPcreCacheStats(ctx *types.TaskContext, args []types.Value) types.Result {
+func builtinPcreCacheStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
