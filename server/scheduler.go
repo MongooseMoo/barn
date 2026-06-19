@@ -333,11 +333,10 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 
 	player := conn.GetPlayer()
-	playerObj := s.store.Get(player)
-	if playerObj == nil {
+	location, errCode := s.store.Location(player)
+	if errCode != types.E_NONE {
 		return
 	}
-	location := playerObj.Location
 
 	if s.processProgrammingInput(conn, input.Line) {
 		return

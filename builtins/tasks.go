@@ -197,8 +197,10 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 	// Toast compares the target against the currently running verb's programmer
 	// (RUN_ACTIV.progr), not the connected player: set_task_perms(who) is allowed
 	// when the current programmer is a wizard or who is the current programmer.
-	progObj := store.Get(ctx.Programmer)
-	progIsWizard := progObj != nil && progObj.Flags.Has(db.FlagWizard)
+	progIsWizard, errCode := store.HasObjectFlag(ctx.Programmer, db.FlagWizard)
+	if errCode != types.E_NONE {
+		progIsWizard = false
+	}
 	if !progIsWizard && whoVal.ID() != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
@@ -208,8 +210,10 @@ func builtinSetTaskPerms(ctx *types.TaskContext, args []types.Value) types.Resul
 	// Update ctx.IsWizard to reflect the new programmer's actual status.
 	// In Toast, the progr field determines wizard checks dynamically;
 	// Barn caches IsWizard so we must update it here.
-	obj := store.Get(whoVal.ID())
-	ctx.IsWizard = obj != nil && obj.Flags.Has(db.FlagWizard)
+	ctx.IsWizard, errCode = store.HasObjectFlag(whoVal.ID(), db.FlagWizard)
+	if errCode != types.E_NONE {
+		ctx.IsWizard = false
+	}
 
 	// Also update the current CallStack frame's Programmer so that
 	// caller_perms() reflects the new permissions (matches Toast's
@@ -357,8 +361,9 @@ func builtinCallers(ctx *types.TaskContext, args []types.Value) types.Result {
 func evalWrapperFrames(ctx *types.TaskContext, includeLineNumbers bool) []types.Value {
 	location := types.ObjNothing
 	if store, ok := ctx.Store.(*db.Store); ok {
-		if p := store.Get(ctx.Player); p != nil {
-			location = p.Location
+		loc, errCode := store.Location(ctx.Player)
+		if errCode == types.E_NONE {
+			location = loc
 		}
 	}
 	makeFrame := func(this, programmer, vloc types.ObjID) types.Value {

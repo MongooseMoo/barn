@@ -124,3 +124,33 @@ Disposition:
 Next action:
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 4 small runtime permission and context stragglers.
+
+## Phase 4 - Small Runtime Permission and Context Stragglers
+
+Status: ready to commit.
+
+Changes:
+- Replaced `server/scheduler.go` player `store.Get(...).Location` with `store.Location`.
+- Replaced `builtins/tasks.go` wizard flag checks with `store.HasObjectFlag`.
+- Replaced `builtins/tasks.go` eval-wrapper player location read with `store.Location`.
+- Replaced `builtins/signatures.go` read permission owner check with `store.ObjectOwner`.
+- Left `builtins/objects_players.go` unchanged because `store.Players()` is already a store-owned player query.
+
+Search gate:
+- `rg -n --pcre2 "store\.Get\(|\.(Location|Flags|Owner)\b" server/scheduler.go builtins/tasks.go builtins/signatures.go builtins/objects_players.go --glob "!**/*_test.go"`: remaining matches are `task.Task.Owner` fields and `store.Location(...)` method calls, not direct object internals.
+
+Runtime gates:
+- `go test ./db ./builtins ./server`: passed.
+- `go test -timeout 120s ./builtins -run "Test.*(Task|Read|Player|Perm|Signature)"`: passed.
+- `go test -timeout 120s ./server -run "Test.*Command"`: passed.
+- `go build -o barn.exe ./cmd/barn/`: passed.
+- `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"`: passed, `3871 passed, 131 skipped in 142.22s`.
+- `git diff --check`: passed.
+
+Disposition:
+- Kept. Phase 4 removes the remaining planned small runtime object reads without shims, fallback paths, or backend interfaces.
+
+Next action:
+- Commit Phase 4 code and record.
+- Reread `plans/store-runtime-access-cleanup-plan.md`.
+- Continue with Phase 5 runtime fixed-point audit.

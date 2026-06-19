@@ -447,8 +447,8 @@ func builtinRead(ctx *types.TaskContext, args []types.Value) types.Result {
 			if !ok {
 				return types.Err(types.E_PERM)
 			}
-			playerObj := store.Get(player)
-			if playerObj == nil || playerObj.Owner != ctx.Programmer {
+			owner, errCode := store.ObjectOwner(player)
+			if errCode != types.E_NONE || owner != ctx.Programmer {
 				return types.Err(types.E_PERM)
 			}
 		}
@@ -798,4 +798,3 @@ func builtinSpellcheck(ctx *types.TaskContext, args []types.Value) types.Result 
 	}
 	return types.Ok(types.NewList([]types.Value{}))
 }
-
