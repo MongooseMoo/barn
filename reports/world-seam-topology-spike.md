@@ -227,5 +227,5 @@ Rollout work:
 
 ## 8. Commit
 
-Commit hash on `spike/world-seam`: see git log (recorded after commit of this report +
-worldstore.go + verbs.go only).
+Commit hash on `spike/world-seam`: `06271c5e59134d31364b197d129e8e1794b9d3fb`
+(only `builtins/worldstore.go`, `builtins/verbs.go`, and this report were staged).
