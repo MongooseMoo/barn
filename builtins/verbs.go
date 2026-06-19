@@ -77,7 +77,7 @@ func unparsePrepSpec(prepStr string) string {
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
 func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -134,7 +134,7 @@ func builtinRespondTo(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinVerbs: verbs(object) → LIST
 // Returns list of verb names defined on object
 func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -170,7 +170,7 @@ func builtinVerbs(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -239,7 +239,7 @@ func builtinVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -304,7 +304,7 @@ func builtinVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinVerbCode: verb_code(object, name [, fully_paren [, indent]]) → LIST
 // Returns verb source code as list of lines
 func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -356,7 +356,7 @@ func builtinVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -511,7 +511,7 @@ func builtinAddVerb(ctx *types.TaskContext, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -548,7 +548,7 @@ func builtinDeleteVerb(ctx *types.TaskContext, args []types.Value) types.Result 
 // Changes verb metadata
 // info: {owner, perms, names}
 func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -616,7 +616,7 @@ func builtinSetVerbInfo(ctx *types.TaskContext, args []types.Value) types.Result
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
 func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -678,7 +678,7 @@ func builtinSetVerbArgs(ctx *types.TaskContext, args []types.Value) types.Result
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
 func builtinSetVerbCode(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
@@ -852,7 +852,7 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 // builtinDisassemble: disassemble(object, name) → LIST
 // Returns bytecode disassembly (wizard only)
 func builtinDisassemble(ctx *types.TaskContext, args []types.Value) types.Result {
-	store, ok := ctx.Store.(*dbstore.Store)
+	store, ok := storeFromCtx(ctx)
 	if !ok {
 		return types.Err(types.E_INVARG)
 	}
