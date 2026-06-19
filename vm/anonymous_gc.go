@@ -4,7 +4,6 @@ import (
 	"barn/builtins"
 	"barn/db"
 	"barn/types"
-	"sort"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
@@ -51,55 +50,10 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 }
 
 func buildPersistentAnonymousReachability(store *db.Store) map[types.ObjID]struct{} {
-	reachable := make(map[types.ObjID]struct{})
 	if store == nil {
-		return reachable
+		return map[types.ObjID]struct{}{}
 	}
-
-	queue := make([]types.ObjID, 0)
-	enqueueRefs := func(v types.Value) {
-		refs := make(map[types.ObjID]struct{})
-		collectAnonymousRefsForGC(v, refs)
-		for id := range refs {
-			queue = append(queue, id)
-		}
-	}
-
-	for _, obj := range store.All() {
-		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || obj.Anonymous {
-			continue
-		}
-		for _, prop := range obj.Properties {
-			if prop == nil {
-				continue
-			}
-			enqueueRefs(prop.Value)
-		}
-	}
-
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-
-		if _, seen := reachable[id]; seen {
-			continue
-		}
-
-		obj := store.GetUnsafe(id)
-		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || !obj.Anonymous {
-			continue
-		}
-
-		reachable[id] = struct{}{}
-		for _, prop := range obj.Properties {
-			if prop == nil {
-				continue
-			}
-			enqueueRefs(prop.Value)
-		}
-	}
-
-	return reachable
+	return store.PersistentAnonymousReachability()
 }
 
 func pendingFinalizationValues(store *db.Store, refs map[types.ObjID]struct{}) []types.Value {
@@ -108,63 +62,12 @@ func pendingFinalizationValues(store *db.Store, refs map[types.ObjID]struct{}) [
 	}
 
 	reachable := buildPersistentAnonymousReachability(store)
-	ids := make([]types.ObjID, 0, len(refs))
-	for id := range refs {
-		obj := store.GetUnsafe(id)
-		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || !obj.Anonymous {
-			continue
-		}
-		if _, keep := reachable[id]; keep {
-			continue
-		}
-		ids = append(ids, id)
-	}
-
-	if len(ids) == 0 {
-		return nil
-	}
-
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	values := make([]types.Value, 0, len(ids))
-	for _, id := range ids {
-		values = append(values, types.NewAnon(id))
-	}
-	return values
+	return store.UnreachableAnonymousValues(reachable, refs)
 }
 
 func expandAnonymousReachability(store *db.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
-	if store == nil || len(refs) == 0 {
-		return
-	}
-
-	queue := make([]types.ObjID, 0, len(refs))
-	for id := range refs {
-		queue = append(queue, id)
-	}
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-
-		if _, seen := reachable[id]; seen {
-			continue
-		}
-
-		obj := store.GetUnsafe(id)
-		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) || !obj.Anonymous {
-			continue
-		}
-
-		reachable[id] = struct{}{}
-		nested := make(map[types.ObjID]struct{})
-		for _, prop := range obj.Properties {
-			if prop == nil {
-				continue
-			}
-			collectAnonymousRefsForGC(prop.Value, nested)
-		}
-		for nestedID := range nested {
-			queue = append(queue, nestedID)
-		}
+	if store != nil {
+		store.ExpandAnonymousReachability(reachable, refs)
 	}
 }
 
@@ -218,30 +121,10 @@ func AutoRecycleOrphanAnonymousSince(store *db.Store, registry *builtins.Registr
 	}
 	expandAnonymousReachability(store, reachable, liveRefs)
 
-	// Recycle all currently-valid anonymous objects that are unreachable.
-	candidates := make([]types.ObjID, 0)
-	for _, obj := range store.GetAnonymousObjects() {
-		if obj == nil || obj.Recycled || obj.Flags.Has(db.FlagInvalid) {
-			continue
-		}
-		if obj.ID < minID {
-			continue
-		}
-		// Never auto-recycle player objects even if they carry the 'a' flag.
-		if obj.Flags.Has(db.FlagUser) {
-			continue
-		}
-		if _, keep := reachable[obj.ID]; keep {
-			continue
-		}
-		candidates = append(candidates, obj.ID)
-	}
-
+	candidates := store.AnonymousRecycleCandidates(reachable, minID)
 	if len(candidates) == 0 {
 		return
 	}
-
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 
 	recycleFn, ok := registry.Get("recycle")
 	if !ok {

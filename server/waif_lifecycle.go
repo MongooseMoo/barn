@@ -20,18 +20,7 @@ func waifInList(needle types.WaifValue, haystack []types.WaifValue) bool {
 }
 
 func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
-	var roots []types.WaifValue
-	for _, obj := range s.store.All() {
-		if obj == nil || obj.Recycled {
-			continue
-		}
-		for _, prop := range obj.Properties {
-			if prop == nil {
-				continue
-			}
-			vm.CollectWaifsFromValue(prop.Value, &roots)
-		}
-	}
+	roots := s.store.PersistentWaifRoots()
 	for _, exec := range rootVMs {
 		vm.CollectWaifsFromVM(exec, &roots)
 	}

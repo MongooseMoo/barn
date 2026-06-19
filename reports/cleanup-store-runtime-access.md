@@ -86,3 +86,39 @@ Disposition:
 Next action:
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 3 anonymous and WAIF reachability.
+
+## Phase 3 - Anonymous and WAIF Reachability
+
+Status: ready to commit.
+
+Changes:
+- Added store-owned persistent anonymous reachability queries:
+  - `PersistentAnonymousReachability`
+  - `ExpandAnonymousReachability`
+  - `UnreachableAnonymousValues`
+  - `AnonymousRecycleCandidates`
+- Added store-owned persistent WAIF root query:
+  - `PersistentWaifRoots`
+- Replaced `vm/anonymous_gc.go` persistent object/property scans and anonymous candidate enumeration with store-owned queries.
+- Replaced `server/waif_lifecycle.go` persistent WAIF object/property scan with `PersistentWaifRoots`.
+- Kept live VM stack/root traversal in `vm`.
+- Kept lifecycle invocation policy in `server` and builtin recycle paths.
+
+Search gate:
+- `rg -n --pcre2 "store\.(All|GetUnsafe|GetAnonymousObjects)\(|\.(Properties|Flags|Anonymous|Recycled)\b" vm/anonymous_gc.go server/waif_lifecycle.go --glob "!**/*_test.go"`: no matches.
+
+Runtime gates:
+- `go test ./db ./vm ./server`: passed.
+- `go test -timeout 120s ./vm -run "Test.*(Anonymous|Waif|GC|Finalization)"`: passed.
+- `go test -timeout 120s ./server -run "Test.*(Waif|Anonymous|Recycle|Finalization)"`: passed, no tests matched.
+- `go build -o barn.exe ./cmd/barn/`: passed.
+- `uv run --project ../moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"`: passed, `3871 passed, 131 skipped in 142.74s`.
+- `git diff --check`: passed.
+
+Disposition:
+- Kept. Phase 3 removes production persistent reachability object scans from the active slice without shims, fallback paths, or backend interfaces.
+
+Next action:
+- Commit Phase 3 code and record.
+- Reread `plans/store-runtime-access-cleanup-plan.md`.
+- Continue with Phase 4 small runtime permission and context stragglers.
