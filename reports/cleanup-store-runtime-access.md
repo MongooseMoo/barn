@@ -89,7 +89,10 @@ Next action:
 
 ## Phase 3 - Anonymous and WAIF Reachability
 
-Status: ready to commit.
+Status: committed.
+
+Commit:
+- `edef91b Move anonymous reachability reads into store`
 
 Changes:
 - Added store-owned persistent anonymous reachability queries:
@@ -119,6 +122,5 @@ Disposition:
 - Kept. Phase 3 removes production persistent reachability object scans from the active slice without shims, fallback paths, or backend interfaces.
 
 Next action:
-- Commit Phase 3 code and record.
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 4 small runtime permission and context stragglers.
