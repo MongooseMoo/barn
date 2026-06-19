@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -50,7 +51,7 @@ func BuildVMRegistry() *builtins.Registry {
 			}))
 		}
 
-		c := NewCompilerWithRegistry(registry)
+		c := bytecode.NewCompilerWithRegistry(registry)
 		prog, compileErr := c.CompileStatements(stmts)
 		if compileErr != nil {
 			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", compileErr.Error())
@@ -99,8 +100,8 @@ func BuildVMRegistry() *builtins.Registry {
 			Caller:          ctx.ThisObj,
 			VerbLoc:         types.ObjNothing,
 			Args:            []types.Value{},
-			LoopStack:       make([]LoopState, 0, 4),
-			ExceptStack:     make([]Handler, 0, 4),
+			LoopStack:       make([]bytecode.LoopState, 0, 4),
+			ExceptStack:     make([]bytecode.Handler, 0, 4),
 			IsEvalFrame:     true,
 			VerbDebug:       true,
 			SavedThisObj:    ctx.ThisObj,

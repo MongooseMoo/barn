@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/bytecode"
 	"barn/types"
 	"fmt"
 	"strings"
@@ -116,7 +117,7 @@ func (vm *VM) executeFork() error {
 	return nil
 }
 
-func sourceLinesForFork(program *Program, bodyIP, bodyLen int) []string {
+func sourceLinesForFork(program *bytecode.Program, bodyIP, bodyLen int) []string {
 	if program == nil || len(program.Source) == 0 || bodyLen <= 0 {
 		return nil
 	}
@@ -173,7 +174,7 @@ func oneLineForkBody(source string) string {
 func (vm *VM) executeTryExcept() error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.ReadByte())
-	handlers := make([]Handler, numClauses)
+	handlers := make([]bytecode.Handler, numClauses)
 
 	for i := 0; i < numClauses; i++ {
 		numCodes := int(vm.ReadByte())
@@ -191,8 +192,8 @@ func (vm *VM) executeTryExcept() error {
 		frame.IP += 2
 		handlerIP := int(uint16(hi)<<8 | uint16(lo))
 
-		handlers[i] = Handler{
-			Type:      HandlerExcept,
+		handlers[i] = bytecode.Handler{
+			Type:      bytecode.HandlerExcept,
 			HandlerIP: handlerIP,
 			Codes:     codes,
 			VarIndex:  varIndex,
@@ -215,7 +216,7 @@ func (vm *VM) executeEndExcept() {
 	// We pop from the end until we hit a non-Except handler or empty
 	for len(frame.ExceptStack) > 0 {
 		top := frame.ExceptStack[len(frame.ExceptStack)-1]
-		if top.Type != HandlerExcept {
+		if top.Type != bytecode.HandlerExcept {
 			break
 		}
 		frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
@@ -232,8 +233,8 @@ func (vm *VM) executeTryFinally() error {
 	frame.IP += 2
 	finallyIP := int(uint16(hi)<<8 | uint16(lo))
 
-	handler := Handler{
-		Type:      HandlerFinally,
+	handler := bytecode.Handler{
+		Type:      bytecode.HandlerFinally,
 		HandlerIP: finallyIP,
 		VarIndex:  -1,
 	}
@@ -252,7 +253,7 @@ func (vm *VM) executeEndFinally() error {
 	// If there's a finally handler on top of the stack, pop it (normal path)
 	if len(frame.ExceptStack) > 0 {
 		top := frame.ExceptStack[len(frame.ExceptStack)-1]
-		if top.Type == HandlerFinally {
+		if top.Type == bytecode.HandlerFinally {
 			frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
 			return nil
 		}

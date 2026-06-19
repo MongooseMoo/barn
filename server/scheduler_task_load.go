@@ -33,7 +33,7 @@ func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		return fmt.Errorf("%s", errors[0])
 	}
 
-	compiler := vm.NewCompilerWithRegistry(s.registry)
+	compiler := bytecode.NewCompilerWithRegistry(s.registry)
 	prog, err := compiler.CompileStatements(program.Statements)
 	if err != nil {
 		return err

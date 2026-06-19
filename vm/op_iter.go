@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/bytecode"
 	"barn/types"
 	"fmt"
 )
@@ -117,7 +118,7 @@ func (vm *VM) executeScatter() error {
 // Looks up the name in the program's VarNames table and sets the corresponding
 // slot in frame.Locals. If the name is not found (verb doesn't reference it),
 // silently does nothing.
-func SetLocalByName(frame *StackFrame, prog *Program, name string, value types.Value) {
+func SetLocalByName(frame *StackFrame, prog *bytecode.Program, name string, value types.Value) {
 	for i, varName := range prog.VarNames {
 		if varName == name {
 			frame.Locals[i] = value

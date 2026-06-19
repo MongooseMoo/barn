@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -376,7 +377,7 @@ func evalExpression(store *dbstore.Store, expr string) {
 	}
 
 	registry := vm.BuildVMRegistry()
-	compiler := vm.NewCompilerWithRegistry(registry)
+	compiler := bytecode.NewCompilerWithRegistry(registry)
 	prog, err := compiler.Compile(&parser.ReturnStmt{Value: node})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compile error: %v\n", err)

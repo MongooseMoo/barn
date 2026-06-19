@@ -153,7 +153,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	var t *task.Task
 
 	if bcFork, ok := forkInfo.Body.([3]interface{}); ok {
-		parentProg, ok1 := bcFork[0].(*vm.Program)
+		parentProg, ok1 := bcFork[0].(*bytecode.Program)
 		bodyIP, ok2 := bcFork[1].(int)
 		bodyLen, ok3 := bcFork[2].(int)
 		if !ok1 || !ok2 || !ok3 {

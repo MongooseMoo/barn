@@ -5,7 +5,6 @@ import (
 	"barn/bytecode"
 	dbformat "barn/db/format"
 	"barn/types"
-	"barn/vm"
 	"flag"
 	"fmt"
 	"os"
@@ -75,7 +74,7 @@ func main() {
 		fmt.Printf("\n[disasm] %d bytes, %d constants, %d locals\n", len(prog.Code), len(prog.Constants), prog.NumLocals)
 		counts := map[string]int{}
 		for _, b := range prog.Code {
-			counts[vm.OpCode(b).String()]++
+			counts[bytecode.OpCode(b).String()]++
 		}
 		for _, name := range []string{"CALL_BUILTIN", "CALL_VERB"} {
 			fmt.Printf("[disasm] byte-occurrences of %s: %d\n", name, counts[name])
@@ -84,7 +83,7 @@ func main() {
 		// shows whether CALL_BUILTIN appears at all).
 		fmt.Printf("[disasm] stream: ")
 		for _, b := range prog.Code {
-			fmt.Printf("%s ", vm.OpCode(b).String())
+			fmt.Printf("%s ", bytecode.OpCode(b).String())
 		}
 		fmt.Println()
 	}

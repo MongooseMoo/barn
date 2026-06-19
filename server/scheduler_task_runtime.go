@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/task"
@@ -99,7 +100,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 
 		// Compile AST to bytecode
-		compiler := vm.NewCompilerWithRegistry(s.registry)
+		compiler := bytecode.NewCompilerWithRegistry(s.registry)
 		prog, compileErr := compiler.CompileStatements(code)
 		if compileErr != nil {
 			t.SetState(task.TaskKilled)

@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"barn/bytecode"
 	"barn/task"
 	"barn/types"
 )
@@ -54,7 +55,7 @@ func (vm *VM) matchingExceptAboveEvalFrame(errCode types.ErrorCode) bool {
 			return false
 		}
 		for _, h := range frame.ExceptStack {
-			if h.Type == HandlerExcept && h.Matches(errCode) {
+			if h.Type == bytecode.HandlerExcept && h.Matches(errCode) {
 				return true
 			}
 		}

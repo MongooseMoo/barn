@@ -165,16 +165,29 @@ func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 	return c.program, nil
 }
 
-// CompileVerbBytecode compiles verb source (code lines) to bytecode.
+// CompileVerbBytecode compiles verb source (code lines) to bytecode, backed by a
+// content-addressed cache.
 //
 // In the relocated topology the bytecode package owns the cache and the parser
 // bridge. The caller passes only persistent state (the source lines) plus the
 // registry; bytecode no longer reaches into a db/store.Verb struct, so it does
-// NOT import db/store. The actual content-hash cache lookup/store is a separate
-// concern (this spike proves topology only) — here we always parse + compile.
+// NOT import db/store.
+//
+// The cache is keyed by a hash of the RAW stored source (the code lines). On a
+// hit the cached *Program is returned directly (a cheap map lookup, no parse, no
+// compile). On a miss the source is parsed + compiled, the result is stored, and
+// returned. Correctness is automatic: changed source hashes to a new key and
+// recompiles; eviction (LRU) is memory-management only and at worst forces a
+// recompile. The cached *Program is immutable (all per-execution state lives on
+// the VM StackFrame), so sharing it across executions is safe.
 //
 // Returns the compiled *Program or an error.
 func CompileVerbBytecode(code []string, registry Registry) (*Program, error) {
+	key := hashCode(code)
+	if prog, ok := verbProgramCache.get(key); ok {
+		return prog, nil
+	}
+
 	vp, errs := CompileVerb(code)
 	if errs != nil {
 		return nil, fmt.Errorf("parse error: %v", errs[0])
@@ -188,6 +201,8 @@ func CompileVerbBytecode(code []string, registry Registry) (*Program, error) {
 	if len(code) > 0 {
 		prog.Source = append([]string(nil), code...)
 	}
+
+	verbProgramCache.put(key, prog)
 	return prog, nil
 }
 
