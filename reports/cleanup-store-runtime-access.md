@@ -221,4 +221,25 @@ Disposition:
 
 Next action:
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
-- Verify completion criteria and record the final commit hash.
+- Verify completion criteria.
+
+## Final Completion Check
+
+Status: complete.
+
+Completion evidence:
+- Phases 0-6 are committed and recorded above.
+- Runtime production code in `builtins`, `server`, and `vm` no longer uses `Store.Get`, `Store.GetUnsafe`, `Store.All`, or `Store.GetAnonymousObjects`.
+- Runtime production code in `builtins`, `server`, and `vm` no longer reads property-structure or verb-structure object fields directly.
+- Remaining direct object internals are bounded to `db` owner code, reader/writer/snapshot/load boundaries, tests/fixtures, debug/CLI surfaces, or non-object fields recorded in Phase 5.
+- `db.Store` remains the live runtime owner.
+- Backend pluggability implementation remains deferred.
+- Final implemented phase full managed conformance passed: `3871 passed, 131 skipped in 142.67s`.
+
+Final search checks:
+- `rg -n --pcre2 "\b(store|s\.store|vm\.Store)\.(Get|GetUnsafe|All|GetAnonymousObjects)\(" builtins server vm --glob "!**/*_test.go"`: no matches.
+- `rg -n --pcre2 "\.(PropOrder|PropDefsCount|ChparentChildren|VerbList|Properties|Verbs)\b" builtins server vm --glob "!**/*_test.go"`: no matches.
+- `rg -n "TaskSource|SetTaskSource|CheckpointManager" db server cmd builtins --glob "!**/*_test.go"`: no matches.
+
+Next action:
+- None in this plan.
