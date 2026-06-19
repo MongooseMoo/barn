@@ -50,7 +50,10 @@ Next action:
 
 ## Phase 2 - Verb Dispatch and Hook Queries
 
-Status: ready to commit.
+Status: committed.
+
+Commit:
+- `e69dd32 Move verb dispatch reads into store`
 
 Changes:
 - Added store-owned verb/runtime query methods in `db.Store`:
@@ -81,6 +84,5 @@ Disposition:
 - Kept. Phase 2 removes production verb-structure reads from the active slice without shims, fallback paths, or backend interfaces.
 
 Next action:
-- Commit Phase 2 code and record.
 - Reread `plans/store-runtime-access-cleanup-plan.md`.
 - Continue with Phase 3 anonymous and WAIF reachability.
