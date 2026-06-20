@@ -10,14 +10,26 @@ type WaifValue struct {
 	properties map[string]Value // Property values
 }
 
-// NewWaif creates a new waif with the given class and owner
-func NewWaif(class ObjID, owner ObjID) WaifValue {
+// NewWaif creates a new waif value with the given class and owner.
+func NewWaif(class ObjID, owner ObjID) Value {
+	return newWaifVal(WaifValue{
+		class:      class,
+		owner:      owner,
+		properties: make(map[string]Value),
+	})
+}
+
+// NewWaifValue creates a WaifValue view (not yet wrapped) for internal building.
+func NewWaifValue(class ObjID, owner ObjID) WaifValue {
 	return WaifValue{
 		class:      class,
 		owner:      owner,
 		properties: make(map[string]Value),
 	}
 }
+
+// AsValue wraps the waif view back into a Value.
+func (w WaifValue) AsValue() Value { return newWaifVal(w) }
 
 // Type returns TYPE_WAIF
 func (w WaifValue) Type() TypeCode {
@@ -32,14 +44,8 @@ func (w WaifValue) String() string {
 
 // Equal checks if two waifs are equal
 // WAIFs are equal only if they're the same instance (reference equality)
-func (w WaifValue) Equal(other Value) bool {
-	// For now, use simple struct comparison
-	// In a full implementation, this would use reference identity
-	otherWaif, ok := other.(WaifValue)
-	if !ok {
-		return false
-	}
-	return w.class == otherWaif.class && equalMaps(w.properties, otherWaif.properties)
+func (w WaifValue) Equal(other WaifValue) bool {
+	return w.class == other.class && equalMaps(w.properties, other.properties)
 }
 
 // Truthy returns whether the waif is truthy

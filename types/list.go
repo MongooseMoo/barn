@@ -50,7 +50,7 @@ func (s *sliceList) ByteSize() int {
 
 func (s *sliceList) Get(i int) Value {
 	if i < 1 || i > len(s.elements) {
-		return nil
+		return Value{} // none for out-of-bounds (was nil)
 	}
 	return s.elements[i-1] // 1-based to 0-based
 }
@@ -103,14 +103,22 @@ type ListValue struct {
 }
 
 // NewList creates a new list value
-func NewList(elements []Value) ListValue {
-	return ListValue{data: newSliceList(elements)}
+func NewList(elements []Value) Value {
+	return newListVal(newSliceList(elements))
 }
 
 // NewEmptyList creates an empty list
-func NewEmptyList() ListValue {
-	return ListValue{data: newSliceListSized([]Value{}, listVarOverhead)}
+func NewEmptyList() Value {
+	return newListVal(newSliceListSized([]Value{}, listVarOverhead))
 }
+
+// NewListValue creates a ListValue view (not yet wrapped) for internal building.
+func NewListValue(elements []Value) ListValue {
+	return ListValue{data: newSliceList(elements)}
+}
+
+// AsValue wraps the list view back into a Value.
+func (l ListValue) AsValue() Value { return newListVal(l.data) }
 
 // String returns the MOO string representation
 func (l ListValue) String() string {
@@ -121,8 +129,8 @@ func (l ListValue) String() string {
 
 	var parts []string
 	for _, elem := range elements {
-		if elem == nil {
-			parts = append(parts, "0") // nil becomes 0 in MOO
+		if elem.IsNone() {
+			parts = append(parts, "0") // none/nil becomes 0 in MOO
 		} else {
 			parts = append(parts, elem.String())
 		}
@@ -141,24 +149,19 @@ func (l ListValue) Truthy() bool {
 	return l.Len() > 0
 }
 
-// Equal compares two values for equality (deep comparison)
-func (l ListValue) Equal(other Value) bool {
-	if otherList, ok := other.(ListValue); ok {
-		if l.data.Len() != otherList.data.Len() {
+// Equal compares two lists for equality (deep comparison)
+func (l ListValue) Equal(other ListValue) bool {
+	if l.data.Len() != other.data.Len() {
+		return false
+	}
+	elems1 := l.data.Elements()
+	elems2 := other.data.Elements()
+	for i := 0; i < len(elems1); i++ {
+		if !elems1[i].Equal(elems2[i]) {
 			return false
 		}
-
-		// Deep comparison
-		elems1 := l.data.Elements()
-		elems2 := otherList.data.Elements()
-		for i := 0; i < len(elems1); i++ {
-			if !elems1[i].Equal(elems2[i]) {
-				return false
-			}
-		}
-		return true
 	}
-	return false
+	return true
 }
 
 // Len returns the length of the list

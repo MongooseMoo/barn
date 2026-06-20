@@ -9,3 +9,10 @@ const (
 	ObjAmbiguous   ObjID = -2
 	ObjFailedMatch ObjID = -3
 )
+
+// Legacy special-object names retained for existing call sites.
+const (
+	NOTHING      = ObjNothing
+	AMBIGUOUS    = ObjAmbiguous
+	FAILED_MATCH = ObjFailedMatch
+)

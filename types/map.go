@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -30,15 +31,15 @@ type goMap struct {
 	pairs map[string]mapEntry // key hash -> entry
 }
 
-// keyHash converts a value to a string key for Go map lookup
+// keyHash converts a value to a string key for Go map lookup. The kind is part
+// of the prefix so distinct types never collide (e.g. int 5 vs string "5"), and
+// strings are lowercased because MOO string equality is case-insensitive.
 func keyHash(v Value) string {
-	// Use String() representation for hashing
-	// This ensures that equal values hash to the same key
-	// MOO strings are case-insensitive, so normalize to lowercase
-	if str, ok := v.(StrValue); ok {
-		return fmt.Sprintf("%T:%s", v, strings.ToLower(str.Value()))
+	prefix := strconv.Itoa(int(v.Kind())) + ":"
+	if v.Kind() == KindStr {
+		return prefix + strings.ToLower(v.Str())
 	}
-	return fmt.Sprintf("%T:%s", v, v.String())
+	return prefix + v.String()
 }
 
 func (m *goMap) Len() int {
@@ -49,7 +50,7 @@ func (m *goMap) Get(k Value) (Value, bool) {
 	if e, ok := m.pairs[keyHash(k)]; ok {
 		return e.val, true
 	}
-	return nil, false
+	return Value{}, false
 }
 
 func (m *goMap) Set(k, v Value) MooMap {
@@ -124,7 +125,7 @@ type MapValue struct {
 }
 
 // NewMap creates a new map value
-func NewMap(pairs [][2]Value) MapValue {
+func NewMap(pairs [][2]Value) Value {
 	m := &goMap{
 		order: make([]string, 0, len(pairs)),
 		pairs: make(map[string]mapEntry),
@@ -136,13 +137,16 @@ func NewMap(pairs [][2]Value) MapValue {
 		}
 		m.pairs[hash] = mapEntry{key: p[0], val: p[1]}
 	}
-	return MapValue{data: m}
+	return newMapVal(m)
 }
 
 // NewEmptyMap creates an empty map
-func NewEmptyMap() MapValue {
-	return MapValue{data: &goMap{order: nil, pairs: make(map[string]mapEntry)}}
+func NewEmptyMap() Value {
+	return newMapVal(&goMap{order: nil, pairs: make(map[string]mapEntry)})
 }
+
+// AsValue wraps the map view back into a Value.
+func (m MapValue) AsValue() Value { return newMapVal(m.data) }
 
 // String returns the MOO string representation
 // Keys are sorted in MOO canonical order: INT < OBJ < FLOAT < ERR < STR
@@ -173,16 +177,16 @@ func sortMapPairsForOutput(pairs [][2]Value) {
 // Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4).
 func CompareMapKeys(a, b Value) int {
 	typeOrder := func(v Value) int {
-		switch v.(type) {
-		case IntValue:
+		switch v.Kind() {
+		case KindInt:
 			return 0
-		case ObjValue:
+		case KindObj, KindAnon:
 			return 1
-		case FloatValue:
+		case KindFloat:
 			return 2
-		case ErrValue:
+		case KindErr:
 			return 3
-		case StrValue:
+		case KindStr:
 			return 4
 		default:
 			return 5
@@ -195,46 +199,43 @@ func CompareMapKeys(a, b Value) int {
 		return aOrder - bOrder
 	}
 
-	// Same type, compare values
-	switch av := a.(type) {
-	case IntValue:
-		bv := b.(IntValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
-			return 1
-		}
-		return 0
-	case ObjValue:
-		bv := b.(ObjValue)
-		if av.id < bv.id {
-			return -1
-		} else if av.id > bv.id {
-			return 1
-		}
-		return 0
-	case FloatValue:
-		bv := b.(FloatValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
-			return 1
-		}
-		return 0
-	case ErrValue:
-		bv := b.(ErrValue)
-		if av.code < bv.code {
-			return -1
-		} else if av.code > bv.code {
-			return 1
-		}
-		return 0
-	case StrValue:
-		bv := b.(StrValue)
+	// Same canonical order: compare values.
+	switch a.Kind() {
+	case KindInt:
+		return cmpInt64(a.Int(), b.Int())
+	case KindObj, KindAnon:
+		return cmpInt64(int64(a.ObjNum()), int64(b.ObjNum()))
+	case KindFloat:
+		return cmpFloat64(a.Float(), b.Float())
+	case KindErr:
+		return cmpInt64(int64(a.ErrCode()), int64(b.ErrCode()))
+	case KindStr:
 		// Case-insensitive comparison for strings
-		return strings.Compare(strings.ToLower(av.val), strings.ToLower(bv.val))
+		return strings.Compare(strings.ToLower(a.Str()), strings.ToLower(b.Str()))
 	}
 	return 0
+}
+
+func cmpInt64(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cmpFloat64(a, b float64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // Type returns the MOO type
@@ -248,27 +249,22 @@ func (m MapValue) Truthy() bool {
 	return m.data.Len() > 0
 }
 
-// Equal compares two values for equality (deep comparison)
-func (m MapValue) Equal(other Value) bool {
-	if otherMap, ok := other.(MapValue); ok {
-		if m.data.Len() != otherMap.data.Len() {
+// Equal compares two maps for equality (deep comparison)
+func (m MapValue) Equal(other MapValue) bool {
+	if m.data.Len() != other.data.Len() {
+		return false
+	}
+	// Check that all keys and values match
+	for _, p := range m.data.Pairs() {
+		val, exists := other.data.Get(p[0])
+		if !exists {
 			return false
 		}
-
-		// Check that all keys and values match
-		pairs1 := m.data.Pairs()
-		for _, p := range pairs1 {
-			val, exists := otherMap.data.Get(p[0])
-			if !exists {
-				return false
-			}
-			if !p[1].Equal(val) {
-				return false
-			}
+		if !p[1].Equal(val) {
+			return false
 		}
-		return true
 	}
-	return false
+	return true
 }
 
 // Len returns the number of entries in the map
@@ -284,23 +280,23 @@ func (m MapValue) Get(key Value) (Value, bool) {
 // GetWithCase returns a map value with configurable string-key case handling.
 // Non-string keys always use exact typed lookup semantics.
 func (m MapValue) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
-	keyStr, isStringKey := key.(StrValue)
+	keyStr, isStringKey := key.AsStr()
 	if !isStringKey || !caseSensitive {
 		return m.Get(key)
 	}
 
 	// Case-sensitive lookup uses stored key spellings.
 	for _, existing := range m.Keys() {
-		existingStr, ok := existing.(StrValue)
+		existingStr, ok := existing.AsStr()
 		if !ok {
 			continue
 		}
-		if existingStr.Value() == keyStr.Value() {
+		if existingStr == keyStr {
 			return m.Get(existing)
 		}
 	}
 
-	return nil, false
+	return Value{}, false
 }
 
 // Set returns a new map with the key-value pair set (COW)

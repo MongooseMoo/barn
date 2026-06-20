@@ -20,26 +20,22 @@ const (
 // For lists it reads the value's cached size (O(1)); other composite types are
 // walked, matching the previous behaviour exactly.
 func ValueBytes(v Value) int {
-	switch val := v.(type) {
-	case IntValue:
+	switch v.Kind() {
+	case KindInt, KindObj, KindAnon, KindErr, KindBool:
 		return valueVarSize
-	case FloatValue:
+	case KindFloat:
 		return valueVarSize + 8
-	case StrValue:
-		return valueVarSize + len(val.Value()) + 1
-	case ObjValue:
-		return valueVarSize
-	case ErrValue:
-		return valueVarSize
-	case ListValue:
-		return val.ByteSize()
-	case MapValue:
+	case KindStr:
+		return valueVarSize + len(v.Str()) + 1
+	case KindList:
+		return v.List().ByteSize()
+	case KindMap:
 		size := listVarOverhead // map Var + overhead
-		for _, pair := range val.Pairs() {
+		for _, pair := range v.Map().Pairs() {
 			size += ValueBytes(pair[0]) + ValueBytes(pair[1])
 		}
 		return size
-	case WaifValue:
+	case KindWaif:
 		// Waif Var + class ref (waif properties not included, matches Toast)
 		return listVarOverhead
 	default:
