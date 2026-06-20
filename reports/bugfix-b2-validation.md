@@ -88,4 +88,6 @@ Toast-captured expected values; propose for `builtins/verbs.yaml` (B2a) and `lan
 3. `ternary_in_consequent_ok`: `{"x = a ? b ? c | d | e;"}` -> `{}` (accepted, no parens needed in middle position).
 
 ## Commit
-(pending)
+`1bf93c797a3d7596a6155d6ea670e6ba11482261` on branch `fix/b2-set-verb-code-validation` (off master c2714e5). NOT merged — verifier next.
+
+Files changed: `parser/parser.go` (B2b grammar), `bytecode/compiler.go` (UnknownBuiltinError type + use), `builtins/verbs.go` (B2a validation in set_verb_code), plus tests `parser/parser_ternary_nonassoc_b2b_test.go`, `builtins/verbs_set_code_b2a_test.go`, and this report.
