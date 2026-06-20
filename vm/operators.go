@@ -19,11 +19,11 @@ const MININT int64 = -9223372036854775807
 // unaryMinus implements unary negation: -x
 // Supports INT and FLOAT types
 func unaryMinus(operand types.Value) types.Result {
-	switch v := operand.(type) {
-	case types.IntValue:
-		return types.Ok(types.IntValue{Val: -v.Val})
-	case types.FloatValue:
-		return types.Ok(types.FloatValue{Val: -v.Val})
+	switch operand.Kind() {
+	case types.KindInt:
+		return types.Ok(types.NewInt(-operand.Int()))
+	case types.KindFloat:
+		return types.Ok(types.NewFloat(-operand.Float()))
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -33,19 +33,19 @@ func unaryMinus(operand types.Value) types.Result {
 // Returns 1 if falsy, 0 if truthy
 func unaryNot(operand types.Value) types.Result {
 	if operand.Truthy() {
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 	}
-	return types.Ok(types.IntValue{Val: 1})
+	return types.Ok(types.NewInt(1))
 }
 
 // bitwiseNot implements bitwise NOT: ~x
 // Requires INT operand
 func bitwiseNot(operand types.Value) types.Result {
-	intVal, ok := operand.(types.IntValue)
+	intVal, ok := operand.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.IntValue{Val: ^intVal.Val})
+	return types.Ok(types.NewInt(^intVal))
 }
 
 // ============================================================================
@@ -57,9 +57,9 @@ func bitwiseNot(operand types.Value) types.Result {
 // Also supports string concatenation: STR + STR.
 func add(left, right types.Value) types.Result {
 	// String concatenation
-	if leftStr, ok := left.(types.StrValue); ok {
-		if rightStr, ok := right.(types.StrValue); ok {
-			result := leftStr.Value() + rightStr.Value()
+	if leftStr, ok := left.AsStr(); ok {
+		if rightStr, ok := right.AsStr(); ok {
+			result := leftStr + rightStr
 
 			// Check string limit
 			if err := builtins.CheckStringLimit(result); err != types.E_NONE {
@@ -72,8 +72,8 @@ func add(left, right types.Value) types.Result {
 	}
 
 	// List concatenation (list + list) and append (list + any)
-	if leftList, ok := left.(types.ListValue); ok {
-		if rightList, ok := right.(types.ListValue); ok {
+	if leftList, ok := left.AsList(); ok {
+		if rightList, ok := right.AsList(); ok {
 			// list + list → concatenation (new list)
 			leftElems := leftList.Elements()
 			rightElems := rightList.Elements()
@@ -83,7 +83,7 @@ func add(left, right types.Value) types.Result {
 			return types.Ok(types.NewList(newElems))
 		}
 		// list + any → append (new list)
-		return types.Ok(leftList.Append(right))
+		return types.Ok(leftList.Append(right).AsValue())
 	}
 
 	// Numeric addition
@@ -104,11 +104,11 @@ func add(left, right types.Value) types.Result {
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
-		return types.Ok(types.FloatValue{Val: result})
+		return types.Ok(types.NewFloat(result))
 	}
 
 	// Integer addition
-	return types.Ok(types.IntValue{Val: leftNum.(int64) + rightNum.(int64)})
+	return types.Ok(types.NewInt(leftNum.(int64) + rightNum.(int64)))
 }
 
 // subtract implements subtraction: left - right
@@ -129,10 +129,10 @@ func subtract(left, right types.Value) types.Result {
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
-		return types.Ok(types.FloatValue{Val: result})
+		return types.Ok(types.NewFloat(result))
 	}
 
-	return types.Ok(types.IntValue{Val: leftNum.(int64) - rightNum.(int64)})
+	return types.Ok(types.NewInt(leftNum.(int64) - rightNum.(int64)))
 }
 
 // multiply implements multiplication: left * right
@@ -153,10 +153,10 @@ func multiply(left, right types.Value) types.Result {
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
-		return types.Ok(types.FloatValue{Val: result})
+		return types.Ok(types.NewFloat(result))
 	}
 
-	return types.Ok(types.IntValue{Val: leftNum.(int64) * rightNum.(int64)})
+	return types.Ok(types.NewInt(leftNum.(int64) * rightNum.(int64)))
 }
 
 // divide implements division: left / right
@@ -183,7 +183,7 @@ func divide(left, right types.Value) types.Result {
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
-		return types.Ok(types.FloatValue{Val: result})
+		return types.Ok(types.NewFloat(result))
 	}
 
 	// Integer division
@@ -194,9 +194,9 @@ func divide(left, right types.Value) types.Result {
 	}
 	// Toast special case: MININT / -1 returns MININT to prevent overflow
 	if leftInt == MININT && rightInt == -1 {
-		return types.Ok(types.IntValue{Val: MININT})
+		return types.Ok(types.NewInt(MININT))
 	}
-	return types.Ok(types.IntValue{Val: leftInt / rightInt})
+	return types.Ok(types.NewInt(leftInt / rightInt))
 }
 
 // modulo implements modulo: left % right
@@ -233,7 +233,7 @@ func modulo(left, right types.Value) types.Result {
 		if result != 0 && (result < 0) != (rightFloat < 0) {
 			result += rightFloat
 		}
-		return types.Ok(types.FloatValue{Val: result})
+		return types.Ok(types.NewFloat(result))
 	}
 
 	// Both are ints - use floored modulo (MOO/Python semantics)
@@ -244,7 +244,7 @@ func modulo(left, right types.Value) types.Result {
 	if result != 0 && (result < 0) != (rightInt < 0) {
 		result += rightInt
 	}
-	return types.Ok(types.IntValue{Val: result})
+	return types.Ok(types.NewInt(result))
 }
 
 // power implements exponentiation: left ^ right.
@@ -268,7 +268,7 @@ func power(left, right types.Value) types.Result {
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
-		return types.Ok(types.FloatValue{Val: result})
+		return types.Ok(types.NewFloat(result))
 	}
 
 	// Integer-base power (both operands are ints at this point).
@@ -286,7 +286,7 @@ func power(left, right types.Value) types.Result {
 		if math.IsNaN(result) || math.IsInf(result, 0) {
 			return types.Err(types.E_FLOAT)
 		}
-		return types.Ok(types.IntValue{Val: int64(result)})
+		return types.Ok(types.NewInt(int64(result)))
 	}
 
 	// Non-negative exponent: compute integer power directly.
@@ -302,26 +302,26 @@ func power(left, right types.Value) types.Result {
 			base *= base
 		}
 	}
-	return types.Ok(types.IntValue{Val: result})
+	return types.Ok(types.NewInt(result))
 }
 
 func boolIntEqual(left, right types.Value) (bool, bool) {
-	leftBool, leftIsBool := left.(types.BoolValue)
-	rightBool, rightIsBool := right.(types.BoolValue)
-	leftInt, leftIsInt := left.(types.IntValue)
-	rightInt, rightIsInt := right.(types.IntValue)
+	leftBool, leftIsBool := left.AsBool()
+	rightBool, rightIsBool := right.AsBool()
+	leftInt, leftIsInt := left.AsInt()
+	rightInt, rightIsInt := right.AsInt()
 
 	if leftIsBool && rightIsInt {
-		if leftBool.Val {
-			return rightInt.Val == 1, true
+		if leftBool {
+			return rightInt == 1, true
 		}
-		return rightInt.Val == 0, true
+		return rightInt == 0, true
 	}
 	if leftIsInt && rightIsBool {
-		if rightBool.Val {
-			return leftInt.Val == 1, true
+		if rightBool {
+			return leftInt == 1, true
 		}
-		return leftInt.Val == 0, true
+		return leftInt == 0, true
 	}
 	return false, false
 }
@@ -335,28 +335,28 @@ func boolIntEqual(left, right types.Value) (bool, bool) {
 func equal(left, right types.Value) types.Result {
 	if eq, ok := boolIntEqual(left, right); ok {
 		if eq {
-			return types.Ok(types.IntValue{Val: 1})
+			return types.Ok(types.NewInt(1))
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 	}
 	if left.Equal(right) {
-		return types.Ok(types.IntValue{Val: 1})
+		return types.Ok(types.NewInt(1))
 	}
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // notEqual implements inequality: left != right
 func notEqual(left, right types.Value) types.Result {
 	if eq, ok := boolIntEqual(left, right); ok {
 		if eq {
-			return types.Ok(types.IntValue{Val: 0})
+			return types.Ok(types.NewInt(0))
 		}
-		return types.Ok(types.IntValue{Val: 1})
+		return types.Ok(types.NewInt(1))
 	}
 	if left.Equal(right) {
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 	}
-	return types.Ok(types.IntValue{Val: 1})
+	return types.Ok(types.NewInt(1))
 }
 
 // lessThan implements less than: left < right
@@ -367,9 +367,9 @@ func lessThan(left, right types.Value) types.Result {
 		return types.Err(err)
 	}
 	if cmp < 0 {
-		return types.Ok(types.IntValue{Val: 1})
+		return types.Ok(types.NewInt(1))
 	}
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // lessThanEqual implements less than or equal: left <= right
@@ -379,9 +379,9 @@ func lessThanEqual(left, right types.Value) types.Result {
 		return types.Err(err)
 	}
 	if cmp <= 0 {
-		return types.Ok(types.IntValue{Val: 1})
+		return types.Ok(types.NewInt(1))
 	}
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // greaterThan implements greater than: left > right
@@ -391,9 +391,9 @@ func greaterThan(left, right types.Value) types.Result {
 		return types.Err(err)
 	}
 	if cmp > 0 {
-		return types.Ok(types.IntValue{Val: 1})
+		return types.Ok(types.NewInt(1))
 	}
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // greaterThanEqual implements greater than or equal: left >= right
@@ -403,49 +403,50 @@ func greaterThanEqual(left, right types.Value) types.Result {
 		return types.Err(err)
 	}
 	if cmp >= 0 {
-		return types.Ok(types.IntValue{Val: 1})
+		return types.Ok(types.NewInt(1))
 	}
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // inOp implements the 'in' operator: left in right
 // Checks if left is contained in right (list membership, string substring, map key)
 func inOp(left, right types.Value) types.Result {
-	switch container := right.(type) {
-	case types.ListValue:
+	switch right.Kind() {
+	case types.KindList:
+		container := right.List()
 		// Check if left is an element of the list - return 1-based index
 		for i := 1; i <= container.Len(); i++ {
 			if elem := container.Get(i); elem.Equal(left) {
-				return types.Ok(types.IntValue{Val: int64(i)})
+				return types.Ok(types.NewInt(int64(i)))
 			}
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
-	case types.StrValue:
+	case types.KindStr:
 		// Check if left is a substring
-		leftStr, ok := left.(types.StrValue)
+		leftStr, ok := left.AsStr()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		haystack := strings.ToLower(container.Value())
-		needle := strings.ToLower(leftStr.Value())
+		haystack := strings.ToLower(right.Str())
+		needle := strings.ToLower(leftStr)
 		if pos := strings.Index(haystack, needle); pos >= 0 {
-			return types.Ok(types.IntValue{Val: int64(pos + 1)})
+			return types.Ok(types.NewInt(int64(pos + 1)))
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
-	case types.MapValue:
+	case types.KindMap:
 		// For maps, `in` checks if left is a VALUE and returns the position
 		// of its key in the sorted key list (1-based), or 0 if not found
 		// This is case-insensitive for string values (uses Equal)
-		pairs := container.Pairs()
+		pairs := right.Map().Pairs()
 		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {
 			if pair[1].Equal(left) {
-				return types.Ok(types.IntValue{Val: int64(i + 1)})
+				return types.Ok(types.NewInt(int64(i + 1)))
 			}
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -458,103 +459,103 @@ func inOp(left, right types.Value) types.Result {
 
 // bitwiseAnd implements bitwise AND: left &. right
 func bitwiseAnd(left, right types.Value) types.Result {
-	leftInt, ok := left.(types.IntValue)
+	leftInt, ok := left.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	rightInt, ok := right.(types.IntValue)
+	rightInt, ok := right.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.IntValue{Val: leftInt.Val & rightInt.Val})
+	return types.Ok(types.NewInt(leftInt & rightInt))
 }
 
 // bitwiseOr implements bitwise OR: left |. right
 func bitwiseOr(left, right types.Value) types.Result {
-	leftInt, ok := left.(types.IntValue)
+	leftInt, ok := left.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	rightInt, ok := right.(types.IntValue)
+	rightInt, ok := right.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.IntValue{Val: leftInt.Val | rightInt.Val})
+	return types.Ok(types.NewInt(leftInt | rightInt))
 }
 
 // bitwiseXor implements bitwise XOR: left ^. right
 func bitwiseXor(left, right types.Value) types.Result {
-	leftInt, ok := left.(types.IntValue)
+	leftInt, ok := left.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	rightInt, ok := right.(types.IntValue)
+	rightInt, ok := right.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.IntValue{Val: leftInt.Val ^ rightInt.Val})
+	return types.Ok(types.NewInt(leftInt ^ rightInt))
 }
 
 // leftShift implements left shift: left << right
 // Uses 64-bit integer semantics (barn is a 64-bit implementation)
 func leftShift(left, right types.Value) types.Result {
-	leftInt, ok := left.(types.IntValue)
+	leftInt, ok := left.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	rightInt, ok := right.(types.IntValue)
+	rightInt, ok := right.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Negative shift is an error
-	if rightInt.Val < 0 {
+	if rightInt < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Shift by exactly 64 returns 0 (all bits shifted out)
-	if rightInt.Val == 64 {
-		return types.Ok(types.IntValue{Val: 0})
+	if rightInt == 64 {
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Shift by > 64 is an error (invalid argument)
-	if rightInt.Val > 64 {
+	if rightInt > 64 {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.IntValue{Val: leftInt.Val << uint(rightInt.Val)})
+	return types.Ok(types.NewInt(leftInt << uint(rightInt)))
 }
 
 // rightShift implements right shift: left >> right
 // Uses LOGICAL right shift (zero-fill) with 64-bit semantics per MOO standard
 func rightShift(left, right types.Value) types.Result {
-	leftInt, ok := left.(types.IntValue)
+	leftInt, ok := left.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	rightInt, ok := right.(types.IntValue)
+	rightInt, ok := right.AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Negative shift is an error
-	if rightInt.Val < 0 {
+	if rightInt < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Shift by exactly 64 returns 0 (all bits shifted out)
-	if rightInt.Val == 64 {
-		return types.Ok(types.IntValue{Val: 0})
+	if rightInt == 64 {
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Shift by > 64 is an error (invalid argument)
-	if rightInt.Val > 64 {
+	if rightInt > 64 {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Use unsigned cast for logical right shift (zero-fill, not sign-extending)
-	result := int64(uint64(leftInt.Val) >> uint(rightInt.Val))
-	return types.Ok(types.IntValue{Val: result})
+	result := int64(uint64(leftInt) >> uint(rightInt))
+	return types.Ok(types.NewInt(result))
 }
 
 // ============================================================================
@@ -565,11 +566,11 @@ func rightShift(left, right types.Value) types.Result {
 // Returns (value, isFloat) where value is either int64 or float64
 // Returns (nil, false) if the value is not numeric
 func toNumeric(v types.Value) (interface{}, bool) {
-	switch val := v.(type) {
-	case types.IntValue:
-		return val.Val, false
-	case types.FloatValue:
-		return val.Val, true
+	switch v.Kind() {
+	case types.KindInt:
+		return v.Int(), false
+	case types.KindFloat:
+		return v.Float(), true
 	default:
 		return nil, false
 	}
@@ -624,20 +625,20 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 
 	// BOOL comparison support is limited to equality operators.
 	// Ordering comparisons on bools are invalid in MOO.
-	if _, ok := left.(types.BoolValue); ok {
+	if left.IsBool() {
 		return 0, types.E_TYPE
 	}
-	if _, ok := right.(types.BoolValue); ok {
+	if right.IsBool() {
 		return 0, types.E_TYPE
 	}
 
 	// String comparison
-	leftStr, leftIsStr := left.(types.StrValue)
-	rightStr, rightIsStr := right.(types.StrValue)
+	leftStr, leftIsStr := left.AsStr()
+	rightStr, rightIsStr := right.AsStr()
 
 	if leftIsStr && rightIsStr {
-		leftVal := leftStr.Value()
-		rightVal := rightStr.Value()
+		leftVal := leftStr
+		rightVal := rightStr
 		if leftVal < rightVal {
 			return -1, types.E_NONE
 		} else if leftVal > rightVal {
@@ -647,13 +648,13 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 	}
 
 	// OBJ comparison (by ID)
-	leftObj, leftIsObj := left.(types.ObjValue)
-	rightObj, rightIsObj := right.(types.ObjValue)
+	leftObj, leftIsObj := left.AsObjID()
+	rightObj, rightIsObj := right.AsObjID()
 
 	if leftIsObj && rightIsObj {
-		if leftObj.ID() < rightObj.ID() {
+		if leftObj < rightObj {
 			return -1, types.E_NONE
-		} else if leftObj.ID() > rightObj.ID() {
+		} else if leftObj > rightObj {
 			return 1, types.E_NONE
 		}
 		return 0, types.E_NONE

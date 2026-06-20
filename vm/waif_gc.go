@@ -3,20 +3,21 @@ package vm
 import "barn/types"
 
 func collectWaifsForGC(v types.Value, out *[]types.WaifValue) {
-	switch val := v.(type) {
-	case types.WaifValue:
+	switch v.Kind() {
+	case types.KindWaif:
+		val := v.Waif()
 		for _, existing := range *out {
 			if existing.Equal(val) {
 				return
 			}
 		}
 		*out = append(*out, val)
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+	case types.KindList:
+		for _, elem := range v.List().Elements() {
 			collectWaifsForGC(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.KindMap:
+		for _, pair := range v.Map().Pairs() {
 			collectWaifsForGC(pair[0], out)
 			collectWaifsForGC(pair[1], out)
 		}

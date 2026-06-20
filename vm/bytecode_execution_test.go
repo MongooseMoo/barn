@@ -61,12 +61,12 @@ func requireInt(t *testing.T, result types.Result, want int64) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want value %d (error %s, val %v)", result.Flow, want, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.IntValue)
+	got, ok := result.Val.AsInt()
 	if !ok {
-		t.Fatalf("value = %T %v, want int %d", result.Val, result.Val, want)
+		t.Fatalf("value = %v %v, want int %d", result.Val.Type(), result.Val, want)
 	}
-	if got.Val != want {
-		t.Fatalf("value = %d, want %d", got.Val, want)
+	if got != want {
+		t.Fatalf("value = %d, want %d", got, want)
 	}
 }
 
@@ -75,12 +75,12 @@ func requireString(t *testing.T, result types.Result, want string) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want string %q (error %s, val %v)", result.Flow, want, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.StrValue)
+	got, ok := result.Val.AsStr()
 	if !ok {
-		t.Fatalf("value = %T %v, want string %q", result.Val, result.Val, want)
+		t.Fatalf("value = %v %v, want string %q", result.Val.Type(), result.Val, want)
 	}
-	if got.Value() != want {
-		t.Fatalf("value = %q, want %q", got.Value(), want)
+	if got != want {
+		t.Fatalf("value = %q, want %q", got, want)
 	}
 }
 
@@ -99,9 +99,9 @@ func requireList(t *testing.T, result types.Result, want ...types.Value) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want list (error %s, val %v)", result.Flow, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.ListValue)
+	got, ok := result.Val.AsList()
 	if !ok {
-		t.Fatalf("value = %T %v, want list", result.Val, result.Val)
+		t.Fatalf("value = %v %v, want list", result.Val.Type(), result.Val)
 	}
 	if got.Len() != len(want) {
 		t.Fatalf("list length = %d, want %d: %v", got.Len(), len(want), got)

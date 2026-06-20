@@ -35,19 +35,19 @@ func (vm *VM) executeCallVerb() error {
 	if verbNameIdx == 0xFF {
 		// Dynamic verb name: pop from stack (above args)
 		nameVal := vm.Pop()
-		strVal, ok := nameVal.(types.StrValue)
+		s, ok := nameVal.AsStr()
 		if !ok {
 			return fmt.Errorf("E_TYPE: dynamic verb name must be a string")
 		}
-		verbName = strVal.Value()
+		verbName = s
 	} else {
 		// Static verb name: from constant pool
 		nameVal := vm.CurrentFrame().Program.Constants[verbNameIdx]
-		strVal, ok := nameVal.(types.StrValue)
+		s, ok := nameVal.AsStr()
 		if !ok {
 			return fmt.Errorf("internal error: verb name constant is not a string")
 		}
-		verbName = strVal.Value()
+		verbName = s
 	}
 
 	// Pop arguments
@@ -55,7 +55,7 @@ func (vm *VM) executeCallVerb() error {
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
-		list, ok := listVal.(types.ListValue)
+		list, ok := listVal.AsList()
 		if !ok {
 			return fmt.Errorf("E_TYPE: expected list for spliced verb args")
 		}
@@ -73,18 +73,19 @@ func (vm *VM) executeCallVerb() error {
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
-	var thisValue types.Value // Non-nil for waif, primitive, and anonymous targets
+	var thisValue types.Value // Non-none for waif, primitive, and anonymous targets
 	isWaif := false
 
-	switch target := objVal.(type) {
-	case types.ObjValue:
-		objID = target.ID()
-		if target.IsAnonymous() {
-			thisValue = target // "this" = the anonymous ObjValue itself
+	switch objVal.Kind() {
+	case types.KindObj, types.KindAnon:
+		objID = objVal.ObjNum()
+		if objVal.IsAnonymous() {
+			thisValue = objVal // "this" = the anonymous object value itself
 		}
-	case types.WaifValue:
-		objID = target.Class() // Verb lookup goes to the waif's class
-		thisValue = target     // "this" = the waif itself
+	case types.KindWaif:
+		waif := objVal.Waif()
+		objID = waif.Class() // Verb lookup goes to the waif's class
+		thisValue = objVal   // "this" = the waif itself
 		isWaif = true
 	default:
 		// Check for primitive prototype dispatch (str, int, float, list, map, err, bool)
@@ -188,12 +189,12 @@ func (vm *VM) executeCallVerb() error {
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.UnboundValue{}
+		frame.Locals[i] = types.Unbound()
 	}
 
 	// Pre-populate built-in variables using VarNames.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
-	if thisValue != nil {
+	if !thisValue.IsNone() {
 		SetLocalByName(frame, prog, "this", thisValue)
 	} else {
 		SetLocalByName(frame, prog, "this", types.NewObj(objID))
@@ -305,7 +306,7 @@ func (vm *VM) executePass() error {
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
-		list, ok := listVal.(types.ListValue)
+		list, ok := listVal.AsList()
 		if !ok {
 			return fmt.Errorf("E_TYPE: expected list for spliced pass() args")
 		}
@@ -361,9 +362,9 @@ func (vm *VM) executePass() error {
 	}
 
 	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
-	passThis := types.Value(types.NewObj(frame.This))
+	passThis := types.NewObj(frame.This)
 	var passThisValue types.Value
-	if vm.Context != nil && vm.Context.ThisValue != nil {
+	if vm.Context != nil && !vm.Context.ThisValue.IsNone() {
 		passThis = vm.Context.ThisValue
 		passThisValue = vm.Context.ThisValue
 	}
@@ -396,7 +397,7 @@ func (vm *VM) executePass() error {
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range newFrame.Locals {
-		newFrame.Locals[i] = types.UnboundValue{}
+		newFrame.Locals[i] = types.Unbound()
 	}
 
 	// Pre-populate built-in variables

@@ -15,23 +15,23 @@ func (vm *VM) executeAdd() error {
 
 	// Fast path: numeric addition is by far the most common case in hot loops,
 	// so test it before string/list to avoid failed type assertions per op.
-	if aInt, ok := a.(types.IntValue); ok {
-		if bInt, ok := b.(types.IntValue); ok {
-			vm.Push(types.IntValue{Val: aInt.Val + bInt.Val})
+	if aInt, ok := a.AsInt(); ok {
+		if bInt, ok := b.AsInt(); ok {
+			vm.Push(types.NewInt(aInt + bInt))
 			return nil
 		}
 	}
-	if aFloat, ok := a.(types.FloatValue); ok {
-		if bFloat, ok := b.(types.FloatValue); ok {
-			vm.Push(types.FloatValue{Val: aFloat.Val + bFloat.Val})
+	if aFloat, ok := a.AsFloat(); ok {
+		if bFloat, ok := b.AsFloat(); ok {
+			vm.Push(types.NewFloat(aFloat + bFloat))
 			return nil
 		}
 	}
 
 	// Handle string concatenation
-	if _, ok := a.(types.StrValue); ok {
-		if _, ok := b.(types.StrValue); ok {
-			resultStr := a.(types.StrValue).Value() + b.(types.StrValue).Value()
+	if aStr, ok := a.AsStr(); ok {
+		if bStr, ok := b.AsStr(); ok {
+			resultStr := aStr + bStr
 			if errCode := builtins.CheckStringLimit(resultStr); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
@@ -41,8 +41,8 @@ func (vm *VM) executeAdd() error {
 	}
 
 	// Handle list concatenation (list + list) and append (list + any)
-	if aList, aIsList := a.(types.ListValue); aIsList {
-		if bList, bIsList := b.(types.ListValue); bIsList {
+	if aList, aIsList := a.AsList(); aIsList {
+		if bList, bIsList := b.AsList(); bIsList {
 			// list + list → concatenation (new list)
 			aElems := aList.Elements()
 			bElems := bList.Elements()
@@ -53,7 +53,7 @@ func (vm *VM) executeAdd() error {
 			return nil
 		}
 		// list + any → append (new list)
-		vm.Push(aList.Append(b))
+		vm.Push(aList.Append(b).AsValue())
 		return nil
 	}
 
@@ -64,20 +64,20 @@ func (vm *VM) executeSub() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
+	aInt, aIsInt := a.AsInt()
+	bInt, bIsInt := b.AsInt()
+	aFloat, aIsFloat := a.AsFloat()
+	bFloat, bIsFloat := b.AsFloat()
 
 	if aIsInt && bIsInt {
-		vm.Push(types.IntValue{Val: aInt.Val - bInt.Val})
+		vm.Push(types.NewInt(aInt - bInt))
 		return nil
 	}
 
 	if aIsFloat && bIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
-		vm.Push(types.FloatValue{Val: af - bf})
+		af := aFloat
+		bf := bFloat
+		vm.Push(types.NewFloat(af - bf))
 		return nil
 	}
 
@@ -88,20 +88,20 @@ func (vm *VM) executeMul() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
+	aInt, aIsInt := a.AsInt()
+	bInt, bIsInt := b.AsInt()
+	aFloat, aIsFloat := a.AsFloat()
+	bFloat, bIsFloat := b.AsFloat()
 
 	if aIsInt && bIsInt {
-		vm.Push(types.IntValue{Val: aInt.Val * bInt.Val})
+		vm.Push(types.NewInt(aInt * bInt))
 		return nil
 	}
 
 	if aIsFloat && bIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
-		vm.Push(types.FloatValue{Val: af * bf})
+		af := aFloat
+		bf := bFloat
+		vm.Push(types.NewFloat(af * bf))
 		return nil
 	}
 
@@ -112,32 +112,32 @@ func (vm *VM) executeDiv() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	bInt, bIsInt := b.(types.IntValue)
-	if bIsInt && bInt.Val == 0 {
+	bInt, bIsInt := b.AsInt()
+	if bIsInt && bInt == 0 {
 		return fmt.Errorf("E_DIV: division by zero")
 	}
 
-	aInt, aIsInt := a.(types.IntValue)
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
+	aInt, aIsInt := a.AsInt()
+	aFloat, aIsFloat := a.AsFloat()
+	bFloat, bIsFloat := b.AsFloat()
 
 	if aIsInt && bIsInt {
 		// Toast special case: MININT / -1 returns MININT to prevent overflow
-		if aInt.Val == MININT && bInt.Val == -1 {
-			vm.Push(types.IntValue{Val: MININT})
+		if aInt == MININT && bInt == -1 {
+			vm.Push(types.NewInt(MININT))
 		} else {
-			vm.Push(types.IntValue{Val: aInt.Val / bInt.Val})
+			vm.Push(types.NewInt(aInt / bInt))
 		}
 		return nil
 	}
 
 	if aIsFloat && bIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
+		af := aFloat
+		bf := bFloat
 		if bf == 0 {
 			return fmt.Errorf("E_DIV: division by zero")
 		}
-		vm.Push(types.FloatValue{Val: af / bf})
+		vm.Push(types.NewFloat(af / bf))
 		return nil
 	}
 
@@ -148,10 +148,10 @@ func (vm *VM) executeMod() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
+	aInt, aIsInt := a.AsInt()
+	bInt, bIsInt := b.AsInt()
+	aFloat, aIsFloat := a.AsFloat()
+	bFloat, bIsFloat := b.AsFloat()
 
 	if !(aIsInt || aIsFloat) || !(bIsInt || bIsFloat) {
 		return fmt.Errorf("E_TYPE: invalid operands for %%")
@@ -161,32 +161,32 @@ func (vm *VM) executeMod() error {
 	}
 
 	// Check for division by zero
-	if bIsInt && bInt.Val == 0 {
+	if bIsInt && bInt == 0 {
 		return fmt.Errorf("E_DIV: modulo by zero")
 	}
-	if bIsFloat && bFloat.Val == 0 {
+	if bIsFloat && bFloat == 0 {
 		return fmt.Errorf("E_DIV: modulo by zero")
 	}
 
 	// Both are floats.
 	if aIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
+		af := aFloat
+		bf := bFloat
 		result := math.Mod(af, bf)
 		// Floored modulo: result sign matches divisor
 		if result != 0 && (result < 0) != (bf < 0) {
 			result += bf
 		}
-		vm.Push(types.FloatValue{Val: result})
+		vm.Push(types.NewFloat(result))
 		return nil
 	}
 
 	// Both ints — floored modulo
-	result := aInt.Val % bInt.Val
-	if result != 0 && (result < 0) != (bInt.Val < 0) {
-		result += bInt.Val
+	result := aInt % bInt
+	if result != 0 && (result < 0) != (bInt < 0) {
+		result += bInt
 	}
-	vm.Push(types.IntValue{Val: result})
+	vm.Push(types.NewInt(result))
 	return nil
 }
 
@@ -194,23 +194,23 @@ func (vm *VM) executePow() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
+	aInt, aIsInt := a.AsInt()
+	bInt, bIsInt := b.AsInt()
+	aFloat, aIsFloat := a.AsFloat()
+	bFloat, bIsFloat := b.AsFloat()
 
 	var af, bf float64
 	if aIsInt {
-		af = float64(aInt.Val)
+		af = float64(aInt)
 	} else if aIsFloat {
-		af = aFloat.Val
+		af = aFloat
 	} else {
 		return fmt.Errorf("E_TYPE: invalid operands for ^")
 	}
 	if bIsInt {
-		bf = float64(bInt.Val)
+		bf = float64(bInt)
 	} else if bIsFloat {
-		bf = bFloat.Val
+		bf = bFloat
 	} else {
 		return fmt.Errorf("E_TYPE: invalid operands for ^")
 	}
@@ -221,19 +221,19 @@ func (vm *VM) executePow() error {
 
 	if aIsInt && bIsInt {
 		// Toast semantics: 0 ^ negative is division by zero.
-		if aInt.Val == 0 && bInt.Val < 0 {
+		if aInt == 0 && bInt < 0 {
 			return fmt.Errorf("E_DIV: division by zero")
 		}
 		// Negative exponents with integer operands truncate toward zero.
-		if bInt.Val < 0 {
-			vm.Push(types.IntValue{Val: int64(math.Pow(af, bf))})
+		if bInt < 0 {
+			vm.Push(types.NewInt(int64(math.Pow(af, bf))))
 			return nil
 		}
 
 		// Non-negative exponent: integer exponentiation.
 		result := int64(1)
-		base := aInt.Val
-		exp := bInt.Val
+		base := aInt
+		exp := bInt
 		for exp > 0 {
 			if exp&1 == 1 {
 				result *= base
@@ -243,7 +243,7 @@ func (vm *VM) executePow() error {
 				base *= base
 			}
 		}
-		vm.Push(types.IntValue{Val: result})
+		vm.Push(types.NewInt(result))
 		return nil
 	}
 
@@ -253,20 +253,20 @@ func (vm *VM) executePow() error {
 		return fmt.Errorf("E_FLOAT: result is NaN or Inf")
 	}
 
-	vm.Push(types.FloatValue{Val: result})
+	vm.Push(types.NewFloat(result))
 	return nil
 }
 
 func (vm *VM) executeNeg() error {
 	a := vm.Pop()
 
-	if aInt, ok := a.(types.IntValue); ok {
-		vm.Push(types.IntValue{Val: -aInt.Val})
+	if aInt, ok := a.AsInt(); ok {
+		vm.Push(types.NewInt(-aInt))
 		return nil
 	}
 
-	if aFloat, ok := a.(types.FloatValue); ok {
-		vm.Push(types.FloatValue{Val: -aFloat.Val})
+	if aFloat, ok := a.AsFloat(); ok {
+		vm.Push(types.NewFloat(-aFloat))
 		return nil
 	}
 

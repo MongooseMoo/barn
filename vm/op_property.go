@@ -19,36 +19,34 @@ func (vm *VM) executeGetProp() error {
 	if propNameIdx == 0xFF {
 		// Dynamic property: name is on top of stack
 		nameVal := vm.Pop()
-		strVal, ok := nameVal.(types.StrValue)
+		s, ok := nameVal.AsStr()
 		if !ok {
 			return fmt.Errorf("E_TYPE: dynamic property name must be a string")
 		}
-		propName = strVal.Value()
+		propName = s
 	} else {
 		// Static property: name from constant pool
 		nameVal := vm.CurrentFrame().Program.Constants[propNameIdx]
-		strVal, ok := nameVal.(types.StrValue)
+		s, ok := nameVal.AsStr()
 		if !ok {
 			return fmt.Errorf("internal error: property name constant is not a string")
 		}
-		propName = strVal.Value()
+		propName = s
 	}
 
 	// Pop the object
 	objVal := vm.Pop()
 
 	// Check if it's a waif (must check before ObjValue since waifs are a different type)
-	if waifVal, ok := objVal.(types.WaifValue); ok {
+	if waifVal, ok := objVal.AsWaif(); ok {
 		return vm.getWaifProp(waifVal, propName)
 	}
 
 	// Check if it's an object reference
-	objRef, ok := objVal.(types.ObjValue)
+	objID, ok := objVal.AsObjID()
 	if !ok {
 		return fmt.Errorf("E_TYPE: property access requires an object")
 	}
-
-	objID := objRef.ID()
 
 	// Need a store to look up properties
 	if vm.Store == nil {
@@ -139,19 +137,19 @@ func (vm *VM) executeSetProp() error {
 	if propNameIdx == 0xFF {
 		// Dynamic property: name is on top of stack, then obj, then value_copy
 		nameVal := vm.Pop()
-		strVal, ok := nameVal.(types.StrValue)
+		s, ok := nameVal.AsStr()
 		if !ok {
 			return fmt.Errorf("E_TYPE: dynamic property name must be a string")
 		}
-		propName = strVal.Value()
+		propName = s
 	} else {
 		// Static property: name from constant pool
 		nameVal := vm.CurrentFrame().Program.Constants[propNameIdx]
-		strVal, ok := nameVal.(types.StrValue)
+		s, ok := nameVal.AsStr()
 		if !ok {
 			return fmt.Errorf("internal error: property name constant is not a string")
 		}
-		propName = strVal.Value()
+		propName = s
 	}
 
 	// Pop the object
@@ -161,17 +159,15 @@ func (vm *VM) executeSetProp() error {
 	value := vm.Pop()
 
 	// Check if it's a waif (must check before ObjValue since waifs are a different type)
-	if waifVal, ok := objVal.(types.WaifValue); ok {
+	if waifVal, ok := objVal.AsWaif(); ok {
 		return vm.setWaifProp(waifVal, propName, value)
 	}
 
 	// Check if it's an object reference
-	objRef, ok := objVal.(types.ObjValue)
+	objID, ok := objVal.AsObjID()
 	if !ok {
 		return fmt.Errorf("E_TYPE: property assignment requires an object")
 	}
-
-	objID := objRef.ID()
 
 	// Need a store to set properties
 	if vm.Store == nil {
@@ -287,43 +283,43 @@ func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (t
 	case "name":
 		name, errCode := store.ObjectName(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewStr(name), true
 	case "owner":
 		ownerID, errCode := store.ObjectOwner(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewObj(ownerID), true
 	case "location":
 		locationID, errCode := store.Location(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewObj(locationID), true
 	case "contents":
 		contentsIDs, errCode := store.Contents(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewList(objIDsToValues(contentsIDs)), true
 	case "parents":
 		parentIDs, errCode := store.Parents(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewList(objIDsToValues(parentIDs)), true
 	case "parent":
 		parentID, errCode := store.Parent(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewObj(parentID), true
 	case "children":
 		childIDs, errCode := store.Children(objID)
 		if errCode != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		return types.NewList(objIDsToValues(childIDs)), true
 	case "programmer":
@@ -342,21 +338,21 @@ func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (t
 		hasFlag, flagErr := store.HasObjectFlag(objID, dbstore.FlagAnonymous)
 		isAnonymous, anonErr := store.ObjectIsAnonymous(objID)
 		if flagErr != types.E_NONE || anonErr != types.E_NONE {
-			return nil, false
+			return types.Value{}, false
 		}
 		if hasFlag || isAnonymous {
 			return types.NewInt(1), true
 		}
 		return types.NewInt(0), true
 	default:
-		return nil, false
+		return types.Value{}, false
 	}
 }
 
 func boolPropertyValue(store *dbstore.Store, objID types.ObjID, flag dbstore.ObjectFlags) (types.Value, bool) {
 	hasFlag, errCode := store.HasObjectFlag(objID, flag)
 	if errCode != types.E_NONE {
-		return nil, false
+		return types.Value{}, false
 	}
 	if hasFlag {
 		return types.NewInt(1), true
@@ -376,12 +372,12 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch name {
 	case "name":
-		if str, ok := value.(types.StrValue); ok {
-			return true, store.SetObjectName(objID, str.Value())
+		if str, ok := value.AsStr(); ok {
+			return true, store.SetObjectName(objID, str)
 		}
 		return false, types.E_NONE
 	case "owner":
-		if objVal, ok := value.(types.ObjValue); ok {
+		if ownerID, ok := value.AsObjID(); ok {
 			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
 			if errCode != types.E_NONE {
 				return true, errCode
@@ -389,16 +385,16 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 			if isAnonymous && ctx != nil && !ctx.IsWizard {
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectOwner(objID, objVal.ID())
+			return true, store.SetObjectOwner(objID, ownerID)
 		}
 		return false, types.E_NONE
 	case "location":
-		if objVal, ok := value.(types.ObjValue); ok {
-			return true, store.SetObjectLocationRaw(objID, objVal.ID())
+		if locID, ok := value.AsObjID(); ok {
+			return true, store.SetObjectLocationRaw(objID, locID)
 		}
 		return false, types.E_NONE
 	case "programmer":
-		if intVal, ok := value.(types.IntValue); ok {
+		if intVal, ok := value.AsInt(); ok {
 			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
 			if errCode != types.E_NONE {
 				return true, errCode
@@ -409,11 +405,11 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 				}
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagProgrammer, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagProgrammer, intVal != 0)
 		}
 		return false, types.E_NONE
 	case "wizard":
-		if intVal, ok := value.(types.IntValue); ok {
+		if intVal, ok := value.AsInt(); ok {
 			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
 			if errCode != types.E_NONE {
 				return true, errCode
@@ -424,32 +420,32 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 				}
 				return true, types.E_PERM
 			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagWizard, intVal.Val != 0)
+			return true, store.SetObjectFlag(objID, dbstore.FlagWizard, intVal != 0)
 		}
 		return false, types.E_NONE
 	case "player":
-		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, dbstore.FlagUser, intVal.Val != 0)
+		if intVal, ok := value.AsInt(); ok {
+			return true, store.SetObjectFlag(objID, dbstore.FlagUser, intVal != 0)
 		}
 		return false, types.E_NONE
 	case "r":
-		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, dbstore.FlagRead, intVal.Val != 0)
+		if intVal, ok := value.AsInt(); ok {
+			return true, store.SetObjectFlag(objID, dbstore.FlagRead, intVal != 0)
 		}
 		return false, types.E_NONE
 	case "w":
-		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, dbstore.FlagWrite, intVal.Val != 0)
+		if intVal, ok := value.AsInt(); ok {
+			return true, store.SetObjectFlag(objID, dbstore.FlagWrite, intVal != 0)
 		}
 		return false, types.E_NONE
 	case "f":
-		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, dbstore.FlagFertile, intVal.Val != 0)
+		if intVal, ok := value.AsInt(); ok {
+			return true, store.SetObjectFlag(objID, dbstore.FlagFertile, intVal != 0)
 		}
 		return false, types.E_NONE
 	case "a":
-		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, dbstore.FlagAnonymous, intVal.Val != 0)
+		if intVal, ok := value.AsInt(); ok {
+			return true, store.SetObjectFlag(objID, dbstore.FlagAnonymous, intVal != 0)
 		}
 		return false, types.E_NONE
 	default:

@@ -9,17 +9,17 @@ import (
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
 func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
-	switch val := v.(type) {
-	case types.ObjValue:
-		if val.IsAnonymous() {
-			out[val.ID()] = struct{}{}
+	switch v.Kind() {
+	case types.KindObj, types.KindAnon:
+		if v.IsAnonymous() {
+			out[v.ObjNum()] = struct{}{}
 		}
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+	case types.KindList:
+		for _, elem := range v.List().Elements() {
 			collectAnonymousRefsForGC(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.KindMap:
+		for _, pair := range v.Map().Pairs() {
 			collectAnonymousRefsForGC(pair[0], out)
 			collectAnonymousRefsForGC(pair[1], out)
 		}
@@ -27,8 +27,8 @@ func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 }
 
 func collectCompositeAnonymousRefs(v types.Value, out map[types.ObjID]struct{}) {
-	switch v.(type) {
-	case types.ListValue, types.MapValue:
+	switch v.Kind() {
+	case types.KindList, types.KindMap:
 		collectAnonymousRefsForGC(v, out)
 	}
 }

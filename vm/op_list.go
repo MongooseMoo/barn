@@ -9,11 +9,11 @@ import (
 func (vm *VM) executeMakeList() error {
 	count := vm.ReadByte()
 	elements := vm.PopN(int(count))
-	result := types.NewList(elements)
+	result := types.NewListValue(elements)
 	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
-	vm.Push(result)
+	vm.Push(result.AsValue())
 	return nil
 }
 
@@ -31,7 +31,8 @@ func (vm *VM) executeMakeMap() error {
 	}
 
 	result := types.NewMap(pairs)
-	if errCode := builtins.CheckMapLimit(result); errCode != types.E_NONE {
+	resultMap, _ := result.AsMap()
+	if errCode := builtins.CheckMapLimit(resultMap); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: map too large")
 	}
 	vm.Push(result)
@@ -41,13 +42,13 @@ func (vm *VM) executeMakeMap() error {
 func (vm *VM) executeLength() error {
 	coll := vm.Pop()
 
-	switch c := coll.(type) {
-	case types.ListValue:
-		vm.Push(types.IntValue{Val: int64(c.Len())})
-	case types.StrValue:
-		vm.Push(types.IntValue{Val: int64(len(c.Value()))})
-	case types.MapValue:
-		vm.Push(types.IntValue{Val: int64(c.Len())})
+	switch coll.Kind() {
+	case types.KindList:
+		vm.Push(types.NewInt(int64(coll.List().Len())))
+	case types.KindStr:
+		vm.Push(types.NewInt(int64(len(coll.Str()))))
+	case types.KindMap:
+		vm.Push(types.NewInt(int64(coll.Map().Len())))
 	default:
 		return fmt.Errorf("E_TYPE: cannot get length of %s", coll.Type().String())
 	}
@@ -60,7 +61,7 @@ func (vm *VM) executeListAppend() error {
 	elem := vm.Pop()
 	listVal := vm.Pop()
 
-	list, ok := listVal.(types.ListValue)
+	list, ok := listVal.AsList()
 	if !ok {
 		return fmt.Errorf("E_TYPE: LIST_APPEND requires a list")
 	}
@@ -72,7 +73,7 @@ func (vm *VM) executeListAppend() error {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
 
-	vm.Push(result)
+	vm.Push(result.AsValue())
 	return nil
 }
 
@@ -82,12 +83,12 @@ func (vm *VM) executeListExtend() error {
 	srcVal := vm.Pop()
 	listVal := vm.Pop()
 
-	list, ok := listVal.(types.ListValue)
+	list, ok := listVal.AsList()
 	if !ok {
 		return fmt.Errorf("E_TYPE: LIST_EXTEND requires a list base")
 	}
 
-	src, ok := srcVal.(types.ListValue)
+	src, ok := srcVal.AsList()
 	if !ok {
 		return fmt.Errorf("E_TYPE: splice requires a list operand")
 	}
@@ -99,7 +100,7 @@ func (vm *VM) executeListExtend() error {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
 
-	vm.Push(result)
+	vm.Push(result.AsValue())
 	return nil
 }
 
@@ -107,7 +108,7 @@ func (vm *VM) executeSplice() error {
 	val := vm.Pop()
 
 	// Standalone @expr: operand must be a list, otherwise E_TYPE.
-	if _, ok := val.(types.ListValue); !ok {
+	if !val.IsList() {
 		return fmt.Errorf("E_TYPE: splice (@) requires a list operand")
 	}
 

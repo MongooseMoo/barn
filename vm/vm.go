@@ -123,7 +123,7 @@ func (vm *VM) Run(prog *bytecode.Program) types.Result {
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.UnboundValue{}
+		frame.Locals[i] = types.Unbound()
 	}
 
 	vm.pushFrame(frame)
@@ -193,7 +193,7 @@ func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, play
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.UnboundValue{}
+		frame.Locals[i] = types.Unbound()
 	}
 
 	vm.pushFrame(frame)
@@ -255,7 +255,7 @@ func (vm *VM) executeLoop() types.Result {
 		var err error
 		if cur.IP >= len(cur.Program.Code) {
 			// End of program - implicit return 0
-			vm.Return(types.IntValue{Val: 0})
+			vm.Return(types.NewInt(0))
 		} else {
 			op := bytecode.OpCode(cur.Program.Code[cur.IP])
 			cur.IP++
@@ -348,7 +348,7 @@ func (vm *VM) executeLoop() types.Result {
 		return types.Result{Flow: types.FlowReturn, Val: vm.Pop()}
 	}
 
-	return types.Result{Flow: types.FlowReturn, Val: types.IntValue{Val: 0}}
+	return types.Result{Flow: types.FlowReturn, Val: types.NewInt(0)}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's
@@ -392,7 +392,7 @@ func (vm *VM) Step() error {
 
 	if frame.IP >= len(frame.Program.Code) {
 		// End of program - implicit return 0
-		vm.Return(types.IntValue{Val: 0})
+		vm.Return(types.NewInt(0))
 		return nil
 	}
 
@@ -413,7 +413,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Check for immediate integer
 	if bytecode.IsImmediateInt(op) {
 		val := bytecode.GetImmediateValue(op)
-		vm.Push(types.IntValue{Val: int64(val)})
+		vm.Push(types.NewInt(int64(val)))
 		return nil
 	}
 
@@ -433,7 +433,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_GET_VAR:
 		idx := vm.ReadByte()
 		val := vm.CurrentFrame().Locals[idx]
-		if _, unbound := val.(types.UnboundValue); unbound {
+		if val.IsNone() {
 			return MooError{Code: types.E_VARNF}
 		}
 		vm.Push(val)
@@ -528,7 +528,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		vm.CurrentFrame().IP -= int(offset)
 
 	case bytecode.OP_RETURN_NONE:
-		vm.Return(types.IntValue{Val: 0})
+		vm.Return(types.NewInt(0))
 
 	// Collection operations
 	case bytecode.OP_INDEX:
@@ -645,14 +645,14 @@ func (vm *VM) HandleError(err error) bool {
 	traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
 
 	// Build or augment the 4-element exception value: {code, message, value, traceback}
-	if exceptionValue == nil {
+	if exceptionValue.IsNone() {
 		exceptionValue = types.NewList([]types.Value{
 			types.NewErr(errCode),
 			types.NewStr(errCode.Message()),
 			types.NewInt(0),
 			traceback,
 		})
-	} else if listVal, ok := exceptionValue.(types.ListValue); ok {
+	} else if listVal, ok := exceptionValue.AsList(); ok {
 		// raise() produces a 3-element list; append traceback as 4th element.
 		elems := make([]types.Value, 0, 4)
 		for i := 1; i <= listVal.Len() && i <= 3; i++ {
