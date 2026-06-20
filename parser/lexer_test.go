@@ -15,9 +15,12 @@ func TestLexerIntegerTokens(t *testing.T) {
 			},
 		},
 		{
+			// MOO has no negative numeric literals: "-5" lexes as MINUS then INT(5).
+			// The parser turns leading MINUS into unary minus (B1).
 			"-5",
 			[]Token{
-				{Type: TOKEN_INT, Value: "-5"},
+				{Type: TOKEN_MINUS, Value: "-"},
+				{Type: TOKEN_INT, Value: "5"},
 				{Type: TOKEN_EOF, Value: ""},
 			},
 		},
@@ -29,10 +32,12 @@ func TestLexerIntegerTokens(t *testing.T) {
 			},
 		},
 		{
+			// "-17" between two numbers must lex as MINUS + INT so "42-17" works.
 			"42 -17 0",
 			[]Token{
 				{Type: TOKEN_INT, Value: "42"},
-				{Type: TOKEN_INT, Value: "-17"},
+				{Type: TOKEN_MINUS, Value: "-"},
+				{Type: TOKEN_INT, Value: "17"},
 				{Type: TOKEN_INT, Value: "0"},
 				{Type: TOKEN_EOF, Value: ""},
 			},

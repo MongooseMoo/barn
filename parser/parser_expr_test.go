@@ -8,10 +8,11 @@ func TestParseUnaryMinus(t *testing.T) {
 		expectUnary bool
 		description string
 	}{
-		// Note: The lexer treats "-5" as a negative literal (TOKEN_INT with value "-5")
-		// This is a lexer ambiguity but matches MOO behavior for simple cases
-		{"-5", false, "negative literal"},
-		{"-42", false, "negative literal"},
+		// MOO has no negative numeric literals: "-5" is unary minus applied to
+		// the literal 5 (B1 fix). The lexer never folds a leading '-' into a
+		// number, so every leading '-' produces a UnaryExpr.
+		{"-5", true, "unary minus on literal"},
+		{"-42", true, "unary minus on literal"},
 		// Double negation forces unary operator
 		{"--3", true, "double negation"},
 		{"- -3", true, "unary minus with space"},
@@ -110,8 +111,7 @@ func TestUnaryOperatorPrecedence(t *testing.T) {
 		input    string
 		hasUnary bool
 	}{
-		// Note: "-5" is lexed as a negative literal, not unary minus
-		// But "!true" and "~0" are unary operators
+		// "-5", "!true", and "~0" are all unary operators (B1: no negative literals)
 		{"!true && false", true},
 		{"~5 &. 3", true}, // Use &. to ensure it's a binary operator, not |
 	}

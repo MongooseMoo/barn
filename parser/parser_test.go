@@ -8,7 +8,7 @@ func TestParseIntegerLiterals(t *testing.T) {
 		want  int64
 	}{
 		{"42", 42},
-		{"-5", -5},
+		{"5", 5}, // MOO has no negative literals; "-5" is unary minus (see TestParseUnaryMinus)
 		{"0", 0},
 		{"9223372036854775807", 9223372036854775807},
 	}
@@ -32,7 +32,7 @@ func TestParseFloatLiterals(t *testing.T) {
 		want  float64
 	}{
 		{"3.14", 3.14},
-		{"-0.5", -0.5},
+		{"0.5", 0.5}, // "-0.5" is unary minus on 0.5; not a literal (B1)
 		{"1e10", 1e10},
 		{"1E-5", 1e-5},
 		{"3.14e+2", 3.14e+2},

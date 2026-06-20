@@ -152,11 +152,11 @@ func (l *Lexer) NextToken() Token {
 			tok.Value = "->"
 			l.readChar() // skip '-'
 			l.readChar() // skip '>'
-		} else if isDigit(l.peekChar()) {
-			// Negative number
-			tok = l.readNumber()
 		} else {
-			// Minus operator
+			// Minus operator. MOO has no negative numeric literals: `-5` is
+			// unary minus applied to `5`. Never fold a leading `-` into a
+			// number, or `1-2` would lex as `1` then `-2` with no operator
+			// between them. The parser handles unary/binary minus (B1).
 			tok.Type = TOKEN_MINUS
 			tok.Value = string(l.ch)
 			l.readChar()
@@ -342,12 +342,9 @@ func (l *Lexer) readNumber() Token {
 
 	start := l.position
 
-	// Handle negative sign
-	if l.ch == '-' {
-		l.readChar()
-	}
-
-	// Read digits
+	// Read digits. readNumber is only entered on a leading digit; MOO has no
+	// negative numeric literals (see the '-' case in NextToken), so there is
+	// no negative sign to consume here.
 	for isDigit(l.ch) {
 		l.readChar()
 	}
