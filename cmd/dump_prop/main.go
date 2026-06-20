@@ -29,21 +29,22 @@ func main() {
 	fmt.Sscanf(args[0], "%d", &objNum)
 	propName := args[1]
 
-	obj := store.Get(types.ObjID(objNum))
-	if obj == nil {
+	if _, ok := store.Get(types.ObjID(objNum)); !ok {
 		fmt.Printf("Object #%d not found\n", objNum)
 		os.Exit(1)
 	}
 
-	prop, ok := obj.Properties[propName]
+	prop, ok, _ := store.LocalProperty(types.ObjID(objNum), propName)
 	if !ok {
 		fmt.Printf("Property '%s' not found on #%d\n", propName, objNum)
 		fmt.Println("Available properties:")
-		for name := range obj.Properties {
-			fmt.Printf("  %s\n", name)
+		if names, errCode := store.DefinedPropertyNames(types.ObjID(objNum)); errCode == types.E_NONE {
+			for _, name := range names {
+				fmt.Printf("  %s\n", name)
+			}
 		}
 		os.Exit(1)
 	}
 
-	fmt.Printf("#%d.%s = %v\n", objNum, propName, prop.View().Value)
+	fmt.Printf("#%d.%s = %v\n", objNum, propName, prop.Value)
 }

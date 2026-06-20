@@ -40,7 +40,7 @@ func (database *Database) parseV4(r *bufio.Reader) (*Database, error) {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
 		if obj != nil {
-			database.Objects[obj.ID] = obj
+			database.Objects[obj.ID()] = obj
 		}
 	}
 
@@ -98,7 +98,7 @@ func (database *Database) readPlayersV4(r *bufio.Reader) error {
 }
 
 // readObjectV4 reads a single object in version 4 format
-func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
+func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -130,18 +130,14 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		return nil, nil
 	}
 
-	obj := &store.Object{
-		ID:         objID,
-		Properties: make(map[string]*store.Property),
-		Verbs:      make(map[string]*store.Verb),
-	}
+	obj := store.NewObjectBuilder(objID)
 
 	// Read name
-	obj.Name, err = r.ReadString('\n')
+	name, err := r.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
-	obj.Name = strings.TrimSpace(obj.Name)
+	obj.SetName(strings.TrimSpace(name))
 
 	// Read blank line (v4 specific)
 	if _, err := r.ReadString('\n'); err != nil {
@@ -153,19 +149,21 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	if err != nil {
 		return nil, err
 	}
-	obj.Flags = store.ObjectFlags(flags)
+	obj.SetFlags(store.ObjectFlags(flags))
 
 	// Read owner
-	obj.Owner, err = readObjID(r)
+	owner, err := readObjID(r)
 	if err != nil {
 		return nil, err
 	}
+	obj.SetOwner(owner)
 
 	// Read location (simple objnum in v4)
-	obj.Location, err = readObjID(r)
+	location, err := readObjID(r)
 	if err != nil {
 		return nil, err
 	}
+	obj.SetLocation(location)
 
 	// Read firstContent (skip - we don't use linked list structure)
 	if _, err := readInt(r); err != nil {
@@ -183,7 +181,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		return nil, err
 	}
 	if parent != -1 {
-		obj.Parents = []types.ObjID{parent}
+		obj.SetParents([]types.ObjID{parent})
 	}
 
 	// Read firstChild (skip)
@@ -203,7 +201,6 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	}
 
 	// Read verb metadata
-	obj.VerbList = make([]*store.Verb, verbCount)
 	for i := 0; i < verbCount; i++ {
 		// Verb name
 		name, err := r.ReadString('\n')
@@ -242,10 +239,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 			That: argSpecFromCode(iobj),
 		}
 
-		verb := store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil)
-		verbPtr := &verb
-		obj.VerbList[i] = verbPtr
-		obj.Verbs[names[0]] = verbPtr
+		obj.AppendVerb(store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
 	// Read property definitions
@@ -271,8 +265,8 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	}
 
 	// Store PropDefsCount for later name resolution
-	obj.PropDefsCount = propDefCount
-	obj.PropOrder = make([]string, totalPropCount)
+	obj.SetPropDefsCount(propDefCount)
+	propOrder := make([]string, totalPropCount)
 
 	// Read property values
 	for i := 0; i < totalPropCount; i++ {
@@ -283,7 +277,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 			propName = fmt.Sprintf("_inherited_%d", i)
 		}
 
-		obj.PropOrder[i] = propName // Track order for resolution
+		propOrder[i] = propName // Track order for resolution
 
 		// The first propDefCount entries are the property definitions added on
 		// this object (vs. inherited slots). Mark them Defined so properties()
@@ -312,9 +306,9 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 			return nil, err
 		}
 
-		prop := store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined)
-		obj.Properties[propName] = &prop
+		obj.SetProperty(propName, store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
+	obj.SetPropOrder(propOrder)
 
 	return obj, nil
 }

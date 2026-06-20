@@ -28,7 +28,7 @@ func (database *Database) validObjectID(id types.ObjID) bool {
 		return id == types.ObjNothing
 	}
 	obj := database.Objects[id]
-	return obj != nil && !obj.Recycled && !obj.Flags.Has(store.FlagInvalid)
+	return obj != nil && !obj.Recycled() && !obj.Flags().Has(store.FlagInvalid)
 }
 
 func containsObjID(ids []types.ObjID, target types.ObjID) bool {
@@ -54,40 +54,43 @@ func (database *Database) repairInvalidObjectReferences() {
 			continue
 		}
 
-		validParents := obj.Parents[:0]
-		for _, parentID := range obj.Parents {
+		parents := obj.Parents()
+		validParents := parents[:0]
+		for _, parentID := range parents {
 			if database.validObjectID(parentID) {
 				validParents = append(validParents, parentID)
 				continue
 			}
-			database.recordStartupRepair(fmt.Sprintf("#%d.parent = #%d <invalid> ... removed", obj.ID, parentID))
+			database.recordStartupRepair(fmt.Sprintf("#%d.parent = #%d <invalid> ... removed", obj.ID(), parentID))
 		}
-		obj.Parents = validParents
+		obj.SetParents(validParents)
 
-		validChildren := obj.Children[:0]
-		for _, childID := range obj.Children {
+		children := obj.Children()
+		validChildren := children[:0]
+		for _, childID := range children {
 			if database.validObjectID(childID) {
 				validChildren = append(validChildren, childID)
 				continue
 			}
-			database.recordStartupRepair(fmt.Sprintf("#%d.child = #%d <invalid> ... removed", obj.ID, childID))
+			database.recordStartupRepair(fmt.Sprintf("#%d.child = #%d <invalid> ... removed", obj.ID(), childID))
 		}
-		obj.Children = validChildren
+		obj.SetChildren(validChildren)
 
-		if obj.Location != types.ObjNothing && !database.validObjectID(obj.Location) {
-			database.recordStartupRepair(fmt.Sprintf("#%d.location = #%d <invalid> ... fixed", obj.ID, obj.Location))
-			obj.Location = types.ObjNothing
+		if obj.Location() != types.ObjNothing && !database.validObjectID(obj.Location()) {
+			database.recordStartupRepair(fmt.Sprintf("#%d.location = #%d <invalid> ... fixed", obj.ID(), obj.Location()))
+			obj.SetLocation(types.ObjNothing)
 		}
 
-		validContents := obj.Contents[:0]
-		for _, contentID := range obj.Contents {
+		contents := obj.Contents()
+		validContents := contents[:0]
+		for _, contentID := range contents {
 			if database.validObjectID(contentID) {
 				validContents = append(validContents, contentID)
 				continue
 			}
-			database.recordStartupRepair(fmt.Sprintf("#%d.content = #%d <invalid> ... removed", obj.ID, contentID))
+			database.recordStartupRepair(fmt.Sprintf("#%d.content = #%d <invalid> ... removed", obj.ID(), contentID))
 		}
-		obj.Contents = validContents
+		obj.SetContents(validContents)
 	}
 }
 
@@ -99,8 +102,8 @@ func (database *Database) repairCycles() {
 		if obj == nil {
 			continue
 		}
-		parentCycles[obj.ID] = hasParentCycle(database, obj.ID)
-		locationCycles[obj.ID] = hasLocationCycle(database, obj.ID)
+		parentCycles[obj.ID()] = hasParentCycle(database, obj.ID())
+		locationCycles[obj.ID()] = hasLocationCycle(database, obj.ID())
 	}
 
 	for _, id := range database.sortedObjectIDs() {
@@ -108,13 +111,13 @@ func (database *Database) repairCycles() {
 		if obj == nil {
 			continue
 		}
-		if parentCycles[obj.ID] {
-			database.recordStartupRepair(fmt.Sprintf("Cycle in parent chain of #%d", obj.ID))
-			obj.Parents = nil
+		if parentCycles[obj.ID()] {
+			database.recordStartupRepair(fmt.Sprintf("Cycle in parent chain of #%d", obj.ID()))
+			obj.SetParents(nil)
 		}
-		if locationCycles[obj.ID] {
-			database.recordStartupRepair(fmt.Sprintf("Cycle in location chain of #%d", obj.ID))
-			obj.Location = types.ObjNothing
+		if locationCycles[obj.ID()] {
+			database.recordStartupRepair(fmt.Sprintf("Cycle in location chain of #%d", obj.ID()))
+			obj.SetLocation(types.ObjNothing)
 		}
 	}
 }
@@ -128,7 +131,7 @@ func hasParentCycle(database *Database, start types.ObjID) bool {
 			return false
 		}
 		visited[id] = true
-		for _, parentID := range obj.Parents {
+		for _, parentID := range obj.Parents() {
 			if parentID == start {
 				return true
 			}
@@ -156,7 +159,7 @@ func hasLocationCycle(database *Database, start types.ObjID) bool {
 		if obj == nil {
 			return false
 		}
-		current = obj.Location
+		current = obj.Location()
 	}
 	return false
 }
@@ -168,17 +171,17 @@ func (database *Database) repairTopDownInconsistencies() {
 			continue
 		}
 
-		if obj.Location != types.ObjNothing {
-			if location := database.Objects[obj.Location]; location != nil && !containsObjID(location.Contents, obj.ID) {
-				database.recordStartupRepair(fmt.Sprintf("#%d not in it's location's (#%d) contents", obj.ID, obj.Location))
-				location.Contents = appendUniqueObjID(location.Contents, obj.ID)
+		if obj.Location() != types.ObjNothing {
+			if location := database.Objects[obj.Location()]; location != nil && !containsObjID(location.Contents(), obj.ID()) {
+				database.recordStartupRepair(fmt.Sprintf("#%d not in it's location's (#%d) contents", obj.ID(), obj.Location()))
+				location.SetContents(appendUniqueObjID(location.Contents(), obj.ID()))
 			}
 		}
 
-		for _, parentID := range obj.Parents {
-			if parent := database.Objects[parentID]; parent != nil && !containsObjID(parent.Children, obj.ID) {
-				database.recordStartupRepair(fmt.Sprintf("#%d not in it's parent's (#%d) children", obj.ID, parentID))
-				parent.Children = appendUniqueObjID(parent.Children, obj.ID)
+		for _, parentID := range obj.Parents() {
+			if parent := database.Objects[parentID]; parent != nil && !containsObjID(parent.Children(), obj.ID()) {
+				database.recordStartupRepair(fmt.Sprintf("#%d not in it's parent's (#%d) children", obj.ID(), parentID))
+				parent.SetChildren(appendUniqueObjID(parent.Children(), obj.ID()))
 			}
 		}
 	}
@@ -191,17 +194,17 @@ func (database *Database) repairBottomUpInconsistencies() {
 			continue
 		}
 
-		for _, childID := range obj.Children {
-			if child := database.Objects[childID]; child != nil && !containsObjID(child.Parents, obj.ID) {
-				database.recordStartupRepair(fmt.Sprintf("#%d not in it's child's (#%d) parents", obj.ID, childID))
-				child.Parents = appendUniqueObjID(child.Parents, obj.ID)
+		for _, childID := range obj.Children() {
+			if child := database.Objects[childID]; child != nil && !containsObjID(child.Parents(), obj.ID()) {
+				database.recordStartupRepair(fmt.Sprintf("#%d not in it's child's (#%d) parents", obj.ID(), childID))
+				child.SetParents(appendUniqueObjID(child.Parents(), obj.ID()))
 			}
 		}
 
-		for _, contentID := range obj.Contents {
-			if content := database.Objects[contentID]; content != nil && content.Location != obj.ID {
-				database.recordStartupRepair(fmt.Sprintf("#%d not in it's content's (#%d) location", obj.ID, contentID))
-				content.Location = obj.ID
+		for _, contentID := range obj.Contents() {
+			if content := database.Objects[contentID]; content != nil && content.Location() != obj.ID() {
+				database.recordStartupRepair(fmt.Sprintf("#%d not in it's content's (#%d) location", obj.ID(), contentID))
+				content.SetLocation(obj.ID())
 			}
 		}
 	}

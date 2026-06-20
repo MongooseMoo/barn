@@ -75,15 +75,15 @@ func main() {
 
 	// Compare individual objects
 	for id := int64(0); id <= int64(origMax); id++ {
-		obj1 := store.GetUnsafe(types.ObjID(id))
-		obj2 := store2.GetUnsafe(types.ObjID(id))
+		obj1, ok1 := store.GetUnsafe(types.ObjID(id))
+		obj2, ok2 := store2.GetUnsafe(types.ObjID(id))
 
-		if (obj1 == nil) != (obj2 == nil) {
+		if ok1 != ok2 {
 			fmt.Printf("MISMATCH: object #%d existence differs\n", id)
 			errors++
 			continue
 		}
-		if obj1 == nil {
+		if !ok1 {
 			continue
 		}
 
@@ -99,12 +99,12 @@ func main() {
 			fmt.Printf("MISMATCH: #%d owner %d vs %d\n", id, obj1.Owner, obj2.Owner)
 			errors++
 		}
-		if len(obj1.VerbList) != len(obj2.VerbList) {
-			fmt.Printf("MISMATCH: #%d verbs %d vs %d\n", id, len(obj1.VerbList), len(obj2.VerbList))
+		if obj1.VerbCount != obj2.VerbCount {
+			fmt.Printf("MISMATCH: #%d verbs %d vs %d\n", id, obj1.VerbCount, obj2.VerbCount)
 			errors++
 		}
-		if len(obj1.Properties) != len(obj2.Properties) {
-			fmt.Printf("MISMATCH: #%d props %d vs %d\n", id, len(obj1.Properties), len(obj2.Properties))
+		if obj1.PropertyCount != obj2.PropertyCount {
+			fmt.Printf("MISMATCH: #%d props %d vs %d\n", id, obj1.PropertyCount, obj2.PropertyCount)
 			errors++
 		}
 	}

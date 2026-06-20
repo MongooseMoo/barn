@@ -15,27 +15,21 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 
 	objectStore := loaded.NewStoreFromDatabase()
-	parent := objectStore.Get(1)
-	child := objectStore.Get(0)
-	if parent == nil || child == nil {
-		t.Fatalf("missing parent=%v child=%v", parent, child)
+	_, parentOK := objectStore.Get(1)
+	_, childOK := objectStore.Get(0)
+	if !parentOK || !childOK {
+		t.Fatalf("missing parent=%v child=%v", parentOK, childOK)
 	}
 
 	propName := "persist_prop"
-	parentPropVal := store.NewProperty(propName, types.NewStr("base"), 3, 0, false, true)
-	parent.Properties[propName] = &parentPropVal
-	pos := parent.PropDefsCount
-	if pos > len(parent.PropOrder) {
-		pos = len(parent.PropOrder)
+	// Add the property on the parent at runtime (propagates a clear inherited slot
+	// to the child), then give the child a non-clear local override.
+	if errCode := objectStore.DefineProperty(1, store.NewProperty(propName, types.NewStr("base"), 3, 0, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty(parent) failed: %v", errCode)
 	}
-	parent.PropOrder = append(parent.PropOrder, "")
-	copy(parent.PropOrder[pos+1:], parent.PropOrder[pos:])
-	parent.PropOrder[pos] = propName
-	parent.PropDefsCount++
-
-	parentView := parentPropVal.View()
-	childPropVal := store.NewProperty(propName, types.NewStr("child-override"), parentView.Owner, parentView.Perms, false, false)
-	child.Properties[propName] = &childPropVal
+	if errCode := objectStore.SetPropertyValue(0, propName, types.NewStr("child-override")); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue(child) failed: %v", errCode)
+	}
 
 	tmpFile, err := os.CreateTemp(t.TempDir(), "dump-persist-*.db")
 	if err != nil {
@@ -57,29 +51,29 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 
 	reloadedStore := reloaded.NewStoreFromDatabase()
-	reloadedParent := reloadedStore.Get(1)
-	reloadedChild := reloadedStore.Get(0)
-	if reloadedParent == nil || reloadedChild == nil {
-		t.Fatalf("reloaded parent=%v child=%v", reloadedParent, reloadedChild)
+	if _, ok := reloadedStore.Get(1); !ok {
+		t.Fatalf("reloaded parent missing")
+	}
+	if _, ok := reloadedStore.Get(0); !ok {
+		t.Fatalf("reloaded child missing")
 	}
 
-	parentProp, ok := reloadedParent.Properties[propName]
+	parentProp, ok, _ := reloadedStore.LocalProperty(1, propName)
 	if !ok {
-		t.Fatalf("reloaded parent missing %q; propdefs=%d order=%v", propName, reloadedParent.PropDefsCount, reloadedParent.PropOrder)
+		t.Fatalf("reloaded parent missing %q", propName)
 	}
-	if parentProp.View().Clear {
+	if parentProp.Clear {
 		t.Fatalf("reloaded parent %q unexpectedly clear", propName)
 	}
 
-	childProp, ok := reloadedChild.Properties[propName]
+	childProp, ok, _ := reloadedStore.LocalProperty(0, propName)
 	if !ok {
-		t.Fatalf("reloaded child missing %q; propdefs=%d order=%v", propName, reloadedChild.PropDefsCount, reloadedChild.PropOrder)
+		t.Fatalf("reloaded child missing %q", propName)
 	}
-	childView := childProp.View()
-	if childView.Clear {
+	if childProp.Clear {
 		t.Fatalf("reloaded child %q unexpectedly clear", propName)
 	}
-	if got := childView.Value.(types.StrValue).Value(); got != "child-override" {
+	if got := childProp.Value.(types.StrValue).Value(); got != "child-override" {
 		t.Fatalf("child override = %q, want child-override", got)
 	}
 }

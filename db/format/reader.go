@@ -13,7 +13,7 @@ import (
 // Database represents a loaded MOO database
 type Database struct {
 	Version              int
-	Objects              map[types.ObjID]*store.Object
+	Objects              map[types.ObjID]*store.ObjectBuilder
 	Players              []types.ObjID
 	RecycledObjs         []types.ObjID
 	PendingFinalizations []types.Value
@@ -36,8 +36,8 @@ type waifLoadData struct {
 // NewStoreFromDatabase creates a Store from a loaded database
 func (database *Database) NewStoreFromDatabase() *store.Store {
 	s := store.NewStore()
-	for _, obj := range database.Objects {
-		if err := s.Add(obj); err != nil {
+	for _, b := range database.Objects {
+		if err := s.Add(b.Build()); err != nil {
 			panic(err)
 		}
 	}
@@ -85,7 +85,7 @@ func LoadDatabase(path string) (*Database, error) {
 // parseDatabase parses database from reader
 func parseDatabase(r *bufio.Reader) (*Database, error) {
 	database := &Database{
-		Objects: make(map[types.ObjID]*store.Object),
+		Objects: make(map[types.ObjID]*store.ObjectBuilder),
 	}
 
 	// Read header

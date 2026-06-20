@@ -10,11 +10,11 @@ import (
 )
 
 // readObject reads a single object
-func (database *Database) readObject(r *bufio.Reader) (*store.Object, error) {
+func (database *Database) readObject(r *bufio.Reader) (*store.ObjectBuilder, error) {
 	return database.readObjectCommon(r, true)
 }
 
-func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.Object, error) {
+func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*store.ObjectBuilder, error) {
 	// Read object ID line: "#123" or "#123 recycled"
 	line, err := r.ReadString('\n')
 	if err != nil {
@@ -47,31 +47,28 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, nil
 	}
 
-	obj := &store.Object{
-		ID:         objID,
-		Properties: make(map[string]*store.Property),
-		Verbs:      make(map[string]*store.Verb),
-	}
+	obj := store.NewObjectBuilder(objID)
 
 	// Read name
-	obj.Name, err = r.ReadString('\n')
+	name, err := r.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
-	obj.Name = strings.TrimSpace(obj.Name)
+	obj.SetName(strings.TrimSpace(name))
 
 	// Read flags
 	flags, err := readInt(r)
 	if err != nil {
 		return nil, err
 	}
-	obj.Flags = store.ObjectFlags(flags)
+	obj.SetFlags(store.ObjectFlags(flags))
 
 	// Read owner
-	obj.Owner, err = readObjID(r)
+	owner, err := readObjID(r)
 	if err != nil {
 		return nil, err
 	}
+	obj.SetOwner(owner)
 
 	// Read location
 	locVal, err := database.readValue(r)
@@ -79,10 +76,10 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, err
 	}
 	if objVal, ok := locVal.(types.ObjValue); ok {
-		obj.Location = objVal.ID()
+		obj.SetLocation(objVal.ID())
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.location is not an object", objID))
-		obj.Location = types.ObjNothing
+		obj.SetLocation(types.ObjNothing)
 	}
 
 	if hasLastMove {
@@ -102,14 +99,14 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		validContents := true
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.Contents = append(obj.Contents, objVal.ID())
+				obj.AppendContent(objVal.ID())
 			} else {
 				validContents = false
 			}
 		}
 		if !validContents {
 			database.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
-			obj.Contents = nil
+			obj.SetContents(nil)
 		}
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.contents is not a list of objects", objID))
@@ -126,19 +123,19 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		// Multiple parents (list)
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.Parents = append(obj.Parents, objVal.ID())
+				obj.AppendParent(objVal.ID())
 			} else {
 				validParents = false
 			}
 		}
 		if !validParents {
 			database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
-			obj.Parents = nil
+			obj.SetParents(nil)
 		}
 	} else if objVal, ok := parentsVal.(types.ObjValue); ok {
 		// Single parent (common case)
 		if objVal.ID() != -1 {
-			obj.Parents = append(obj.Parents, objVal.ID())
+			obj.AppendParent(objVal.ID())
 		}
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
@@ -153,14 +150,14 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		validChildren := true
 		for i := 1; i <= listVal.Len(); i++ {
 			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.Children = append(obj.Children, objVal.ID())
+				obj.AppendChild(objVal.ID())
 			} else {
 				validChildren = false
 			}
 		}
 		if !validChildren {
 			database.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
-			obj.Children = nil
+			obj.SetChildren(nil)
 		}
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.children is not a list of objects", objID))
@@ -173,7 +170,6 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	}
 
 	// Read verb metadata
-	obj.VerbList = make([]*store.Verb, verbCount)
 	for i := 0; i < verbCount; i++ {
 		// Verb name
 		name, err := r.ReadString('\n')
@@ -212,10 +208,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			That: argSpecFromCode(iobj),
 		}
 
-		verb := store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil)
-		verbPtr := &verb
-		obj.VerbList[i] = verbPtr
-		obj.Verbs[names[0]] = verbPtr
+		obj.AppendVerb(store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil))
 	}
 
 	// Read property definitions
@@ -241,8 +234,8 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	}
 
 	// Store PropDefsCount for later name resolution
-	obj.PropDefsCount = propDefCount
-	obj.PropOrder = make([]string, totalPropCount)
+	obj.SetPropDefsCount(propDefCount)
+	propOrder := make([]string, totalPropCount)
 
 	// Read property values
 	for i := 0; i < totalPropCount; i++ {
@@ -254,7 +247,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			propName = fmt.Sprintf("_inherited_%d", i)
 		}
 
-		obj.PropOrder[i] = propName // Track order for resolution
+		propOrder[i] = propName // Track order for resolution
 
 		// The first propDefCount entries are the property definitions added on
 		// this object (vs. inherited slots). Mark them Defined so properties()
@@ -283,9 +276,9 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			return nil, err
 		}
 
-		prop := store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined)
-		obj.Properties[propName] = &prop
+		obj.SetProperty(propName, store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
+	obj.SetPropOrder(propOrder)
 
 	return obj, nil
 }
@@ -308,8 +301,8 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 				return err
 			}
 			if obj != nil {
-				obj.Anonymous = true
-				database.Objects[obj.ID] = obj
+				obj.SetAnonymous(true)
+				database.Objects[obj.ID()] = obj
 			}
 		}
 	}
@@ -355,10 +348,10 @@ func (database *Database) readVerbCode(r *bufio.Reader) error {
 		codeLines = append(codeLines, line)
 	}
 
-	// Store code in verb using VerbList for proper indexing
+	// Store code in verb using the builder's ordered verb list for proper indexing
 	obj := database.Objects[types.ObjID(objID)]
-	if obj != nil && verbIndex < len(obj.VerbList) {
-		obj.VerbList[verbIndex].SetCode(codeLines)
+	if obj != nil {
+		obj.SetVerbCodeByIndex(verbIndex, codeLines)
 	}
 
 	return nil

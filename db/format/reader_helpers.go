@@ -126,7 +126,7 @@ func prepToCode(prep string) int {
 // the rest inherit names from ancestors in depth-first order.
 func (database *Database) resolvePropertyNames() {
 	type resolvedProps struct {
-		properties map[string]*store.Property
+		properties map[string]store.Property
 		propOrder  []string
 	}
 
@@ -143,11 +143,12 @@ func (database *Database) resolvePropertyNames() {
 		allNames := database.rawPropertyNames(obj)
 
 		// Now rename _inherited_N properties to their actual names
-		newProperties := make(map[string]*store.Property)
-		newPropOrder := make([]string, 0, len(obj.PropOrder))
-		for i, oldName := range obj.PropOrder {
-			prop := obj.Properties[oldName]
-			if prop == nil {
+		oldOrder := obj.PropOrder()
+		newProperties := make(map[string]store.Property)
+		newPropOrder := make([]string, 0, len(oldOrder))
+		for i, oldName := range oldOrder {
+			v, ok := obj.Property(oldName)
+			if !ok {
 				continue
 			}
 
@@ -159,9 +160,7 @@ func (database *Database) resolvePropertyNames() {
 				newName = oldName
 			}
 
-			v := prop.View()
-			renamed := store.NewProperty(newName, v.Value, v.Owner, v.Perms, v.Clear, v.Defined)
-			newProperties[newName] = &renamed
+			newProperties[newName] = store.NewProperty(newName, v.Value, v.Owner, v.Perms, v.Clear, v.Defined)
 			newPropOrder = append(newPropOrder, newName)
 		}
 
@@ -179,52 +178,56 @@ func (database *Database) resolvePropertyNames() {
 		if !ok {
 			continue
 		}
-		obj.Properties = resolved.properties
-		obj.PropOrder = resolved.propOrder
+		obj.ResetProperties(resolved.properties, resolved.propOrder)
 	}
 }
 
 // rawPropertyNames builds an ordered list of all property names for an object
 // by walking up the parent chain and collecting raw propdefs.
 // Raw object state stores local propdefs in the first PropDefsCount entries.
-func (database *Database) rawPropertyNames(obj *store.Object) []string {
-	return propertyNamesSelfFirst(obj, func(id types.ObjID) *store.Object {
+func (database *Database) rawPropertyNames(obj *store.ObjectBuilder) []string {
+	return propertyNamesSelfFirst(obj, func(id types.ObjID) *store.ObjectBuilder {
 		return database.Objects[id]
 	})
 }
 
-func propertyNamesSelfFirst(obj *store.Object, parent func(types.ObjID) *store.Object) []string {
+func propertyNamesSelfFirst(obj *store.ObjectBuilder, parent func(types.ObjID) *store.ObjectBuilder) []string {
 	var names []string
 	visited := make(map[types.ObjID]bool)
 	propertyNamesSelfFirstRecursive(obj, parent, &names, visited)
 	return names
 }
 
-func propertyNamesSelfFirstRecursive(obj *store.Object, parent func(types.ObjID) *store.Object, names *[]string, visited map[types.ObjID]bool) {
-	if obj == nil || visited[obj.ID] {
+func propertyNamesSelfFirstRecursive(obj *store.ObjectBuilder, parent func(types.ObjID) *store.ObjectBuilder, names *[]string, visited map[types.ObjID]bool) {
+	if obj == nil || visited[obj.ID()] {
 		return
 	}
-	visited[obj.ID] = true
+	visited[obj.ID()] = true
 
-	localCount := obj.PropDefsCount
-	if localCount > len(obj.PropOrder) {
-		localCount = len(obj.PropOrder)
+	order := obj.PropOrder()
+	localCount := obj.PropDefsCount()
+	if localCount > len(order) {
+		localCount = len(order)
 	}
 	for i := 0; i < localCount; i++ {
-		*names = append(*names, obj.PropOrder[i])
+		*names = append(*names, order[i])
 	}
 
-	for _, parentID := range obj.Parents {
+	for _, parentID := range obj.Parents() {
 		propertyNamesSelfFirstRecursive(parent(parentID), parent, names, visited)
 	}
 }
 
-func (database *Database) finalPropertyOrder(obj *store.Object) []string {
-	if obj == nil || len(obj.PropOrder) == 0 {
+func (database *Database) finalPropertyOrder(obj *store.ObjectBuilder) []string {
+	if obj == nil {
 		return nil
 	}
-	names := make([]string, len(obj.PropOrder))
-	copy(names, obj.PropOrder)
+	order := obj.PropOrder()
+	if len(order) == 0 {
+		return nil
+	}
+	names := make([]string, len(order))
+	copy(names, order)
 	return names
 }
 
@@ -257,7 +260,7 @@ func (database *Database) resolveWaifProperties() {
 
 // collectWaifPropNames returns an ordered list of ":" prefixed property names
 // from an object's ancestry. This matches Toast's waif_propdefs construction.
-func (database *Database) collectWaifPropNames(obj *store.Object) []string {
+func (database *Database) collectWaifPropNames(obj *store.ObjectBuilder) []string {
 	allNames := database.finalPropertyOrder(obj)
 	var waifNames []string
 	for _, name := range allNames {

@@ -63,11 +63,11 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 				if obj == nil {
 					t.Fatal("object #0 missing")
 				}
-				if obj.Location != types.ObjNothing {
-					t.Fatalf("object #0 location = %d, want %d", obj.Location, types.ObjNothing)
+				if obj.Location() != types.ObjNothing {
+					t.Fatalf("object #0 location = %d, want %d", obj.Location(), types.ObjNothing)
 				}
-				if containsObjID(obj.Parents, 103) || len(obj.Children) != 0 || len(obj.Contents) != 0 {
-					t.Fatalf("object #0 refs not repaired: parents=%v children=%v contents=%v", obj.Parents, obj.Children, obj.Contents)
+				if containsObjID(obj.Parents(), 103) || len(obj.Children()) != 0 || len(obj.Contents()) != 0 {
+					t.Fatalf("object #0 refs not repaired: parents=%v children=%v contents=%v", obj.Parents(), obj.Children(), obj.Contents())
 				}
 			},
 		},
@@ -105,11 +105,11 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 				"#3 not in it's parent's (#1) children",
 			},
 			check: func(t *testing.T, database *Database) {
-				if !containsObjID(database.Objects[2].Contents, 0) || !containsObjID(database.Objects[2].Contents, 3) {
-					t.Fatalf("object #2 contents not repaired: %v", database.Objects[2].Contents)
+				if !containsObjID(database.Objects[2].Contents(), 0) || !containsObjID(database.Objects[2].Contents(), 3) {
+					t.Fatalf("object #2 contents not repaired: %v", database.Objects[2].Contents())
 				}
-				if !containsObjID(database.Objects[1].Children, 0) || !containsObjID(database.Objects[1].Children, 3) {
-					t.Fatalf("object #1 children not repaired: %v", database.Objects[1].Children)
+				if !containsObjID(database.Objects[1].Children(), 0) || !containsObjID(database.Objects[1].Children(), 3) {
+					t.Fatalf("object #1 children not repaired: %v", database.Objects[1].Children())
 				}
 			},
 		},
@@ -121,11 +121,11 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 				"#2 not in it's content's (#3) location",
 			},
 			check: func(t *testing.T, database *Database) {
-				if !containsObjID(database.Objects[0].Parents, 1) {
-					t.Fatalf("object #0 parents not repaired: %v", database.Objects[0].Parents)
+				if !containsObjID(database.Objects[0].Parents(), 1) {
+					t.Fatalf("object #0 parents not repaired: %v", database.Objects[0].Parents())
 				}
-				if database.Objects[3].Location != 2 {
-					t.Fatalf("object #3 location = %d, want 2", database.Objects[3].Location)
+				if database.Objects[3].Location() != 2 {
+					t.Fatalf("object #3 location = %d, want 2", database.Objects[3].Location())
 				}
 			},
 		},

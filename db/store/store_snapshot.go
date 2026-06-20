@@ -2,12 +2,32 @@ package store
 
 import "barn/types"
 
+// SnapshotObject is a flat, read-only copy of an object for the database writer.
+// It carries the object's scalars, its relational id slices, and read-only views
+// of its verbs (in order) and properties (by name). The store never hands the
+// writer a live *Object; the writer reads everything it needs from this value.
+type SnapshotObject struct {
+	ID            types.ObjID
+	Name          string
+	Owner         types.ObjID
+	Location      types.ObjID
+	Flags         ObjectFlags
+	Recycled      bool
+	Anonymous     bool
+	Parents       []types.ObjID
+	Children      []types.ObjID
+	Contents      []types.ObjID
+	PropDefsCount int
+	VerbList      []VerbView
+	Properties    map[string]PropertyView
+}
+
 type Snapshot struct {
 	MaxObject        types.ObjID
 	Players          []types.ObjID
-	Objects          map[types.ObjID]*Object
-	AnonymousObjects []*Object
-	AllObjects       []*Object
+	Objects          map[types.ObjID]*SnapshotObject
+	AnonymousObjects []*SnapshotObject
+	AllObjects       []*SnapshotObject
 	PropertyNames    map[types.ObjID][]string
 }
 
@@ -17,33 +37,36 @@ func (s *Store) Snapshot() Snapshot {
 
 	snapshot := Snapshot{
 		MaxObject:     s.maxObjID,
-		Objects:       make(map[types.ObjID]*Object, len(s.objects)),
+		Objects:       make(map[types.ObjID]*SnapshotObject, len(s.objects)),
 		PropertyNames: make(map[types.ObjID][]string, len(s.objects)),
 	}
 
+	// propertyNames must be computed over the live objects so parent-chain walks
+	// see the full graph; build them keyed by id.
 	for id, obj := range s.objects {
 		if obj == nil {
 			continue
 		}
-		snapshot.Objects[id] = cloneObjectForSnapshot(obj)
+		snapshot.Objects[id] = snapshotObjectValue(obj)
 	}
 
-	for _, obj := range snapshot.Objects {
+	for _, obj := range s.objects {
 		if obj == nil {
 			continue
 		}
-		if !obj.Recycled && obj.Flags.Has(FlagUser) {
-			snapshot.Players = append(snapshot.Players, obj.ID)
+		so := snapshot.Objects[obj.id]
+		if !obj.recycled && obj.flags.Has(FlagUser) {
+			snapshot.Players = append(snapshot.Players, obj.id)
 		}
-		if !obj.Recycled {
-			snapshot.AllObjects = append(snapshot.AllObjects, obj)
+		if !obj.recycled {
+			snapshot.AllObjects = append(snapshot.AllObjects, so)
 		}
-		if !obj.Recycled && obj.Anonymous {
-			snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, obj)
+		if !obj.recycled && obj.anonymous {
+			snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
 		}
 		if validLiveObject(obj) {
-			snapshot.PropertyNames[obj.ID] = snapshotPropertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
-				return snapshot.Objects[id]
+			snapshot.PropertyNames[obj.id] = snapshotPropertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
+				return s.objects[id]
 			})
 		}
 	}
@@ -51,8 +74,37 @@ func (s *Store) Snapshot() Snapshot {
 	return snapshot
 }
 
+func snapshotObjectValue(obj *Object) *SnapshotObject {
+	so := &SnapshotObject{
+		ID:            obj.id,
+		Name:          obj.name,
+		Owner:         obj.owner,
+		Location:      obj.location,
+		Flags:         obj.flags,
+		Recycled:      obj.recycled,
+		Anonymous:     obj.anonymous,
+		Parents:       append([]types.ObjID(nil), obj.parents...),
+		Children:      append([]types.ObjID(nil), obj.children...),
+		Contents:      append([]types.ObjID(nil), obj.contents...),
+		PropDefsCount: obj.propDefsCount,
+		VerbList:      make([]VerbView, len(obj.verbList)),
+		Properties:    make(map[string]PropertyView, len(obj.properties)),
+	}
+	for i, verb := range obj.verbList {
+		if verb != nil {
+			so.VerbList[i] = verb.View()
+		}
+	}
+	for name, prop := range obj.properties {
+		if prop != nil {
+			so.Properties[name] = prop.View()
+		}
+	}
+	return so
+}
+
 func snapshotPropertyNamesSelfFirst(obj *Object, parent func(types.ObjID) *Object) []string {
-	names := make([]string, 0, len(obj.PropOrder))
+	names := make([]string, 0, len(obj.propOrder))
 	visited := make(map[string]bool)
 	snapshotPropertyNamesSelfFirstRecursive(obj, parent, &names, visited)
 	return names
@@ -62,69 +114,20 @@ func snapshotPropertyNamesSelfFirstRecursive(obj *Object, parent func(types.ObjI
 	if obj == nil {
 		return
 	}
-	localCount := obj.PropDefsCount
-	if localCount > len(obj.PropOrder) {
-		localCount = len(obj.PropOrder)
+	localCount := obj.propDefsCount
+	if localCount > len(obj.propOrder) {
+		localCount = len(obj.propOrder)
 	}
 	for i := 0; i < localCount; i++ {
-		name := obj.PropOrder[i]
+		name := obj.propOrder[i]
 		if !visited[name] {
 			*names = append(*names, name)
 			visited[name] = true
 		}
 	}
-	for _, parentID := range obj.Parents {
+	for _, parentID := range obj.parents {
 		snapshotPropertyNamesSelfFirstRecursive(parent(parentID), parent, names, visited)
 	}
-}
-
-func cloneObjectForSnapshot(obj *Object) *Object {
-	clone := *obj
-	clone.Parents = append([]types.ObjID(nil), obj.Parents...)
-	clone.Children = append([]types.ObjID(nil), obj.Children...)
-	clone.Contents = append([]types.ObjID(nil), obj.Contents...)
-	clone.PropOrder = append([]string(nil), obj.PropOrder...)
-	clone.AnonymousChildren = append([]types.ObjID(nil), obj.AnonymousChildren...)
-
-	if obj.ChparentChildren != nil {
-		clone.ChparentChildren = make(map[types.ObjID]bool, len(obj.ChparentChildren))
-		for id, value := range obj.ChparentChildren {
-			clone.ChparentChildren[id] = value
-		}
-	}
-
-	clone.Properties = make(map[string]*Property, len(obj.Properties))
-	for name, prop := range obj.Properties {
-		clone.Properties[name] = cloneProperty(prop)
-	}
-
-	clone.Verbs = make(map[string]*Verb, len(obj.Verbs))
-	clone.VerbList = make([]*Verb, len(obj.VerbList))
-	verbClones := make(map[*Verb]*Verb, len(obj.VerbList))
-	for i, verb := range obj.VerbList {
-		verbClone := cloneVerbForSnapshot(verb)
-		clone.VerbList[i] = verbClone
-		verbClones[verb] = verbClone
-	}
-	for name, verb := range obj.Verbs {
-		if verbClone, ok := verbClones[verb]; ok {
-			clone.Verbs[name] = verbClone
-			continue
-		}
-		clone.Verbs[name] = cloneVerbForSnapshot(verb)
-	}
-
-	return &clone
-}
-
-func cloneVerbForSnapshot(verb *Verb) *Verb {
-	if verb == nil {
-		return nil
-	}
-	clone := *verb
-	clone.names = append([]string(nil), verb.names...)
-	clone.code = append([]string(nil), verb.code...)
-	return &clone
 }
 
 // Get retrieves an object by ID

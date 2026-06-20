@@ -7,25 +7,23 @@ import (
 	"barn/types"
 )
 
-func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbstore.ObjectFlags) *dbstore.Object {
+func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbstore.ObjectFlags) types.ObjID {
 	t.Helper()
-	obj := dbstore.NewObject(id, 2)
-	obj.Name = "test"
-	obj.Flags = flags
-	if err := store.Add(obj); err != nil {
+	b := dbstore.NewObjectBuilder(id)
+	b.SetOwner(2)
+	b.SetName("test")
+	b.SetFlags(flags)
+	if err := store.Add(b.Build()); err != nil {
 		t.Fatalf("add object #%d: %v", id, err)
 	}
-	return obj
+	return id
 }
 
-func addTestVerb(obj *dbstore.Object, name string, code ...string) {
-	verb := dbstore.NewVerb(name, []string{name}, 2,
+func addTestVerb(store *dbstore.Store, objID types.ObjID, name string, code ...string) {
+	store.AddVerb(objID, dbstore.NewVerb(name, []string{name}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
-		code)
-	verbPtr := &verb
-	obj.Verbs[name] = verbPtr
-	obj.VerbList = append(obj.VerbList, verbPtr)
+		code))
 }
 
 func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
@@ -35,8 +33,8 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 	addTestObject(t, store, 3, dbstore.FlagUser)
 	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
-	addTestVerb(system, "do_login_command", "return #3;")
-	addTestVerb(listener, "do_login_command",
+	addTestVerb(store, system, "do_login_command", "return #3;")
+	addTestVerb(store, listener, "do_login_command",
 		`if (length(args) == 2 && args[2] == "two words" && argstr == "connect \"two words\"")`,
 		"  return #2;",
 		"else",
@@ -60,15 +58,13 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
-	createdProp := dbstore.NewProperty("created", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, false)
-	system.Properties["created"] = &createdProp
-	connectedProp := dbstore.NewProperty("connected", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, false)
-	system.Properties["connected"] = &connectedProp
+	store.DefineProperty(system, dbstore.NewProperty("created", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
+	store.DefineProperty(system, dbstore.NewProperty("connected", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
-	addTestVerb(listener, "user_created", "#0.created = args[1];")
-	addTestVerb(listener, "user_connected", "#0.connected = args[1];")
+	addTestVerb(store, listener, "user_created", "#0.created = args[1];")
+	addTestVerb(store, listener, "user_connected", "#0.connected = args[1];")
 
 	s := NewScheduler(store)
 	cm := NewConnectionManager(nil, 7777)
@@ -78,12 +74,14 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 
 	s.loginPlayer(conn, 2, true)
 
-	created, ok := system.Properties["created"].View().Value.(types.ObjValue)
+	createdVal, _ := store.PropertyValue(system, "created")
+	created, ok := createdVal.(types.ObjValue)
 	if !ok || created.ID() != 2 {
-		t.Fatalf("created hook value = %v, want #2", system.Properties["created"].View().Value)
+		t.Fatalf("created hook value = %v, want #2", createdVal)
 	}
-	connected, ok := system.Properties["connected"].View().Value.(types.ObjValue)
+	connectedVal, _ := store.PropertyValue(system, "connected")
+	connected, ok := connectedVal.(types.ObjValue)
 	if !ok || connected.ID() != 2 {
-		t.Fatalf("connected hook value = %v, want #2", system.Properties["connected"].View().Value)
+		t.Fatalf("connected hook value = %v, want #2", connectedVal)
 	}
 }
