@@ -83,13 +83,13 @@ func newSQLiteHandle(id int64, path string, db *sql.DB, conn *sql.Conn) *sqliteH
 }
 
 func getSQLiteHandle(v types.Value) (*sqliteHandle, types.ErrorCode) {
-	h, ok := v.(types.IntValue)
+	h, ok := v.AsInt()
 	if !ok {
 		return nil, types.E_TYPE
 	}
 
 	sqliteState.mu.Lock()
-	handle := sqliteState.handles[h.Val]
+	handle := sqliteState.handles[h]
 	sqliteState.mu.Unlock()
 	if handle == nil {
 		return nil, types.E_INVARG
@@ -145,15 +145,15 @@ func sqliteReturnsRows(sqlText string) bool {
 }
 
 func sqliteParamValue(v types.Value) any {
-	switch value := v.(type) {
-	case types.IntValue:
-		return value.Val
-	case types.FloatValue:
-		return value.Val
-	case types.StrValue:
-		return value.Value()
-	case types.ObjValue:
-		return value.String()
+	switch v.Kind() {
+	case types.KindInt:
+		return v.Int()
+	case types.KindFloat:
+		return v.Float()
+	case types.KindStr:
+		return v.Str()
+	case types.KindObj, types.KindAnon:
+		return v.String()
 	default:
 		return v.String()
 	}
@@ -268,14 +268,15 @@ func sqliteExecOrQueryAsync(ctx *kernel.TaskContext, handle *sqliteHandle, sqlTe
 }
 
 func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
-	switch value := v.(type) {
-	case types.IntValue:
-		if _, ok := defaultSQLiteLimits()[value.Val]; !ok {
+	switch v.Kind() {
+	case types.KindInt:
+		n := v.Int()
+		if _, ok := defaultSQLiteLimits()[n]; !ok {
 			return 0, types.E_INVARG
 		}
-		return value.Val, types.E_NONE
-	case types.StrValue:
-		category, ok := sqliteLimitNames[value.Value()]
+		return n, types.E_NONE
+	case types.KindStr:
+		category, ok := sqliteLimitNames[v.Str()]
 		if !ok {
 			return 0, types.E_INVARG
 		}
@@ -293,13 +294,12 @@ func builtinSqliteOpen(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	pathVal, ok := args[0].(types.StrValue)
+	path, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path := pathVal.Value()
 	if len(args) == 2 {
-		if _, ok := args[1].(types.IntValue); !ok {
+		if !args[1].IsInt() {
 			return types.Err(types.E_TYPE)
 		}
 	}
@@ -431,7 +431,7 @@ func builtinSqliteQuery(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
-	sqlText, ok := args[1].(types.StrValue)
+	sqlText, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -440,7 +440,7 @@ func builtinSqliteQuery(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if len(args) == 3 {
 		includeHeaders = args[2].Truthy()
 	}
-	return sqliteExecOrQueryAsync(ctx, handle, sqlText.Value(), nil, includeHeaders)
+	return sqliteExecOrQueryAsync(ctx, handle, sqlText, nil, includeHeaders)
 }
 
 func builtinSqliteExecute(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -459,11 +459,11 @@ func builtinSqliteExecute(ctx *kernel.TaskContext, args []types.Value) types.Res
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
-	sqlText, ok := args[1].(types.StrValue)
+	sqlText, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	paramsVal, ok := args[2].(types.ListValue)
+	paramsVal, ok := args[2].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -472,7 +472,7 @@ func builtinSqliteExecute(ctx *kernel.TaskContext, args []types.Value) types.Res
 	for _, value := range paramsVal.Elements() {
 		params = append(params, sqliteParamValue(value))
 	}
-	return sqliteExecOrQueryAsync(ctx, handle, sqlText.Value(), params, false)
+	return sqliteExecOrQueryAsync(ctx, handle, sqlText, params, false)
 }
 
 func builtinSqliteLastInsertRowID(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -517,15 +517,15 @@ func builtinSqliteLimit(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
-	value, ok := args[2].(types.IntValue)
+	value, ok := args[2].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	handle.mu.Lock()
 	prior := handle.limits[category]
-	if value.Val >= 0 {
-		handle.limits[category] = value.Val
+	if value >= 0 {
+		handle.limits[category] = value
 	}
 	handle.mu.Unlock()
 	return types.Ok(types.NewInt(prior))

@@ -87,23 +87,22 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// Try to find the verb
-	verb, definingObj, err := store.FindVerb(objID, nameVal.Value())
+	verb, definingObj, err := store.FindVerb(objID, nameVal)
 	if err != nil {
 		return types.Ok(types.NewInt(0))
 	}
@@ -141,12 +140,11 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -174,12 +172,11 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -187,15 +184,15 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	var verb dbstore.VerbView
 
 	// Accept string (verb name) or integer (verb index)
-	switch v := args[1].(type) {
-	case types.StrValue:
+	switch args[1].Kind() {
+	case types.KindStr:
 		var err error
-		verb, err = store.FindVerbOnObject(objID, v.Value())
+		verb, err = store.FindVerbOnObject(objID, args[1].Str())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
-	case types.IntValue:
-		index := int(v.Val) - 1 // Convert to 0-based
+	case types.KindInt:
+		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := store.VerbByIndex(objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
@@ -236,12 +233,11 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -249,15 +245,15 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	var verb dbstore.VerbView
 
 	// Accept string (verb name) or integer (verb index)
-	switch v := args[1].(type) {
-	case types.StrValue:
+	switch args[1].Kind() {
+	case types.KindStr:
 		var err error
-		verb, err = store.FindVerbOnObject(objID, v.Value())
+		verb, err = store.FindVerbOnObject(objID, args[1].Str())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
-	case types.IntValue:
-		index := int(v.Val) - 1 // Convert to 0-based
+	case types.KindInt:
+		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := store.VerbByIndex(objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
@@ -294,22 +290,21 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, err := store.FindVerbOnObject(objID, nameVal.Value())
+	verb, err := store.FindVerbOnObject(objID, nameVal)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -343,22 +338,21 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	infoList, ok := args[1].(types.ListValue)
+	infoList, ok := args[1].AsList()
 	if !ok || infoList.Len() != 3 {
 		return types.Err(types.E_INVARG)
 	}
 
-	argsList, ok := args[2].(types.ListValue)
+	argsList, ok := args[2].AsList()
 	if !ok || argsList.Len() != 3 {
 		return types.Err(types.E_INVARG)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -374,52 +368,47 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Parse info list (1-indexed)
-	owner, ok := infoList.Get(1).(types.ObjValue)
+	ownerID, ok := infoList.Get(1).AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Validate owner is valid
-	ownerID := owner.ID()
 	if !store.Valid(ownerID) {
 		return types.Err(types.E_INVARG)
 	}
 
-	permsStr, ok := infoList.Get(2).(types.StrValue)
+	permsStr, ok := infoList.Get(2).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Validate permissions string - only rwxd allowed
-	for _, ch := range permsStr.Value() {
+	for _, ch := range permsStr {
 		if ch != 'r' && ch != 'w' && ch != 'x' && ch != 'd' &&
 			ch != 'R' && ch != 'W' && ch != 'X' && ch != 'D' {
 			return types.Err(types.E_INVARG)
 		}
 	}
 
-	namesStr, ok := infoList.Get(3).(types.StrValue)
+	namesStr, ok := infoList.Get(3).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Parse args list (1-indexed) - must be strings
-	dobjVal, ok := argsList.Get(1).(types.StrValue)
+	dobjStr, ok := argsList.Get(1).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	prepVal, ok := argsList.Get(2).(types.StrValue)
+	prepStr, ok := argsList.Get(2).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	iobjVal, ok := argsList.Get(3).(types.StrValue)
+	iobjStr, ok := argsList.Get(3).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	dobjStr := dobjVal.Value()
-	prepStr := prepVal.Value()
-	iobjStr := iobjVal.Value()
 
 	// Validate arg specs
 	if !matchArgSpec(dobjStr) {
@@ -433,7 +422,7 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Parse verb names (space-separated)
-	names := strings.Fields(namesStr.Value())
+	names := strings.Fields(namesStr)
 	if len(names) == 0 {
 		return types.Err(types.E_INVARG)
 	}
@@ -461,7 +450,7 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Parse permissions
-	perms := parseVerbPerms(permsStr.Value())
+	perms := parseVerbPerms(permsStr)
 
 	// Create the verb
 	verb := dbstore.NewVerb(names[0], names, ownerID, perms, dbstore.VerbArgs{
@@ -487,24 +476,23 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	if errCode := store.DeleteVerb(objID, nameVal.Value()); errCode != types.E_NONE {
+	if errCode := store.DeleteVerb(objID, nameVal); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -521,27 +509,26 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	infoList, ok := args[2].(types.ListValue)
+	infoList, ok := args[2].AsList()
 	if !ok || infoList.Len() != 3 {
 		return types.Err(types.E_INVARG)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
+	verb, _, err := store.FindVerb(objID, nameVal)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -553,22 +540,22 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Parse info list (1-indexed)
-	owner, ok := infoList.Get(1).(types.ObjValue)
+	ownerID, ok := infoList.Get(1).AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	permsStr, ok := infoList.Get(2).(types.StrValue)
+	permsStr, ok := infoList.Get(2).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	namesStr, ok := infoList.Get(3).(types.StrValue)
+	namesStr, ok := infoList.Get(3).AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	errCode := store.SetVerbInfo(objID, nameVal.Value(), owner.ID(), parseVerbPerms(permsStr.Value()), strings.Fields(namesStr.Value()))
+	errCode := store.SetVerbInfo(objID, nameVal, ownerID, parseVerbPerms(permsStr), strings.Fields(namesStr))
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -586,27 +573,26 @@ func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	argsList, ok := args[2].(types.ListValue)
+	argsList, ok := args[2].AsList()
 	if !ok || argsList.Len() != 3 {
 		return types.Err(types.E_INVARG)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
+	verb, _, err := store.FindVerb(objID, nameVal)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -628,7 +614,7 @@ func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		Prep: prepStr,
 		That: iobjStr,
 	}
-	if errCode := store.SetVerbArgs(objID, nameVal.Value(), argSpec); errCode != types.E_NONE {
+	if errCode := store.SetVerbArgs(objID, nameVal, argSpec); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -645,27 +631,26 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
 	var verb dbstore.VerbView
-	switch v := args[1].(type) {
-	case types.StrValue:
-		found, _, err := store.FindVerb(objID, v.Value())
+	switch args[1].Kind() {
+	case types.KindStr:
+		found, _, err := store.FindVerb(objID, args[1].Str())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
 		verb = found
-	case types.IntValue:
-		index := int(v.Val) - 1 // Convert to 0-based
+	case types.KindInt:
+		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := store.VerbByIndex(objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
@@ -686,19 +671,20 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	// Accept either string (single line) or list of strings
 	var lines []string
-	switch code := args[2].(type) {
-	case types.StrValue:
+	switch args[2].Kind() {
+	case types.KindStr:
 		// Single string becomes a one-line verb
-		lines = []string{code.Value()}
-	case types.ListValue:
+		lines = []string{args[2].Str()}
+	case types.KindList:
 		// Convert list to code lines (1-indexed)
+		code := args[2].List()
 		lines = make([]string, code.Len())
 		for i := 1; i <= code.Len(); i++ {
-			lineVal, ok := code.Get(i).(types.StrValue)
+			lineVal, ok := code.Get(i).AsStr()
 			if !ok {
 				return types.Err(types.E_TYPE)
 			}
-			lines[i-1] = lineVal.Value()
+			lines[i-1] = lineVal
 		}
 	default:
 		return types.Err(types.E_TYPE)
@@ -738,13 +724,13 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		}
 	}
 
-	switch v := args[1].(type) {
-	case types.StrValue:
-		if errCode := store.SetVerbCode(objID, v.Value(), lines); errCode != types.E_NONE {
+	switch args[1].Kind() {
+	case types.KindStr:
+		if errCode := store.SetVerbCode(objID, args[1].Str(), lines); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-	case types.IntValue:
-		if errCode := store.SetVerbCodeByIndex(objID, int(v.Val)-1, lines); errCode != types.E_NONE {
+	case types.KindInt:
+		if errCode := store.SetVerbCodeByIndex(objID, int(args[1].Int())-1, lines); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	}
@@ -795,12 +781,12 @@ func normalizeVerbSourceLines(lines []string) []string {
 // valueToArgSpec converts a Value to an arg spec string
 // Accepts string values directly, converts object values to their string representation
 func valueToArgSpec(v types.Value) string {
-	switch val := v.(type) {
-	case types.StrValue:
-		return val.Value()
-	case types.ObjValue:
+	switch v.Kind() {
+	case types.KindStr:
+		return v.Str()
+	case types.KindObj, types.KindAnon:
 		// Convert object ID to string - cow_py compatibility
-		return fmt.Sprintf("%d", val.ID())
+		return fmt.Sprintf("%d", v.ObjNum())
 	default:
 		return ""
 	}
@@ -833,27 +819,26 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
 	var verb dbstore.VerbView
-	switch v := args[1].(type) {
-	case types.StrValue:
-		found, _, err := store.FindVerb(objID, v.Value())
+	switch args[1].Kind() {
+	case types.KindStr:
+		found, _, err := store.FindVerb(objID, args[1].Str())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
 		verb = found
-	case types.IntValue:
-		index := int(v.Val) - 1 // Convert to 0-based
+	case types.KindInt:
+		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := store.VerbByIndex(objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)

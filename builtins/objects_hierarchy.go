@@ -18,20 +18,20 @@ func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Check for invalid object references (E_INVARG for $nothing, etc.)
-	if objVal.ID() < 0 {
+	if objID < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
-	parentID, errCode := store.Parent(objVal.ID())
+	parentID, errCode := store.Parent(objID)
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if store.IsRecycled(objVal.ID()) {
+		if store.IsRecycled(objID) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
@@ -51,24 +51,24 @@ func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs have no parents
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].IsWaif() {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Check for invalid object references
-	if objVal.ID() < 0 {
+	if objID < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
-	parentIDs, errCode := store.Parents(objVal.ID())
+	parentIDs, errCode := store.Parents(objID)
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if store.IsRecycled(objVal.ID()) {
+		if store.IsRecycled(objID) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
@@ -88,24 +88,24 @@ func builtinChildren(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs have no children
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].IsWaif() {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Check for invalid object references
-	if objVal.ID() < 0 {
+	if objID < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
-	childIDs, errCode := store.Children(objVal.ID())
+	childIDs, errCode := store.Children(objID)
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if store.IsRecycled(objVal.ID()) {
+		if store.IsRecycled(objID) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
@@ -133,53 +133,53 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	newParentVal, ok := args[1].(types.ObjValue)
+	newParentID, ok := args[1].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Check for invalid object references
-	if objVal.ID() < 0 {
+	if objID < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !store.Valid(objID) {
 		return types.Err(types.E_INVIND)
 	}
 
 	// Check for cycles BEFORE validating new parent existence
 	// This ensures self-parenting returns E_RECMOVE, not E_INVARG
-	if objVal.ID() == newParentVal.ID() {
+	if objID == newParentID {
 		return types.Err(types.E_RECMOVE)
 	}
 
 	// Check for invalid new parent
 	// $nothing (-1) is valid and means no parent
-	if newParentVal.ID() < -1 {
+	if newParentID < -1 {
 		return types.Err(types.E_INVARG)
 	}
 
-	if newParentVal.ID() != types.ObjNothing {
-		if !store.Valid(newParentVal.ID()) {
+	if newParentID != types.ObjNothing {
+		if !store.Valid(newParentID) {
 			return types.Err(types.E_INVARG)
 		}
 	}
 
 	// Check if new parent is a descendant of object (would create cycle)
-	if newParentVal.ID() != types.ObjNothing && store.HasDescendant(objVal.ID(), newParentVal.ID()) {
+	if newParentID != types.ObjNothing && store.HasDescendant(objID, newParentID) {
 		return types.Err(types.E_RECMOVE)
 	}
 
 	// Check for direct property conflicts between obj and new parent
 	// If obj defines a property that new_parent or its ancestors also define, that's E_INVARG
 	// (This is different from inherited properties, which can be shadowed)
-	if newParentVal.ID() != types.ObjNothing {
-		conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
+	if newParentID != types.ObjNothing {
+		conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objID, []types.ObjID{newParentID})
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -190,12 +190,12 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new_parent or its ancestors.
-	if newParentVal.ID() != types.ObjNothing {
-		newParentProps, errCode := store.DefinedPropertyNamesInAncestry(newParentVal.ID())
+	if newParentID != types.ObjNothing {
+		newParentProps, errCode := store.DefinedPropertyNamesInAncestry(newParentID)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		conflict, errCode := store.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
+		conflict, errCode := store.HasChparentDescendantPropertyConflict(objID, newParentProps)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -204,12 +204,12 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if !ctx.IsWizard && newParentVal.ID() != types.ObjNothing {
-		ownerID, errCode := store.ObjectOwner(newParentVal.ID())
+	if !ctx.IsWizard && newParentID != types.ObjNothing {
+		ownerID, errCode := store.ObjectOwner(newParentID)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		hasFertile, errCode := store.HasObjectFlag(newParentVal.ID(), dbstore.FlagFertile)
+		hasFertile, errCode := store.HasObjectFlag(newParentID, dbstore.FlagFertile)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -223,12 +223,12 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// hierarchy changes; they remain valid.
 
 	var newParents []types.ObjID
-	if newParentVal.ID() == types.ObjNothing {
+	if newParentID == types.ObjNothing {
 		newParents = []types.ObjID{}
 	} else {
-		newParents = []types.ObjID{newParentVal.ID()}
+		newParents = []types.ObjID{newParentID}
 	}
-	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
+	if errCode := store.ChangeParents(objID, newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -244,17 +244,17 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	parentsList, ok := args[1].(types.ListValue)
+	parentsList, ok := args[1].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !store.Valid(objID) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -264,15 +264,13 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	seenParents := make(map[types.ObjID]bool)
 
 	for i, elem := range elements {
-		parentVal, ok := elem.(types.ObjValue)
+		parentID, ok := elem.AsObjID()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
 
-		parentID := parentVal.ID()
-
 		// Check for self-parenting FIRST (before validating parent exists)
-		if parentID == objVal.ID() {
+		if parentID == objID {
 			return types.Err(types.E_RECMOVE)
 		}
 
@@ -288,7 +286,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		}
 
 		// Check if parent is a descendant of object (would create cycle)
-		if store.HasDescendant(objVal.ID(), parentID) {
+		if store.HasDescendant(objID, parentID) {
 			return types.Err(types.E_RECMOVE)
 		}
 
@@ -316,7 +314,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		}
 	}
 
-	conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
+	conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objID, newParents)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -326,7 +324,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new parents or their ancestors.
-	conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
+	conflict, errCode = store.HasChparentDescendantPropertyConflict(objID, allNewParentProps)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -339,7 +337,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
+	if errCode := store.ChangeParents(objID, newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -355,7 +353,7 @@ func builtinAncestors(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -365,7 +363,7 @@ func builtinAncestors(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		includeSelf = args[1].Truthy()
 	}
 
-	ancestorIDs, errCode := store.Ancestors(objVal.ID(), includeSelf)
+	ancestorIDs, errCode := store.Ancestors(objID, includeSelf)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -382,7 +380,7 @@ func builtinDescendants(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -392,7 +390,7 @@ func builtinDescendants(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		includeSelf = args[1].Truthy()
 	}
 
-	descendantIDs, errCode := store.Descendants(objVal.ID(), includeSelf)
+	descendantIDs, errCode := store.Descendants(objID, includeSelf)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -410,22 +408,23 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	var ancestors []types.ObjID
-	switch ancestorVal := args[1].(type) {
-	case types.ObjValue:
-		ancestors = append(ancestors, ancestorVal.ID())
-	case types.ListValue:
+	switch args[1].Kind() {
+	case types.KindObj, types.KindAnon:
+		ancestors = append(ancestors, args[1].ObjNum())
+	case types.KindList:
+		ancestorVal := args[1].List()
 		for i := 1; i <= ancestorVal.Len(); i++ {
-			parentVal, ok := ancestorVal.Get(i).(types.ObjValue)
+			parentID, ok := ancestorVal.Get(i).AsObjID()
 			if !ok {
 				return types.Err(types.E_TYPE)
 			}
-			ancestors = append(ancestors, parentVal.ID())
+			ancestors = append(ancestors, parentID)
 		}
 	default:
 		return types.Err(types.E_TYPE)
@@ -439,7 +438,7 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !store.Valid(objID) {
 		return noMatch()
 	}
 
@@ -448,7 +447,7 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			continue
 		}
 
-		if store.HasAncestor(objVal.ID(), ancestorID) {
+		if store.HasAncestor(objID, ancestorID) {
 			if returnObject {
 				return types.Ok(types.NewObj(ancestorID))
 			}
@@ -468,22 +467,22 @@ func builtinLocateByName(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	needle, ok := args[0].(types.StrValue)
+	needle, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	needleStr := strings.TrimSpace(needle.Value())
+	needleStr := strings.TrimSpace(needle)
 	if needleStr == "" {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
 	caseSensitive := false
 	if len(args) == 2 {
-		cs, ok := args[1].(types.IntValue)
+		cs, ok := args[1].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = cs.Val != 0
+		caseSensitive = cs != 0
 	}
 
 	matchingIDs := store.ObjectIDsByNameSubstring(needleStr, caseSensitive)
@@ -501,11 +500,11 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if !store.Valid(objVal.ID()) {
+	if !store.Valid(objID) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -515,23 +514,23 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		checkParent bool
 	)
 	if len(args) >= 2 {
-		baseVal, ok := args[1].(types.ObjValue)
+		base, ok := args[1].AsObjID()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		baseID = baseVal.ID()
+		baseID = base
 		hasBase = true
 	}
 	if len(args) == 3 {
-		flag, ok := args[2].(types.IntValue)
+		flag, ok := args[2].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		checkParent = flag.Val != 0
+		checkParent = flag != 0
 	}
 
 	out := make([]types.Value, 0)
-	currentID := objVal.ID()
+	currentID := objID
 	for {
 		locID, errCode := store.Location(currentID)
 		if errCode != types.E_NONE || locID == types.ObjNothing {
@@ -560,20 +559,20 @@ func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	owner, ok := args[0].(types.ObjValue)
+	ownerID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if !store.Valid(owner.ID()) {
+	if !store.Valid(ownerID) {
 		return types.Err(types.E_INVIND)
 	}
-	ownedIDs := store.ObjectsOwnedBy(owner.ID())
+	ownedIDs := store.ObjectsOwnedBy(ownerID)
 	out := make([]types.Value, 0, len(ownedIDs))
 	for _, id := range ownedIDs {
 		out = append(out, types.NewObj(id))
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].(types.ObjValue).ID() < out[j].(types.ObjValue).ID()
+		return out[i].ObjNum() < out[j].ObjNum()
 	})
 	return types.Ok(types.NewList(out))
 }
@@ -603,11 +602,11 @@ func builtinNextRecycledObject(ctx *kernel.TaskContext, args []types.Value) type
 
 	start := types.ObjID(-1)
 	if len(args) == 1 {
-		switch startArg := args[0].(type) {
-		case types.ObjValue:
-			start = startArg.ID()
-		case types.IntValue:
-			start = types.ObjID(startArg.Val)
+		switch args[0].Kind() {
+		case types.KindObj, types.KindAnon:
+			start = args[0].ObjNum()
+		case types.KindInt:
+			start = types.ObjID(args[0].Int())
 		default:
 			return types.Err(types.E_TYPE)
 		}
@@ -641,36 +640,36 @@ func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	obj, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	parent := types.ObjNothing
 	owner := ctx.Programmer
 	if len(args) >= 2 {
-		p, ok := args[1].(types.ObjValue)
+		p, ok := args[1].AsObjID()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		parent = p.ID()
+		parent = p
 	}
 	if len(args) == 3 {
-		o, ok := args[2].(types.ObjValue)
+		o, ok := args[2].AsObjID()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		owner = o.ID()
+		owner = o
 	}
-	if err := store.Recreate(obj.ID(), parent, owner); err != nil {
+	if err := store.Recreate(objID, parent, owner); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 
-	result := types.Ok(types.NewObj(obj.ID()))
-	if !store.Valid(obj.ID()) {
+	result := types.Ok(types.NewObj(objID))
+	if !store.Valid(objID) {
 		return result
 	}
 
-	initResult := registry.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
+	initResult := registry.CallVerb(objID, "initialize", []types.Value{}, ctx)
 	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
 		return initResult
 	}

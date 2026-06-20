@@ -20,7 +20,7 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -30,11 +30,11 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 	// Default: append to end
 	index := list.Len()
 	if len(args) == 3 {
-		idx, ok := args[2].(types.IntValue)
+		idx, ok := args[2].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		index = int(idx.Val)
+		index = int(idx)
 		if index < 0 || index > list.Len() {
 			return types.Err(types.E_RANGE)
 		}
@@ -48,7 +48,7 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }
 
 // builtinListinsert inserts value before the specified position
@@ -60,7 +60,7 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -70,11 +70,11 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 	// Default: insert at beginning
 	index := 1
 	if len(args) == 3 {
-		idx, ok := args[2].(types.IntValue)
+		idx, ok := args[2].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		index = int(idx.Val)
+		index = int(idx)
 		// Clamp to valid range
 		if index <= 0 {
 			index = 1
@@ -91,7 +91,7 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }
 
 // builtinListdelete removes element at index
@@ -101,17 +101,17 @@ func builtinListdelete(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	idx, ok := args[1].(types.IntValue)
+	idx, ok := args[1].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	index := int(idx.Val)
+	index := int(idx)
 	if index < 1 || index > list.Len() {
 		return types.Err(types.E_RANGE)
 	}
@@ -123,7 +123,7 @@ func builtinListdelete(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }
 
 // builtinListset replaces element at index
@@ -133,19 +133,19 @@ func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	value := args[1]
 
-	idx, ok := args[2].(types.IntValue)
+	idx, ok := args[2].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	index := int(idx.Val)
+	index := int(idx)
 	if index < 1 || index > list.Len() {
 		return types.Err(types.E_RANGE)
 	}
@@ -157,7 +157,7 @@ func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }
 
 // builtinSetadd adds value if not already present
@@ -167,7 +167,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -177,7 +177,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Check if value already exists
 	for i := 1; i <= list.Len(); i++ {
 		if list.Get(i).Equal(value) {
-			return types.Ok(list) // Already present, return unchanged
+			return types.Ok(list.AsValue()) // Already present, return unchanged
 		}
 	}
 
@@ -189,7 +189,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }
 
 // builtinSetremove removes first occurrence of value
@@ -199,7 +199,7 @@ func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -216,12 +216,12 @@ func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result 
 				return types.Err(err)
 			}
 
-			return types.Ok(result)
+			return types.Ok(result.AsValue())
 		}
 	}
 
 	// Not found, return unchanged
-	return types.Ok(list)
+	return types.Ok(list.AsValue())
 }
 
 // builtinIsMember tests if value is in list
@@ -233,17 +233,19 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	value := args[0]
 
-	switch collection := args[1].(type) {
-	case types.ListValue:
+	switch args[1].Kind() {
+	case types.KindList:
+		collection := args[1].List()
 		// Find value in list (case-sensitive for strings)
 		for i := 1; i <= collection.Len(); i++ {
 			if strictEqual(collection.Get(i), value) {
-				return types.Ok(types.IntValue{Val: int64(i)})
+				return types.Ok(types.NewInt(int64(i)))
 			}
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
-	case types.MapValue:
+	case types.KindMap:
+		collection := args[1].Map()
 		// For maps, is_member searches for a VALUE and returns the position
 		// of its key in the sorted key list (1-based), or 0 if not found
 		// This is case-SENSITIVE for string values (uses strictEqual)
@@ -251,10 +253,10 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		sortMapPairs(pairs)
 		for i, pair := range pairs {
 			if strictEqual(pair[1], value) {
-				return types.Ok(types.IntValue{Val: int64(i + 1)})
+				return types.Ok(types.NewInt(int64(i + 1)))
 			}
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -268,7 +270,7 @@ func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -298,16 +300,17 @@ func builtinReverse(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	switch v := args[0].(type) {
-	case types.ListValue:
+	switch args[0].Kind() {
+	case types.KindList:
+		v := args[0].List()
 		// Copy and reverse list elements.
 		elements := make([]types.Value, v.Len())
 		for i := 1; i <= v.Len(); i++ {
 			elements[v.Len()-i] = v.Get(i)
 		}
 		return types.Ok(types.NewList(elements))
-	case types.StrValue:
-		runes := []rune(v.Value())
+	case types.KindStr:
+		runes := []rune(args[0].Str())
 		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
 			runes[i], runes[j] = runes[j], runes[i]
 		}
@@ -324,7 +327,7 @@ func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -365,48 +368,43 @@ func compareValues(a, b types.Value) int {
 	}
 
 	// Same type: compare values
-	switch av := a.(type) {
-	case types.IntValue:
-		bv := b.(types.IntValue)
-		if av.Val < bv.Val {
+	switch a.Kind() {
+	case types.KindInt:
+		if a.Int() < b.Int() {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if a.Int() > b.Int() {
 			return 1
 		}
 		return 0
 
-	case types.FloatValue:
-		bv := b.(types.FloatValue)
-		if av.Val < bv.Val {
+	case types.KindFloat:
+		if a.Float() < b.Float() {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if a.Float() > b.Float() {
 			return 1
 		}
 		return 0
 
-	case types.StrValue:
-		bv := b.(types.StrValue)
-		if av.Value() < bv.Value() {
+	case types.KindStr:
+		if a.Str() < b.Str() {
 			return -1
-		} else if av.Value() > bv.Value() {
+		} else if a.Str() > b.Str() {
 			return 1
 		}
 		return 0
 
-	case types.ObjValue:
-		bv := b.(types.ObjValue)
-		if av.ID() < bv.ID() {
+	case types.KindObj, types.KindAnon:
+		if a.ObjNum() < b.ObjNum() {
 			return -1
-		} else if av.ID() > bv.ID() {
+		} else if a.ObjNum() > b.ObjNum() {
 			return 1
 		}
 		return 0
 
-	case types.ErrValue:
-		bv := b.(types.ErrValue)
-		if av.Code() < bv.Code() {
+	case types.KindErr:
+		if a.ErrCode() < b.ErrCode() {
 			return -1
-		} else if av.Code() > bv.Code() {
+		} else if a.ErrCode() > b.ErrCode() {
 			return 1
 		}
 		return 0
@@ -432,7 +430,7 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// First arg must be a list
-	list, ok := args[0].(types.ListValue)
+	list, ok := args[0].AsList()
 	if !ok {
 		fmt.Printf("[SLICE DEBUG] First arg not a list: %T = %v\n", args[0], args[0])
 		return types.Err(types.E_TYPE)
@@ -453,24 +451,25 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	result := make([]types.Value, 0, list.Len())
 
-	switch idx := index.(type) {
-	case types.IntValue:
+	switch index.Kind() {
+	case types.KindInt:
 		// Single integer index
-		i := int(idx.Val)
+		i := int(index.Int())
 		if i < 1 {
 			return types.Err(types.E_RANGE)
 		}
 
 		for j := 1; j <= list.Len(); j++ {
 			elem := list.Get(j)
-			switch e := elem.(type) {
-			case types.ListValue:
+			switch elem.Kind() {
+			case types.KindList:
+				e := elem.List()
 				if i > e.Len() {
 					return types.Err(types.E_RANGE)
 				}
 				result = append(result, e.Get(i))
-			case types.StrValue:
-				runes := []rune(e.Value())
+			case types.KindStr:
+				runes := []rune(elem.Str())
 				if i > len(runes) {
 					return types.Err(types.E_RANGE)
 				}
@@ -481,7 +480,8 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			}
 		}
 
-	case types.ListValue:
+	case types.KindList:
+		idx := index.List()
 		// List of indices
 		if idx.Len() == 0 {
 			return types.Err(types.E_RANGE)
@@ -491,30 +491,31 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		indices := make([]int, idx.Len())
 		for k := 1; k <= idx.Len(); k++ {
 			idxVal := idx.Get(k)
-			intIdx, ok := idxVal.(types.IntValue)
+			intIdx, ok := idxVal.AsInt()
 			if !ok {
 				return types.Err(types.E_INVARG)
 			}
-			if intIdx.Val < 1 {
+			if intIdx < 1 {
 				return types.Err(types.E_RANGE)
 			}
-			indices[k-1] = int(intIdx.Val)
+			indices[k-1] = int(intIdx)
 		}
 
 		for j := 1; j <= list.Len(); j++ {
 			elem := list.Get(j)
 			subResult := make([]types.Value, 0, len(indices))
 
-			switch e := elem.(type) {
-			case types.ListValue:
+			switch elem.Kind() {
+			case types.KindList:
+				e := elem.List()
 				for _, i := range indices {
 					if i > e.Len() {
 						return types.Err(types.E_RANGE)
 					}
 					subResult = append(subResult, e.Get(i))
 				}
-			case types.StrValue:
-				runes := []rune(e.Value())
+			case types.KindStr:
+				runes := []rune(elem.Str())
 				for _, i := range indices {
 					if i > len(runes) {
 						return types.Err(types.E_RANGE)
@@ -528,13 +529,13 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			result = append(result, types.NewList(subResult))
 		}
 
-	case types.StrValue:
+	case types.KindStr:
 		// String key for map lookups
-		key := idx.Value()
+		key := index.Str()
 
 		for j := 1; j <= list.Len(); j++ {
 			elem := list.Get(j)
-			m, ok := elem.(types.MapValue)
+			m, ok := elem.AsMap()
 			if !ok {
 				return types.Err(types.E_INVARG)
 			}

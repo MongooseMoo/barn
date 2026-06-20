@@ -109,12 +109,12 @@ func TestConnectionNameFormats(t *testing.T) {
 			if res.IsError() {
 				t.Fatalf("unexpected error: %v", res.Error)
 			}
-			got, ok := res.Val.(types.StrValue)
+			got, ok := res.Val.AsStr()
 			if !ok {
 				t.Fatalf("expected string result, got %T", res.Val)
 			}
-			if got.Value() != tc.want {
-				t.Fatalf("got %q, want %q", got.Value(), tc.want)
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -142,8 +142,8 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	port, ok := res.Val.(types.IntValue)
-	if !ok || port.Val != 8888 {
+	port, ok := res.Val.AsInt()
+	if !ok || port != 8888 {
 		t.Fatalf("got %v (%T), want TCP port 8888", res.Val, res.Val)
 	}
 	if manager.added.Object != 42 ||
@@ -177,13 +177,13 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	desc, ok := res.Val.(types.MapValue)
+	desc, ok := res.Val.AsMap()
 	if !ok {
 		t.Fatalf("got %T, want descriptor map", res.Val)
 	}
 	protocol, _ := desc.Get(types.NewStr("protocol"))
 	port, _ := desc.Get(types.NewStr("port"))
-	if protocol.(types.StrValue).Value() != "tls" || port.(types.IntValue).Val != 8889 {
+	if protocol.Str() != "tls" || port.Int() != 8889 {
 		t.Fatalf("unexpected descriptor: %s", desc.String())
 	}
 	if manager.added.Protocol != "tls" ||
@@ -214,16 +214,16 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	desc, ok := res.Val.(types.MapValue)
+	desc, ok := res.Val.AsMap()
 	if !ok {
 		t.Fatalf("got %T, want descriptor map", res.Val)
 	}
 	protocol, _ := desc.Get(types.NewStr("protocol"))
 	port, _ := desc.Get(types.NewStr("port"))
 	path, _ := desc.Get(types.NewStr("path"))
-	if protocol.(types.StrValue).Value() != "ws" ||
-		port.(types.IntValue).Val != 8890 ||
-		path.(types.StrValue).Value() != "/moo" {
+	if protocol.Str() != "ws" ||
+		port.Int() != 8890 ||
+		path.Str() != "/moo" {
 		t.Fatalf("unexpected descriptor: %s", desc.String())
 	}
 	if manager.added.Protocol != "ws" || manager.added.Path != "/moo" {
@@ -289,23 +289,23 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	list, ok := res.Val.(types.ListValue)
+	list, ok := res.Val.AsList()
 	if !ok {
 		t.Fatalf("got %T, want list", res.Val)
 	}
 	if list.Len() != 1 {
 		t.Fatalf("got %d entries, want 1", list.Len())
 	}
-	entry, ok := list.Get(1).(types.MapValue)
+	entry, ok := list.Get(1).AsMap()
 	if !ok {
 		t.Fatalf("got %T, want map", list.Get(1))
 	}
 	protocol, _ := entry.Get(types.NewStr("protocol"))
 	path, _ := entry.Get(types.NewStr("path"))
 	tlsValue, _ := entry.Get(types.NewStr("TLS"))
-	if protocol.(types.StrValue).Value() != "ws" ||
-		path.(types.StrValue).Value() != "/moo" ||
-		tlsValue.(types.IntValue).Val != 0 {
+	if protocol.Str() != "ws" ||
+		path.Str() != "/moo" ||
+		tlsValue.Int() != 0 {
 		t.Fatalf("unexpected listener entry: %s", entry.String())
 	}
 }

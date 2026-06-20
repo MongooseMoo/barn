@@ -41,24 +41,24 @@ func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs can't be players
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].IsWaif() {
 		return types.Err(types.E_TYPE)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if objVal.ID() == types.ObjNothing {
+	if objID == types.ObjNothing {
 		return types.Err(types.E_INVARG)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !store.Valid(objID) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot be players - E_TYPE per MOO spec
-	isAnonymous, errCode := store.ObjectIsAnonymous(objVal.ID())
+	isAnonymous, errCode := store.ObjectIsAnonymous(objID)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -66,7 +66,7 @@ func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	hasPlayerFlag, errCode := store.HasObjectFlag(objVal.ID(), dbstore.FlagUser)
+	hasPlayerFlag, errCode := store.HasObjectFlag(objID, dbstore.FlagUser)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -87,24 +87,24 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	// Waifs can't have player flag set
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].IsWaif() {
 		return types.Err(types.E_TYPE)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if objVal.ID() == types.ObjNothing {
+	if objID == types.ObjNothing {
 		return types.Err(types.E_INVARG)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !store.Valid(objID) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot have player flag set - E_TYPE per MOO spec
-	isAnonymous, errCode := store.ObjectIsAnonymous(objVal.ID())
+	isAnonymous, errCode := store.ObjectIsAnonymous(objID)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -118,17 +118,17 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 
 	// Set or clear the player flag
 	if args[1].Truthy() {
-		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, true); errCode != types.E_NONE {
+		if errCode := store.SetObjectFlag(objID, dbstore.FlagUser, true); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	} else {
-		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, false); errCode != types.E_NONE {
+		if errCode := store.SetObjectFlag(objID, dbstore.FlagUser, false); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		// Clearing the player flag on a currently-connected player terminates
 		// its live connection (matching Toast).
-		if globalConnManager != nil && resolveConnection(ctx, objVal.ID()) != nil {
-			_ = globalConnManager.BootPlayer(objVal.ID())
+		if globalConnManager != nil && resolveConnection(ctx, objID) != nil {
+			_ = globalConnManager.BootPlayer(objID)
 		}
 	}
 

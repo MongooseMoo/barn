@@ -34,12 +34,12 @@ func builtinGetenv(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	name, ok := args[0].(types.StrValue)
+	name, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	varName := name.Value()
+	varName := name
 	value := os.Getenv(varName)
 	if value == "" {
 		// Check if the variable exists but is empty vs doesn't exist
@@ -196,29 +196,30 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	var program string
 	var cmdArgs []string
 
-	switch cmd := args[0].(type) {
-	case types.ListValue:
+	switch args[0].Kind() {
+	case types.KindList:
 		// List form: {"program", "arg1", "arg2"}
+		cmd := args[0].List()
 		if cmd.Len() == 0 {
 			return types.Err(types.E_INVARG)
 		}
-		progVal, ok := cmd.Get(1).(types.StrValue)
+		progVal, ok := cmd.Get(1).AsStr()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		program = progVal.Value()
+		program = progVal
 		cmdArgs = make([]string, cmd.Len()-1)
 		for i := 2; i <= cmd.Len(); i++ {
-			argVal, ok := cmd.Get(i).(types.StrValue)
+			argVal, ok := cmd.Get(i).AsStr()
 			if !ok {
 				return types.Err(types.E_TYPE)
 			}
-			cmdArgs[i-2] = argVal.Value()
+			cmdArgs[i-2] = argVal
 		}
-	case types.StrValue:
+	case types.KindStr:
 		// String form: "command with args" - use shell
 		program = "sh"
-		cmdArgs = []string{"-c", cmd.Value()}
+		cmdArgs = []string{"-c", args[0].Str()}
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -232,11 +233,11 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Get input if provided
 	var input string
 	if len(args) == 2 {
-		inputVal, ok := args[1].(types.StrValue)
+		inputVal, ok := args[1].AsStr()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		input = inputVal.Value()
+		input = inputVal
 		// Validate binary string encoding
 		if !isValidBinaryString(input) {
 			return types.Err(types.E_INVARG)
@@ -490,9 +491,9 @@ func builtinFtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		secs := float64(now.Unix()) + float64(now.Nanosecond())/1e9
 		return types.Ok(types.NewFloat(secs))
 	} else if len(args) == 1 {
-		switch v := args[0].(type) {
-		case types.IntValue:
-			return types.Ok(types.NewFloat(float64(v.Val)))
+		switch args[0].Kind() {
+		case types.KindInt:
+			return types.Ok(types.NewFloat(float64(args[0].Int())))
 		default:
 			return types.Err(types.E_TYPE)
 		}
@@ -508,8 +509,8 @@ func builtinCtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	timestamp := time.Now().Unix()
 	if len(args) == 1 {
-		if intVal, ok := args[0].(types.IntValue); ok {
-			timestamp = intVal.Val
+		if intVal, ok := args[0].AsInt(); ok {
+			timestamp = intVal
 		} else {
 			return types.Err(types.E_TYPE)
 		}
@@ -543,12 +544,12 @@ func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Err(types.E_ARGS)
 	}
 
-	keyVal, ok := args[0].(types.StrValue)
+	keyVal, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	switch keyVal.Value() {
+	switch keyVal {
 	case "":
 		return types.Ok(types.NewList(versionInfo))
 	case "major":
@@ -580,11 +581,11 @@ func builtinServerLog(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_PERM)
 	}
 
-	first, ok := args[0].(types.StrValue)
+	first, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	msg := first.Value()
+	msg := first
 	for _, arg := range args[1:] {
 		msg += arg.String()
 	}

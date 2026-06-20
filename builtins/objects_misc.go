@@ -21,12 +21,10 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// }
 
 	// Get object to renumber
-	objVal, ok := args[0].(types.ObjValue)
+	oldID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	oldID := objVal.ID()
 
 	// Check object is valid
 	if !store.Valid(oldID) {
@@ -101,13 +99,12 @@ func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check argument type
-	objVal, ok := args[0].(types.ObjValue)
+	objID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Check if object is valid (not recycled)
-	objID := objVal.ID()
 	if objID == types.ObjNothing {
 		return types.Err(types.E_INVIND)
 	}

@@ -139,11 +139,11 @@ var httpHeldInputState = struct {
 }
 
 func parseConnectionTarget(v types.Value) (types.ObjID, bool) {
-	switch t := v.(type) {
-	case types.ObjValue:
-		return t.ID(), true
-	case types.IntValue:
-		return types.ObjID(t.Val), true
+	switch v.Kind() {
+	case types.KindObj, types.KindAnon:
+		return v.ObjNum(), true
+	case types.KindInt:
+		return types.ObjID(v.Int()), true
 	default:
 		return types.ObjNothing, false
 	}
@@ -345,7 +345,7 @@ func parseHTTPHeaders(data []byte, start int) ([][2]types.Value, int, int, bool,
 				return nil, pos, 0, false, true, false
 			}
 			continued := encodeBinaryStr(trimHTTPLeadingWhitespace(line))
-			headers[lastHeader][1] = types.NewStr(headers[lastHeader][1].(types.StrValue).Value() + continued)
+			headers[lastHeader][1] = types.NewStr(headers[lastHeader][1].Str() + continued)
 			continue
 		}
 
@@ -422,7 +422,7 @@ func parseHTTPChunkedBody(data []byte, start int) (string, int, bool) {
 func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 	line, pos, ok := readHTTPCRLFLine(data, 0)
 	if !ok {
-		return nil, 0, false
+		return types.Value{}, 0, false
 	}
 	parts := bytes.Fields(line)
 	if (len(parts) != 2 && len(parts) != 3) || !isValidHTTPToken(parts[0]) {
@@ -434,7 +434,7 @@ func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 
 	headers, bodyStart, contentLength, chunked, badHeader, incomplete := parseHTTPHeaders(data, pos)
 	if incomplete {
-		return nil, 0, false
+		return types.Value{}, 0, false
 	}
 	if badHeader {
 		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), bodyStart, true
@@ -452,13 +452,13 @@ func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 	if chunked {
 		body, next, complete := parseHTTPChunkedBody(data, bodyStart)
 		if !complete {
-			return nil, 0, false
+			return types.Value{}, 0, false
 		}
 		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(body)})
 		consumed = next
 	} else if contentLength >= 0 {
 		if len(data[bodyStart:]) < contentLength {
-			return nil, 0, false
+			return types.Value{}, 0, false
 		}
 		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[bodyStart : bodyStart+contentLength]))})
 		consumed = bodyStart + contentLength
@@ -469,7 +469,7 @@ func parseHTTPRequest(data []byte) (types.Value, int, bool) {
 func parseHTTPResponse(data []byte) (types.Value, int, bool) {
 	line, pos, ok := readHTTPCRLFLine(data, 0)
 	if !ok {
-		return nil, 0, false
+		return types.Value{}, 0, false
 	}
 	if !bytes.HasPrefix(line, []byte("HTTP/")) {
 		return newHTTPErrorValue("INVALID_CONSTANT"), pos, true
@@ -491,7 +491,7 @@ func parseHTTPResponse(data []byte) (types.Value, int, bool) {
 
 	headers, bodyStart, contentLength, chunked, badHeader, incomplete := parseHTTPHeaders(data, pos)
 	if incomplete {
-		return nil, 0, false
+		return types.Value{}, 0, false
 	}
 	if badHeader {
 		return newHTTPErrorValue("INVALID_HEADER_TOKEN"), bodyStart, true
@@ -510,13 +510,13 @@ func parseHTTPResponse(data []byte) (types.Value, int, bool) {
 	if chunked {
 		body, next, complete := parseHTTPChunkedBody(data, bodyStart)
 		if !complete {
-			return nil, 0, false
+			return types.Value{}, 0, false
 		}
 		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(body)})
 		consumed = next
 	} else if contentLength >= 0 {
 		if len(data[bodyStart:]) < contentLength {
-			return nil, 0, false
+			return types.Value{}, 0, false
 		}
 		pairs = append(pairs, [2]types.Value{types.NewStr("body"), types.NewStr(encodeBinaryStr(data[bodyStart : bodyStart+contentLength]))})
 		consumed = bodyStart + contentLength
@@ -562,7 +562,7 @@ func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWa
 
 func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 	options := getConnectionOptions(player)
-	if flush, ok := options["flush-command"].(types.StrValue); ok && flush.Value() != "" && line == flush.Value() {
+	if flush, ok := options["flush-command"].AsStr(); ok && flush != "" && line == flush {
 		clearHeldCommands(player)
 		return true
 	}
@@ -642,7 +642,7 @@ func prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value
 	}
 
 	state.waiters = append(state.waiters, httpReadWaiter{task: t, kind: kind})
-	return nil, false
+	return types.Value{}, false
 }
 
 func pruneHTTPWaitersLocked(state *httpHeldInput) {
@@ -776,20 +776,22 @@ func listenerInfoDescriptor(info ListenerInfo) ListenerDescriptor {
 }
 
 func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.ErrorCode) {
-	switch v := value.(type) {
-	case types.IntValue:
-		if v.Val < 0 || v.Val > 65535 {
+	switch value.Kind() {
+	case types.KindInt:
+		n := value.Int()
+		if n < 0 || n > 65535 {
 			return ListenerDescriptor{}, types.E_INVARG
 		}
-		return ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: v.Val}, types.E_NONE
-	case types.MapValue:
+		return ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: n}, types.E_NONE
+	case types.KindMap:
+		v := value.Map()
 		desc := ListenerDescriptor{Protocol: ListenerProtocolTCP}
 		if protocolValue, ok := v.Get(types.NewStr("protocol")); ok {
-			protocol, ok := protocolValue.(types.StrValue)
+			protocol, ok := protocolValue.AsStr()
 			if !ok {
 				return ListenerDescriptor{}, types.E_TYPE
 			}
-			desc.Protocol = normalizeListenerProtocol(protocol.Value())
+			desc.Protocol = normalizeListenerProtocol(protocol)
 			if !listenerProtocolSupported(desc.Protocol) {
 				return ListenerDescriptor{}, types.E_INVARG
 			}
@@ -798,20 +800,20 @@ func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.
 		if !ok {
 			return ListenerDescriptor{}, types.E_INVARG
 		}
-		port, ok := portValue.(types.IntValue)
+		port, ok := portValue.AsInt()
 		if !ok {
 			return ListenerDescriptor{}, types.E_TYPE
 		}
-		if port.Val < 0 || port.Val > 65535 {
+		if port < 0 || port > 65535 {
 			return ListenerDescriptor{}, types.E_INVARG
 		}
-		desc.Port = port.Val
+		desc.Port = port
 		if pathValue, ok := v.Get(types.NewStr("path")); ok {
-			path, ok := pathValue.(types.StrValue)
+			path, ok := pathValue.AsStr()
 			if !ok {
 				return ListenerDescriptor{}, types.E_TYPE
 			}
-			desc.Path = path.Value()
+			desc.Path = path
 		}
 		return desc, types.E_NONE
 	default:
@@ -839,11 +841,11 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	messageVal, ok := args[1].(types.StrValue)
+	messageVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	message := messageVal.Value()
+	message := messageVal
 	trace.Notify(player, message)
 
 	noFlush := false
@@ -878,25 +880,27 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	infos := globalConnManager.ListenerInfos()
 	if len(args) == 1 {
-		switch v := args[0].(type) {
-		case types.ObjValue:
+		switch args[0].Kind() {
+		case types.KindObj, types.KindAnon:
+			objID := args[0].ObjNum()
 			filtered := infos[:0]
 			for _, info := range infos {
-				if info.Object == v.ID() {
+				if info.Object == objID {
 					filtered = append(filtered, info)
 				}
 			}
 			infos = filtered
-		case types.IntValue:
+		case types.KindInt:
+			portNum := args[0].Int()
 			filtered := infos[:0]
 			for _, info := range infos {
-				if info.Port == v.Val {
+				if info.Port == portNum {
 					filtered = append(filtered, info)
 				}
 			}
 			infos = filtered
-		case types.MapValue:
-			desc, errCode := parseListenerDescriptorValue(v)
+		case types.KindMap:
+			desc, errCode := parseListenerDescriptorValue(args[0])
 			if errCode != types.E_NONE {
 				return types.Err(errCode)
 			}
@@ -1004,11 +1008,11 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 
 	method := int64(0)
 	if len(args) == 2 {
-		m, ok := args[1].(types.IntValue)
+		m, ok := args[1].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		method = m.Val
+		method = m
 	}
 
 	conn := resolveConnection(ctx, player)
@@ -1079,16 +1083,16 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_PERM)
 	}
 
-	oldPlayerVal, ok := args[0].(types.ObjValue)
+	oldPlayerVal, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	newPlayerVal, ok := args[1].(types.ObjValue)
+	newPlayerVal, ok := args[1].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	if len(args) == 3 {
-		if _, ok := args[2].(types.IntValue); !ok {
+		if !args[2].IsInt() {
 			return types.Err(types.E_TYPE)
 		}
 	}
@@ -1096,7 +1100,7 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_INVARG)
 	}
 
-	if err := globalConnManager.SwitchPlayer(oldPlayerVal.ID(), newPlayerVal.ID()); err != nil {
+	if err := globalConnManager.SwitchPlayer(oldPlayerVal, newPlayerVal); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
@@ -1240,24 +1244,24 @@ func builtinSetConnectionOption(ctx *kernel.TaskContext, args []types.Value) typ
 		return types.Err(types.E_PERM)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	name := nameVal.Value()
+	name := nameVal
 	if !validConnectionOption(name) {
 		return types.Err(types.E_INVARG)
 	}
 	if name == "keep-alive" {
-		switch args[2].(type) {
-		case types.IntValue, types.MapValue:
+		switch args[2].Kind() {
+		case types.KindInt, types.KindMap:
 		default:
 			return types.Err(types.E_INVARG)
 		}
 	}
 	if name == "intrinsic-commands" {
 		if args[2].Truthy() {
-			if list, ok := args[2].(types.ListValue); ok {
+			if list, ok := args[2].AsList(); ok {
 				allowed := map[string]bool{
 					".program":     true,
 					"PREFIX":       true,
@@ -1266,8 +1270,8 @@ func builtinSetConnectionOption(ctx *kernel.TaskContext, args []types.Value) typ
 					"OUTPUTSUFFIX": true,
 				}
 				for i := 1; i <= list.Len(); i++ {
-					str, ok := list.Get(i).(types.StrValue)
-					if !ok || !allowed[str.Value()] {
+					str, ok := list.Get(i).AsStr()
+					if !ok || !allowed[str] {
 						return types.Err(types.E_INVARG)
 					}
 				}
@@ -1308,11 +1312,11 @@ func builtinConnectionOption(ctx *kernel.TaskContext, args []types.Value) types.
 		return types.Err(types.E_PERM)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
+	nameVal, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	name := nameVal.Value()
+	name := nameVal
 	if !validConnectionOption(name) {
 		return types.Err(types.E_INVARG)
 	}
@@ -1334,19 +1338,19 @@ func builtinReadHTTP(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	typeVal, ok := args[0].(types.StrValue)
+	typeVal, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	typeStr := typeVal.Value()
+	typeStr := typeVal
 
 	var connection types.ObjID = ctx.Player
 	if len(args) > 1 {
-		connVal, ok := args[1].(types.ObjValue)
+		connVal, ok := args[1].AsObjID()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		connection = connVal.ID()
+		connection = connVal
 	}
 
 	if typeStr != "request" && typeStr != "response" {

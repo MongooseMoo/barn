@@ -18,9 +18,9 @@ func resetHTTPTestState(player types.ObjID) {
 
 func mustMapValue(t *testing.T, value types.Value) types.MapValue {
 	t.Helper()
-	m, ok := value.(types.MapValue)
+	m, ok := value.AsMap()
 	if !ok {
-		t.Fatalf("expected map value, got %T", value)
+		t.Fatalf("expected map value, got %v", value.Type())
 	}
 	return m
 }
@@ -31,11 +31,11 @@ func mustStringAt(t *testing.T, m types.MapValue, key string) string {
 	if !ok {
 		t.Fatalf("missing key %q", key)
 	}
-	str, ok := value.(types.StrValue)
+	str, ok := value.AsStr()
 	if !ok {
 		t.Fatalf("expected string at %q, got %T", key, value)
 	}
-	return str.Value()
+	return str
 }
 
 func mustIntAt(t *testing.T, m types.MapValue, key string) int64 {
@@ -44,11 +44,11 @@ func mustIntAt(t *testing.T, m types.MapValue, key string) int64 {
 	if !ok {
 		t.Fatalf("missing key %q", key)
 	}
-	n, ok := value.(types.IntValue)
+	n, ok := value.AsInt()
 	if !ok {
 		t.Fatalf("expected int at %q, got %T", key, value)
 	}
-	return n.Val
+	return n
 }
 
 func TestParseHTTPRequestContentLength(t *testing.T) {
@@ -155,12 +155,12 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 		t.Fatal("expected read to complete immediately")
 	}
 
-	n, ok := value.(types.IntValue)
+	n, ok := value.AsInt()
 	if !ok {
 		t.Fatalf("expected int result, got %T", value)
 	}
-	if n.Val != 0 {
-		t.Fatalf("got %d, want 0", n.Val)
+	if n != 0 {
+		t.Fatalf("got %d, want 0", n)
 	}
 }
 

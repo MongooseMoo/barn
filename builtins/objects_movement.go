@@ -19,39 +19,39 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	whatVal, ok := args[0].(types.ObjValue)
+	whatID, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	whereVal, ok := args[1].(types.ObjValue)
+	whereID, ok := args[1].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	position := int64(0)
 	if len(args) == 3 {
-		positionVal, ok := args[2].(types.IntValue)
+		p, ok := args[2].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		position = positionVal.Val
+		position = p
 		if position < 0 {
 			return types.Err(types.E_INVARG)
 		}
 	}
 
-	if !store.Valid(whatVal.ID()) {
+	if !store.Valid(whatID) {
 		return types.Err(types.E_INVIND)
 	}
 
 	// Check for recursive move (moving into self or descendant)
-	if store.HasContentDescendant(whatVal.ID(), whereVal.ID()) {
+	if store.HasContentDescendant(whatID, whereID) {
 		return types.Err(types.E_RECMOVE)
 	}
 
-	if whereVal.ID() != types.ObjNothing {
-		result := registry.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
+	if whereID != types.ObjNothing {
+		result := registry.CallVerb(whereID, "accept", []types.Value{args[0]}, ctx)
 		if result.Flow == types.FlowException {
 			if result.Error != types.E_VERBNF {
 				return result
@@ -61,7 +61,7 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
+	if errCode := store.MoveObject(whatID, whereID, position); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -89,7 +89,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	// First arg must be a list of objects
-	objectList, ok := args[0].(types.ListValue)
+	objectList, ok := args[0].AsList()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -97,11 +97,11 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Validate all items are valid objects.
 	for i := 1; i <= objectList.Len(); i++ {
 		item := objectList.Get(i)
-		objVal, ok := item.(types.ObjValue)
+		objID, ok := item.AsObjID()
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
-		if !store.Valid(objVal.ID()) {
+		if !store.Valid(objID) {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -111,17 +111,18 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	var parents []types.ObjID
 	if checkParent {
 		// Second arg can be OBJ or LIST of OBJs
-		switch v := args[1].(type) {
-		case types.ObjValue:
-			parents = []types.ObjID{v.ID()}
-		case types.ListValue:
+		switch args[1].Kind() {
+		case types.KindObj, types.KindAnon:
+			parents = []types.ObjID{args[1].ObjNum()}
+		case types.KindList:
+			v := args[1].List()
 			for i := 1; i <= v.Len(); i++ {
 				item := v.Get(i)
-				objVal, ok := item.(types.ObjValue)
+				objID, ok := item.AsObjID()
 				if !ok {
 					return types.Err(types.E_TYPE)
 				}
-				parents = append(parents, objVal.ID())
+				parents = append(parents, objID)
 			}
 		default:
 			return types.Err(types.E_TYPE)
@@ -152,8 +153,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	var result []types.Value
 	for i := 1; i <= objectList.Len(); i++ {
 		item := objectList.Get(i)
-		objVal := item.(types.ObjValue) // Already validated
-		objID := objVal.ID()
+		objID := item.ObjNum() // Already validated
 
 		if !store.Valid(objID) {
 			continue

@@ -20,7 +20,7 @@ func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
+	m, ok := args[0].AsMap()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -53,7 +53,7 @@ func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
+	m, ok := args[0].AsMap()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -97,7 +97,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
+	m, ok := args[0].AsMap()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -105,7 +105,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	keyOrList := args[1]
 
 	// mapdelete(map, {k1, k2, ...}) deletes multiple keys.
-	if keyList, ok := keyOrList.(types.ListValue); ok {
+	if keyList, ok := keyOrList.AsList(); ok {
 		result := m
 		for _, key := range keyList.Elements() {
 			if !types.IsValidBuiltinMapKey(key) {
@@ -119,7 +119,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		if err := CheckMapLimit(result); err != types.E_NONE {
 			return types.Err(err)
 		}
-		return types.Ok(result)
+		return types.Ok(result.AsValue())
 	}
 
 	key := keyOrList
@@ -139,7 +139,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }
 
 // builtinMaphaskey tests if a key exists in the map
@@ -149,7 +149,7 @@ func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
+	m, ok := args[0].AsMap()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -163,11 +163,11 @@ func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	caseSensitive := false
 	if len(args) == 3 {
-		caseVal, ok := args[2].(types.IntValue)
+		caseVal, ok := args[2].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = caseVal.Val != 0
+		caseSensitive = caseVal != 0
 	}
 
 	_, found := m.GetWithCase(key, caseSensitive)
@@ -184,8 +184,8 @@ func builtinMapmerge(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	m1, ok1 := args[0].(types.MapValue)
-	m2, ok2 := args[1].(types.MapValue)
+	m1, ok1 := args[0].AsMap()
+	m2, ok2 := args[1].AsMap()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
@@ -203,5 +203,5 @@ func builtinMapmerge(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(err)
 	}
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }

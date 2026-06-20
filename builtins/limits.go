@@ -132,7 +132,7 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 
 	// The property value should be an object reference
-	serverOptsRef, ok := serverOptsProp.Value.(types.ObjValue)
+	serverOptsRef, ok := serverOptsProp.Value.AsObjID()
 	if !ok {
 		serverOptionsCache.Lock()
 		serverOptionsCache.maxStringConcat = nextString
@@ -148,41 +148,41 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 
 	// Get the actual server_options object ID
-	serverOptsID := serverOptsRef.ID()
+	serverOptsID := serverOptsRef
 
 	// Read max_string_concat (searching inheritance chain)
 	if prop, ok := findDefinedProperty(serverOptsID, "max_string_concat", store); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok {
-			nextString = canonicalizeLimit(int(intVal.Val), minStringConcatLimit, maxStringConcatLimit)
+		if intVal, ok := prop.Value.AsInt(); ok {
+			nextString = canonicalizeLimit(int(intVal), minStringConcatLimit, maxStringConcatLimit)
 			loaded++
 		}
 	}
 
 	// Read max_list_value_bytes
 	if prop, ok := findDefinedProperty(serverOptsID, "max_list_value_bytes", store); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok {
-			nextList = canonicalizeLimit(int(intVal.Val), minListValueBytesLimit, maxListValueBytesLimit)
+		if intVal, ok := prop.Value.AsInt(); ok {
+			nextList = canonicalizeLimit(int(intVal), minListValueBytesLimit, maxListValueBytesLimit)
 			loaded++
 		}
 	}
 
 	// Read max_map_value_bytes
 	if prop, ok := findDefinedProperty(serverOptsID, "max_map_value_bytes", store); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok {
-			nextMap = canonicalizeLimit(int(intVal.Val), minMapValueBytesLimit, maxMapValueBytesLimit)
+		if intVal, ok := prop.Value.AsInt(); ok {
+			nextMap = canonicalizeLimit(int(intVal), minMapValueBytesLimit, maxMapValueBytesLimit)
 			loaded++
 		}
 	}
 
 	if prop, ok := findDefinedProperty(serverOptsID, "fg_ticks", store); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
-			nextFgTicks = intVal.Val
+		if intVal, ok := prop.Value.AsInt(); ok && intVal > 0 {
+			nextFgTicks = intVal
 			loaded++
 		}
 	}
 	if prop, ok := findDefinedProperty(serverOptsID, "bg_ticks", store); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
-			nextBgTicks = intVal.Val
+		if intVal, ok := prop.Value.AsInt(); ok && intVal > 0 {
+			nextBgTicks = intVal
 			loaded++
 		}
 	}
@@ -199,8 +199,8 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 		}
 	}
 	if prop, ok := findDefinedProperty(serverOptsID, "max_stack_depth", store); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
-			nextMaxStackDepth = int(intVal.Val)
+		if intVal, ok := prop.Value.AsInt(); ok && intVal > 0 {
+			nextMaxStackDepth = int(intVal)
 			loaded++
 		}
 	}
@@ -220,11 +220,11 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 }
 
 func numericSeconds(value types.Value) (float64, bool) {
-	switch v := value.(type) {
-	case types.IntValue:
-		return float64(v.Val), true
-	case types.FloatValue:
-		return v.Val, true
+	switch value.Kind() {
+	case types.KindInt:
+		return float64(value.Int()), true
+	case types.KindFloat:
+		return value.Float(), true
 	default:
 		return 0, false
 	}
@@ -295,7 +295,7 @@ func GetMaxMapValueBytes() int {
 // The limit is exclusive - a list with exactly limit bytes is not allowed.
 func CheckListLimit(list types.ListValue) types.ErrorCode {
 	limit := GetMaxListValueBytes()
-	if limit > 0 && ValueBytes(list) >= limit {
+	if limit > 0 && ValueBytes(list.AsValue()) >= limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE
@@ -305,7 +305,7 @@ func CheckListLimit(list types.ListValue) types.ErrorCode {
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 func CheckMapLimit(m types.MapValue) types.ErrorCode {
 	limit := GetMaxMapValueBytes()
-	if limit > 0 && ValueBytes(m) > limit {
+	if limit > 0 && ValueBytes(m.AsValue()) > limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE

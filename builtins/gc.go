@@ -65,7 +65,7 @@ func builtinGCStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// we return a map with all zeros
 	// In the future, if we implement anonymous object cycle detection,
 	// these could report actual statistics
-	result := types.NewEmptyMap()
+	result := types.NewEmptyMap().Map()
 	result = result.Set(types.NewStr("green"), types.NewInt(0))
 	result = result.Set(types.NewStr("yellow"), types.NewInt(0))
 	result = result.Set(types.NewStr("black"), types.NewInt(0))
@@ -74,5 +74,5 @@ func builtinGCStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result = result.Set(types.NewStr("purple"), types.NewInt(0))
 	result = result.Set(types.NewStr("pink"), types.NewInt(0))
 
-	return types.Ok(result)
+	return types.Ok(result.AsValue())
 }

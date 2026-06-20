@@ -47,38 +47,38 @@ func sqliteMustResult(t *testing.T, result types.Result) types.Value {
 
 func sqliteMustInt(t *testing.T, value types.Value) int64 {
 	t.Helper()
-	n, ok := value.(types.IntValue)
+	n, ok := value.AsInt()
 	if !ok {
-		t.Fatalf("expected int, got %T", value)
+		t.Fatalf("expected int, got %v", value.Type())
 	}
-	return n.Val
+	return n
 }
 
 func sqliteMustList(t *testing.T, value types.Value) types.ListValue {
 	t.Helper()
-	list, ok := value.(types.ListValue)
+	list, ok := value.AsList()
 	if !ok {
-		t.Fatalf("expected list, got %T", value)
+		t.Fatalf("expected list, got %v", value.Type())
 	}
 	return list
 }
 
 func sqliteMustMap(t *testing.T, value types.Value) types.MapValue {
 	t.Helper()
-	m, ok := value.(types.MapValue)
+	m, ok := value.AsMap()
 	if !ok {
-		t.Fatalf("expected map, got %T", value)
+		t.Fatalf("expected map, got %v", value.Type())
 	}
 	return m
 }
 
 func sqliteMustString(t *testing.T, value types.Value) string {
 	t.Helper()
-	s, ok := value.(types.StrValue)
+	s, ok := value.AsStr()
 	if !ok {
-		t.Fatalf("expected string, got %T", value)
+		t.Fatalf("expected string, got %v", value.Type())
 	}
-	return s.Value()
+	return s
 }
 
 func sqliteMapGet(t *testing.T, m types.MapValue, key string) types.Value {
@@ -157,7 +157,7 @@ func TestSqliteExecuteAndQueryShapes(t *testing.T) {
 	if sqliteMustInt(t, row.Get(1)) != 1 || sqliteMustInt(t, row.Get(2)) != 42 {
 		t.Fatalf("unexpected numeric columns %v", row)
 	}
-	if got := row.Get(3).(types.FloatValue).Val; got != 3.5 {
+	if got := row.Get(3).Float(); got != 3.5 {
 		t.Fatalf("float column = %v, want 3.5", got)
 	}
 	if got := sqliteMustString(t, row.Get(4)); got != "#0" {

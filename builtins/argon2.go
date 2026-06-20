@@ -21,15 +21,15 @@ func builtinArgon2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 5 {
 		return types.Err(types.E_ARGS)
 	}
-	password, ok := args[0].(types.StrValue)
+	password, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	s, ok := args[1].(types.StrValue)
+	s, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	salt := []byte(s.Value())
+	salt := []byte(s)
 	if len(salt) < 8 {
 		return types.Err(types.E_INVARG)
 	}
@@ -38,38 +38,38 @@ func builtinArgon2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	m := uint32(64 * 1024)
 	p := uint8(2)
 	if len(args) >= 3 {
-		iterVal, ok := args[2].(types.IntValue)
+		iterVal, ok := args[2].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		if iterVal.Val <= 0 {
+		if iterVal <= 0 {
 			return types.Err(types.E_INVARG)
 		}
-		t = uint32(iterVal.Val)
+		t = uint32(iterVal)
 	}
 	if len(args) >= 4 {
-		memVal, ok := args[3].(types.IntValue)
+		memVal, ok := args[3].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		if memVal.Val <= 0 {
+		if memVal <= 0 {
 			return types.Err(types.E_INVARG)
 		}
-		m = uint32(memVal.Val)
+		m = uint32(memVal)
 	}
 	if len(args) == 5 {
-		parallelVal, ok := args[4].(types.IntValue)
+		parallelVal, ok := args[4].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		if parallelVal.Val <= 0 || parallelVal.Val > math.MaxUint8 {
+		if parallelVal <= 0 || parallelVal > math.MaxUint8 {
 			return types.Err(types.E_INVARG)
 		}
-		p = uint8(parallelVal.Val)
+		p = uint8(parallelVal)
 	}
 
 	const keyLen = uint32(32)
-	h := argon2.IDKey([]byte(password.Value()), salt, t, m, p, keyLen)
+	h := argon2.IDKey([]byte(password), salt, t, m, p, keyLen)
 	encoded := fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", m, t, p,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(h),
@@ -116,13 +116,13 @@ func builtinArgon2Verify(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	a, ok1 := args[0].(types.StrValue)
-	b, ok2 := args[1].(types.StrValue)
+	a, ok1 := args[0].AsStr()
+	b, ok2 := args[1].AsStr()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	hashStr := a.Value()
-	password := b.Value()
+	hashStr := a
+	password := b
 	if !strings.HasPrefix(hashStr, "$argon2") && strings.HasPrefix(password, "$argon2") {
 		hashStr, password = password, hashStr
 	}

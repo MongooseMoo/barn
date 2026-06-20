@@ -154,13 +154,13 @@ func parseFileOpenMode(mode string) (int, bool, error) {
 }
 
 func getFileHandle(v types.Value) (*mooFileHandle, types.ErrorCode) {
-	h, ok := v.(types.IntValue)
+	id, ok := v.AsInt()
 	if !ok {
 		return nil, types.E_TYPE
 	}
 	fileState.mu.Lock()
 	defer fileState.mu.Unlock()
-	handle := fileState.handles[h.Val]
+	handle := fileState.handles[id]
 	if handle == nil {
 		return nil, types.E_INVARG
 	}
@@ -194,12 +194,12 @@ func builtinFileOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	name, ok1 := args[0].(types.StrValue)
-	mode, ok2 := args[1].(types.StrValue)
+	name, ok1 := args[0].AsStr()
+	mode, ok2 := args[1].AsStr()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(name.Value())
+	path, err := sanitizeFilePath(name)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -207,7 +207,7 @@ func builtinFileOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_FILE)
 	}
 	fullPath := resolveFilePath(path)
-	flags, binary, err := parseFileOpenMode(mode.Value())
+	flags, binary, err := parseFileOpenMode(mode)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -218,7 +218,7 @@ func builtinFileOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	fileState.mu.Lock()
 	id := fileState.nextID
 	fileState.nextID++
-	fileState.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Value(), binary: binary}
+	fileState.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode, binary: binary}
 	fileState.mu.Unlock()
 	return types.Ok(types.NewInt(id))
 }
@@ -283,14 +283,14 @@ func builtinFileRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
-	n, ok := args[1].(types.IntValue)
+	n, ok := args[1].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if n.Val < 0 {
+	if n < 0 {
 		return types.Err(types.E_INVARG)
 	}
-	buf := make([]byte, n.Val)
+	buf := make([]byte, n)
 	count, err := h.file.Read(buf)
 	if err != nil && err != io.EOF {
 		return types.Err(types.E_FILE)
@@ -360,12 +360,12 @@ func builtinFileReadlines(ctx *kernel.TaskContext, args []types.Value) types.Res
 	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
-	start, ok1 := args[1].(types.IntValue)
-	end, ok2 := args[2].(types.IntValue)
+	start, ok1 := args[1].AsInt()
+	end, ok2 := args[2].AsInt()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	if start.Val < 1 || start.Val > end.Val {
+	if start < 1 || start > end {
 		return types.Err(types.E_INVARG)
 	}
 	cur, _ := h.file.Seek(0, io.SeekCurrent)
@@ -378,10 +378,10 @@ func builtinFileReadlines(ctx *kernel.TaskContext, args []types.Value) types.Res
 	lineNo := int64(0)
 	for scanner.Scan() {
 		lineNo++
-		if lineNo < start.Val {
+		if lineNo < start {
 			continue
 		}
-		if lineNo > end.Val {
+		if lineNo > end {
 			break
 		}
 		out = append(out, types.NewStr(scanner.Text()))
@@ -406,19 +406,19 @@ func builtinFileWrite(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if !h.canWrite() {
 		return types.Err(types.E_INVARG)
 	}
-	s, ok := args[1].(types.StrValue)
+	s, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	var data []byte
 	if h.binary {
-		decoded, bad := decodeBinaryString(s.Value())
+		decoded, bad := decodeBinaryString(s)
 		if bad {
 			return types.Err(types.E_INVARG)
 		}
 		data = decoded
 	} else {
-		data = []byte(s.Value())
+		data = []byte(s)
 	}
 	n, err := h.file.Write(data)
 	if err != nil {
@@ -441,19 +441,19 @@ func builtinFileWriteline(ctx *kernel.TaskContext, args []types.Value) types.Res
 	if !h.canWrite() {
 		return types.Err(types.E_INVARG)
 	}
-	s, ok := args[1].(types.StrValue)
+	s, ok := args[1].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 	var data []byte
 	if h.binary {
-		decoded, bad := decodeBinaryString(s.Value())
+		decoded, bad := decodeBinaryString(s)
 		if bad {
 			return types.Err(types.E_INVARG)
 		}
 		data = append(decoded, '\n')
 	} else {
-		data = []byte(s.Value() + "\n")
+		data = []byte(s + "\n")
 	}
 	if _, err := h.file.Write(data); err != nil {
 		return types.Err(types.E_FILE)
@@ -479,14 +479,14 @@ func builtinFileFlush(ctx *kernel.TaskContext, args []types.Value) types.Result 
 }
 
 func parseSeekWhence(v types.Value) (int, types.ErrorCode) {
-	switch w := v.(type) {
-	case types.IntValue:
-		if w.Val < 0 || w.Val > 2 {
+	switch v.Kind() {
+	case types.KindInt:
+		if v.Int() < 0 || v.Int() > 2 {
 			return 0, types.E_INVARG
 		}
-		return int(w.Val), types.E_NONE
-	case types.StrValue:
-		s := strings.ToLower(strings.TrimSpace(w.Value()))
+		return int(v.Int()), types.E_NONE
+	case types.KindStr:
+		s := strings.ToLower(strings.TrimSpace(v.Str()))
 		switch s {
 		case "", "set", "start", "seek_set":
 			return io.SeekStart, types.E_NONE
@@ -513,7 +513,7 @@ func builtinFileSeek(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
-	offset, ok := args[1].(types.IntValue)
+	offset, ok := args[1].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -525,7 +525,7 @@ func builtinFileSeek(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			return types.Err(code2)
 		}
 	}
-	pos, err := h.file.Seek(offset.Val, whence)
+	pos, err := h.file.Seek(offset, whence)
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
@@ -576,9 +576,9 @@ func builtinFileEOF(ctx *kernel.TaskContext, args []types.Value) types.Result {
 }
 
 func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
-	switch x := v.(type) {
-	case types.IntValue:
-		h, code := getFileHandle(x)
+	switch v.Kind() {
+	case types.KindInt:
+		h, code := getFileHandle(v)
 		if code != types.E_NONE {
 			return nil, code
 		}
@@ -587,8 +587,8 @@ func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
 			return nil, types.E_FILE
 		}
 		return st, types.E_NONE
-	case types.StrValue:
-		path, err := sanitizeFilePath(x.Value())
+	case types.KindStr:
+		path, err := sanitizeFilePath(v.Str())
 		if err != nil {
 			return nil, types.E_INVARG
 		}
@@ -665,11 +665,11 @@ func builtinFileStat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	s, ok := args[0].(types.StrValue)
+	s, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(s.Value())
+	path, err := sanitizeFilePath(s)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -697,11 +697,11 @@ func builtinFileType(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	s, ok := args[0].(types.StrValue)
+	s, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(s.Value())
+	path, err := sanitizeFilePath(s)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -722,11 +722,11 @@ func builtinFileRemove(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	s, ok := args[0].(types.StrValue)
+	s, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(s.Value())
+	path, err := sanitizeFilePath(s)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -743,13 +743,13 @@ func builtinFileRename(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	from, ok1 := args[0].(types.StrValue)
-	to, ok2 := args[1].(types.StrValue)
+	from, ok1 := args[0].AsStr()
+	to, ok2 := args[1].AsStr()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	f, err1 := sanitizeFilePath(from.Value())
-	t, err2 := sanitizeFilePath(to.Value())
+	f, err1 := sanitizeFilePath(from)
+	t, err2 := sanitizeFilePath(to)
 	// Check dest first: invalid dest -> E_INVARG
 	if err2 != nil {
 		return types.Err(types.E_INVARG)
@@ -772,11 +772,11 @@ func builtinFileMkdir(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	pathVal, ok := args[0].(types.StrValue)
+	pathVal, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(pathVal.Value())
+	path, err := sanitizeFilePath(pathVal)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -785,11 +785,11 @@ func builtinFileMkdir(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 	mode := os.FileMode(0o755)
 	if len(args) == 2 {
-		perm, ok := args[1].(types.IntValue)
+		perm, ok := args[1].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		mode = os.FileMode(perm.Val)
+		mode = os.FileMode(perm)
 	}
 	if err := os.Mkdir(resolveFilePath(path), mode); err != nil {
 		return types.Err(types.E_FILE)
@@ -804,11 +804,11 @@ func builtinFileRmdir(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	pathVal, ok := args[0].(types.StrValue)
+	pathVal, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(pathVal.Value())
+	path, err := sanitizeFilePath(pathVal)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -825,14 +825,14 @@ func builtinFileChmod(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	pathVal, ok1 := args[0].(types.StrValue)
-	modeVal, ok2 := args[1].(types.StrValue)
+	pathVal, ok1 := args[0].AsStr()
+	modeVal, ok2 := args[1].AsStr()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
 	// Toast validates mode string first, then path.
 	// Mode must be exactly 3 octal digits (0-7).
-	modeStr := modeVal.Value()
+	modeStr := modeVal
 	if len(modeStr) != 3 {
 		return types.Err(types.E_INVARG)
 	}
@@ -846,7 +846,7 @@ func builtinFileChmod(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		perm += factor * os.FileMode(c-'0')
 		factor /= 8
 	}
-	path, err := sanitizeFilePath(pathVal.Value())
+	path, err := sanitizeFilePath(pathVal)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -863,7 +863,7 @@ func builtinFileList(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	pathVal, ok := args[0].(types.StrValue)
+	pathVal, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -871,7 +871,7 @@ func builtinFileList(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) == 2 {
 		detailed = args[1].Truthy()
 	}
-	path, err := sanitizeFilePath(pathVal.Value())
+	path, err := sanitizeFilePath(pathVal)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -925,11 +925,11 @@ func builtinFileCountLines(ctx *kernel.TaskContext, args []types.Value) types.Re
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	s, ok := args[0].(types.StrValue)
+	s, ok := args[0].AsStr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(s.Value())
+	path, err := sanitizeFilePath(s)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -956,16 +956,16 @@ func builtinFileGrep(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	pathVal, ok1 := args[0].(types.StrValue)
-	patVal, ok2 := args[1].(types.StrValue)
+	pathVal, ok1 := args[0].AsStr()
+	patVal, ok2 := args[1].AsStr()
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(pathVal.Value())
+	path, err := sanitizeFilePath(pathVal)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	re, err := regexp.Compile(patVal.Value())
+	re, err := regexp.Compile(patVal)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}

@@ -17,7 +17,7 @@ func builtinTypeof(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	return types.Ok(types.IntValue{Val: int64(args[0].Type())})
+	return types.Ok(types.NewInt(int64(args[0].Type())))
 }
 
 // builtinTostr converts values to strings and concatenates them
@@ -46,37 +46,37 @@ func builtinTostr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // valueToStr converts a single value to its string representation
 func valueToStr(val types.Value) string {
-	switch v := val.(type) {
-	case types.StrValue:
-		return v.Value()
+	switch val.Kind() {
+	case types.KindStr:
+		return val.Str()
 
-	case types.IntValue:
-		return strconv.FormatInt(v.Val, 10)
+	case types.KindInt:
+		return strconv.FormatInt(val.Int(), 10)
 
-	case types.FloatValue:
-		s := strconv.FormatFloat(v.Val, 'g', -1, 64)
+	case types.KindFloat:
+		s := strconv.FormatFloat(val.Float(), 'g', -1, 64)
 		// Add .0 if no decimal point and not in scientific notation
 		if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 			s += ".0"
 		}
 		return s
 
-	case types.ObjValue:
-		return fmt.Sprintf("#%d", v.ID())
+	case types.KindObj, types.KindAnon:
+		return fmt.Sprintf("#%d", val.ObjNum())
 
-	case types.ErrValue:
-		return v.Code().Message()
+	case types.KindErr:
+		return val.ErrCode().Message()
 
-	case types.BoolValue:
-		if v.Val {
+	case types.KindBool:
+		if val.Bool() {
 			return "true"
 		}
 		return "false"
 
-	case types.ListValue:
+	case types.KindList:
 		return "{list}"
 
-	case types.MapValue:
+	case types.KindMap:
 		return "[map]"
 
 	default:
@@ -96,41 +96,41 @@ func builtinToint(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	val := args[0]
 
-	switch v := val.(type) {
-	case types.IntValue:
+	switch val.Kind() {
+	case types.KindInt:
 		// Already an int, return as-is
-		return types.Ok(v)
+		return types.Ok(val)
 
-	case types.FloatValue:
+	case types.KindFloat:
 		// Truncate float to int
-		return types.Ok(types.IntValue{Val: int64(v.Val)})
+		return types.Ok(types.NewInt(int64(val.Float())))
 
-	case types.ObjValue:
+	case types.KindObj, types.KindAnon:
 		// Object ID as int
-		return types.Ok(types.IntValue{Val: int64(v.ID())})
+		return types.Ok(types.NewInt(int64(val.ObjNum())))
 
-	case types.ErrValue:
+	case types.KindErr:
 		// Error code ordinal as int
-		return types.Ok(types.IntValue{Val: int64(v.Code())})
+		return types.Ok(types.NewInt(int64(val.ErrCode())))
 
-	case types.BoolValue:
-		if v.Val {
-			return types.Ok(types.IntValue{Val: 1})
+	case types.KindBool:
+		if val.Bool() {
+			return types.Ok(types.NewInt(1))
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
-	case types.StrValue:
+	case types.KindStr:
 		// Parse string as integer first. If that fails, parse as float and truncate.
 		// Per MOO semantics: returns 0 for unparseable strings (not E_INVARG).
-		str := strings.TrimSpace(v.Value())
+		str := strings.TrimSpace(val.Str())
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err == nil {
-			return types.Ok(types.IntValue{Val: i})
+			return types.Ok(types.NewInt(i))
 		}
 		if f, ferr := strconv.ParseFloat(str, 64); ferr == nil {
-			return types.Ok(types.IntValue{Val: int64(f)})
+			return types.Ok(types.NewInt(int64(f)))
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
 	default:
 		// Cannot convert this type to int
@@ -149,31 +149,31 @@ func builtinTofloat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	val := args[0]
 
-	switch v := val.(type) {
-	case types.FloatValue:
+	switch val.Kind() {
+	case types.KindFloat:
 		// Already a float, return as-is
-		return types.Ok(v)
+		return types.Ok(val)
 
-	case types.IntValue:
+	case types.KindInt:
 		// Convert int to float
-		return types.Ok(types.FloatValue{Val: float64(v.Val)})
+		return types.Ok(types.NewFloat(float64(val.Int())))
 
-	case types.ObjValue:
+	case types.KindObj, types.KindAnon:
 		// Object ID as float
-		return types.Ok(types.FloatValue{Val: float64(v.ID())})
+		return types.Ok(types.NewFloat(float64(val.ObjNum())))
 
-	case types.ErrValue:
+	case types.KindErr:
 		// Error code ordinal as float
-		return types.Ok(types.FloatValue{Val: float64(v.Code())})
+		return types.Ok(types.NewFloat(float64(val.ErrCode())))
 
-	case types.StrValue:
+	case types.KindStr:
 		// Parse string as float
-		str := strings.TrimSpace(v.Value())
+		str := strings.TrimSpace(val.Str())
 		f, err := strconv.ParseFloat(str, 64)
 		if err != nil {
 			return types.Err(types.E_INVARG)
 		}
-		return types.Ok(types.FloatValue{Val: f})
+		return types.Ok(types.NewFloat(f))
 
 	default:
 		// Cannot convert this type to float
@@ -210,27 +210,27 @@ func builtinToobj(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	val := args[0]
 
-	switch v := val.(type) {
-	case types.ObjValue:
-		return types.Ok(v)
+	switch val.Kind() {
+	case types.KindObj, types.KindAnon:
+		return types.Ok(val)
 
-	case types.IntValue:
-		return types.Ok(types.NewObj(types.ObjID(v.Val)))
+	case types.KindInt:
+		return types.Ok(types.NewObj(types.ObjID(val.Int())))
 
-	case types.FloatValue:
-		return types.Ok(types.NewObj(types.ObjID(int64(v.Val))))
+	case types.KindFloat:
+		return types.Ok(types.NewObj(types.ObjID(int64(val.Float()))))
 
-	case types.ErrValue:
-		return types.Ok(types.NewObj(types.ObjID(v.Code())))
+	case types.KindErr:
+		return types.Ok(types.NewObj(types.ObjID(val.ErrCode())))
 
-	case types.BoolValue:
-		if v.Val {
+	case types.KindBool:
+		if val.Bool() {
 			return types.Ok(types.NewObj(1))
 		}
 		return types.Ok(types.NewObj(0))
 
-	case types.StrValue:
-		str := strings.TrimSpace(v.Value())
+	case types.KindStr:
+		str := strings.TrimSpace(val.Str())
 		// Parse "#123" format
 		if len(str) > 0 && str[0] == '#' {
 			str = str[1:]
@@ -265,8 +265,8 @@ func builtinEqual(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // This is used by equal() builtin, not by == operator
 func strictEqual(a, b types.Value) bool {
 	// For maps, do case-sensitive comparison of keys and values
-	aMap, aIsMap := a.(types.MapValue)
-	bMap, bIsMap := b.(types.MapValue)
+	aMap, aIsMap := a.AsMap()
+	bMap, bIsMap := b.AsMap()
 	if aIsMap && bIsMap {
 		if aMap.Len() != bMap.Len() {
 			return false
@@ -286,8 +286,8 @@ func strictEqual(a, b types.Value) bool {
 	}
 
 	// For lists, recursively check with strictEqual
-	aList, aIsList := a.(types.ListValue)
-	bList, bIsList := b.(types.ListValue)
+	aList, aIsList := a.AsList()
+	bList, bIsList := b.AsList()
 	if aIsList && bIsList {
 		if aList.Len() != bList.Len() {
 			return false
@@ -301,10 +301,10 @@ func strictEqual(a, b types.Value) bool {
 	}
 
 	// For strings, case-SENSITIVE comparison
-	aStr, aIsStr := a.(types.StrValue)
-	bStr, bIsStr := b.(types.StrValue)
+	aStr, aIsStr := a.AsStr()
+	bStr, bIsStr := b.AsStr()
 	if aIsStr && bIsStr {
-		return aStr.Value() == bStr.Value()
+		return aStr == bStr
 	}
 
 	// For other types, use standard Equal
@@ -346,18 +346,17 @@ func comparePairKeys(a, b types.Value) int {
 	}
 
 	// Same type, compare values
-	switch av := a.(type) {
-	case types.IntValue:
-		bv := b.(types.IntValue)
-		if av.Val < bv.Val {
+	switch a.Kind() {
+	case types.KindInt:
+		av, bv := a.Int(), b.Int()
+		if av < bv {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if av > bv {
 			return 1
 		}
 		return 0
-	case types.StrValue:
-		bv := b.(types.StrValue)
-		return strings.Compare(av.Value(), bv.Value())
+	case types.KindStr:
+		return strings.Compare(a.Str(), b.Str())
 	}
 	return 0
 }

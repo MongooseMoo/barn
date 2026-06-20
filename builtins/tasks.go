@@ -40,11 +40,11 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	countMode := false
 	if len(args) == 2 {
-		mode, ok := args[1].(types.IntValue)
+		mode, ok := args[1].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		countMode = mode.Val != 0
+		countMode = mode != 0
 	}
 
 	mgr := task.GetManager()
@@ -76,12 +76,10 @@ func builtinKillTask(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	taskIDVal, ok := args[0].(types.IntValue)
+	taskID, ok := args[0].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	taskID := taskIDVal.Val
 
 	// Special case: killing yourself returns E_INTRPT
 	if ctx.TaskID == taskID {
@@ -124,11 +122,11 @@ func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// -1 is our internal sentinel for indefinite suspension.
 	seconds := -1.0
 	if len(args) == 1 {
-		switch v := args[0].(type) {
-		case types.IntValue:
-			seconds = float64(v.Val)
-		case types.FloatValue:
-			seconds = v.Val
+		switch args[0].Kind() {
+		case types.KindInt:
+			seconds = float64(args[0].Int())
+		case types.KindFloat:
+			seconds = args[0].Float()
 		default:
 			return types.Err(types.E_TYPE)
 		}
@@ -155,12 +153,10 @@ func builtinResume(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	taskIDVal, ok := args[0].(types.IntValue)
+	taskID, ok := args[0].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-
-	taskID := taskIDVal.Val
 
 	// Get the value to pass to the resumed task
 	var value types.Value = types.NewInt(0)
@@ -188,7 +184,7 @@ func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Get the new permission object
-	whoVal, ok := args[0].(types.ObjValue)
+	whoVal, ok := args[0].AsObjID()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -200,16 +196,16 @@ func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if errCode != types.E_NONE {
 		progIsWizard = false
 	}
-	if !progIsWizard && whoVal.ID() != ctx.Programmer {
+	if !progIsWizard && whoVal != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
-	ctx.Programmer = whoVal.ID()
+	ctx.Programmer = whoVal
 
 	// Update ctx.IsWizard to reflect the new programmer's actual status.
 	// In Toast, the progr field determines wizard checks dynamically;
 	// Barn caches IsWizard so we must update it here.
-	ctx.IsWizard, errCode = store.HasObjectFlag(whoVal.ID(), dbstore.FlagWizard)
+	ctx.IsWizard, errCode = store.HasObjectFlag(whoVal, dbstore.FlagWizard)
 	if errCode != types.E_NONE {
 		ctx.IsWizard = false
 	}
@@ -219,7 +215,7 @@ func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	// behavior where set_task_perms updates RUN_ACTIV.progr).
 	if t, ok := ctx.Task.(*task.Task); ok {
 		if top := t.GetTopFrame(); top != nil {
-			top.Programmer = whoVal.ID()
+			top.Programmer = whoVal
 		}
 	}
 
@@ -277,11 +273,11 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Pass true/1 to include line numbers (6-element frames)
 	includeLineNumbers := false
 	if len(args) == 1 {
-		val, ok := args[0].(types.IntValue)
+		val, ok := args[0].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		includeLineNumbers = val.Val != 0
+		includeLineNumbers = val != 0
 	}
 
 	// Get the task from context
@@ -335,7 +331,7 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			result = append(result, frame.ToList())
 		} else {
 			// Omit line number (last element)
-			frameList := frame.ToList().(types.ListValue)
+			frameList := frame.ToList().List()
 			truncated := make([]types.Value, frameList.Len()-1)
 			for j := 0; j < frameList.Len()-1; j++ {
 				truncated[j] = frameList.Get(j + 1) // 1-based indexing
@@ -413,18 +409,18 @@ func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// First arg must be an error code
-	errVal, ok := args[0].(types.ErrValue)
+	errVal, ok := args[0].AsErr()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	message := errVal.Code().Message()
+	message := errVal.Message()
 	if len(args) >= 2 {
-		msgVal, ok := args[1].(types.StrValue)
+		msgVal, ok := args[1].AsStr()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		message = msgVal.Value()
+		message = msgVal
 	}
 
 	exceptionValue := types.Value(types.NewInt(0))
@@ -433,14 +429,14 @@ func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	exceptionList := types.NewList([]types.Value{
-		types.NewErr(errVal.Code()),
+		types.NewErr(errVal),
 		types.NewStr(message),
 		exceptionValue,
 	})
 
 	return types.Result{
 		Flow:  types.FlowException,
-		Error: errVal.Code(),
+		Error: errVal,
 		Val:   exceptionList,
 	}
 }
@@ -453,7 +449,7 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	taskIDVal, ok := args[0].(types.IntValue)
+	taskID, ok := args[0].AsInt()
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -461,14 +457,12 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Second arg (include_line_numbers) is optional, defaults to false
 	includeLineNumbers := false
 	if len(args) == 2 {
-		includeVal, ok := args[1].(types.IntValue)
+		includeVal, ok := args[1].AsInt()
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		includeLineNumbers = includeVal.Val != 0
+		includeLineNumbers = includeVal != 0
 	}
-
-	taskID := taskIDVal.Val
 
 	// task_stack on the currently running task is invalid (task must be suspended)
 	if taskID == ctx.TaskID {
@@ -499,7 +493,7 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			result = append(result, frame.ToList())
 		} else {
 			// Omit line number (6th element) → 5-element list
-			frameList := frame.ToList().(types.ListValue)
+			frameList := frame.ToList().List()
 			truncated := make([]types.Value, frameList.Len()-1)
 			for j := 0; j < frameList.Len()-1; j++ {
 				truncated[j] = frameList.Get(j + 1)
@@ -519,13 +513,13 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	for _, arg := range args {
-		if _, ok := arg.(types.IntValue); !ok {
+		if !arg.IsInt() {
 			return types.Err(types.E_TYPE)
 		}
 	}
 
 	if len(args) >= 2 && globalTaskYielder != nil {
-		tickThreshold := args[1].(types.IntValue).Val
+		tickThreshold := args[1].Int()
 		if ctx.TicksRemaining <= tickThreshold {
 			globalTaskYielder.YieldReadyTasks()
 		}
