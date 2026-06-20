@@ -20,7 +20,7 @@ func calculateObjectBytes(obj *Object) int {
 
 	for _, verb := range obj.Verbs {
 		count += 32
-		count += len(verb.Name) + 1
+		count += len(verb.name) + 1
 		// NOTE (verbcache spike): the AST (verb.Program) no longer lives on the
 		// verb, so the AST-size term is dropped here. A full landing would query
 		// the relocated bytecode cache for an accurate estimate.

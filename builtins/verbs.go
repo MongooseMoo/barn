@@ -183,7 +183,7 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	var verb *dbstore.Verb
+	var verb dbstore.VerbView
 
 	// Accept string (verb name) or integer (verb index)
 	switch v := args[1].(type) {
@@ -205,10 +205,6 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		verb = found
 	default:
 		return types.Err(types.E_TYPE)
-	}
-
-	if verb == nil {
-		return types.Err(types.E_VERBNF)
 	}
 
 	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
@@ -249,7 +245,7 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	var verb *dbstore.Verb
+	var verb dbstore.VerbView
 
 	// Accept string (verb name) or integer (verb index)
 	switch v := args[1].(type) {
@@ -271,10 +267,6 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		verb = found
 	default:
 		return types.Err(types.E_TYPE)
-	}
-
-	if verb == nil {
-		return types.Err(types.E_VERBNF)
 	}
 
 	// A non-owner programmer cannot inspect a non-readable verb (Toast: E_PERM).
@@ -471,18 +463,11 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	perms := parseVerbPerms(permsStr.Value())
 
 	// Create the verb
-	verb := dbstore.Verb{
-		Name:  names[0],
-		Names: names,
-		Owner: ownerID,
-		Perms: perms,
-		ArgSpec: dbstore.VerbArgs{
-			This: dobjStr,
-			Prep: prepStr,
-			That: iobjStr,
-		},
-		Code: []string{},
-	}
+	verb := dbstore.NewVerb(names[0], names, ownerID, perms, dbstore.VerbArgs{
+		This: dobjStr,
+		Prep: prepStr,
+		That: iobjStr,
+	}, []string{})
 
 	index, errCode := store.AddVerb(objID, verb)
 	if errCode != types.E_NONE {
@@ -670,7 +655,7 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
-	var verb *dbstore.Verb
+	var verb dbstore.VerbView
 	switch v := args[1].(type) {
 	case types.StrValue:
 		found, _, err := store.FindVerb(objID, v.Value())
@@ -841,7 +826,7 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
-	var verb *dbstore.Verb
+	var verb dbstore.VerbView
 	switch v := args[1].(type) {
 	case types.StrValue:
 		found, _, err := store.FindVerb(objID, v.Value())

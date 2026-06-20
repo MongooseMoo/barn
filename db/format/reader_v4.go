@@ -205,18 +205,16 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 	// Read verb metadata
 	obj.VerbList = make([]*store.Verb, verbCount)
 	for i := 0; i < verbCount; i++ {
-		verb := &store.Verb{}
-
 		// Verb name
-		verb.Name, err = r.ReadString('\n')
+		name, err := r.ReadString('\n')
 		if err != nil {
 			return nil, err
 		}
-		verb.Name = strings.TrimSpace(verb.Name)
-		verb.Names = strings.Split(verb.Name, " ")
+		name = strings.TrimSpace(name)
+		names := strings.Split(name, " ")
 
 		// Owner
-		verb.Owner, err = readObjID(r)
+		owner, err := readObjID(r)
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +224,6 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		if err != nil {
 			return nil, err
 		}
-		verb.Perms = store.VerbPerms(perms & 0xF) // Lower 4 bits are permissions
 
 		// Extract dobj and iobj from perms
 		dobj := (perms >> 4) & 0x3
@@ -239,12 +236,16 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.Object, error) {
 		}
 
 		// Convert to argspec strings
-		verb.ArgSpec.This = argSpecFromCode(dobj)
-		verb.ArgSpec.Prep = prepFromCode(prep)
-		verb.ArgSpec.That = argSpecFromCode(iobj)
+		argSpec := store.VerbArgs{
+			This: argSpecFromCode(dobj),
+			Prep: prepFromCode(prep),
+			That: argSpecFromCode(iobj),
+		}
 
-		obj.VerbList[i] = verb
-		obj.Verbs[verb.Names[0]] = verb
+		verb := store.NewVerb(name, names, owner, store.VerbPerms(perms&0xF), argSpec, nil)
+		verbPtr := &verb
+		obj.VerbList[i] = verbPtr
+		obj.Verbs[names[0]] = verbPtr
 	}
 
 	// Read property definitions

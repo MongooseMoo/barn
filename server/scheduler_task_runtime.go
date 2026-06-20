@@ -107,7 +107,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			return fmt.Errorf("compile error: %w", compileErr)
 		}
 		if t.VerbName != "" {
-			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && taskVerb != nil && len(taskVerb.Code) > 0 {
+			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && len(taskVerb.Code) > 0 {
 				prog.Source = append([]string(nil), taskVerb.Code...)
 			}
 		}
@@ -154,7 +154,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 			// Set verb debug flag from the actual verb permissions, and record the
 			// verb's stored name spec (incl. wildcards) for printed tracebacks.
-			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && taskVerb != nil {
+			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil {
 				frame.VerbDebug = taskVerb.Perms.Has(dbstore.VerbDebug)
 				frame.StoredVerb = strings.Join(taskVerb.Names, " ")
 			}

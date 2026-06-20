@@ -122,8 +122,8 @@ func cloneVerbForSnapshot(verb *Verb) *Verb {
 		return nil
 	}
 	clone := *verb
-	clone.Names = append([]string(nil), verb.Names...)
-	clone.Code = append([]string(nil), verb.Code...)
+	clone.names = append([]string(nil), verb.names...)
+	clone.code = append([]string(nil), verb.code...)
 	return &clone
 }
 

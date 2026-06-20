@@ -127,7 +127,7 @@ func (w *Writer) writeObject(obj *store.Object) error {
 		return err
 	}
 	for _, verb := range obj.VerbList {
-		if err := w.writeVerbMetadata(verb); err != nil {
+		if err := w.writeVerbMetadata(verb.View()); err != nil {
 			return err
 		}
 	}
@@ -166,7 +166,7 @@ func (w *Writer) writeParents(parents []types.ObjID) error {
 }
 
 // writeVerbMetadata writes verb metadata (not code)
-func (w *Writer) writeVerbMetadata(verb *store.Verb) error {
+func (w *Writer) writeVerbMetadata(verb store.VerbView) error {
 	// Verb name (all names joined by space)
 	if err := w.writeString(verb.Name); err != nil {
 		return err
@@ -281,11 +281,12 @@ func (w *Writer) writeVerbPrograms() error {
 			continue
 		}
 		for idx, verb := range obj.VerbList {
-			if len(verb.Code) > 0 {
+			view := verb.View()
+			if len(view.Code) > 0 {
 				verbs = append(verbs, verbRef{
 					objID:   obj.ID,
 					verbIdx: idx,
-					code:    verb.Code,
+					code:    view.Code,
 				})
 			}
 		}

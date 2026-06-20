@@ -43,7 +43,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 
 	// Look up the verb to get its owner for programmer permissions
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)
-	if err != nil || verb == nil {
+	if err != nil {
 		// Verb not found
 		result := types.Result{
 			Flow:  types.FlowException,

@@ -106,7 +106,7 @@ func TestVerbCount(t *testing.T) {
 	// Check if find_exact verb exists
 	hasFinexact := false
 	for _, verb := range obj37.VerbList {
-		if verb.Names[0] == "find_exact" {
+		if verb.View().Names[0] == "find_exact" {
 			hasFinexact = true
 			break
 		}
@@ -271,9 +271,6 @@ func TestVerbInheritance(t *testing.T) {
 	verb, _, err := store.FindVerb(types.ObjID(39), "find_exact")
 	if err != nil {
 		t.Errorf("Error finding verb: %v", err)
-	}
-	if verb == nil {
-		t.Error("Failed to find inherited verb 'find_exact' on #39 (should inherit from #37)")
 	} else if verb.Names[0] != "find_exact" {
 		t.Errorf("Expected verb name 'find_exact', got '%s'", verb.Names[0])
 	}
@@ -282,7 +279,7 @@ func TestVerbInheritance(t *testing.T) {
 	obj37 := database.Objects[37]
 	foundOnParent := false
 	for _, v := range obj37.VerbList {
-		if v.Names[0] == "find_exact" {
+		if v.View().Names[0] == "find_exact" {
 			foundOnParent = true
 			break
 		}

@@ -406,8 +406,8 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *kernel.TaskContext, 
 		return types.Result{}, false
 	}
 	bfName := "bf_" + name
-	verb, _, err := store.FindVerb(types.ObjID(0), bfName)
-	if err == nil && verb != nil {
+	_, _, err := store.FindVerb(types.ObjID(0), bfName)
+	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
 		return r.CallVerb(types.ObjID(0), bfName, args, ctx), true
 	}

@@ -19,20 +19,13 @@ func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbs
 }
 
 func addTestVerb(obj *dbstore.Object, name string, code ...string) {
-	verb := &dbstore.Verb{
-		Name:  name,
-		Names: []string{name},
-		Owner: 2,
-		Perms: dbstore.VerbRead | dbstore.VerbExecute,
-		ArgSpec: dbstore.VerbArgs{
-			This: "this",
-			Prep: "none",
-			That: "this",
-		},
-		Code: code,
-	}
-	obj.Verbs[name] = verb
-	obj.VerbList = append(obj.VerbList, verb)
+	verb := dbstore.NewVerb(name, []string{name}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		code)
+	verbPtr := &verb
+	obj.Verbs[name] = verbPtr
+	obj.VerbList = append(obj.VerbList, verbPtr)
 }
 
 func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {

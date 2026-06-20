@@ -45,7 +45,7 @@ func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []type
 
 func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.WaifValue) {
 	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
-	if err != nil || verb == nil {
+	if err != nil {
 		return
 	}
 	if !verb.Perms.Has(dbstore.VerbExecute) {

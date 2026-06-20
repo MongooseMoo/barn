@@ -96,7 +96,7 @@ func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *Pa
 // the normal scheduler/task machinery and can suspend, fork, and shut down.
 func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (int64, error) {
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)
-	if err != nil || verb == nil {
+	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
@@ -180,7 +180,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		// when syncing line numbers to the task's CallStack.
 		frame.IsVerbCall = true
 		// Inherit verb debug flag from the parent verb
-		if forkVerb, _, vErr := s.store.FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil && forkVerb != nil {
+		if forkVerb, _, vErr := s.store.FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
 			frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
 		}
 

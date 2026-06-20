@@ -92,20 +92,74 @@ func (p *Property) View() PropertyView {
 	}
 }
 
-// Verb represents a verb on an object
+// Verb represents a verb on an object.
+//
+// All fields are unexported: the store is the sole owner of Verb state.
+// External packages read verbs through the flat, read-only VerbView value
+// (returned by the FindVerb family, or via the View method on a raw *Verb
+// obtained from an Object's VerbList) and construct verbs through NewVerb. A
+// direct field write to Verb from outside db/store is a compile error.
 type Verb struct {
-	Name    string
-	Names   []string // All verb names (aliases) - first is primary
-	Owner   types.ObjID
-	Perms   VerbPerms
-	ArgSpec VerbArgs
-	Code    []string // Source lines
+	name    string
+	names   []string // All verb names (aliases) - first is primary
+	owner   types.ObjID
+	perms   VerbPerms
+	argSpec VerbArgs
+	code    []string // Source lines
 
 	// NOTE (verbcache spike): the runtime-derived fields Program (*VerbProgram,
 	// AST) and BytecodeCache (any, *vm.Program) have been REMOVED from the world
 	// model. The compiled AST + bytecode cache now live in the barn/bytecode
 	// package, keyed externally. db/store holds only persistent state (source),
 	// and no longer imports barn/parser.
+}
+
+// VerbView is a flat, read-only snapshot of a Verb. It is a value (a copy):
+// field access is a plain load with no allocation and no locking, so it is safe
+// to read on the execution hot path. Names and Code carry the verb's slice
+// headers by value (the backing arrays are read-only at call sites); the store
+// never hands out a live *Verb to external callers.
+type VerbView struct {
+	Name    string
+	Names   []string
+	Owner   types.ObjID
+	Perms   VerbPerms
+	ArgSpec VerbArgs
+	Code    []string
+}
+
+// NewVerb builds a Verb value from its fields. It is the only way for external
+// packages (the loader in db/format, builtins, the conformance fixture, and
+// tests) to construct a Verb without touching unexported fields.
+func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
+	return Verb{
+		name:    name,
+		names:   names,
+		owner:   owner,
+		perms:   perms,
+		argSpec: argSpec,
+		code:    code,
+	}
+}
+
+// SetCode replaces the verb's source lines. It exists for the loader in
+// db/format, which reads verb metadata and verb source in two separate passes
+// and must fill in the source on an already-constructed verb. Production verb
+// edits go through the store's SetVerbCode/SetVerbCodeByIndex methods.
+func (v *Verb) SetCode(lines []string) {
+	v.code = lines
+}
+
+// View returns a flat read-only snapshot of the verb.
+func (v *Verb) View() VerbView {
+	return VerbView{
+		Name:    v.name,
+		Names:   v.names,
+		Owner:   v.owner,
+		Perms:   v.perms,
+		ArgSpec: v.argSpec,
+		Code:    v.code,
+	}
 }
 
 // ObjectFlags represents object permission flags

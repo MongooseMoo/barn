@@ -59,14 +59,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Verb: %s\n", verb.Name)
-	fmt.Printf("Code (%d lines):\n", len(verb.Code))
-	for i, line := range verb.Code {
+	view := verb.View()
+	fmt.Printf("Verb: %s\n", view.Name)
+	fmt.Printf("Code (%d lines):\n", len(view.Code))
+	for i, line := range view.Code {
 		fmt.Printf("%3d: %s\n", i+1, line)
 	}
 
 	if os.Getenv("DISASM") == "1" {
-		prog, err := bytecode.CompileVerbBytecode(verb.Code, builtins.NewRegistry())
+		prog, err := bytecode.CompileVerbBytecode(view.Code, builtins.NewRegistry())
 		if err != nil {
 			fmt.Printf("\n[disasm] compile error: %v\n", err)
 			return

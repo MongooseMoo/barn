@@ -157,32 +157,20 @@ func newBytecodeVerbStore() *dbstore.Store {
 	root := dbstore.NewObject(0, 0)
 	root.Name = "Root"
 	root.Flags = dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagProgrammer
-	root.Verbs["test_return"] = &dbstore.Verb{
-		Name: "test_return", Names: []string{"test_return"}, Owner: 0,
-		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute,
-		Code:  []string{"return 42;"},
-	}
-	root.Verbs["test_throw"] = &dbstore.Verb{
-		Name: "test_throw", Names: []string{"test_throw"}, Owner: 0,
-		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug,
-		Code:  []string{"return 1 / 0;"},
-	}
-	root.Verbs["test_chain_b"] = &dbstore.Verb{
-		Name: "test_chain_b", Names: []string{"test_chain_b"}, Owner: 0,
-		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug,
-		Code:  []string{"return this:test_chain_c();"},
-	}
-	root.Verbs["test_chain_c"] = &dbstore.Verb{
-		Name: "test_chain_c", Names: []string{"test_chain_c"}, Owner: 0,
-		Perms: dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug,
-		Code:  []string{"return 1 / 0;"},
-	}
-	root.Verbs["test_no_exec"] = &dbstore.Verb{
-		Name: "test_no_exec", Names: []string{"test_no_exec"}, Owner: 0,
-		Perms: dbstore.VerbRead | dbstore.VerbWrite,
-		Code:  []string{"return 1;"},
-	}
 	store.Add(root)
+
+	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
+	debugPerms := execPerms | dbstore.VerbDebug
+	store.AddVerb(0, dbstore.NewVerb("test_return", []string{"test_return"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return 42;"}))
+	store.AddVerb(0, dbstore.NewVerb("test_throw", []string{"test_throw"}, 0,
+		debugPerms, dbstore.VerbArgs{}, []string{"return 1 / 0;"}))
+	store.AddVerb(0, dbstore.NewVerb("test_chain_b", []string{"test_chain_b"}, 0,
+		debugPerms, dbstore.VerbArgs{}, []string{"return this:test_chain_c();"}))
+	store.AddVerb(0, dbstore.NewVerb("test_chain_c", []string{"test_chain_c"}, 0,
+		debugPerms, dbstore.VerbArgs{}, []string{"return 1 / 0;"}))
+	store.AddVerb(0, dbstore.NewVerb("test_no_exec", []string{"test_no_exec"}, 0,
+		dbstore.VerbRead|dbstore.VerbWrite, dbstore.VerbArgs{}, []string{"return 1;"}))
 	return store
 }
 

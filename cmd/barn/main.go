@@ -264,8 +264,9 @@ func dumpListVerbs(store *dbstore.Store, spec string) {
 	fmt.Printf("Count: %d\n\n", len(obj.VerbList))
 
 	for i, verb := range obj.VerbList {
+		view := verb.View()
 		fmt.Printf("%3d. %-30s owner=#%-6d perms=%-4s lines=%d\n",
-			i, strings.Join(verb.Names, " "), verb.Owner, verb.Perms.String(), len(verb.Code))
+			i, strings.Join(view.Names, " "), view.Owner, view.Perms.String(), len(view.Code))
 	}
 }
 
@@ -362,8 +363,9 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 	// Verbs
 	fmt.Printf("\n--- Verbs (%d) ---\n", len(obj.VerbList))
 	for i, verb := range obj.VerbList {
+		view := verb.View()
 		fmt.Printf("  %3d. %-30s owner=#%-6d perms=%-4s lines=%d\n",
-			i, strings.Join(verb.Names, " "), verb.Owner, verb.Perms.String(), len(verb.Code))
+			i, strings.Join(view.Names, " "), view.Owner, view.Perms.String(), len(view.Code))
 	}
 }
 
@@ -453,8 +455,9 @@ func dumpObjRawCommand(store *dbstore.Store, spec string) {
 
 	fmt.Printf("\nVerbList:   %d verbs\n", len(obj.VerbList))
 	for i, v := range obj.VerbList {
+		view := v.View()
 		fmt.Printf("  [%d] %q (names=%d, owner=#%d, code=%d lines)\n",
-			i, v.Name, len(v.Names), v.Owner, len(v.Code))
+			i, view.Name, len(view.Names), view.Owner, len(view.Code))
 	}
 
 	fmt.Printf("\nVerbs map:  %d entries\n", len(obj.Verbs))

@@ -442,7 +442,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 			huhTarget = player
 		}
 
-		if huhVerb, huhVerbLoc, err := s.store.FindVerb(huhTarget, "huh"); err == nil && huhVerb != nil {
+		if huhVerb, huhVerbLoc, err := s.store.FindVerb(huhTarget, "huh"); err == nil {
 			huhMatch := &VerbMatch{
 				Verb:    huhVerb,
 				This:    huhTarget,
@@ -524,7 +524,7 @@ func (s *Scheduler) processProgrammingInput(conn *Connection, line string) bool 
 	verbName := mode.Verb
 	conn.mu.Unlock()
 
-	if _, err := s.store.FindLocalVerbForProgramming(target, verbName); err != nil {
+	if !s.store.FindLocalVerbForProgramming(target, verbName) {
 		conn.Send("Verb not found")
 		return true
 	}
@@ -573,7 +573,7 @@ func (s *Scheduler) parseProgramTarget(player, location types.ObjID, spec string
 	if target < 0 {
 		return types.ObjNothing, "", false
 	}
-	if _, err := s.store.FindLocalVerbForProgramming(target, verbName); err != nil {
+	if !s.store.FindLocalVerbForProgramming(target, verbName) {
 		return types.ObjNothing, "", false
 	}
 	return target, verbName, true

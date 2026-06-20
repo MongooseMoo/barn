@@ -10,7 +10,7 @@ import (
 
 // VerbMatch is the result of verb lookup
 type VerbMatch struct {
-	Verb    *dbstore.Verb
+	Verb    dbstore.VerbView
 	This    types.ObjID // Object the verb is called on ('this' in MOO)
 	VerbLoc types.ObjID // Object where verb is defined (for traceback)
 
@@ -104,7 +104,7 @@ func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
 }
 
 // verbMatches checks if a verb matches a command
-func verbMatches(verb *dbstore.Verb, cmd *ParsedCommand, this types.ObjID) bool {
+func verbMatches(verb dbstore.VerbView, cmd *ParsedCommand, this types.ObjID) bool {
 	// Check verb name - try all names in the verb
 	nameMatches := false
 	for _, name := range verb.Names {
