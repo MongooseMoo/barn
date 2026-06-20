@@ -289,7 +289,13 @@ func (w *Writer) writeVerbPrograms() error {
 			continue
 		}
 		for idx, view := range obj.VerbList {
-			if len(view.Code) > 0 {
+			// Emit a verb-program entry for every verb that has a program, even
+			// if its source is empty. Toast (v17) writes one #obj:verbidx entry
+			// per programmed verb regardless of whether the program is empty; a
+			// verb that was never set_verb_code'd (HasProgram false) has no entry.
+			// Gating on len(view.Code)>0 would drop empty-but-present programs
+			// (B6: canonical #10:special_action), undercounting by one.
+			if view.HasProgram {
 				verbs = append(verbs, verbRef{
 					objID:   obj.ID,
 					verbIdx: idx,

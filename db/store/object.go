@@ -149,6 +149,16 @@ type Verb struct {
 	argSpec VerbArgs
 	code    []string // Source lines
 
+	// hasProgram records whether this verb has a compiled program in the
+	// database's verb-code section, independent of whether its source is empty.
+	// Toast (v17) emits one verb-program entry (#obj:verbidx + source + ".")
+	// for every verb that has ever had set_verb_code applied, INCLUDING verbs
+	// whose program is empty. A freshly add_verb'd verb has no program until
+	// set_verb_code runs. Tracking this separately from len(code)>0 is required
+	// to round-trip empty-but-present programs (B6: canonical #10:special_action
+	// has an empty program that Toast still counts).
+	hasProgram bool
+
 	// NOTE (verbcache spike): the runtime-derived fields Program (*VerbProgram,
 	// AST) and BytecodeCache (any, *vm.Program) have been REMOVED from the world
 	// model. The compiled AST + bytecode cache now live in the barn/bytecode
@@ -168,6 +178,10 @@ type VerbView struct {
 	Perms   VerbPerms
 	ArgSpec VerbArgs
 	Code    []string
+	// HasProgram mirrors Verb.hasProgram: true when the verb has a program in
+	// the verb-code section (even if its source is empty). The DB writer emits a
+	// verb-program entry for exactly the verbs with HasProgram set.
+	HasProgram bool
 }
 
 // NewVerb builds a Verb value from its fields. It is the only way for external
@@ -181,6 +195,11 @@ func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, ar
 		perms:   perms,
 		argSpec: argSpec,
 		code:    code,
+		// A verb constructed with non-empty source already has a program. An
+		// empty/nil code slice means "no program yet" (add_verb, or the loader's
+		// metadata pass before the verb-code section is read); SetCode promotes
+		// it to hasProgram=true when a program entry is actually present.
+		hasProgram: len(code) > 0,
 	}
 }
 
@@ -190,17 +209,21 @@ func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, ar
 // edits go through the store's SetVerbCode/SetVerbCodeByIndex methods.
 func (v *Verb) SetCode(lines []string) {
 	v.code = lines
+	// Reading a verb-code entry (even an empty program) means this verb has a
+	// program and must be re-emitted in the verb-code section on write.
+	v.hasProgram = true
 }
 
 // View returns a flat read-only snapshot of the verb.
 func (v *Verb) View() VerbView {
 	return VerbView{
-		Name:    v.name,
-		Names:   v.names,
-		Owner:   v.owner,
-		Perms:   v.perms,
-		ArgSpec: v.argSpec,
-		Code:    v.code,
+		Name:       v.name,
+		Names:      v.names,
+		Owner:      v.owner,
+		Perms:      v.perms,
+		ArgSpec:    v.argSpec,
+		Code:       v.code,
+		HasProgram: v.hasProgram,
 	}
 }
 
