@@ -180,5 +180,5 @@ set_verb_code parse-error cases, Barn list values == Toast EXACTLY:
 - reports/bugfix-b2c-error-format.md (this file)
 - Barn Go tests updated: NONE (no test asserted on old "parse error:" text).
 
-## COMMIT: <filled below>
+## COMMIT: 144cc81 on branch fix/b2c-error-format (off master 571b443).
 NOT merged — verifier next.
