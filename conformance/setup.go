@@ -21,7 +21,7 @@ func setupStoreForTests(store *dbstore.Store) {
 	localPropValue := func(objID types.ObjID, name string) (types.Value, bool) {
 		view, exists, errCode := store.LocalProperty(objID, name)
 		if errCode != types.E_NONE || !exists {
-			return nil, false
+			return types.Value{}, false
 		}
 		return view.Value, true
 	}
@@ -39,8 +39,8 @@ func setupStoreForTests(store *dbstore.Store) {
 	if _, ok := localPropValue(0, "anon"); !ok {
 		var anonID types.ObjID = -1
 		if val, exists := localPropValue(0, "anonymous"); exists {
-			if objVal, ok := val.(types.ObjValue); ok {
-				anonID = objVal.ID()
+			if objID, ok := val.AsObjID(); ok {
+				anonID = objID
 			}
 		}
 		// If no $anonymous property, find an object with anonymous flag
@@ -66,16 +66,16 @@ func setupStoreForTests(store *dbstore.Store) {
 	}
 	// Ensure the anonymous parent has the fertile flag so non-wizards can create from it
 	if val, ok := localPropValue(0, "anon"); ok {
-		if anonObjVal, ok := val.(types.ObjValue); ok {
-			store.SetObjectFlag(anonObjVal.ID(), dbstore.FlagFertile, true)
-			store.SetObjectFlag(anonObjVal.ID(), dbstore.FlagAnonymous, true)
+		if anonID, ok := val.AsObjID(); ok {
+			store.SetObjectFlag(anonID, dbstore.FlagFertile, true)
+			store.SetObjectFlag(anonID, dbstore.FlagAnonymous, true)
 		}
 	}
 	// Also ensure $anonymous has fertile flag if it exists
 	if val, ok := localPropValue(0, "anonymous"); ok {
-		if anonObjVal, ok := val.(types.ObjValue); ok {
-			store.SetObjectFlag(anonObjVal.ID(), dbstore.FlagFertile, true)
-			store.SetObjectFlag(anonObjVal.ID(), dbstore.FlagAnonymous, true)
+		if anonID, ok := val.AsObjID(); ok {
+			store.SetObjectFlag(anonID, dbstore.FlagFertile, true)
+			store.SetObjectFlag(anonID, dbstore.FlagAnonymous, true)
 		}
 	}
 	// Add prototype properties for primitive types (needed by primitives.yaml tests)

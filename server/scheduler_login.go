@@ -70,8 +70,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 		return types.ObjID(-1), nil
 	}
 
-	if objVal, ok := result.Val.(types.ObjValue); ok {
-		playerID := objVal.ID()
+	if playerID, ok := result.Val.AsObjID(); ok {
 		if playerID > 0 {
 			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
@@ -117,7 +116,7 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 		return false, nil
 	}
 
-	if result.Val == nil {
+	if result.Val.IsNone() {
 		return false, nil
 	}
 	return result.Val.Truthy(), nil
@@ -146,7 +145,7 @@ func (s *Scheduler) callDoCommand(handler types.ObjID, player types.ObjID, words
 		return true, nil
 	}
 
-	if result.Val == nil {
+	if result.Val.IsNone() {
 		return false, nil
 	}
 	return result.Val.Truthy(), nil
@@ -251,8 +250,8 @@ func (s *Scheduler) callUserClientDisconnected(handler types.ObjID, player types
 // falling back to "*** Connected ***" if not set.
 func (s *Scheduler) connectMessage() string {
 	if val, ok := s.getServerOption(0, "connect_msg"); ok {
-		if strVal, ok := val.(types.StrValue); ok && strVal.Value() != "" {
-			return strVal.Value()
+		if strVal, ok := val.AsStr(); ok && strVal != "" {
+			return strVal
 		}
 	}
 	return "*** Connected ***"
@@ -363,17 +362,17 @@ func (s *Scheduler) getServerOption(listener types.ObjID, name string) (types.Va
 		serverOptions, err = s.store.FindProperty(0, "server_options")
 	}
 	if err != types.E_NONE {
-		return nil, false
+		return types.Value{}, false
 	}
 
-	serverOptionsObj, ok := serverOptions.Value.(types.ObjValue)
+	serverOptionsID, ok := serverOptions.Value.AsObjID()
 	if !ok {
-		return nil, false
+		return types.Value{}, false
 	}
 
-	prop, err := s.store.FindProperty(serverOptionsObj.ID(), name)
+	prop, err := s.store.FindProperty(serverOptionsID, name)
 	if err != types.E_NONE {
-		return nil, false
+		return types.Value{}, false
 	}
 	return prop.Value, true
 }

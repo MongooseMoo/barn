@@ -66,7 +66,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Wa
 	recycleCtx.Programmer = verb.Owner
 	recycleCtx.IsWizard = s.isWizard(verb.Owner)
 	recycleCtx.ThisObj = waif.Class()
-	recycleCtx.ThisValue = waif
+	recycleCtx.ThisValue = waif.AsValue()
 	recycleCtx.Verb = ":recycle"
 	recycleCtx.Task = parentCtx.Task
 	recycleCtx.TaskID = parentCtx.TaskID
@@ -78,7 +78,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Wa
 	recycleVM.TickLimit = 300000
 	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
 	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
-	vm.SetLocalByName(frame, prog, "this", waif)
+	vm.SetLocalByName(frame, prog, "this", waif.AsValue())
 	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
 	vm.SetLocalByName(frame, prog, "caller", types.NewObj(parentCtx.ThisObj))
 	vm.SetLocalByName(frame, prog, "verb", types.NewStr(":recycle"))

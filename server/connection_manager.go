@@ -262,8 +262,8 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	connectTimeout := cm.connectTimeout
 	if cm.server != nil && cm.server.scheduler != nil {
 		if value, ok := cm.server.scheduler.getServerOption(0, "connect_timeout"); ok {
-			if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
-				connectTimeout = time.Duration(seconds.Val) * time.Second
+			if seconds, ok := value.AsInt(); ok && seconds > 0 {
+				connectTimeout = time.Duration(seconds) * time.Second
 			}
 		}
 	}
@@ -339,14 +339,14 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 
 // listContainsString checks if a MOO list contains a string value.
 func listContainsString(value types.Value, target string) bool {
-	list, ok := value.(types.ListValue)
+	list, ok := value.AsList()
 	if !ok {
 		return false
 	}
 
 	for i := 1; i <= list.Len(); i++ {
-		s, ok := list.Get(i).(types.StrValue)
-		if ok && s.Value() == target {
+		s, ok := list.Get(i).AsStr()
+		if ok && s == target {
 			return true
 		}
 	}

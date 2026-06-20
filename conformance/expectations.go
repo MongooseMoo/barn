@@ -41,7 +41,7 @@ func (r *Runner) checkExpectation(test TestCase, result types.Result) (bool, err
 		}
 
 		// Handle nil result value
-		if result.Val == nil {
+		if result.Val.IsNone() {
 			return false, fmt.Errorf("expected %v, got nil", expectedVal)
 		}
 
@@ -82,88 +82,74 @@ func valuesEquivalent(actual, expected types.Value) bool {
 
 	// Handle integer <-> object comparison for YAML ambiguity
 	// If expected is int and actual is object with that ID, consider equal
-	if expectedInt, ok := expected.(types.IntValue); ok {
-		if actualObj, ok := actual.(types.ObjValue); ok {
-			return int64(actualObj.ID()) == expectedInt.Val
+	if expectedInt, ok := expected.AsInt(); ok {
+		if actualObj, ok := actual.AsObjID(); ok {
+			return int64(actualObj) == expectedInt
 		}
 	}
 	// If expected is object and actual is int with that ID, consider equal
-	if expectedObj, ok := expected.(types.ObjValue); ok {
-		if actualInt, ok := actual.(types.IntValue); ok {
-			return actualInt.Val == int64(expectedObj.ID())
+	if expectedObj, ok := expected.AsObjID(); ok {
+		if actualInt, ok := actual.AsInt(); ok {
+			return actualInt == int64(expectedObj)
 		}
 	}
 
 	// Handle integer <-> error comparison for YAML ambiguity
 	// If expected is int and actual is error with that code, consider equal
-	if expectedInt, ok := expected.(types.IntValue); ok {
-		if actualErr, ok := actual.(types.ErrValue); ok {
-			return int64(actualErr.Code()) == expectedInt.Val
+	if expectedInt, ok := expected.AsInt(); ok {
+		if actualErr, ok := actual.AsErr(); ok {
+			return int64(actualErr) == expectedInt
 		}
 	}
 	// If expected is error and actual is int with that code, consider equal
-	if expectedErr, ok := expected.(types.ErrValue); ok {
-		if actualInt, ok := actual.(types.IntValue); ok {
-			return actualInt.Val == int64(expectedErr.Code())
-		}
-	}
-
-	// Handle integer <-> object comparison for YAML ambiguity
-	// If expected is int and actual is obj with that ID, consider equal
-	if expectedInt, ok := expected.(types.IntValue); ok {
-		if actualObj, ok := actual.(types.ObjValue); ok {
-			return expectedInt.Val == int64(actualObj.ID())
-		}
-	}
-	// If expected is obj and actual is int with that ID, consider equal
-	if expectedObj, ok := expected.(types.ObjValue); ok {
-		if actualInt, ok := actual.(types.IntValue); ok {
-			return int64(expectedObj.ID()) == actualInt.Val
+	if expectedErr, ok := expected.AsErr(); ok {
+		if actualInt, ok := actual.AsInt(); ok {
+			return actualInt == int64(expectedErr)
 		}
 	}
 
 	// Handle string <-> error comparison for YAML ambiguity (e.g., "E_ARGS")
 	// If expected is string "E_*" and actual is error, consider equal
-	if expectedStr, ok := expected.(types.StrValue); ok {
-		if actualErr, ok := actual.(types.ErrValue); ok {
-			if errCode, found := errorNameToCode(expectedStr.Value()); found {
-				return errCode == actualErr.Code()
+	if expectedStr, ok := expected.AsStr(); ok {
+		if actualErr, ok := actual.AsErr(); ok {
+			if errCode, found := errorNameToCode(expectedStr); found {
+				return errCode == actualErr
 			}
 		}
 	}
 	// If expected is error and actual is string "E_*", consider equal
-	if expectedErr, ok := expected.(types.ErrValue); ok {
-		if actualStr, ok := actual.(types.StrValue); ok {
-			if errCode, found := errorNameToCode(actualStr.Value()); found {
-				return errCode == expectedErr.Code()
+	if expectedErr, ok := expected.AsErr(); ok {
+		if actualStr, ok := actual.AsStr(); ok {
+			if errCode, found := errorNameToCode(actualStr); found {
+				return errCode == expectedErr
 			}
 		}
 	}
 
 	// Handle string <-> object comparison for YAML ambiguity
 	// If expected is object and actual is string "#N", consider equal
-	if expectedObj, ok := expected.(types.ObjValue); ok {
-		if actualStr, ok := actual.(types.StrValue); ok {
-			expectedStr := fmt.Sprintf("#%d", expectedObj.ID())
-			return actualStr.Value() == expectedStr
+	if expectedObj, ok := expected.AsObjID(); ok {
+		if actualStr, ok := actual.AsStr(); ok {
+			expectedStr := fmt.Sprintf("#%d", expectedObj)
+			return actualStr == expectedStr
 		}
 	}
 	// If expected is string "#N" and actual is object, consider equal
-	if expectedStr, ok := expected.(types.StrValue); ok {
-		if actualObj, ok := actual.(types.ObjValue); ok {
-			s := expectedStr.Value()
+	if expectedStr, ok := expected.AsStr(); ok {
+		if actualObj, ok := actual.AsObjID(); ok {
+			s := expectedStr
 			if len(s) > 0 && s[0] == '#' {
 				var id int64
 				if _, err := fmt.Sscanf(s, "#%d", &id); err == nil {
-					return int64(actualObj.ID()) == id
+					return int64(actualObj) == id
 				}
 			}
 		}
 	}
 
 	// Recursively compare lists
-	if expectedList, ok := expected.(types.ListValue); ok {
-		if actualList, ok := actual.(types.ListValue); ok {
+	if expectedList, ok := expected.AsList(); ok {
+		if actualList, ok := actual.AsList(); ok {
 			if expectedList.Len() != actualList.Len() {
 				return false
 			}
@@ -177,8 +163,8 @@ func valuesEquivalent(actual, expected types.Value) bool {
 	}
 
 	// Recursively compare maps (order-independent)
-	if expectedMap, ok := expected.(types.MapValue); ok {
-		if actualMap, ok := actual.(types.MapValue); ok {
+	if expectedMap, ok := expected.AsMap(); ok {
+		if actualMap, ok := actual.AsMap(); ok {
 			if expectedMap.Len() != actualMap.Len() {
 				return false
 			}
@@ -236,7 +222,7 @@ func convertYAMLValue(v interface{}) (types.Value, error) {
 		for i, elem := range val {
 			v, err := convertYAMLValue(elem)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			elements[i] = v
 		}
@@ -248,7 +234,7 @@ func convertYAMLValue(v interface{}) (types.Value, error) {
 			keyVal := types.NewStr(k)
 			valVal, err := convertYAMLValue(v)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			pairs = append(pairs, [2]types.Value{keyVal, valVal})
 		}
@@ -259,16 +245,16 @@ func convertYAMLValue(v interface{}) (types.Value, error) {
 		for k, v := range val {
 			keyVal, err := convertYAMLValue(k)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			valVal, err := convertYAMLValue(v)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			pairs = append(pairs, [2]types.Value{keyVal, valVal})
 		}
 		return types.NewMap(pairs), nil
 	default:
-		return nil, fmt.Errorf("unsupported YAML type: %T", v)
+		return types.Value{}, fmt.Errorf("unsupported YAML type: %T", v)
 	}
 }
