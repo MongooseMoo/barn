@@ -500,6 +500,15 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 		case TOKEN_QUESTION:
 			// Ternary operator: cond ? then | else
+			//
+			// Toast's grammar declares `?`/`|` as %nonassoc (parser.y:104,
+			// rule `expr '?' expr '|' expr`). The CONSEQUENT (between `?` and the
+			// mandatory `|`) may itself be a bare ternary because the `|` delimits
+			// it, so it is parsed at PREC_LOWEST. The ELSE branch may NOT be a bare
+			// ternary without parentheses, so it is parsed ABOVE ternary precedence.
+			// And because the operator is non-associative, a ternary result may not
+			// be immediately followed by another `?` (e.g. `a ? b | c ? d | e` is a
+			// syntax error in Toast — the alternative must be parenthesized).
 			pos := p.current.Position
 			p.nextToken()
 			thenExpr, err := p.ParseExpression(PREC_LOWEST)
@@ -510,7 +519,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				return nil, fmt.Errorf("expected '|' in ternary, got %s", p.current.Type)
 			}
 			p.nextToken()
-			elseExpr, err := p.ParseExpression(PREC_TERNARY) // Right-associative
+			elseExpr, err := p.ParseExpression(PREC_TERNARY + 1) // non-associative: else is not itself a bare ternary
 			if err != nil {
 				return nil, err
 			}
@@ -519,6 +528,11 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				Condition: left,
 				ThenExpr:  thenExpr,
 				ElseExpr:  elseExpr,
+			}
+			// Non-associative: a completed ternary cannot be the condition of
+			// another ternary without parentheses. Matches Toast's %nonassoc.
+			if p.current.Type == TOKEN_QUESTION {
+				return nil, fmt.Errorf("syntax error")
 			}
 
 		case TOKEN_ASSIGN:

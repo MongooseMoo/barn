@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	stderrors "errors"
 	"fmt"
 	"strings"
 
@@ -705,10 +706,12 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	// Compile the code. Toast verb_code() returns source without semicolons for
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
-	_, errors := bytecode.CompileVerb(lines)
+	compileLines := lines
+	_, errors := bytecode.CompileVerb(compileLines)
 	if len(errors) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
-			_, errors = bytecode.CompileVerb(normalized)
+			compileLines = normalized
+			_, errors = bytecode.CompileVerb(compileLines)
 		}
 	}
 	if len(errors) > 0 {
@@ -718,6 +721,21 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 			errVals[i] = types.NewStr(errStr)
 		}
 		return types.Ok(types.NewList(errVals))
+	}
+
+	// Parsing succeeded; now validate that every builtin function referenced
+	// actually exists. Toast rejects unknown builtins at compile time with
+	// "Line N:  Unknown built-in function: NAME" and leaves the verb unchanged.
+	// We run the full bytecode compile (which walks the whole AST and resolves
+	// every builtin name against the registry) to find the first unknown one.
+	if registry, ok := ctx.Registry.(*Registry); ok {
+		if _, err := bytecode.CompileVerbBytecode(compileLines, registry); err != nil {
+			var unknown *bytecode.UnknownBuiltinError
+			if stderrors.As(err, &unknown) {
+				msg := fmt.Sprintf("Line %d:  Unknown built-in function: %s", unknown.Line, unknown.Name)
+				return types.Ok(types.NewList([]types.Value{types.NewStr(msg)}))
+			}
+		}
 	}
 
 	switch v := args[1].(type) {

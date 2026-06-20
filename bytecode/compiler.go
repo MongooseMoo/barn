@@ -9,6 +9,19 @@ import (
 	"barn/types"
 )
 
+// UnknownBuiltinError is returned by the compiler when a verb references a
+// builtin function name that the registry does not know. It carries the name
+// and source line so callers (e.g. set_verb_code) can format the error exactly
+// as ToastStunt does: "Line N:  Unknown built-in function: NAME".
+type UnknownBuiltinError struct {
+	Name string
+	Line int
+}
+
+func (e *UnknownBuiltinError) Error() string {
+	return fmt.Sprintf("unknown built-in function: %s", e.Name)
+}
+
 // Registry is the narrow interface the compiler needs from the builtins
 // registry: resolve a builtin function name to its numeric ID at compile time.
 // Defined here so the bytecode package does NOT import barn/builtins (which would
@@ -1383,7 +1396,7 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 	// Resolve function name to numeric ID at compile time
 	funcID, ok := c.registry.GetID(n.Name)
 	if !ok {
-		return fmt.Errorf("unknown builtin function: %s", n.Name)
+		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
 	}
 
 	// Check builtin function ID overflow (emitted as single byte)
