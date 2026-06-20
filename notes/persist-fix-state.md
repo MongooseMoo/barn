@@ -243,3 +243,120 @@ NEXT: go build, db_roundtrip Test.db (measure), GATE A (WSL Toast loads canonica
 - Need: builder has SetAnonymous + anonymous flag flows to SnapshotObject.Anonymous. Store must still
   ingest anon objects for runtime? Check: does NewStoreFromDatabase need anon objs? They were keyed into
   Objects so currently they ARE ingested. Removing from Objects drops them from store. DECISION below.
+
+## PATH-EMIT — RULE ZERO model CONFIRMED (Toast write_db_file + db_write_anonymous)
+- Toast dump: while(last_oid>max_oid){ write (last_oid-max_oid) objs from max_oid+1..last_oid;
+  max_oid=last_oid; last_oid=db_last_used_objid(); } then `0`. SAME object loop; writing a regular obj's
+  values calls db_write_anonymous which allocates the anon obj a NEW above-max serialization id
+  (num_objects++, raising last_used). Next loop iteration writes those above-max anon objects.
+- db_write_anonymous(v): invalid -> writes -1; o->id set -> reuse; else allocate above max. So _TYPE_ANON
+  in a propval carries the serialization id; refs+objects consistent.
+- ANON OBJECTS NEVER OCCUPY A REGULAR NUMBERED ID (Q's invariant == Toast's). Collision was the bug.
+- Healthy Toast world: _TYPE_ANON value ALWAYS points at a live Object* or is invalid (->-1). No dangling.
+
+## RECOVERABILITY OF THE 56 REFS (decisive)
+- 26 FOUND in db.AnonymousObjs (recoverable), all degenerate (name="",0 props,parent #(id-1)); holder #(id-2).
+- 30 MISSING (truly absent from Test.db); holder #(id-1), prop _inherited_0. Prior bad dump lost them.
+- => SPLIT: emit the 26; the 30 are a data-correctness fork for Q.
+
+## DATA FORK FOR Q (the 30 missing)
+- OPT-INVALID: write ref as #-1 (matches db_write_anonymous is_valid==false). Fabricates nothing, no spurious
+  slot, Toast loads as TYPE_ANON nullptr. <-- my lean.
+- OPT-STRIP: drop the propval (CLEAR). Loses slot identity.
+- OPT-PLACEHOLDER: fabricate empty above-max anon obj per missing id. Invents data.
+- PLAN: emit 26 recoverable via PATH-EMIT (no guess). For 30 missing implement OPT-INVALID as the
+  Toast-faithful default, but REPORT to Q as a data decision.
+
+## PATH-EMIT IMPLEMENTATION (IN PROGRESS)
+### DECISION on the 30 missing: OPT-INVALID as Toast-faithful default + REPORT to Q.
+- OPT-INVALID = rewrite missing _TYPE_ANON(#N) refs to NewAnon(-1). Toast db_read_anonymous(oid==NOTHING)
+  -> r.v.anon=nullptr, NO slot allocated, VALIDATE passes. This is literally Toast's is_valid==false path.
+  Not a guess — it IS the reference behavior. Still surfaced to Q (alternatives: STRIP, PLACEHOLDER).
+
+### Architecture
+- Store: anon objects live OUT-OF-BAND in s.anonObjects map[ObjID]*Object, keyed by IDENTITY id (original
+  load id). NEVER in s.objects, NEVER affect maxObjID/highWaterID. (Q's invariant == Toast's.)
+- NewStoreFromDatabase: ingest db.AnonymousObjs into store.anonObjects (new AddAnonymous method).
+- Snapshot(): (a) collect _TYPE_ANON refs from non-anon props -> reachable set among s.anonObjects;
+  (b) assign serialization ids maxObj+1.. to reachable anon objs; (c) rewrite _TYPE_ANON refs in snapshot
+  prop values: found->serID, missing->-1; (d) put reachable anon (with serID as SnapshotObject.ID) into
+  AnonymousObjects, also their OWN props' anon refs rewritten (transitive).
+- Writer: emit AnonymousObjects in batches with their assigned (above-max) ids. Already does len+objs+0.
+
+### CHANGES SO FAR
+- store_core.go: added Store.anonObjects map + init in NewStore. (done)
+### TODO
+- store: AddAnonymous(*Object); accessor for snapshot to iterate anonObjects.
+- reader.go NewStoreFromDatabase: ingest db.AnonymousObjs via AddAnonymous.
+- store_snapshot.go: reachability over anonObjects (by identity id), serialization-id assignment,
+  value rewriting (reconstruct value tree replacing NewAnon(oldid)->NewAnon(serID or -1)).
+- value rewrite helper (recurse list/map, swap ObjValue anonymous ids).
+- writer: confirm it writes anon SnapshotObject.ID as the #N line (above-max). Verify owner of anon objs.
+
+### RULE ZERO checks still owed
+- Build a Test.db output via PATH-EMIT, load in WSL Toast: must LOAD + VALIDATE clean (new GATE A).
+- Verify NO anon obj id <= maxObj in output (invariant). Verify _TYPE_ANON refs point at emitted ids or -1.
+- Confirm a real _TYPE_ANON(-1) propval round-trips+validates in Toast.
+
+### RECOVERABILITY (recap): 26 FOUND (emit), 30 MISSING (OPT-INVALID + report).
+
+## PATH-EMIT IMPLEMENTED — Barn roundtrip GREEN, structure verified
+### Changes (file:line)
+- store_core.go: Store.anonObjects map[ObjID]*Object + NewStore init + AddAnonymous() method.
+- reader.go NewStoreFromDatabase: ingest db.AnonymousObjs via AddAnonymous (out-of-band).
+- store_snapshot.go: planAnonymousSerializationLocked() (reachability over s.anonObjects, assign
+  serial ids maxObj+1.. in identity order, missing->NOTHING), anonSerializationPlan + rewriteValue
+  (deep value-tree rewrite of _TYPE_ANON refs), rewriteSnapshotObject. Snapshot now rewrites all
+  regular objs' prop values AND emits reachable anon objs with serial ids (props rewritten, names via
+  snapshotPropertyNames). Removed old persistentAnonymousReachabilityLocked.
+### Verified in _rt_pe.db
+- Barn roundtrip Test.db: 0 parent drops, 0 prop losses, SUCCESS. objects=9949.
+- Anon batch count = 26, anon objs at #15578..#15603 (ALL above max 15577). Invariant holds.
+- Holder #5177 propval rewritten 12\n15578 (was anon #5179 -> serial 15578). anon #15578 parent=#5178.
+- Missing holder #5479 propval rewritten 12\n-1 (OPT-INVALID). #5480 stays recycled.
+### NEXT (RULE ZERO): WSL Toast must LOAD+VALIDATE _rt_pe.db (new GATE A). Then canonical GATE A,
+  conformance 3871/0/131, all prior gates, B6. Then verify a _TYPE_ANON(-1) round-trips in Toast.
+### OPEN: confirm anon objs' children/contents/location fields are valid for Toast VALIDATE (anon #15578
+  has parent #5178 regular — fine; need children=empty list, location=-1 valid).
+
+## GATE A on PATH-EMIT Test.db output: GREEN (LOAD + VALIDATE)
+- WSL Toast on _rt_pe.db: Reading 15578 objects, Reading 26 objects (anon batch), VALIDATE Phase 1/2/3
+  ALL PASS, Reading 444 verb programs, LISTEN, clean dump, exit 0. NO validate errors. PATH-EMIT PROVEN.
+
+## RE-ANCHOR (coordinator/Q): Test.db is a STALE BAD DUMP; fetch real DB:
+  scp mongoose@mongoose.world:~/mongoose/mongoose.db.new ./mongoose.db.new
+- 56-dangling-ref fork is MOOT. Keep PATH-EMIT code. Re-verify all gates on mongoose.db.new.
+- If scp needs interactive auth and fails non-interactively -> STOP and report (Q runs via !).
+
+## scp SUCCESS: mongoose.db.new = 102076427 bytes, Format Version 17. Re-anchor on THIS.
+
+## REAL DB mongoose.db.new VERIFICATION (the genuine PATH-EMIT exercise)
+- Load: 27957 regular objs, 738 anon objs, 185 players, maxObj=31225. 739 _TYPE_ANON refs (733 found, 6 missing).
+- db_roundtrip: 0 parent drops, 0 prop losses, 0 existence mismatches, SUCCESS.
+- Barn output: 738 anon objs emitted at ids 31226+ (above max 31225). Invariant holds.
+- GATE A GREEN (LOAD+VALIDATE): WSL Toast reads 31226 regular + 738 anon, VALIDATE Phase 1/2/3 PASS,
+  ZERO validate errors, 11347 verb programs, LISTEN, clean dump exit 0. Toast REDUMP writes 31226 + 738
+  = 31964 objects (Toast itself round-trips the anon objects identically). FULL RULE ZERO CONFIRM.
+- 6 missing refs rewritten to -1 (OPT-INVALID) — Toast loads as TYPE_ANON nullptr, no slot, VALIDATE ok.
+  These 6 are likely transitively-reachable anon-to-anon refs or genuinely dead; Q says "nothing lost"
+  on the real DB. Will note count in report.
+### REMAINING GATES TO RUN
+- canonical GATE A (toastcore.db roundtrip -> Toast load+validate clean).
+- conformance EXACTLY 3871/0/131 synchronous.
+- build/vet/test; db/store parser-free; B6 verb count (canonical 1949 vs 1950, don't regress).
+- rigorous anon-invariant check: NO anon obj header id <= maxObj in store OR output.
+- clean up _probe, scratch dbs; commit; update report.
+
+## ALL GATES GREEN (PATH-EMIT on real mongoose.db.new)
+- db_roundtrip mongoose.db.new: 0 parent drops, 0 prop losses, 0 existence mismatch, SUCCESS.
+- GATE A mongoose: Toast LOAD+VALIDATE clean (31226 reg + 738 anon, Phase 1/2/3 pass, 0 errors, dump ok).
+- GATE A canonical: Toast LOAD+VALIDATE clean (127 objs, 1949 verbs).
+- Anon invariant: 0 anon at regular id, 0 anon in regular map, 0 dup serial ids (mongoose & canonical).
+- build exit 0; vet = 2 known; parser-free OK; db/store+types pass; db/format only known fixture fail.
+- conformance: 3871 passed, 0 failed, 131 skipped, synchronous.
+- B6: canonical 1949 verbs (vs 1950 Toast-native) — not regressed.
+- 6 _TYPE_ANON refs in mongoose were not present out-of-band -> rewritten to -1 (Toast loads as nullptr,
+  validates). Report this count to Q.
+## TODO: clean scratch, update report, commit.
+
+## FINAL: PATH-EMIT complete, all gates green on mongoose.db.new. Committing now.

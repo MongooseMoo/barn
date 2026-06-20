@@ -45,14 +45,19 @@ func (s *Store) Snapshot() Snapshot {
 		PropertyNames: make(map[types.ObjID][]string, len(s.objects)),
 	}
 
-	// Determine which anonymous objects are reference-reachable. Only reachable
-	// anonymous objects belong in the dump's anonymous-objects section: Toast
-	// re-creates them lazily from the _TYPE_ANON references that reach them, then
-	// fills them in from the section. An anonymous object with no live reference
-	// is garbage Toast would never write; emitting it crashes Toast's loader
-	// (it calls dbpriv_find_object on a never-created slot). For a world with no
-	// live anonymous references the section is therefore just the 0 terminator.
-	reachableAnon := s.persistentAnonymousReachabilityLocked()
+	// Build the anonymous-object serialization plan. Anonymous objects live
+	// out-of-band (s.anonObjects), keyed by their identity id, and never occupy a
+	// regular numeric id. ToastStunt assigns them above-max serialization ids at
+	// dump time and rewrites the _TYPE_ANON references that reach them to point at
+	// those ids; the dump then emits the objects in batches after the regular
+	// objects. We mirror that exactly:
+	//   - find which anon objects are reference-reachable from live property values
+	//   - assign each reachable anon object a serialization id starting at maxObj+1
+	//   - rewrite every _TYPE_ANON reference: reachable -> serialization id,
+	//     unreachable/missing -> NOTHING (-1), matching Toast's db_write_anonymous
+	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
+	//     no slot and passing VALIDATE).
+	plan := s.planAnonymousSerializationLocked()
 
 	// propertyNames must be computed over the live objects so parent-chain walks
 	// see the full graph; build them keyed by id.
@@ -60,7 +65,9 @@ func (s *Store) Snapshot() Snapshot {
 		if obj == nil {
 			continue
 		}
-		snapshot.Objects[id] = snapshotObjectValue(obj)
+		so := snapshotObjectValue(obj)
+		plan.rewriteSnapshotObject(so)
+		snapshot.Objects[id] = so
 	}
 
 	for _, obj := range s.objects {
@@ -74,26 +81,59 @@ func (s *Store) Snapshot() Snapshot {
 		if !obj.recycled {
 			snapshot.AllObjects = append(snapshot.AllObjects, so)
 		}
-		if !obj.recycled && obj.anonymous {
-			if _, ok := reachableAnon[obj.id]; ok {
-				snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
-			}
-		}
 		if validLiveObject(obj) {
 			snapshot.PropertyNames[obj.id] = snapshotPropertyNames(obj)
 		}
 	}
 
+	// Emit reachable anonymous objects with their assigned above-max
+	// serialization ids, in serialization-id order so the dump is deterministic.
+	for _, ser := range plan.order {
+		obj := s.anonObjects[ser.identity]
+		if obj == nil {
+			continue
+		}
+		so := snapshotObjectValue(obj)
+		so.ID = ser.serialID
+		plan.rewriteSnapshotObject(so)
+		snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
+		snapshot.PropertyNames[ser.serialID] = snapshotPropertyNames(obj)
+	}
+
 	return snapshot
 }
 
-// persistentAnonymousReachabilityLocked computes the set of anonymous object ids
-// reachable from any non-anonymous live object's property values, then transitively
-// through reachable anonymous objects. Callers must already hold s.mu.
-func (s *Store) persistentAnonymousReachabilityLocked() map[types.ObjID]struct{} {
-	reachable := make(map[types.ObjID]struct{})
-	queue := make([]types.ObjID, 0)
+// anonSerialID pairs an anonymous object's identity id with the above-max
+// serialization id assigned to it for this dump.
+type anonSerialID struct {
+	identity types.ObjID
+	serialID types.ObjID
+}
 
+// anonSerializationPlan records, for one Snapshot, how _TYPE_ANON references are
+// rewritten and which anonymous objects are emitted (in serialization order).
+type anonSerializationPlan struct {
+	// rewrite maps an anonymous object's identity id to the value it must be
+	// rewritten to: a positive above-max serialization id (reachable) or NOTHING.
+	rewrite map[types.ObjID]types.ObjID
+	order   []anonSerialID
+}
+
+// planAnonymousSerializationLocked computes reachability over the out-of-band
+// anonymous objects and assigns above-max serialization ids. Callers hold s.mu.
+func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
+	plan := &anonSerializationPlan{rewrite: make(map[types.ObjID]types.ObjID)}
+
+	// Seed: every anon id referenced by a non-anonymous live object's properties.
+	seen := make(map[types.ObjID]struct{})
+	queue := make([]types.ObjID, 0)
+	enqueue := func(id types.ObjID) {
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		queue = append(queue, id)
+	}
 	for _, obj := range s.objects {
 		if !validLiveObject(obj) || obj.anonymous {
 			continue
@@ -105,13 +145,129 @@ func (s *Store) persistentAnonymousReachabilityLocked() map[types.ObjID]struct{}
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefs(prop.value, refs)
 			for id := range refs {
-				queue = append(queue, id)
+				enqueue(id)
 			}
 		}
 	}
 
-	s.expandAnonymousReachabilityLocked(reachable, queue)
-	return reachable
+	// Transitively expand through anon objects that actually exist out-of-band,
+	// collecting the reachable-and-present set. References to absent anon ids are
+	// recorded too (so they can be rewritten to NOTHING) but cannot expand.
+	reachablePresent := make(map[types.ObjID]struct{})
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		obj := s.anonObjects[id]
+		if obj == nil {
+			// Referenced but absent: a dangling anon reference. It will be
+			// rewritten to NOTHING below.
+			continue
+		}
+		reachablePresent[id] = struct{}{}
+		for _, prop := range obj.properties {
+			if prop == nil {
+				continue
+			}
+			refs := make(map[types.ObjID]struct{})
+			collectAnonymousObjectRefs(prop.value, refs)
+			for nid := range refs {
+				enqueue(nid)
+			}
+		}
+	}
+
+	// Assign serialization ids above maxObj, in identity-id order for determinism.
+	presentIDs := make([]types.ObjID, 0, len(reachablePresent))
+	for id := range reachablePresent {
+		presentIDs = append(presentIDs, id)
+	}
+	sort.Slice(presentIDs, func(i, j int) bool { return presentIDs[i] < presentIDs[j] })
+	next := s.maxObjID + 1
+	for _, id := range presentIDs {
+		plan.rewrite[id] = next
+		plan.order = append(plan.order, anonSerialID{identity: id, serialID: next})
+		next++
+	}
+	// Every seen-but-absent anon ref rewrites to NOTHING.
+	for id := range seen {
+		if _, ok := plan.rewrite[id]; !ok {
+			plan.rewrite[id] = types.ObjNothing
+		}
+	}
+
+	return plan
+}
+
+// rewriteSnapshotObject rewrites every _TYPE_ANON reference in a snapshot
+// object's property values according to the plan.
+func (p *anonSerializationPlan) rewriteSnapshotObject(so *SnapshotObject) {
+	if so == nil || len(p.rewrite) == 0 {
+		return
+	}
+	for name, pv := range so.Properties {
+		if pv.Value == nil {
+			continue
+		}
+		rewritten, changed := p.rewriteValue(pv.Value)
+		if changed {
+			pv.Value = rewritten
+			so.Properties[name] = pv
+		}
+	}
+}
+
+// rewriteValue returns a copy of v with anonymous object references remapped per
+// the plan, and whether anything changed.
+func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) {
+	switch val := v.(type) {
+	case types.ObjValue:
+		if !val.IsAnonymous() {
+			return v, false
+		}
+		target, ok := p.rewrite[val.ID()]
+		if !ok {
+			// Reachable-but-not-seeded (shouldn't happen) — leave as-is.
+			return v, false
+		}
+		if target == types.ObjNothing {
+			return types.NewAnon(types.ObjNothing), true
+		}
+		return types.NewAnon(target), true
+	case types.ListValue:
+		elems := val.Elements()
+		var out []types.Value
+		changed := false
+		for i, e := range elems {
+			ne, ch := p.rewriteValue(e)
+			if ch && out == nil {
+				out = append([]types.Value(nil), elems...)
+			}
+			if out != nil {
+				out[i] = ne
+			}
+			changed = changed || ch
+		}
+		if !changed {
+			return v, false
+		}
+		return types.NewList(out), true
+	case types.MapValue:
+		pairs := val.Pairs()
+		out := make([][2]types.Value, len(pairs))
+		changed := false
+		for i, pr := range pairs {
+			nk, ck := p.rewriteValue(pr[0])
+			nv, cv := p.rewriteValue(pr[1])
+			out[i] = [2]types.Value{nk, nv}
+			changed = changed || ck || cv
+		}
+		if !changed {
+			return v, false
+		}
+		return types.NewMap(out), true
+	default:
+		return v, false
+	}
 }
 
 func snapshotObjectValue(obj *Object) *SnapshotObject {
