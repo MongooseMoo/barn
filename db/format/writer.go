@@ -177,72 +177,72 @@ func (w *Writer) writeBool(b bool) error {
 
 // writeValue writes a type-tagged value (type code on its own line, then value)
 func (w *Writer) writeValue(v types.Value) error {
-	if v == nil {
-		// nil represents CLEAR (for clear properties)
+	if v.IsNone() {
+		// None represents CLEAR (for clear properties)
 		return w.writeInt(TypeClear)
 	}
 
-	switch val := v.(type) {
-	case types.IntValue:
+	switch v.Kind() {
+	case types.KindInt:
 		if err := w.writeInt(TypeInt); err != nil {
 			return err
 		}
-		return w.writeInt64(val.Val)
+		return w.writeInt64(v.Int())
 
-	case types.ObjValue:
-		// Anonymous objects use TYPE_ANON, regular use TYPE_OBJ
-		if val.IsAnonymous() {
-			if err := w.writeInt(TypeAnon); err != nil {
-				return err
-			}
-		} else {
-			if err := w.writeInt(TypeObj); err != nil {
-				return err
-			}
+	case types.KindObj:
+		if err := w.writeInt(TypeObj); err != nil {
+			return err
 		}
-		return w.writeObjID(val.ID())
+		return w.writeObjID(v.ObjNum())
 
-	case types.StrValue:
+	case types.KindAnon:
+		// Anonymous objects use TYPE_ANON, regular use TYPE_OBJ
+		if err := w.writeInt(TypeAnon); err != nil {
+			return err
+		}
+		return w.writeObjID(v.ObjNum())
+
+	case types.KindStr:
 		if err := w.writeInt(TypeStr); err != nil {
 			return err
 		}
-		return w.writeString(val.Value())
+		return w.writeString(v.Str())
 
-	case types.ErrValue:
+	case types.KindErr:
 		if err := w.writeInt(TypeErr); err != nil {
 			return err
 		}
-		return w.writeInt(int(val.Code()))
+		return w.writeInt(int(v.ErrCode()))
 
-	case types.ListValue:
+	case types.KindList:
 		if err := w.writeInt(TypeList); err != nil {
 			return err
 		}
-		return w.writeListContents(val)
+		return w.writeListContents(v.List())
 
-	case types.FloatValue:
+	case types.KindFloat:
 		if err := w.writeInt(TypeFloat); err != nil {
 			return err
 		}
-		return w.writeFloat(val.Val)
+		return w.writeFloat(v.Float())
 
-	case types.MapValue:
+	case types.KindMap:
 		if err := w.writeInt(TypeMap); err != nil {
 			return err
 		}
-		return w.writeMapContents(val)
+		return w.writeMapContents(v.Map())
 
-	case types.BoolValue:
+	case types.KindBool:
 		if err := w.writeInt(TypeBool); err != nil {
 			return err
 		}
-		return w.writeBool(val.Val)
+		return w.writeBool(v.Bool())
 
-	case types.WaifValue:
+	case types.KindWaif:
 		if err := w.writeInt(TypeWaif); err != nil {
 			return err
 		}
-		return w.writeWaif(val)
+		return w.writeWaif(v.Waif())
 
 	default:
 		// Unknown type - try to handle as None
@@ -253,29 +253,29 @@ func (w *Writer) writeValue(v types.Value) error {
 // writeValueRaw writes a value without type tag (just the raw data)
 // Used for suspended task values where type is in header
 func (w *Writer) writeValueRaw(v types.Value) error {
-	if v == nil {
+	if v.IsNone() {
 		return nil // CLEAR/NONE have no value
 	}
 
-	switch val := v.(type) {
-	case types.IntValue:
-		return w.writeInt64(val.Val)
-	case types.ObjValue:
-		return w.writeObjID(val.ID())
-	case types.StrValue:
-		return w.writeString(val.Value())
-	case types.ErrValue:
-		return w.writeInt(int(val.Code()))
-	case types.ListValue:
-		return w.writeListContents(val)
-	case types.FloatValue:
-		return w.writeFloat(val.Val)
-	case types.MapValue:
-		return w.writeMapContents(val)
-	case types.BoolValue:
-		return w.writeBool(val.Val)
-	case types.WaifValue:
-		return w.writeWaif(val)
+	switch v.Kind() {
+	case types.KindInt:
+		return w.writeInt64(v.Int())
+	case types.KindObj, types.KindAnon:
+		return w.writeObjID(v.ObjNum())
+	case types.KindStr:
+		return w.writeString(v.Str())
+	case types.KindErr:
+		return w.writeInt(int(v.ErrCode()))
+	case types.KindList:
+		return w.writeListContents(v.List())
+	case types.KindFloat:
+		return w.writeFloat(v.Float())
+	case types.KindMap:
+		return w.writeMapContents(v.Map())
+	case types.KindBool:
+		return w.writeBool(v.Bool())
+	case types.KindWaif:
+		return w.writeWaif(v.Waif())
 	default:
 		return nil
 	}
@@ -314,30 +314,29 @@ func (w *Writer) writeMapContents(m types.MapValue) error {
 
 // getTypeCode returns the type code for a value
 func getTypeCode(v types.Value) int {
-	if v == nil {
+	if v.IsNone() {
 		return TypeClear
 	}
-	switch val := v.(type) {
-	case types.IntValue:
+	switch v.Kind() {
+	case types.KindInt:
 		return TypeInt
-	case types.ObjValue:
-		if val.IsAnonymous() {
-			return TypeAnon
-		}
+	case types.KindObj:
 		return TypeObj
-	case types.StrValue:
+	case types.KindAnon:
+		return TypeAnon
+	case types.KindStr:
 		return TypeStr
-	case types.ErrValue:
+	case types.KindErr:
 		return TypeErr
-	case types.ListValue:
+	case types.KindList:
 		return TypeList
-	case types.FloatValue:
+	case types.KindFloat:
 		return TypeFloat
-	case types.MapValue:
+	case types.KindMap:
 		return TypeMap
-	case types.BoolValue:
+	case types.KindBool:
 		return TypeBool
-	case types.WaifValue:
+	case types.KindWaif:
 		return TypeWaif
 	default:
 		return TypeNone

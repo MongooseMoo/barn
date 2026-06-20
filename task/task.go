@@ -77,7 +77,7 @@ type ActivationFrame struct {
 // For primitive/anonymous targets, ThisValue carries the real "this" value.
 func (a *ActivationFrame) ToList() types.Value {
 	thisVal := types.Value(types.NewObj(a.This))
-	if a.ThisValue != nil {
+	if !a.ThisValue.IsNone() {
 		thisVal = a.ThisValue
 	}
 
@@ -424,7 +424,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		programmer = t.Owner
 		thisObj = t.This
 	}
-	if thisVal == nil {
+	if thisVal.IsNone() {
 		thisVal = types.NewObj(thisObj)
 	}
 

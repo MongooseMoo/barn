@@ -73,7 +73,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	if childProp.Clear {
 		t.Fatalf("reloaded child %q unexpectedly clear", propName)
 	}
-	if got := childProp.Value.(types.StrValue).Value(); got != "child-override" {
+	if got := childProp.Value.Str(); got != "child-override" {
 		t.Fatalf("child override = %q, want child-override", got)
 	}
 }

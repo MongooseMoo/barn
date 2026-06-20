@@ -75,8 +75,8 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if objVal, ok := locVal.(types.ObjValue); ok {
-		obj.SetLocation(objVal.ID())
+	if objID2, ok := locVal.AsObjID(); ok {
+		obj.SetLocation(objID2)
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.location is not an object", objID))
 		obj.SetLocation(types.ObjNothing)
@@ -95,11 +95,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if listVal, ok := contentsVal.(types.ListValue); ok {
+	if listVal, ok := contentsVal.AsList(); ok {
 		validContents := true
 		for i := 1; i <= listVal.Len(); i++ {
-			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.AppendContent(objVal.ID())
+			if objID2, ok := listVal.Get(i).AsObjID(); ok {
+				obj.AppendContent(objID2)
 			} else {
 				validContents = false
 			}
@@ -118,12 +118,12 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, err
 	}
 	// Parents can be either a single object or a list of objects
-	if listVal, ok := parentsVal.(types.ListValue); ok {
+	if listVal, ok := parentsVal.AsList(); ok {
 		validParents := true
 		// Multiple parents (list)
 		for i := 1; i <= listVal.Len(); i++ {
-			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.AppendParent(objVal.ID())
+			if objID2, ok := listVal.Get(i).AsObjID(); ok {
+				obj.AppendParent(objID2)
 			} else {
 				validParents = false
 			}
@@ -132,10 +132,10 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
 			obj.SetParents(nil)
 		}
-	} else if objVal, ok := parentsVal.(types.ObjValue); ok {
+	} else if objID2, ok := parentsVal.AsObjID(); ok {
 		// Single parent (common case)
-		if objVal.ID() != -1 {
-			obj.AppendParent(objVal.ID())
+		if objID2 != -1 {
+			obj.AppendParent(objID2)
 		}
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
@@ -146,11 +146,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if listVal, ok := childrenVal.(types.ListValue); ok {
+	if listVal, ok := childrenVal.AsList(); ok {
 		validChildren := true
 		for i := 1; i <= listVal.Len(); i++ {
-			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.AppendChild(objVal.ID())
+			if objID2, ok := listVal.Get(i).AsObjID(); ok {
+				obj.AppendChild(objID2)
 			} else {
 				validChildren = false
 			}
@@ -260,9 +260,9 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			return nil, fmt.Errorf("prop %d (%s) value: %w", i, propName, err)
 		}
 
-		// If value is nil, this is a CLEAR property (type code 5)
+		// If value is None, this is a CLEAR property (type code 5)
 		// It should inherit its value from the parent object
-		clear := propValue == nil
+		clear := propValue.IsNone()
 
 		// Owner
 		propOwner, err := readObjID(r)

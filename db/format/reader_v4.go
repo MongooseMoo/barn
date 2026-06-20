@@ -290,9 +290,9 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 			return nil, err
 		}
 
-		// If value is nil, this is a CLEAR property (type code 5)
+		// If value is None, this is a CLEAR property (type code 5)
 		// It should inherit its value from the parent object
-		clear := propValue == nil
+		clear := propValue.IsNone()
 
 		// Owner
 		propOwner, err := readObjID(r)

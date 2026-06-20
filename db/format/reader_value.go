@@ -13,54 +13,54 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 	version := database.Version
 	typeCode, err := readInt(r)
 	if err != nil {
-		return nil, err
+		return types.Value{}, err
 	}
 
 	switch typeCode {
 	case 0: // INT
 		val, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewInt(int64(val)), nil
 
 	case 1: // OBJ
 		objID, err := readObjID(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewObj(objID), nil
 
 	case 2: // STR
 		line, err := r.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewStr(strings.TrimRight(line, "\n\r")), nil
 
 	case 3: // ERR
 		errCode, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewErr(types.ErrorCode(errCode)), nil
 
 	case 4: // LIST
 		count, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		elements := make([]types.Value, count)
 		for i := 0; i < count; i++ {
 			elements[i], err = database.readValue(r)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 		}
 		return types.NewList(elements), nil
 
 	case 5: // CLEAR
-		return nil, nil // Clear property marker
+		return types.Value{}, nil // Clear property marker (None)
 
 	case 6: // NONE
 		return types.NewInt(0), nil // None becomes 0
@@ -68,45 +68,45 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 	case 7: // CATCH (stack marker)
 		val, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewInt(int64(val)), nil
 
 	case 8: // FINALLY (stack marker)
 		val, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewInt(int64(val)), nil
 
 	case 9: // FLOAT
 		line, err := r.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		val, err := strconv.ParseFloat(strings.TrimSpace(line), 64)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewFloat(val), nil
 
 	case 10: // MAP (v17)
 		if version < 17 {
-			return nil, fmt.Errorf("MAP type requires version 17+")
+			return types.Value{}, fmt.Errorf("MAP type requires version 17+")
 		}
 		count, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		pairs := make([][2]types.Value, count)
 		for i := 0; i < count; i++ {
 			key, err := database.readValue(r)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			val, err := database.readValue(r)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			pairs[i] = [2]types.Value{key, val}
 		}
@@ -116,7 +116,7 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 		// Just read the object ID
 		objID, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewAnon(types.ObjID(objID)), nil
 
@@ -125,11 +125,11 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 		// Format: "{marker} {index}\n" where marker is 'r' or 'c'.
 		line, err := r.ReadString('\n')
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		line = strings.TrimSpace(line)
 		if len(line) < 1 {
-			return nil, fmt.Errorf("empty WAIF marker")
+			return types.Value{}, fmt.Errorf("empty WAIF marker")
 		}
 		marker := line[0]
 
@@ -137,31 +137,31 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			// Reference to previously saved WAIF.
 			// Read the "." terminator line.
 			if _, err := r.ReadString('\n'); err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			// Parse index from marker line: "r {index}"
 			refIdx, err := strconv.Atoi(strings.TrimSpace(line[1:]))
 			if err != nil {
-				return nil, fmt.Errorf("parse WAIF ref index: %w", err)
+				return types.Value{}, fmt.Errorf("parse WAIF ref index: %w", err)
 			}
 			if refIdx < 0 || refIdx >= len(database.savedWaifs) {
-				return nil, fmt.Errorf("WAIF ref index %d out of range (have %d)", refIdx, len(database.savedWaifs))
+				return types.Value{}, fmt.Errorf("WAIF ref index %d out of range (have %d)", refIdx, len(database.savedWaifs))
 			}
-			return database.savedWaifs[refIdx].waif, nil
+			return database.savedWaifs[refIdx].waif.AsValue(), nil
 
 		} else if marker == 'c' {
 			// Creation — read full WAIF structure.
 			class, err := readObjID(r)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			owner, err := readObjID(r)
 			if err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 			// propdefs_length (needed for sparse property storage)
 			if _, err := readInt(r); err != nil {
-				return nil, err
+				return types.Value{}, err
 			}
 
 			// Register the WAIF in savedWaifs BEFORE reading properties.
@@ -169,7 +169,7 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			// WAIFs nested inside it), so it must be findable by index.
 			// This matches Toast's order: saved_waifs[waif_count++] = w,
 			// then read properties.
-			waif := types.NewWaif(class, owner)
+			waif := types.NewWaifValue(class, owner)
 			wIdx := len(database.savedWaifs)
 			database.savedWaifs = append(database.savedWaifs, waifLoadData{
 				waif: waif,
@@ -180,20 +180,20 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 			for {
 				propIdx, err := readInt(r)
 				if err != nil {
-					return nil, err
+					return types.Value{}, err
 				}
 				if propIdx < 0 {
 					break
 				}
 				val, err := database.readValue(r)
 				if err != nil {
-					return nil, err
+					return types.Value{}, err
 				}
 				propsByIndex[propIdx] = val
 			}
 			// Read the "." terminator line.
 			if _, err := r.ReadString('\n'); err != nil {
-				return nil, fmt.Errorf("read WAIF terminator: %w", err)
+				return types.Value{}, fmt.Errorf("read WAIF terminator: %w", err)
 			}
 
 			// Update with the properties now that they're loaded.
@@ -201,22 +201,22 @@ func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
 				waif:         waif,
 				propsByIndex: propsByIndex,
 			}
-			return waif, nil
+			return waif.AsValue(), nil
 		}
-		return nil, fmt.Errorf("unknown WAIF marker: %c", marker)
+		return types.Value{}, fmt.Errorf("unknown WAIF marker: %c", marker)
 
 	case 14: // BOOL (v17)
 		if version < 17 {
-			return nil, fmt.Errorf("BOOL type requires version 17+")
+			return types.Value{}, fmt.Errorf("BOOL type requires version 17+")
 		}
 		val, err := readInt(r)
 		if err != nil {
-			return nil, err
+			return types.Value{}, err
 		}
 		return types.NewBool(val != 0), nil
 
 	default:
-		return nil, fmt.Errorf("unsupported type code: %d", typeCode)
+		return types.Value{}, fmt.Errorf("unsupported type code: %d", typeCode)
 	}
 }
 
