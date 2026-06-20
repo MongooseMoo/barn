@@ -205,7 +205,7 @@ func (p *anonSerializationPlan) rewriteSnapshotObject(so *SnapshotObject) {
 		return
 	}
 	for name, pv := range so.Properties {
-		if pv.Value == nil {
+		if pv.Value.IsNone() {
 			continue
 		}
 		rewritten, changed := p.rewriteValue(pv.Value)
@@ -219,12 +219,12 @@ func (p *anonSerializationPlan) rewriteSnapshotObject(so *SnapshotObject) {
 // rewriteValue returns a copy of v with anonymous object references remapped per
 // the plan, and whether anything changed.
 func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) {
-	switch val := v.(type) {
-	case types.ObjValue:
-		if !val.IsAnonymous() {
+	switch v.Kind() {
+	case types.KindObj, types.KindAnon:
+		if !v.IsAnonymous() {
 			return v, false
 		}
-		target, ok := p.rewrite[val.ID()]
+		target, ok := p.rewrite[v.ObjNum()]
 		if !ok {
 			// Reachable-but-not-seeded (shouldn't happen) — leave as-is.
 			return v, false
@@ -233,7 +233,8 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 			return types.NewAnon(types.ObjNothing), true
 		}
 		return types.NewAnon(target), true
-	case types.ListValue:
+	case types.KindList:
+		val := v.List()
 		elems := val.Elements()
 		var out []types.Value
 		changed := false
@@ -251,7 +252,8 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 			return v, false
 		}
 		return types.NewList(out), true
-	case types.MapValue:
+	case types.KindMap:
+		val := v.Map()
 		pairs := val.Pairs()
 		out := make([][2]types.Value, len(pairs))
 		changed := false

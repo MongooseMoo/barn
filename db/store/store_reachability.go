@@ -6,17 +6,17 @@ import (
 )
 
 func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{}) {
-	switch val := value.(type) {
-	case types.ObjValue:
-		if val.IsAnonymous() {
-			out[val.ID()] = struct{}{}
+	switch value.Kind() {
+	case types.KindObj, types.KindAnon:
+		if value.IsAnonymous() {
+			out[value.ObjNum()] = struct{}{}
 		}
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+	case types.KindList:
+		for _, elem := range value.List().Elements() {
 			collectAnonymousObjectRefs(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.KindMap:
+		for _, pair := range value.Map().Pairs() {
 			collectAnonymousObjectRefs(pair[0], out)
 			collectAnonymousObjectRefs(pair[1], out)
 		}
@@ -149,15 +149,15 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 }
 
 func collectWaifsFromValue(value types.Value, out *[]types.WaifValue) {
-	switch val := value.(type) {
-	case types.WaifValue:
-		*out = append(*out, val)
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+	switch value.Kind() {
+	case types.KindWaif:
+		*out = append(*out, value.Waif())
+	case types.KindList:
+		for _, elem := range value.List().Elements() {
 			collectWaifsFromValue(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.KindMap:
+		for _, pair := range value.Map().Pairs() {
 			collectWaifsFromValue(pair[0], out)
 			collectWaifsFromValue(pair[1], out)
 		}

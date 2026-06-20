@@ -290,14 +290,14 @@ func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
 	if prop == nil {
 		return nil, types.E_NONE
 	}
-	listVal, ok := prop.value.(types.ListValue)
+	listVal, ok := prop.value.AsList()
 	if !ok {
 		return nil, types.E_NONE
 	}
 	aliases := make([]string, 0, listVal.Len())
 	for i := 1; i <= listVal.Len(); i++ {
-		if strVal, ok := listVal.Get(i).(types.StrValue); ok {
-			aliases = append(aliases, strVal.Value())
+		if strVal, ok := listVal.Get(i).AsStr(); ok {
+			aliases = append(aliases, strVal)
 		}
 	}
 	return aliases, types.E_NONE
