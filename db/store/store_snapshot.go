@@ -1,6 +1,10 @@
 package store
 
-import "barn/types"
+import (
+	"sort"
+
+	"barn/types"
+)
 
 // SnapshotObject is a flat, read-only copy of an object for the database writer.
 // It carries the object's scalars, its relational id slices, and read-only views
@@ -76,9 +80,7 @@ func (s *Store) Snapshot() Snapshot {
 			}
 		}
 		if validLiveObject(obj) {
-			snapshot.PropertyNames[obj.id] = snapshotPropertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
-				return s.objects[id]
-			})
+			snapshot.PropertyNames[obj.id] = snapshotPropertyNames(obj)
 		}
 	}
 
@@ -141,31 +143,50 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 	return so
 }
 
-func snapshotPropertyNamesSelfFirst(obj *Object, parent func(types.ObjID) *Object) []string {
-	names := make([]string, 0, len(obj.propOrder))
-	visited := make(map[string]bool)
-	snapshotPropertyNamesSelfFirstRecursive(obj, parent, &names, visited)
-	return names
-}
+// snapshotPropertyNames returns the full, ordered list of an object's property
+// names for the writer. It MUST cover every property in obj.properties: the
+// writer emits one (value, owner, perms) triple per name, so a short list
+// silently drops propvals and corrupts the dump (a value loss Toast never does).
+//
+// The authoritative per-object order is obj.propOrder, established at load time
+// (local definitions first, then inherited slots in self-first ancestry order)
+// and maintained by DefineProperty/DeleteDefinedProperty. However, runtime
+// property inheritance (propagatePropertyToDescendantsLocked) adds an inherited
+// slot to a descendant's properties map WITHOUT extending its propOrder, so the
+// map can hold names that propOrder does not list. We therefore start from
+// propOrder (correct order, full count for loaded objects) and append any
+// remaining property names not already covered, in sorted order for a
+// deterministic dump. This guarantees len(names) == len(obj.properties) in every
+// case while preserving the load-time ordering.
+func snapshotPropertyNames(obj *Object) []string {
+	names := make([]string, 0, len(obj.properties))
+	seen := make(map[string]bool, len(obj.properties))
+	for _, name := range obj.propOrder {
+		if _, ok := obj.properties[name]; !ok {
+			// propOrder entry with no backing property slot: skip it so the
+			// emitted count tracks the actual property map.
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		names = append(names, name)
+		seen[name] = true
+	}
 
-func snapshotPropertyNamesSelfFirstRecursive(obj *Object, parent func(types.ObjID) *Object, names *[]string, visited map[string]bool) {
-	if obj == nil {
-		return
-	}
-	localCount := obj.propDefsCount
-	if localCount > len(obj.propOrder) {
-		localCount = len(obj.propOrder)
-	}
-	for i := 0; i < localCount; i++ {
-		name := obj.propOrder[i]
-		if !visited[name] {
-			*names = append(*names, name)
-			visited[name] = true
+	// Append any property not represented in propOrder (e.g. runtime-inherited
+	// slots) so no propval is dropped.
+	var extra []string
+	for name := range obj.properties {
+		if !seen[name] {
+			extra = append(extra, name)
+			seen[name] = true
 		}
 	}
-	for _, parentID := range obj.parents {
-		snapshotPropertyNamesSelfFirstRecursive(parent(parentID), parent, names, visited)
-	}
+	sort.Strings(extra)
+	names = append(names, extra...)
+
+	return names
 }
 
 // Get retrieves an object by ID
