@@ -203,7 +203,8 @@ func CompileVerbBytecode(code []string, registry Registry) (*Program, error) {
 
 	vp, errs := CompileVerb(code)
 	if errs != nil {
-		return nil, fmt.Errorf("parse error: %v", errs[0])
+		// errs[0] is already Toast-formatted ("Line N:  syntax error").
+		return nil, fmt.Errorf("%s", errs[0])
 	}
 
 	c := NewCompilerWithRegistry(registry)

@@ -2,6 +2,25 @@ package parser
 
 import "fmt"
 
+// ParseError is a syntax error carrying the source line of the offending token.
+// ToastStunt collapses essentially all parse errors to the generic message
+// "syntax error" and reports them as "Line N:  syntax error" (the inner
+// fmt.Errorf detail is for Barn-internal diagnostics only and is not surfaced to
+// MOO callers). Line is the line of p.current at the point parsing failed; for
+// unexpected-EOF the lexer reports a phantom final line (numLines+1), matching
+// Toast.
+type ParseError struct {
+	Line int    // 1-based source line of the offending token
+	Msg  string // generic message surfaced to MOO callers ("syntax error")
+	// Detail preserves Barn's specific inner message (e.g. "expected ';'") for
+	// internal diagnostics; it is NOT part of the MOO-facing format.
+	Detail error
+}
+
+func (e *ParseError) Error() string { return e.Msg }
+
+func (e *ParseError) Unwrap() error { return e.Detail }
+
 // ParseProgram parses a complete MOO program (sequence of statements)
 func (p *Parser) ParseProgram() ([]Stmt, error) {
 	var statements []Stmt
@@ -9,7 +28,13 @@ func (p *Parser) ParseProgram() ([]Stmt, error) {
 	for p.current.Type != TOKEN_EOF {
 		stmt, err := p.parseStatement()
 		if err != nil {
-			return nil, err
+			// Capture the line of the offending token and present Toast's
+			// generic "syntax error". p.current is the token parsing choked on.
+			return nil, &ParseError{
+				Line:   p.current.Position.Line,
+				Msg:    "syntax error",
+				Detail: err,
+			}
 		}
 		statements = append(statements, stmt)
 	}

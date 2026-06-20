@@ -97,6 +97,10 @@ func (l *Lexer) NextToken() Token {
 	case 0:
 		tok.Type = TOKEN_EOF
 		tok.Value = ""
+		// Toast reports unexpected-EOF errors on a phantom final line
+		// (numLines+1). Source is joined with "\n" and has no trailing
+		// newline, so l.line == numLines here; +1 matches Toast's behavior.
+		tok.Position.Line = l.line + 1
 	case '(':
 		tok.Type = TOKEN_LPAREN
 		tok.Value = string(l.ch)

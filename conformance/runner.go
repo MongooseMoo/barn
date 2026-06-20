@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"errors"
 	"fmt"
 
 	"barn/builtins"
@@ -136,7 +137,7 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 			return TestResult{
 				Test:   test,
 				Passed: false,
-				Error:  fmt.Errorf("parse error: %w", err),
+				Error:  fmt.Errorf("%s", formatParseError(err)),
 			}
 		}
 		result = r.executeStatements(stmts, ctx)
@@ -152,7 +153,7 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 			return TestResult{
 				Test:   test,
 				Passed: false,
-				Error:  fmt.Errorf("parse error: %w", err),
+				Error:  fmt.Errorf("%s", formatParseError(err)),
 			}
 		}
 		result = r.executeStatements([]parser.Stmt{&parser.ReturnStmt{Value: expr}}, ctx)
@@ -175,6 +176,16 @@ func (r *Runner) Run(test LoadedTest) TestResult {
 		Passed: passed,
 		Error:  err,
 	}
+}
+
+// formatParseError renders a parser error in ToastStunt's "Line N:  <msg>" form
+// (the word "Line", a space, the line number, a colon, TWO spaces, the message).
+func formatParseError(err error) string {
+	var pe *parser.ParseError
+	if errors.As(err, &pe) {
+		return fmt.Sprintf("Line %d:  %s", pe.Line, pe.Msg)
+	}
+	return fmt.Sprintf("Line 1:  %s", err)
 }
 
 func (r *Runner) executeStatements(stmts []parser.Stmt, ctx *kernel.TaskContext) types.Result {
