@@ -41,6 +41,15 @@ func (s *Store) Snapshot() Snapshot {
 		PropertyNames: make(map[types.ObjID][]string, len(s.objects)),
 	}
 
+	// Determine which anonymous objects are reference-reachable. Only reachable
+	// anonymous objects belong in the dump's anonymous-objects section: Toast
+	// re-creates them lazily from the _TYPE_ANON references that reach them, then
+	// fills them in from the section. An anonymous object with no live reference
+	// is garbage Toast would never write; emitting it crashes Toast's loader
+	// (it calls dbpriv_find_object on a never-created slot). For a world with no
+	// live anonymous references the section is therefore just the 0 terminator.
+	reachableAnon := s.persistentAnonymousReachabilityLocked()
+
 	// propertyNames must be computed over the live objects so parent-chain walks
 	// see the full graph; build them keyed by id.
 	for id, obj := range s.objects {
@@ -62,7 +71,9 @@ func (s *Store) Snapshot() Snapshot {
 			snapshot.AllObjects = append(snapshot.AllObjects, so)
 		}
 		if !obj.recycled && obj.anonymous {
-			snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
+			if _, ok := reachableAnon[obj.id]; ok {
+				snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
+			}
 		}
 		if validLiveObject(obj) {
 			snapshot.PropertyNames[obj.id] = snapshotPropertyNamesSelfFirst(obj, func(id types.ObjID) *Object {
@@ -72,6 +83,33 @@ func (s *Store) Snapshot() Snapshot {
 	}
 
 	return snapshot
+}
+
+// persistentAnonymousReachabilityLocked computes the set of anonymous object ids
+// reachable from any non-anonymous live object's property values, then transitively
+// through reachable anonymous objects. Callers must already hold s.mu.
+func (s *Store) persistentAnonymousReachabilityLocked() map[types.ObjID]struct{} {
+	reachable := make(map[types.ObjID]struct{})
+	queue := make([]types.ObjID, 0)
+
+	for _, obj := range s.objects {
+		if !validLiveObject(obj) || obj.anonymous {
+			continue
+		}
+		for _, prop := range obj.properties {
+			if prop == nil {
+				continue
+			}
+			refs := make(map[types.ObjID]struct{})
+			collectAnonymousObjectRefs(prop.value, refs)
+			for id := range refs {
+				queue = append(queue, id)
+			}
+		}
+	}
+
+	s.expandAnonymousReachabilityLocked(reachable, queue)
+	return reachable
 }
 
 func snapshotObjectValue(obj *Object) *SnapshotObject {

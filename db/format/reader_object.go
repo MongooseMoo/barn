@@ -283,8 +283,18 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	return obj, nil
 }
 
-// readAnonymousObjects reads anonymous objects section (v17)
-// Anonymous objects are stored in batches, terminated by a 0 count
+// readAnonymousObjects reads the anonymous-objects section (v17), which Toast
+// emits as batches of genuinely-anonymous objects terminated by a 0 count.
+//
+// Anonymous objects do NOT live in the regular numbered object space: in Toast
+// they are created lazily from _TYPE_ANON references (in tasks, values, or
+// pending finalizations) and the anon section merely fills in objects that were
+// already allocated. Their numeric ids may collide with recycled regular slots,
+// so they MUST be tracked out-of-band rather than keyed into Database.Objects by
+// numeric id. Keying them into Objects (as a prior implementation did) both
+// produced phantom regular objects pointing at recycled ids (spurious parent
+// drops) and caused the writer to re-emit numbered objects into the anon
+// section, which crashes Toast's loader.
 func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 	for {
 		count, err := readInt(r)
@@ -302,7 +312,7 @@ func (database *Database) readAnonymousObjects(r *bufio.Reader) error {
 			}
 			if obj != nil {
 				obj.SetAnonymous(true)
-				database.Objects[obj.ID()] = obj
+				database.AnonymousObjs = append(database.AnonymousObjs, obj)
 			}
 		}
 	}

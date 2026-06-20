@@ -14,6 +14,7 @@ import (
 type Database struct {
 	Version              int
 	Objects              map[types.ObjID]*store.ObjectBuilder
+	AnonymousObjs        []*store.ObjectBuilder
 	Players              []types.ObjID
 	RecycledObjs         []types.ObjID
 	PendingFinalizations []types.Value
