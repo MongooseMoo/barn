@@ -8,11 +8,21 @@ import (
 )
 
 type Store struct {
-	mu              sync.RWMutex
-	objects         map[types.ObjID]*Object
-	maxObjID        types.ObjID                                   // Highest non-anonymous object ID (for max_object())
-	highWaterID     types.ObjID                                   // Highest allocated ID (including anonymous, for NextID())
-	recycledID      []types.ObjID                                 // Track recycled IDs (for future reuse via recreate)
+	mu          sync.RWMutex
+	objects     map[types.ObjID]*Object
+	maxObjID    types.ObjID // Highest non-anonymous object ID (for max_object())
+	highWaterID types.ObjID // Highest allocated ID (including anonymous, for NextID())
+	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
+
+	// anonObjects holds anonymous objects out-of-band, keyed by the identity id
+	// they were loaded/created with. Anonymous objects NEVER live in the regular
+	// numbered object space (objects map) and never occupy a regular numeric id:
+	// in ToastStunt they exist only as _TYPE_ANON values at runtime and are
+	// assigned above-max serialization ids at dump time. Keeping them here (not in
+	// objects) preserves that invariant and avoids the id collisions that crash
+	// Toast's loader.
+	anonObjects map[types.ObjID]*Object
+
 	waifRegistry    map[types.ObjID]map[*types.WaifValue]struct{} // Track live waifs by class
 	verbCacheClears int64
 	verbCacheMisses int64
@@ -21,6 +31,7 @@ type Store struct {
 func NewStore() *Store {
 	return &Store{
 		objects:     make(map[types.ObjID]*Object),
+		anonObjects: make(map[types.ObjID]*Object),
 		maxObjID:    -1,
 		highWaterID: -1,
 		recycledID:  []types.ObjID{},
@@ -75,6 +86,22 @@ func (s *Store) addLoadedObject(obj *Object) {
 	defer s.mu.Unlock()
 
 	s.insertObjectLocked(obj)
+}
+
+// AddAnonymous ingests an anonymous object loaded from the database into the
+// store's out-of-band anonymous collection. The object is keyed by the identity
+// id it was loaded with; this id is NOT a regular numbered-object id and never
+// enters the objects map, maxObjID, or highWaterID. Anonymous objects only ever
+// surface as _TYPE_ANON values; the dump path assigns them above-max
+// serialization ids.
+func (s *Store) AddAnonymous(obj *Object) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !obj.anonymous {
+		obj.anonymous = true
+	}
+	s.anonObjects[obj.id] = obj
 }
 
 func (s *Store) insertObjectLocked(obj *Object) {

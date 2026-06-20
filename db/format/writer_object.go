@@ -54,12 +54,21 @@ func (w *Writer) writeObjects() error {
 	return nil
 }
 
-// writeAnonymousObjects writes anonymous objects section
+// writeAnonymousObjects writes the anonymous-objects section.
+//
+// The snapshot only places reference-reachable anonymous objects in
+// AnonymousObjects (see Store.Snapshot). Regular/numbered objects must NEVER
+// appear here: Toast re-creates anon objects lazily from _TYPE_ANON references
+// and the section merely fills in objects it already allocated, so an
+// unreachable (never-referenced) anon record makes Toast dereference a
+// never-created slot and crash. For a world with no live anonymous references
+// this section is therefore just the single 0 terminator, matching canonical
+// Toast output.
 func (w *Writer) writeAnonymousObjects() error {
 	anons := w.snapshot.AnonymousObjects
 
-	// Write anonymous objects in batches (ToastStunt allows multiple batches)
-	// For simplicity, we write them all in one batch
+	// Write anonymous objects in batches (ToastStunt allows multiple batches);
+	// we write all reachable anon objects in one batch.
 	if len(anons) > 0 {
 		if err := w.writeInt(len(anons)); err != nil {
 			return err

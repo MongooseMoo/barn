@@ -14,6 +14,7 @@ import (
 type Database struct {
 	Version              int
 	Objects              map[types.ObjID]*store.ObjectBuilder
+	AnonymousObjs        []*store.ObjectBuilder
 	Players              []types.ObjID
 	RecycledObjs         []types.ObjID
 	PendingFinalizations []types.Value
@@ -40,6 +41,13 @@ func (database *Database) NewStoreFromDatabase() *store.Store {
 		if err := s.Add(b.Build()); err != nil {
 			panic(err)
 		}
+	}
+	// Ingest anonymous objects out-of-band. They are kept separate from the
+	// regular numbered object space (never in the objects map, never at a regular
+	// numeric id) and are assigned above-max serialization ids only at dump time,
+	// matching ToastStunt's anonymous-object model.
+	for _, b := range database.AnonymousObjs {
+		s.AddAnonymous(b.Build())
 	}
 	return s
 }
