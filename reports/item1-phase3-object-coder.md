@@ -1,6 +1,7 @@
 # Item 1, Phase 3 (Object) — coder report
 
 ## RESULT SUMMARY (all gates green; NOT merged — verifier next)
+- Commit: `9ee4e30` on branch feat/item1-object (worktree C:/Users/Q/code/barn-item1-object).
 - `go build ./...` EXIT 0.
 - `go vet ./...` only the 2 known findings (cmd/moo_client IPv6, vm/stack ReadByte).
 - `go test ./...` all pass EXCEPT `barn/conformance` 3 loader unit tests
