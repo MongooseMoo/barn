@@ -254,17 +254,20 @@ func dumpListVerbs(store *dbstore.Store, spec string) {
 		os.Exit(1)
 	}
 
-	obj := store.Get(objID)
-	if obj == nil {
+	obj, ok := store.Get(objID)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: object #%d not found\n", objID)
 		os.Exit(1)
 	}
 
 	fmt.Printf("=== Verbs on #%d (%s) ===\n", objID, obj.Name)
-	fmt.Printf("Count: %d\n\n", len(obj.VerbList))
+	fmt.Printf("Count: %d\n\n", obj.VerbCount)
 
-	for i, verb := range obj.VerbList {
-		view := verb.View()
+	for i := 0; i < obj.VerbCount; i++ {
+		view, errCode := store.VerbByIndex(objID, i)
+		if errCode != types.E_NONE {
+			continue
+		}
 		fmt.Printf("%3d. %-30s owner=#%-6d perms=%-4s lines=%d\n",
 			i, strings.Join(view.Names, " "), view.Owner, view.Perms.String(), len(view.Code))
 	}
@@ -278,8 +281,8 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 		os.Exit(1)
 	}
 
-	obj := store.Get(objID)
-	if obj == nil {
+	obj, ok := store.Get(objID)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: object #%d not found\n", objID)
 		os.Exit(1)
 	}
@@ -316,11 +319,12 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 	fmt.Println()
 
 	// Parents
+	parents, _ := store.Parents(objID)
 	fmt.Printf("Parents:  ")
-	if len(obj.Parents) == 0 {
+	if len(parents) == 0 {
 		fmt.Println("(none)")
 	} else {
-		for i, p := range obj.Parents {
+		for i, p := range parents {
 			if i > 0 {
 				fmt.Print(", ")
 			}
@@ -330,11 +334,12 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 	}
 
 	// Children
+	children, _ := store.Children(objID)
 	fmt.Printf("Children: ")
-	if len(obj.Children) == 0 {
+	if len(children) == 0 {
 		fmt.Println("(none)")
 	} else {
-		for i, c := range obj.Children {
+		for i, c := range children {
 			if i > 0 {
 				fmt.Print(", ")
 			}
@@ -344,14 +349,14 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 	}
 
 	// Properties
-	fmt.Printf("\n--- Properties (%d) ---\n", len(obj.Properties))
-	propNames := make([]string, 0, len(obj.Properties))
-	for name := range obj.Properties {
-		propNames = append(propNames, name)
-	}
+	propNames, _ := store.DefinedPropertyNames(objID)
+	fmt.Printf("\n--- Properties (%d) ---\n", len(propNames))
 	sort.Strings(propNames)
 	for _, name := range propNames {
-		prop := obj.Properties[name].View()
+		prop, ok, _ := store.LocalProperty(objID, name)
+		if !ok {
+			continue
+		}
 		valStr := fmt.Sprintf("%v", prop.Value)
 		if len(valStr) > 60 {
 			valStr = valStr[:57] + "..."
@@ -361,9 +366,12 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 	}
 
 	// Verbs
-	fmt.Printf("\n--- Verbs (%d) ---\n", len(obj.VerbList))
-	for i, verb := range obj.VerbList {
-		view := verb.View()
+	fmt.Printf("\n--- Verbs (%d) ---\n", obj.VerbCount)
+	for i := 0; i < obj.VerbCount; i++ {
+		view, errCode := store.VerbByIndex(objID, i)
+		if errCode != types.E_NONE {
+			continue
+		}
 		fmt.Printf("  %3d. %-30s owner=#%-6d perms=%-4s lines=%d\n",
 			i, strings.Join(view.Names, " "), view.Owner, view.Perms.String(), len(view.Code))
 	}
@@ -412,11 +420,15 @@ func dumpObjRawCommand(store *dbstore.Store, spec string) {
 		os.Exit(1)
 	}
 
-	obj := store.Get(objID)
-	if obj == nil {
+	obj, ok := store.Get(objID)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: object #%d not found\n", objID)
 		os.Exit(1)
 	}
+
+	parents, _ := store.Parents(objID)
+	children, _ := store.Children(objID)
+	contents, _ := store.Contents(objID)
 
 	fmt.Printf("=== Raw Object Data #%d ===\n", objID)
 	fmt.Printf("ID:         %d\n", obj.ID)
@@ -427,44 +439,52 @@ func dumpObjRawCommand(store *dbstore.Store, spec string) {
 	fmt.Printf("Anonymous:  %v\n", obj.Anonymous)
 
 	fmt.Printf("\nParents:    [")
-	for i, p := range obj.Parents {
+	for i, p := range parents {
 		if i > 0 {
 			fmt.Print(", ")
 		}
 		fmt.Printf("#%d", p)
 	}
-	fmt.Printf("] (count=%d)\n", len(obj.Parents))
+	fmt.Printf("] (count=%d)\n", len(parents))
 
 	fmt.Printf("Children:   [")
-	for i, c := range obj.Children {
+	for i, c := range children {
 		if i > 0 {
 			fmt.Print(", ")
 		}
 		fmt.Printf("#%d", c)
 	}
-	fmt.Printf("] (count=%d)\n", len(obj.Children))
+	fmt.Printf("] (count=%d)\n", len(children))
 
 	fmt.Printf("Contents:   [")
-	for i, c := range obj.Contents {
+	for i, c := range contents {
 		if i > 0 {
 			fmt.Print(", ")
 		}
 		fmt.Printf("#%d", c)
 	}
-	fmt.Printf("] (count=%d)\n", len(obj.Contents))
+	fmt.Printf("] (count=%d)\n", len(contents))
 
-	fmt.Printf("\nVerbList:   %d verbs\n", len(obj.VerbList))
-	for i, v := range obj.VerbList {
-		view := v.View()
+	fmt.Printf("\nVerbList:   %d verbs\n", obj.VerbCount)
+	for i := 0; i < obj.VerbCount; i++ {
+		view, errCode := store.VerbByIndex(objID, i)
+		if errCode != types.E_NONE {
+			continue
+		}
 		fmt.Printf("  [%d] %q (names=%d, owner=#%d, code=%d lines)\n",
 			i, view.Name, len(view.Names), view.Owner, len(view.Code))
 	}
 
-	fmt.Printf("\nVerbs map:  %d entries\n", len(obj.Verbs))
+	verbNames, _ := store.VerbNames(objID)
+	fmt.Printf("\nVerbs map:  %d entries\n", len(verbNames))
 
-	fmt.Printf("\nProperties: %d entries\n", len(obj.Properties))
-	for name, rawProp := range obj.Properties {
-		prop := rawProp.View()
+	propNames, _ := store.DefinedPropertyNames(objID)
+	fmt.Printf("\nProperties: %d entries\n", len(propNames))
+	for _, name := range propNames {
+		prop, ok, _ := store.LocalProperty(objID, name)
+		if !ok {
+			continue
+		}
 		fmt.Printf("  %q: owner=#%d perms=%s type=%T\n",
 			name, prop.Owner, prop.Perms.String(), prop.Value)
 	}
@@ -481,8 +501,8 @@ func verbLookupCommand(store *dbstore.Store, spec string) {
 	fmt.Printf("=== Verb Lookup: #%d:%s ===\n\n", objID, verbName)
 
 	// Check if object exists
-	obj := store.Get(objID)
-	if obj == nil {
+	obj, ok := store.Get(objID)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: object #%d not found\n", objID)
 		os.Exit(1)
 	}
@@ -507,19 +527,20 @@ func verbLookupCommand(store *dbstore.Store, spec string) {
 			}
 			visited[current] = true
 
-			currentObj := store.Get(current)
-			if currentObj == nil {
+			currentObj, ok := store.Get(current)
+			if !ok {
 				fmt.Printf("  #%d (NOT FOUND)\n", current)
 				break
 			}
 
 			indent := strings.Repeat("  ", depth)
-			fmt.Printf("%s#%d (%s) - %d verbs\n", indent, current, currentObj.Name, len(currentObj.VerbList))
+			fmt.Printf("%s#%d (%s) - %d verbs\n", indent, current, currentObj.Name, currentObj.VerbCount)
 
-			if len(currentObj.Parents) == 0 {
+			currentParents, _ := store.Parents(current)
+			if len(currentParents) == 0 {
 				break
 			}
-			current = currentObj.Parents[0]
+			current = currentParents[0]
 			depth++
 		}
 		os.Exit(1)
@@ -544,8 +565,8 @@ func verbLookupCommand(store *dbstore.Store, spec string) {
 			}
 			visited[current] = true
 
-			currentObj := store.Get(current)
-			if currentObj == nil {
+			currentObj, ok := store.Get(current)
+			if !ok {
 				fmt.Printf("  #%d (NOT FOUND)\n", current)
 				break
 			}
@@ -553,16 +574,17 @@ func verbLookupCommand(store *dbstore.Store, spec string) {
 			indent := strings.Repeat("  ", depth)
 			fmt.Printf("%s#%d (%s)\n", indent, current, currentObj.Name)
 
-			if len(currentObj.Parents) == 0 {
+			currentParents, _ := store.Parents(current)
+			if len(currentParents) == 0 {
 				fmt.Printf("  [no parent, but verb is on #%d?]\n", defObjID)
 				break
 			}
-			current = currentObj.Parents[0]
+			current = currentParents[0]
 			depth++
 		}
 
 		// Print the defining object
-		defObj := store.Get(defObjID)
+		defObj, _ := store.Get(defObjID)
 		indent := strings.Repeat("  ", depth)
 		fmt.Printf("%s#%d (%s) *** VERB DEFINED HERE ***\n", indent, defObjID, defObj.Name)
 	}
@@ -584,8 +606,8 @@ func ancestryCommand(store *dbstore.Store, spec string) {
 		os.Exit(1)
 	}
 
-	obj := store.Get(objID)
-	if obj == nil {
+	obj, ok := store.Get(objID)
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: object #%d not found\n", objID)
 		os.Exit(1)
 	}
@@ -603,8 +625,8 @@ func ancestryCommand(store *dbstore.Store, spec string) {
 		}
 		visited[current] = true
 
-		currentObj := store.Get(current)
-		if currentObj == nil {
+		currentObj, ok := store.Get(current)
+		if !ok {
 			fmt.Printf("%s#%d (NOT FOUND)\n", strings.Repeat("  ", depth), current)
 			break
 		}
@@ -612,16 +634,17 @@ func ancestryCommand(store *dbstore.Store, spec string) {
 		indent := strings.Repeat("  ", depth)
 		fmt.Printf("%s#%d - %s\n", indent, current, currentObj.Name)
 		fmt.Printf("%s       owner=#%d, verbs=%d, props=%d\n",
-			indent, currentObj.Owner, len(currentObj.VerbList), len(currentObj.Properties))
+			indent, currentObj.Owner, currentObj.VerbCount, currentObj.PropertyCount)
 
-		if len(currentObj.Parents) == 0 {
+		currentParents, _ := store.Parents(current)
+		if len(currentParents) == 0 {
 			fmt.Printf("%s       (root object - no parent)\n", indent)
 			break
 		}
 
-		if len(currentObj.Parents) > 1 {
+		if len(currentParents) > 1 {
 			fmt.Printf("%s       (multiple parents: ", indent)
-			for i, p := range currentObj.Parents {
+			for i, p := range currentParents {
 				if i > 0 {
 					fmt.Print(", ")
 				}
@@ -629,10 +652,10 @@ func ancestryCommand(store *dbstore.Store, spec string) {
 			}
 			fmt.Println(")")
 			// For now, just follow the first parent
-			fmt.Printf("%s       (following first parent #%d)\n", indent, currentObj.Parents[0])
+			fmt.Printf("%s       (following first parent #%d)\n", indent, currentParents[0])
 		}
 
-		current = currentObj.Parents[0]
+		current = currentParents[0]
 		depth++
 
 		// Safety limit

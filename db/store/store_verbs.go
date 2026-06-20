@@ -69,7 +69,7 @@ func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
 	if !validLiveObject(obj) {
 		return false
 	}
-	return obj.Verbs[name] != nil
+	return obj.verbs[name] != nil
 }
 
 func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
@@ -90,14 +90,14 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 		if !validLiveObject(obj) {
 			continue
 		}
-		for _, verb := range obj.Verbs {
+		for _, verb := range obj.verbs {
 			for _, alias := range verb.names {
 				if matchVerbName(alias, name) {
 					return true
 				}
 			}
 		}
-		queue = append(queue, obj.Parents...)
+		queue = append(queue, obj.parents...)
 	}
 	return false
 }
@@ -121,13 +121,13 @@ func (s *Store) VerbCandidatesInAncestry(objID types.ObjID) ([]VerbCandidate, ty
 		if !validLiveObject(obj) {
 			continue
 		}
-		for _, verb := range obj.Verbs {
+		for _, verb := range obj.verbs {
 			candidates = append(candidates, VerbCandidate{
 				Definer: currentID,
 				Verb:    verb.View(),
 			})
 		}
-		queue = append(queue, obj.Parents...)
+		queue = append(queue, obj.parents...)
 	}
 	return candidates, types.E_NONE
 }
@@ -168,7 +168,7 @@ func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types
 
 		// Get object (skip if invalid)
 		obj := s.objects[current]
-		if obj == nil || obj.Recycled {
+		if obj == nil || obj.recycled {
 			continue
 		}
 
@@ -176,7 +176,7 @@ func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types
 		// name or alias matches. Toast resolves alias collisions by definition
 		// order (the first-declared verb wins), so iterate the ordered VerbList
 		// rather than the unordered Verbs map.
-		for _, verb := range obj.VerbList {
+		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if matchVerbName(alias, verbName) {
 					return verb, current, nil
@@ -192,16 +192,16 @@ func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types
 		// fallback for such lookups; the wildcard scan above already handled any
 		// legitimate match.
 		if !strings.Contains(verbName, "*") {
-			if verb, ok := obj.Verbs[verbName]; ok {
+			if verb, ok := obj.verbs[verbName]; ok {
 				return verb, current, nil
 			}
-			if verb, ok := obj.Verbs[":"+verbName]; ok {
+			if verb, ok := obj.verbs[":"+verbName]; ok {
 				return verb, current, nil
 			}
 		}
 
 		// Not found on this object, add parents to queue
-		queue = append(queue, obj.Parents...)
+		queue = append(queue, obj.parents...)
 	}
 
 	// Verb not found in entire inheritance chain
@@ -227,13 +227,13 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, 
 
 func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Verb, error) {
 	obj := s.objects[objID]
-	if obj == nil || obj.Recycled {
+	if obj == nil || obj.recycled {
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
 
 	// Definition-order scan (see FindVerb) so colliding aliases resolve to the
 	// first-declared verb.
-	for _, verb := range obj.VerbList {
+	for _, verb := range obj.verbList {
 		for _, alias := range verb.names {
 			if matchVerbName(alias, verbName) {
 				return verb, nil
@@ -244,10 +244,10 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 	// wildcard name literally (Toast's verbcasecmp rejects "*" in the lookup
 	// word). The wildcard scan above already handled any legitimate match.
 	if !strings.Contains(verbName, "*") {
-		if verb, ok := obj.Verbs[verbName]; ok {
+		if verb, ok := obj.verbs[verbName]; ok {
 			return verb, nil
 		}
-		if verb, ok := obj.Verbs[":"+verbName]; ok {
+		if verb, ok := obj.verbs[":"+verbName]; ok {
 			return verb, nil
 		}
 	}
@@ -263,8 +263,8 @@ func (s *Store) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 		return nil, types.E_INVIND
 	}
 
-	names := make([]string, 0, len(obj.VerbList))
-	for _, verb := range obj.VerbList {
+	names := make([]string, 0, len(obj.verbList))
+	for _, verb := range obj.verbList {
 		names = append(names, verb.name)
 	}
 	return names, types.E_NONE
@@ -278,10 +278,10 @@ func (s *Store) VerbByIndex(objID types.ObjID, index int) (VerbView, types.Error
 	if !validLiveObject(obj) {
 		return VerbView{}, types.E_INVIND
 	}
-	if index < 0 || index >= len(obj.VerbList) {
+	if index < 0 || index >= len(obj.verbList) {
 		return VerbView{}, types.E_RANGE
 	}
-	return obj.VerbList[index].View(), types.E_NONE
+	return obj.verbList[index].View(), types.E_NONE
 }
 
 func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
@@ -295,9 +295,9 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 
 	verbCopy := verb
 	verbPtr := &verbCopy
-	obj.Verbs[verbPtr.name] = verbPtr
-	obj.VerbList = append(obj.VerbList, verbPtr)
-	return len(obj.VerbList), types.E_NONE
+	obj.verbs[verbPtr.name] = verbPtr
+	obj.verbList = append(obj.verbList, verbPtr)
+	return len(obj.verbList), types.E_NONE
 }
 
 func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
@@ -315,25 +315,25 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 	}
 
 	keysToRefresh := make([]string, 0, 1)
-	for key, entry := range obj.Verbs {
+	for key, entry := range obj.verbs {
 		if entry == verb {
 			keysToRefresh = append(keysToRefresh, key)
-			delete(obj.Verbs, key)
+			delete(obj.verbs, key)
 		}
 	}
 
-	for i, entry := range obj.VerbList {
+	for i, entry := range obj.verbList {
 		if entry == verb {
-			obj.VerbList = append(obj.VerbList[:i], obj.VerbList[i+1:]...)
+			obj.verbList = append(obj.verbList[:i], obj.verbList[i+1:]...)
 			break
 		}
 	}
 
 	for _, key := range keysToRefresh {
-		for i := len(obj.VerbList) - 1; i >= 0; i-- {
-			candidate := obj.VerbList[i]
+		for i := len(obj.verbList) - 1; i >= 0; i-- {
+			candidate := obj.verbList[i]
 			if candidate.name == key {
-				obj.Verbs[key] = candidate
+				obj.verbs[key] = candidate
 				break
 			}
 		}
@@ -363,10 +363,10 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	}
 
 	if oldName != verb.name {
-		if current, ok := obj.Verbs[oldName]; ok && current == verb {
-			delete(obj.Verbs, oldName)
+		if current, ok := obj.verbs[oldName]; ok && current == verb {
+			delete(obj.verbs, oldName)
 		}
-		obj.Verbs[verb.name] = verb
+		obj.verbs[verb.name] = verb
 	}
 	return types.E_NONE
 }
@@ -413,10 +413,10 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if index < 0 || index >= len(obj.VerbList) {
+	if index < 0 || index >= len(obj.verbList) {
 		return types.E_RANGE
 	}
-	verb := obj.VerbList[index]
+	verb := obj.verbList[index]
 	verb.code = append([]string(nil), lines...)
 	return types.E_NONE
 }
@@ -431,7 +431,7 @@ func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, 
 	}
 
 	visited := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), verbLocObj.Parents...)
+	queue := append([]types.ObjID(nil), verbLocObj.parents...)
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
@@ -444,17 +444,17 @@ func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, 
 		if !validLiveObject(obj) {
 			continue
 		}
-		if verb, ok := obj.Verbs[verbName]; ok {
+		if verb, ok := obj.verbs[verbName]; ok {
 			return verb.View(), current, nil
 		}
-		for _, verb := range obj.VerbList {
+		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if alias == verbName {
 					return verb.View(), current, nil
 				}
 			}
 		}
-		queue = append(queue, obj.Parents...)
+		queue = append(queue, obj.parents...)
 	}
 	return VerbView{}, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
 }
@@ -470,13 +470,13 @@ func (s *Store) FindLocalVerbForProgramming(objID types.ObjID, verbName string) 
 	if !validLiveObject(obj) {
 		return false
 	}
-	if _, ok := obj.Verbs[verbName]; ok {
+	if _, ok := obj.verbs[verbName]; ok {
 		return true
 	}
-	if _, ok := obj.Verbs[":"+verbName]; ok {
+	if _, ok := obj.verbs[":"+verbName]; ok {
 		return true
 	}
-	for _, verb := range obj.VerbList {
+	for _, verb := range obj.verbList {
 		for _, alias := range verb.names {
 			if matchVerbName(alias, verbName) {
 				return true

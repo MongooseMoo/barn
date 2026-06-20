@@ -33,8 +33,8 @@ func TestStoreBasics(t *testing.T) {
 	}
 
 	// Get object
-	retrieved := store.Get(0)
-	if retrieved == nil {
+	retrieved, ok := store.Get(0)
+	if !ok {
 		t.Fatal("Get(0) returned nil")
 	}
 	if retrieved.ID != 0 {
@@ -87,13 +87,15 @@ func TestStoreRecycle(t *testing.T) {
 	}
 
 	// Check recycled
-	retrieved := store.Get(0)
-	if retrieved != nil {
+	if _, ok := store.Get(0); ok {
 		t.Error("Get(0) returned object after recycle, want nil")
 	}
 
 	// Check flags set
-	unsafe := store.GetUnsafe(0)
+	unsafe, ok := store.GetUnsafe(0)
+	if !ok {
+		t.Fatal("GetUnsafe(0) returned no object after recycle")
+	}
 	if !unsafe.Flags.Has(FlagRecycled) {
 		t.Error("FlagRecycled not set")
 	}
@@ -136,31 +138,31 @@ func TestStoreMaxObjectAfterRecycle(t *testing.T) {
 func TestNewObject(t *testing.T) {
 	obj := NewObject(5, 10)
 
-	if obj.ID != 5 {
-		t.Errorf("ID = %d, want 5", obj.ID)
+	if obj.id != 5 {
+		t.Errorf("ID = %d, want 5", obj.id)
 	}
 
-	if obj.Owner != 10 {
-		t.Errorf("Owner = %d, want 10", obj.Owner)
+	if obj.owner != 10 {
+		t.Errorf("Owner = %d, want 10", obj.owner)
 	}
 
-	if obj.Location != types.ObjNothing {
-		t.Errorf("Location = %d, want %d (nothing)", obj.Location, types.ObjNothing)
+	if obj.location != types.ObjNothing {
+		t.Errorf("Location = %d, want %d (nothing)", obj.location, types.ObjNothing)
 	}
 
-	if len(obj.Properties) != 0 {
-		t.Errorf("Properties len = %d, want 0", len(obj.Properties))
+	if len(obj.properties) != 0 {
+		t.Errorf("Properties len = %d, want 0", len(obj.properties))
 	}
 
-	if len(obj.Verbs) != 0 {
-		t.Errorf("Verbs len = %d, want 0", len(obj.Verbs))
+	if len(obj.verbs) != 0 {
+		t.Errorf("Verbs len = %d, want 0", len(obj.verbs))
 	}
 
 	// Check default flags (not readable or writable per MOO semantics)
-	if obj.Flags.Has(FlagRead) {
+	if obj.flags.Has(FlagRead) {
 		t.Error("FlagRead should not be set by default")
 	}
-	if obj.Flags.Has(FlagWrite) {
+	if obj.flags.Has(FlagWrite) {
 		t.Error("FlagWrite should not be set by default")
 	}
 }

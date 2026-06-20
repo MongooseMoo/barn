@@ -40,7 +40,7 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
 		if obj != nil {
-			database.Objects[obj.ID] = obj
+			database.Objects[obj.ID()] = obj
 		}
 	}
 
@@ -75,7 +75,7 @@ func (database *Database) parseV5(r *bufio.Reader) (*Database, error) {
 // readObjectV5 reads a version 5 object body.
 // Version 5 uses typed location/contents/parents/children fields but does not
 // include the v17 last_move slot.
-func (database *Database) readObjectV5(r *bufio.Reader) (*store.Object, error) {
+func (database *Database) readObjectV5(r *bufio.Reader) (*store.ObjectBuilder, error) {
 	obj, err := database.readObjectCommon(r, false)
 	if err != nil {
 		return nil, err

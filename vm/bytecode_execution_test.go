@@ -154,10 +154,11 @@ func TestBytecodeScatterAssignment(t *testing.T) {
 
 func newBytecodeVerbStore() *dbstore.Store {
 	store := dbstore.NewStore()
-	root := dbstore.NewObject(0, 0)
-	root.Name = "Root"
-	root.Flags = dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagProgrammer
-	store.Add(root)
+	rootBuilder := dbstore.NewObjectBuilder(0)
+	rootBuilder.SetOwner(0)
+	rootBuilder.SetName("Root")
+	rootBuilder.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagProgrammer)
+	store.Add(rootBuilder.Build())
 
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
 	debugPerms := execPerms | dbstore.VerbDebug

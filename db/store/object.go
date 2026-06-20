@@ -4,37 +4,79 @@ import (
 	"barn/types"
 )
 
-// Object represents a MOO object
-// CRITICAL: All cross-object references use ObjID, not Go pointers
-// This matches LambdaMOO database format and simplifies serialization
+// Object represents a MOO object.
+//
+// CRITICAL: All cross-object references use ObjID, not Go pointers. This matches
+// the LambdaMOO database format and simplifies serialization.
+//
+// All fields are unexported: the store is the sole owner of Object state.
+// External packages read object scalars through the flat, read-only ObjectView
+// value (returned by Get/GetUnsafe/All) or through scalar/aggregate store
+// methods (ObjectName/ObjectFlags/Parents/Children/Contents/VerbNames/...), and
+// construct/relink objects through ObjectBuilder. A direct field access to
+// Object from outside db/store is a compile error.
 type Object struct {
-	ID       types.ObjID
-	Name     string
-	Owner    types.ObjID   // NOT *Object
-	Parents  []types.ObjID // NOT []*Object
-	Children []types.ObjID // NOT []*Object
-	Location types.ObjID   // NOT *Object
-	Contents []types.ObjID // NOT []*Object
-	Flags    ObjectFlags
+	id       types.ObjID
+	name     string
+	owner    types.ObjID   // NOT *Object
+	parents  []types.ObjID // NOT []*Object
+	children []types.ObjID // NOT []*Object
+	location types.ObjID   // NOT *Object
+	contents []types.ObjID // NOT []*Object
+	flags    ObjectFlags
 
 	// Properties and verbs
-	Properties    map[string]*Property
-	PropDefsCount int      // Number of properties defined on this object (not inherited)
-	PropOrder     []string // Property names in order they were read (for name resolution)
-	Verbs         map[string]*Verb
-	VerbList      []*Verb // Ordered list for verb code indexing
+	properties    map[string]*Property
+	propDefsCount int      // Number of properties defined on this object (not inherited)
+	propOrder     []string // Property names in order they were read (for name resolution)
+	verbs         map[string]*Verb
+	verbList      []*Verb // Ordered list for verb code indexing
 
 	// Object lifecycle
-	Recycled  bool
-	Anonymous bool
+	recycled  bool
+	anonymous bool
 
-	// ChparentChildren tracks children that were added via chparent() rather than create()
+	// chparentChildren tracks children that were added via chparent() rather than create()
 	// This is used for property conflict checking - only chparent-added children are checked
-	ChparentChildren map[types.ObjID]bool
+	chparentChildren map[types.ObjID]bool
 
-	// AnonymousChildren tracks anonymous children created from this parent
+	// anonymousChildren tracks anonymous children created from this parent
 	// Used for invalidation when parent hierarchy changes
-	AnonymousChildren []types.ObjID
+	anonymousChildren []types.ObjID
+}
+
+// ObjectView is a flat, read-only snapshot of an Object's scalar fields plus
+// counts for its aggregates. It is a value (a copy): field access is a plain
+// load with no allocation and no locking. Aggregates (parents/children/contents,
+// the property and verb collections) are NOT exposed as live containers here;
+// callers read them through copy-returning store methods (Parents/Children/
+// Contents/VerbNames/DefinedPropertyNames/PropertyValue/...). The counts are
+// provided for round-trip tooling that only needs sizes.
+type ObjectView struct {
+	ID            types.ObjID
+	Name          string
+	Owner         types.ObjID
+	Location      types.ObjID
+	Flags         ObjectFlags
+	Recycled      bool
+	Anonymous     bool
+	VerbCount     int
+	PropertyCount int
+}
+
+// view returns a flat read-only snapshot of the object.
+func (o *Object) view() ObjectView {
+	return ObjectView{
+		ID:            o.id,
+		Name:          o.name,
+		Owner:         o.owner,
+		Location:      o.location,
+		Flags:         o.flags,
+		Recycled:      o.recycled,
+		Anonymous:     o.anonymous,
+		VerbCount:     len(o.verbList),
+		PropertyCount: len(o.properties),
+	}
 }
 
 // Property represents a property on an object.
@@ -264,15 +306,15 @@ type VerbArgs struct {
 // NewObject creates a new object with defaults
 func NewObject(id types.ObjID, owner types.ObjID) *Object {
 	return &Object{
-		ID:               id,
-		Owner:            owner,
-		Parents:          []types.ObjID{},
-		Children:         []types.ObjID{},
-		Contents:         []types.ObjID{},
-		Location:         types.ObjNothing,
-		Properties:       make(map[string]*Property),
-		Verbs:            make(map[string]*Verb),
-		Flags:            0, // Default: not readable or writable (MOO semantics)
-		ChparentChildren: make(map[types.ObjID]bool),
+		id:               id,
+		owner:            owner,
+		parents:          []types.ObjID{},
+		children:         []types.ObjID{},
+		contents:         []types.ObjID{},
+		location:         types.ObjNothing,
+		properties:       make(map[string]*Property),
+		verbs:            make(map[string]*Verb),
+		flags:            0, // Default: not readable or writable (MOO semantics)
+		chparentChildren: make(map[types.ObjID]bool),
 	}
 }

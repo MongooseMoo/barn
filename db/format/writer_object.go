@@ -76,7 +76,7 @@ func (w *Writer) writeAnonymousObjects() error {
 }
 
 // writeObject writes a single object
-func (w *Writer) writeObject(obj *store.Object) error {
+func (w *Writer) writeObject(obj *store.SnapshotObject) error {
 	// Object ID line
 	if err := w.writeString(fmt.Sprintf("#%d", obj.ID)); err != nil {
 		return err
@@ -127,7 +127,7 @@ func (w *Writer) writeObject(obj *store.Object) error {
 		return err
 	}
 	for _, verb := range obj.VerbList {
-		if err := w.writeVerbMetadata(verb.View()); err != nil {
+		if err := w.writeVerbMetadata(verb); err != nil {
 			return err
 		}
 	}
@@ -192,7 +192,7 @@ func (w *Writer) writeVerbMetadata(verb store.VerbView) error {
 // writeProperties writes property definitions and values.
 // Property order is recomputed from the parent chain at dump time to ensure
 // round-trip correctness even when properties are added/modified at runtime.
-func (w *Writer) writeProperties(obj *store.Object) error {
+func (w *Writer) writeProperties(obj *store.SnapshotObject) error {
 	propNames := w.snapshot.PropertyNames[obj.ID]
 
 	// Write propdef count (properties defined on this object)
@@ -219,8 +219,8 @@ func (w *Writer) writeProperties(obj *store.Object) error {
 
 	// Write all property values in parent-chain order
 	for _, name := range propNames {
-		prop := obj.Properties[name]
-		if prop == nil {
+		prop, ok := obj.Properties[name]
+		if !ok {
 			// Missing property - write as clear
 			if err := w.writeInt(TypeClear); err != nil {
 				return err
@@ -243,8 +243,7 @@ func (w *Writer) writeProperties(obj *store.Object) error {
 }
 
 // writeProperty writes a single property value, owner, and perms
-func (w *Writer) writeProperty(prop *store.Property) error {
-	view := prop.View()
+func (w *Writer) writeProperty(view store.PropertyView) error {
 	// Value (or CLEAR type code if clear)
 	if view.Clear {
 		if err := w.writeInt(TypeClear); err != nil {
@@ -280,8 +279,7 @@ func (w *Writer) writeVerbPrograms() error {
 		if obj == nil || obj.Recycled {
 			continue
 		}
-		for idx, verb := range obj.VerbList {
-			view := verb.View()
+		for idx, view := range obj.VerbList {
 			if len(view.Code) > 0 {
 				verbs = append(verbs, verbRef{
 					objID:   obj.ID,

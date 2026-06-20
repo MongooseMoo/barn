@@ -12,14 +12,11 @@ func testObject(id types.ObjID, anonymous bool) *dbstore.Object {
 	if anonymous {
 		flags = flags.Set(dbstore.FlagAnonymous)
 	}
-	return &dbstore.Object{
-		ID:         id,
-		Owner:      0,
-		Flags:      flags,
-		Anonymous:  anonymous,
-		Properties: map[string]*dbstore.Property{},
-		Verbs:      map[string]*dbstore.Verb{},
-	}
+	b := dbstore.NewObjectBuilder(id)
+	b.SetOwner(0)
+	b.SetFlags(flags)
+	b.SetAnonymous(anonymous)
+	return b.Build()
 }
 
 func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *testing.T) {
@@ -63,18 +60,16 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 	root := testObject(0, false)
 	holder := testObject(4, false)
 	anon := testObject(5, true)
-	holderProp := dbstore.NewProperty("two", types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false)
-	holder.Properties["two"] = &holderProp
-	rootProp := dbstore.NewProperty("one", types.NewObj(4), 0, dbstore.PropRead, false, false)
-	root.Properties["one"] = &rootProp
-	anonProp := dbstore.NewProperty("foo", types.NewAnon(5), 0, dbstore.PropRead, false, false)
-	anon.Properties["foo"] = &anonProp
 
 	for _, obj := range []*dbstore.Object{root, holder, anon} {
 		if err := store.Add(obj); err != nil {
-			t.Fatalf("add #%d: %v", obj.ID, err)
+			t.Fatalf("add object: %v", err)
 		}
 	}
+
+	store.DefineProperty(4, dbstore.NewProperty("two", types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(0, dbstore.NewProperty("one", types.NewObj(4), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(5, dbstore.NewProperty("foo", types.NewAnon(5), 0, dbstore.PropRead, false, false))
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{
@@ -100,7 +95,7 @@ func TestCollectPendingFinalizationValuesSkipsBareAnonymousLocals(t *testing.T) 
 
 	for _, obj := range []*dbstore.Object{root, anonA, anonB} {
 		if err := store.Add(obj); err != nil {
-			t.Fatalf("add #%d: %v", obj.ID, err)
+			t.Fatalf("add object: %v", err)
 		}
 	}
 

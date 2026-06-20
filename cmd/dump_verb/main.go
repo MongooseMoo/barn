@@ -37,29 +37,30 @@ func main() {
 	}
 	verbName := args[1]
 
-	obj := store.Get(types.ObjID(objNum))
-	if obj == nil {
+	obj, exists := store.Get(types.ObjID(objNum))
+	if !exists {
 		fmt.Printf("Object #%d not found\n", objNum)
 		os.Exit(1)
 	}
 
 	fmt.Printf("Object #%d: %s\n", objNum, obj.Name)
 
-	verb, ok := obj.Verbs[verbName]
-	if !ok {
+	view, err := store.FindVerbOnObject(types.ObjID(objNum), verbName)
+	if err != nil {
 		// Try with colon prefix
-		verb, ok = obj.Verbs[":"+verbName]
+		view, err = store.FindVerbOnObject(types.ObjID(objNum), ":"+verbName)
 	}
-	if !ok {
+	if err != nil {
 		fmt.Printf("Verb '%s' not found on #%d\n", verbName, objNum)
 		fmt.Println("Available verbs:")
-		for name := range obj.Verbs {
-			fmt.Printf("  %s\n", name)
+		if names, errCode := store.VerbNames(types.ObjID(objNum)); errCode == types.E_NONE {
+			for _, name := range names {
+				fmt.Printf("  %s\n", name)
+			}
 		}
 		os.Exit(1)
 	}
 
-	view := verb.View()
 	fmt.Printf("Verb: %s\n", view.Name)
 	fmt.Printf("Code (%d lines):\n", len(view.Code))
 	for i, line := range view.Code {

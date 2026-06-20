@@ -55,7 +55,7 @@ func (database *Database) parseV17(r *bufio.Reader) (*Database, error) {
 			return nil, fmt.Errorf("read object %d: %w", i, err)
 		}
 		if obj != nil {
-			database.Objects[obj.ID] = obj
+			database.Objects[obj.ID()] = obj
 		}
 	}
 

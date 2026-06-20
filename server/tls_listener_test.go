@@ -113,7 +113,7 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagProgrammer|dbstore.FlagWizard)
-	addTestVerb(system, "do_login_command",
+	addTestVerb(store, system, "do_login_command",
 		`if (length(args) > 0 && args[1] == "connect")`,
 		"  return #2;",
 		"else",

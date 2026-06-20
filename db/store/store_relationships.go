@@ -9,15 +9,15 @@ func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.
 			continue
 		}
 		if anonymous {
-			parent.AnonymousChildren = append(parent.AnonymousChildren, childID)
+			parent.anonymousChildren = append(parent.anonymousChildren, childID)
 			continue
 		}
-		parent.Children = append(parent.Children, childID)
+		parent.children = append(parent.children, childID)
 		if chparent {
-			if parent.ChparentChildren == nil {
-				parent.ChparentChildren = make(map[types.ObjID]bool)
+			if parent.chparentChildren == nil {
+				parent.chparentChildren = make(map[types.ObjID]bool)
 			}
-			parent.ChparentChildren[childID] = true
+			parent.chparentChildren[childID] = true
 		}
 	}
 }
@@ -31,19 +31,19 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 		return types.E_INVIND
 	}
 
-	if what.Location != types.ObjNothing {
-		oldLoc := s.objects[what.Location]
+	if what.location != types.ObjNothing {
+		oldLoc := s.objects[what.location]
 		if validLiveObject(oldLoc) {
-			oldLoc.Contents = removeObjID(oldLoc.Contents, whatID)
+			oldLoc.contents = removeObjID(oldLoc.contents, whatID)
 		}
 	}
 
-	what.Location = whereID
+	what.location = whereID
 
 	if whereID != types.ObjNothing {
 		where := s.objects[whereID]
 		if validLiveObject(where) {
-			where.Contents = insertObjIDAtMOOPosition(where.Contents, whatID, position)
+			where.contents = insertObjIDAtMOOPosition(where.contents, whatID, position)
 		}
 	}
 	return types.E_NONE
@@ -57,10 +57,10 @@ func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
-	if len(obj.Parents) == 0 {
+	if len(obj.parents) == 0 {
 		return types.ObjNothing, types.E_NONE
 	}
-	return obj.Parents[0], types.E_NONE
+	return obj.parents[0], types.E_NONE
 }
 
 func (s *Store) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
@@ -71,7 +71,7 @@ func (s *Store) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
-	return append([]types.ObjID(nil), obj.Parents...), types.E_NONE
+	return append([]types.ObjID(nil), obj.parents...), types.E_NONE
 }
 
 func (s *Store) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
@@ -82,7 +82,7 @@ func (s *Store) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
-	return append([]types.ObjID(nil), obj.Children...), types.E_NONE
+	return append([]types.ObjID(nil), obj.children...), types.E_NONE
 }
 
 func (s *Store) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
@@ -93,7 +93,7 @@ func (s *Store) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
-	return append([]types.ObjID(nil), obj.Contents...), types.E_NONE
+	return append([]types.ObjID(nil), obj.contents...), types.E_NONE
 }
 
 func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
@@ -104,7 +104,7 @@ func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
-	return obj.Location, types.E_NONE
+	return obj.location, types.E_NONE
 }
 
 func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
@@ -118,12 +118,12 @@ func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, t
 
 	result := make([]types.ObjID, 0)
 	seen := make(map[types.ObjID]bool)
-	queue := make([]types.ObjID, 0, len(obj.Parents))
+	queue := make([]types.ObjID, 0, len(obj.parents))
 	if includeSelf {
 		result = append(result, objID)
 		seen[objID] = true
 	}
-	queue = append(queue, obj.Parents...)
+	queue = append(queue, obj.parents...)
 
 	for len(queue) > 0 {
 		currentID := queue[0]
@@ -135,7 +135,7 @@ func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, t
 		result = append(result, currentID)
 		current := s.objects[currentID]
 		if validLiveObject(current) {
-			queue = append(queue, current.Parents...)
+			queue = append(queue, current.parents...)
 		}
 	}
 
@@ -153,12 +153,12 @@ func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID,
 
 	result := make([]types.ObjID, 0)
 	seen := make(map[types.ObjID]bool)
-	queue := make([]types.ObjID, 0, len(obj.Children))
+	queue := make([]types.ObjID, 0, len(obj.children))
 	if includeSelf {
 		result = append(result, objID)
 		seen[objID] = true
 	}
-	queue = append(queue, obj.Children...)
+	queue = append(queue, obj.children...)
 
 	for len(queue) > 0 {
 		currentID := queue[0]
@@ -170,7 +170,7 @@ func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID,
 		result = append(result, currentID)
 		current := s.objects[currentID]
 		if validLiveObject(current) {
-			queue = append(queue, current.Children...)
+			queue = append(queue, current.children...)
 		}
 	}
 
@@ -190,7 +190,7 @@ func (s *Store) HasAncestor(objID, ancestorID types.ObjID) bool {
 	}
 
 	seen := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), obj.Parents...)
+	queue := append([]types.ObjID(nil), obj.parents...)
 	for len(queue) > 0 {
 		currentID := queue[0]
 		queue = queue[1:]
@@ -203,7 +203,7 @@ func (s *Store) HasAncestor(objID, ancestorID types.ObjID) bool {
 		}
 		current := s.objects[currentID]
 		if validLiveObject(current) {
-			queue = append(queue, current.Parents...)
+			queue = append(queue, current.parents...)
 		}
 	}
 	return false
@@ -221,7 +221,7 @@ func (s *Store) HasDescendant(objID, descendantID types.ObjID) bool {
 }
 
 func (s *Store) hasDescendantLocked(obj *Object, descendantID types.ObjID) bool {
-	for _, childID := range obj.Children {
+	for _, childID := range obj.children {
 		if childID == descendantID {
 			return true
 		}
@@ -259,7 +259,7 @@ func (s *Store) HasContentDescendant(objID, targetID types.ObjID) bool {
 		}
 		current := s.objects[currentID]
 		if validLiveObject(current) {
-			queue = append(queue, current.Contents...)
+			queue = append(queue, current.contents...)
 		}
 	}
 	return false
@@ -274,19 +274,19 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		return types.E_INVIND
 	}
 
-	for _, oldParentID := range obj.Parents {
+	for _, oldParentID := range obj.parents {
 		oldParent := s.objects[oldParentID]
 		if !validLiveObject(oldParent) {
 			continue
 		}
-		oldParent.Children = removeObjID(oldParent.Children, objID)
-		if oldParent.ChparentChildren != nil {
-			delete(oldParent.ChparentChildren, objID)
+		oldParent.children = removeObjID(oldParent.children, objID)
+		if oldParent.chparentChildren != nil {
+			delete(oldParent.chparentChildren, objID)
 		}
 	}
 
-	obj.Parents = append([]types.ObjID(nil), newParents...)
-	s.attachChildToParentsLocked(objID, obj.Parents, false, true)
+	obj.parents = append([]types.ObjID(nil), newParents...)
+	s.attachChildToParentsLocked(objID, obj.parents, false, true)
 	s.reseedInheritedPropertiesLocked(obj)
 	return types.E_NONE
 }

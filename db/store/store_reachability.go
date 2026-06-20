@@ -31,10 +31,10 @@ func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 	queue := make([]types.ObjID, 0)
 
 	for _, obj := range s.objects {
-		if !validLiveObject(obj) || obj.Anonymous {
+		if !validLiveObject(obj) || obj.anonymous {
 			continue
 		}
-		for _, prop := range obj.Properties {
+		for _, prop := range obj.properties {
 			if prop == nil {
 				continue
 			}
@@ -75,13 +75,13 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 		}
 
 		obj := s.objects[id]
-		if !validLiveObject(obj) || !obj.Anonymous {
+		if !validLiveObject(obj) || !obj.anonymous {
 			continue
 		}
 
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
-		for _, prop := range obj.Properties {
+		for _, prop := range obj.properties {
 			if prop == nil {
 				continue
 			}
@@ -104,7 +104,7 @@ func (s *Store) UnreachableAnonymousValues(reachable map[types.ObjID]struct{}, r
 	ids := make([]types.ObjID, 0, len(refs))
 	for id := range refs {
 		obj := s.objects[id]
-		if !validLiveObject(obj) || !obj.Anonymous {
+		if !validLiveObject(obj) || !obj.anonymous {
 			continue
 		}
 		if _, keep := reachable[id]; keep {
@@ -130,19 +130,19 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 
 	candidates := make([]types.ObjID, 0)
 	for _, obj := range s.objects {
-		if !validLiveObject(obj) || !obj.Anonymous {
+		if !validLiveObject(obj) || !obj.anonymous {
 			continue
 		}
-		if obj.ID < minID {
+		if obj.id < minID {
 			continue
 		}
-		if obj.Flags.Has(FlagUser) {
+		if obj.flags.Has(FlagUser) {
 			continue
 		}
-		if _, keep := reachable[obj.ID]; keep {
+		if _, keep := reachable[obj.id]; keep {
 			continue
 		}
-		candidates = append(candidates, obj.ID)
+		candidates = append(candidates, obj.id)
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	return candidates
@@ -173,7 +173,7 @@ func (s *Store) PersistentWaifRoots() []types.WaifValue {
 		if !validLiveObject(obj) {
 			continue
 		}
-		for _, prop := range obj.Properties {
+		for _, prop := range obj.properties {
 			if prop == nil {
 				continue
 			}

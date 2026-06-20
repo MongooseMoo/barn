@@ -16,15 +16,15 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	}
 
 	obj := NewObject(newID, owner)
-	obj.Parents = append([]types.ObjID(nil), parents...)
-	obj.Anonymous = anonymous
+	obj.parents = append([]types.ObjID(nil), parents...)
+	obj.anonymous = anonymous
 	if anonymous {
-		obj.Flags = obj.Flags.Set(FlagAnonymous)
+		obj.flags = obj.flags.Set(FlagAnonymous)
 	}
-	obj.Properties = s.copyInheritedPropertiesLocked(obj.Parents)
+	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
 
 	s.insertObjectLocked(obj)
-	s.attachChildToParentsLocked(newID, obj.Parents, anonymous, false)
+	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
 	return newID, types.E_NONE
 }
 
@@ -67,7 +67,7 @@ func (s *Store) Valid(id types.ObjID) bool {
 	}
 
 	// Check if recycled or explicitly invalidated
-	if obj.Recycled || obj.Flags.Has(FlagInvalid) {
+	if obj.recycled || obj.flags.Has(FlagInvalid) {
 		return false
 	}
 
@@ -90,7 +90,7 @@ func (s *Store) IsRecycled(id types.ObjID) bool {
 		return false
 	}
 
-	return obj.Recycled
+	return obj.recycled
 }
 
 // invalidateAnonymousChildrenLocked marks anonymous children under rootID as invalid.
@@ -111,19 +111,19 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 		visited[currentID] = true
 
 		current := s.objects[currentID]
-		if current == nil || current.Recycled {
+		if current == nil || current.recycled {
 			continue
 		}
 
-		for _, childID := range current.AnonymousChildren {
+		for _, childID := range current.anonymousChildren {
 			child := s.objects[childID]
-			if child != nil && child.Anonymous {
-				child.Flags = child.Flags.Set(FlagInvalid)
+			if child != nil && child.anonymous {
+				child.flags = child.flags.Set(FlagInvalid)
 			}
 		}
-		current.AnonymousChildren = nil
+		current.anonymousChildren = nil
 
-		queue = append(queue, current.Children...)
+		queue = append(queue, current.children...)
 	}
 }
 
@@ -139,7 +139,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 		return fmt.Errorf("object #%d does not exist", id)
 	}
 
-	if obj.Recycled {
+	if obj.recycled {
 		return fmt.Errorf("object #%d already recycled", id)
 	}
 
@@ -147,8 +147,8 @@ func (s *Store) Recycle(id types.ObjID) error {
 	// ToastStunt; they remain valid (property access through a recycled parent
 	// simply raises E_PROPNF). The anon is only invalidated when recycled itself.
 
-	objParents := append([]types.ObjID(nil), obj.Parents...)
-	for _, childID := range obj.Children {
+	objParents := append([]types.ObjID(nil), obj.parents...)
+	for _, childID := range obj.children {
 		child := s.objects[childID]
 		if !validLiveObject(child) {
 			continue
@@ -156,7 +156,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 
 		newChildParents := []types.ObjID{}
 		seen := make(map[types.ObjID]bool)
-		for _, pid := range child.Parents {
+		for _, pid := range child.parents {
 			if pid == id {
 				for _, op := range objParents {
 					if !seen[op] {
@@ -171,45 +171,45 @@ func (s *Store) Recycle(id types.ObjID) error {
 				newChildParents = append(newChildParents, pid)
 			}
 		}
-		child.Parents = newChildParents
+		child.parents = newChildParents
 
 		for _, newParentID := range objParents {
 			newParent := s.objects[newParentID]
-			if validLiveObject(newParent) && !slices.Contains(newParent.Children, childID) {
-				newParent.Children = append(newParent.Children, childID)
+			if validLiveObject(newParent) && !slices.Contains(newParent.children, childID) {
+				newParent.children = append(newParent.children, childID)
 			}
 		}
 	}
 
-	for _, contentID := range obj.Contents {
+	for _, contentID := range obj.contents {
 		content := s.objects[contentID]
 		if validLiveObject(content) {
-			content.Location = types.ObjNothing
+			content.location = types.ObjNothing
 		}
 	}
-	obj.Contents = []types.ObjID{}
+	obj.contents = []types.ObjID{}
 
-	if obj.Location != types.ObjNothing {
-		oldLoc := s.objects[obj.Location]
+	if obj.location != types.ObjNothing {
+		oldLoc := s.objects[obj.location]
 		if validLiveObject(oldLoc) {
-			oldLoc.Contents = removeObjID(oldLoc.Contents, id)
+			oldLoc.contents = removeObjID(oldLoc.contents, id)
 		}
 	}
-	obj.Location = types.ObjNothing
+	obj.location = types.ObjNothing
 
-	obj.Properties = make(map[string]*Property)
-	obj.Verbs = make(map[string]*Verb)
+	obj.properties = make(map[string]*Property)
+	obj.verbs = make(map[string]*Verb)
 
-	for _, parentID := range obj.Parents {
+	for _, parentID := range obj.parents {
 		parent := s.objects[parentID]
 		if validLiveObject(parent) {
-			parent.Children = removeObjID(parent.Children, id)
+			parent.children = removeObjID(parent.children, id)
 		}
 	}
 
 	// Mark as recycled and invalid
-	obj.Recycled = true
-	obj.Flags = obj.Flags.Set(FlagRecycled | FlagInvalid)
+	obj.recycled = true
+	obj.flags = obj.flags.Set(FlagRecycled | FlagInvalid)
 
 	// Track for potential reuse
 	s.recycledID = append(s.recycledID, id)
@@ -229,31 +229,32 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 		return fmt.Errorf("object #%d does not exist", id)
 	}
 
-	if !obj.Recycled {
+	if !obj.recycled {
 		return fmt.Errorf("object #%d is not recycled", id)
 	}
 
 	// Reset object to fresh state
 	newObj := NewObject(id, owner)
-	newObj.Parents = []types.ObjID{parent}
-	newObj.Properties = s.copyInheritedPropertiesLocked(newObj.Parents)
+	newObj.parents = []types.ObjID{parent}
+	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
 
 	s.objects[id] = newObj
-	s.attachChildToParentsLocked(id, newObj.Parents, false, false)
+	s.attachChildToParentsLocked(id, newObj.parents, false, false)
 
 	return nil
 }
 
-// All returns all valid (non-recycled) objects
+// All returns flat, read-only ObjectViews for every valid (non-recycled)
+// object. The store never hands out live *Object values to external callers.
 
-func (s *Store) All() []*Object {
+func (s *Store) All() []ObjectView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]*Object, 0, len(s.objects))
+	result := make([]ObjectView, 0, len(s.objects))
 	for _, obj := range s.objects {
-		if !obj.Recycled {
-			result = append(result, obj)
+		if !obj.recycled {
+			result = append(result, obj.view())
 		}
 	}
 	return result
@@ -265,8 +266,8 @@ func (s *Store) Players() []types.ObjID {
 
 	result := []types.ObjID{}
 	for _, obj := range s.objects {
-		if !obj.Recycled && obj.Flags.Has(FlagUser) {
-			result = append(result, obj.ID)
+		if !obj.recycled && obj.flags.Has(FlagUser) {
+			result = append(result, obj.id)
 		}
 	}
 	return result
@@ -296,7 +297,7 @@ func (s *Store) LowestFreeID() types.ObjID {
 		if !exists {
 			return id
 		}
-		if obj.Recycled {
+		if obj.recycled {
 			return id
 		}
 	}
@@ -314,7 +315,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 
 	// Get the object to renumber
 	obj, ok := s.objects[oldID]
-	if !ok || obj.Recycled {
+	if !ok || obj.recycled {
 		return fmt.Errorf("object #%d does not exist", oldID)
 	}
 
@@ -324,14 +325,14 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	}
 
 	// Check new ID is available
-	if existing, exists := s.objects[newID]; exists && !existing.Recycled {
+	if existing, exists := s.objects[newID]; exists && !existing.recycled {
 		return fmt.Errorf("object #%d already exists", newID)
 	}
 
 	// Note: renumbering does NOT invalidate anonymous descendants in ToastStunt.
 
 	// Update the object's ID
-	obj.ID = newID
+	obj.id = newID
 
 	// Move in store
 	delete(s.objects, oldID)
@@ -349,47 +350,47 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 
 	// Update all references in ALL objects
 	for _, other := range s.objects {
-		if other.Recycled {
+		if other.recycled {
 			continue
 		}
 
 		// Update Parents
-		for i, pid := range other.Parents {
+		for i, pid := range other.parents {
 			if pid == oldID {
-				other.Parents[i] = newID
+				other.parents[i] = newID
 			}
 		}
 
 		// Update Children
-		for i, cid := range other.Children {
+		for i, cid := range other.children {
 			if cid == oldID {
-				other.Children[i] = newID
+				other.children[i] = newID
 			}
 		}
 
 		// Update ChparentChildren
-		if other.ChparentChildren != nil {
-			if other.ChparentChildren[oldID] {
-				delete(other.ChparentChildren, oldID)
-				other.ChparentChildren[newID] = true
+		if other.chparentChildren != nil {
+			if other.chparentChildren[oldID] {
+				delete(other.chparentChildren, oldID)
+				other.chparentChildren[newID] = true
 			}
 		}
 
 		// Update Location
-		if other.Location == oldID {
-			other.Location = newID
+		if other.location == oldID {
+			other.location = newID
 		}
 
 		// Update Contents
-		for i, cid := range other.Contents {
+		for i, cid := range other.contents {
 			if cid == oldID {
-				other.Contents[i] = newID
+				other.contents[i] = newID
 			}
 		}
 
 		// Update Owner
-		if other.Owner == oldID {
-			other.Owner = newID
+		if other.owner == oldID {
+			other.owner = newID
 		}
 	}
 

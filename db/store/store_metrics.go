@@ -16,9 +16,9 @@ func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 func calculateObjectBytes(obj *Object) int {
 	count := 64 + 8
 
-	count += len(obj.Name) + 1
+	count += len(obj.name) + 1
 
-	for _, verb := range obj.Verbs {
+	for _, verb := range obj.verbs {
 		count += 32
 		count += len(verb.name) + 1
 		// NOTE (verbcache spike): the AST (verb.Program) no longer lives on the
@@ -26,14 +26,14 @@ func calculateObjectBytes(obj *Object) int {
 		// the relocated bytecode cache for an accurate estimate.
 	}
 
-	for _, prop := range obj.Properties {
+	for _, prop := range obj.properties {
 		if prop.defined {
 			count += 32
 			count += len(prop.name) + 1
 		}
 	}
 
-	for _, prop := range obj.Properties {
+	for _, prop := range obj.properties {
 		count += 24
 		count += calculateValueBytes(prop.value)
 	}
@@ -118,13 +118,13 @@ func (s *Store) ResetMaxObject() {
 	maxNonAnon := types.ObjID(-1)
 
 	for id, obj := range s.objects {
-		if obj == nil || obj.Recycled {
+		if obj == nil || obj.recycled {
 			continue
 		}
 		if id > maxAny {
 			maxAny = id
 		}
-		if !obj.Anonymous && id > maxNonAnon {
+		if !obj.anonymous && id > maxNonAnon {
 			maxNonAnon = id
 		}
 	}

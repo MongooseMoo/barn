@@ -39,7 +39,7 @@ func TestLoadDatabase(t *testing.T) {
 	}
 
 	t.Logf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
-	t.Logf("System object: %s", systemObj.Name)
+	t.Logf("System object: %s", systemObj.Name())
 	t.Logf("Players: %d", len(database.Players))
 }
 
@@ -57,10 +57,10 @@ func TestParentParsing(t *testing.T) {
 	if obj39 == nil {
 		t.Fatal("Object #39 (player_db) not found")
 	}
-	if len(obj39.Parents) == 0 {
+	if len(obj39.Parents()) == 0 {
 		t.Error("Object #39 has no parents")
-	} else if obj39.Parents[0] != 37 {
-		t.Errorf("Object #39 should have parent #37, got #%d", obj39.Parents[0])
+	} else if obj39.Parents()[0] != 37 {
+		t.Errorf("Object #39 should have parent #37, got #%d", obj39.Parents()[0])
 	}
 
 	// Test #37 (Generic Database) has parent #1
@@ -68,10 +68,10 @@ func TestParentParsing(t *testing.T) {
 	if obj37 == nil {
 		t.Fatal("Object #37 (Generic Database) not found")
 	}
-	if len(obj37.Parents) == 0 {
+	if len(obj37.Parents()) == 0 {
 		t.Error("Object #37 has no parents")
-	} else if obj37.Parents[0] != 1 {
-		t.Errorf("Object #37 should have parent #1, got #%d", obj37.Parents[0])
+	} else if obj37.Parents()[0] != 1 {
+		t.Errorf("Object #37 should have parent #1, got #%d", obj37.Parents()[0])
 	}
 
 	// Test #1 (root class) has no parent
@@ -79,8 +79,8 @@ func TestParentParsing(t *testing.T) {
 	if obj1 == nil {
 		t.Fatal("Object #1 (root class) not found")
 	}
-	if len(obj1.Parents) != 0 {
-		t.Errorf("Object #1 (root) should have no parents, got %d parents: %v", len(obj1.Parents), obj1.Parents)
+	if len(obj1.Parents()) != 0 {
+		t.Errorf("Object #1 (root) should have no parents, got %d parents: %v", len(obj1.Parents()), obj1.Parents())
 	}
 }
 
@@ -99,14 +99,15 @@ func TestVerbCount(t *testing.T) {
 		t.Fatal("Object #37 (Generic Database) not found")
 	}
 
-	if len(obj37.VerbList) == 0 {
+	if obj37.VerbCount() == 0 {
 		t.Error("Object #37 should have verbs")
 	}
 
 	// Check if find_exact verb exists
 	hasFinexact := false
-	for _, verb := range obj37.VerbList {
-		if verb.View().Names[0] == "find_exact" {
+	for i := 0; i < obj37.VerbCount(); i++ {
+		names := obj37.VerbNamesAt(i)
+		if len(names) > 0 && names[0] == "find_exact" {
 			hasFinexact = true
 			break
 		}
@@ -215,7 +216,7 @@ inner_verb
 	r := bufio.NewReader(strings.NewReader(taskData))
 	database := &Database{
 		Version: 17,
-		Objects: make(map[types.ObjID]*store.Object),
+		Objects: make(map[types.ObjID]*store.ObjectBuilder),
 	}
 
 	err := database.readSuspendedTasks(r)
@@ -278,8 +279,9 @@ func TestVerbInheritance(t *testing.T) {
 	// Test that the verb is actually from #37
 	obj37 := database.Objects[37]
 	foundOnParent := false
-	for _, v := range obj37.VerbList {
-		if v.View().Names[0] == "find_exact" {
+	for i := 0; i < obj37.VerbCount(); i++ {
+		names := obj37.VerbNamesAt(i)
+		if len(names) > 0 && names[0] == "find_exact" {
 			foundOnParent = true
 			break
 		}
@@ -301,11 +303,11 @@ func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
 		if obj == nil {
 			continue
 		}
-		for i, name := range obj.PropOrder {
+		for i, name := range obj.PropOrder() {
 			if strings.HasPrefix(name, "_inherited_") {
 				t.Fatalf("object #%d prop order index %d still unresolved: %q", objID, i, name)
 			}
-			if _, ok := obj.Properties[name]; !ok {
+			if _, ok := obj.Property(name); !ok {
 				t.Fatalf("object #%d prop order index %d missing property %q", objID, i, name)
 			}
 		}
@@ -321,15 +323,13 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	}
 
 	objectStore := loaded.NewStoreFromDatabase()
-	beforeObj := objectStore.Get(101)
-	if beforeObj == nil {
+	if _, ok := objectStore.Get(101); !ok {
 		t.Fatal("Object #101 not found")
 	}
-	beforeRaw, ok := beforeObj.Properties["index_cache"]
+	beforeProp, ok, _ := objectStore.LocalProperty(101, "index_cache")
 	if !ok {
 		t.Fatal(`Object #101 missing property "index_cache"`)
 	}
-	beforeProp := beforeRaw.View()
 	if beforeProp.Clear {
 		t.Fatal(`Expected #101.index_cache to be a local override (clear=false) before round trip`)
 	}
@@ -349,15 +349,14 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to reload round-tripped database: %v", err)
 	}
-	afterObj := reloaded.NewStoreFromDatabase().Get(101)
-	if afterObj == nil {
+	reloadedStore := reloaded.NewStoreFromDatabase()
+	if _, ok := reloadedStore.Get(101); !ok {
 		t.Fatal("Reloaded object #101 not found")
 	}
-	afterRaw, ok := afterObj.Properties["index_cache"]
+	afterProp, ok, _ := reloadedStore.LocalProperty(101, "index_cache")
 	if !ok {
 		t.Fatal(`Reloaded object #101 missing property "index_cache"`)
 	}
-	afterProp := afterRaw.View()
 
 	if afterProp.Clear {
 		t.Fatal(`Round trip corrupted #101.index_cache into clear=true`)
