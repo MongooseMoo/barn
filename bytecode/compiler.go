@@ -2048,13 +2048,13 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	c.beginLoop(n.Label, resultVar, n.Value, n.Index)
 	loopStart := c.currentOffset()
 
-	// Condition: idx <= len
-	c.emit(OP_GET_VAR)
+	// Condition: if idx > len, jump to exit. Fused FOR_RANGE_CHECK (idx and len are
+	// ints) replaces GET_VAR/GET_VAR/LE/JUMP_IF_FALSE — same opcode used by range-for.
+	c.emit(OP_FOR_RANGE_CHECK)
 	c.emitByte(byte(idxVar))
-	c.emit(OP_GET_VAR)
 	c.emitByte(byte(lenVar))
-	c.emit(OP_LE)
-	exitJump := c.emitJump(OP_JUMP_IF_FALSE)
+	exitJump := c.currentOffset()
+	c.emitShort(0xFFFF) // exit offset placeholder, patched below
 
 	// Get current element: elem = list[idx]
 	c.emit(OP_GET_VAR)
@@ -2115,18 +2115,10 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 		c.patchJump(offset)
 	}
 
-	// Increment: idx = idx + 1
-	c.emit(OP_GET_VAR)
+	// Increment + loop back: idx += 1; jump to condition. Fused FOR_RANGE_NEXT
+	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same opcode used by range-for).
+	c.emit(OP_FOR_RANGE_NEXT)
 	c.emitByte(byte(idxVar))
-	if op, ok := MakeImmediateOpcode(1); ok {
-		c.emit(op)
-	}
-	c.emit(OP_ADD)
-	c.emit(OP_SET_VAR)
-	c.emitByte(byte(idxVar))
-
-	// Loop back
-	c.emit(OP_LOOP)
 	offset := c.currentOffset() + 2 - loopStart
 	c.emitShort(uint16(offset))
 
