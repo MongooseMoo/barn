@@ -527,6 +527,35 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		offset := vm.ReadShort()
 		vm.CurrentFrame().IP -= int(offset)
 
+	case bytecode.OP_FOR_RANGE_CHECK:
+		// Range-for condition, fused: if Locals[valueVar] > Locals[endVar], jump to exit.
+		// Replicates GET_VAR/GET_VAR/LE/JUMP_IF_FALSE using the same compare semantics.
+		valueIdx := vm.ReadByte()
+		endIdx := vm.ReadByte()
+		offset := vm.ReadShort()
+		frame := vm.CurrentFrame()
+		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx])
+		if err != nil {
+			return err
+		}
+		if cmp > 0 {
+			frame.IP += int(offset)
+		}
+
+	case bytecode.OP_FOR_RANGE_NEXT:
+		// Range-for increment + loop back, fused: Locals[valueVar] += 1; IP -= offset.
+		// Replicates GET_VAR/IMM(1)/ADD/SET_VAR/LOOP; integer fast path, E_TYPE otherwise
+		// (matching OP_ADD: only int+int is valid for a +1 increment).
+		valueIdx := vm.ReadByte()
+		offset := vm.ReadShort()
+		frame := vm.CurrentFrame()
+		cur, ok := frame.Locals[valueIdx].(types.IntValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: invalid operands for +")
+		}
+		frame.Locals[valueIdx] = types.IntValue{Val: cur.Val + 1}
+		frame.IP -= int(offset)
+
 	case bytecode.OP_RETURN_NONE:
 		vm.Return(types.IntValue{Val: 0})
 

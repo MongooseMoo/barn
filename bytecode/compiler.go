@@ -1952,13 +1952,13 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	c.beginLoop(n.Label, resultVar, n.Value, "")
 	loopStart := c.currentOffset()
 
-	// Condition: x <= end
-	c.emit(OP_GET_VAR)
+	// Condition: if value > end, jump to exit. Fused FOR_RANGE_CHECK replaces the
+	// GET_VAR/GET_VAR/LE/JUMP_IF_FALSE sequence (same compare semantics, one dispatch).
+	c.emit(OP_FOR_RANGE_CHECK)
 	c.emitByte(byte(valueVar))
-	c.emit(OP_GET_VAR)
 	c.emitByte(byte(endVar))
-	c.emit(OP_LE)
-	exitJump := c.emitJump(OP_JUMP_IF_FALSE)
+	exitJump := c.currentOffset()
+	c.emitShort(0xFFFF) // exit offset placeholder, patched below
 
 	// Body
 	if err := c.compileBlock(n.Body); err != nil {
@@ -1971,18 +1971,10 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 		c.patchJump(offset)
 	}
 
-	// Increment: x = x + 1
-	c.emit(OP_GET_VAR)
+	// Increment + loop back: value += 1; jump to condition. Fused FOR_RANGE_NEXT
+	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same +1 semantics, counts one tick).
+	c.emit(OP_FOR_RANGE_NEXT)
 	c.emitByte(byte(valueVar))
-	if op, ok := MakeImmediateOpcode(1); ok {
-		c.emit(op)
-	}
-	c.emit(OP_ADD)
-	c.emit(OP_SET_VAR)
-	c.emitByte(byte(valueVar))
-
-	// Loop back
-	c.emit(OP_LOOP)
 	offset := c.currentOffset() + 2 - loopStart
 	c.emitShort(uint16(offset))
 

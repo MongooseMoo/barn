@@ -76,11 +76,11 @@ const (
 
 // Looping
 const (
-	OP_LOOP      OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
-	OP_FOR_RANGE                                    // DEAD: replaced by while-loop pattern (never emitted by compiler)
-	OP_FOR_LIST                                     // DEAD: replaced by OP_ITER_PREP pattern (never emitted by compiler)
-	OP_FOR_MAP                                      // DEAD: replaced by OP_ITER_PREP runtime dispatch (never emitted by compiler)
-	OP_FOR_NEXT                                     // DEAD: replaced by explicit GET_VAR/ADD/SET_VAR (never emitted by compiler)
+	OP_LOOP           OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
+	OP_FOR_RANGE_CHECK                                   // Range-for condition [valueVar:byte, endVar:byte, exitOffset:short]: if Locals[valueVar] > Locals[endVar] jump exit
+	OP_FOR_LIST                                          // DEAD: replaced by OP_ITER_PREP pattern (never emitted by compiler)
+	OP_FOR_MAP                                           // DEAD: replaced by OP_ITER_PREP runtime dispatch (never emitted by compiler)
+	OP_FOR_RANGE_NEXT                                    // Range-for increment+loopback [valueVar:byte, loopOffset:short]: Locals[valueVar]+=1; IP -= loopOffset
 	OP_BREAK                                        // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
 	OP_CONTINUE                                     // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
 )
@@ -167,10 +167,10 @@ var OpCodeNames = map[OpCode]string{
 	OP_RETURN:        "RETURN",
 	OP_RETURN_NONE:   "RETURN_NONE",
 	OP_LOOP:          "LOOP",
-	OP_FOR_RANGE:     "DEAD_FOR_RANGE",
-	OP_FOR_LIST:      "DEAD_FOR_LIST",
-	OP_FOR_MAP:       "DEAD_FOR_MAP",
-	OP_FOR_NEXT:      "DEAD_FOR_NEXT",
+	OP_FOR_RANGE_CHECK: "FOR_RANGE_CHECK",
+	OP_FOR_LIST:        "DEAD_FOR_LIST",
+	OP_FOR_MAP:         "DEAD_FOR_MAP",
+	OP_FOR_RANGE_NEXT:  "FOR_RANGE_NEXT",
 	OP_BREAK:         "DEAD_BREAK",
 	OP_CONTINUE:      "DEAD_CONTINUE",
 	OP_TRY_EXCEPT:    "TRY_EXCEPT",
@@ -235,7 +235,7 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 // CountsTick reports whether an opcode counts toward tick limit
 func CountsTick(op OpCode) bool {
 	switch op {
-	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_LOOP, OP_PASS:
+	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_LOOP, OP_FOR_RANGE_NEXT, OP_PASS:
 		return true
 	default:
 		return false
