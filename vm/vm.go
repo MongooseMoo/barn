@@ -556,6 +556,48 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		frame.Locals[valueIdx] = types.IntValue{Val: cur.Val + 1}
 		frame.IP -= int(offset)
 
+	case bytecode.OP_FOR_LIST_LOAD:
+		// for-in element load, fused: value = normalizedList[idx], unwrapping the
+		// {value,key} pair when the iteration is over pairs. idx is provably in
+		// [1..len] (FOR_RANGE_CHECK gates it), so no bounds-check dispatch needed.
+		listIdx := vm.ReadByte()
+		elemIdx := vm.ReadByte()
+		valueIdx := vm.ReadByte()
+		isPairsIdx := vm.ReadByte()
+		frame := vm.CurrentFrame()
+		list, ok := frame.Locals[listIdx].(types.ListValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+		}
+		elem := list.Get(int(frame.Locals[elemIdx].(types.IntValue).Val))
+		if frame.Locals[isPairsIdx].Truthy() {
+			pair, ok := elem.(types.ListValue)
+			if !ok {
+				return MooError{Code: types.E_TYPE}
+			}
+			elem = pair.Get(1)
+		}
+		frame.Locals[valueIdx] = elem
+
+	case bytecode.OP_FOR_LIST_LOAD_KV:
+		// for-in k,v element load, fused: elem={value,key}=normalizedList[idx];
+		// value=elem[1]; index=elem[2]. Elements are always pairs here.
+		listIdx := vm.ReadByte()
+		elemIdx := vm.ReadByte()
+		valueIdx := vm.ReadByte()
+		indexIdx := vm.ReadByte()
+		frame := vm.CurrentFrame()
+		list, ok := frame.Locals[listIdx].(types.ListValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: for loop iterator is not a list")
+		}
+		pair, ok := list.Get(int(frame.Locals[elemIdx].(types.IntValue).Val)).(types.ListValue)
+		if !ok {
+			return MooError{Code: types.E_TYPE}
+		}
+		frame.Locals[valueIdx] = pair.Get(1)
+		frame.Locals[indexIdx] = pair.Get(2)
+
 	case bytecode.OP_RETURN_NONE:
 		vm.Return(types.IntValue{Val: 0})
 

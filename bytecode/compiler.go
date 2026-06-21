@@ -2056,52 +2056,23 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	exitJump := c.currentOffset()
 	c.emitShort(0xFFFF) // exit offset placeholder, patched below
 
-	// Get current element: elem = list[idx]
-	c.emit(OP_GET_VAR)
-	c.emitByte(byte(listVar))
-	c.emit(OP_GET_VAR)
-	c.emitByte(byte(idxVar))
-	c.emit(OP_INDEX)
-	// Stack: [elem]
-
+	// Load current element into the loop variable(s). Fused element-load replaces
+	// GET_VAR(list)/GET_VAR(idx)/INDEX plus the value/index extraction: idx is
+	// provably in [1..len] so the bounds-checked INDEX dispatch is unnecessary.
 	if hasIndex {
-		// isPairs is always 1 when hasIndex is true (OP_ITER_PREP guarantees this)
-		// elem is {value, key/index} pair
-		// Store the pair temporarily via DUP
-		c.emit(OP_DUP)
-		// Stack: [elem, elem]
-		// Extract value = elem[1]
-		if op, ok := MakeImmediateOpcode(1); ok {
-			c.emit(op)
-		}
-		c.emit(OP_INDEX)
-		c.emit(OP_SET_VAR)
+		// elem is always a {value, key/index} pair (OP_ITER_PREP guarantees isPairs).
+		c.emit(OP_FOR_LIST_LOAD_KV)
+		c.emitByte(byte(listVar))
+		c.emitByte(byte(idxVar))
 		c.emitByte(byte(valueVar))
-		// Stack: [elem]
-		// Extract key/index = elem[2]
-		if op, ok := MakeImmediateOpcode(2); ok {
-			c.emit(op)
-		}
-		c.emit(OP_INDEX)
-		c.emit(OP_SET_VAR)
 		c.emitByte(byte(indexVar))
 	} else {
-		// Check isPairs at runtime: if pairs, extract elem[1]; else use elem directly
-		c.emit(OP_GET_VAR)
-		c.emitByte(byte(isPairsVar))
-		noPairsJump := c.emitJump(OP_JUMP_IF_FALSE)
-		// isPairs == true: elem is {value, key}, extract value = elem[1]
-		if op, ok := MakeImmediateOpcode(1); ok {
-			c.emit(op)
-		}
-		c.emit(OP_INDEX)
-		assignJump := c.emitJump(OP_JUMP)
-		// isPairs == false: elem is already the value
-		c.patchJump(noPairsJump)
-		// No-op: elem is already on stack
-		c.patchJump(assignJump)
-		c.emit(OP_SET_VAR)
+		// value = isPairs ? elem[1] : elem (isPairs resolved at runtime).
+		c.emit(OP_FOR_LIST_LOAD)
+		c.emitByte(byte(listVar))
+		c.emitByte(byte(idxVar))
 		c.emitByte(byte(valueVar))
+		c.emitByte(byte(isPairsVar))
 	}
 
 	// Body

@@ -78,8 +78,8 @@ const (
 const (
 	OP_LOOP           OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
 	OP_FOR_RANGE_CHECK                                   // Range-for condition [valueVar:byte, endVar:byte, exitOffset:short]: if Locals[valueVar] > Locals[endVar] jump exit
-	OP_FOR_LIST                                          // DEAD: replaced by OP_ITER_PREP pattern (never emitted by compiler)
-	OP_FOR_MAP                                           // DEAD: replaced by OP_ITER_PREP runtime dispatch (never emitted by compiler)
+	OP_FOR_LIST_LOAD                                     // for-in element load [listVar,idxVar,valueVar,isPairsVar]: value = list[idx] (unwrapping {value,key} pairs when isPairs)
+	OP_FOR_LIST_LOAD_KV                                  // for-in k,v element load [listVar,idxVar,valueVar,indexVar]: elem={value,key}=list[idx]; value=elem[1]; index=elem[2]
 	OP_FOR_RANGE_NEXT                                    // Range-for increment+loopback [valueVar:byte, loopOffset:short]: Locals[valueVar]+=1; IP -= loopOffset
 	OP_BREAK                                        // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
 	OP_CONTINUE                                     // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
@@ -168,8 +168,8 @@ var OpCodeNames = map[OpCode]string{
 	OP_RETURN_NONE:   "RETURN_NONE",
 	OP_LOOP:          "LOOP",
 	OP_FOR_RANGE_CHECK: "FOR_RANGE_CHECK",
-	OP_FOR_LIST:        "DEAD_FOR_LIST",
-	OP_FOR_MAP:         "DEAD_FOR_MAP",
+	OP_FOR_LIST_LOAD:    "FOR_LIST_LOAD",
+	OP_FOR_LIST_LOAD_KV: "FOR_LIST_LOAD_KV",
 	OP_FOR_RANGE_NEXT:  "FOR_RANGE_NEXT",
 	OP_BREAK:         "DEAD_BREAK",
 	OP_CONTINUE:      "DEAD_CONTINUE",
