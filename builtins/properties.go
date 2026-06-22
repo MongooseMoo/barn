@@ -231,7 +231,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	propName := nameVal.Value()
 
 	// Check if property name is built-in
-	if isBuiltinProperty(propName) {
+	if IsBuiltinProperty(propName) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -394,7 +394,7 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	propName := nameVal.Value()
 
 	// Check if it's a built-in property - return E_PERM
-	if isBuiltinProperty(propName) {
+	if IsBuiltinProperty(propName) {
 		return types.Err(types.E_PERM)
 	}
 
@@ -460,7 +460,7 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 	propName := nameVal.Value()
 
 	// Check if it's a built-in property - return 0
-	if isBuiltinProperty(propName) {
+	if IsBuiltinProperty(propName) {
 		return types.Ok(types.NewInt(0))
 	}
 
@@ -493,9 +493,9 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 
 // Helper functions
 
-// isBuiltinProperty checks if a property name is a built-in property
+// IsBuiltinProperty checks if a property name is a built-in property
 // Built-in properties: name, owner, location, contents, parents, parent, children, programmer, wizard, player, r, w, f, a
-func isBuiltinProperty(name string) bool {
+func IsBuiltinProperty(name string) bool {
 	switch name {
 	case "name", "owner", "location", "contents", "parents", "parent", "children",
 		"programmer", "wizard", "player", "r", "w", "f", "a":

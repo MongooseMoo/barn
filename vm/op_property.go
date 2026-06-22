@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"barn/builtins"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
@@ -59,7 +60,18 @@ func (vm *VM) executeGetProp() error {
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
 
-	// Look up defined property first (with inheritance via breadth-first search)
+	// Built-in property names (.name/.owner/.location/...) can never be defined
+	// properties — add_property rejects them with E_INVARG — so serve them from
+	// the built-in path directly, skipping the (always-failing) inheritance walk.
+	if builtins.IsBuiltinProperty(propName) {
+		if val, ok := getBuiltinProperty(vm.Store, objID, propName); ok {
+			vm.Push(val)
+			return nil
+		}
+		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+	}
+
+	// Look up defined property (with inheritance via breadth-first search).
 	prop, errCode := vm.Store.FindProperty(objID, propName)
 	if errCode == types.E_NONE {
 		// Check read permission
@@ -67,12 +79,6 @@ func (vm *VM) executeGetProp() error {
 			return err
 		}
 		vm.Push(prop.Value)
-		return nil
-	}
-
-	// Check for built-in properties (flag properties like .name, .owner, .wizard, etc.)
-	if val, ok := getBuiltinProperty(vm.Store, objID, propName); ok {
-		vm.Push(val)
 		return nil
 	}
 
