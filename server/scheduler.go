@@ -12,8 +12,10 @@ import (
 
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/command"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/scheduler"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -235,7 +237,7 @@ func (s *Scheduler) ForceInput(player types.ObjID, line string, atFront bool) {
 // bf_force_input. There is no connection to bind, so a returned player is not
 // logged in — only the verb's side effects occur.
 func (s *Scheduler) forcePhantomLogin(player types.ObjID, line string) {
-	words := commandWordList(line)
+	words := command.CommandWordList(line)
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
@@ -346,7 +348,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 
 	if strings.HasPrefix(input.Line, "#$#") && !builtins.ConnectionOptionTruthy(player, "disable-oob") {
-		words := commandWordList(input.Line)
+		words := command.CommandWordList(input.Line)
 		args := make([]types.Value, len(words))
 		for i, word := range words {
 			args[i] = types.NewStr(word)
@@ -365,7 +367,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 	}
 
 	// Parse the command
-	cmd := ParseCommand(input.Line)
+	cmd := command.ParseCommand(input.Line)
 	if cmd.Verb == "" {
 		return
 	}
@@ -410,16 +412,16 @@ func (s *Scheduler) processCommand(input InputEvent) {
 
 	// Resolve direct object
 	if cmd.Dobjstr != "" {
-		cmd.Dobj = MatchObject(s.store, player, location, cmd.Dobjstr)
+		cmd.Dobj = scheduler.MatchObject(s.store, player, location, cmd.Dobjstr)
 	}
 
 	// Resolve indirect object
 	if cmd.Iobjstr != "" {
-		cmd.Iobj = MatchObject(s.store, player, location, cmd.Iobjstr)
+		cmd.Iobj = scheduler.MatchObject(s.store, player, location, cmd.Iobjstr)
 	}
 
 	// Find the verb
-	match := FindVerb(s.store, player, location, cmd)
+	match := scheduler.FindVerb(s.store, player, location, cmd)
 	if match == nil {
 		if verbUpper == "EVAL" {
 			code := strings.TrimSpace(cmd.Argstr)
@@ -443,7 +445,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		}
 
 		if huhVerb, huhVerbLoc, err := s.store.FindVerb(huhTarget, "huh"); err == nil {
-			huhMatch := &VerbMatch{
+			huhMatch := &scheduler.VerbMatch{
 				Verb:    huhVerb,
 				This:    huhTarget,
 				VerbLoc: huhVerbLoc,
@@ -569,7 +571,7 @@ func (s *Scheduler) parseProgramTarget(player, location types.ObjID, spec string
 		return types.ObjNothing, "", false
 	}
 
-	target := MatchObject(s.store, player, location, objText)
+	target := scheduler.MatchObject(s.store, player, location, objText)
 	if target < 0 {
 		return types.ObjNothing, "", false
 	}

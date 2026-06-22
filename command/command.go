@@ -1,4 +1,4 @@
-package server
+package command
 
 import (
 	"barn/types"
@@ -47,6 +47,18 @@ var prepositions = [][]string{
 	{"is"},                              // 12 - PrepIs
 	{"as"},                              // 13 - PrepAs
 	{"off", "off of"},                   // 14 - PrepOff
+}
+
+func PrepSpecForAlias(alias string) (PrepSpec, bool) {
+	alias = strings.ToLower(alias)
+	for prepIdx, aliases := range prepositions {
+		for _, candidate := range aliases {
+			if alias == candidate {
+				return PrepSpec(prepIdx), true
+			}
+		}
+	}
+	return PrepNone, false
 }
 
 // ParsedCommand is the structured representation of a parsed player command
@@ -138,7 +150,7 @@ func tokenizeCommandWords(input string) []string {
 	return words
 }
 
-func commandWordList(input string) []string {
+func CommandWordList(input string) []string {
 	input = strings.TrimLeftFunc(input, unicode.IsSpace)
 	if input == "" {
 		return nil
@@ -155,7 +167,7 @@ func commandWordList(input string) []string {
 
 // ParseCommand parses player input into a structured command
 func ParseCommand(input string) *ParsedCommand {
-	return parseCommand(input, commandWordList(input))
+	return parseCommand(input, CommandWordList(input))
 }
 
 func parseCommand(input string, originalWords []string) *ParsedCommand {

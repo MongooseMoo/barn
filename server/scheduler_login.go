@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"barn/command"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
@@ -48,7 +49,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 
 	connID := types.ObjID(-conn.ID)
 
-	words := commandWordList(line)
+	words := command.CommandWordList(line)
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
@@ -91,7 +92,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 
 // callDoBlankCommand calls #0:do_blank_command and returns whether login should proceed.
 func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, error) {
-	words := commandWordList(line)
+	words := command.CommandWordList(line)
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)

@@ -8,9 +8,11 @@ import (
 
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/command"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
+	"barn/scheduler"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -59,7 +61,7 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 }
 
 // CreateVerbTask creates a task to execute a verb
-func (s *Scheduler) CreateVerbTask(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) <-chan struct{} {
+func (s *Scheduler) CreateVerbTask(player types.ObjID, match *scheduler.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) <-chan struct{} {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)

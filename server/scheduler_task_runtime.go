@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"barn/bytecode"
+	"barn/command"
 	dbstore "barn/db/store"
 	"barn/parser"
+	"barn/scheduler"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -356,7 +358,7 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 // executeVerbTaskSync creates and immediately runs a verb task on the scheduler goroutine.
 // This replaces the CreateVerbTask + <-done pattern used when connection goroutines
 // dispatched commands directly.
-func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *VerbMatch, cmd *ParsedCommand, outputSuffix string) {
+func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *scheduler.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)

@@ -1,4 +1,4 @@
-package server
+package scheduler
 
 import (
 	"strconv"
@@ -9,7 +9,7 @@ import (
 )
 
 // MatchObject resolves an object name string to an object ID
-// Searches: special syntax (#N, me, here) → inventory → room contents
+// Searches: special syntax (#N, me, here) -> inventory -> room contents
 func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID, name string) types.ObjID {
 	// Handle empty/whitespace
 	name = strings.TrimSpace(name)
