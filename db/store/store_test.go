@@ -135,6 +135,36 @@ func TestStoreMaxObjectAfterRecycle(t *testing.T) {
 	}
 }
 
+func TestStorePendingFinalizationsSnapshot(t *testing.T) {
+	store := NewStore()
+
+	loaded := []types.Value{types.NewAnon(10)}
+	store.SetPendingFinalizations(loaded)
+	loaded[0] = types.NewAnon(11)
+
+	store.AppendPendingFinalizations([]types.Value{
+		types.NewAnon(10),
+		types.NewAnon(12),
+	})
+
+	snapshot := store.Snapshot()
+	if got, want := len(snapshot.PendingFinalizations), 2; got != want {
+		t.Fatalf("len(PendingFinalizations) = %d, want %d", got, want)
+	}
+	if got, want := snapshot.PendingFinalizations[0].String(), types.NewAnon(10).String(); got != want {
+		t.Errorf("PendingFinalizations[0] = %s, want %s", got, want)
+	}
+	if got, want := snapshot.PendingFinalizations[1].String(), types.NewAnon(12).String(); got != want {
+		t.Errorf("PendingFinalizations[1] = %s, want %s", got, want)
+	}
+
+	snapshot.PendingFinalizations[0] = types.NewAnon(99)
+	nextSnapshot := store.Snapshot()
+	if got, want := nextSnapshot.PendingFinalizations[0].String(), types.NewAnon(10).String(); got != want {
+		t.Errorf("mutating snapshot changed store: got %s, want %s", got, want)
+	}
+}
+
 func TestNewObject(t *testing.T) {
 	obj := NewObject(5, 10)
 

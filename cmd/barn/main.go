@@ -71,7 +71,6 @@ func main() {
 		}
 
 		writer := dbformat.NewWriter(f, store.Snapshot())
-		writer.SetPendingFinalizations(database.PendingFinalizations)
 		if err := writer.WriteDatabase(); err != nil {
 			f.Close()
 			log.Fatalf("Failed to write database: %v", err)

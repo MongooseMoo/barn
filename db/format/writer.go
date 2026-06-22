@@ -29,13 +29,12 @@ const (
 
 // Writer handles serialization of MOO databases to v17 format
 type Writer struct {
-	w                    *bufio.Writer
-	snapshot             store.Snapshot
-	waifIndex            map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
-	nextWaifID           int
-	pendingFinalizations []types.Value
-	queuedTasks          []*task.Task
-	suspendedTasks       []*task.Task
+	w              *bufio.Writer
+	snapshot       store.Snapshot
+	waifIndex      map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
+	nextWaifID     int
+	queuedTasks    []*task.Task
+	suspendedTasks []*task.Task
 }
 
 // NewWriter creates a writer for database serialization
@@ -66,10 +65,10 @@ func (w *Writer) WriteDatabase() error {
 	}
 
 	// 3. Pending finalizations (anonymous objects awaiting GC)
-	if err := w.writeString(fmt.Sprintf("%d values pending finalization", len(w.pendingFinalizations))); err != nil {
+	if err := w.writeString(fmt.Sprintf("%d values pending finalization", len(w.snapshot.PendingFinalizations))); err != nil {
 		return fmt.Errorf("write pending: %w", err)
 	}
-	for i, val := range w.pendingFinalizations {
+	for i, val := range w.snapshot.PendingFinalizations {
 		if err := w.writeValue(val); err != nil {
 			return fmt.Errorf("write pending finalization %d: %w", i, err)
 		}
@@ -116,15 +115,6 @@ func (w *Writer) WriteDatabase() error {
 	}
 
 	return w.Flush()
-}
-
-// SetPendingFinalizations preserves pending finalization values across dumps.
-func (w *Writer) SetPendingFinalizations(values []types.Value) {
-	if len(values) == 0 {
-		w.pendingFinalizations = nil
-		return
-	}
-	w.pendingFinalizations = append([]types.Value(nil), values...)
 }
 
 // --- Primitive writers ---

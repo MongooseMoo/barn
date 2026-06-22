@@ -49,6 +49,7 @@ func (database *Database) NewStoreFromDatabase() *store.Store {
 	for _, b := range database.AnonymousObjs {
 		s.AddAnonymous(b.Build())
 	}
+	s.SetPendingFinalizations(database.PendingFinalizations)
 	return s
 }
 

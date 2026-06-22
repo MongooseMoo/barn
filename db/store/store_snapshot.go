@@ -27,12 +27,13 @@ type SnapshotObject struct {
 }
 
 type Snapshot struct {
-	MaxObject        types.ObjID
-	Players          []types.ObjID
-	Objects          map[types.ObjID]*SnapshotObject
-	AnonymousObjects []*SnapshotObject
-	AllObjects       []*SnapshotObject
-	PropertyNames    map[types.ObjID][]string
+	MaxObject            types.ObjID
+	Players              []types.ObjID
+	Objects              map[types.ObjID]*SnapshotObject
+	AnonymousObjects     []*SnapshotObject
+	AllObjects           []*SnapshotObject
+	PropertyNames        map[types.ObjID][]string
+	PendingFinalizations []types.Value
 }
 
 func (s *Store) Snapshot() Snapshot {
@@ -40,9 +41,10 @@ func (s *Store) Snapshot() Snapshot {
 	defer s.mu.RUnlock()
 
 	snapshot := Snapshot{
-		MaxObject:     s.maxObjID,
-		Objects:       make(map[types.ObjID]*SnapshotObject, len(s.objects)),
-		PropertyNames: make(map[types.ObjID][]string, len(s.objects)),
+		MaxObject:            s.maxObjID,
+		Objects:              make(map[types.ObjID]*SnapshotObject, len(s.objects)),
+		PropertyNames:        make(map[types.ObjID][]string, len(s.objects)),
+		PendingFinalizations: cloneValues(s.pendingFinalizations),
 	}
 
 	// Build the anonymous-object serialization plan. Anonymous objects live

@@ -22,7 +22,6 @@ import (
 // Server represents the MOO server
 type Server struct {
 	store              *dbstore.Store
-	database           *dbformat.Database
 	scheduler          *Scheduler
 	connManager        *ConnectionManager
 	dbPath             string
@@ -61,16 +60,13 @@ func (s *Server) LoadDatabase() error {
 		return fmt.Errorf("load database: %w", err)
 	}
 
-	s.database = database
 	s.store = database.NewStoreFromDatabase()
 	s.scheduler = NewScheduler(s.store)
 	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
 
 	// Wire scheduler to connection manager for output flushing
 	s.scheduler.SetConnectionManager(s.connManager)
-	s.scheduler.SetPendingFinalizationSink(func(values []types.Value) {
-		s.appendPendingFinalizations(values)
-	})
+	s.scheduler.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
 
 	// Wire notify() builtin to connection manager
 	builtins.SetConnectionManager(s.connManager)
@@ -84,7 +80,7 @@ func (s *Server) LoadDatabase() error {
 	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
-				s.appendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
+				s.store.AppendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
 			}
 		}
 		s.Shutdown()
@@ -208,7 +204,6 @@ func (s *Server) checkpoint() error {
 	}
 
 	writer := dbformat.NewWriter(tempFile, s.store.Snapshot())
-	writer.SetPendingFinalizations(s.database.PendingFinalizations)
 	writer.SetTasks(s.scheduler.QueuedTasks(), s.scheduler.SuspendedTasks())
 	if err := writer.WriteDatabase(); err != nil {
 		tempFile.Close()
@@ -342,25 +337,6 @@ func (s *Server) callShutdownStarted(message string) error {
 // DumpDatabase triggers an immediate checkpoint
 func (s *Server) DumpDatabase() error {
 	return s.checkpoint()
-}
-
-func (s *Server) appendPendingFinalizations(values []types.Value) {
-	if len(values) == 0 || s.database == nil {
-		return
-	}
-
-	seen := make(map[string]struct{}, len(s.database.PendingFinalizations)+len(values))
-	for _, value := range s.database.PendingFinalizations {
-		seen[value.String()] = struct{}{}
-	}
-	for _, value := range values {
-		key := value.String()
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		s.database.PendingFinalizations = append(s.database.PendingFinalizations, value)
-	}
 }
 
 func copyFile(src, dst string) error {

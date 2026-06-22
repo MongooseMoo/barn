@@ -10,8 +10,8 @@ import (
 type Store struct {
 	mu          sync.RWMutex
 	objects     map[types.ObjID]*Object
-	maxObjID    types.ObjID // Highest non-anonymous object ID (for max_object())
-	highWaterID types.ObjID // Highest allocated ID (including anonymous, for NextID())
+	maxObjID    types.ObjID   // Highest non-anonymous object ID (for max_object())
+	highWaterID types.ObjID   // Highest allocated ID (including anonymous, for NextID())
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
 
 	// anonObjects holds anonymous objects out-of-band, keyed by the identity id
@@ -26,6 +26,8 @@ type Store struct {
 	waifRegistry    map[types.ObjID]map[*types.WaifValue]struct{} // Track live waifs by class
 	verbCacheClears int64
 	verbCacheMisses int64
+
+	pendingFinalizations []types.Value
 }
 
 func NewStore() *Store {
