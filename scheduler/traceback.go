@@ -1,4 +1,4 @@
-package server
+package scheduler
 
 import (
 	"barn/task"
@@ -6,26 +6,17 @@ import (
 	"log"
 )
 
-// sendTracebackToPlayer sends a formatted traceback to the player's connection
-func (s *Scheduler) sendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
-	if s.connManager == nil {
+// SendTracebackToPlayer sends a formatted traceback through the server-owned output hook.
+func (s *Scheduler) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	if s.tracebackSender != nil {
+		s.tracebackSender(player, err, stack)
 		return
 	}
 
-	// Format traceback first
 	lines := task.FormatTraceback(stack, err)
-
-	conn := s.connManager.GetConnection(player)
-	if conn == nil {
-		log.Printf("Traceback for player %v (connection not found):", player)
-		for _, line := range lines {
-			log.Printf("  %s", line)
-		}
-		return
-	}
-
+	log.Printf("Traceback for player %v (output hook not configured):", player)
 	for _, line := range lines {
-		conn.Send(line)
+		log.Printf("  %s", line)
 	}
 }
 
@@ -69,18 +60,8 @@ func (s *Scheduler) logTracebackSource(stack []task.ActivationFrame) {
 
 // sendTraceback sends a formatted traceback to the player
 func (s *Scheduler) sendTraceback(t *task.Task, err types.ErrorCode) {
-	if s.connManager == nil {
+	if s.tracebackSender == nil {
 		return
 	}
-
-	conn := s.connManager.GetConnection(t.Owner)
-	if conn == nil {
-		return
-	}
-
-	// Format and send the traceback
-	lines := task.FormatTraceback(t.GetCallStack(), err)
-	for _, line := range lines {
-		conn.Send(line)
-	}
+	s.tracebackSender(t.Owner, err, t.GetCallStack())
 }

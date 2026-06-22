@@ -16,7 +16,7 @@ import (
 
 // shouldCallDoLoginCommand checks whether do_login_command should be called
 // for the given input. Trusted proxy blank lines route through do_blank_command first.
-func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool {
+func (s *InputProcessor) shouldCallDoLoginCommand(conn *Connection, line string) bool {
 	// A trusted-proxy blank line routes through do_blank_command first.
 	if line == "" && s.isTrustedProxyConnection(conn) {
 		allowLogin, err := s.callDoBlankCommand(conn, line)
@@ -36,7 +36,7 @@ func (s *Scheduler) shouldCallDoLoginCommand(conn *Connection, line string) bool
 
 // callDoLoginCommand calls #0:do_login_command with the given line.
 // Returns the player ObjID if login succeeded, or a negative value on failure.
-func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
+func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
 	handler := conn.ListenerObject()
 	if errCode := s.store.ObjectExists(handler); errCode != types.E_NONE {
 		return types.ObjID(-1), fmt.Errorf("listener object not found")
@@ -55,7 +55,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 		args[i] = types.NewStr(word)
 	}
 
-	result := s.CallVerbWithArgstr(handler, "do_login_command", args, connID, line)
+	result := s.runtime.CallVerbWithArgstr(handler, "do_login_command", args, connID, line)
 
 	if result.Flow == types.FlowException {
 		var stack []task.ActivationFrame
@@ -91,7 +91,7 @@ func (s *Scheduler) callDoLoginCommand(conn *Connection, line string) (types.Obj
 }
 
 // callDoBlankCommand calls #0:do_blank_command and returns whether login should proceed.
-func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, error) {
+func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool, error) {
 	words := command.CommandWordList(line)
 	args := make([]types.Value, len(words))
 	for i, word := range words {
@@ -99,7 +99,7 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 	}
 
 	connID := types.ObjID(-conn.ID)
-	result := s.CallVerbWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line)
+	result := s.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_blank_command", args, connID, line)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return false, nil
@@ -125,12 +125,12 @@ func (s *Scheduler) callDoBlankCommand(conn *Connection, line string) (bool, err
 }
 
 // callDoCommand calls #0:do_command(command) and returns whether command was handled.
-func (s *Scheduler) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string) (bool, error) {
+func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, words []string, argstr string) (bool, error) {
 	args := make([]types.Value, len(words))
 	for i, word := range words {
 		args[i] = types.NewStr(word)
 	}
-	result := s.CallVerbWithArgstr(handler, "do_command", args, player, argstr)
+	result := s.runtime.CallVerbWithArgstr(handler, "do_command", args, player, argstr)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return false, nil
@@ -143,7 +143,7 @@ func (s *Scheduler) callDoCommand(handler types.ObjID, player types.ObjID, words
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
 		return true, nil
 	}
 
@@ -154,9 +154,9 @@ func (s *Scheduler) callDoCommand(handler types.ObjID, player types.ObjID, words
 }
 
 // callUserConnected calls #0:user_connected(player)
-func (s *Scheduler) callUserConnected(handler types.ObjID, player types.ObjID) {
+func (s *InputProcessor) callUserConnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(handler, "user_connected", args, player)
+	result := s.runtime.CallVerb(handler, "user_connected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -168,14 +168,14 @@ func (s *Scheduler) callUserConnected(handler types.ObjID, player types.ObjID) {
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
 // callUserCreated calls handler:user_created(player)
-func (s *Scheduler) callUserCreated(handler types.ObjID, player types.ObjID) {
+func (s *InputProcessor) callUserCreated(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(handler, "user_created", args, player)
+	result := s.runtime.CallVerb(handler, "user_created", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -187,14 +187,14 @@ func (s *Scheduler) callUserCreated(handler types.ObjID, player types.ObjID) {
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
 // callUserReconnected calls #0:user_reconnected(player)
-func (s *Scheduler) callUserReconnected(handler types.ObjID, player types.ObjID) {
+func (s *InputProcessor) callUserReconnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(handler, "user_reconnected", args, player)
+	result := s.runtime.CallVerb(handler, "user_reconnected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -206,14 +206,14 @@ func (s *Scheduler) callUserReconnected(handler types.ObjID, player types.ObjID)
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
 // callUserDisconnected calls #0:user_disconnected(player)
-func (s *Scheduler) callUserDisconnected(handler types.ObjID, player types.ObjID) {
+func (s *InputProcessor) callUserDisconnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(handler, "user_disconnected", args, player)
+	result := s.runtime.CallVerb(handler, "user_disconnected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -225,14 +225,14 @@ func (s *Scheduler) callUserDisconnected(handler types.ObjID, player types.ObjID
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
 // callUserClientDisconnected calls handler:user_client_disconnected(player)
-func (s *Scheduler) callUserClientDisconnected(handler types.ObjID, player types.ObjID) {
+func (s *InputProcessor) callUserClientDisconnected(handler types.ObjID, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.CallVerb(handler, "user_client_disconnected", args, player)
+	result := s.runtime.CallVerb(handler, "user_client_disconnected", args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
@@ -244,13 +244,13 @@ func (s *Scheduler) callUserClientDisconnected(handler types.ObjID, player types
 				stack = st
 			}
 		}
-		s.sendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
 	}
 }
 
 // connectMessage returns the server_options.connect_msg value,
 // falling back to "*** Connected ***" if not set.
-func (s *Scheduler) connectMessage() string {
+func (s *InputProcessor) connectMessage() string {
 	if val, ok := s.getServerOption(0, "connect_msg"); ok {
 		if strVal, ok := val.(types.StrValue); ok && strVal.Value() != "" {
 			return strVal.Value()
@@ -261,7 +261,7 @@ func (s *Scheduler) connectMessage() string {
 
 // loginPlayer associates a connection with a player.
 // Called on the scheduler goroutine after a successful do_login_command.
-func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID, newlyCreated bool) {
+func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newlyCreated bool) {
 	cm := s.connManager
 	if cm == nil {
 		return
@@ -338,7 +338,7 @@ func (s *Scheduler) loginPlayer(conn *Connection, player types.ObjID, newlyCreat
 }
 
 // isTrustedProxyConnection checks if a connection's IP is in the trusted proxies list.
-func (s *Scheduler) isTrustedProxyConnection(conn *Connection) bool {
+func (s *InputProcessor) isTrustedProxyConnection(conn *Connection) bool {
 	trustedProxies, ok := s.getServerOption(0, "trusted_proxies")
 	if !ok {
 		return false
@@ -358,7 +358,7 @@ func (s *Scheduler) isTrustedProxyConnection(conn *Connection) bool {
 }
 
 // getServerOption looks up a server option from the server_options property.
-func (s *Scheduler) getServerOption(listener types.ObjID, name string) (types.Value, bool) {
+func (s *InputProcessor) getServerOption(listener types.ObjID, name string) (types.Value, bool) {
 	serverOptions, err := s.store.FindProperty(listener, "server_options")
 	if err != types.E_NONE && listener != 0 {
 		serverOptions, err = s.store.FindProperty(0, "server_options")

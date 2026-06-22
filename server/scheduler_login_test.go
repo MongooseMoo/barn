@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	dbstore "barn/db/store"
+	runtime "barn/scheduler"
 	"barn/types"
 )
 
@@ -42,7 +43,8 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 		"endif",
 	)
 
-	s := NewScheduler(store)
+	rt := runtime.NewScheduler(store)
+	s := NewInputProcessor(store, rt)
 	conn := NewConnection(2, stubTransport{})
 	conn.SetListener(10, 7789, true)
 
@@ -66,7 +68,8 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	addTestVerb(store, listener, "user_created", "#0.created = args[1];")
 	addTestVerb(store, listener, "user_connected", "#0.connected = args[1];")
 
-	s := NewScheduler(store)
+	rt := runtime.NewScheduler(store)
+	s := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(nil, 7777)
 	s.SetConnectionManager(cm)
 	conn := cm.NewConnectionFromTransport(stubTransport{})

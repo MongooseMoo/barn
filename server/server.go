@@ -15,6 +15,8 @@ import (
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	runtime "barn/scheduler"
+	"barn/task"
 	"barn/types"
 	"barn/vm"
 )
@@ -22,7 +24,8 @@ import (
 // Server represents the MOO server
 type Server struct {
 	store              *dbstore.Store
-	scheduler          *Scheduler
+	scheduler          *runtime.Scheduler
+	input              *InputProcessor
 	connManager        *ConnectionManager
 	dbPath             string
 	listenerSpecs      []builtins.ListenerSpec
@@ -61,18 +64,45 @@ func (s *Server) LoadDatabase() error {
 	}
 
 	s.store = database.NewStoreFromDatabase()
-	s.scheduler = NewScheduler(s.store)
+	s.scheduler = runtime.NewScheduler(s.store)
+	s.input = NewInputProcessor(s.store, s.scheduler)
 	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
 
-	// Wire scheduler to connection manager for output flushing
-	s.scheduler.SetConnectionManager(s.connManager)
+	s.input.SetConnectionManager(s.connManager)
 	s.scheduler.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
+	s.scheduler.SetTaskLineSender(func(player types.ObjID, line string) {
+		if conn := s.connManager.GetConnection(player); conn != nil {
+			_ = conn.Send(line)
+		}
+	})
+	s.scheduler.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+		lines := task.FormatTraceback(stack, err)
+		conn := s.connManager.GetConnection(player)
+		if conn == nil {
+			log.Printf("Traceback for player %v (connection not found):", player)
+			for _, line := range lines {
+				log.Printf("  %s", line)
+			}
+			return
+		}
+		for _, line := range lines {
+			_ = conn.Send(line)
+		}
+	})
+	s.scheduler.SetTaskOutputFlusher(func(player types.ObjID, outputSuffix string) {
+		if conn := s.connManager.GetConnection(player); conn != nil {
+			conn.Flush()
+			if outputSuffix != "" {
+				_ = conn.Send(outputSuffix)
+			}
+		}
+	})
 
 	// Wire notify() builtin to connection manager
 	builtins.SetConnectionManager(s.connManager)
 
 	// Wire force_input() builtin to scheduler
-	builtins.SetInputForcer(s.scheduler)
+	builtins.SetInputForcer(s.input)
 	builtins.SetTaskYielder(s.scheduler)
 
 	// Wire dump_database() builtin to server checkpoint
@@ -116,7 +146,7 @@ func (s *Server) Start() error {
 	s.mu.Unlock()
 
 	// Start scheduler
-	s.scheduler.Start()
+	s.input.Start()
 
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
@@ -266,6 +296,7 @@ func (s *Server) shutdown() error {
 	}
 
 	// Stop scheduler
+	s.input.Stop()
 	s.scheduler.Stop()
 
 	// Final checkpoint (unless checkpointing was explicitly disabled)

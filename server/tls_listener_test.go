@@ -19,6 +19,7 @@ import (
 
 	"barn/builtins"
 	dbstore "barn/db/store"
+	runtime "barn/scheduler"
 )
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {
@@ -121,11 +122,13 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 		"endif",
 	)
 
-	scheduler := NewScheduler(store)
-	srv := &Server{scheduler: scheduler}
+	scheduler := runtime.NewScheduler(store)
+	input := NewInputProcessor(store, scheduler)
+	srv := &Server{scheduler: scheduler, input: input}
 	cm := NewConnectionManager(srv, 0)
-	scheduler.SetConnectionManager(cm)
-	scheduler.Start()
+	input.SetConnectionManager(cm)
+	input.Start()
+	defer input.Stop()
 	defer scheduler.Stop()
 
 	err := cm.StartListeners([]builtins.ListenerSpec{{

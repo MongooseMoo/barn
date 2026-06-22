@@ -2,18 +2,23 @@
 
 Target architecture:
 - `barn/command` owns command-language parsing and command dispatch matching: `ParsedCommand`, `PrepSpec`, `ParseCommand`, `CommandWordList`, `MatchObject`, `VerbMatch`, and `FindVerb`.
-- `barn/scheduler` owns scheduler runtime orchestration, not command parsing or command matching.
-- `barn/server` consumes those owners and keeps connection/transport/runtime hosting code.
+- `barn/command` owns the command/input event shape consumed by server input processing.
+- `barn/scheduler` owns task and VM runtime orchestration, not command parsing, command matching, connection I/O, websocket/listener transport, or server session input flow.
+- `barn/server` owns connection, transport, listener, websocket, and input/session processing code.
 
 Forbidden surfaces:
 - Command parser types or functions owned by `server`.
 - Verb dispatch matcher types or functions owned by `server`.
+- Connection, transport, websocket, listener, or connection-manager references owned by `scheduler`.
+- `server.Scheduler` as a renamed host for mixed connection/session/task behavior.
 - Compatibility aliases or wrappers in `server` for moved command or matcher APIs.
 
 Search gates:
 - `rg -n "commandWordList|func ParseCommand|type ParsedCommand|type PrepSpec|type VerbMatch|func MatchObject|func FindVerb" server -g "*.go"`
 - `rg -n "barn/scheduler" command -g "*.go"`
 - `rg -n "barn/server" command scheduler -g "*.go"`
+- `rg -n "package server|barn/server|connManager|Connection|ConnectionManager|Transport|WebSocket|listener|evalConnection" scheduler -g "*.go"`
+- `rg -n "type Scheduler|func NewScheduler" server -g "*.go"`
 
 Runtime gates:
 - `go test ./command ./scheduler ./server`
@@ -93,3 +98,62 @@ Commit:
 
 Next slice:
 - Move the concrete `Scheduler` runtime owner out of `server`.
+
+## Iteration 3 - `scheduler runtime and server input split`
+
+Slice read:
+- `server/scheduler.go`
+- `server/connection_manager.go`
+- `server/server.go`
+- `server/scheduler_login.go`
+- `server/scheduler_task_factory.go`
+- `server/scheduler_task_load.go`
+- `server/scheduler_task_runtime.go`
+- `server/scheduler_call_verb.go`
+- `server/scheduler_traceback.go`
+- `server/scheduler_eval.go`
+- `server/waif_lifecycle.go`
+- `server/task_queue.go`
+
+Surfaces:
+- `InputEvent`
+  - Disposition: move
+  - Owner after cleanup: `barn/command`
+  - Action: moved input event shape out of `server` into `command`.
+  - Evidence: the event is command/input data consumed by server input processing; it is not scheduler runtime state.
+- `Scheduler`, task queue, task creation/load/run, call-verb runtime, eval runtime, traceback logging, waif lifecycle
+  - Disposition: move
+  - Owner after cleanup: `barn/scheduler`
+  - Action: moved task/VM runtime implementation to `barn/scheduler`.
+  - Evidence: these surfaces own queued tasks, VM execution, fork/resume/suspend, task snapshots, and runtime traceback state.
+- connection/session input flow, login hooks, programming mode, command dispatch from a connection
+  - Disposition: rewrite
+  - Owner after cleanup: `barn/server.InputProcessor`
+  - Action: deleted `server.Scheduler` and recreated only server-owned input/session behavior as `InputProcessor`.
+  - Evidence: these paths require `Connection`, `ConnectionManager`, listener object state, output prefixes/suffixes, and connection lifecycle state.
+- task output, traceback delivery, and task output flushing
+  - Disposition: rewrite
+  - Owner after cleanup: `server` delivery through concrete scheduler callbacks.
+  - Action: scheduler no longer imports or names server/connection/transport types; server wires concrete send/traceback/flush functions during database load.
+  - Evidence: scheduler owns runtime events, while server owns connections and performs delivery.
+- `evalConnection`
+  - Disposition: delete
+  - Owner after cleanup: none.
+  - Action: removed the connection-shaped eval interface from scheduler; eval runtime returns formatted output lines and server sends them.
+  - Evidence: a connection-like interface in scheduler would recreate transport ownership under another name.
+
+Gate results:
+- Pass: `go test ./command ./scheduler ./server`
+- Pass: `rg -n "package server|barn/server|connManager|Connection|ConnectionManager|Transport|WebSocket|listener|evalConnection" scheduler -g "*.go"`
+- Pass: `rg -n "NewScheduler\\(|type Scheduler|\\*Scheduler|InputEvent" server command scheduler -g "*.go"` shows `Scheduler` only in `scheduler`, `InputEvent` defined in `command`, and server using `command.InputEvent`.
+- Pass: `go test ./builtins ./bytecode ./cmd/barn ./command ./db/... ./kernel ./parser ./scheduler ./server ./task ./types ./vm`
+- Pass: `go build -o barn.exe ./cmd/barn`
+- Pass: `git diff --check`
+- Pass: `uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"` - 3871 passed, 131 skipped.
+- Expected external-fixture failure: `go test ./...` fails only in `barn/conformance` because `../cow_py/tests/conformance` is not present.
+
+Commit:
+- Pending in this turn.
+
+Next slice:
+- Fixed point reached for this requested scheduler extraction slice.

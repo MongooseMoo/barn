@@ -1,4 +1,4 @@
-package server
+package scheduler
 
 import (
 	"container/heap"
@@ -265,7 +265,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// the result): the live call stack has already unwound, so it would
 			// report the eval frame instead of the verb where the error occurred.
 			if stack, ok := result.CallStack.([]task.ActivationFrame); ok && len(stack) > 0 {
-				s.sendTracebackToPlayer(t.Owner, result.Error, stack)
+				s.SendTracebackToPlayer(t.Owner, result.Error, stack)
 			} else {
 				s.sendTraceback(t, result.Error)
 			}
@@ -332,11 +332,8 @@ func resultValueContains(value types.Value, text string) bool {
 }
 
 func (s *Scheduler) sendTaskLine(player types.ObjID, line string) {
-	if s.connManager == nil {
-		return
-	}
-	if conn := s.connManager.GetConnection(player); conn != nil {
-		_ = conn.Send(line)
+	if s.taskLineSender != nil {
+		s.taskLineSender(player, line)
 	}
 }
 
@@ -354,10 +351,8 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 	return result
 }
 
-// executeVerbTaskSync creates and immediately runs a verb task on the scheduler goroutine.
-// This replaces the CreateVerbTask + <-done pattern used when connection goroutines
-// dispatched commands directly.
-func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) {
+// ExecuteVerbTaskSync creates and immediately runs a verb task on the scheduler goroutine.
+func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
@@ -396,12 +391,7 @@ func (s *Scheduler) executeVerbTaskSync(player types.ObjID, match *command.VerbM
 	}
 
 	// Flush output buffer for the player
-	if s.connManager != nil {
-		if conn := s.connManager.GetConnection(t.Owner); conn != nil {
-			conn.Flush()
-			if t.CommandOutputSuffix != "" {
-				_ = conn.Send(t.CommandOutputSuffix)
-			}
-		}
+	if s.taskOutputFlusher != nil {
+		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 	}
 }

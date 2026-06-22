@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	"barn/command"
 	"barn/trace"
 	"barn/types"
 	"crypto/tls"
@@ -249,7 +250,7 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	defer func() {
 		// Enqueue disconnect event and wait for it to be processed
 		done := make(chan struct{})
-		cm.server.scheduler.EnqueueInput(InputEvent{
+		cm.server.input.EnqueueInput(command.InputEvent{
 			ConnID:       conn.ID,
 			IsDisconnect: true,
 			Done:         done,
@@ -260,8 +261,8 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 
 	// Set up timeout for unlogged connections
 	connectTimeout := cm.connectTimeout
-	if cm.server != nil && cm.server.scheduler != nil {
-		if value, ok := cm.server.scheduler.getServerOption(0, "connect_timeout"); ok {
+	if cm.server != nil && cm.server.input != nil {
+		if value, ok := cm.server.input.getServerOption(0, "connect_timeout"); ok {
 			if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
 				connectTimeout = time.Duration(seconds.Val) * time.Second
 			}
@@ -272,7 +273,7 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
 	{
 		done := make(chan struct{})
-		cm.server.scheduler.EnqueueInput(InputEvent{
+		cm.server.input.EnqueueInput(command.InputEvent{
 			ConnID: conn.ID,
 			Player: types.ObjID(-conn.ID),
 			Line:   "",
@@ -319,7 +320,7 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
 				conn.Send("*** Timed-out waiting for login. ***")
-				cm.server.scheduler.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
+				cm.server.input.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
 				return
 			}
 			log.Printf("Connection %d read error: %v", conn.ID, err)
@@ -327,7 +328,7 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 		}
 
 		done := make(chan struct{})
-		cm.server.scheduler.EnqueueInput(InputEvent{
+		cm.server.input.EnqueueInput(command.InputEvent{
 			ConnID: conn.ID,
 			Player: player,
 			Line:   line,

@@ -1,4 +1,4 @@
-package server
+package scheduler
 
 import (
 	"fmt"
@@ -14,33 +14,17 @@ import (
 	"barn/vm"
 )
 
-// evalConnection is the interface needed for eval command output
-type evalConnection interface {
-	Send(string) error
-	GetOutputPrefix() string
-	GetOutputSuffix() string
-}
-
-// EvalCommand evaluates MOO code directly (for ; commands)
-// Executes synchronously and sends the result back to the connection
-func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{}) {
-	// Type assert to get full eval connection interface
-	c, ok := conn.(evalConnection)
-	if !ok {
-		return // Can't send output without proper connection
-	}
-
+// EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command.
+func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix string) (lines []string) {
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			prefix := c.GetOutputPrefix()
-			suffix := c.GetOutputSuffix()
 			if prefix != "" {
-				c.Send(prefix)
+				lines = append(lines, prefix)
 			}
-			c.Send(fmt.Sprintf("{0, {\"Internal error: %v\"}}", r))
+			lines = append(lines, fmt.Sprintf("{0, {\"Internal error: %v\"}}", r))
 			if suffix != "" {
-				c.Send(suffix)
+				lines = append(lines, suffix)
 			}
 			log.Printf("PANIC in EvalCommand: %v", r)
 		}
@@ -50,21 +34,17 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	p := parser.NewParser(code)
 	stmts, err := p.ParseProgram()
 
-	// Get prefix/suffix for response framing
-	prefix := c.GetOutputPrefix()
-	suffix := c.GetOutputSuffix()
-
 	if err != nil {
 		// Send parse error in ToastStunt eval format: {0, {"error message"}}
 		if prefix != "" {
-			c.Send(prefix)
+			lines = append(lines, prefix)
 		}
 		errMsg := fmt.Sprintf("{0, {\"Parse error: %s\"}}", err)
-		c.Send(errMsg)
+		lines = append(lines, errMsg)
 		if suffix != "" {
-			c.Send(suffix)
+			lines = append(lines, suffix)
 		}
-		return
+		return lines
 	}
 
 	// Execute the code synchronously
@@ -92,14 +72,14 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	if compileErr != nil {
 		// Compilation failed - send error
 		if prefix != "" {
-			c.Send(prefix)
+			lines = append(lines, prefix)
 		}
 		errMsg := fmt.Sprintf("{0, {\"Compile error: %s\"}}", compileErr)
-		c.Send(errMsg)
+		lines = append(lines, errMsg)
 		if suffix != "" {
-			c.Send(suffix)
+			lines = append(lines, suffix)
 		}
-		return
+		return lines
 	}
 	prog.Source = strings.Split(code, "\n")
 
@@ -159,9 +139,10 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 			deadline := time.Now().Add(10 * time.Second)
 			for t.GetState() != task.TaskQueued && time.Now().Before(deadline) {
 				// Process ready tasks while waiting for explicit resume().
-				// Since we're on the scheduler goroutine, processReadyTasks
+				// Since we're on the scheduler goroutine, the ticker cannot
+				// drive ready tasks while eval is waiting for resume().
 				// won't fire from the ticker, so we must drive it here.
-				s.processReadyTasks()
+				s.ProcessReadyTasks()
 				time.Sleep(10 * time.Millisecond)
 			}
 			if t.GetState() != task.TaskQueued {
@@ -174,7 +155,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 			idlePasses := 0
 			deadline := time.Now().Add(2 * time.Second)
 			for idlePasses < 8 && time.Now().Before(deadline) {
-				if s.processReadyTasks() == 0 {
+				if s.ProcessReadyTasks() == 0 {
 					idlePasses++
 					time.Sleep(5 * time.Millisecond)
 				} else {
@@ -184,7 +165,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 		default:
 			sleepEnd := time.Now().Add(time.Duration(seconds * float64(time.Second)))
 			for time.Now().Before(sleepEnd) {
-				s.processReadyTasks()
+				s.ProcessReadyTasks()
 				remaining := time.Until(sleepEnd)
 				if remaining <= 0 {
 					break
@@ -215,7 +196,7 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 	// Success: {1, value}
 	// Runtime error: {2, {E_TYPE, "message", value}}
 	if prefix != "" {
-		c.Send(prefix)
+		lines = append(lines, prefix)
 	}
 	var resultStr string
 	if result.Flow == types.FlowException {
@@ -230,8 +211,9 @@ func (s *Scheduler) EvalCommand(player types.ObjID, code string, conn interface{
 		// Success with no return value: {1, 0}
 		resultStr = "{1, 0}"
 	}
-	c.Send(resultStr)
+	lines = append(lines, resultStr)
 	if suffix != "" {
-		c.Send(suffix)
+		lines = append(lines, suffix)
 	}
+	return lines
 }
