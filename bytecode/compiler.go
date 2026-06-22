@@ -1769,6 +1769,24 @@ func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
 	if n.Expr == nil {
 		return nil
 	}
+
+	// Effect-context fast path: a simple variable assignment used as a statement
+	// does not need its value. Emit the store directly, skipping the assignment's
+	// value-preserving OP_DUP and the trailing OP_POP (dead value shuffling that
+	// otherwise dominates assignment-heavy loops). Complex targets (scatter /
+	// index / property) keep the general value-producing path below.
+	if assign, ok := n.Expr.(*parser.AssignExpr); ok {
+		if ident, ok := assign.Target.(*parser.IdentifierExpr); ok {
+			if err := c.compileNode(assign.Value); err != nil {
+				return err
+			}
+			idx := c.declareVariable(ident.Name)
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(idx))
+			return nil
+		}
+	}
+
 	// Compile expression
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
