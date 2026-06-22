@@ -76,13 +76,13 @@ const (
 
 // Looping
 const (
-	OP_LOOP           OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
-	OP_FOR_RANGE_CHECK                                   // Range-for condition [valueVar:byte, endVar:byte, exitOffset:short]: if Locals[valueVar] > Locals[endVar] jump exit
-	OP_FOR_LIST_LOAD                                     // for-in element load [listVar,idxVar,valueVar,isPairsVar]: value = list[idx] (unwrapping {value,key} pairs when isPairs)
-	OP_FOR_LIST_LOAD_KV                                  // for-in k,v element load [listVar,idxVar,valueVar,indexVar]: elem={value,key}=list[idx]; value=elem[1]; index=elem[2]
-	OP_FOR_RANGE_NEXT                                    // Range-for increment+loopback [valueVar:byte, loopOffset:short]: Locals[valueVar]+=1; IP -= loopOffset
-	OP_BREAK                                        // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
-	OP_CONTINUE                                     // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
+	OP_LOOP             OpCode = OP_RETURN_NONE + 1 + iota // Backward jump [offset] (IP -= offset)
+	OP_FOR_RANGE_CHECK                                     // Range-for condition [valueVar:byte, endVar:byte, exitOffset:short]: if Locals[valueVar] > Locals[endVar] jump exit
+	OP_FOR_LIST_LOAD                                       // for-in element load [listVar,idxVar,valueVar,isPairsVar]: value = list[idx] (unwrapping {value,key} pairs when isPairs)
+	OP_FOR_LIST_LOAD_KV                                    // for-in k,v element load [listVar,idxVar,valueVar,indexVar]: elem={value,key}=list[idx]; value=elem[1]; index=elem[2]
+	OP_FOR_RANGE_NEXT                                      // Range-for increment+loopback [valueVar:byte, loopOffset:short]: Locals[valueVar]+=1; IP -= loopOffset
+	OP_BREAK                                               // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
+	OP_CONTINUE                                            // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
 )
 
 // Exception Handling
@@ -104,24 +104,25 @@ const (
 
 // Collection Operations
 const (
-	OP_MAKE_LIST    OpCode = OP_SCATTER + 1 + iota // Pop N items, make list [count]
-	OP_MAKE_MAP                                    // Pop N pairs, make map [count]
-	OP_INDEX                                       // Pop idx, coll; push coll[idx]
-	OP_INDEX_SET                                   // Pop val, idx, coll; set coll[idx]
-	OP_RANGE                                       // Pop end, start, coll; push slice
-	OP_RANGE_SET                                   // Pop end, start, val; range-assign locals[var] [varIdx]
-	OP_LENGTH                                      // Pop coll; push length
-	OP_INDEX_MARKER                                // Pop coll; push resolved ^/$ marker value [marker:byte]
-	OP_SPLICE                                      // Pop value; push back if list, raise E_TYPE otherwise
-	OP_ITER_PREP                                   // Pop container; push normalized list + isPairs flag [hasIndex:byte]
-	OP_LIST_RANGE                                  // Pop end, start; push {start..end} list
-	OP_LIST_APPEND                                 // Pop elem, list; push list with elem appended
-	OP_LIST_EXTEND                                 // Pop src, list; push list with all elements of src appended
+	OP_MAKE_LIST     OpCode = OP_SCATTER + 1 + iota // Pop N items, make list [count]
+	OP_MAKE_MAP                                     // Pop N pairs, make map [count]
+	OP_INDEX                                        // Pop idx, coll; push coll[idx]
+	OP_INDEX_SET                                    // Pop val, idx, coll; set coll[idx]
+	OP_RANGE                                        // Pop end, start, coll; push slice
+	OP_RANGE_SET                                    // Pop end, start, val; range-assign locals[var] [varIdx]
+	OP_LENGTH                                       // Pop coll; push length
+	OP_INDEX_MARKER                                 // Pop coll; push resolved ^/$ marker value [marker:byte]
+	OP_SPLICE                                       // Pop value; push back if list, raise E_TYPE otherwise
+	OP_ITER_PREP                                    // Pop container; push normalized list + isPairs flag [hasIndex:byte]
+	OP_LIST_RANGE                                   // Pop end, start; push {start..end} list
+	OP_LIST_APPEND                                  // Pop elem, list; push list with elem appended
+	OP_LIST_EXTEND                                  // Pop src, list; push list with all elements of src appended
+	OP_STRING_APPEND                                // Pop suffix, string; push string with suffix appended
 )
 
 // Fork
 const (
-	OP_FORK OpCode = OP_LIST_EXTEND + 1 + iota // Fork statement [varIdx:byte, bodyLen:short]
+	OP_FORK OpCode = OP_STRING_APPEND + 1 + iota // Fork statement [varIdx:byte, bodyLen:short]
 )
 
 // Pass (parent verb call)
@@ -131,72 +132,73 @@ const (
 
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
-	OP_PUSH:          "PUSH",
-	OP_POP:           "POP",
-	OP_DUP:           "DUP",
-	OP_GET_VAR:       "GET_VAR",
-	OP_SET_VAR:       "SET_VAR",
-	OP_GET_PROP:      "GET_PROP",
-	OP_SET_PROP:      "SET_PROP",
-	OP_ADD:           "ADD",
-	OP_SUB:           "SUB",
-	OP_MUL:           "MUL",
-	OP_DIV:           "DIV",
-	OP_MOD:           "MOD",
-	OP_POW:           "POW",
-	OP_NEG:           "NEG",
-	OP_EQ:            "EQ",
-	OP_NE:            "NE",
-	OP_LT:            "LT",
-	OP_LE:            "LE",
-	OP_GT:            "GT",
-	OP_GE:            "GE",
-	OP_IN:            "IN",
-	OP_NOT:           "NOT",
-	OP_AND:           "AND",
-	OP_OR:            "OR",
-	OP_BITOR:         "BITOR",
-	OP_BITAND:        "BITAND",
-	OP_BITXOR:        "BITXOR",
-	OP_BITNOT:        "BITNOT",
-	OP_SHL:           "SHL",
-	OP_SHR:           "SHR",
-	OP_JUMP:          "JUMP",
-	OP_JUMP_IF_FALSE: "JUMP_IF_FALSE",
-	OP_JUMP_IF_TRUE:  "JUMP_IF_TRUE",
-	OP_RETURN:        "RETURN",
-	OP_RETURN_NONE:   "RETURN_NONE",
-	OP_LOOP:          "LOOP",
-	OP_FOR_RANGE_CHECK: "FOR_RANGE_CHECK",
+	OP_PUSH:             "PUSH",
+	OP_POP:              "POP",
+	OP_DUP:              "DUP",
+	OP_GET_VAR:          "GET_VAR",
+	OP_SET_VAR:          "SET_VAR",
+	OP_GET_PROP:         "GET_PROP",
+	OP_SET_PROP:         "SET_PROP",
+	OP_ADD:              "ADD",
+	OP_SUB:              "SUB",
+	OP_MUL:              "MUL",
+	OP_DIV:              "DIV",
+	OP_MOD:              "MOD",
+	OP_POW:              "POW",
+	OP_NEG:              "NEG",
+	OP_EQ:               "EQ",
+	OP_NE:               "NE",
+	OP_LT:               "LT",
+	OP_LE:               "LE",
+	OP_GT:               "GT",
+	OP_GE:               "GE",
+	OP_IN:               "IN",
+	OP_NOT:              "NOT",
+	OP_AND:              "AND",
+	OP_OR:               "OR",
+	OP_BITOR:            "BITOR",
+	OP_BITAND:           "BITAND",
+	OP_BITXOR:           "BITXOR",
+	OP_BITNOT:           "BITNOT",
+	OP_SHL:              "SHL",
+	OP_SHR:              "SHR",
+	OP_JUMP:             "JUMP",
+	OP_JUMP_IF_FALSE:    "JUMP_IF_FALSE",
+	OP_JUMP_IF_TRUE:     "JUMP_IF_TRUE",
+	OP_RETURN:           "RETURN",
+	OP_RETURN_NONE:      "RETURN_NONE",
+	OP_LOOP:             "LOOP",
+	OP_FOR_RANGE_CHECK:  "FOR_RANGE_CHECK",
 	OP_FOR_LIST_LOAD:    "FOR_LIST_LOAD",
 	OP_FOR_LIST_LOAD_KV: "FOR_LIST_LOAD_KV",
-	OP_FOR_RANGE_NEXT:  "FOR_RANGE_NEXT",
-	OP_BREAK:         "DEAD_BREAK",
-	OP_CONTINUE:      "DEAD_CONTINUE",
-	OP_TRY_EXCEPT:    "TRY_EXCEPT",
-	OP_END_EXCEPT:    "END_EXCEPT",
-	OP_TRY_FINALLY:   "TRY_FINALLY",
-	OP_END_FINALLY:   "END_FINALLY",
-	OP_CATCH:         "DEAD_CATCH",
-	OP_RAISE:         "DEAD_RAISE",
-	OP_CALL_BUILTIN:  "CALL_BUILTIN",
-	OP_CALL_VERB:     "CALL_VERB",
-	OP_SCATTER:       "SCATTER",
-	OP_MAKE_LIST:     "MAKE_LIST",
-	OP_MAKE_MAP:      "MAKE_MAP",
-	OP_INDEX:         "INDEX",
-	OP_INDEX_SET:     "INDEX_SET",
-	OP_RANGE:         "RANGE",
-	OP_RANGE_SET:     "RANGE_SET",
-	OP_LENGTH:        "LENGTH",
-	OP_INDEX_MARKER:  "INDEX_MARKER",
-	OP_SPLICE:        "SPLICE",
-	OP_ITER_PREP:     "ITER_PREP",
-	OP_LIST_RANGE:    "LIST_RANGE",
-	OP_LIST_APPEND:   "LIST_APPEND",
-	OP_LIST_EXTEND:   "LIST_EXTEND",
-	OP_FORK:          "FORK",
-	OP_PASS:          "PASS",
+	OP_FOR_RANGE_NEXT:   "FOR_RANGE_NEXT",
+	OP_BREAK:            "DEAD_BREAK",
+	OP_CONTINUE:         "DEAD_CONTINUE",
+	OP_TRY_EXCEPT:       "TRY_EXCEPT",
+	OP_END_EXCEPT:       "END_EXCEPT",
+	OP_TRY_FINALLY:      "TRY_FINALLY",
+	OP_END_FINALLY:      "END_FINALLY",
+	OP_CATCH:            "DEAD_CATCH",
+	OP_RAISE:            "DEAD_RAISE",
+	OP_CALL_BUILTIN:     "CALL_BUILTIN",
+	OP_CALL_VERB:        "CALL_VERB",
+	OP_SCATTER:          "SCATTER",
+	OP_MAKE_LIST:        "MAKE_LIST",
+	OP_MAKE_MAP:         "MAKE_MAP",
+	OP_INDEX:            "INDEX",
+	OP_INDEX_SET:        "INDEX_SET",
+	OP_RANGE:            "RANGE",
+	OP_RANGE_SET:        "RANGE_SET",
+	OP_LENGTH:           "LENGTH",
+	OP_INDEX_MARKER:     "INDEX_MARKER",
+	OP_SPLICE:           "SPLICE",
+	OP_ITER_PREP:        "ITER_PREP",
+	OP_LIST_RANGE:       "LIST_RANGE",
+	OP_LIST_APPEND:      "LIST_APPEND",
+	OP_LIST_EXTEND:      "LIST_EXTEND",
+	OP_STRING_APPEND:    "STRING_APPEND",
+	OP_FORK:             "FORK",
+	OP_PASS:             "PASS",
 }
 
 // String returns the name of an opcode

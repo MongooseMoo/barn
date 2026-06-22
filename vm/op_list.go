@@ -45,7 +45,7 @@ func (vm *VM) executeLength() error {
 	case types.ListValue:
 		vm.Push(types.IntValue{Val: int64(c.Len())})
 	case types.StrValue:
-		vm.Push(types.IntValue{Val: int64(len(c.Value()))})
+		vm.Push(types.IntValue{Val: int64(c.Len())})
 	case types.MapValue:
 		vm.Push(types.IntValue{Val: int64(c.Len())})
 	default:

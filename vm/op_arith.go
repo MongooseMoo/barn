@@ -29,10 +29,10 @@ func (vm *VM) executeAdd() error {
 	}
 
 	// Handle string concatenation
-	if _, ok := a.(types.StrValue); ok {
-		if _, ok := b.(types.StrValue); ok {
-			resultStr := a.(types.StrValue).Value() + b.(types.StrValue).Value()
-			if errCode := builtins.CheckStringLimit(resultStr); errCode != types.E_NONE {
+	if aStr, ok := a.(types.StrValue); ok {
+		if bStr, ok := b.(types.StrValue); ok {
+			resultStr := aStr.Value() + bStr.Value()
+			if errCode := builtins.CheckStringLength(len(resultStr)); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
 			vm.Push(types.NewStr(resultStr))
@@ -53,6 +53,53 @@ func (vm *VM) executeAdd() error {
 			return nil
 		}
 		// list + any → append (new list)
+		vm.Push(aList.Append(b))
+		return nil
+	}
+
+	return fmt.Errorf("E_TYPE: invalid operands for +")
+}
+
+func (vm *VM) executeStringAppend() error {
+	b := vm.Pop()
+	a := vm.Pop()
+
+	if aStr, ok := a.(types.StrValue); ok {
+		bStr, ok := b.(types.StrValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: invalid operands for +")
+		}
+
+		if errCode := builtins.CheckStringLength(aStr.Len() + bStr.Len()); errCode != types.E_NONE {
+			return fmt.Errorf("E_QUOTA: string too long")
+		}
+		vm.Push(aStr.Append(bStr))
+		return nil
+	}
+
+	if aInt, ok := a.(types.IntValue); ok {
+		if bInt, ok := b.(types.IntValue); ok {
+			vm.Push(types.IntValue{Val: aInt.Val + bInt.Val})
+			return nil
+		}
+	}
+	if aFloat, ok := a.(types.FloatValue); ok {
+		if bFloat, ok := b.(types.FloatValue); ok {
+			vm.Push(types.FloatValue{Val: aFloat.Val + bFloat.Val})
+			return nil
+		}
+	}
+
+	if aList, aIsList := a.(types.ListValue); aIsList {
+		if bList, bIsList := b.(types.ListValue); bIsList {
+			aElems := aList.Elements()
+			bElems := bList.Elements()
+			newElems := make([]types.Value, len(aElems)+len(bElems))
+			copy(newElems, aElems)
+			copy(newElems[len(aElems):], bElems)
+			vm.Push(types.NewList(newElems))
+			return nil
+		}
 		vm.Push(aList.Append(b))
 		return nil
 	}

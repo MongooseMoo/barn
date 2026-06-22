@@ -311,12 +311,18 @@ func CheckMapLimit(m types.MapValue) types.ErrorCode {
 	return types.E_NONE
 }
 
-// CheckStringLimit checks if a string exceeds the max_string_concat limit.
-// Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-func CheckStringLimit(s string) types.ErrorCode {
+// CheckStringLength checks if a string length exceeds the max_string_concat
+// limit. Returns E_QUOTA if limit exceeded, E_NONE otherwise.
+func CheckStringLength(length int) types.ErrorCode {
 	limit := GetMaxStringConcat()
-	if limit > 0 && len(s) > limit {
+	if limit > 0 && length > limit {
 		return types.E_QUOTA
 	}
 	return types.E_NONE
+}
+
+// CheckStringLimit checks if a string exceeds the max_string_concat limit.
+// Returns E_QUOTA if limit exceeded, E_NONE otherwise.
+func CheckStringLimit(s string) types.ErrorCode {
+	return CheckStringLength(len(s))
 }

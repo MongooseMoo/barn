@@ -451,6 +451,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Arithmetic operations
 	case bytecode.OP_ADD:
 		return vm.executeAdd()
+	case bytecode.OP_STRING_APPEND:
+		return vm.executeStringAppend()
 	case bytecode.OP_SUB:
 		return vm.executeSub()
 	case bytecode.OP_MUL:

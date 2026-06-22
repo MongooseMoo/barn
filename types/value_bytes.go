@@ -26,7 +26,7 @@ func ValueBytes(v Value) int {
 	case FloatValue:
 		return valueVarSize + 8
 	case StrValue:
-		return valueVarSize + len(val.Value()) + 1
+		return valueVarSize + val.Len() + 1
 	case ObjValue:
 		return valueVarSize
 	case ErrValue:

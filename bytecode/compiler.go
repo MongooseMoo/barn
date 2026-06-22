@@ -1777,6 +1777,25 @@ func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
 	// index / property) keep the general value-producing path below.
 	if assign, ok := n.Expr.(*parser.AssignExpr); ok {
 		if ident, ok := assign.Target.(*parser.IdentifierExpr); ok {
+			// Self-concat idiom: s = s + expr. This statement does not need the
+			// assignment's result value, so emit a string-append opcode directly.
+			// Runtime type checks preserve normal `+` errors if either operand is
+			// not a string.
+			if bin, ok := assign.Value.(*parser.BinaryExpr); ok && bin.Operator == parser.TOKEN_PLUS {
+				if leftIdent, ok := bin.Left.(*parser.IdentifierExpr); ok && leftIdent.Name == ident.Name {
+					idx := c.declareVariable(ident.Name)
+					c.emit(OP_GET_VAR)
+					c.emitByte(byte(idx))
+					if err := c.compileNode(bin.Right); err != nil {
+						return err
+					}
+					c.emit(OP_STRING_APPEND)
+					c.emit(OP_SET_VAR)
+					c.emitByte(byte(idx))
+					return nil
+				}
+			}
+
 			// Self-append idiom: v = {@v, e1, ...}. Instead of building a fresh
 			// list (copy all of v via LIST_EXTEND) and reassigning, append the
 			// trailing elements directly onto v. With the in-place Append path

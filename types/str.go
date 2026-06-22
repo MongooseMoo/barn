@@ -7,7 +7,9 @@ import (
 
 // StrValue represents a MOO string
 type StrValue struct {
-	val string
+	val       string
+	data      []byte
+	watermark *int
 }
 
 // NewStr creates a new string value
@@ -15,13 +17,82 @@ func NewStr(s string) StrValue {
 	return StrValue{val: s}
 }
 
+func growStringCap(needed int) int {
+	if needed <= 0 {
+		return 0
+	}
+	capacity := 16
+	for capacity < needed {
+		capacity *= 2
+	}
+	return capacity
+}
+
+func (s StrValue) byteLen() int {
+	if s.data != nil {
+		return len(s.data)
+	}
+	return len(s.val)
+}
+
+func (s StrValue) copyTo(dst []byte) {
+	if s.data != nil {
+		copy(dst, s.data)
+		return
+	}
+	copy(dst, s.val)
+}
+
+func (s StrValue) appendTo(dst []byte) []byte {
+	if s.data != nil {
+		return append(dst, s.data...)
+	}
+	return append(dst, s.val...)
+}
+
+// Len returns the byte length of the string without materializing builder-backed
+// strings into immutable Go strings.
+func (s StrValue) Len() int {
+	return s.byteLen()
+}
+
+// Append returns a string with other appended. It preserves MOO value semantics:
+// previous aliases keep their old length/content, while the returned value may
+// reuse uncommitted capacity when this header owns the append frontier.
+func (s StrValue) Append(other StrValue) StrValue {
+	n := s.byteLen()
+	otherLen := other.byteLen()
+	if otherLen == 0 {
+		return s
+	}
+
+	needed := n + otherLen
+	if s.watermark != nil && *s.watermark == n && cap(s.data) >= needed {
+		extended := s.data[:needed]
+		other.copyTo(extended[n:])
+		*s.watermark = needed
+		return StrValue{data: extended, watermark: s.watermark}
+	}
+
+	buf := make([]byte, n, growStringCap(needed))
+	s.copyTo(buf)
+	buf = other.appendTo(buf)
+	wm := needed
+	return StrValue{data: buf, watermark: &wm}
+}
+
 // String returns the MOO string representation with binary encoding
 // Non-printable characters (< 32 or > 126) are encoded as ~XX
 func (s StrValue) String() string {
 	var result strings.Builder
 	result.WriteByte('"')
-	for i := 0; i < len(s.val); i++ {
-		b := s.val[i]
+	for i := 0; i < s.byteLen(); i++ {
+		var b byte
+		if s.data != nil {
+			b = s.data[i]
+		} else {
+			b = s.val[i]
+		}
 		if b == '"' {
 			result.WriteString("\\\"")
 		} else if b == '\\' {
@@ -56,12 +127,15 @@ func (s StrValue) Truthy() bool {
 // MOO strings are case-insensitive
 func (s StrValue) Equal(other Value) bool {
 	if o, ok := other.(StrValue); ok {
-		return strings.EqualFold(s.val, o.val)
+		return strings.EqualFold(s.Value(), o.Value())
 	}
 	return false
 }
 
 // Value returns the internal string value
 func (s StrValue) Value() string {
+	if s.data != nil {
+		return string(s.data)
+	}
 	return s.val
 }
