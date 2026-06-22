@@ -33,8 +33,8 @@ type Writer struct {
 	snapshot       store.Snapshot
 	waifIndex      map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
 	nextWaifID     int
-	queuedTasks    []*task.Task
-	suspendedTasks []*task.Task
+	queuedTasks    []task.Snapshot
+	suspendedTasks []task.Snapshot
 }
 
 // NewWriter creates a writer for database serialization

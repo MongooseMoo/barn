@@ -274,30 +274,19 @@ func (s *Scheduler) GetTask(taskID int64) *task.Task {
 	return s.tasks[taskID]
 }
 
-// QueuedTasks returns list of queued tasks
-func (s *Scheduler) QueuedTasks() []*task.Task {
+// TaskSnapshots returns immutable task snapshots for checkpoint serialization.
+func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	tasks := make([]*task.Task, 0)
 	for _, t := range s.tasks {
-		if t.GetState() == task.TaskQueued {
-			tasks = append(tasks, t)
+		snapshot := t.PersistenceSnapshot()
+		switch snapshot.State {
+		case task.TaskQueued:
+			queued = append(queued, snapshot)
+		case task.TaskSuspended:
+			suspended = append(suspended, snapshot)
 		}
 	}
-	return tasks
-}
-
-// SuspendedTasks returns list of suspended tasks
-func (s *Scheduler) SuspendedTasks() []*task.Task {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	tasks := make([]*task.Task, 0)
-	for _, t := range s.tasks {
-		if t.GetState() == task.TaskSuspended {
-			tasks = append(tasks, t)
-		}
-	}
-	return tasks
+	return queued, suspended
 }

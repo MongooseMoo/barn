@@ -1,0 +1,59 @@
+package format
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+
+	"barn/db/store"
+	"barn/task"
+	"barn/types"
+)
+
+func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots([]task.Snapshot{{
+		ID:         5,
+		Owner:      2,
+		StartTime:  time.Unix(123, 0),
+		Programmer: 3,
+		VerbLoc:    6,
+		VerbName:   "tick",
+		This:       4,
+		CallStack: []task.ActivationFrame{{
+			This:       4,
+			Player:     2,
+			Programmer: 3,
+			VerbLoc:    6,
+			Verb:       "tick",
+			LineNumber: 9,
+		}},
+		Fork: &task.ForkSnapshot{
+			Variables: map[string]types.Value{
+				"x": types.NewInt(1),
+			},
+			SourceLines: []string{"x = 1;"},
+		},
+	}}, nil)
+
+	if err := writer.writeQueuedTasks(); err != nil {
+		t.Fatalf("writeQueuedTasks failed: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"1 queued tasks\n",
+		"0 9 5 123\n",
+		"1 variables\nx\n0\n1\n",
+		"x = 1;\n.\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("queued task output missing %q in:\n%s", want, got)
+		}
+	}
+}

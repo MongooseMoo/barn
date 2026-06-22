@@ -6,18 +6,18 @@ import (
 	"fmt"
 )
 
-// SetTasks sets queued and suspended task snapshots for serialization.
-func (w *Writer) SetTasks(queued, suspended []*task.Task) {
-	w.queuedTasks = append([]*task.Task(nil), queued...)
-	w.suspendedTasks = append([]*task.Task(nil), suspended...)
+// SetTaskSnapshots sets queued and suspended task snapshots for serialization.
+func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
+	w.queuedTasks = append([]task.Snapshot(nil), queued...)
+	w.suspendedTasks = append([]task.Snapshot(nil), suspended...)
 }
 
 // writeQueuedTasks writes all queued (forked) tasks
 func (w *Writer) writeQueuedTasks() error {
 	// Filter to only tasks that have source lines available
-	var serializableTasks []*task.Task
+	var serializableTasks []task.Snapshot
 	for _, t := range w.queuedTasks {
-		if t.ForkInfo != nil && len(t.ForkInfo.SourceLines) > 0 {
+		if t.Fork != nil && len(t.Fork.SourceLines) > 0 {
 			serializableTasks = append(serializableTasks, t)
 		}
 	}
@@ -42,8 +42,8 @@ func (w *Writer) writeQueuedTasks() error {
 //	ActivationAsPI
 //	RtEnv: "{count} variables" + name/value pairs
 //	Code: lines ending with "."
-func (w *Writer) writeQueuedTask(t *task.Task) error {
-	if t.ForkInfo == nil {
+func (w *Writer) writeQueuedTask(t task.Snapshot) error {
+	if t.Fork == nil {
 		return fmt.Errorf("task has no ForkInfo")
 	}
 
@@ -65,12 +65,12 @@ func (w *Writer) writeQueuedTask(t *task.Task) error {
 	}
 
 	// RtEnv: variables from ForkInfo
-	if err := w.writeRtEnv(t.ForkInfo.Variables); err != nil {
+	if err := w.writeRtEnv(t.Fork.Variables); err != nil {
 		return fmt.Errorf("write rtenv: %w", err)
 	}
 
 	// Code: source lines
-	for _, line := range t.ForkInfo.SourceLines {
+	for _, line := range t.Fork.SourceLines {
 		if err := w.writeString(line); err != nil {
 			return err
 		}
@@ -87,7 +87,7 @@ func (w *Writer) writeSuspendedTasks() error {
 	// For now, we can only serialize suspended tasks if we have source reconstruction
 	// This requires more work, so for now write 0 suspended tasks
 	// TODO: Implement full VM serialization when source line capture is available
-	var serializableTasks []*task.Task
+	var serializableTasks []task.Snapshot
 	// Currently empty - need source line capture to properly serialize
 
 	if err := w.writeString(fmt.Sprintf("%d suspended tasks", len(serializableTasks))); err != nil {
@@ -110,7 +110,7 @@ func (w *Writer) writeSuspendedTasks() error {
 //
 //	Header: "{startTime} {id} {type_code?} {value?}"
 //	VM struct
-func (w *Writer) writeSuspendedTask(t *task.Task) error {
+func (w *Writer) writeSuspendedTask(t task.Snapshot) error {
 	// Header: {startTime} {id} [type value]
 	startTime := t.StartTime.Unix()
 
@@ -153,7 +153,7 @@ func (w *Writer) writeInterruptedTasks() error {
 //	"Infos"
 //	verb (string)
 //	verbname (string)
-func (w *Writer) writeActivationAsPI(t *task.Task) error {
+func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 	// Get values from task
 	thisObj := t.This
 	player := t.Owner
@@ -241,7 +241,7 @@ func (w *Writer) writeRtEnv(vars map[string]types.Value) error {
 }
 
 // writeVM writes VM struct for suspended/interrupted tasks
-func (w *Writer) writeVM(t *task.Task) error {
+func (w *Writer) writeVM(t task.Snapshot) error {
 	// locals (typed value) - task_local storage
 	if err := w.writeValue(t.TaskLocal); err != nil {
 		return err
@@ -267,7 +267,7 @@ func (w *Writer) writeVM(t *task.Task) error {
 }
 
 // writeFullActivation writes a full activation frame for VM stack
-func (w *Writer) writeFullActivation(t *task.Task, index int) error {
+func (w *Writer) writeFullActivation(t task.Snapshot, index int) error {
 	// This is a placeholder - full activation serialization requires
 	// source line capture which isn't implemented yet
 

@@ -204,7 +204,8 @@ func (s *Server) checkpoint() error {
 	}
 
 	writer := dbformat.NewWriter(tempFile, s.store.Snapshot())
-	writer.SetTasks(s.scheduler.QueuedTasks(), s.scheduler.SuspendedTasks())
+	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
+	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
 	if err := writer.WriteDatabase(); err != nil {
 		tempFile.Close()
 		os.Remove(tempPath)
