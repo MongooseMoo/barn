@@ -1777,6 +1777,37 @@ func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
 	// index / property) keep the general value-producing path below.
 	if assign, ok := n.Expr.(*parser.AssignExpr); ok {
 		if ident, ok := assign.Target.(*parser.IdentifierExpr); ok {
+			// Self-append idiom: v = {@v, e1, ...}. Instead of building a fresh
+			// list (copy all of v via LIST_EXTEND) and reassigning, append the
+			// trailing elements directly onto v. With the in-place Append path
+			// this turns an O(n^2) build loop into amortized O(n); the result is
+			// identical (v's elements followed by the trailing items).
+			if list, ok := assign.Value.(*parser.ListExpr); ok && len(list.Elements) > 0 {
+				if sp, ok := list.Elements[0].(*parser.SpliceExpr); ok {
+					if spIdent, ok := sp.Expr.(*parser.IdentifierExpr); ok && spIdent.Name == ident.Name {
+						idx := c.declareVariable(ident.Name)
+						c.emit(OP_GET_VAR)
+						c.emitByte(byte(idx))
+						for _, elem := range list.Elements[1:] {
+							if splice, ok := elem.(*parser.SpliceExpr); ok {
+								if err := c.compileNode(splice.Expr); err != nil {
+									return err
+								}
+								c.emit(OP_LIST_EXTEND)
+							} else {
+								if err := c.compileNode(elem); err != nil {
+									return err
+								}
+								c.emit(OP_LIST_APPEND)
+							}
+						}
+						c.emit(OP_SET_VAR)
+						c.emitByte(byte(idx))
+						return nil
+					}
+				}
+			}
+
 			if err := c.compileNode(assign.Value); err != nil {
 				return err
 			}
