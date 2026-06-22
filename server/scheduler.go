@@ -15,7 +15,6 @@ import (
 	"barn/command"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/scheduler"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -412,16 +411,16 @@ func (s *Scheduler) processCommand(input InputEvent) {
 
 	// Resolve direct object
 	if cmd.Dobjstr != "" {
-		cmd.Dobj = scheduler.MatchObject(s.store, player, location, cmd.Dobjstr)
+		cmd.Dobj = command.MatchObject(s.store, player, location, cmd.Dobjstr)
 	}
 
 	// Resolve indirect object
 	if cmd.Iobjstr != "" {
-		cmd.Iobj = scheduler.MatchObject(s.store, player, location, cmd.Iobjstr)
+		cmd.Iobj = command.MatchObject(s.store, player, location, cmd.Iobjstr)
 	}
 
 	// Find the verb
-	match := scheduler.FindVerb(s.store, player, location, cmd)
+	match := command.FindVerb(s.store, player, location, cmd)
 	if match == nil {
 		if verbUpper == "EVAL" {
 			code := strings.TrimSpace(cmd.Argstr)
@@ -445,7 +444,7 @@ func (s *Scheduler) processCommand(input InputEvent) {
 		}
 
 		if huhVerb, huhVerbLoc, err := s.store.FindVerb(huhTarget, "huh"); err == nil {
-			huhMatch := &scheduler.VerbMatch{
+			huhMatch := &command.VerbMatch{
 				Verb:    huhVerb,
 				This:    huhTarget,
 				VerbLoc: huhVerbLoc,
@@ -571,7 +570,7 @@ func (s *Scheduler) parseProgramTarget(player, location types.ObjID, spec string
 		return types.ObjNothing, "", false
 	}
 
-	target := scheduler.MatchObject(s.store, player, location, objText)
+	target := command.MatchObject(s.store, player, location, objText)
 	if target < 0 {
 		return types.ObjNothing, "", false
 	}

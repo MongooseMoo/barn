@@ -1,9 +1,8 @@
-package scheduler
+package command
 
 import (
 	"strings"
 
-	"barn/command"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
@@ -78,7 +77,7 @@ func argspecMatches(spec string, objID types.ObjID, this types.ObjID) bool {
 }
 
 // prepMatches checks if a verb's prep spec matches the command's prep
-func prepMatches(verbPrep string, cmdPrep command.PrepSpec) bool {
+func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
 	verbPrepLower := strings.ToLower(verbPrep)
 
 	// "any" matches any preposition
@@ -88,11 +87,11 @@ func prepMatches(verbPrep string, cmdPrep command.PrepSpec) bool {
 
 	// "none" means no preposition expected
 	if verbPrepLower == "none" {
-		return cmdPrep == command.PrepNone
+		return cmdPrep == PrepNone
 	}
 
 	// Otherwise, try to match the prep name against parser-owned aliases.
-	if prep, ok := command.PrepSpecForAlias(verbPrepLower); ok {
+	if prep, ok := PrepSpecForAlias(verbPrepLower); ok {
 		return prep == cmdPrep
 	}
 
@@ -101,7 +100,7 @@ func prepMatches(verbPrep string, cmdPrep command.PrepSpec) bool {
 }
 
 // verbMatches checks if a verb matches a command
-func verbMatches(verb dbstore.VerbView, cmd *command.ParsedCommand, this types.ObjID) bool {
+func verbMatches(verb dbstore.VerbView, cmd *ParsedCommand, this types.ObjID) bool {
 	// Check verb name - try all names in the verb
 	nameMatches := false
 	for _, name := range verb.Names {
@@ -134,7 +133,7 @@ func verbMatches(verb dbstore.VerbView, cmd *command.ParsedCommand, this types.O
 
 // HasVerbNameMatch checks dispatch search targets for any matching verb name, ignoring arg specs.
 // Search order matches command dispatch: player -> location -> dobj -> iobj.
-func HasVerbNameMatch(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *command.ParsedCommand) bool {
+func HasVerbNameMatch(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) bool {
 	if store.HasVerbNameInAncestry(player, cmd.Verb) {
 		return true
 	}
@@ -152,7 +151,7 @@ func HasVerbNameMatch(store *dbstore.Store, player types.ObjID, location types.O
 
 // findDispatchVerb finds the first command verb candidate whose arg specs
 // match this parsed command.
-func findDispatchVerb(store *dbstore.Store, objID types.ObjID, cmd *command.ParsedCommand) *VerbMatch {
+func findDispatchVerb(store *dbstore.Store, objID types.ObjID, cmd *ParsedCommand) *VerbMatch {
 	candidates, errCode := store.VerbCandidatesInAncestry(objID)
 	if errCode != types.E_NONE {
 		return nil
@@ -171,7 +170,7 @@ func findDispatchVerb(store *dbstore.Store, objID types.ObjID, cmd *command.Pars
 
 // FindVerb finds a verb matching the command
 // Search order: player -> location -> dobj -> iobj
-func FindVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *command.ParsedCommand) *VerbMatch {
+func FindVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) *VerbMatch {
 	// 1. Search player
 	if match := findDispatchVerb(store, player, cmd); match != nil {
 		return match

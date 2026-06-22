@@ -1,8 +1,8 @@
 # Cleanup Refactor Fixed-Point Log - 2026-06-22
 
 Target architecture:
-- `barn/command` owns command-language parsing: `ParsedCommand`, `PrepSpec`, `ParseCommand`, and `CommandWordList`.
-- `barn/scheduler` owns scheduler-domain dispatch matching: object matching and verb candidate selection from parsed commands.
+- `barn/command` owns command-language parsing and command dispatch matching: `ParsedCommand`, `PrepSpec`, `ParseCommand`, `CommandWordList`, `MatchObject`, `VerbMatch`, and `FindVerb`.
+- `barn/scheduler` owns scheduler runtime orchestration, not command parsing or command matching.
 - `barn/server` consumes those owners and keeps connection/transport/runtime hosting code.
 
 Forbidden surfaces:
@@ -60,4 +60,36 @@ Commit:
 - Not committed in this turn.
 
 Next slice:
-- Move the concrete `Scheduler` runtime owner out of `server` once connection-facing dependencies are separated.
+- Move temporary command dispatch matching out of `barn/scheduler` and into `barn/command`.
+
+## Iteration 2 - `command dispatch matching owner correction`
+
+Slice read:
+- `scheduler/matcher.go`
+- `scheduler/verbs.go`
+- `command/command.go`
+- server callers in `server/scheduler.go`, `server/scheduler_task_factory.go`, and `server/scheduler_task_runtime.go`
+
+Surfaces:
+- `MatchObject`
+  - Disposition: move
+  - Owner after cleanup: `barn/command`
+  - Action: moved object resolution from `barn/scheduler` to `barn/command`.
+  - Evidence: this resolves noun phrases from parsed command text; it is command semantics, not task scheduling.
+- `VerbMatch`, `FindVerb`, prep/argspec matching
+  - Disposition: move
+  - Owner after cleanup: `barn/command`
+  - Action: moved parsed-command dispatch matching from `barn/scheduler` to `barn/command`.
+  - Evidence: this selects a command verb from player/location/dobj/iobj candidates; scheduler only consumes the chosen match to run a task.
+
+Gate results:
+- Pass: `go test ./command ./server`
+- Pass: `rg -n "barn/scheduler|scheduler\\.MatchObject|scheduler\\.FindVerb|scheduler\\.VerbMatch" server command -g "*.go"`
+- Pass: `rg -n "package scheduler" scheduler -g "*.go"`
+- Pass: `git diff --check`
+
+Commit:
+- Pending in this turn.
+
+Next slice:
+- Move the concrete `Scheduler` runtime owner out of `server`.
