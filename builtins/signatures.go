@@ -88,6 +88,10 @@ func validateFunctionArgs(name string, args []types.Value) types.ErrorCode {
 	if !ok {
 		return types.E_NONE
 	}
+	return validateKnownFunctionArgs(name, sig, args)
+}
+
+func validateKnownFunctionArgs(name string, sig functionSignature, args []types.Value) types.ErrorCode {
 	if int64(len(args)) < sig.minArg {
 		return types.E_ARGS
 	}

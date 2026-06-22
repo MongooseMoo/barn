@@ -15,22 +15,24 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 
 // Registry holds all registered builtin functions
 type Registry struct {
-	funcs      map[string]BuiltinFunc
-	byID       map[int]BuiltinFunc
-	nameToID   map[string]int
-	idToName   map[int]string
-	nextID     int
-	verbCaller VerbCallerFunc // Callback for calling verbs
+	funcs         map[string]BuiltinFunc
+	byID          map[int]BuiltinFunc
+	nameToID      map[string]int
+	idToName      map[int]string
+	lineSyncByID  map[int]bool
+	nextID        int
+	verbCaller    VerbCallerFunc // Callback for calling verbs
 }
 
 // NewRegistry creates a new builtin function registry
 func NewRegistry() *Registry {
 	r := &Registry{
-		funcs:    make(map[string]BuiltinFunc),
-		byID:     make(map[int]BuiltinFunc),
-		nameToID: make(map[string]int),
-		idToName: make(map[int]string),
-		nextID:   0,
+		funcs:         make(map[string]BuiltinFunc),
+		byID:          make(map[int]BuiltinFunc),
+		nameToID:      make(map[string]int),
+		idToName:      make(map[int]string),
+		lineSyncByID:  make(map[int]bool),
+		nextID:        0,
 	}
 
 	// Register type conversion builtins
@@ -329,10 +331,10 @@ func NewRegistry() *Registry {
 
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
-	if _, ok := lookupFunctionSignature(name); ok {
+	if sig, ok := lookupFunctionSignature(name); ok {
 		inner := fn
 		fn = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
-			if err := validateFunctionArgs(name, args); err != types.E_NONE {
+			if err := validateKnownFunctionArgs(name, sig, args); err != types.E_NONE {
 				return types.Err(err)
 			}
 			return inner(ctx, args)
@@ -343,7 +345,18 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	r.byID[id] = fn
 	r.nameToID[name] = id
 	r.idToName[id] = name
+	r.lineSyncByID[id] = needsCallStackLineSync(name)
 	r.nextID++
+}
+
+func needsCallStackLineSync(name string) bool {
+	return name == "callers" || name == "task_stack"
+}
+
+// NeedsLineSyncByID reports whether a builtin must see VM frame line numbers
+// flushed into the task activation stack before it runs.
+func (r *Registry) NeedsLineSyncByID(id int) bool {
+	return r.lineSyncByID[id]
 }
 
 // GetID returns the ID for a builtin function name
@@ -409,7 +422,8 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *kernel.TaskContext, 
 	_, _, err := store.FindVerb(types.ObjID(0), bfName)
 	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
-		return r.CallVerb(types.ObjID(0), bfName, args, ctx), true
+		verbArgs := append([]types.Value(nil), args...)
+		return r.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
 	}
 	// No wrapper verb: wizards fall through to the real builtin, others denied.
 	if !ctx.IsWizard {

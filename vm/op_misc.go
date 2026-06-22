@@ -24,12 +24,20 @@ func (vm *VM) executeCallBuiltin() error {
 			args[i-1] = list.Get(i)
 		}
 	} else {
-		args = vm.PopN(int(argc))
+		n := int(argc)
+		if vm.SP < n {
+			panic("stack underflow")
+		}
+		if n > 0 {
+			args = vm.Stack[vm.SP-n : vm.SP]
+			vm.SP -= n
+		}
 	}
 
-	// Sync task call-stack line numbers so builtins like callers() see
-	// accurate values.
-	vm.syncTaskLineNumbers()
+	// Sync task call-stack line numbers only for builtins that expose them.
+	if vm.Builtins.NeedsLineSyncByID(int(funcID)) {
+		vm.syncTaskLineNumbers()
+	}
 
 	// Set CallerVM so builtins like eval() can push frames on this VM
 	if vm.Context != nil {
