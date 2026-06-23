@@ -166,6 +166,46 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	return types.E_NONE
 }
 
+func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
+	if tx == nil {
+		return types.E_NONE
+	}
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if tx.store == nil {
+		return types.E_INVARG
+	}
+
+	tx.store.mu.RLock()
+	defer tx.store.mu.RUnlock()
+
+	live := tx.store.objects[objID]
+	if !validLiveObject(live) {
+		tx.objects[objID] = nil
+		return types.E_INVIND
+	}
+
+	verbClones := make(map[*Verb]*Verb, len(live.verbList))
+	obj.verbList = make([]*Verb, 0, len(live.verbList))
+	for _, verb := range live.verbList {
+		verbClone := cloneVerbForReadTxn(verb)
+		verbClones[verb] = verbClone
+		obj.verbList = append(obj.verbList, verbClone)
+	}
+	obj.verbs = make(map[string]*Verb, len(live.verbs))
+	for name, verb := range live.verbs {
+		if verbClone, ok := verbClones[verb]; ok {
+			obj.verbs[name] = verbClone
+			continue
+		}
+		obj.verbs[name] = cloneVerbForReadTxn(verb)
+	}
+	obj.verbVersion = live.verbVersion
+	return types.E_NONE
+}
+
 func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
 	if tx == nil || obj == nil {
 		return

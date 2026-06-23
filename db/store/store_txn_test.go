@@ -1020,6 +1020,35 @@ func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	verb := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
+	if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs failed: %v", errCode)
+	}
+	if errCode := tx.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+		t.Fatalf("tx SetVerbCode failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	verbView, _, err := store.FindVerb(0, "look")
+	if err != nil {
+		t.Fatalf("FindVerb failed: %v", err)
+	}
+	if len(verbView.Code) != 1 || verbView.Code[0] != "return 2;" {
+		t.Fatalf("verb code = %#v, want return 2", verbView.Code)
+	}
+}
+
 func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
