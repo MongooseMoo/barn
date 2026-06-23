@@ -330,7 +330,7 @@ func localPropertyForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID typ
 	return store.LocalProperty(objID, name)
 }
 
-// getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
+// getBuiltinProperty returns server-maintained object properties.
 func getBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string) (types.Value, bool) {
 	switch strings.ToLower(name) {
 	case "name":
@@ -456,7 +456,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 	return values
 }
 
-// setBuiltinProperty sets a built-in object property.
+// setBuiltinProperty sets mutable server-maintained object properties.
 func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
