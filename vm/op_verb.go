@@ -330,6 +330,13 @@ func (vm *VM) executePass() error {
 
 	verb, defObjID, err := vm.Store.FindParentVerb(verbLoc, verbName)
 	if err != nil {
+		// Distinguish two cases the way ToastStunt does: if the defining object
+		// has no parent at all, pass() indirects through #-1 (an invalid object)
+		// and raises E_INVIND; if a real parent simply doesn't define the verb,
+		// it's E_VERBNF.
+		if parent, _ := vm.Store.Parent(verbLoc); parent == types.ObjNothing {
+			return fmt.Errorf("E_INVIND: pass() has no parent object")
+		}
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
 	}
 
