@@ -299,6 +299,96 @@ func TestTransactionPropertyInfoConflictsWithValueWrite(t *testing.T) {
 	}
 }
 
+func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := store.SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue override failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.ClearPropertyOverride(child, "a"); errCode != types.E_NONE {
+		t.Fatalf("ClearPropertyOverride failed: %v", errCode)
+	}
+	txValue, errCode := tx.PropertyValue(child, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("tx PropertyValue failed: %v", errCode)
+	}
+	if got := txValue.(types.IntValue).Val; got != 1 {
+		t.Fatalf("tx property value = %d, want inherited value 1", got)
+	}
+	liveValue, errCode := store.PropertyValue(child, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("live PropertyValue failed: %v", errCode)
+	}
+	if got := liveValue.(types.IntValue).Val; got != 2 {
+		t.Fatalf("live property value before commit = %d, want local override 2", got)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	liveValue, errCode = store.PropertyValue(child, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("live PropertyValue after commit failed: %v", errCode)
+	}
+	if got := liveValue.(types.IntValue).Val; got != 1 {
+		t.Fatalf("live property value after commit = %d, want inherited value 1", got)
+	}
+}
+
+func TestTransactionClearPropertyOverrideConflictsWithValueWrite(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := store.SetPropertyValue(child, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue override failed: %v", errCode)
+	}
+
+	clearTx := store.BeginReadOnly(0)
+	valueTx := store.BeginReadOnly(0)
+	if errCode := clearTx.ClearPropertyOverride(child, "a"); errCode != types.E_NONE {
+		t.Fatalf("clearTx ClearPropertyOverride failed: %v", errCode)
+	}
+	if errCode := valueTx.SetPropertyValue(child, "a", types.NewInt(3)); errCode != types.E_NONE {
+		t.Fatalf("valueTx SetPropertyValue failed: %v", errCode)
+	}
+
+	if errCode := clearTx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("clearTx Commit failed: %v", errCode)
+	}
+	if errCode := valueTx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("valueTx Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !valueTx.ValidationFailed() {
+		t.Fatalf("valueTx did not record validation failure")
+	}
+	liveValue, errCode := store.PropertyValue(child, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("live PropertyValue failed: %v", errCode)
+	}
+	if got := liveValue.(types.IntValue).Val; got != 1 {
+		t.Fatalf("live property value = %d, want inherited value 1", got)
+	}
+}
+
 func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
