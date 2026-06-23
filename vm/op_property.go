@@ -289,7 +289,7 @@ func (vm *VM) checkPropertyWritePerm(prop dbstore.PropertyView) error {
 
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
 func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (types.Value, bool) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name":
 		name, errCode := store.ObjectName(objID)
 		if errCode != types.E_NONE {
@@ -380,7 +380,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 
 // setBuiltinProperty sets a built-in object property.
 func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
 			return true, store.SetObjectName(objID, str.Value())

@@ -244,3 +244,63 @@ func TestPropertyPermsString(t *testing.T) {
 		}
 	}
 }
+
+func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add() failed: %v", err)
+	}
+
+	if errCode := store.DefineProperty(0, NewProperty("CaseProbe", types.NewInt(42), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty() failed: %v", errCode)
+	}
+
+	prop, errCode := store.FindProperty(0, "caseprobe")
+	if errCode != types.E_NONE {
+		t.Fatalf("FindProperty() failed: %v", errCode)
+	}
+	if prop.Name != "CaseProbe" {
+		t.Fatalf("FindProperty() name = %q, want CaseProbe", prop.Name)
+	}
+	if got := prop.Value.(types.IntValue).Val; got != 42 {
+		t.Fatalf("FindProperty() value = %d, want 42", got)
+	}
+
+	if _, ok, errCode := store.LocalProperty(0, "CASEPROBE"); errCode != types.E_NONE || !ok {
+		t.Fatalf("LocalProperty() ok=%v err=%v, want ok", ok, errCode)
+	}
+
+	if errCode := store.SetPropertyValue(0, "CASEPROBE", types.NewInt(99)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue() failed: %v", errCode)
+	}
+	prop, errCode = store.FindProperty(0, "caseprobe")
+	if errCode != types.E_NONE {
+		t.Fatalf("FindProperty() after set failed: %v", errCode)
+	}
+	if got := prop.Value.(types.IntValue).Val; got != 99 {
+		t.Fatalf("SetPropertyValue() value = %d, want 99", got)
+	}
+
+	perms := PropRead
+	if errCode := store.SetPropertyInfo(0, "caseprobe", nil, &perms); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyInfo() failed: %v", errCode)
+	}
+	prop, errCode = store.FindProperty(0, "CASEPROBE")
+	if errCode != types.E_NONE {
+		t.Fatalf("FindProperty() after info failed: %v", errCode)
+	}
+	if prop.Perms != PropRead {
+		t.Fatalf("SetPropertyInfo() perms = %v, want %v", prop.Perms, PropRead)
+	}
+
+	if errCode := store.DefineProperty(0, NewProperty("caseprobe", types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_INVARG {
+		t.Fatalf("DefineProperty() duplicate = %v, want E_INVARG", errCode)
+	}
+
+	if errCode := store.DeleteDefinedProperty(0, "CASEPROBE"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty() failed: %v", errCode)
+	}
+	if _, errCode := store.FindProperty(0, "caseprobe"); errCode != types.E_PROPNF {
+		t.Fatalf("FindProperty() after delete = %v, want E_PROPNF", errCode)
+	}
+}

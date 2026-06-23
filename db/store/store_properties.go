@@ -23,7 +23,7 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 			continue
 		}
 		for name, prop := range current.properties {
-			if _, exists := result[name]; exists {
+			if _, _, exists := propertyByName(result, name); exists {
 				continue
 			}
 			result[name] = &Property{
@@ -38,6 +38,22 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 	}
 
 	return result
+}
+
+func propertyNameKey(name string) string {
+	return strings.ToLower(name)
+}
+
+func propertyByName(properties map[string]*Property, name string) (string, *Property, bool) {
+	if prop, ok := properties[name]; ok {
+		return name, prop, true
+	}
+	for propName, prop := range properties {
+		if strings.EqualFold(propName, name) {
+			return propName, prop, true
+		}
+	}
+	return "", nil, false
 }
 
 func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
@@ -83,7 +99,7 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, t
 			continue
 		}
 
-		if prop, ok := current.properties[name]; ok {
+		if _, prop, ok := propertyByName(current.properties, name); ok {
 			if targetProp == nil {
 				targetProp = prop
 			}
@@ -170,7 +186,7 @@ func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[st
 		}
 		for name, prop := range current.properties {
 			if prop != nil && prop.defined {
-				names[name] = true
+				names[propertyNameKey(name)] = true
 			}
 		}
 		queue = append(queue, current.parents...)
@@ -193,10 +209,11 @@ func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types
 			if prop == nil || !prop.defined {
 				continue
 			}
-			if seen[name] {
+			key := propertyNameKey(name)
+			if seen[key] {
 				return true, types.E_NONE
 			}
-			seen[name] = true
+			seen[key] = true
 		}
 	}
 	return false, types.E_NONE
@@ -218,7 +235,7 @@ func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parent
 
 	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
 	for name, prop := range obj.properties {
-		if prop != nil && prop.defined && ancestorNames[name] {
+		if prop != nil && prop.defined && ancestorNames[propertyNameKey(name)] {
 			return true, types.E_NONE
 		}
 	}
@@ -247,7 +264,7 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 				continue
 			}
 			for name, prop := range child.properties {
-				if prop != nil && prop.defined && names[name] {
+				if prop != nil && prop.defined && names[propertyNameKey(name)] {
 					return true
 				}
 			}
@@ -313,7 +330,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 			continue
 		}
 		for propName, prop := range current.properties {
-			if prop == nil || !strings.HasPrefix(propName, prefix) {
+			if prop == nil || !strings.HasPrefix(strings.ToLower(propName), strings.ToLower(prefix)) {
 				continue
 			}
 			name := propName[len(prefix):]
@@ -344,7 +361,7 @@ func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, boo
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
 	}
-	prop, ok := obj.properties[name]
+	_, prop, ok := propertyByName(obj.properties, name)
 	if !ok {
 		return PropertyView{}, false, types.E_NONE
 	}
@@ -383,7 +400,7 @@ func (s *Store) PropertyClearState(objID types.ObjID, name string) (bool, types.
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
-	prop, exists := obj.properties[name]
+	_, prop, exists := propertyByName(obj.properties, name)
 	if !exists {
 		return true, types.E_NONE
 	}
@@ -403,8 +420,8 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	prop := obj.properties[name]
-	if prop == nil {
+	_, prop, ok := propertyByName(obj.properties, name)
+	if !ok {
 		return types.E_PROPNF
 	}
 	if owner != nil {
@@ -427,7 +444,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if prop := obj.properties[name]; prop != nil {
+	if _, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
 		prop.value = value
 		return types.E_NONE
@@ -437,8 +454,8 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	if err != types.E_NONE {
 		return err
 	}
-	obj.properties[name] = &Property{
-		name:    name,
+	obj.properties[inherited.name] = &Property{
+		name:    inherited.name,
 		value:   value,
 		owner:   inherited.owner,
 		perms:   inherited.perms,
@@ -459,7 +476,7 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if _, exists := obj.properties[prop.name]; exists {
+	if _, _, exists := propertyByName(obj.properties, prop.name); exists {
 		return types.E_INVARG
 	}
 	prop.defined = true
@@ -490,17 +507,17 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	prop := obj.properties[name]
-	if prop == nil || !prop.defined {
+	actualName, prop, ok := propertyByName(obj.properties, name)
+	if !ok || !prop.defined {
 		return types.E_PROPNF
 	}
 
-	delete(obj.properties, name)
-	obj.propOrder = removeString(obj.propOrder, name)
+	delete(obj.properties, actualName)
+	obj.propOrder = removeString(obj.propOrder, actualName)
 	if obj.propDefsCount > 0 {
 		obj.propDefsCount--
 	}
-	s.removeInheritedPropertyLocked(objID, name)
+	s.removeInheritedPropertyLocked(objID, actualName)
 	return types.E_NONE
 }
 
@@ -515,7 +532,10 @@ func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.Erro
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	delete(obj.properties, name)
+	actualName, _, ok := propertyByName(obj.properties, name)
+	if ok {
+		delete(obj.properties, actualName)
+	}
 	return types.E_NONE
 }
 
@@ -541,7 +561,7 @@ func (s *Store) HasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 			if !validLiveObject(child) {
 				continue
 			}
-			if prop, ok := child.properties[name]; ok && prop.defined {
+			if _, prop, ok := propertyByName(child.properties, name); ok && prop.defined {
 				return true
 			}
 			queue = append(queue, childID)
@@ -585,6 +605,13 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 			if !validLiveObject(child) {
 				continue
 			}
+			if actualName, existing, ok := propertyByName(child.properties, prop.name); ok {
+				if existing.defined {
+					queue = append(queue, childID)
+					continue
+				}
+				delete(child.properties, actualName)
+			}
 			child.properties[prop.name] = &Property{
 				name:  prop.name,
 				value: prop.value,
@@ -616,8 +643,8 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string) {
 			if !validLiveObject(child) {
 				continue
 			}
-			if prop, ok := child.properties[name]; ok && !prop.defined {
-				delete(child.properties, name)
+			if actualName, prop, ok := propertyByName(child.properties, name); ok && !prop.defined {
+				delete(child.properties, actualName)
 			}
 			queue = append(queue, childID)
 		}

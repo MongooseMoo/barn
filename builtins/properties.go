@@ -4,6 +4,7 @@ import (
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
+	"strings"
 )
 
 // builtinProperties implements properties(object)
@@ -496,7 +497,7 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 // IsBuiltinProperty checks if a property name is a built-in property
 // Built-in properties: name, owner, location, contents, parents, parent, children, programmer, wizard, player, r, w, f, a
 func IsBuiltinProperty(name string) bool {
-	switch name {
+	switch strings.ToLower(name) {
 	case "name", "owner", "location", "contents", "parents", "parent", "children",
 		"programmer", "wizard", "player", "r", "w", "f", "a":
 		return true
