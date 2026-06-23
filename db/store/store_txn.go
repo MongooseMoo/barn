@@ -723,6 +723,100 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 	return false, types.E_NONE
 }
 
+func (tx *StoreTxn) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	return tx.definedPropertyNamesInAncestry([]types.ObjID{objID}), types.E_NONE
+}
+
+func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[string]bool {
+	names := make(map[string]bool)
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), start...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] || currentID == types.ObjNothing {
+			continue
+		}
+		visited[currentID] = true
+
+		current := tx.object(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		tx.markPropertyScan(currentID, current)
+		tx.markObjectRelationshipRead(currentID, current)
+		for name, prop := range current.properties {
+			if prop != nil && prop.defined {
+				names[propertyNameKey(name)] = true
+			}
+		}
+		queue = append(queue, current.parents...)
+	}
+
+	return names
+}
+
+func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	tx.markPropertyScan(objID, obj)
+	for _, parentID := range parentIDs {
+		if !validLiveObject(tx.object(parentID)) {
+			return false, types.E_INVARG
+		}
+	}
+
+	ancestorNames := tx.definedPropertyNamesInAncestry(parentIDs)
+	for name, prop := range obj.properties {
+		if prop != nil && prop.defined && ancestorNames[propertyNameKey(name)] {
+			return true, types.E_NONE
+		}
+	}
+	return false, types.E_NONE
+}
+
+func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+
+	visited := make(map[types.ObjID]bool)
+	var check func(*Object) bool
+	check = func(current *Object) bool {
+		if current == nil || visited[current.id] {
+			return false
+		}
+		visited[current.id] = true
+		tx.markObjectRelationshipRead(current.id, current)
+		for childID := range current.chparentChildren {
+			child := tx.object(childID)
+			if !validLiveObject(child) {
+				continue
+			}
+			tx.markPropertyScan(childID, child)
+			for name, prop := range child.properties {
+				if prop != nil && prop.defined && names[propertyNameKey(name)] {
+					return true
+				}
+			}
+			if check(child) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return check(obj), types.E_NONE
+}
+
 func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {

@@ -674,6 +674,82 @@ func TestTransactionDuplicateDefinedPropertySeesStagedDefinitions(t *testing.T) 
 	}
 }
 
+func TestTransactionDefinedPropertyConflictSeesStagedDefinitions(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject obj failed: %v", errCode)
+	}
+	parent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject parent failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DefineProperty(obj, NewProperty("foo", types.NewInt(1), obj, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty obj failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(parent, NewProperty("FOO", types.NewInt(2), parent, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty parent failed: %v", errCode)
+	}
+
+	conflict, errCode := tx.HasDefinedPropertyConflictWithAncestry(obj, []types.ObjID{parent})
+	if errCode != types.E_NONE {
+		t.Fatalf("HasDefinedPropertyConflictWithAncestry failed: %v", errCode)
+	}
+	if !conflict {
+		t.Fatalf("HasDefinedPropertyConflictWithAncestry = false, want true")
+	}
+}
+
+func TestTransactionChparentDescendantConflictSeesStagedDefinitions(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject child failed: %v", errCode)
+	}
+	parent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject parent failed: %v", errCode)
+	}
+	newParent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject newParent failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DefineProperty(child, NewProperty("foo", types.NewInt(1), child, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty child failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(newParent, NewProperty("FOO", types.NewInt(2), newParent, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty newParent failed: %v", errCode)
+	}
+	if errCode := store.ChangeParents(child, []types.ObjID{parent}); errCode != types.E_NONE {
+		t.Fatalf("ChangeParents child failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveRelationships(child, 0, parent); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships failed: %v", errCode)
+	}
+
+	names, errCode := tx.DefinedPropertyNamesInAncestry(newParent)
+	if errCode != types.E_NONE {
+		t.Fatalf("DefinedPropertyNamesInAncestry failed: %v", errCode)
+	}
+	conflict, errCode := tx.HasChparentDescendantPropertyConflict(parent, names)
+	if errCode != types.E_NONE {
+		t.Fatalf("HasChparentDescendantPropertyConflict failed: %v", errCode)
+	}
+	if !conflict {
+		t.Fatalf("HasChparentDescendantPropertyConflict = false, want true")
+	}
+}
+
 func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
