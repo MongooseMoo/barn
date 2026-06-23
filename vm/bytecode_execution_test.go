@@ -201,6 +201,25 @@ func TestBytecodeIntegerLiteralOverflowWraps(t *testing.T) {
 	requireInt(t, runBytecodeExpr(t, "-9223372036854775808 == 9223372036854775807 + 1"), 1)
 }
 
+func TestBytecodeFloatFormattingUsesToastPrecision(t *testing.T) {
+	cases := map[string]string{
+		"tostr(sqrt(2.0))":          "1.4142135623731",
+		"tostr(1.0 / 3.0)":          "0.333333333333333",
+		"tostr(10.0 / 3.0)":         "3.33333333333333",
+		"tostr(0.1 + 0.2)":          "0.3",
+		"tostr(exp(1.0))":           "2.71828182845905",
+		"tostr(123456789012345.0)":  "123456789012345.0",
+		"tostr(1234567890123456.0)": "1.23456789012346e+15",
+		"tostr(1.0e10)":             "10000000000.0",
+		"toliteral(1.0 / 3.0)":      "0.333333333333333",
+	}
+	for expr, want := range cases {
+		t.Run(expr, func(t *testing.T) {
+			requireString(t, runBytecodeExpr(t, expr), want)
+		})
+	}
+}
+
 func TestBytecodeScatterAssignment(t *testing.T) {
 	cases := map[string][]types.Value{
 		"optional_default": {
