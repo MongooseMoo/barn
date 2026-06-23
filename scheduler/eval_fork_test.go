@@ -36,20 +36,20 @@ func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 	defer s.Stop()
 
 	lines := s.EvalCommandOutput(3, fmt.Sprintf(
-		"fork id (0)\n"+
-			"  #%d:suspender();\n"+
-			"endfork\n"+
-			"suspend(0);\n"+
+		"fork id (0) "+
+			"#%d:suspender(); "+
+			"endfork "+
+			"suspend(0); "+
 			"s = task_stack(id);\n"+
 			"kill_task(id);\n"+
 			"return typeof(s);\n",
 		obj,
-	), "", "")
+	), "-=!-^-!=-", "-=!-v-!=-")
 
-	if len(lines) != 1 {
-		t.Fatalf("lines = %#v, want one result", lines)
+	if len(lines) != 3 {
+		t.Fatalf("lines = %#v, want prefix/result/suffix", lines)
 	}
-	if lines[0] != "{1, 4}" {
-		t.Fatalf("eval result = %q, want {1, 4}", lines[0])
+	if lines[1] != "{1, 4}" {
+		t.Fatalf("eval result = %q, want {1, 4}", lines[1])
 	}
 }
