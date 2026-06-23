@@ -949,3 +949,117 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 		t.Fatalf("property a = %d, want unchanged value 1", got)
 	}
 }
+
+func TestTransactionSetVerbCodeStagesUntilCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+		t.Fatalf("tx SetVerbCode failed: %v", errCode)
+	}
+
+	txVerb, _, err := tx.FindVerb(0, "look")
+	if err != nil {
+		t.Fatalf("tx FindVerb failed: %v", err)
+	}
+	if len(txVerb.Code) != 1 || txVerb.Code[0] != "return 2;" {
+		t.Fatalf("tx verb code = %#v, want staged code", txVerb.Code)
+	}
+	liveVerb, _, err := store.FindVerb(0, "look")
+	if err != nil {
+		t.Fatalf("live FindVerb failed: %v", err)
+	}
+	if len(liveVerb.Code) != 1 || liveVerb.Code[0] != "return 1;" {
+		t.Fatalf("live verb code before commit = %#v, want original code", liveVerb.Code)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("tx Commit failed: %v", errCode)
+	}
+	liveVerb, _, err = store.FindVerb(0, "look")
+	if err != nil {
+		t.Fatalf("live FindVerb after commit failed: %v", err)
+	}
+	if len(liveVerb.Code) != 1 || liveVerb.Code[0] != "return 2;" {
+		t.Fatalf("live verb code after commit = %#v, want staged code", liveVerb.Code)
+	}
+}
+
+func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.SetVerbCodeByIndex(0, 0, []string{"return 2;"}); errCode != types.E_NONE {
+		t.Fatalf("tx SetVerbCodeByIndex failed: %v", errCode)
+	}
+
+	txVerb, errCode := tx.VerbByIndex(0, 0)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx VerbByIndex failed: %v", errCode)
+	}
+	if len(txVerb.Code) != 1 || txVerb.Code[0] != "return 2;" {
+		t.Fatalf("tx verb code = %#v, want staged code", txVerb.Code)
+	}
+	liveVerb, errCode := store.VerbByIndex(0, 0)
+	if errCode != types.E_NONE {
+		t.Fatalf("live VerbByIndex failed: %v", errCode)
+	}
+	if len(liveVerb.Code) != 1 || liveVerb.Code[0] != "return 1;" {
+		t.Fatalf("live verb code before commit = %#v, want original code", liveVerb.Code)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("tx Commit failed: %v", errCode)
+	}
+	liveVerb, errCode = store.VerbByIndex(0, 0)
+	if errCode != types.E_NONE {
+		t.Fatalf("live VerbByIndex after commit failed: %v", errCode)
+	}
+	if len(liveVerb.Code) != 1 || liveVerb.Code[0] != "return 2;" {
+		t.Fatalf("live verb code after commit = %#v, want staged code", liveVerb.Code)
+	}
+}
+
+func TestTransactionSetVerbCodeConflicts(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+		t.Fatalf("tx SetVerbCode failed: %v", errCode)
+	}
+	if errCode := store.SetVerbCode(0, "look", []string{"return 3;"}); errCode != types.E_NONE {
+		t.Fatalf("live SetVerbCode failed: %v", errCode)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("tx Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !tx.ValidationFailed() {
+		t.Fatalf("transaction did not record validation failure")
+	}
+	liveVerb, _, err := store.FindVerb(0, "look")
+	if err != nil {
+		t.Fatalf("live FindVerb failed: %v", err)
+	}
+	if len(liveVerb.Code) != 1 || liveVerb.Code[0] != "return 3;" {
+		t.Fatalf("live verb code after conflict = %#v, want concurrent code", liveVerb.Code)
+	}
+}

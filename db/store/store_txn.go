@@ -23,6 +23,7 @@ type StoreTxn struct {
 	propertyDeletes           map[propertyWriteKey]string
 	verbReads                 map[verbReadKey]uint64
 	verbScans                 map[types.ObjID]uint64
+	verbWrites                map[verbWriteKey]verbWrite
 	validationFail            bool
 	maxObjID                  types.ObjID
 	highWaterID               types.ObjID
@@ -62,6 +63,15 @@ type verbReadKey struct {
 	name  string
 }
 
+type verbWriteKey struct {
+	objID types.ObjID
+	name  string
+}
+
+type verbWrite struct {
+	code []string
+}
+
 func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -85,6 +95,7 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		propertyDeletes:           make(map[propertyWriteKey]string),
 		verbReads:                 make(map[verbReadKey]uint64),
 		verbScans:                 make(map[types.ObjID]uint64),
+		verbWrites:                make(map[verbWriteKey]verbWrite),
 		maxObjID:                  s.maxObjID,
 		highWaterID:               s.highWaterID,
 	}
@@ -189,6 +200,9 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 	if tx == nil || verb == nil {
 		return
 	}
+	if _, staged := tx.verbWrites[verbWriteKey{objID: objID, name: verb.name}]; staged {
+		return
+	}
 	tx.verbReads[verbReadKey{objID: objID, name: verb.name}] = verb.version
 }
 
@@ -200,7 +214,7 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0)
 }
 
 func (tx *StoreTxn) ValidationFailed() bool {
@@ -792,7 +806,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 }
 
 func (tx *StoreTxn) Commit() types.ErrorCode {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -915,12 +929,31 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		}
 		stampObjectProperties(live, ts)
 	}
+	for key, write := range tx.verbWrites {
+		live := tx.store.objects[key.objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		verb := live.verbs[key.name]
+		if verb == nil {
+			return types.E_VERBNF
+		}
+		if !remembered[key.objID] {
+			tx.store.rememberObjectLocked(live)
+			remembered[key.objID] = true
+		}
+		verb.code = append([]string(nil), write.code...)
+		verb.hasProgram = true
+		stampVerb(verb, ts)
+		stampObjectVerbs(live, ts)
+	}
 	tx.scalarWrites = make(map[types.ObjID]objectScalarWrite)
 	tx.relationshipWrites = make(map[types.ObjID]objectRelationshipWrite)
 	tx.propertyDefines = make(map[propertyWriteKey]Property)
 	tx.propertyDefinitionDeletes = make(map[propertyWriteKey]string)
 	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)
 	tx.propertyDeletes = make(map[propertyWriteKey]string)
+	tx.verbWrites = make(map[verbWriteKey]verbWrite)
 	return types.E_NONE
 }
 
@@ -994,6 +1027,38 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 		}
 	}
 	return types.E_NONE
+}
+
+func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
+	verb, definer, err := tx.findVerb(objID, name)
+	if err != nil || verb == nil {
+		return types.E_VERBNF
+	}
+	tx.stageVerbCode(definer, verb, lines)
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.verbList) {
+		return types.E_RANGE
+	}
+	tx.markVerbScan(objID, obj)
+	verb := obj.verbList[index]
+	tx.markVerbRead(objID, verb)
+	tx.stageVerbCode(objID, verb, lines)
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string) {
+	verb.code = append([]string(nil), lines...)
+	verb.hasProgram = true
+	tx.verbWrites[verbWriteKey{objID: objID, name: verb.name}] = verbWrite{
+		code: append([]string(nil), lines...),
+	}
 }
 
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
