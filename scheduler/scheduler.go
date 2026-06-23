@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -56,7 +57,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 // mixed int/float arithmetic and comparison auto-promote (ToastStunt mongoose
 // PROMOTE_NUMBERS); when false, strict E_TYPE behavior is used.
 func NewSchedulerWithOptions(store *dbstore.Store, promoteNumbers bool) *Scheduler {
-	return newSchedulerWithWorkerCount(store, promoteNumbers, 1)
+	return newSchedulerWithWorkerCount(store, promoteNumbers, runtime.GOMAXPROCS(0))
 }
 
 func newSchedulerWithWorkerCount(store *dbstore.Store, promoteNumbers bool, workerCount int) *Scheduler {
@@ -206,7 +207,69 @@ func (s *Scheduler) runReadyTasks(readyTasks []*task.Task) {
 	if len(readyTasks) == 0 {
 		return
 	}
+	for _, batch := range s.readyTaskBatches(readyTasks) {
+		s.runTaskBatch(batch)
+	}
+}
 
+type readyTaskCandidate struct {
+	task      *task.Task
+	footprint accessFootprint
+}
+
+func (s *Scheduler) readyTaskBatches(readyTasks []*task.Task) [][]*task.Task {
+	if s.workerCount <= 1 {
+		batches := make([][]*task.Task, 0, len(readyTasks))
+		for _, t := range readyTasks {
+			batches = append(batches, []*task.Task{t})
+		}
+		return batches
+	}
+
+	var batches [][]*task.Task
+	var current []readyTaskCandidate
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		batch := make([]*task.Task, 0, len(current))
+		for _, candidate := range current {
+			batch = append(batch, candidate.task)
+		}
+		batches = append(batches, batch)
+		current = nil
+	}
+
+	for _, t := range readyTasks {
+		candidate := readyTaskCandidate{
+			task:      t,
+			footprint: analyzeTaskAccessFootprint(t),
+		}
+		if !candidateCanJoinBatch(candidate, current) {
+			flush()
+		}
+		current = append(current, candidate)
+		if len(current) >= s.workerCount || candidate.footprint.unknown {
+			flush()
+		}
+	}
+	flush()
+	return batches
+}
+
+func candidateCanJoinBatch(candidate readyTaskCandidate, batch []readyTaskCandidate) bool {
+	if candidate.footprint.unknown {
+		return len(batch) == 0
+	}
+	for _, existing := range batch {
+		if !accessFootprintsCommute(candidate.footprint, existing.footprint) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Scheduler) runTaskBatch(readyTasks []*task.Task) {
 	results := make(chan taskRunResult, len(readyTasks))
 	for _, t := range readyTasks {
 		s.taskWork <- taskWorkItem{task: t, results: results}

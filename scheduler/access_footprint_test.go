@@ -70,8 +70,8 @@ return 0;
 `), nil)
 
 	assertNoPropertyWrite(t, footprint, 1, "later")
-	if footprint.unknown {
-		t.Fatal("unknown = true, want false")
+	if !footprint.unknown {
+		t.Fatal("unknown = false, want true")
 	}
 }
 

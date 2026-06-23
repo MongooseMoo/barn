@@ -48,7 +48,7 @@ func TestSchedulerWorkerPoolStopsCleanly(t *testing.T) {
 	}
 }
 
-func TestProcessReadyTasksRunsConfiguredWorkersInParallel(t *testing.T) {
+func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
 	defer s.Stop()
 
@@ -80,7 +80,8 @@ func TestProcessReadyTasksRunsConfiguredWorkersInParallel(t *testing.T) {
 
 	done := make(chan int, 1)
 	go func() {
-		done <- s.ProcessReadyTasks()
+		s.runTaskBatch([]*task.Task{first, second})
+		done <- 2
 	}()
 
 	select {
@@ -99,6 +100,65 @@ func TestProcessReadyTasksRunsConfiguredWorkersInParallel(t *testing.T) {
 		if queued.Result.Flow != types.FlowReturn {
 			t.Fatalf("task %d flow = %v err=%v, want return", queued.ID, queued.Result.Flow, queued.Result.Error)
 		}
+	}
+}
+
+func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits()
+	first := task.NewTaskFull(1201, 7, parseTestStatements(t, "#1.a = 2;"), ticks, seconds)
+	second := task.NewTaskFull(1202, 7, parseTestStatements(t, "#1.b = 3;"), ticks, seconds)
+
+	batches := s.readyTaskBatches([]*task.Task{first, second})
+
+	if len(batches) != 1 {
+		t.Fatalf("batch count = %d, want 1", len(batches))
+	}
+	if len(batches[0]) != 2 {
+		t.Fatalf("batch size = %d, want 2", len(batches[0]))
+	}
+}
+
+func TestReadyTaskBatchesKeepConflictingPropertyWritesOrdered(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits()
+	first := task.NewTaskFull(1211, 7, parseTestStatements(t, "#1.a = 2;"), ticks, seconds)
+	second := task.NewTaskFull(1212, 7, parseTestStatements(t, "#1.a = 3;"), ticks, seconds)
+
+	batches := s.readyTaskBatches([]*task.Task{first, second})
+
+	if len(batches) != 2 {
+		t.Fatalf("batch count = %d, want 2", len(batches))
+	}
+	for i, batch := range batches {
+		if len(batch) != 1 {
+			t.Fatalf("batch %d size = %d, want 1", i, len(batch))
+		}
+	}
+	if batches[0][0] != first || batches[1][0] != second {
+		t.Fatal("conflicting task order changed")
+	}
+}
+
+func TestReadyTaskBatchesKeepUnknownTasksSolo(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits()
+	first := task.NewTaskFull(1221, 7, parseTestStatements(t, "notify(player, \"x\");"), ticks, seconds)
+	second := task.NewTaskFull(1222, 7, parseTestStatements(t, "#1.a = 3;"), ticks, seconds)
+
+	batches := s.readyTaskBatches([]*task.Task{first, second})
+
+	if len(batches) != 2 {
+		t.Fatalf("batch count = %d, want 2", len(batches))
+	}
+	if batches[0][0] != first || batches[1][0] != second {
+		t.Fatal("unknown task order changed")
 	}
 }
 
