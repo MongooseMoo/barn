@@ -41,10 +41,10 @@ func IsProtectedBuiltin(name string) bool {
 // LoadServerOptionsFromStore so it stays in sync with Toast's cache refresh.
 func LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 	if store == nil {
-		loadProtectedBuiltins(nil, nil)
+		applyProtectedBuiltins(nil)
 		return
 	}
-	loadProtectedBuiltins(
+	flags := collectProtectedBuiltins(
 		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
 			prop, err := store.FindProperty(objID, name)
 			if err != types.E_NONE {
@@ -60,6 +60,7 @@ func LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 			return flags, true
 		},
 	)
+	applyProtectedBuiltins(flags)
 }
 
 // LoadProtectedBuiltinsForTask refreshes protected-builtin flags through the
@@ -67,10 +68,10 @@ func LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 // load_server_options() runs.
 func LoadProtectedBuiltinsForTask(ctx *kernel.TaskContext) {
 	if ctx == nil {
-		loadProtectedBuiltins(nil, nil)
+		applyProtectedBuiltins(nil)
 		return
 	}
-	loadProtectedBuiltins(
+	flags := collectProtectedBuiltins(
 		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
 			prop, err := findPropertyForRead(ctx, objID, name)
 			if err != types.E_NONE {
@@ -96,17 +97,23 @@ func LoadProtectedBuiltinsForTask(ctx *kernel.TaskContext) {
 			return flags, true
 		},
 	)
+	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+		if ctx.PendingServerOptions == nil {
+			snapshot := defaultServerOptionsSnapshot()
+			ctx.PendingServerOptions = &snapshot
+		}
+		ctx.PendingServerOptions.ProtectedBuiltins = flags
+		return
+	}
+	applyProtectedBuiltins(flags)
 }
 
 type protectedFlagReader func(types.ObjID, string) (map[string]bool, bool)
 
-func loadProtectedBuiltins(findProperty propertyReader, findFlags protectedFlagReader) {
+func collectProtectedBuiltins(findProperty propertyReader, findFlags protectedFlagReader) map[string]bool {
 	next := map[string]bool{}
 	if findProperty == nil || findFlags == nil {
-		protectedBuiltins.Lock()
-		protectedBuiltins.set = next
-		protectedBuiltins.Unlock()
-		return
+		return next
 	}
 
 	if serverOptsProp, ok := findProperty(0, "server_options"); ok {
@@ -117,6 +124,13 @@ func loadProtectedBuiltins(findProperty propertyReader, findFlags protectedFlagR
 		}
 	}
 
+	return next
+}
+
+func applyProtectedBuiltins(next map[string]bool) {
+	if next == nil {
+		next = map[string]bool{}
+	}
 	protectedBuiltins.Lock()
 	protectedBuiltins.set = next
 	protectedBuiltins.Unlock()

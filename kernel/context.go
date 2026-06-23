@@ -78,6 +78,10 @@ type TaskContext struct {
 	// transaction commits.
 	PendingBootPlayers []types.ObjID
 
+	// PendingServerOptions holds load_server_options() cache updates that were
+	// read from uncommitted task state. They publish only after StoreTxn commits.
+	PendingServerOptions *PendingServerOptions
+
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
 	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)
@@ -103,6 +107,19 @@ type PendingNotification struct {
 type PendingConnectionSwitch struct {
 	OldPlayer types.ObjID
 	NewPlayer types.ObjID
+}
+
+type PendingServerOptions struct {
+	Loaded            int
+	MaxStringConcat   int
+	MaxListValueBytes int
+	MaxMapValueBytes  int
+	FgTicks           int64
+	BgTicks           int64
+	FgSeconds         float64
+	BgSeconds         float64
+	MaxStackDepth     int
+	ProtectedBuiltins map[string]bool
 }
 
 // NewTaskContext creates a new task context with default values.
