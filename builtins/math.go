@@ -639,7 +639,12 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			if !ctx.IsWizard && (n < 32 || n > 254) {
 				return types.E_INVARG
 			}
-			encodeByte(&out, byte(n))
+			// chr() yields the RAW byte for the code point. The ~XX binary
+			// notation is the job of encode_binary(), not chr(). A NUL cannot
+			// live inside a MOO string, so chr(0) contributes nothing.
+			if n != 0 {
+				out.WriteByte(byte(n))
+			}
 		case types.StrValue:
 			for _, b := range []byte(val.Value()) {
 				encodeByte(&out, b)
