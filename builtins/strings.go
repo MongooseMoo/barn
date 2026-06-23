@@ -893,8 +893,9 @@ func buildMatchResult(subject string, loc []int) types.Value {
 	})
 }
 
-// mooPatternToGoRegex converts MOO regex patterns to Go regex
-// MOO uses %d for digits, %w for word chars, %s for spaces, etc.
+// mooPatternToGoRegex converts MOO regex patterns to Go regex.
+// MOO uses '%' as its escape character; unknown escapes quote the following
+// character literally.
 func mooPatternToGoRegex(pattern string) (string, error) {
 	var result strings.Builder
 	i := 0
