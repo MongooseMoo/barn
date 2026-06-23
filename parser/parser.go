@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -563,6 +564,21 @@ func systemObjectLiteral(pos Position) *LiteralExpr {
 }
 
 // parseLiteralExpr parses a simple literal syntax node.
+// wrapInt64Literal reduces a non-negative decimal integer literal modulo 2^64
+// and reinterprets the low 64 bits as a signed two's-complement int64, matching
+// how MOO's C lexer handles out-of-range literals. The token is always
+// non-negative here (unary minus is parsed separately).
+func wrapInt64Literal(s string) (int64, bool) {
+	z, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return 0, false
+	}
+	var mask big.Int
+	mask.SetUint64(^uint64(0)) // 2^64 - 1
+	z.And(z, &mask)
+	return int64(z.Uint64()), true
+}
+
 func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
 	pos := p.current.Position
 
@@ -570,7 +586,20 @@ func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
 	case TOKEN_INT:
 		val, err := strconv.ParseInt(p.current.Value, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse integer: %w", err)
+			// An out-of-range integer literal is not a compile error: MOO's
+			// lexer reduces it modulo 2^64 and reinterprets the low 64 bits as
+			// a two's-complement signed value (matching ToastStunt's C lexer).
+			// This is how the most-negative literal -9223372036854775808 works:
+			// the positive token 9223372036854775808 (= 2^63) wraps to INT_MIN.
+			if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
+				if wrapped, ok := wrapInt64Literal(p.current.Value); ok {
+					val = wrapped
+				} else {
+					return nil, fmt.Errorf("failed to parse integer: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("failed to parse integer: %w", err)
+			}
 		}
 		p.nextToken()
 		return &LiteralExpr{Pos: pos, Kind: LiteralInt, IntValue: val}, nil
