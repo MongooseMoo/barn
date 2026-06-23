@@ -384,11 +384,63 @@ func (database *Database) skipActivation(r *bufio.Reader) error {
 		return fmt.Errorf("read temp value: %w", err)
 	}
 
-	// Read PC info line
-	if _, err = r.ReadString('\n'); err != nil {
+	// PC info: "<pc> <bi_func_pc>[ <error_pc>]\n"
+	pcLine, err := r.ReadString('\n')
+	if err != nil {
 		return fmt.Errorf("read PC info: %w", err)
 	}
+	var pc, biFuncPC int
+	if _, err := fmt.Sscanf(pcLine, "%d %d", &pc, &biFuncPC); err != nil {
+		return fmt.Errorf("parse PC info %q: %w", strings.TrimSpace(pcLine), err)
+	}
+	_ = pc
 
+	// If the activation is suspended inside a built-in function call (e.g.
+	// eval(), move(), recycle()), Toast writes the function name and, for a
+	// handful of functions that register read/write handlers, extra saved
+	// state after the PC line.
+	if biFuncPC != 0 {
+		if err := database.skipBiFuncData(r); err != nil {
+			return fmt.Errorf("skip bi_func data: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// skipBiFuncData skips the built-in-function name and, if applicable, the
+// saved state written for it by Toast's write_bi_func_data.
+func (database *Database) skipBiFuncData(r *bufio.Reader) error {
+	name, err := readLine(r)
+	if err != nil {
+		return fmt.Errorf("read bi_func name: %w", err)
+	}
+	return database.skipBiFuncDataFor(r, strings.TrimSpace(name))
+}
+
+// skipBiFuncDataFor skips the saved state written by write_bi_func_data for
+// the named built-in function. Only create, recreate, recycle, move, and
+// call_function register read/write handlers (see functions.cc); every
+// other built-in writes nothing extra. call_function nests recursively
+// since it can itself be suspended while calling another built-in.
+func (database *Database) skipBiFuncDataFor(r *bufio.Reader, name string) error {
+	switch name {
+	case "create", "recreate", "recycle", "move":
+		if _, err := r.ReadString('\n'); err != nil {
+			return fmt.Errorf("read %s bi_func data: %w", name, err)
+		}
+	case "call_function":
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read call_function bi_func data: %w", err)
+		}
+		const prefix = "bf_call_function data: fname = "
+		inner := strings.TrimSpace(line)
+		if strings.HasPrefix(inner, prefix) {
+			inner = inner[len(prefix):]
+		}
+		return database.skipBiFuncDataFor(r, inner)
+	}
 	return nil
 }
 
