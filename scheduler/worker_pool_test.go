@@ -144,7 +144,11 @@ func TestReadyTaskBatchesKeepConflictingPropertyWritesOrdered(t *testing.T) {
 	}
 }
 
-func TestReadyTaskBatchesKeepUnknownTasksSolo(t *testing.T) {
+// A task with an opaque ("unknown") footprint — here a verb-dispatching notify() —
+// no longer forces serialization on its own. As long as both tasks are fresh AST
+// tasks (conflict-retryable), they are co-scheduled optimistically and any real
+// conflict is caught and retried at commit time.
+func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
 	defer s.Stop()
 
@@ -154,11 +158,33 @@ func TestReadyTaskBatchesKeepUnknownTasksSolo(t *testing.T) {
 
 	batches := s.readyTaskBatches([]*task.Task{first, second})
 
+	if len(batches) != 1 {
+		t.Fatalf("batch count = %d, want 1", len(batches))
+	}
+	if len(batches[0]) != 2 {
+		t.Fatalf("batch size = %d, want 2", len(batches[0]))
+	}
+}
+
+// A non-retryable task (resumed/forked: its mid-flight state cannot be re-run from
+// the original statements) must stay solo when its footprint is unknown, because an
+// optimistic conflict could not be recovered by retry.
+func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits()
+	first := task.NewTaskFull(1221, 7, parseTestStatements(t, "notify(player, \"x\");"), ticks, seconds)
+	first.IsForked = true // not conflict-retryable
+	second := task.NewTaskFull(1222, 7, parseTestStatements(t, "#1.a = 3;"), ticks, seconds)
+
+	batches := s.readyTaskBatches([]*task.Task{first, second})
+
 	if len(batches) != 2 {
 		t.Fatalf("batch count = %d, want 2", len(batches))
 	}
 	if batches[0][0] != first || batches[1][0] != second {
-		t.Fatal("unknown task order changed")
+		t.Fatal("non-retryable unknown task was not kept solo in order")
 	}
 }
 

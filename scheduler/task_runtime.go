@@ -21,6 +21,13 @@ import (
 	"barn/vm"
 )
 
+// maxConflictRetryAttempts bounds how many times a fresh AST task re-runs after an
+// MVCC commit conflict. Conflicts only arise between tasks committing inside the same
+// optimistic batch, and batches never exceed workerCount tasks, so retrying more than
+// the worker count is enough to guarantee the loser eventually commits against every
+// peer's writes. The bound exists only to prevent livelock under a pathological store.
+const maxConflictRetryAttempts = 64
+
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
@@ -205,7 +212,7 @@ retryAttempt:
 	committedWrites := false
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && retryState.canRetry && attempt < 1 {
+			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingNotifications(ctx)
 				builtins.DiscardPendingConnectionSwitches(ctx)
@@ -342,10 +349,14 @@ retryAttempt:
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 
-		// Save VM state for later Resume()
+		// Save VM state for later Resume(). Publish it under s.mu — the same lock
+		// liveTaskVMs holds when it scans sibling tasks' saved VMs for orphan GC —
+		// so a concurrently running sibling never reads t.BytecodeVM while we write
+		// it. The heap re-queue, when this is a suspend(0)-style yield, rides the
+		// same critical section.
+		s.mu.Lock()
 		t.BytecodeVM = bcVM
 		if t.GetState() == task.TaskQueued {
-			s.mu.Lock()
 			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
 			// Stamp it with the suspend moment so the task's ready time reflects
 			// when it yielded — otherwise it sorts by its original StartTime and
@@ -357,8 +368,8 @@ retryAttempt:
 			s.queueSeq++
 			t.QueueSeq = s.queueSeq
 			heap.Push(s.waiting, t)
-			s.mu.Unlock()
 		}
+		s.mu.Unlock()
 		// The task manager has already been notified via builtinSuspend
 		// Just return without setting state to Completed
 		return nil
@@ -471,12 +482,23 @@ type taskRetryState struct {
 	code         interface{}
 }
 
+// taskIsConflictRetryable reports whether a task may be re-run from the top after
+// an MVCC commit conflict. Only fresh AST tasks qualify: a resumed/forked task has
+// a saved bytecode VM (or fork bookkeeping) whose mid-flight state cannot be
+// reconstructed from the original statements. Conflict retry re-executes the whole
+// body, so it is also the predicate for whether a task is safe to co-schedule
+// optimistically with other tasks: if two such tasks happen to conflict at commit,
+// the loser simply retries against the winner's committed writes.
+func taskIsConflictRetryable(t *task.Task) bool {
+	return t != nil && t.BytecodeVM == nil && !t.IsForked && t.ForkInfo == nil && t.Code != nil
+}
+
 func captureTaskRetryState(t *task.Task) taskRetryState {
 	if t == nil {
 		return taskRetryState{}
 	}
 	state := taskRetryState{
-		canRetry:     t.BytecodeVM == nil && !t.IsForked && t.ForkInfo == nil && t.Code != nil,
+		canRetry:     taskIsConflictRetryable(t),
 		context:      cloneTaskContextForRetry(t.Context),
 		callStack:    cloneActivationFramesForRetry(t.CallStack),
 		taskLocal:    t.TaskLocal,

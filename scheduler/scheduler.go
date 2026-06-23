@@ -215,6 +215,10 @@ func (s *Scheduler) runReadyTasks(readyTasks []*task.Task) {
 type readyTaskCandidate struct {
 	task      *task.Task
 	footprint accessFootprint
+	// optimistic reports whether this task may be co-scheduled with others even
+	// without a proven-commuting footprint, relying on commit-time conflict
+	// detection and retry. Only fresh AST tasks (taskIsConflictRetryable) qualify.
+	optimistic bool
 }
 
 func (s *Scheduler) readyTaskBatches(readyTasks []*task.Task) [][]*task.Task {
@@ -242,14 +246,15 @@ func (s *Scheduler) readyTaskBatches(readyTasks []*task.Task) [][]*task.Task {
 
 	for _, t := range readyTasks {
 		candidate := readyTaskCandidate{
-			task:      t,
-			footprint: analyzeTaskAccessFootprint(t),
+			task:       t,
+			footprint:  analyzeTaskAccessFootprint(t),
+			optimistic: taskIsConflictRetryable(t),
 		}
 		if !candidateCanJoinBatch(candidate, current) {
 			flush()
 		}
 		current = append(current, candidate)
-		if len(current) >= s.workerCount || candidate.footprint.unknown {
+		if len(current) >= s.workerCount {
 			flush()
 		}
 	}
@@ -257,9 +262,31 @@ func (s *Scheduler) readyTaskBatches(readyTasks []*task.Task) [][]*task.Task {
 	return batches
 }
 
+// candidateCanJoinBatch decides whether a ready task may run in parallel with the
+// tasks already gathered for the current batch. Two regimes:
+//
+//   - Both sides have a known property footprint: require PROVEN commutativity, so
+//     these tasks never conflict at commit (the conflict-free fast path).
+//   - Either side is "unknown" (a verb call, fork, opaque builtin, or dynamic
+//     property target — i.e. almost every real command): fall back to OPTIMISTIC
+//     co-scheduling, which is only sound when every task in the batch is conflict
+//     -retryable. If two of them happen to write the same datum, the loser's commit
+//     fails read-set validation and it re-runs against the winner's writes. A
+//     non-retryable task (resumed/forked) cannot re-run, so it stays solo.
 func candidateCanJoinBatch(candidate readyTaskCandidate, batch []readyTaskCandidate) bool {
-	if candidate.footprint.unknown {
-		return len(batch) == 0
+	if len(batch) == 0 {
+		return true
+	}
+	if candidate.footprint.unknown || batchHasUnknownFootprint(batch) {
+		if !candidate.optimistic {
+			return false
+		}
+		for _, existing := range batch {
+			if !existing.optimistic {
+				return false
+			}
+		}
+		return true
 	}
 	for _, existing := range batch {
 		if !accessFootprintsCommute(candidate.footprint, existing.footprint) {
@@ -267,6 +294,15 @@ func candidateCanJoinBatch(candidate readyTaskCandidate, batch []readyTaskCandid
 		}
 	}
 	return true
+}
+
+func batchHasUnknownFootprint(batch []readyTaskCandidate) bool {
+	for _, existing := range batch {
+		if existing.footprint.unknown {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Scheduler) runTaskBatch(readyTasks []*task.Task) {
@@ -301,6 +337,18 @@ func (s *Scheduler) YieldReadyTasks() int {
 	return s.ProcessReadyTasks()
 }
 
+// liveTaskVMs returns the saved VMs of other tasks whose anonymous-object references
+// must be preserved when `exclude` runs orphan-anonymous GC.
+//
+// It deliberately skips tasks in the Running state. This is both a correctness and a
+// concurrency-safety requirement once tasks execute in parallel: a running sibling is
+// actively mutating its VM on another goroutine, so walking that VM here is a data
+// race. It is also unnecessary — orphan GC only ever recycles objects created during
+// the excluded task's own current slice (ID >= its capture floor), and a concurrently
+// running sibling cannot hold a reference to those, since nothing the excluded task
+// created this slice has been committed or handed off to it. The tasks that legitimately
+// can reference them (e.g. forked children carrying a copy of the creating environment)
+// are queued or suspended, not running, so they are still scanned and still protected.
 func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -311,7 +359,7 @@ func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 			continue
 		}
 		state := queued.GetState()
-		if state == task.TaskCompleted || state == task.TaskKilled {
+		if state == task.TaskCompleted || state == task.TaskKilled || state == task.TaskRunning {
 			continue
 		}
 		if exec, ok := queued.BytecodeVM.(*vm.VM); ok && exec != nil {
