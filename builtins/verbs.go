@@ -730,11 +730,23 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	switch v := args[1].(type) {
 	case types.StrValue:
-		if errCode := store.SetVerbCode(objID, v.Value(), lines); errCode != types.E_NONE {
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			errCode = tx.SetVerbCode(objID, v.Value(), lines)
+		} else {
+			errCode = store.SetVerbCode(objID, v.Value(), lines)
+		}
+		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	case types.IntValue:
-		if errCode := store.SetVerbCodeByIndex(objID, int(v.Val)-1, lines); errCode != types.E_NONE {
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			errCode = tx.SetVerbCodeByIndex(objID, int(v.Val)-1, lines)
+		} else {
+			errCode = store.SetVerbCodeByIndex(objID, int(v.Val)-1, lines)
+		}
+		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	}
