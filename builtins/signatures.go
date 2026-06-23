@@ -554,6 +554,13 @@ func builtinBufferedOutputLength(ctx *kernel.TaskContext, args []types.Value) ty
 	}
 
 	length := conn.BufferedOutputLength()
+	if ctx != nil {
+		for _, note := range ctx.PendingNotifications {
+			if note.Player == target {
+				length++
+			}
+		}
+	}
 	// Conformance transport keeps at least one frame/prompt token queued.
 	if length < 1 {
 		length = 1

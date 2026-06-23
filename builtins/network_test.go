@@ -125,6 +125,45 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	}
 }
 
+func TestBufferedOutputLengthIncludesPendingNotifications(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	conn := &stubConn{}
+	globalConnManager = &stubConnManager{conn: conn}
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.Player = -8
+	ctx.IsWizard = true
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	before := builtinBufferedOutputLength(ctx, []types.Value{types.NewObj(-8)})
+	if before.IsError() {
+		t.Fatalf("buffered_output_length before notify failed: %v", before.Error)
+	}
+	beforeValue := before.Val.(types.IntValue).Val
+
+	for i := 0; i < 5; i++ {
+		res := builtinNotify(ctx, []types.Value{types.NewObj(-8), types.NewStr("buffered_output_length probe")})
+		if res.IsError() {
+			t.Fatalf("notify %d failed: %v", i, res.Error)
+		}
+	}
+
+	after := builtinBufferedOutputLength(ctx, []types.Value{types.NewObj(-8)})
+	if after.IsError() {
+		t.Fatalf("buffered_output_length after notify failed: %v", after.Error)
+	}
+	afterValue := after.Val.(types.IntValue).Val
+	if afterValue <= beforeValue {
+		t.Fatalf("buffered_output_length after pending notifications = %d, want > %d", afterValue, beforeValue)
+	}
+	if len(conn.sent) != 0 {
+		t.Fatalf("sent before transaction flush = %#v, want none", conn.sent)
+	}
+}
+
 func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 	prev := globalConnManager
 	defer func() { globalConnManager = prev }()
