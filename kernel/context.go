@@ -61,6 +61,11 @@ type TaskContext struct {
 	// Mutations still go to Store until write sets are introduced.
 	StoreTxn *dbstore.StoreTxn
 
+	// LiveStoreMutated is set after a task mutates Store directly outside
+	// StoreTxn. Validation conflicts after this point must not retry the task
+	// body, because the direct mutation cannot be rolled back.
+	LiveStoreMutated bool
+
 	// PendingNotifications holds notify() output until the task's store
 	// transaction commits. Failed commits must not leak user-visible output.
 	PendingNotifications []PendingNotification

@@ -439,6 +439,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
 	})
 	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -481,7 +482,7 @@ return child;
 	}
 }
 
-func TestRunTaskRetriesFreshTaskOnValidationConflict(t *testing.T) {
+func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 	store := dbstore.NewStore()
 	root := dbstore.NewObjectBuilder(0)
 	root.SetName("Root")
@@ -497,11 +498,10 @@ func TestRunTaskRetriesFreshTaskOnValidationConflict(t *testing.T) {
 	mutateCalls := 0
 	s.registry.Register("mutate_snapshot_value_once", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		mutateCalls++
-		if mutateCalls == 1 {
-			if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
-				return types.Err(errCode)
-			}
+		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+			return types.Err(errCode)
 		}
+		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
 	})
 	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -526,18 +526,18 @@ return before;
 	if err := s.runTask(queued); err != nil {
 		t.Fatalf("runTask failed: %v", err)
 	}
-	if queued.Result.Flow != types.FlowReturn {
-		t.Fatalf("result flow = %v err=%v, want return", queued.Result.Flow, queued.Result.Error)
+	if queued.Result.Flow != types.FlowException || queued.Result.Error != types.E_INVARG {
+		t.Fatalf("result = flow %v err %v, want E_INVARG exception", queued.Result.Flow, queued.Result.Error)
 	}
-	if mutateCalls != 2 {
-		t.Fatalf("mutate calls = %d, want 2 attempts", mutateCalls)
+	if mutateCalls != 1 {
+		t.Fatalf("mutate calls = %d, want one non-retried attempt", mutateCalls)
 	}
 	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
-	if got := liveValue.(types.StrValue).Value(); got != "task" {
-		t.Fatalf("live store value = %q, want task", got)
+	if got := liveValue.(types.StrValue).Value(); got != "live" {
+		t.Fatalf("live store value = %q, want live", got)
 	}
 }
 

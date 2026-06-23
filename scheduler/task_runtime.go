@@ -52,6 +52,7 @@ retryAttempt:
 	ctx.TaskID = t.ID
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
+	ctx.LiveStoreMutated = false
 	ctx.Registry = s.registry
 	ctx.PromoteNumbers = s.promoteNumbers
 
@@ -204,7 +205,7 @@ retryAttempt:
 	committedWrites := false
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && retryState.canRetry && attempt < 1 {
+			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && retryState.canRetry && attempt < 1 {
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingNotifications(ctx)
 				builtins.DiscardPendingConnectionSwitches(ctx)
