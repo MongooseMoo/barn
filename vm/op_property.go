@@ -56,7 +56,8 @@ func (vm *VM) executeGetProp() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	if errCode := vm.Store.ObjectExists(objID); errCode != types.E_NONE {
+	txn := vm.storeTxn()
+	if errCode := objectExistsForRead(vm.Store, txn, objID); errCode != types.E_NONE {
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
 
@@ -64,7 +65,7 @@ func (vm *VM) executeGetProp() error {
 	// properties — add_property rejects them with E_INVARG — so serve them from
 	// the built-in path directly, skipping the (always-failing) inheritance walk.
 	if builtins.IsBuiltinProperty(propName) {
-		if val, ok := getBuiltinProperty(vm.Store, objID, propName); ok {
+		if val, ok := getBuiltinProperty(vm.Store, txn, objID, propName); ok {
 			vm.Push(val)
 			return nil
 		}
@@ -72,7 +73,7 @@ func (vm *VM) executeGetProp() error {
 	}
 
 	// Look up defined property (with inheritance via breadth-first search).
-	prop, errCode := vm.Store.FindProperty(objID, propName)
+	prop, errCode := findPropertyForRead(vm.Store, txn, objID, propName)
 	if errCode == types.E_NONE {
 		// Check read permission
 		if err := vm.checkPropertyReadPerm(prop); err != nil {
@@ -120,7 +121,8 @@ func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	}
 
 	classID := waif.Class()
-	if errCode := vm.Store.ObjectExists(classID); errCode != types.E_NONE {
+	txn := vm.storeTxn()
+	if errCode := objectExistsForRead(vm.Store, txn, classID); errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
 
@@ -128,7 +130,7 @@ func (vm *VM) getWaifProp(waif types.WaifValue, propName string) error {
 	if !strings.HasPrefix(classPropName, ":") {
 		classPropName = ":" + classPropName
 	}
-	prop, errCode := vm.Store.FindProperty(classID, classPropName)
+	prop, errCode := findPropertyForRead(vm.Store, txn, classID, classPropName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -184,19 +186,20 @@ func (vm *VM) executeSetProp() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
-	if errCode := vm.Store.ObjectExists(objID); errCode != types.E_NONE {
+	txn := vm.storeTxn()
+	if errCode := objectExistsForRead(vm.Store, txn, objID); errCode != types.E_NONE {
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
 
 	// Check for built-in property assignment first
-	if isBuiltin, errCode := setBuiltinProperty(vm.Store, objID, propName, value, vm.Context); isBuiltin {
+	if isBuiltin, errCode := setBuiltinProperty(vm.Store, txn, objID, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
 		return nil
 	}
 
-	prop, ok, errCode := vm.Store.LocalProperty(objID, propName)
+	prop, ok, errCode := localPropertyForRead(vm.Store, txn, objID, propName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("%s: invalid object #%d", errCode, objID)
 	}
@@ -212,7 +215,7 @@ func (vm *VM) executeSetProp() error {
 	}
 
 	// Property not on this object - check if inherited
-	inheritedProp, errCode := vm.Store.FindProperty(objID, propName)
+	inheritedProp, errCode := findPropertyForRead(vm.Store, txn, objID, propName)
 	if errCode != types.E_NONE {
 		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
 	}
@@ -287,29 +290,89 @@ func (vm *VM) checkPropertyWritePerm(prop dbstore.PropertyView) error {
 	return nil
 }
 
+func (vm *VM) storeTxn() *dbstore.StoreTxn {
+	if vm.Context == nil {
+		return nil
+	}
+	return vm.Context.StoreTxn
+}
+
+func objectExistsForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID) types.ErrorCode {
+	if txn != nil {
+		return txn.ObjectExists(objID)
+	}
+	return store.ObjectExists(objID)
+}
+
+func findPropertyForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string) (dbstore.PropertyView, types.ErrorCode) {
+	if txn != nil {
+		return txn.FindProperty(objID, name)
+	}
+	return store.FindProperty(objID, name)
+}
+
+func localPropertyForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string) (dbstore.PropertyView, bool, types.ErrorCode) {
+	if txn != nil {
+		return txn.LocalProperty(objID, name)
+	}
+	return store.LocalProperty(objID, name)
+}
+
 // getBuiltinProperty returns built-in object properties (name, owner, location, etc.).
-func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (types.Value, bool) {
+func getBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string) (types.Value, bool) {
 	switch strings.ToLower(name) {
 	case "name":
-		name, errCode := store.ObjectName(objID)
+		var (
+			name    string
+			errCode types.ErrorCode
+		)
+		if txn != nil {
+			name, errCode = txn.ObjectName(objID)
+		} else {
+			name, errCode = store.ObjectName(objID)
+		}
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewStr(name), true
 	case "owner":
-		ownerID, errCode := store.ObjectOwner(objID)
+		var (
+			ownerID types.ObjID
+			errCode types.ErrorCode
+		)
+		if txn != nil {
+			ownerID, errCode = txn.ObjectOwner(objID)
+		} else {
+			ownerID, errCode = store.ObjectOwner(objID)
+		}
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewObj(ownerID), true
 	case "location":
-		locationID, errCode := store.Location(objID)
+		var (
+			locationID types.ObjID
+			errCode    types.ErrorCode
+		)
+		if txn != nil {
+			locationID, errCode = txn.Location(objID)
+		} else {
+			locationID, errCode = store.Location(objID)
+		}
 		if errCode != types.E_NONE {
 			return nil, false
 		}
 		return types.NewObj(locationID), true
 	case "contents":
-		contentsIDs, errCode := store.Contents(objID)
+		var (
+			contentsIDs []types.ObjID
+			errCode     types.ErrorCode
+		)
+		if txn != nil {
+			contentsIDs, errCode = txn.Contents(objID)
+		} else {
+			contentsIDs, errCode = store.Contents(objID)
+		}
 		if errCode != types.E_NONE {
 			return nil, false
 		}
@@ -319,18 +382,29 @@ func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (t
 		// as an empty map (ToastStunt seeds a fresh object's last_move to []).
 		return types.NewMap(nil), true
 	case "programmer":
-		return boolPropertyValue(store, objID, dbstore.FlagProgrammer)
+		return boolPropertyValue(store, txn, objID, dbstore.FlagProgrammer)
 	case "wizard":
-		return boolPropertyValue(store, objID, dbstore.FlagWizard)
+		return boolPropertyValue(store, txn, objID, dbstore.FlagWizard)
 	case "r":
-		return boolPropertyValue(store, objID, dbstore.FlagRead)
+		return boolPropertyValue(store, txn, objID, dbstore.FlagRead)
 	case "w":
-		return boolPropertyValue(store, objID, dbstore.FlagWrite)
+		return boolPropertyValue(store, txn, objID, dbstore.FlagWrite)
 	case "f":
-		return boolPropertyValue(store, objID, dbstore.FlagFertile)
+		return boolPropertyValue(store, txn, objID, dbstore.FlagFertile)
 	case "a":
-		hasFlag, flagErr := store.HasObjectFlag(objID, dbstore.FlagAnonymous)
-		isAnonymous, anonErr := store.ObjectIsAnonymous(objID)
+		var (
+			hasFlag     bool
+			isAnonymous bool
+			flagErr     types.ErrorCode
+			anonErr     types.ErrorCode
+		)
+		if txn != nil {
+			hasFlag, flagErr = txn.HasObjectFlag(objID, dbstore.FlagAnonymous)
+			isAnonymous, anonErr = txn.ObjectIsAnonymous(objID)
+		} else {
+			hasFlag, flagErr = store.HasObjectFlag(objID, dbstore.FlagAnonymous)
+			isAnonymous, anonErr = store.ObjectIsAnonymous(objID)
+		}
 		if flagErr != types.E_NONE || anonErr != types.E_NONE {
 			return nil, false
 		}
@@ -343,8 +417,16 @@ func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (t
 	}
 }
 
-func boolPropertyValue(store *dbstore.Store, objID types.ObjID, flag dbstore.ObjectFlags) (types.Value, bool) {
-	hasFlag, errCode := store.HasObjectFlag(objID, flag)
+func boolPropertyValue(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, flag dbstore.ObjectFlags) (types.Value, bool) {
+	var (
+		hasFlag bool
+		errCode types.ErrorCode
+	)
+	if txn != nil {
+		hasFlag, errCode = txn.HasObjectFlag(objID, flag)
+	} else {
+		hasFlag, errCode = store.HasObjectFlag(objID, flag)
+	}
 	if errCode != types.E_NONE {
 		return nil, false
 	}
@@ -363,7 +445,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets a built-in object property.
-func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
@@ -372,7 +454,7 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 		return false, types.E_NONE
 	case "owner":
 		if objVal, ok := value.(types.ObjValue); ok {
-			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+			isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
 			if errCode != types.E_NONE {
 				return true, errCode
 			}
@@ -389,7 +471,7 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 		return false, types.E_NONE
 	case "programmer":
 		if intVal, ok := value.(types.IntValue); ok {
-			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+			isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
 			if errCode != types.E_NONE {
 				return true, errCode
 			}
@@ -404,7 +486,7 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 		return false, types.E_NONE
 	case "wizard":
 		if intVal, ok := value.(types.IntValue); ok {
-			isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+			isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
 			if errCode != types.E_NONE {
 				return true, errCode
 			}
@@ -443,4 +525,11 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 	default:
 		return false, types.E_NONE
 	}
+}
+
+func objectIsAnonymousForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID) (bool, types.ErrorCode) {
+	if txn != nil {
+		return txn.ObjectIsAnonymous(objID)
+	}
+	return store.ObjectIsAnonymous(objID)
 }

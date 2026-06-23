@@ -81,8 +81,6 @@ func unparsePrepSpec(prepStr string) string {
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
 func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -98,14 +96,15 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// Try to find the verb that would actually answer obj:verb() — a
 	// non-executable same-named verb does not shadow an executable one
-	// defined further up the ancestry chain.
-	verb, definingObj, err := store.FindCallableVerb(objID, nameVal.Value())
+	// defined further up the ancestry chain. Route through the read
+	// transaction so the lookup sees the task's stable snapshot.
+	verb, definingObj, err := findCallableVerbForRead(ctx, objID, nameVal.Value())
 	if err != nil {
 		return types.Ok(types.NewInt(0))
 	}
@@ -113,7 +112,7 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Check if caller can see details: wizard, owner, or verb readable, or object readable
 	hasRead := verb.Perms.Has(dbstore.VerbRead)
 	isOwner := verb.Owner == ctx.Player
-	objReadable, errCode := store.HasObjectFlag(objID, dbstore.FlagRead)
+	objReadable, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagRead)
 	if errCode != types.E_NONE {
 		objReadable = false
 	}
@@ -132,8 +131,6 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 // builtinVerbs: verbs(object) → LIST
 // Returns list of verb names defined on object
 func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -144,11 +141,11 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	names, errCode := store.VerbNames(objID)
+	names, errCode := verbNamesForRead(ctx, objID)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -165,8 +162,6 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -177,7 +172,7 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -187,13 +182,13 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	switch v := args[1].(type) {
 	case types.StrValue:
 		var err error
-		verb, err = store.FindVerbOnObject(objID, v.Value())
+		verb, err = findVerbOnObjectForRead(ctx, objID, v.Value())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		found, errCode := store.VerbByIndex(objID, index)
+		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
@@ -227,8 +222,6 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
 func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -239,7 +232,7 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -249,13 +242,13 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	switch v := args[1].(type) {
 	case types.StrValue:
 		var err error
-		verb, err = store.FindVerbOnObject(objID, v.Value())
+		verb, err = findVerbOnObjectForRead(ctx, objID, v.Value())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		found, errCode := store.VerbByIndex(objID, index)
+		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
@@ -285,8 +278,6 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinVerbCode: verb_code(object, name [, fully_paren [, indent]]) → LIST
 // Returns verb source code as list of lines
 func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -302,11 +293,11 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, err := store.FindVerbOnObject(objID, nameVal.Value())
+	verb, err := findVerbOnObjectForRead(ctx, objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -356,13 +347,13 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// Anonymous objects are instances, not classes: their verb structure cannot
 	// be modified. ToastStunt raises E_TYPE for add_verb on an anonymous object.
-	isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+	isAnonymous, errCode := objectIsAnonymousForRead(ctx, objID)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -378,7 +369,7 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// Validate owner is valid
 	ownerID := owner.ID()
-	if !store.Valid(ownerID) {
+	if !validForRead(ctx, ownerID) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -440,11 +431,11 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// - Must be the owner specified in verbinfo (or be wizard)
 	if !ctx.IsWizard {
 		// Check write permission on object
-		hasWrite, errCode := store.HasObjectFlag(objID, dbstore.FlagWrite)
+		hasWrite, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagWrite)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		objectOwner, errCode := store.ObjectOwner(objID)
+		objectOwner, errCode := objectOwnerForRead(ctx, objID)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -495,7 +486,7 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -534,11 +525,11 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
+	verb, _, err := findVerbForRead(ctx, objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -599,11 +590,11 @@ func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, _, err := store.FindVerb(objID, nameVal.Value())
+	verb, _, err := findVerbForRead(ctx, objID, nameVal.Value())
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -648,7 +639,7 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -656,14 +647,14 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	var verb dbstore.VerbView
 	switch v := args[1].(type) {
 	case types.StrValue:
-		found, _, err := store.FindVerb(objID, v.Value())
+		found, _, err := findVerbForRead(ctx, objID, v.Value())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
 		verb = found
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		found, errCode := store.VerbByIndex(objID, index)
+		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}
@@ -824,8 +815,6 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 // builtinDisassemble: disassemble(object, name) → LIST
 // Returns bytecode disassembly (wizard only)
 func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -836,7 +825,7 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -844,14 +833,14 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	var verb dbstore.VerbView
 	switch v := args[1].(type) {
 	case types.StrValue:
-		found, _, err := store.FindVerb(objID, v.Value())
+		found, _, err := findVerbForRead(ctx, objID, v.Value())
 		if err != nil {
 			return types.Err(types.E_VERBNF)
 		}
 		verb = found
 	case types.IntValue:
 		index := int(v.Val) - 1 // Convert to 0-based
-		found, errCode := store.VerbByIndex(objID, index)
+		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
 			return types.Err(types.E_RANGE)
 		}

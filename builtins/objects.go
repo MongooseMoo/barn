@@ -93,7 +93,7 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 		seenParents[parentID] = true
-		if !store.Valid(parentID) {
+		if !validForRead(ctx, parentID) {
 			return types.Err(types.E_INVARG)
 		}
 		// Permission check deferred until after anonymous flag is parsed
@@ -179,14 +179,14 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// Validate owner if explicitly specified
 	// Special case: invalid object numbers like -2, -3, -4 automatically create anonymous objects
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
 	if ownerSpecified {
 		if owner < -1 {
 			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
 			// These automatically create anonymous objects (force anonymous flag)
 			anonymous = true
 			owner = ctx.Programmer // Use programmer as owner
-		} else if owner != types.ObjNothing && !store.Valid(owner) {
+		} else if owner != types.ObjNothing && !validForRead(ctx, owner) {
 			return types.Err(types.E_INVARG)
 		} else if owner == types.ObjNothing && !playerIsWizard {
 			// Only wizards can specify $nothing as owner (makes object own itself)
@@ -203,13 +203,13 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// - For regular objects: non-wizards need to own parent OR parent has FlagFertile
 	if !playerIsWizard {
 		for _, parentID := range parents {
-			parentOwner, errCode := store.ObjectOwner(parentID)
+			parentOwner, errCode := objectOwnerForRead(ctx, parentID)
 			if errCode != types.E_NONE {
 				continue
 			}
 			isOwner := parentOwner == ctx.Programmer
 			if anonymous {
-				hasAnonFlag, errCode := store.HasObjectFlag(parentID, dbstore.FlagAnonymous)
+				hasAnonFlag, errCode := hasObjectFlagForRead(ctx, parentID, dbstore.FlagAnonymous)
 				if errCode != types.E_NONE {
 					continue
 				}
@@ -217,7 +217,7 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 					return types.Err(types.E_PERM)
 				}
 			} else {
-				hasFertile, errCode := store.HasObjectFlag(parentID, dbstore.FlagFertile)
+				hasFertile, errCode := hasObjectFlagForRead(ctx, parentID, dbstore.FlagFertile)
 				if errCode != types.E_NONE {
 					continue
 				}
@@ -326,7 +326,7 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	defer endRecycle(objID)
 
-	if !store.Valid(objID) {
+	if !validForRead(ctx, objID) {
 		// Object doesn't exist or was already recycled - both are E_INVARG.
 		return types.Err(types.E_INVARG)
 	}
@@ -386,8 +386,6 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
 func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -407,7 +405,7 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	isValid := store.Valid(objID)
+	isValid := validForRead(ctx, objID)
 	if isValid {
 		return types.Ok(types.NewInt(1))
 	}

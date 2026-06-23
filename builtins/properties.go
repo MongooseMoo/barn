@@ -10,8 +10,6 @@ import (
 // builtinProperties implements properties(object)
 // Returns list of property names defined on object (not inherited)
 func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -26,11 +24,11 @@ func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	names, err := store.DefinedPropertyNames(objID)
+	names, err := definedPropertyNamesForRead(ctx, objID)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -46,8 +44,6 @@ func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result
 // builtinPropertyInfo implements property_info(object, name)
 // Returns {owner, perms} where perms is a string like "rw"
 func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -67,18 +63,18 @@ func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// Find property (with inheritance)
-	prop, err := store.FindProperty(objID, nameVal.Value())
+	prop, err := findPropertyForRead(ctx, objID, nameVal.Value())
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
 
 	// Check read permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
+	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == prop.Owner
 	if !isWizard && !isOwner && !prop.Perms.Has(dbstore.PropRead) {
@@ -121,12 +117,12 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	propName := nameVal.Value()
-	prop, ok, err := store.LocalProperty(objID, propName)
+	prop, ok, err := localPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -214,14 +210,14 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	value := args[2]
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	// Anonymous objects are instances, not classes: their property structure
 	// cannot be modified. ToastStunt raises E_TYPE for add_property on an
 	// anonymous object.
-	isAnonymous, errCode := store.ObjectIsAnonymous(objID)
+	isAnonymous, errCode := objectIsAnonymousForRead(ctx, objID)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -237,7 +233,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check if property already exists on this object
-	exists, err := store.HasLocalProperty(objID, propName)
+	_, exists, err := localPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -246,7 +242,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check if property exists in ancestor chain
-	_, ancestorErr := store.FindProperty(objID, propName)
+	_, ancestorErr := findPropertyForRead(ctx, objID, propName)
 	if ancestorErr == types.E_NONE {
 		// Property exists in ancestor
 		return types.Err(types.E_INVARG)
@@ -300,12 +296,12 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Validate owner is a valid object
-	if !store.Valid(owner) {
+	if !validForRead(ctx, owner) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Check permissions: only wizard can set owner to someone else
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
+	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	if !isWizard && owner != ctx.Programmer {
 		return types.Err(types.E_PERM)
@@ -342,17 +338,17 @@ func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Re
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
 	propName := nameVal.Value()
 
-	defined, err := store.IsPropertyDefinedOnObject(objID, propName)
+	prop, ok, err := localPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
-	if !defined {
+	if !ok || !prop.Defined {
 		return types.Err(types.E_PROPNF)
 	}
 
@@ -388,7 +384,7 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -400,22 +396,22 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	// Find property in chain
-	foundProp, err := store.FindProperty(objID, propName)
+	foundProp, err := findPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
 
 	// Check if property is defined on this object - E_INVARG if so
-	defined, defErr := store.IsPropertyDefinedOnObject(objID, propName)
+	prop, defined, defErr := localPropertyForRead(ctx, objID, propName)
 	if defErr != types.E_NONE {
 		return types.Err(defErr)
 	}
-	if defined {
+	if defined && prop.Defined {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Check write permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
+	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == foundProp.Owner
 	if !isWizard && !isOwner && !foundProp.Perms.Has(dbstore.PropWrite) {
@@ -433,8 +429,6 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 // Tests if property is cleared (inheriting)
 // Returns 1 if property is clear or only inherited, 0 if has local value
 func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -454,7 +448,7 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 	}
 
 	objID := objVal.ID()
-	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
+	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -466,18 +460,18 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 	}
 
 	// Find where property is defined in chain
-	definingProp, err := store.FindProperty(objID, propName)
+	definingProp, err := findPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
 
-	isClear, clearErr := store.PropertyClearState(objID, propName)
+	isClear, clearErr := propertyClearStateForRead(ctx, objID, propName)
 	if clearErr != types.E_NONE {
 		return types.Err(clearErr)
 	}
 
 	// NOW check read permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
+	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
 	isWizard := errCode == types.E_NONE && hasWizard
 	isOwner := ctx.Programmer == definingProp.Owner
 	hasReadPerm := definingProp.Perms.Has(dbstore.PropRead)

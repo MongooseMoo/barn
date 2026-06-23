@@ -83,7 +83,7 @@ func (vm *VM) executeCallBuiltin() error {
 // by reading the appropriate property (str_proto, int_proto, etc.) from #0.
 // Returns ObjNothing if no prototype is configured for this type.
 // Primitive prototypes are configured through #0's *_proto properties.
-func getPrimitivePrototypeFromStore(store *dbstore.Store, val types.Value) types.ObjID {
+func getPrimitivePrototypeFromStore(store *dbstore.Store, txn *dbstore.StoreTxn, val types.Value) types.ObjID {
 	var propName string
 	switch val.(type) {
 	case types.IntValue:
@@ -104,14 +104,25 @@ func getPrimitivePrototypeFromStore(store *dbstore.Store, val types.Value) types
 		return types.ObjNothing
 	}
 
-	propValue, errCode := store.PropertyValue(0, propName)
+	var (
+		propValue types.Value
+		errCode   types.ErrorCode
+	)
+	if txn != nil {
+		propValue, errCode = txn.PropertyValue(0, propName)
+	} else {
+		propValue, errCode = store.PropertyValue(0, propName)
+	}
 	if errCode != types.E_NONE {
 		return types.ObjNothing
 	}
 
 	if objVal, ok := propValue.(types.ObjValue); ok {
 		protoID := objVal.ID()
-		if store.Valid(protoID) {
+		if txn != nil && txn.Valid(protoID) {
+			return protoID
+		}
+		if txn == nil && store.Valid(protoID) {
 			return protoID
 		}
 	}

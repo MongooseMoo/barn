@@ -450,8 +450,7 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 		player = obj.ID()
 		if !ctx.IsWizard {
-			store := ctx.Store
-			owner, errCode := store.ObjectOwner(player)
+			owner, errCode := objectOwnerForRead(ctx, player)
 			if errCode != types.E_NONE || owner != ctx.Programmer {
 				return types.Err(types.E_PERM)
 			}

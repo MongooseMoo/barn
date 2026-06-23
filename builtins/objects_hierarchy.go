@@ -28,7 +28,7 @@ func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	parentID, errCode := store.Parent(objVal.ID())
+	parentID, errCode := parentForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
 		if store.IsRecycled(objVal.ID()) {
@@ -65,7 +65,7 @@ func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	parentIDs, errCode := store.Parents(objVal.ID())
+	parentIDs, errCode := parentsForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
 		if store.IsRecycled(objVal.ID()) {
@@ -102,7 +102,7 @@ func builtinChildren(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	childIDs, errCode := store.Children(objVal.ID())
+	childIDs, errCode := childrenForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
 		if store.IsRecycled(objVal.ID()) {
@@ -148,7 +148,7 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !validForRead(ctx, objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -165,7 +165,7 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	if newParentVal.ID() != types.ObjNothing {
-		if !store.Valid(newParentVal.ID()) {
+		if !validForRead(ctx, newParentVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -205,11 +205,11 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	if !ctx.IsWizard && newParentVal.ID() != types.ObjNothing {
-		ownerID, errCode := store.ObjectOwner(newParentVal.ID())
+		ownerID, errCode := objectOwnerForRead(ctx, newParentVal.ID())
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		hasFertile, errCode := store.HasObjectFlag(newParentVal.ID(), dbstore.FlagFertile)
+		hasFertile, errCode := hasObjectFlagForRead(ctx, newParentVal.ID(), dbstore.FlagFertile)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -254,7 +254,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_TYPE)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !validForRead(ctx, objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -283,7 +283,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		seenParents[parentID] = true
 
 		// Now validate parent exists
-		if !store.Valid(parentID) {
+		if !validForRead(ctx, parentID) {
 			return types.Err(types.E_INVARG)
 		}
 
@@ -439,12 +439,12 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !validForRead(ctx, objVal.ID()) {
 		return noMatch()
 	}
 
 	for _, ancestorID := range ancestors {
-		if !store.Valid(ancestorID) {
+		if !validForRead(ctx, ancestorID) {
 			continue
 		}
 
@@ -505,7 +505,7 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if !store.Valid(objVal.ID()) {
+	if !validForRead(ctx, objVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -533,7 +533,7 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	out := make([]types.Value, 0)
 	currentID := objVal.ID()
 	for {
-		locID, errCode := store.Location(currentID)
+		locID, errCode := locationForRead(ctx, currentID)
 		if errCode != types.E_NONE || locID == types.ObjNothing {
 			break
 		}
@@ -564,7 +564,7 @@ func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if !store.Valid(owner.ID()) {
+	if !validForRead(ctx, owner.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 	ownedIDs := store.ObjectsOwnedBy(owner.ID())
@@ -666,7 +666,7 @@ func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	result := types.Ok(types.NewObj(obj.ID()))
-	if !store.Valid(obj.ID()) {
+	if !validForRead(ctx, obj.ID()) {
 		return result
 	}
 

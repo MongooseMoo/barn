@@ -89,7 +89,7 @@ func (vm *VM) executeCallVerb() error {
 	default:
 		// Check for primitive prototype dispatch (str, int, float, list, map, err, bool)
 		if vm.Store != nil {
-			protoID := getPrimitivePrototypeFromStore(vm.Store, objVal)
+			protoID := getPrimitivePrototypeFromStore(vm.Store, vm.storeTxn(), objVal)
 			if protoID != types.ObjNothing {
 				objID = protoID
 				thisValue = objVal // "this" = the primitive value itself
@@ -105,8 +105,10 @@ func (vm *VM) executeCallVerb() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
+	txn := vm.storeTxn()
+
 	// Check object validity
-	if !vm.Store.Valid(objID) {
+	if !validForRead(vm.Store, txn, objID) {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_INVIND: invalid object #%d", objID)
 	}
@@ -120,7 +122,8 @@ func (vm *VM) executeCallVerb() error {
 	// verb defined further up the ancestry chain — ToastStunt's call dispatch
 	// (obj:verb() syntax) skips past it and keeps searching. Only when no
 	// ancestor defines an executable match does dispatch fail, as E_VERBNF.
-	verb, defObjID, err := vm.Store.FindCallableVerb(objID, lookupVerbName)
+	// findVerbForRead routes the callable lookup through the read transaction.
+	verb, defObjID, err := findVerbForRead(vm.Store, txn, objID, lookupVerbName)
 	if err != nil {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
@@ -232,7 +235,7 @@ func (vm *VM) executeCallVerb() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, dbstore.FlagWizard)
+			hasWizard, errCode := hasObjectFlagForRead(vm.Store, txn, verb.Owner, dbstore.FlagWizard)
 			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = objID
@@ -328,8 +331,10 @@ func (vm *VM) executePass() error {
 	// FindParentVerb walks ancestors the same way obj:verb() dispatch does
 	// (FindCallableVerb): a non-executable same-named verb on an intermediate
 	// ancestor is skipped, not treated as a match, so it never shadows an
-	// executable verb defined further up the chain.
-	verb, defObjID, err := vm.Store.FindParentVerb(verbLoc, verbName)
+	// executable verb defined further up the chain. findParentVerbForRead
+	// routes that walk through the read transaction snapshot.
+	txn := vm.storeTxn()
+	verb, defObjID, err := findParentVerbForRead(vm.Store, txn, verbLoc, verbName)
 	if err != nil {
 		// Distinguish two cases the way ToastStunt does: if the defining object
 		// has no parent at all, pass() indirects through #-1 (an invalid object)
@@ -441,7 +446,7 @@ func (vm *VM) executePass() error {
 	if vm.Context != nil {
 		isWizard := false
 		if vm.Store != nil {
-			hasWizard, errCode := vm.Store.HasObjectFlag(verb.Owner, dbstore.FlagWizard)
+			hasWizard, errCode := hasObjectFlagForRead(vm.Store, txn, verb.Owner, dbstore.FlagWizard)
 			isWizard = errCode == types.E_NONE && hasWizard
 		}
 		vm.Context.ThisObj = frame.This
@@ -479,4 +484,32 @@ func (vm *VM) executePass() error {
 
 	// Return nil — Run() loop continues executing the new frame's bytecode
 	return nil
+}
+
+func validForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID) bool {
+	if txn != nil {
+		return txn.Valid(objID)
+	}
+	return store.Valid(objID)
+}
+
+func hasObjectFlagForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
+	if txn != nil {
+		return txn.HasObjectFlag(objID, flag)
+	}
+	return store.HasObjectFlag(objID, flag)
+}
+
+func findVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
+	if txn != nil {
+		return txn.FindCallableVerb(objID, verbName)
+	}
+	return store.FindCallableVerb(objID, verbName)
+}
+
+func findParentVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
+	if txn != nil {
+		return txn.FindParentVerb(verbLoc, verbName)
+	}
+	return store.FindParentVerb(verbLoc, verbName)
 }
