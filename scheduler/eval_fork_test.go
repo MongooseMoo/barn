@@ -3,6 +3,7 @@ package scheduler
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,6 +229,71 @@ return result;
 
 	if len(lines) != 1 || lines[0] != "{1, {1, 1}}" {
 		t.Fatalf("lines = %#v, want {1, {1, 1}}", lines)
+	}
+}
+
+func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
+	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+	store := database.NewStoreFromDatabase()
+	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject player failed: %v", errCode)
+	}
+	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
+		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
+		}
+	}
+
+	s := NewScheduler(store)
+	defer s.Stop()
+	conn := &evalCommandStubConn{}
+	builtins.SetConnectionManager(&evalCommandStubConnManager{player: player, conn: conn})
+	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
+	source := `
+a = create($nothing);
+b = create($nothing);
+c = create($nothing);
+add_property(a, "foo", "foo", {player, "c"});
+add_property(b, "foo", "foo", {b, ""});
+chparent(c, a);
+c.foo = "bar";
+chparent(c, b);
+pi = property_info(c, "foo");
+return {pi[1] == b && pi[2] == "", c.foo == "foo"};
+`
+	code := strings.Join(strings.FieldsFunc(source, func(r rune) bool {
+		return r == '\n' || r == '\r'
+	}), " ")
+	cmd := command.ParseCommand("eval " + code)
+	match := command.FindVerb(store, player, 2, cmd)
+	if match == nil {
+		t.Fatalf("FindVerb eval returned nil")
+	}
+	if match.Statements == nil && len(match.Verb.Code) > 0 {
+		program, errors := bytecode.CompileVerb(match.Verb.Code)
+		if len(errors) > 0 {
+			t.Fatalf("CompileVerb eval failed: %v", errors)
+		}
+		match.Statements = program.Statements
+	}
+	s.ExecuteVerbTaskSync(player, match, cmd, "")
+
+	want := []string{
+		"-=!-^-!=-",
+		"{1, {1, 1}}",
+		"-=!-v-!=-",
+	}
+	if len(conn.sent) != len(want) {
+		t.Fatalf("sent = %#v, want %#v", conn.sent, want)
+	}
+	for i := range want {
+		if conn.sent[i] != want[i] {
+			t.Fatalf("sent = %#v, want %#v", conn.sent, want)
+		}
 	}
 }
 

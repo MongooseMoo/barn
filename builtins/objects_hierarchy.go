@@ -245,6 +245,9 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	return types.Ok(types.NewInt(0))

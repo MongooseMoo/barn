@@ -674,6 +674,67 @@ func TestTransactionDuplicateDefinedPropertySeesStagedDefinitions(t *testing.T) 
 	}
 }
 
+func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	left, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject left failed: %v", errCode)
+	}
+	right, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject right failed: %v", errCode)
+	}
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject child failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DefineProperty(left, NewProperty("foo", types.NewStr("left"), left, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty left failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(right, NewProperty("foo", types.NewStr("right"), right, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty right failed: %v", errCode)
+	}
+
+	if errCode := store.ChangeParents(child, []types.ObjID{left}); errCode != types.E_NONE {
+		t.Fatalf("ChangeParents left failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveRelationships(child, 0, left); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships left failed: %v", errCode)
+	}
+	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+		t.Fatalf("ReseedInheritedProperties left failed: %v", errCode)
+	}
+	if errCode := tx.SetPropertyValue(child, "foo", types.NewStr("override")); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue child failed: %v", errCode)
+	}
+
+	if errCode := store.ChangeParents(child, []types.ObjID{right}); errCode != types.E_NONE {
+		t.Fatalf("ChangeParents right failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveRelationships(child, left, right); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships right failed: %v", errCode)
+	}
+	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+		t.Fatalf("ReseedInheritedProperties right failed: %v", errCode)
+	}
+
+	prop, errCode := tx.FindProperty(child, "foo")
+	if errCode != types.E_NONE {
+		t.Fatalf("FindProperty child failed: %v", errCode)
+	}
+	if got := prop.Value.(types.StrValue).Value(); got != "right" {
+		t.Fatalf("child foo = %q, want right", got)
+	}
+	if prop.Owner != right || prop.Perms != PropRead {
+		t.Fatalf("child foo info owner=%d perms=%v, want owner=%d perms=%v", prop.Owner, prop.Perms, right, PropRead)
+	}
+}
+
 func TestTransactionDefinePropertyConflictsWithConcurrentDefinition(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
