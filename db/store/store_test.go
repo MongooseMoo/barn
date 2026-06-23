@@ -135,6 +135,32 @@ func TestStoreMaxObjectAfterRecycle(t *testing.T) {
 	}
 }
 
+func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, -1)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if err := store.Recycle(obj); err != nil {
+		t.Fatalf("Recycle failed: %v", err)
+	}
+	if err := store.Recreate(obj, types.ObjNothing, 0); err != nil {
+		t.Fatalf("Recreate failed: %v", err)
+	}
+	if !store.Valid(obj) {
+		t.Fatalf("recreated object is not valid")
+	}
+	if parent, errCode := store.Parent(obj); errCode != types.E_NONE || parent != types.ObjNothing {
+		t.Fatalf("Parent = %d, %v; want #-1, E_NONE", parent, errCode)
+	}
+	if next := store.LowestFreeID(); next == obj {
+		t.Fatalf("LowestFreeID still returns recreated object %d", obj)
+	}
+}
+
 func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	store := NewStore()
 
