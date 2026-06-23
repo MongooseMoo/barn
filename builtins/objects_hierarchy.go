@@ -228,8 +228,23 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	} else {
 		newParents = []types.ObjID{newParentVal.ID()}
 	}
+	var oldParents []types.ObjID
+	if tx := readTxn(ctx); tx != nil {
+		var errCode types.ErrorCode
+		oldParents, errCode = tx.Parents(objVal.ID())
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
+	}
+	if tx := readTxn(ctx); tx != nil {
+		adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
+		adoptIDs = append(adoptIDs, newParents...)
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	return types.Ok(types.NewInt(0))
