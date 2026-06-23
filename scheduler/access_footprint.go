@@ -34,8 +34,11 @@ func analyzeAccessFootprint(stmts []parser.Stmt, knownObjects map[string]types.O
 }
 
 func analyzeTaskAccessFootprint(t *task.Task) accessFootprint {
+	if t == nil || t.BytecodeVM != nil {
+		return unknownAccessFootprint()
+	}
 	stmts, ok := t.Code.([]parser.Stmt)
-	if t == nil || !ok {
+	if !ok {
 		return unknownAccessFootprint()
 	}
 	return analyzeAccessFootprint(stmts, knownTaskObjects(t))
@@ -172,6 +175,7 @@ func (a *footprintAnalyzer) stmt(stmt parser.Stmt) {
 		}
 	case *parser.ForkStmt:
 		a.expr(n.Delay)
+		a.markUnknown()
 	}
 }
 
@@ -312,6 +316,8 @@ func (a *footprintAnalyzer) builtinCall(call *parser.BuiltinCallExpr) {
 	case "properties":
 		a.markUnknown()
 	case "eval", "call_function", "pass":
+		a.markUnknown()
+	default:
 		a.markUnknown()
 	}
 }
