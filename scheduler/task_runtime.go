@@ -191,6 +191,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	result = s.drainForks(t, bcVM, result)
 	t.Result = result
 
+	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			result = types.Err(errCode)
+			t.Result = result
+		}
+	}
+
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():

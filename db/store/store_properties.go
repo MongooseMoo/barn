@@ -27,11 +27,12 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 				continue
 			}
 			result[name] = &Property{
-				name:  prop.name,
-				value: prop.value,
-				owner: prop.owner,
-				perms: prop.perms,
-				clear: true,
+				name:    prop.name,
+				value:   prop.value,
+				owner:   prop.owner,
+				perms:   prop.perms,
+				clear:   true,
+				version: prop.version,
 			}
 		}
 		queue = append(queue, current.parents...)
@@ -432,6 +433,7 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if perms != nil {
 		prop.perms = *perms
 	}
+	stampProperty(prop, ts)
 	stampObjectProperties(obj, ts)
 	return types.E_NONE
 }
@@ -452,6 +454,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	if _, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
 		prop.value = value
+		stampProperty(prop, ts)
 		stampObjectProperties(obj, ts)
 		return types.E_NONE
 	}
@@ -467,6 +470,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 		perms:   inherited.perms,
 		clear:   false,
 		defined: false,
+		version: ts,
 	}
 	stampObjectProperties(obj, ts)
 	return types.E_NONE
@@ -490,6 +494,7 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	ts := s.bumpClockLocked()
 	prop.defined = true
 	prop.clear = false
+	prop.version = ts
 	obj.properties[prop.name] = cloneProperty(&prop)
 
 	pos := obj.propDefsCount
@@ -638,11 +643,12 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 				s.rememberObjectLocked(child)
 			}
 			child.properties[prop.name] = &Property{
-				name:  prop.name,
-				value: prop.value,
-				owner: prop.owner,
-				perms: prop.perms,
-				clear: true,
+				name:    prop.name,
+				value:   prop.value,
+				owner:   prop.owner,
+				perms:   prop.perms,
+				clear:   true,
+				version: ts,
 			}
 			stampObjectProperties(child, ts)
 			queue = append(queue, childID)
