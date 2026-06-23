@@ -50,7 +50,11 @@ func (vm *VM) executeAdd() error {
 	}
 	if aFloat, ok := a.(types.FloatValue); ok {
 		if bFloat, ok := b.(types.FloatValue); ok {
-			vm.Push(types.FloatValue{Val: aFloat.Val + bFloat.Val})
+			result := aFloat.Val + bFloat.Val
+			if math.IsNaN(result) || math.IsInf(result, 0) {
+				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+			}
+			vm.Push(types.FloatValue{Val: result})
 			return nil
 		}
 	}
@@ -161,9 +165,11 @@ func (vm *VM) executeSub() error {
 	}
 
 	if aIsFloat && bIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
-		vm.Push(types.FloatValue{Val: af - bf})
+		result := aFloat.Val - bFloat.Val
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+		}
+		vm.Push(types.FloatValue{Val: result})
 		return nil
 	}
 
@@ -197,9 +203,11 @@ func (vm *VM) executeMul() error {
 	}
 
 	if aIsFloat && bIsFloat {
-		af := aFloat.Val
-		bf := bFloat.Val
-		vm.Push(types.FloatValue{Val: af * bf})
+		result := aFloat.Val * bFloat.Val
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+		}
+		vm.Push(types.FloatValue{Val: result})
 		return nil
 	}
 
@@ -247,7 +255,11 @@ func (vm *VM) executeDiv() error {
 		if bf == 0 {
 			return fmt.Errorf("E_DIV: division by zero")
 		}
-		vm.Push(types.FloatValue{Val: af / bf})
+		result := af / bf
+		if math.IsNaN(result) || math.IsInf(result, 0) {
+			return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+		}
+		vm.Push(types.FloatValue{Val: result})
 		return nil
 	}
 
