@@ -75,7 +75,7 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	ctx.LiveStoreMutated = true
+	markLiveStoreMutated(ctx)
 	if tx := readTxn(ctx); tx != nil {
 		tx.MoveStagedProperties(oldID, newID)
 		tx.ForgetObject(oldID)
