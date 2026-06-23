@@ -256,6 +256,7 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	ctx.LiveStoreMutated = true
 	if tx := readTxn(ctx); tx != nil {
 		adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
 		adoptIDs = append(adoptIDs, newParents...)
@@ -406,6 +407,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	ctx.LiveStoreMutated = true
 	if tx != nil {
 		adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
 		adoptIDs = append(adoptIDs, newParents...)

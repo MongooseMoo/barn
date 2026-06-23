@@ -462,6 +462,7 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	ctx.LiveStoreMutated = true
 	if tx := readTxn(ctx); tx != nil {
 		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -500,6 +501,7 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if errCode := store.DeleteVerb(objID, nameVal.Value()); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	ctx.LiveStoreMutated = true
 
 	return types.Ok(types.NewInt(0))
 }
@@ -565,6 +567,7 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	ctx.LiveStoreMutated = true
 	if tx := readTxn(ctx); tx != nil {
 		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -629,6 +632,7 @@ func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if errCode := store.SetVerbArgs(objID, nameVal.Value(), argSpec); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	ctx.LiveStoreMutated = true
 	if tx := readTxn(ctx); tx != nil {
 		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
 			return types.Err(errCode)

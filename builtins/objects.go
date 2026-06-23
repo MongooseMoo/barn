@@ -243,6 +243,7 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(types.E_QUOTA)
 	}
+	ctx.LiveStoreMutated = true
 	if tx := readTxn(ctx); tx != nil {
 		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -418,6 +419,7 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if err := store.Recycle(objID); err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	ctx.LiveStoreMutated = true
 	if tx := readTxn(ctx); tx != nil {
 		tx.ForgetObject(objID)
 		adoptIDs := append([]types.ObjID{}, oldParents...)
