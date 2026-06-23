@@ -723,6 +723,99 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 	return false, types.E_NONE
 }
 
+func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if tx.store == nil {
+		return types.E_INVARG
+	}
+
+	newProps := tx.copyInheritedProperties(obj.parents)
+	for name, prop := range obj.properties {
+		if prop != nil && prop.defined {
+			newProps[name] = prop
+		}
+	}
+	obj.properties = newProps
+
+	tx.store.mu.RLock()
+	live := tx.store.objects[objID]
+	if !validLiveObject(live) {
+		tx.store.mu.RUnlock()
+		return types.E_INVIND
+	}
+	obj.propertyVersion = live.propertyVersion
+	liveVersion := live.propertyVersion
+	tx.store.mu.RUnlock()
+
+	tx.propertyScans[objID] = liveVersion
+	for key := range tx.propertyReads {
+		if key.objID == objID {
+			delete(tx.propertyReads, key)
+		}
+	}
+	for key := range tx.propertyWrites {
+		if key.objID == objID {
+			delete(tx.propertyWrites, key)
+		}
+	}
+	for key := range tx.propertyDeletes {
+		if key.objID == objID {
+			delete(tx.propertyDeletes, key)
+		}
+	}
+	for name, prop := range obj.properties {
+		if prop == nil || prop.defined {
+			continue
+		}
+		key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
+		tx.propertyWrites[key] = propertyWrite{
+			value: prop.value,
+			prop:  *prop,
+		}
+	}
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]*Property {
+	result := make(map[string]*Property)
+	visited := make(map[types.ObjID]bool)
+	queue := append([]types.ObjID(nil), parents...)
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+
+		current := tx.object(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		tx.markPropertyScan(currentID, current)
+		for name, prop := range current.properties {
+			if _, _, exists := propertyByName(result, name); exists {
+				continue
+			}
+			result[name] = &Property{
+				name:    prop.name,
+				value:   prop.value,
+				owner:   prop.owner,
+				perms:   prop.perms,
+				clear:   true,
+				version: prop.version,
+			}
+		}
+		queue = append(queue, current.parents...)
+	}
+
+	return result
+}
+
 func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
