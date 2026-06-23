@@ -330,7 +330,14 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		newParents[i] = parentID
 	}
 
-	duplicateProps, errCode := store.HasDuplicateDefinedPropertyAmong(newParents)
+	tx := readTxn(ctx)
+	var duplicateProps bool
+	var errCode types.ErrorCode
+	if tx != nil {
+		duplicateProps, errCode = tx.HasDuplicateDefinedPropertyAmong(newParents)
+	} else {
+		duplicateProps, errCode = store.HasDuplicateDefinedPropertyAmong(newParents)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -342,7 +349,12 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// If obj defines a property that any new parent or their ancestors also define, that's E_INVARG
 	allNewParentProps := make(map[string]bool)
 	for _, parentID := range newParents {
-		props, errCode := store.DefinedPropertyNamesInAncestry(parentID)
+		var props map[string]bool
+		if tx != nil {
+			props, errCode = tx.DefinedPropertyNamesInAncestry(parentID)
+		} else {
+			props, errCode = store.DefinedPropertyNamesInAncestry(parentID)
+		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -351,7 +363,12 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		}
 	}
 
-	conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
+	var conflict bool
+	if tx != nil {
+		conflict, errCode = tx.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
+	} else {
+		conflict, errCode = store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -361,7 +378,11 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new parents or their ancestors.
-	conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
+	if tx != nil {
+		conflict, errCode = tx.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
+	} else {
+		conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
