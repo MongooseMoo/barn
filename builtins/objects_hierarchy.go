@@ -395,8 +395,26 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
+	var oldParents []types.ObjID
+	if tx != nil {
+		var errCode types.ErrorCode
+		oldParents, errCode = tx.Parents(objVal.ID())
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
+	}
+	if tx != nil {
+		adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
+		adoptIDs = append(adoptIDs, newParents...)
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	return types.Ok(types.NewInt(0))
