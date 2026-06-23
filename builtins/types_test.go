@@ -28,3 +28,31 @@ func TestTofloatRejectsNonFiniteStringValues(t *testing.T) {
 		t.Fatalf("tofloat finite = %v, want 3.5", got)
 	}
 }
+
+func TestTointStringOverflowClamps(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"99999999999999999999", 9223372036854775807},
+		{"9223372036854775808", 9223372036854775807},
+		{"-99999999999999999999", -9223372036854775808},
+		{"9223372036854775807", 9223372036854775807},
+		{"-9223372036854775808", -9223372036854775808},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			res := builtinToint(ctx, []types.Value{types.NewStr(tc.input)})
+			if res.Flow != types.FlowNormal {
+				t.Fatalf("toint(%q) flow = %v error = %v, want normal", tc.input, res.Flow, res.Error)
+			}
+			got := res.Val.(types.IntValue).Val
+			if got != tc.want {
+				t.Fatalf("toint(%q) = %d, want %d", tc.input, got, tc.want)
+			}
+		})
+	}
+}
