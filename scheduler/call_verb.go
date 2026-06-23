@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"log"
+	"strings"
 
 	"barn/builtins"
 	"barn/bytecode"
@@ -18,6 +19,118 @@ import (
 // Returns a Result with a call stack for traceback formatting
 func (s *Scheduler) CallVerb(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (result types.Result) {
 	return s.CallVerbWithArgstr(objID, verbName, args, player, "")
+}
+
+func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parentCtx *kernel.TaskContext) types.Result {
+	if parentCtx == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	var (
+		verb     dbstore.VerbView
+		defObjID types.ObjID
+		err      error
+	)
+	if parentCtx.StoreTxn != nil {
+		verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
+	} else {
+		verb, defObjID, err = s.store.FindVerb(objID, verbName)
+	}
+	if err != nil {
+		return types.Err(types.E_VERBNF)
+	}
+
+	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
+	if compileErr != nil {
+		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %v", verbName, defObjID, compileErr)
+		return types.Err(types.E_VERBNF)
+	}
+
+	player := parentCtx.Player
+	if player == types.ObjNothing {
+		player = parentCtx.Programmer
+	}
+	caller := parentCtx.ThisObj
+
+	thisVal := types.Value(types.NewObj(objID))
+	var frameThisValue types.Value
+	var isAnonymous bool
+	var anonErr types.ErrorCode
+	if parentCtx.StoreTxn != nil {
+		isAnonymous, anonErr = parentCtx.StoreTxn.ObjectIsAnonymous(objID)
+	} else {
+		isAnonymous, anonErr = s.store.ObjectIsAnonymous(objID)
+	}
+	if anonErr == types.E_NONE && isAnonymous {
+		anon := types.NewAnon(objID)
+		thisVal = anon
+		frameThisValue = anon
+	}
+
+	savedThisObj := parentCtx.ThisObj
+	savedThisValue := parentCtx.ThisValue
+	savedVerb := parentCtx.Verb
+	savedProgrammer := parentCtx.Programmer
+	savedIsWizard := parentCtx.IsWizard
+
+	parentCtx.ThisObj = objID
+	parentCtx.ThisValue = frameThisValue
+	parentCtx.Verb = verbName
+	parentCtx.Programmer = verb.Owner
+	parentCtx.IsWizard = s.isWizard(verb.Owner)
+
+	parentTask, _ := parentCtx.Task.(*task.Task)
+	if parentTask != nil {
+		parentTask.PushFrame(task.ActivationFrame{
+			This:       objID,
+			ThisValue:  frameThisValue,
+			Player:     player,
+			Programmer: verb.Owner,
+			Caller:     caller,
+			Verb:       verbName,
+			VerbLoc:    defObjID,
+			Args:       args,
+			LineNumber: 1,
+		})
+	}
+
+	bcVM := vm.NewVM(s.store, s.registry)
+	bcVM.Context = parentCtx
+	ticks, _ := foregroundTaskLimits()
+	bcVM.TickLimit = ticks
+	configureVMStackLimit(bcVM)
+
+	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
+	frame.IsVerbCall = true
+	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
+	frame.StoredVerb = strings.Join(verb.Names, " ")
+	frame.SavedThisObj = savedThisObj
+	frame.SavedThisValue = savedThisValue
+	frame.SavedVerb = savedVerb
+	frame.SavedProgrammer = savedProgrammer
+	frame.SavedIsWizard = savedIsWizard
+	vm.SetLocalByName(frame, prog, "this", thisVal)
+	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
+	vm.SetLocalByName(frame, prog, "caller", types.NewObj(caller))
+	vm.SetLocalByName(frame, prog, "verb", types.NewStr(verbName))
+	vm.SetLocalByName(frame, prog, "args", types.NewList(args))
+	vm.SetLocalByName(frame, prog, "argstr", types.NewStr(""))
+	vm.SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
+	vm.SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
+	vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
+	vm.SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+
+	result := bcVM.ExecuteLoop()
+	if parentTask != nil {
+		result = s.drainForks(parentTask, bcVM, result)
+	}
+	if result.Flow == types.FlowException {
+		trace.Exception(objID, verbName, result.Error)
+	} else {
+		trace.VerbReturn(objID, verbName, result.Val)
+	}
+	return result
 }
 
 func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string) (result types.Result) {
