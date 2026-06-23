@@ -42,7 +42,10 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	if !validForRead(ctx, whatVal.ID()) {
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
+	}
+	if whereVal.ID() != types.ObjNothing && !validForRead(ctx, whereVal.ID()) {
+		return types.Err(types.E_INVARG)
 	}
 	oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
 
