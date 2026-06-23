@@ -43,6 +43,11 @@ type Object struct {
 	// anonymousChildren tracks anonymous children created from this parent
 	// Used for invalidation when parent hierarchy changes
 	anonymousChildren []types.ObjID
+
+	scalarVersion       uint64
+	relationshipVersion uint64
+	propertyVersion     uint64
+	verbVersion         uint64
 }
 
 // ObjectView is a flat, read-only snapshot of an Object's scalar fields plus
