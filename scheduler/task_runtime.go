@@ -236,6 +236,9 @@ retryAttempt:
 		builtins.DiscardPendingConnectionSwitches(ctx)
 		builtins.DiscardPendingBootPlayers(ctx)
 	}
+	if committed && result.Flow == types.FlowSuspend && ctx.StoreTxn != nil {
+		ctx.StoreTxn = s.store.BeginReadOnly(0)
+	}
 
 	// Check context deadline
 	select {

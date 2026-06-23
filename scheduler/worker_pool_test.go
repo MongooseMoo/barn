@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"barn/builtins"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -215,6 +216,95 @@ return child;
 	}
 	if child.Owner != owner || child.GetState() != task.TaskQueued {
 		t.Fatalf("child owner/state = #%d/%s, want #%d/queued", child.Owner, child.GetState(), owner)
+	}
+}
+
+func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("yield_order", dbstore.NewProperty("yield_order", types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, false, 1)
+	defer s.Stop()
+	builtins.SetTaskYielder(s)
+	t.Cleanup(func() { builtins.SetTaskYielder(nil) })
+
+	owner := types.ObjID(7710)
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3010, owner, parseTestStatements(t, `
+#0.yield_order = {"main-before"};
+fork (0)
+  #0.yield_order = listappend(#0.yield_order, "fork");
+endfork
+yin(0, 59999, 4);
+#0.yield_order = listappend(#0.yield_order, "main-after");
+return #0.yield_order;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	defer removeTasksForOwner(s, owner)
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	got, ok := queued.Result.Val.(types.ListValue)
+	if !ok {
+		t.Fatalf("result value = %T, want list", queued.Result.Val)
+	}
+	want := []string{"main-before", "fork", "main-after"}
+	if got.Len() != len(want) {
+		t.Fatalf("result len = %d, want %d: %s", got.Len(), len(want), got.String())
+	}
+	for i, wantValue := range want {
+		value, ok := got.Get(i + 1).(types.StrValue)
+		if !ok || value.Value() != wantValue {
+			t.Fatalf("result[%d] = %v, want %q in %s", i+1, got.Get(i+1), wantValue, got.String())
+		}
+	}
+}
+
+func TestForkedSuspendZeroRefreshesAfterPreResumeCommit(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("yield_progress", dbstore.NewProperty("yield_progress", types.NewStr("before"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, false, 1)
+	defer s.Stop()
+
+	owner := types.ObjID(7711)
+	ticks, seconds := backgroundTaskLimits()
+	queued := task.NewTaskFull(3011, owner, parseTestStatements(t, `
+#0.yield_progress = "after-long-suspend";
+suspend(0);
+#0.yield_progress = "after-yield";
+return 0;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	queued.IsForked = true
+	queued.Kind = task.TaskForked
+	defer removeTasksForOwner(s, owner)
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	value, errCode := store.PropertyValue(0, "yield_progress")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %s", errCode)
+	}
+	got, ok := value.(types.StrValue)
+	if !ok || got.Value() != "after-yield" {
+		t.Fatalf("yield_progress = %v, want after-yield", value)
 	}
 }
 
