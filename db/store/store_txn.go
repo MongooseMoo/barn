@@ -14,6 +14,7 @@ type StoreTxn struct {
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
 	relationshipReads         map[types.ObjID]uint64
+	relationshipWrites        map[types.ObjID]objectRelationshipWrite
 	propertyReads             map[propertyReadKey]uint64
 	propertyScans             map[types.ObjID]uint64
 	propertyDefines           map[propertyWriteKey]Property
@@ -39,6 +40,11 @@ type objectScalarWrite struct {
 	owner    types.ObjID
 	flagsSet bool
 	flags    ObjectFlags
+}
+
+type objectRelationshipWrite struct {
+	locationSet bool
+	location    types.ObjID
 }
 
 type propertyWriteKey struct {
@@ -70,6 +76,7 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		scalarReads:               make(map[types.ObjID]uint64),
 		scalarWrites:              make(map[types.ObjID]objectScalarWrite),
 		relationshipReads:         make(map[types.ObjID]uint64),
+		relationshipWrites:        make(map[types.ObjID]objectRelationshipWrite),
 		propertyReads:             make(map[propertyReadKey]uint64),
 		propertyScans:             make(map[types.ObjID]uint64),
 		propertyDefines:           make(map[propertyWriteKey]Property),
@@ -193,7 +200,7 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0)
 }
 
 func (tx *StoreTxn) ValidationFailed() bool {
@@ -351,6 +358,20 @@ func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled b
 	write.flagsSet = true
 	write.flags = obj.flags
 	tx.scalarWrites[objID] = write
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	tx.markObjectRelationshipRead(objID, obj)
+	obj.location = location
+	write := tx.relationshipWrites[objID]
+	write.locationSet = true
+	write.location = location
+	tx.relationshipWrites[objID] = write
 	return types.E_NONE
 }
 
@@ -771,7 +792,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 }
 
 func (tx *StoreTxn) Commit() types.ErrorCode {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -820,6 +841,20 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 			live.flags = write.flags
 		}
 		stampObjectScalar(live, ts)
+	}
+	for objID, write := range tx.relationshipWrites {
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if !remembered[objID] {
+			tx.store.rememberObjectLocked(live)
+			remembered[objID] = true
+		}
+		if write.locationSet {
+			live.location = write.location
+		}
+		stampObjectRelationship(live, ts)
 	}
 	for key, prop := range tx.propertyDefines {
 		live := tx.store.objects[key.objID]
@@ -881,6 +916,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		stampObjectProperties(live, ts)
 	}
 	tx.scalarWrites = make(map[types.ObjID]objectScalarWrite)
+	tx.relationshipWrites = make(map[types.ObjID]objectRelationshipWrite)
 	tx.propertyDefines = make(map[propertyWriteKey]Property)
 	tx.propertyDefinitionDeletes = make(map[propertyWriteKey]string)
 	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)

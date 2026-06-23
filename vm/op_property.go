@@ -484,6 +484,9 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 		return false, types.E_NONE
 	case "location":
 		if objVal, ok := value.(types.ObjValue); ok {
+			if txn != nil {
+				return true, txn.SetObjectLocationRaw(objID, objVal.ID())
+			}
 			return true, store.SetObjectLocationRaw(objID, objVal.ID())
 		}
 		return false, types.E_NONE

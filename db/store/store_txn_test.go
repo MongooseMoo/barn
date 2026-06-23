@@ -742,6 +742,84 @@ func TestTransactionSameObjectScalarWriteConflicts(t *testing.T) {
 	}
 }
 
+func TestTransactionObjectLocationStagesUntilCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.SetObjectLocationRaw(obj, 0); errCode != types.E_NONE {
+		t.Fatalf("SetObjectLocationRaw failed: %v", errCode)
+	}
+	txLocation, errCode := tx.Location(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Location failed: %v", errCode)
+	}
+	if txLocation != 0 {
+		t.Fatalf("tx location = %d, want 0", txLocation)
+	}
+	liveLocation, errCode := store.Location(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("live Location failed: %v", errCode)
+	}
+	if liveLocation != types.ObjNothing {
+		t.Fatalf("live location before commit = %d, want #-1", liveLocation)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	liveLocation, errCode = store.Location(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("live Location after commit failed: %v", errCode)
+	}
+	if liveLocation != 0 {
+		t.Fatalf("live location after commit = %d, want 0", liveLocation)
+	}
+}
+
+func TestTransactionObjectLocationConflicts(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject obj failed: %v", errCode)
+	}
+	other, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject other failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.SetObjectLocationRaw(obj, 0); errCode != types.E_NONE {
+		t.Fatalf("tx SetObjectLocationRaw failed: %v", errCode)
+	}
+	if errCode := store.SetObjectLocationRaw(obj, other); errCode != types.E_NONE {
+		t.Fatalf("live SetObjectLocationRaw failed: %v", errCode)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !tx.ValidationFailed() {
+		t.Fatalf("transaction did not record validation failure")
+	}
+	liveLocation, errCode := store.Location(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("live Location failed: %v", errCode)
+	}
+	if liveLocation != other {
+		t.Fatalf("live location = %d, want concurrent location %d", liveLocation, other)
+	}
+}
+
 func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
