@@ -184,6 +184,23 @@ func TestBytecodeFloatOverflowRaisesEFloat(t *testing.T) {
 	}
 }
 
+func TestBytecodeIntegerLiteralOverflowWraps(t *testing.T) {
+	cases := map[string]int64{
+		"9223372036854775808":  -9223372036854775807 - 1,
+		"18446744073709551616": 0,
+		"18446744073709551615": -1,
+		"10000000000000000000": -8446744073709551616,
+		"99999999999999999999": 7766279631452241919,
+	}
+	for expr, want := range cases {
+		t.Run(expr, func(t *testing.T) {
+			requireInt(t, runBytecodeExpr(t, expr), want)
+		})
+	}
+
+	requireInt(t, runBytecodeExpr(t, "-9223372036854775808 == 9223372036854775807 + 1"), 1)
+}
+
 func TestBytecodeScatterAssignment(t *testing.T) {
 	cases := map[string][]types.Value{
 		"optional_default": {
