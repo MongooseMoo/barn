@@ -49,6 +49,35 @@ func TestVerbMutationsStampVerbVersion(t *testing.T) {
 	}
 }
 
+func TestAddVerbRejectsDuplicateLocalName(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look", "examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb initial failed: %v", errCode)
+	}
+	beforeNames, errCode := store.VerbNames(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("VerbNames before failed: %v", errCode)
+	}
+	beforeVersion := objectVerbVersionForTest(t, store, 0)
+
+	if _, errCode := store.AddVerb(0, NewVerb("examine", []string{"examine"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_INVARG {
+		t.Fatalf("AddVerb duplicate = %v, want E_INVARG", errCode)
+	}
+	afterNames, errCode := store.VerbNames(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("VerbNames after failed: %v", errCode)
+	}
+	if len(afterNames) != len(beforeNames) {
+		t.Fatalf("verb names after duplicate = %#v, want %#v", afterNames, beforeNames)
+	}
+	if afterVersion := objectVerbVersionForTest(t, store, 0); afterVersion != beforeVersion {
+		t.Fatalf("object verb version after duplicate = %d, want %d", afterVersion, beforeVersion)
+	}
+}
+
 func verbVersionForTest(t *testing.T, store *Store, objID types.ObjID, name string) uint64 {
 	t.Helper()
 
@@ -60,4 +89,17 @@ func verbVersionForTest(t *testing.T, store *Store, objID types.ObjID, name stri
 		t.Fatalf("findVerbLocked(%q) failed: %v", name, err)
 	}
 	return verb.version
+}
+
+func objectVerbVersionForTest(t *testing.T, store *Store, objID types.ObjID) uint64 {
+	t.Helper()
+
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	obj := store.objects[objID]
+	if !validLiveObject(obj) {
+		t.Fatalf("object #%d not found", objID)
+	}
+	return obj.verbVersion
 }

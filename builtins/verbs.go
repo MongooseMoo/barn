@@ -565,6 +565,11 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	if tx := readTxn(ctx); tx != nil {
+		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 
 	return types.Ok(types.NewInt(0))
 }
@@ -623,6 +628,11 @@ func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 	if errCode := store.SetVerbArgs(objID, nameVal.Value(), argSpec); errCode != types.E_NONE {
 		return types.Err(errCode)
+	}
+	if tx := readTxn(ctx); tx != nil {
+		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	return types.Ok(types.NewInt(0))
