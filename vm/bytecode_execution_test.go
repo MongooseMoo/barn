@@ -148,6 +148,27 @@ func TestBytecodeErrorOrderingComparisons(t *testing.T) {
 	requireError(t, runBytecodeExpr(t, "E_NONE < 1"), types.E_TYPE)
 }
 
+func TestBytecodeStringOrderingIsCaseInsensitive(t *testing.T) {
+	cases := map[string]int64{
+		`"a" < "B"`:             1,
+		`"B" < "a"`:             0,
+		`"a" <= "A"`:            1,
+		`"a" > "B"`:             0,
+		`"abc" < "ABD"`:         1,
+		`"Zebra" < "apple"`:     0,
+		`"hello" <= "HELLO"`:    1,
+		`"hello" > "HELLO"`:     0,
+		`"a" == "A"`:            1,
+		`equal("a", "A")`:       0,
+		`strcmp("a", "A") != 0`: 1,
+	}
+	for expr, want := range cases {
+		t.Run(expr, func(t *testing.T) {
+			requireInt(t, runBytecodeExpr(t, expr), want)
+		})
+	}
+}
+
 func TestBytecodeScatterAssignment(t *testing.T) {
 	cases := map[string][]types.Value{
 		"optional_default": {

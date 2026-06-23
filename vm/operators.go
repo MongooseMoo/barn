@@ -636,11 +636,10 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 	rightStr, rightIsStr := right.(types.StrValue)
 
 	if leftIsStr && rightIsStr {
-		leftVal := leftStr.Value()
-		rightVal := rightStr.Value()
-		if leftVal < rightVal {
+		cmp := strings.Compare(strings.ToLower(leftStr.Value()), strings.ToLower(rightStr.Value()))
+		if cmp < 0 {
 			return -1, types.E_NONE
-		} else if leftVal > rightVal {
+		} else if cmp > 0 {
 			return 1, types.E_NONE
 		}
 		return 0, types.E_NONE
