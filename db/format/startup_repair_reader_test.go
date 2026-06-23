@@ -11,7 +11,7 @@ import (
 )
 
 func startupRepairFixture(name string) string {
-	return filepath.Join("..", "..", "..", "mongoose", "toaststunt", "test", "tests", name)
+	return filepath.Join("testdata", name)
 }
 
 func TestLoadDatabaseSupportsFormat5Fixtures(t *testing.T) {

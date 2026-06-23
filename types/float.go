@@ -28,8 +28,10 @@ func (f FloatValue) String() string {
 	if math.IsInf(f.Val, -1) {
 		return "-Inf"
 	}
-	// MOO expects whole numbers to still show decimal (3.0 not 3)
-	s := strconv.FormatFloat(f.Val, 'g', -1, 64)
+	// MOO (ToastStunt) renders floats with 15 significant digits, equivalent to
+	// printf "%.15g" -- NOT Go's shortest round-trip. e.g. sqrt(2) prints as
+	// "1.4142135623731", not "1.4142135623730951".
+	s := strconv.FormatFloat(f.Val, 'g', 15, 64)
 	// Add .0 if no decimal point and not in scientific notation
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+  conformance:
+    name: MOO conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout barn
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build barn
+        run: go build -o barn ./cmd/barn/
+
+      # The conformance suite is the spec. It lives in its own repo and is a
+      # read-only dependency here; CI always runs barn against its latest tip.
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: main
+          path: moo-conformance-tests
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Managed mode: the suite starts/stops barn itself against a temp copy of
+      # its own bundled Test.db, picking a free port. {db} and {port} are
+      # substituted by the runner.
+      - name: Run conformance suite
+        run: >
+          uv run --project moo-conformance-tests moo-conformance
+          --server-command "${{ github.workspace }}/barn -db {db} -port {port}"
+          -q --junit-xml="${{ github.workspace }}/conformance-results.xml"
+
+      - name: Upload conformance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-results
+          path: conformance-results.xml
+          if-no-files-found: warn

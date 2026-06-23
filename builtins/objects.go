@@ -424,5 +424,5 @@ func builtinMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	maxID := store.MaxObject()
-	return types.Ok(types.NewInt(int64(maxID)))
+	return types.Ok(types.NewObj(types.ObjID(maxID)))
 }

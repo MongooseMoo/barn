@@ -314,30 +314,14 @@ func getBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string) (t
 			return nil, false
 		}
 		return types.NewList(objIDsToValues(contentsIDs)), true
-	case "parents":
-		parentIDs, errCode := store.Parents(objID)
-		if errCode != types.E_NONE {
-			return nil, false
-		}
-		return types.NewList(objIDsToValues(parentIDs)), true
-	case "parent":
-		parentID, errCode := store.Parent(objID)
-		if errCode != types.E_NONE {
-			return nil, false
-		}
-		return types.NewObj(parentID), true
-	case "children":
-		childIDs, errCode := store.Children(objID)
-		if errCode != types.E_NONE {
-			return nil, false
-		}
-		return types.NewList(objIDsToValues(childIDs)), true
+	case "last_move":
+		// Barn does not yet track per-object move history; last_move is reported
+		// as an empty map (ToastStunt seeds a fresh object's last_move to []).
+		return types.NewMap(nil), true
 	case "programmer":
 		return boolPropertyValue(store, objID, dbstore.FlagProgrammer)
 	case "wizard":
 		return boolPropertyValue(store, objID, dbstore.FlagWizard)
-	case "player":
-		return boolPropertyValue(store, objID, dbstore.FlagUser)
 	case "r":
 		return boolPropertyValue(store, objID, dbstore.FlagRead)
 	case "w":
@@ -433,11 +417,9 @@ func setBuiltinProperty(store *dbstore.Store, objID types.ObjID, name string, va
 			return true, store.SetObjectFlag(objID, dbstore.FlagWizard, intVal.Val != 0)
 		}
 		return false, types.E_NONE
-	case "player":
-		if intVal, ok := value.(types.IntValue); ok {
-			return true, store.SetObjectFlag(objID, dbstore.FlagUser, intVal.Val != 0)
-		}
-		return false, types.E_NONE
+	case "last_move":
+		// last_move is server-maintained; it exists but is read-only -> E_PERM.
+		return true, types.E_PERM
 	case "r":
 		if intVal, ok := value.(types.IntValue); ok {
 			return true, store.SetObjectFlag(objID, dbstore.FlagRead, intVal.Val != 0)

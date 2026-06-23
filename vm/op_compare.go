@@ -248,9 +248,16 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 	bStr, bIsStr := b.(types.StrValue)
 
 	if aIsStr && bIsStr {
-		if aStr.Value() < bStr.Value() {
+		// MOO's relational operators (<, <=, >, >=) compare strings
+		// case-INSENSITIVELY (case folded before ordering), matching ToastStunt's
+		// mystrcasecmp. Strings that differ only in case compare as equal here.
+		// (== / != have their own case-insensitive path; equal()/strcmp() stay
+		// case-sensitive.)
+		al := strings.ToLower(aStr.Value())
+		bl := strings.ToLower(bStr.Value())
+		if al < bl {
 			return -1, nil
-		} else if aStr.Value() > bStr.Value() {
+		} else if al > bl {
 			return 1, nil
 		}
 		return 0, nil
