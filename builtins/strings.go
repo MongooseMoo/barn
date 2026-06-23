@@ -900,47 +900,38 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 	i := 0
 	for i < len(pattern) {
 		if pattern[i] == '%' && i+1 < len(pattern) {
-			switch pattern[i+1] {
-			case 'd': // digit
-				result.WriteString("[0-9]")
-			case 'D': // non-digit
-				result.WriteString("[^0-9]")
-			case 'w': // word character
+			// MOO regex (ToastStunt's Spencer "rx") uses '%' as the escape
+			// character. Only a small set of '% + char' sequences are special;
+			// EVERY other one is the literal following character. In particular
+			// there are NO Perl-style %d/%s classes: "%d" matches a literal 'd'.
+			c := pattern[i+1]
+			switch c {
+			case 'w': // word constituent
 				result.WriteString("[a-zA-Z0-9_]")
-			case 'W': // non-word character
+			case 'W': // non-word constituent
 				result.WriteString("[^a-zA-Z0-9_]")
-			case 's': // whitespace
-				result.WriteString("[ \\t\\n\\r]")
-			case 'S': // non-whitespace
-				result.WriteString("[^ \\t\\n\\r]")
-			case '%': // literal %
-				result.WriteByte('%')
+			case 'b': // word boundary
+				result.WriteString("\\b")
+			case 'B': // not a word boundary
+				result.WriteString("\\B")
+			case '<': // beginning of a word (best RE2 approximation)
+				result.WriteString("\\b")
+			case '>': // end of a word (best RE2 approximation)
+				result.WriteString("\\b")
 			case '(': // start capture group
 				result.WriteByte('(')
 			case ')': // end capture group
 				result.WriteByte(')')
-			case '+': // one or more (non-greedy in MOO)
-				result.WriteString("+?")
-			case '*': // zero or more (non-greedy in MOO)
-				result.WriteString("*?")
-			case '?': // zero or one
-				result.WriteByte('?')
-			case '.': // any char
-				result.WriteByte('.')
-			case '^': // start of string
-				result.WriteByte('^')
-			case '$': // end of string
-				result.WriteByte('$')
-			case '[': // character class start
-				result.WriteByte('[')
-			case ']': // character class end
-				result.WriteByte(']')
 			case '|': // alternation
 				result.WriteByte('|')
-			default:
-				// Unknown escape - pass through
+			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				// Backreference: RE2 cannot express these. Preserve the original
+				// bytes rather than silently treating the digit as a literal.
 				result.WriteByte('%')
-				result.WriteByte(pattern[i+1])
+				result.WriteByte(c)
+			default:
+				// Any other escaped char is that literal character.
+				result.WriteString(regexp.QuoteMeta(string(c)))
 			}
 			i += 2
 		} else {

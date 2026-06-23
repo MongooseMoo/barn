@@ -234,8 +234,8 @@ func builtinParseJson(ctx *kernel.TaskContext, args []types.Value) types.Result 
 func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 	switch val := v.(type) {
 	case nil:
-		// JSON null becomes MOO integer 0
-		return types.NewInt(0)
+		// MOO has no null; ToastStunt maps JSON null to the error value E_NONE.
+		return types.NewErr(types.E_NONE)
 
 	case bool:
 		return types.NewBool(val)
