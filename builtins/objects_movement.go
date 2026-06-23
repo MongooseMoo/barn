@@ -68,7 +68,7 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	ctx.LiveStoreMutated = true
+	markLiveStoreMutated(ctx)
 	if tx := readTxn(ctx); tx != nil {
 		adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
 		if oldLocationErr == types.E_NONE {
