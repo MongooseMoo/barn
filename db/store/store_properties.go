@@ -424,12 +424,14 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if !ok {
 		return types.E_PROPNF
 	}
+	ts := s.bumpClockLocked()
 	if owner != nil {
 		prop.owner = *owner
 	}
 	if perms != nil {
 		prop.perms = *perms
 	}
+	stampObjectProperties(obj, ts)
 	return types.E_NONE
 }
 
@@ -444,9 +446,11 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	ts := s.bumpClockLocked()
 	if _, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
 		prop.value = value
+		stampObjectProperties(obj, ts)
 		return types.E_NONE
 	}
 
@@ -462,6 +466,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 		clear:   false,
 		defined: false,
 	}
+	stampObjectProperties(obj, ts)
 	return types.E_NONE
 }
 
@@ -479,6 +484,7 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	if _, _, exists := propertyByName(obj.properties, prop.name); exists {
 		return types.E_INVARG
 	}
+	ts := s.bumpClockLocked()
 	prop.defined = true
 	prop.clear = false
 	obj.properties[prop.name] = cloneProperty(&prop)
@@ -491,8 +497,9 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
 	obj.propOrder[pos] = prop.name
 	obj.propDefsCount++
+	stampObjectProperties(obj, ts)
 
-	s.propagatePropertyToDescendantsLocked(objID, &prop)
+	s.propagatePropertyToDescendantsLocked(objID, &prop, ts)
 	return types.E_NONE
 }
 
@@ -511,13 +518,15 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 	if !ok || !prop.defined {
 		return types.E_PROPNF
 	}
+	ts := s.bumpClockLocked()
 
 	delete(obj.properties, actualName)
 	obj.propOrder = removeString(obj.propOrder, actualName)
 	if obj.propDefsCount > 0 {
 		obj.propDefsCount--
 	}
-	s.removeInheritedPropertyLocked(objID, actualName)
+	stampObjectProperties(obj, ts)
+	s.removeInheritedPropertyLocked(objID, actualName, ts)
 	return types.E_NONE
 }
 
@@ -534,7 +543,9 @@ func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.Erro
 	}
 	actualName, _, ok := propertyByName(obj.properties, name)
 	if ok {
+		ts := s.bumpClockLocked()
 		delete(obj.properties, actualName)
+		stampObjectProperties(obj, ts)
 	}
 	return types.E_NONE
 }
@@ -578,15 +589,20 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	changed := false
 	for name, prop := range obj.properties {
 		if !prop.defined {
 			delete(obj.properties, name)
+			changed = true
 		}
+	}
+	if changed {
+		stampObjectProperties(obj, s.bumpClockLocked())
 	}
 	return types.E_NONE
 }
 
-func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Property) {
+func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Property, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -619,12 +635,13 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 				perms: prop.perms,
 				clear: true,
 			}
+			stampObjectProperties(child, ts)
 			queue = append(queue, childID)
 		}
 	}
 }
 
-func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string) {
+func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -645,6 +662,7 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string) {
 			}
 			if actualName, prop, ok := propertyByName(child.properties, name); ok && !prop.defined {
 				delete(child.properties, actualName)
+				stampObjectProperties(child, ts)
 			}
 			queue = append(queue, childID)
 		}

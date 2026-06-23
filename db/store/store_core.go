@@ -13,6 +13,7 @@ type Store struct {
 	maxObjID    types.ObjID   // Highest non-anonymous object ID (for max_object())
 	highWaterID types.ObjID   // Highest allocated ID (including anonymous, for NextID())
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
+	clock       uint64
 
 	// anonObjects holds anonymous objects out-of-band, keyed by the identity id
 	// they were loaded/created with. Anonymous objects NEVER live in the regular
@@ -38,6 +39,52 @@ func NewStore() *Store {
 		highWaterID: -1,
 		recycledID:  []types.ObjID{},
 	}
+}
+
+func (s *Store) ReadTimestamp() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.clock
+}
+
+func (s *Store) bumpClockLocked() uint64 {
+	s.clock++
+	if s.clock == 0 {
+		s.clock++
+	}
+	return s.clock
+}
+
+func stampObjectScalar(obj *Object, ts uint64) {
+	if obj != nil {
+		obj.scalarVersion = ts
+	}
+}
+
+func stampObjectRelationship(obj *Object, ts uint64) {
+	if obj != nil {
+		obj.relationshipVersion = ts
+	}
+}
+
+func stampObjectProperties(obj *Object, ts uint64) {
+	if obj != nil {
+		obj.propertyVersion = ts
+	}
+}
+
+func stampObjectVerbs(obj *Object, ts uint64) {
+	if obj != nil {
+		obj.verbVersion = ts
+	}
+}
+
+func stampObjectAll(obj *Object, ts uint64) {
+	stampObjectScalar(obj, ts)
+	stampObjectRelationship(obj, ts)
+	stampObjectProperties(obj, ts)
+	stampObjectVerbs(obj, ts)
 }
 
 // Get returns a flat, read-only ObjectView for a live object, plus ok=false if
@@ -79,6 +126,8 @@ func (s *Store) Add(obj *Object) error {
 		return fmt.Errorf("object #%d already exists", obj.id)
 	}
 
+	ts := s.bumpClockLocked()
+	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
 	return nil
 }
@@ -87,6 +136,8 @@ func (s *Store) addLoadedObject(obj *Object) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	ts := s.bumpClockLocked()
+	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
 }
 
@@ -103,6 +154,8 @@ func (s *Store) AddAnonymous(obj *Object) {
 	if !obj.anonymous {
 		obj.anonymous = true
 	}
+	ts := s.bumpClockLocked()
+	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
 }
 
@@ -129,7 +182,9 @@ func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	ts := s.bumpClockLocked()
 	obj.name = name
+	stampObjectScalar(obj, ts)
 	return types.E_NONE
 }
 
@@ -141,7 +196,9 @@ func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	ts := s.bumpClockLocked()
 	obj.owner = owner
+	stampObjectScalar(obj, ts)
 	return types.E_NONE
 }
 
@@ -153,7 +210,9 @@ func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	ts := s.bumpClockLocked()
 	obj.location = location
+	stampObjectRelationship(obj, ts)
 	return types.E_NONE
 }
 
@@ -165,11 +224,13 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	ts := s.bumpClockLocked()
 	if enabled {
 		obj.flags = obj.flags.Set(flag)
 	} else {
 		obj.flags = obj.flags.Clear(flag)
 	}
+	stampObjectScalar(obj, ts)
 	return types.E_NONE
 }
 

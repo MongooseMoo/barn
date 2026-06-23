@@ -334,10 +334,12 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 		return 0, types.E_INVIND
 	}
 
+	ts := s.bumpClockLocked()
 	verbCopy := verb
 	verbPtr := &verbCopy
 	obj.verbs[verbPtr.name] = verbPtr
 	obj.verbList = append(obj.verbList, verbPtr)
+	stampObjectVerbs(obj, ts)
 	return len(obj.verbList), types.E_NONE
 }
 
@@ -355,6 +357,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 		return types.E_VERBNF
 	}
 
+	ts := s.bumpClockLocked()
 	keysToRefresh := make([]string, 0, 1)
 	for key, entry := range obj.verbs {
 		if entry == verb {
@@ -379,6 +382,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 			}
 		}
 	}
+	stampObjectVerbs(obj, ts)
 	return types.E_NONE
 }
 
@@ -395,6 +399,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 		return types.E_VERBNF
 	}
 
+	ts := s.bumpClockLocked()
 	oldName := verb.name
 	verb.owner = owner
 	verb.perms = perms
@@ -409,6 +414,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 		}
 		obj.verbs[verb.name] = verb
 	}
+	stampObjectVerbs(obj, ts)
 	return types.E_NONE
 }
 
@@ -423,7 +429,9 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	if err != nil {
 		return types.E_VERBNF
 	}
+	ts := s.bumpClockLocked()
 	verb.argSpec = argSpec
+	stampObjectVerbs(s.objects[objID], ts)
 	return types.E_NONE
 }
 
@@ -442,9 +450,11 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 	if err != nil {
 		return types.E_VERBNF
 	}
+	ts := s.bumpClockLocked()
 	verb.code = append([]string(nil), lines...)
 	// set_verb_code installs a program (even an empty one) on the verb.
 	verb.hasProgram = true
+	stampObjectVerbs(s.objects[objID], ts)
 	return types.E_NONE
 }
 
@@ -459,10 +469,12 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	if index < 0 || index >= len(obj.verbList) {
 		return types.E_RANGE
 	}
+	ts := s.bumpClockLocked()
 	verb := obj.verbList[index]
 	verb.code = append([]string(nil), lines...)
 	// set_verb_code installs a program (even an empty one) on the verb.
 	verb.hasProgram = true
+	stampObjectVerbs(obj, ts)
 	return types.E_NONE
 }
 

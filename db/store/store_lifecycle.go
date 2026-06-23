@@ -10,6 +10,7 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	ts := s.bumpClockLocked()
 	newID := s.highWaterID + 1
 	if owner == types.ObjNothing {
 		owner = newID
@@ -22,9 +23,13 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 		obj.flags = obj.flags.Set(FlagAnonymous)
 	}
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
+	stampObjectAll(obj, ts)
 
 	s.insertObjectLocked(obj)
 	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
+	for _, parentID := range obj.parents {
+		stampObjectRelationship(s.objects[parentID], ts)
+	}
 	return newID, types.E_NONE
 }
 
@@ -101,6 +106,7 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 	queue := []types.ObjID{rootID}
 	visited := make(map[types.ObjID]bool)
 
+	ts := s.bumpClockLocked()
 	for len(queue) > 0 {
 		currentID := queue[0]
 		queue = queue[1:]
@@ -119,9 +125,11 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 			child := s.objects[childID]
 			if child != nil && child.anonymous {
 				child.flags = child.flags.Set(FlagInvalid)
+				stampObjectScalar(child, ts)
 			}
 		}
 		current.anonymousChildren = nil
+		stampObjectRelationship(current, ts)
 
 		queue = append(queue, current.children...)
 	}
@@ -147,6 +155,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	// ToastStunt; they remain valid (property access through a recycled parent
 	// simply raises E_PROPNF). The anon is only invalidated when recycled itself.
 
+	ts := s.bumpClockLocked()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
 		child := s.objects[childID]
@@ -172,11 +181,13 @@ func (s *Store) Recycle(id types.ObjID) error {
 			}
 		}
 		child.parents = newChildParents
+		stampObjectRelationship(child, ts)
 
 		for _, newParentID := range objParents {
 			newParent := s.objects[newParentID]
 			if validLiveObject(newParent) && !slices.Contains(newParent.children, childID) {
 				newParent.children = append(newParent.children, childID)
+				stampObjectRelationship(newParent, ts)
 			}
 		}
 	}
@@ -185,6 +196,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 		content := s.objects[contentID]
 		if validLiveObject(content) {
 			content.location = types.ObjNothing
+			stampObjectRelationship(content, ts)
 		}
 	}
 	obj.contents = []types.ObjID{}
@@ -193,6 +205,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 		oldLoc := s.objects[obj.location]
 		if validLiveObject(oldLoc) {
 			oldLoc.contents = removeObjID(oldLoc.contents, id)
+			stampObjectRelationship(oldLoc, ts)
 		}
 	}
 	obj.location = types.ObjNothing
@@ -204,12 +217,14 @@ func (s *Store) Recycle(id types.ObjID) error {
 		parent := s.objects[parentID]
 		if validLiveObject(parent) {
 			parent.children = removeObjID(parent.children, id)
+			stampObjectRelationship(parent, ts)
 		}
 	}
 
 	// Mark as recycled and invalid
 	obj.recycled = true
 	obj.flags = obj.flags.Set(FlagRecycled | FlagInvalid)
+	stampObjectAll(obj, ts)
 
 	// Track for potential reuse
 	s.recycledID = append(s.recycledID, id)
@@ -234,12 +249,15 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	}
 
 	// Reset object to fresh state
+	ts := s.bumpClockLocked()
 	newObj := NewObject(id, owner)
 	newObj.parents = []types.ObjID{parent}
 	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
+	stampObjectAll(newObj, ts)
 
 	s.objects[id] = newObj
 	s.attachChildToParentsLocked(id, newObj.parents, false, false)
+	stampObjectRelationship(s.objects[parent], ts)
 
 	return nil
 }
@@ -332,7 +350,9 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	// Note: renumbering does NOT invalidate anonymous descendants in ToastStunt.
 
 	// Update the object's ID
+	ts := s.bumpClockLocked()
 	obj.id = newID
+	stampObjectAll(obj, ts)
 
 	// Move in store
 	delete(s.objects, oldID)
@@ -358,6 +378,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		for i, pid := range other.parents {
 			if pid == oldID {
 				other.parents[i] = newID
+				stampObjectRelationship(other, ts)
 			}
 		}
 
@@ -365,6 +386,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		for i, cid := range other.children {
 			if cid == oldID {
 				other.children[i] = newID
+				stampObjectRelationship(other, ts)
 			}
 		}
 
@@ -373,24 +395,28 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			if other.chparentChildren[oldID] {
 				delete(other.chparentChildren, oldID)
 				other.chparentChildren[newID] = true
+				stampObjectRelationship(other, ts)
 			}
 		}
 
 		// Update Location
 		if other.location == oldID {
 			other.location = newID
+			stampObjectRelationship(other, ts)
 		}
 
 		// Update Contents
 		for i, cid := range other.contents {
 			if cid == oldID {
 				other.contents[i] = newID
+				stampObjectRelationship(other, ts)
 			}
 		}
 
 		// Update Owner
 		if other.owner == oldID {
 			other.owner = newID
+			stampObjectScalar(other, ts)
 		}
 	}
 
