@@ -3,6 +3,9 @@ package builtins
 import (
 	"regexp"
 	"testing"
+
+	"barn/kernel"
+	"barn/types"
 )
 
 func TestMooPatternPercentEscapesAreLiteralByDefault(t *testing.T) {
@@ -56,5 +59,80 @@ func TestMooPatternPercentWordBoundaryEscapes(t *testing.T) {
 	}
 	if re.MatchString("foobar") {
 		t.Fatalf("foo%%> matched inside word")
+	}
+}
+
+func TestSubstituteRejectsMalformedMatchData(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	template := types.NewStr("x")
+
+	tests := []struct {
+		name  string
+		match types.Value
+	}{
+		{
+			name:  "empty match result",
+			match: types.NewList(nil),
+		},
+		{
+			name: "out of range full match",
+			match: types.NewList([]types.Value{
+				types.NewInt(1),
+				types.NewInt(9),
+				types.NewList([]types.Value{
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+					types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)}),
+				}),
+				types.NewStr("abc"),
+			}),
+		},
+		{
+			name: "wrong group count",
+			match: types.NewList([]types.Value{
+				types.NewInt(1),
+				types.NewInt(3),
+				types.NewList(nil),
+				types.NewStr("abc"),
+			}),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := builtinSubstitute(ctx, []types.Value{template, tc.match})
+			if res.Flow != types.FlowException || res.Error != types.E_INVARG {
+				t.Fatalf("builtinSubstitute = flow %v error %v value %v, want E_INVARG", res.Flow, res.Error, res.Val)
+			}
+		})
+	}
+}
+
+func TestSubstituteUnusedCaptureSubstitutesEmptyString(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	groups := make([]types.Value, 9)
+	for i := range groups {
+		groups[i] = types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)})
+	}
+	match := types.NewList([]types.Value{
+		types.NewInt(1),
+		types.NewInt(3),
+		types.NewList(groups),
+		types.NewStr("abc"),
+	})
+
+	res := builtinSubstitute(ctx, []types.Value{types.NewStr("group=[%1]"), match})
+	if res.Flow != types.FlowNormal {
+		t.Fatalf("builtinSubstitute flow = %v error = %v, want normal", res.Flow, res.Error)
+	}
+	got := res.Val.(types.StrValue).Value()
+	if got != "group=[]" {
+		t.Fatalf("substitute result = %q, want group=[]", got)
 	}
 }
