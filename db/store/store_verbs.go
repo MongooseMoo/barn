@@ -183,9 +183,16 @@ func (s *Store) findCallableVerbLocked(objID types.ObjID, verbName string) (*Ver
 }
 
 func (s *Store) findVerbWalkLocked(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
+	return s.findVerbWalkFromQueueLocked([]types.ObjID{objID}, verbName, requireExecute)
+}
+
+// findVerbWalkFromQueueLocked is the shared breadth-first ancestry walk used by
+// findVerbWalkLocked (queue seeded with the object itself) and
+// findParentCallableVerbLocked (queue seeded with verbLoc's parents, to skip
+// verbLoc's own verbs for pass()).
+func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	// Track visited objects to prevent infinite loops
 	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
 
 	for len(queue) > 0 {
 		// Pop from front (FIFO for breadth-first)
@@ -459,42 +466,31 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	return types.E_NONE
 }
 
+// FindParentVerb resolves the verb pass() delegates to: the same-named verb
+// on an ancestor of verbLoc, found by the same skip-non-executable-and-continue
+// walk as call dispatch (FindCallableVerb) — ToastStunt's pass() calls the
+// same db_find_callable_verb lookup obj:verb() dispatch uses, so a
+// non-executable same-named verb on an intermediate ancestor must not shadow
+// an executable one defined further up the chain.
 func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	verb, definer, err := s.findParentCallableVerbLocked(verbLoc, verbName)
+	if err != nil {
+		return VerbView{}, definer, err
+	}
+	return verb.View(), definer, nil
+}
+
+func (s *Store) findParentCallableVerbLocked(verbLoc types.ObjID, verbName string) (*Verb, types.ObjID, error) {
 	verbLocObj := s.objects[verbLoc]
 	if !validLiveObject(verbLocObj) {
-		return VerbView{}, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
+		return nil, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
 	}
 
-	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), verbLocObj.parents...)
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if visited[current] {
-			continue
-		}
-		visited[current] = true
-
-		obj := s.objects[current]
-		if !validLiveObject(obj) {
-			continue
-		}
-		if verb, ok := obj.verbs[verbName]; ok {
-			return verb.View(), current, nil
-		}
-		for _, verb := range obj.verbList {
-			for _, alias := range verb.names {
-				if alias == verbName {
-					return verb.View(), current, nil
-				}
-			}
-		}
-		queue = append(queue, obj.parents...)
-	}
-	return VerbView{}, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+	return s.findVerbWalkFromQueueLocked(queue, verbName, true)
 }
 
 // FindLocalVerbForProgramming reports whether a verb with the given name exists

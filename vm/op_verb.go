@@ -325,6 +325,10 @@ func (vm *VM) executePass() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
+	// FindParentVerb walks ancestors the same way obj:verb() dispatch does
+	// (FindCallableVerb): a non-executable same-named verb on an intermediate
+	// ancestor is skipped, not treated as a match, so it never shadows an
+	// executable verb defined further up the chain.
 	verb, defObjID, err := vm.Store.FindParentVerb(verbLoc, verbName)
 	if err != nil {
 		// Distinguish two cases the way ToastStunt does: if the defining object
@@ -335,11 +339,6 @@ func (vm *VM) executePass() error {
 			return fmt.Errorf("E_INVIND: pass() has no parent object")
 		}
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
-	}
-
-	// Check execute permission
-	if !verb.Perms.Has(dbstore.VerbExecute) {
-		return fmt.Errorf("E_PERM: parent verb %s is not executable", verbName)
 	}
 
 	// Compile the parent verb to bytecode
