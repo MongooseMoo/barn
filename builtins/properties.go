@@ -436,8 +436,14 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Err(types.E_PERM)
 	}
 
-	if err := store.ClearPropertyOverride(objID, propName); err != types.E_NONE {
-		return types.Err(err)
+	var clearErr types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		clearErr = tx.ClearPropertyOverride(objID, propName)
+	} else {
+		clearErr = store.ClearPropertyOverride(objID, propName)
+	}
+	if clearErr != types.E_NONE {
+		return types.Err(clearErr)
 	}
 
 	return types.Ok(types.NewInt(0))

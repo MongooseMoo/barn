@@ -8,19 +8,20 @@ import (
 )
 
 type StoreTxn struct {
-	readTS         uint64
-	store          *Store
-	objects        map[types.ObjID]*Object
-	scalarReads    map[types.ObjID]uint64
-	scalarWrites   map[types.ObjID]objectScalarWrite
-	propertyReads  map[propertyReadKey]uint64
-	propertyScans  map[types.ObjID]uint64
-	propertyWrites map[propertyWriteKey]propertyWrite
-	verbReads      map[verbReadKey]uint64
-	verbScans      map[types.ObjID]uint64
-	validationFail bool
-	maxObjID       types.ObjID
-	highWaterID    types.ObjID
+	readTS          uint64
+	store           *Store
+	objects         map[types.ObjID]*Object
+	scalarReads     map[types.ObjID]uint64
+	scalarWrites    map[types.ObjID]objectScalarWrite
+	propertyReads   map[propertyReadKey]uint64
+	propertyScans   map[types.ObjID]uint64
+	propertyWrites  map[propertyWriteKey]propertyWrite
+	propertyDeletes map[propertyWriteKey]string
+	verbReads       map[verbReadKey]uint64
+	verbScans       map[types.ObjID]uint64
+	validationFail  bool
+	maxObjID        types.ObjID
+	highWaterID     types.ObjID
 }
 
 type propertyReadKey struct {
@@ -60,18 +61,19 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		readTS = s.clock
 	}
 	return &StoreTxn{
-		readTS:         readTS,
-		store:          s,
-		objects:        make(map[types.ObjID]*Object),
-		scalarReads:    make(map[types.ObjID]uint64),
-		scalarWrites:   make(map[types.ObjID]objectScalarWrite),
-		propertyReads:  make(map[propertyReadKey]uint64),
-		propertyScans:  make(map[types.ObjID]uint64),
-		propertyWrites: make(map[propertyWriteKey]propertyWrite),
-		verbReads:      make(map[verbReadKey]uint64),
-		verbScans:      make(map[types.ObjID]uint64),
-		maxObjID:       s.maxObjID,
-		highWaterID:    s.highWaterID,
+		readTS:          readTS,
+		store:           s,
+		objects:         make(map[types.ObjID]*Object),
+		scalarReads:     make(map[types.ObjID]uint64),
+		scalarWrites:    make(map[types.ObjID]objectScalarWrite),
+		propertyReads:   make(map[propertyReadKey]uint64),
+		propertyScans:   make(map[types.ObjID]uint64),
+		propertyWrites:  make(map[propertyWriteKey]propertyWrite),
+		propertyDeletes: make(map[propertyWriteKey]string),
+		verbReads:       make(map[verbReadKey]uint64),
+		verbScans:       make(map[types.ObjID]uint64),
+		maxObjID:        s.maxObjID,
+		highWaterID:     s.highWaterID,
 	}
 }
 
@@ -141,7 +143,9 @@ func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value types.Value) {
 	prop.value = value
 	prop.clear = false
-	tx.propertyWrites[propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}] = propertyWrite{
+	key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
+	delete(tx.propertyDeletes, key)
+	tx.propertyWrites[key] = propertyWrite{
 		value: value,
 		prop:  prop,
 	}
@@ -162,7 +166,7 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyWrites) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0)
 }
 
 func (tx *StoreTxn) ValidationFailed() bool {
@@ -516,7 +520,9 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 		if perms != nil {
 			prop.perms = *perms
 		}
-		tx.propertyWrites[propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}] = propertyWrite{
+		key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
+		delete(tx.propertyDeletes, key)
+		tx.propertyWrites[key] = propertyWrite{
 			value: prop.value,
 			prop:  *prop,
 		}
@@ -526,8 +532,26 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 	return types.E_PROPNF
 }
 
+func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	actualName, prop, ok := propertyByName(obj.properties, name)
+	if !ok {
+		tx.markPropertyScan(objID, obj)
+		return types.E_NONE
+	}
+	tx.markPropertyRead(objID, prop)
+	delete(obj.properties, actualName)
+	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
+	delete(tx.propertyWrites, key)
+	tx.propertyDeletes[key] = actualName
+	return types.E_NONE
+}
+
 func (tx *StoreTxn) Commit() types.ErrorCode {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyWrites) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -598,8 +622,23 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		}
 		stampObjectProperties(live, ts)
 	}
+	for key, actualName := range tx.propertyDeletes {
+		live := tx.store.objects[key.objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if !remembered[key.objID] {
+			tx.store.rememberObjectLocked(live)
+			remembered[key.objID] = true
+		}
+		if liveActual, _, ok := propertyByName(live.properties, actualName); ok {
+			delete(live.properties, liveActual)
+		}
+		stampObjectProperties(live, ts)
+	}
 	tx.scalarWrites = make(map[types.ObjID]objectScalarWrite)
 	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)
+	tx.propertyDeletes = make(map[propertyWriteKey]string)
 	return types.E_NONE
 }
 
