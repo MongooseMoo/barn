@@ -1099,7 +1099,7 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if err := globalConnManager.SwitchPlayer(oldPlayerVal.ID(), newPlayerVal.ID()); err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewInt(0))
+	return types.Ok(types.NewObj(newPlayerVal.ID()))
 }
 
 // idle_seconds(player) -> int.
