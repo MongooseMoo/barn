@@ -101,7 +101,13 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	parents = validParents
 
-	duplicateProps, errCode := store.HasDuplicateDefinedPropertyAmong(parents)
+	var duplicateProps bool
+	var errCode types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		duplicateProps, errCode = tx.HasDuplicateDefinedPropertyAmong(parents)
+	} else {
+		duplicateProps, errCode = store.HasDuplicateDefinedPropertyAmong(parents)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}

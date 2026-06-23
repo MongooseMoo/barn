@@ -592,6 +592,37 @@ func TestTransactionDefinePropertyStagesAndPropagatesOnCommit(t *testing.T) {
 	}
 }
 
+func TestTransactionDuplicateDefinedPropertySeesStagedDefinitions(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	left, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject left failed: %v", errCode)
+	}
+	right, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject right failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DefineProperty(left, NewProperty("foo", types.NewInt(1), left, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty left failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(right, NewProperty("FOO", types.NewInt(2), right, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty right failed: %v", errCode)
+	}
+
+	duplicate, errCode := tx.HasDuplicateDefinedPropertyAmong([]types.ObjID{left, right})
+	if errCode != types.E_NONE {
+		t.Fatalf("HasDuplicateDefinedPropertyAmong failed: %v", errCode)
+	}
+	if !duplicate {
+		t.Fatalf("HasDuplicateDefinedPropertyAmong = false, want true")
+	}
+}
+
 func TestTransactionDefinePropertyConflictsWithConcurrentDefinition(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
