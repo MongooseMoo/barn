@@ -140,6 +140,32 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 	return nil
 }
 
+func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
+	if tx == nil {
+		return types.E_NONE
+	}
+	if tx.store == nil {
+		tx.objects[objID] = nil
+		return types.E_INVIND
+	}
+	tx.store.mu.RLock()
+	defer tx.store.mu.RUnlock()
+
+	live := tx.store.objects[objID]
+	if !validLiveObject(live) {
+		tx.objects[objID] = nil
+		return types.E_INVIND
+	}
+	tx.objects[objID] = cloneObjectForReadTxn(live)
+	if objID > tx.maxObjID {
+		tx.maxObjID = objID
+	}
+	if objID > tx.highWaterID {
+		tx.highWaterID = objID
+	}
+	return types.E_NONE
+}
+
 func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
 	if tx == nil || obj == nil {
 		return

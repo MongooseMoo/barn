@@ -237,6 +237,11 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(types.E_QUOTA)
 	}
+	if tx := readTxn(ctx); tx != nil {
+		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 
 	// Call :initialize verb if it exists
 	// The :initialize verb receives the init args and can set up the new object
