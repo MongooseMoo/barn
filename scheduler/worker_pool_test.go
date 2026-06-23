@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,6 +46,75 @@ func TestSchedulerWorkerPoolStopsCleanly(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("Stop() did not stop worker pool")
+	}
+}
+
+func TestNewSchedulerWithOptionsUsesGOMAXPROCSWorkers(t *testing.T) {
+	oldProcs := runtime.GOMAXPROCS(2)
+	defer runtime.GOMAXPROCS(oldProcs)
+
+	s := NewSchedulerWithOptions(dbstore.NewStore(), false)
+	defer s.Stop()
+
+	if s.workerCount != 2 {
+		t.Fatalf("workerCount = %d, want 2", s.workerCount)
+	}
+}
+
+func TestProcessReadyTasksRunsDefaultWorkersInParallel(t *testing.T) {
+	oldProcs := runtime.GOMAXPROCS(2)
+	defer runtime.GOMAXPROCS(oldProcs)
+
+	s := NewSchedulerWithOptions(dbstore.NewStore(), false)
+	defer s.Stop()
+
+	var entered atomic.Int32
+	release := make(chan struct{})
+	s.registry.Register("parallel_gate", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		if entered.Add(1) == 2 {
+			close(release)
+		}
+		select {
+		case <-release:
+			return types.Ok(types.NewInt(1))
+		case <-time.After(500 * time.Millisecond):
+			return types.Err(types.E_QUOTA)
+		}
+	})
+
+	ticks, seconds := foregroundTaskLimits()
+	first := task.NewTaskFull(1101, 7, parseTestStatements(t, "parallel_gate(); return 1;"), ticks, seconds)
+	first.StartTime = time.Now().Add(-time.Second)
+	first.Done = make(chan struct{})
+	second := task.NewTaskFull(1102, 7, parseTestStatements(t, "parallel_gate(); return 2;"), ticks, seconds)
+	second.StartTime = time.Now().Add(-time.Second)
+	second.Done = make(chan struct{})
+	s.QueueTask(first)
+	s.QueueTask(second)
+	defer task.GetManager().RemoveTask(first.ID)
+	defer task.GetManager().RemoveTask(second.ID)
+
+	done := make(chan int, 1)
+	go func() {
+		done <- s.ProcessReadyTasks()
+	}()
+
+	select {
+	case got := <-done:
+		if got != 2 {
+			t.Fatalf("ProcessReadyTasks() = %d, want 2", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ProcessReadyTasks() did not complete; ready tasks did not run in parallel")
+	}
+
+	if got := entered.Load(); got != 2 {
+		t.Fatalf("parallel_gate entries = %d, want 2", got)
+	}
+	for _, queued := range []*task.Task{first, second} {
+		if queued.Result.Flow != types.FlowReturn {
+			t.Fatalf("task %d flow = %v err=%v, want return", queued.ID, queued.Result.Flow, queued.Result.Error)
+		}
 	}
 }
 
