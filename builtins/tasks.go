@@ -520,7 +520,15 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) >= 2 && globalTaskYielder != nil {
 		tickThreshold := args[1].(types.IntValue).Val
 		if ctx.TicksRemaining <= tickThreshold {
+			if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+				if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+					return types.Err(errCode)
+				}
+			}
 			globalTaskYielder.YieldReadyTasks()
+			if ctx.Store != nil {
+				ctx.StoreTxn = ctx.Store.BeginReadOnly(0)
+			}
 		}
 	}
 
