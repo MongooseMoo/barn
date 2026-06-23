@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"runtime"
 	"sync"
 	"time"
 
@@ -57,7 +56,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 // mixed int/float arithmetic and comparison auto-promote (ToastStunt mongoose
 // PROMOTE_NUMBERS); when false, strict E_TYPE behavior is used.
 func NewSchedulerWithOptions(store *dbstore.Store, promoteNumbers bool) *Scheduler {
-	return newSchedulerWithWorkerCount(store, promoteNumbers, runtime.GOMAXPROCS(0))
+	return newSchedulerWithWorkerCount(store, promoteNumbers, 1)
 }
 
 func newSchedulerWithWorkerCount(store *dbstore.Store, promoteNumbers bool, workerCount int) *Scheduler {
