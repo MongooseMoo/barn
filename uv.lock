@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "moo-conformance", directory = "../moo-conformance-tests" }]
+requires-dist = [{ name = "moo-conformance", git = "https://github.com/mongoosemoo/moo-conformance-tests" }]
 
 [[package]]
 name = "bcrypt"
@@ -155,24 +155,13 @@ wheels = [
 [[package]]
 name = "moo-conformance"
 version = "0.1.0"
-source = { directory = "../moo-conformance-tests" }
+source = { git = "https://github.com/mongoosemoo/moo-conformance-tests#bf4adf39333cbc06063d219906bd6927e529234d" }
 dependencies = [
     { name = "moo-interp" },
     { name = "pycparser" },
     { name = "pytest" },
     { name = "pyyaml" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "moo-interp", git = "https://github.com/MongooseMoo/moo_interp.git" },
-    { name = "mypy", marker = "extra == 'dev'" },
-    { name = "pycparser", specifier = ">=2.22" },
-    { name = "pytest", specifier = ">=7.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruff", marker = "extra == 'dev'" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "moo-interp"
