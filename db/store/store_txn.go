@@ -670,6 +670,24 @@ func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, 
 	return prop.Value, types.E_NONE
 }
 
+func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	tx.markPropertyScan(objID, obj)
+
+	values := make([]types.Value, 0, len(obj.properties))
+	for _, prop := range obj.properties {
+		if prop == nil {
+			continue
+		}
+		tx.markPropertyRead(objID, prop)
+		values = append(values, prop.value)
+	}
+	return values, types.E_NONE
+}
+
 func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
