@@ -8,20 +8,21 @@ import (
 )
 
 type StoreTxn struct {
-	readTS          uint64
-	store           *Store
-	objects         map[types.ObjID]*Object
-	scalarReads     map[types.ObjID]uint64
-	scalarWrites    map[types.ObjID]objectScalarWrite
-	propertyReads   map[propertyReadKey]uint64
-	propertyScans   map[types.ObjID]uint64
-	propertyWrites  map[propertyWriteKey]propertyWrite
-	propertyDeletes map[propertyWriteKey]string
-	verbReads       map[verbReadKey]uint64
-	verbScans       map[types.ObjID]uint64
-	validationFail  bool
-	maxObjID        types.ObjID
-	highWaterID     types.ObjID
+	readTS            uint64
+	store             *Store
+	objects           map[types.ObjID]*Object
+	scalarReads       map[types.ObjID]uint64
+	scalarWrites      map[types.ObjID]objectScalarWrite
+	relationshipReads map[types.ObjID]uint64
+	propertyReads     map[propertyReadKey]uint64
+	propertyScans     map[types.ObjID]uint64
+	propertyWrites    map[propertyWriteKey]propertyWrite
+	propertyDeletes   map[propertyWriteKey]string
+	verbReads         map[verbReadKey]uint64
+	verbScans         map[types.ObjID]uint64
+	validationFail    bool
+	maxObjID          types.ObjID
+	highWaterID       types.ObjID
 }
 
 type propertyReadKey struct {
@@ -61,19 +62,20 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		readTS = s.clock
 	}
 	return &StoreTxn{
-		readTS:          readTS,
-		store:           s,
-		objects:         make(map[types.ObjID]*Object),
-		scalarReads:     make(map[types.ObjID]uint64),
-		scalarWrites:    make(map[types.ObjID]objectScalarWrite),
-		propertyReads:   make(map[propertyReadKey]uint64),
-		propertyScans:   make(map[types.ObjID]uint64),
-		propertyWrites:  make(map[propertyWriteKey]propertyWrite),
-		propertyDeletes: make(map[propertyWriteKey]string),
-		verbReads:       make(map[verbReadKey]uint64),
-		verbScans:       make(map[types.ObjID]uint64),
-		maxObjID:        s.maxObjID,
-		highWaterID:     s.highWaterID,
+		readTS:            readTS,
+		store:             s,
+		objects:           make(map[types.ObjID]*Object),
+		scalarReads:       make(map[types.ObjID]uint64),
+		scalarWrites:      make(map[types.ObjID]objectScalarWrite),
+		relationshipReads: make(map[types.ObjID]uint64),
+		propertyReads:     make(map[propertyReadKey]uint64),
+		propertyScans:     make(map[types.ObjID]uint64),
+		propertyWrites:    make(map[propertyWriteKey]propertyWrite),
+		propertyDeletes:   make(map[propertyWriteKey]string),
+		verbReads:         make(map[verbReadKey]uint64),
+		verbScans:         make(map[types.ObjID]uint64),
+		maxObjID:          s.maxObjID,
+		highWaterID:       s.highWaterID,
 	}
 }
 
@@ -124,6 +126,16 @@ func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
 		return
 	}
 	tx.scalarReads[objID] = obj.scalarVersion
+}
+
+func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
+	if tx == nil || obj == nil {
+		return
+	}
+	if _, exists := tx.relationshipReads[objID]; exists {
+		return
+	}
+	tx.relationshipReads[objID] = obj.relationshipVersion
 }
 
 func (tx *StoreTxn) markPropertyRead(objID types.ObjID, prop *Property) {
@@ -332,6 +344,7 @@ func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
+	tx.markObjectRelationshipRead(objID, obj)
 	if len(obj.parents) == 0 {
 		return types.ObjNothing, types.E_NONE
 	}
@@ -343,6 +356,7 @@ func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) 
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
+	tx.markObjectRelationshipRead(objID, obj)
 	return append([]types.ObjID(nil), obj.parents...), types.E_NONE
 }
 
@@ -351,6 +365,7 @@ func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
+	tx.markObjectRelationshipRead(objID, obj)
 	return append([]types.ObjID(nil), obj.children...), types.E_NONE
 }
 
@@ -359,6 +374,7 @@ func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
+	tx.markObjectRelationshipRead(objID, obj)
 	return append([]types.ObjID(nil), obj.contents...), types.E_NONE
 }
 
@@ -367,6 +383,7 @@ func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
+	tx.markObjectRelationshipRead(objID, obj)
 	return obj.location, types.E_NONE
 }
 
@@ -566,6 +583,10 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		tx.validationFail = true
 		return errCode
 	}
+	if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
+		tx.validationFail = true
+		return errCode
+	}
 	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
 		tx.validationFail = true
 		return errCode
@@ -649,6 +670,19 @@ func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 			return types.E_INVIND
 		}
 		if live.scalarVersion != version {
+			return types.E_INVARG
+		}
+	}
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
+	for objID, version := range tx.relationshipReads {
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if live.relationshipVersion != version {
 			return types.E_INVARG
 		}
 	}

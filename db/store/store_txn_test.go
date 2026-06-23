@@ -130,6 +130,61 @@ func TestReadOnlyTransactionLoadsObjectsLazily(t *testing.T) {
 	}
 }
 
+func TestTransactionChildrenTracksRelationshipRead(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := tx.Children(0); errCode != types.E_NONE {
+		t.Fatalf("Children failed: %v", errCode)
+	}
+
+	live := store.objects[0]
+	if got := tx.relationshipReads[0]; got != live.relationshipVersion {
+		t.Fatalf("relationship read version = %d, want %d", got, live.relationshipVersion)
+	}
+}
+
+func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := tx.Children(0); errCode != types.E_NONE {
+		t.Fatalf("Children failed: %v", errCode)
+	}
+	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !tx.ValidationFailed() {
+		t.Fatalf("transaction did not record validation failure")
+	}
+	value, errCode := store.PropertyValue(0, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 1 {
+		t.Fatalf("property a = %d, want unchanged value 1", got)
+	}
+}
+
 func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
