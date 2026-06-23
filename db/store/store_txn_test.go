@@ -332,6 +332,71 @@ func TestTransactionAdoptLiveRelationshipsSeesChangedParents(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveRelationshipsRefreshesAnonymousChildAfterRenumber(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	freeID, errCode := store.CreateObject(nil, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject free slot failed: %v", errCode)
+	}
+	if err := store.Recycle(freeID); err != nil {
+		t.Fatalf("Recycle free slot failed: %v", err)
+	}
+	parent, errCode := store.CreateObject(nil, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject parent failed: %v", errCode)
+	}
+	anon, errCode := store.CreateObject([]types.ObjID{parent}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject anonymous child failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DefineProperty(parent, NewProperty("xyz", types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty parent failed: %v", errCode)
+	}
+	children, errCode := tx.AnonymousChildren(parent)
+	if errCode != types.E_NONE {
+		t.Fatalf("AnonymousChildren before renumber failed: %v", errCode)
+	}
+	if len(children) != 1 || children[0] != anon {
+		t.Fatalf("AnonymousChildren before renumber = %#v, want anonymous child #%d", children, anon)
+	}
+	if _, errCode := tx.Parents(anon); errCode != types.E_NONE {
+		t.Fatalf("Parents anonymous before renumber failed: %v", errCode)
+	}
+
+	if err := store.Renumber(parent, freeID); err != nil {
+		t.Fatalf("Renumber failed: %v", err)
+	}
+	tx.MoveStagedProperties(parent, freeID)
+	tx.ForgetObject(parent)
+	if errCode := tx.AdoptLiveObject(freeID); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveObject renumbered parent failed: %v", errCode)
+	}
+	tx.ApplyStagedProperties(freeID)
+	if errCode := tx.AdoptLiveRelationships(freeID, anon); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships failed: %v", errCode)
+	}
+
+	parents, errCode := tx.Parents(anon)
+	if errCode != types.E_NONE {
+		t.Fatalf("Parents anonymous after renumber failed: %v", errCode)
+	}
+	if len(parents) != 1 || parents[0] != freeID {
+		t.Fatalf("Parents anonymous after renumber = %#v, want #%d", parents, freeID)
+	}
+	value, errCode := tx.PropertyValue(anon, "xyz")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue anonymous after renumber failed: %v", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 1 {
+		t.Fatalf("PropertyValue anonymous after renumber = %d, want 1", got)
+	}
+}
+
 func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
