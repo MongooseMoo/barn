@@ -18,6 +18,7 @@ type StoreTxn struct {
 	propertyWrites map[propertyWriteKey]propertyWrite
 	verbReads      map[verbReadKey]uint64
 	verbScans      map[types.ObjID]uint64
+	validationFail bool
 	maxObjID       types.ObjID
 	highWaterID    types.ObjID
 }
@@ -162,6 +163,10 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 
 func (tx *StoreTxn) HasWrites() bool {
 	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyWrites) > 0)
+}
+
+func (tx *StoreTxn) ValidationFailed() bool {
+	return tx != nil && tx.validationFail
 }
 
 func cloneObjectForReadTxn(obj *Object) *Object {
@@ -505,17 +510,21 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	if tx.store == nil {
 		return types.E_INVARG
 	}
+	tx.validationFail = false
 
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
 
 	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
+		tx.validationFail = true
 		return errCode
 	}
 	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
+		tx.validationFail = true
 		return errCode
 	}
 	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+		tx.validationFail = true
 		return errCode
 	}
 
