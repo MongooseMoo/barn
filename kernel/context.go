@@ -62,6 +62,10 @@ type TaskContext struct {
 	// Mutations still go to Store until write sets are introduced.
 	StoreTxn *dbstore.StoreTxn
 
+	// PendingNotifications holds notify() output until the task's store
+	// transaction commits. Failed commits must not leak user-visible output.
+	PendingNotifications []PendingNotification
+
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
 	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)
@@ -74,6 +78,12 @@ type TaskContext struct {
 
 	// RuntimeOptions holds server/runtime feature flags visible to builtins and VM execution.
 	RuntimeOptions config.Options
+}
+
+type PendingNotification struct {
+	Player  types.ObjID
+	Message string
+	NoFlush bool
 }
 
 // NewTaskContext creates a new task context with default values.
