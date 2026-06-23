@@ -260,6 +260,30 @@ retryAttempt:
 		result = bcVM.Resume()
 		t.Result = result
 	}
+	if result.Flow != types.FlowSuspend && ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			result = types.Err(errCode)
+			t.Result = result
+			s.discardCreatedForks(t)
+			builtins.DiscardPendingNotifications(ctx)
+			builtins.DiscardPendingConnectionSwitches(ctx)
+			builtins.DiscardPendingBootPlayers(ctx)
+		} else {
+			t.CreatedForks = nil
+			if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+			}
+			if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+			}
+			if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+			}
+		}
+	}
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
