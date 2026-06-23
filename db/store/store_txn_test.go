@@ -397,6 +397,63 @@ func TestTransactionAdoptLiveRelationshipsRefreshesAnonymousChildAfterRenumber(t
 	}
 }
 
+func TestTransactionRenumberLeavesOldObjectIDInvalid(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	freeID, errCode := store.CreateObject(nil, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject free slot failed: %v", errCode)
+	}
+	if err := store.Recycle(freeID); err != nil {
+		t.Fatalf("Recycle free slot failed: %v", err)
+	}
+	oldID, errCode := store.CreateObject(nil, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject renumber source failed: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(oldID, NewVerb("test", []string{"test"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return \"test\";"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	before := store.BeginReadOnly(0)
+	if !before.Valid(oldID) {
+		t.Fatalf("pre-renumber transaction Valid(%d) = false, want true", oldID)
+	}
+	if before.Valid(freeID) {
+		t.Fatalf("pre-renumber transaction Valid(%d) = true, want false for recycled target", freeID)
+	}
+
+	if err := store.Renumber(oldID, freeID); err != nil {
+		t.Fatalf("Renumber failed: %v", err)
+	}
+
+	if !before.Valid(oldID) {
+		t.Fatalf("pre-renumber transaction Valid(%d) after renumber = false, want snapshot true", oldID)
+	}
+	if before.Valid(freeID) {
+		t.Fatalf("pre-renumber transaction Valid(%d) after renumber = true, want snapshot false", freeID)
+	}
+	if _, _, err := before.FindVerb(oldID, "test"); err != nil {
+		t.Fatalf("pre-renumber transaction FindVerb old id failed: %v", err)
+	}
+
+	after := store.BeginReadOnly(0)
+	if after.Valid(oldID) {
+		t.Fatalf("post-renumber transaction Valid(%d) = true, want false", oldID)
+	}
+	if !after.Valid(freeID) {
+		t.Fatalf("post-renumber transaction Valid(%d) = false, want true", freeID)
+	}
+	if _, _, err := after.FindVerb(oldID, "test"); err == nil {
+		t.Fatalf("post-renumber transaction FindVerb old id succeeded, want invalid object")
+	}
+	if _, _, err := after.FindVerb(freeID, "test"); err != nil {
+		t.Fatalf("post-renumber transaction FindVerb new id failed: %v", err)
+	}
+}
+
 func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
