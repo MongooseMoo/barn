@@ -464,7 +464,7 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 }
 
 // builtinMaxObject implements max_object()
-// Returns the highest allocated object ID
+// Returns the highest allocated object as an object value.
 func builtinMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	store := ctx.Store
 
