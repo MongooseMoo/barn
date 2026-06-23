@@ -374,20 +374,31 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	}
 
 	// Check new ID is available
-	if existing, exists := s.objects[newID]; exists && !existing.recycled {
-		return fmt.Errorf("object #%d already exists", newID)
+	var recycledTarget *Object
+	if existing, exists := s.objects[newID]; exists {
+		if !existing.recycled {
+			return fmt.Errorf("object #%d already exists", newID)
+		}
+		recycledTarget = existing
 	}
 
 	// Note: renumbering does NOT invalidate anonymous descendants in ToastStunt.
 
 	// Update the object's ID
+	if recycledTarget != nil {
+		s.rememberObjectLocked(recycledTarget)
+	}
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
+	tombstone := NewObject(oldID, obj.owner)
+	tombstone.recycled = true
+	tombstone.flags = tombstone.flags.Set(FlagRecycled | FlagInvalid)
+	stampObjectAll(tombstone, ts)
 	obj.id = newID
 	stampObjectAll(obj, ts)
 
 	// Move in store
-	delete(s.objects, oldID)
+	s.objects[oldID] = tombstone
 	s.objects[newID] = obj
 
 	// Update recycledID list - remove newID if present, add oldID
