@@ -144,15 +144,27 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
-		if err := store.SetPropertyInfo(objID, propName, nil, &perms); err != types.E_NONE {
-			return types.Err(err)
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			errCode = tx.SetPropertyInfo(objID, propName, nil, &perms)
+		} else {
+			errCode = store.SetPropertyInfo(objID, propName, nil, &perms)
+		}
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
 		}
 
 	case types.ObjValue:
 		// Just owner (leave perms unchanged)
 		owner := info.ID()
-		if err := store.SetPropertyInfo(objID, propName, &owner, nil); err != types.E_NONE {
-			return types.Err(err)
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			errCode = tx.SetPropertyInfo(objID, propName, &owner, nil)
+		} else {
+			errCode = store.SetPropertyInfo(objID, propName, &owner, nil)
+		}
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
 		}
 
 	case types.ListValue:
@@ -177,8 +189,14 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 			return types.Err(err)
 		}
 		owner := ownerVal.ID()
-		if err := store.SetPropertyInfo(objID, propName, &owner, &perms); err != types.E_NONE {
-			return types.Err(err)
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			errCode = tx.SetPropertyInfo(objID, propName, &owner, &perms)
+		} else {
+			errCode = store.SetPropertyInfo(objID, propName, &owner, &perms)
+		}
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
 		}
 
 	default:
