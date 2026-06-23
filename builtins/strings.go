@@ -774,8 +774,10 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	// subs must be a well-formed match() result: exactly {start, end, groups, subject}
-	// where groups is a list of exactly nine {start, end} marker pairs. ToastStunt
-	// raises E_INVARG for malformed match data rather than best-effort substituting.
+	// where groups is a list of exactly nine {start, end} marker pairs and EVERY index
+	// lies within subject. ToastStunt validates the whole structure eagerly and raises
+	// E_INVARG for malformed match data rather than best-effort substituting -- so an
+	// out-of-range marker is rejected even when the template never references it.
 	if matchResult.Len() != 4 {
 		return types.Err(types.E_INVARG)
 	}
@@ -790,7 +792,7 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	subs, ok := matchResult.Get(3).(types.ListValue)
-	if !ok || subs.Len() != 9 {
+	if !ok {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -800,17 +802,48 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	subjectText := subject.Value()
-	// extract returns the substring for a {start, end} marker. An empty range
-	// (end < start, e.g. the {0, -1} unmatched-group marker) yields "". A non-empty
-	// range that falls outside the subject is invalid -> E_INVARG (ok=false).
-	extract := func(start, end int) (string, bool) {
-		if end < start {
-			return "", true
+	subjectLen := len(subjectText)
+	validRange := func(start, end int, allowUnused bool) bool {
+		if allowUnused && start == 0 && end == -1 {
+			return true
 		}
-		if start < 1 || end > len(subjectText) {
-			return "", false
+		return start >= 1 && start <= subjectLen+1 && end >= 0 && end <= subjectLen && start-1 <= end
+	}
+
+	if !validRange(int(startVal.Val), int(endVal.Val), false) {
+		return types.Err(types.E_INVARG)
+	}
+	if subs.Len() != 9 {
+		return types.Err(types.E_INVARG)
+	}
+
+	groupRanges := make([][2]int, 9)
+	for i := 1; i <= 9; i++ {
+		groupRange, ok := subs.Get(i).(types.ListValue)
+		if !ok || groupRange.Len() != 2 {
+			return types.Err(types.E_INVARG)
 		}
-		return subjectText[start-1 : end], true
+		gStart, ok := groupRange.Get(1).(types.IntValue)
+		if !ok {
+			return types.Err(types.E_INVARG)
+		}
+		gEnd, ok := groupRange.Get(2).(types.IntValue)
+		if !ok {
+			return types.Err(types.E_INVARG)
+		}
+		start := int(gStart.Val)
+		end := int(gEnd.Val)
+		if !validRange(start, end, true) {
+			return types.Err(types.E_INVARG)
+		}
+		groupRanges[i-1] = [2]int{start, end}
+	}
+
+	extract := func(start, end int) string {
+		if start == 0 && end == -1 {
+			return ""
+		}
+		return subjectText[start-1 : end]
 	}
 
 	// Process template and substitute %N with captured groups.
@@ -826,29 +859,10 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 				// %N -> captured group N
 				groupNum := int(template[i+1] - '0')
 				if groupNum == 0 {
-					s, inRange := extract(int(startVal.Val), int(endVal.Val))
-					if !inRange {
-						return types.Err(types.E_INVARG)
-					}
-					result.WriteString(s)
+					result.WriteString(extract(int(startVal.Val), int(endVal.Val)))
 				} else {
-					groupRange, ok := subs.Get(groupNum).(types.ListValue)
-					if !ok || groupRange.Len() < 2 {
-						return types.Err(types.E_INVARG)
-					}
-					gStart, ok := groupRange.Get(1).(types.IntValue)
-					if !ok {
-						return types.Err(types.E_INVARG)
-					}
-					gEnd, ok := groupRange.Get(2).(types.IntValue)
-					if !ok {
-						return types.Err(types.E_INVARG)
-					}
-					s, inRange := extract(int(gStart.Val), int(gEnd.Val))
-					if !inRange {
-						return types.Err(types.E_INVARG)
-					}
-					result.WriteString(s)
+					groupRange := groupRanges[groupNum-1]
+					result.WriteString(extract(groupRange[0], groupRange[1]))
 				}
 				i += 2
 			} else {
