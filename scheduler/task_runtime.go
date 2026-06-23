@@ -207,6 +207,7 @@ retryAttempt:
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingNotifications(ctx)
 				builtins.DiscardPendingConnectionSwitches(ctx)
+				builtins.DiscardPendingBootPlayers(ctx)
 				attempt++
 				goto retryAttempt
 			}
@@ -225,10 +226,15 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 		}
+		if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+			result = types.Err(errCode)
+			t.Result = result
+		}
 	} else {
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingNotifications(ctx)
 		builtins.DiscardPendingConnectionSwitches(ctx)
+		builtins.DiscardPendingBootPlayers(ctx)
 	}
 
 	// Check context deadline
@@ -409,6 +415,8 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 	clone := *ctx
 	clone.StoreTxn = nil
 	clone.PendingNotifications = nil
+	clone.PendingConnectionSwitches = nil
+	clone.PendingBootPlayers = nil
 	clone.CallerVM = nil
 	return &clone
 }

@@ -38,6 +38,7 @@ type stubConnManager struct {
 	infos    []ListenerInfo
 	added    ListenerSpec
 	removed  ListenerDescriptor
+	boots    []types.ObjID
 	switches []stubSwitch
 }
 
@@ -48,8 +49,14 @@ type stubSwitch struct {
 
 func (m *stubConnManager) GetConnection(player types.ObjID) Connection { return m.conn }
 func (m *stubConnManager) ConnectedPlayers(showAll bool) []types.ObjID { return []types.ObjID{7} }
-func (m *stubConnManager) BootPlayer(player types.ObjID) error         { return nil }
-func (m *stubConnManager) RecyclePlayer(player types.ObjID) error      { return nil }
+func (m *stubConnManager) BootPlayer(player types.ObjID) error {
+	m.boots = append(m.boots, player)
+	if m.conn != nil {
+		_ = m.conn.Send("*** Disconnected ***")
+	}
+	return nil
+}
+func (m *stubConnManager) RecyclePlayer(player types.ObjID) error { return nil }
 func (m *stubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
 	m.switches = append(m.switches, stubSwitch{oldPlayer: oldPlayer, newPlayer: newPlayer})
 	return nil
@@ -172,6 +179,50 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 	}
 	if len(conn.sent) != 0 || len(conn.buffered) != 0 {
 		t.Fatalf("connection output after discard sent=%#v buffered=%#v, want none", conn.sent, conn.buffered)
+	}
+}
+
+func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	conn := &stubConn{}
+	manager := &stubConnManager{conn: conn}
+	globalConnManager = manager
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.Player = 7
+	ctx.Programmer = 7
+	ctx.IsWizard = true
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("before")})
+	if res.IsError() {
+		t.Fatalf("notify failed: %v", res.Error)
+	}
+	res = builtinBootPlayer(ctx, []types.Value{types.NewObj(7)})
+	if res.IsError() {
+		t.Fatalf("boot_player failed: %v", res.Error)
+	}
+	if len(conn.sent) != 0 {
+		t.Fatalf("sent before flush = %#v, want none", conn.sent)
+	}
+	if len(manager.boots) != 0 {
+		t.Fatalf("boots before flush = %#v, want none", manager.boots)
+	}
+
+	if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingNotifications failed: %v", errCode)
+	}
+	if errCode := FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingBootPlayers failed: %v", errCode)
+	}
+	if len(manager.boots) != 1 || manager.boots[0] != 7 {
+		t.Fatalf("boots after flush = %#v, want [7]", manager.boots)
+	}
+	if len(conn.sent) != 2 || conn.sent[0] != "before" || conn.sent[1] != "*** Disconnected ***" {
+		t.Fatalf("sent after flush = %#v, want notify then disconnect", conn.sent)
 	}
 }
 

@@ -69,6 +69,10 @@ type TaskContext struct {
 	// store transaction commits.
 	PendingConnectionSwitches []PendingConnectionSwitch
 
+	// PendingBootPlayers holds boot_player() effects until the task's store
+	// transaction commits.
+	PendingBootPlayers []types.ObjID
+
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
 	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)

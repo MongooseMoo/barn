@@ -1102,10 +1102,40 @@ func builtinBootPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if resolveConnection(ctx, player) == nil {
 		return types.Ok(types.NewInt(0))
 	}
+	if ctx != nil && ctx.StoreTxn != nil {
+		ctx.PendingBootPlayers = append(ctx.PendingBootPlayers, player)
+		return types.Ok(types.NewInt(0))
+	}
 	if err := globalConnManager.BootPlayer(player); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+func FlushPendingBootPlayers(ctx *kernel.TaskContext) types.ErrorCode {
+	if ctx == nil || len(ctx.PendingBootPlayers) == 0 {
+		return types.E_NONE
+	}
+	if globalConnManager == nil {
+		return types.E_INVARG
+	}
+	pending := ctx.PendingBootPlayers
+	ctx.PendingBootPlayers = nil
+	for _, player := range pending {
+		if resolveConnection(ctx, player) == nil {
+			continue
+		}
+		if err := globalConnManager.BootPlayer(player); err != nil {
+			return types.E_INVARG
+		}
+	}
+	return types.E_NONE
+}
+
+func DiscardPendingBootPlayers(ctx *kernel.TaskContext) {
+	if ctx != nil {
+		ctx.PendingBootPlayers = nil
+	}
 }
 
 // switch_player(old_player, new_player [, silent]) -> int.
