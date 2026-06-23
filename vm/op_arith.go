@@ -128,7 +128,11 @@ func (vm *VM) executeStringAppend() error {
 	}
 	if aFloat, ok := a.(types.FloatValue); ok {
 		if bFloat, ok := b.(types.FloatValue); ok {
-			vm.Push(types.FloatValue{Val: aFloat.Val + bFloat.Val})
+			result := aFloat.Val + bFloat.Val
+			if math.IsNaN(result) || math.IsInf(result, 0) {
+				return fmt.Errorf("E_FLOAT: result is NaN or Inf")
+			}
+			vm.Push(types.FloatValue{Val: result})
 			return nil
 		}
 	}

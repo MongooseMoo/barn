@@ -169,6 +169,21 @@ func TestBytecodeStringOrderingIsCaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestBytecodeFloatOverflowRaisesEFloat(t *testing.T) {
+	exprs := []string{
+		"1.0e308 * 10.0",
+		"1.0e200 * 1.0e200",
+		"1.0e308 + 1.0e308",
+		"-1.0e308 - 1.0e308",
+		"floor(1.0e308 * 10.0)",
+	}
+	for _, expr := range exprs {
+		t.Run(expr, func(t *testing.T) {
+			requireError(t, runBytecodeExpr(t, expr), types.E_FLOAT)
+		})
+	}
+}
+
 func TestBytecodeScatterAssignment(t *testing.T) {
 	cases := map[string][]types.Value{
 		"optional_default": {
