@@ -524,6 +524,10 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.deleteDefinedPropertyLocked(objID, name, 0)
+}
+
+func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts uint64) types.ErrorCode {
 	obj := s.objects[objID]
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -533,7 +537,9 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 		return types.E_PROPNF
 	}
 	s.rememberObjectLocked(obj)
-	ts := s.bumpClockLocked()
+	if ts == 0 {
+		ts = s.bumpClockLocked()
+	}
 
 	delete(obj.properties, actualName)
 	obj.propOrder = removeString(obj.propOrder, actualName)

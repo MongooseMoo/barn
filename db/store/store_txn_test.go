@@ -550,6 +550,76 @@ func TestTransactionDefinePropertyConflictsWithTopologyChange(t *testing.T) {
 	}
 }
 
+func TestTransactionDeleteDefinedPropertyStagesAndRemovesInheritedOnCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+	}
+	if _, ok, errCode := tx.LocalProperty(0, "a"); errCode != types.E_NONE || ok {
+		t.Fatalf("tx root LocalProperty ok=%v err=%v, want no local property", ok, errCode)
+	}
+	if _, errCode := tx.FindProperty(child, "a"); errCode != types.E_PROPNF {
+		t.Fatalf("tx child FindProperty = %v, want E_PROPNF", errCode)
+	}
+	if _, errCode := store.FindProperty(child, "a"); errCode != types.E_NONE {
+		t.Fatalf("live child FindProperty before commit = %v, want inherited property", errCode)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if _, ok, errCode := store.LocalProperty(0, "a"); errCode != types.E_NONE || ok {
+		t.Fatalf("live root LocalProperty ok=%v err=%v, want no local property", ok, errCode)
+	}
+	if _, errCode := store.FindProperty(child, "a"); errCode != types.E_PROPNF {
+		t.Fatalf("live child FindProperty after commit = %v, want E_PROPNF", errCode)
+	}
+}
+
+func TestTransactionDeleteDefinedPropertyConflictsWithConcurrentPropertyWrite(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+	}
+	if errCode := store.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !tx.ValidationFailed() {
+		t.Fatalf("transaction did not record validation failure")
+	}
+	value, errCode := store.PropertyValue(0, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 2 {
+		t.Fatalf("property a = %d, want concurrent value 2", got)
+	}
+}
+
 func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

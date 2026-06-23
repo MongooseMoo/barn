@@ -8,22 +8,23 @@ import (
 )
 
 type StoreTxn struct {
-	readTS            uint64
-	store             *Store
-	objects           map[types.ObjID]*Object
-	scalarReads       map[types.ObjID]uint64
-	scalarWrites      map[types.ObjID]objectScalarWrite
-	relationshipReads map[types.ObjID]uint64
-	propertyReads     map[propertyReadKey]uint64
-	propertyScans     map[types.ObjID]uint64
-	propertyDefines   map[propertyWriteKey]Property
-	propertyWrites    map[propertyWriteKey]propertyWrite
-	propertyDeletes   map[propertyWriteKey]string
-	verbReads         map[verbReadKey]uint64
-	verbScans         map[types.ObjID]uint64
-	validationFail    bool
-	maxObjID          types.ObjID
-	highWaterID       types.ObjID
+	readTS                    uint64
+	store                     *Store
+	objects                   map[types.ObjID]*Object
+	scalarReads               map[types.ObjID]uint64
+	scalarWrites              map[types.ObjID]objectScalarWrite
+	relationshipReads         map[types.ObjID]uint64
+	propertyReads             map[propertyReadKey]uint64
+	propertyScans             map[types.ObjID]uint64
+	propertyDefines           map[propertyWriteKey]Property
+	propertyDefinitionDeletes map[propertyWriteKey]string
+	propertyWrites            map[propertyWriteKey]propertyWrite
+	propertyDeletes           map[propertyWriteKey]string
+	verbReads                 map[verbReadKey]uint64
+	verbScans                 map[types.ObjID]uint64
+	validationFail            bool
+	maxObjID                  types.ObjID
+	highWaterID               types.ObjID
 }
 
 type propertyReadKey struct {
@@ -63,21 +64,22 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		readTS = s.clock
 	}
 	return &StoreTxn{
-		readTS:            readTS,
-		store:             s,
-		objects:           make(map[types.ObjID]*Object),
-		scalarReads:       make(map[types.ObjID]uint64),
-		scalarWrites:      make(map[types.ObjID]objectScalarWrite),
-		relationshipReads: make(map[types.ObjID]uint64),
-		propertyReads:     make(map[propertyReadKey]uint64),
-		propertyScans:     make(map[types.ObjID]uint64),
-		propertyDefines:   make(map[propertyWriteKey]Property),
-		propertyWrites:    make(map[propertyWriteKey]propertyWrite),
-		propertyDeletes:   make(map[propertyWriteKey]string),
-		verbReads:         make(map[verbReadKey]uint64),
-		verbScans:         make(map[types.ObjID]uint64),
-		maxObjID:          s.maxObjID,
-		highWaterID:       s.highWaterID,
+		readTS:                    readTS,
+		store:                     s,
+		objects:                   make(map[types.ObjID]*Object),
+		scalarReads:               make(map[types.ObjID]uint64),
+		scalarWrites:              make(map[types.ObjID]objectScalarWrite),
+		relationshipReads:         make(map[types.ObjID]uint64),
+		propertyReads:             make(map[propertyReadKey]uint64),
+		propertyScans:             make(map[types.ObjID]uint64),
+		propertyDefines:           make(map[propertyWriteKey]Property),
+		propertyDefinitionDeletes: make(map[propertyWriteKey]string),
+		propertyWrites:            make(map[propertyWriteKey]propertyWrite),
+		propertyDeletes:           make(map[propertyWriteKey]string),
+		verbReads:                 make(map[verbReadKey]uint64),
+		verbScans:                 make(map[types.ObjID]uint64),
+		maxObjID:                  s.maxObjID,
+		highWaterID:               s.highWaterID,
 	}
 }
 
@@ -191,7 +193,7 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0)
 }
 
 func (tx *StoreTxn) ValidationFailed() bool {
@@ -697,8 +699,79 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 	return false
 }
 
+func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	actualName, prop, ok := propertyByName(obj.properties, name)
+	if !ok {
+		tx.markPropertyScan(objID, obj)
+		return types.E_PROPNF
+	}
+	tx.markPropertyRead(objID, prop)
+	if !prop.defined {
+		return types.E_PROPNF
+	}
+
+	delete(obj.properties, actualName)
+	obj.propOrder = removeString(obj.propOrder, actualName)
+	if obj.propDefsCount > 0 {
+		obj.propDefsCount--
+	}
+
+	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
+	_, stagedDefine := tx.propertyDefines[key]
+	delete(tx.propertyDefines, key)
+	delete(tx.propertyWrites, key)
+	delete(tx.propertyDeletes, key)
+	if !stagedDefine {
+		tx.propertyDefinitionDeletes[key] = actualName
+	}
+
+	tx.removeInheritedProperty(objID, actualName)
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		current := tx.object(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		tx.markObjectRelationshipRead(currentID, current)
+		for _, childID := range current.children {
+			child := tx.object(childID)
+			if !validLiveObject(child) {
+				continue
+			}
+			if actualName, prop, ok := propertyByName(child.properties, name); ok {
+				tx.markPropertyRead(childID, prop)
+				if !prop.defined {
+					delete(child.properties, actualName)
+					key := propertyWriteKey{objID: childID, name: propertyNameKey(actualName)}
+					delete(tx.propertyDefines, key)
+					delete(tx.propertyWrites, key)
+					delete(tx.propertyDeletes, key)
+				}
+			} else {
+				tx.markPropertyScan(childID, child)
+			}
+			queue = append(queue, childID)
+		}
+	}
+}
+
 func (tx *StoreTxn) Commit() types.ErrorCode {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -758,6 +831,16 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		}
 		remembered[key.objID] = true
 	}
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		live := tx.store.objects[key.objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if errCode := tx.store.deleteDefinedPropertyLocked(key.objID, actualName, ts); errCode != types.E_NONE {
+			return errCode
+		}
+		remembered[key.objID] = true
+	}
 	for key, write := range tx.propertyWrites {
 		live := tx.store.objects[key.objID]
 		if !validLiveObject(live) {
@@ -799,6 +882,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	}
 	tx.scalarWrites = make(map[types.ObjID]objectScalarWrite)
 	tx.propertyDefines = make(map[propertyWriteKey]Property)
+	tx.propertyDefinitionDeletes = make(map[propertyWriteKey]string)
 	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)
 	tx.propertyDeletes = make(map[propertyWriteKey]string)
 	return types.E_NONE

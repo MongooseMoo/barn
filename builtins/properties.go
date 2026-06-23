@@ -382,8 +382,14 @@ func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Re
 
 	// TODO: Check permissions (owner or wizard)
 
-	if err := store.DeleteDefinedProperty(objID, propName); err != types.E_NONE {
-		return types.Err(err)
+	var deleteErr types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		deleteErr = tx.DeleteDefinedProperty(objID, propName)
+	} else {
+		deleteErr = store.DeleteDefinedProperty(objID, propName)
+	}
+	if deleteErr != types.E_NONE {
+		return types.Err(deleteErr)
 	}
 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when a parent's
