@@ -14,6 +14,7 @@ import (
 	"barn/bytecode"
 	"barn/command"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
@@ -31,6 +32,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 	}()
 
+	retryState := captureTaskRetryState(t)
+	attempt := 0
+
+retryAttempt:
+	if attempt > 0 {
+		retryState.restore(t)
+	}
 	t.SetState(task.TaskRunning)
 
 	ctx := t.Context
@@ -195,6 +203,12 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	committed := true
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && retryState.canRetry && attempt < 1 {
+				s.discardCreatedForks(t)
+				builtins.DiscardPendingNotifications(ctx)
+				attempt++
+				goto retryAttempt
+			}
 			result = types.Err(errCode)
 			t.Result = result
 			committed = false
@@ -329,6 +343,80 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		cb(result)
 	}
 	return nil
+}
+
+type taskRetryState struct {
+	canRetry     bool
+	context      *kernel.TaskContext
+	callStack    []task.ActivationFrame
+	taskLocal    types.Value
+	wakeValue    types.Value
+	ticksLimit   int64
+	secondsLimit float64
+	code         interface{}
+}
+
+func captureTaskRetryState(t *task.Task) taskRetryState {
+	if t == nil {
+		return taskRetryState{}
+	}
+	state := taskRetryState{
+		canRetry:     t.BytecodeVM == nil && !t.IsForked && t.ForkInfo == nil && t.Code != nil,
+		context:      cloneTaskContextForRetry(t.Context),
+		callStack:    cloneActivationFramesForRetry(t.CallStack),
+		taskLocal:    t.TaskLocal,
+		wakeValue:    t.WakeValue,
+		ticksLimit:   t.TicksLimit,
+		secondsLimit: t.SecondsLimit,
+		code:         t.Code,
+	}
+	return state
+}
+
+func (state taskRetryState) restore(t *task.Task) {
+	if t == nil || !state.canRetry {
+		return
+	}
+	t.Code = state.code
+	t.BytecodeVM = nil
+	t.Result = types.Result{}
+	t.CallStack = cloneActivationFramesForRetry(state.callStack)
+	t.TaskLocal = state.taskLocal
+	t.WakeValue = state.wakeValue
+	t.CreatedForks = nil
+	t.TicksLimit = state.ticksLimit
+	t.TicksUsed = 0
+	t.SecondsLimit = state.secondsLimit
+	t.SecondsUsed = 0
+	t.StartTime = time.Now()
+	t.Context = cloneTaskContextForRetry(state.context)
+	if t.Context != nil {
+		t.Context.Task = t
+		t.Context.TaskID = t.ID
+	}
+}
+
+func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
+	if ctx == nil {
+		return nil
+	}
+	clone := *ctx
+	clone.StoreTxn = nil
+	clone.PendingNotifications = nil
+	clone.CallerVM = nil
+	return &clone
+}
+
+func cloneActivationFramesForRetry(frames []task.ActivationFrame) []task.ActivationFrame {
+	if len(frames) == 0 {
+		return nil
+	}
+	cloned := make([]task.ActivationFrame, len(frames))
+	for i, frame := range frames {
+		cloned[i] = frame
+		cloned[i].Args = append([]types.Value(nil), frame.Args...)
+	}
+	return cloned
 }
 
 func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) {

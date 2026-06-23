@@ -277,6 +277,66 @@ return child;
 	}
 }
 
+func TestRunTaskRetriesFreshTaskOnValidationConflict(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, false, 1)
+	defer s.Stop()
+	mutateCalls := 0
+	s.registry.Register("mutate_snapshot_value_once", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		mutateCalls++
+		if mutateCalls == 1 {
+			if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
+		}
+		return types.Ok(types.NewInt(0))
+	})
+	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		if ctx.StoreTxn == nil {
+			t.Fatal("task context did not have a store transaction")
+		}
+		if errCode := ctx.StoreTxn.SetPropertyValue(0, "snapshot_value", types.NewStr("task")); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		return types.Ok(types.NewInt(0))
+	})
+
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3004, 0, parseTestStatements(t, `
+before = #0.snapshot_value;
+mutate_snapshot_value_once();
+stage_snapshot_value();
+return before;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn {
+		t.Fatalf("result flow = %v err=%v, want return", queued.Result.Flow, queued.Result.Error)
+	}
+	if mutateCalls != 2 {
+		t.Fatalf("mutate calls = %d, want 2 attempts", mutateCalls)
+	}
+	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
+	if errCode != types.E_NONE {
+		t.Fatalf("live PropertyValue failed: %s", errCode)
+	}
+	if got := liveValue.(types.StrValue).Value(); got != "task" {
+		t.Fatalf("live store value = %q, want task", got)
+	}
+}
+
 func removeTasksForOwner(s *Scheduler, owner types.ObjID) {
 	var ids []int64
 	s.mu.Lock()
