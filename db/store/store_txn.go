@@ -16,6 +16,8 @@ type StoreTxn struct {
 	propertyReads  map[propertyReadKey]uint64
 	propertyScans  map[types.ObjID]uint64
 	propertyWrites map[propertyWriteKey]propertyWrite
+	verbReads      map[verbReadKey]uint64
+	verbScans      map[types.ObjID]uint64
 	maxObjID       types.ObjID
 	highWaterID    types.ObjID
 }
@@ -44,6 +46,11 @@ type propertyWrite struct {
 	prop  Property
 }
 
+type verbReadKey struct {
+	objID types.ObjID
+	name  string
+}
+
 func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -60,6 +67,8 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		propertyReads:  make(map[propertyReadKey]uint64),
 		propertyScans:  make(map[types.ObjID]uint64),
 		propertyWrites: make(map[propertyWriteKey]propertyWrite),
+		verbReads:      make(map[verbReadKey]uint64),
+		verbScans:      make(map[types.ObjID]uint64),
 		maxObjID:       s.maxObjID,
 		highWaterID:    s.highWaterID,
 	}
@@ -135,6 +144,20 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value t
 		value: value,
 		prop:  prop,
 	}
+}
+
+func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
+	if tx == nil || verb == nil {
+		return
+	}
+	tx.verbReads[verbReadKey{objID: objID, name: verb.name}] = verb.version
+}
+
+func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
+	if tx == nil || obj == nil {
+		return
+	}
+	tx.verbScans[objID] = obj.verbVersion
 }
 
 func (tx *StoreTxn) HasWrites() bool {
@@ -602,18 +625,22 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string) (*Verb, types.O
 		if obj == nil || obj.recycled {
 			continue
 		}
+		tx.markVerbScan(current, obj)
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if matchVerbName(alias, verbName) {
+					tx.markVerbRead(current, verb)
 					return verb, current, nil
 				}
 			}
 		}
 		if !strings.Contains(verbName, "*") {
 			if verb, ok := obj.verbs[verbName]; ok {
+				tx.markVerbRead(current, verb)
 				return verb, current, nil
 			}
 			if verb, ok := obj.verbs[":"+verbName]; ok {
+				tx.markVerbRead(current, verb)
 				return verb, current, nil
 			}
 		}
@@ -635,18 +662,22 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 	if obj == nil || obj.recycled {
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
+	tx.markVerbScan(objID, obj)
 	for _, verb := range obj.verbList {
 		for _, alias := range verb.names {
 			if matchVerbName(alias, verbName) {
+				tx.markVerbRead(objID, verb)
 				return verb, nil
 			}
 		}
 	}
 	if !strings.Contains(verbName, "*") {
 		if verb, ok := obj.verbs[verbName]; ok {
+			tx.markVerbRead(objID, verb)
 			return verb, nil
 		}
 		if verb, ok := obj.verbs[":"+verbName]; ok {
+			tx.markVerbRead(objID, verb)
 			return verb, nil
 		}
 	}
@@ -658,6 +689,7 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
+	tx.markVerbScan(objID, obj)
 
 	names := make([]string, 0, len(obj.verbList))
 	for _, verb := range obj.verbList {
@@ -674,7 +706,10 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 	if index < 0 || index >= len(obj.verbList) {
 		return VerbView{}, types.E_RANGE
 	}
-	return obj.verbList[index].View(), types.E_NONE
+	tx.markVerbScan(objID, obj)
+	verb := obj.verbList[index]
+	tx.markVerbRead(objID, verb)
+	return verb.View(), types.E_NONE
 }
 
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
@@ -697,12 +732,15 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 		if !validLiveObject(obj) {
 			continue
 		}
+		tx.markVerbScan(current, obj)
 		if verb, ok := obj.verbs[verbName]; ok {
+			tx.markVerbRead(current, verb)
 			return verb.View(), current, nil
 		}
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if alias == verbName {
+					tx.markVerbRead(current, verb)
 					return verb.View(), current, nil
 				}
 			}
