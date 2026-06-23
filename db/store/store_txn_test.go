@@ -198,6 +198,9 @@ func TestTransactionSamePropertyWriteConflicts(t *testing.T) {
 	if errCode := second.Commit(); errCode != types.E_INVARG {
 		t.Fatalf("second Commit = %v, want E_INVARG conflict", errCode)
 	}
+	if !second.ValidationFailed() {
+		t.Fatalf("second transaction did not record validation failure")
+	}
 
 	a, errCode := store.PropertyValue(0, "a")
 	if errCode != types.E_NONE {
@@ -310,6 +313,9 @@ func TestTransactionSameObjectScalarWriteConflicts(t *testing.T) {
 	if errCode := second.Commit(); errCode != types.E_INVARG {
 		t.Fatalf("second Commit = %v, want E_INVARG conflict", errCode)
 	}
+	if !second.ValidationFailed() {
+		t.Fatalf("second transaction did not record validation failure")
+	}
 
 	name, errCode := store.ObjectName(0)
 	if errCode != types.E_NONE {
@@ -350,6 +356,9 @@ func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
 	}
 	if errCode := propertyTx.Commit(); errCode != types.E_NONE {
 		t.Fatalf("propertyTx Commit failed: %v", errCode)
+	}
+	if propertyTx.ValidationFailed() {
+		t.Fatalf("successful property transaction recorded validation failure")
 	}
 
 	name, errCode := store.ObjectName(0)
@@ -441,6 +450,9 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 
 	if errCode := tx.Commit(); errCode != types.E_INVARG {
 		t.Fatalf("tx Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !tx.ValidationFailed() {
+		t.Fatalf("transaction did not record validation failure")
 	}
 	value, errCode := store.PropertyValue(0, "a")
 	if errCode != types.E_NONE {
