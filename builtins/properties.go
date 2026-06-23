@@ -267,7 +267,11 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check if property exists in any descendant
-	if store.HasDefinedPropertyInDescendants(objID, propName) {
+	if tx := readTxn(ctx); tx != nil {
+		if tx.HasDefinedPropertyInDescendants(objID, propName) {
+			return types.Err(types.E_INVARG)
+		}
+	} else if store.HasDefinedPropertyInDescendants(objID, propName) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -326,8 +330,14 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	prop := dbstore.NewProperty(propName, value, owner, perms, false, true)
-	if err := store.DefineProperty(objID, prop); err != types.E_NONE {
-		return types.Err(err)
+	var defineErr types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		defineErr = tx.DefineProperty(objID, prop)
+	} else {
+		defineErr = store.DefineProperty(objID, prop)
+	}
+	if defineErr != types.E_NONE {
+		return types.Err(defineErr)
 	}
 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when a parent's
