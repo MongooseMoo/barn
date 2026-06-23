@@ -201,6 +201,7 @@ retryAttempt:
 	t.Result = result
 
 	committed := true
+	committedWrites := false
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && retryState.canRetry && attempt < 1 {
@@ -214,6 +215,8 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 			committed = false
+		} else {
+			committedWrites = true
 		}
 	}
 	if committed {
@@ -236,7 +239,7 @@ retryAttempt:
 		builtins.DiscardPendingConnectionSwitches(ctx)
 		builtins.DiscardPendingBootPlayers(ctx)
 	}
-	if committed && result.Flow == types.FlowSuspend && ctx.StoreTxn != nil {
+	if committed && committedWrites && ctx.StoreTxn != nil {
 		ctx.StoreTxn = s.store.BeginReadOnly(0)
 	}
 
@@ -285,6 +288,7 @@ retryAttempt:
 				result = types.Err(errCode)
 				t.Result = result
 			}
+			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 	}
 
@@ -294,6 +298,32 @@ retryAttempt:
 		// is a GC boundary for newly-created orphan anonymous objects.
 		liveVMs := append([]*vm.VM{bcVM}, s.liveTaskVMs(t)...)
 		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+				t.SetState(task.TaskKilled)
+				t.BytecodeVM = nil
+				s.discardCreatedForks(t)
+				builtins.DiscardPendingNotifications(ctx)
+				builtins.DiscardPendingConnectionSwitches(ctx)
+				builtins.DiscardPendingBootPlayers(ctx)
+				return nil
+			}
+			if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+			}
+			if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+			}
+			if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+			}
+			ctx.StoreTxn = s.store.BeginReadOnly(0)
+		}
 
 		// Save VM state for later Resume()
 		t.BytecodeVM = bcVM
@@ -369,6 +399,30 @@ retryAttempt:
 			s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), liveVMs...)
 		}
 		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+				result = types.Err(errCode)
+				t.Result = result
+				t.SetState(task.TaskKilled)
+				s.discardCreatedForks(t)
+				builtins.DiscardPendingNotifications(ctx)
+				builtins.DiscardPendingConnectionSwitches(ctx)
+				builtins.DiscardPendingBootPlayers(ctx)
+			} else {
+				if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
+					result = types.Err(errCode)
+					t.Result = result
+				}
+				if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
+					result = types.Err(errCode)
+					t.Result = result
+				}
+				if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+					result = types.Err(errCode)
+					t.Result = result
+				}
+			}
+		}
 	}
 
 	t.BytecodeVM = nil // Release VM after completion

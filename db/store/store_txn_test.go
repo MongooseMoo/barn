@@ -1526,3 +1526,28 @@ func TestTransactionSetVerbCodeConflicts(t *testing.T) {
 		t.Fatalf("live verb code after conflict = %#v, want concurrent code", liveVerb.Code)
 	}
 }
+
+func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	values, errCode := tx.PropertyValues(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValues failed: %v", errCode)
+	}
+	if len(values) != 1 {
+		t.Fatalf("len(PropertyValues) = %d, want 1", len(values))
+	}
+	if got := values[0].(types.IntValue).Val; got != 2 {
+		t.Fatalf("PropertyValues[0] = %d, want 2", got)
+	}
+}

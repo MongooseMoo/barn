@@ -381,7 +381,13 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
 	anonRefs := make(map[types.ObjID]types.ObjValue)
-	propValues, errCode := store.PropertyValues(objID)
+	var propValues []types.Value
+	var errCode types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		propValues, errCode = tx.PropertyValues(objID)
+	} else {
+		propValues, errCode = store.PropertyValues(objID)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
