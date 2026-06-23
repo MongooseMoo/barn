@@ -1108,6 +1108,63 @@ func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := store.AddVerb(0, NewVerb("first", []string{"first"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb first failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs first failed: %v", errCode)
+	}
+	if errCode := tx.SetVerbCode(0, "first", []string{"return 1;"}); errCode != types.E_NONE {
+		t.Fatalf("tx SetVerbCode first failed: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("second", []string{"second"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb second failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs second failed: %v", errCode)
+	}
+
+	verbView, _, err := tx.FindVerb(0, "first")
+	if err != nil {
+		t.Fatalf("FindVerb first failed: %v", err)
+	}
+	if len(verbView.Code) != 1 || verbView.Code[0] != "return 1;" {
+		t.Fatalf("first staged code = %#v, want return 1", verbView.Code)
+	}
+}
+
+func TestTransactionForgetObjectDropsStagedVerbCode(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := store.AddVerb(0, NewVerb("scratch", []string{"scratch"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs failed: %v", errCode)
+	}
+	if errCode := tx.SetVerbCode(0, "scratch", []string{"return 1;"}); errCode != types.E_NONE {
+		t.Fatalf("tx SetVerbCode failed: %v", errCode)
+	}
+	if err := store.Recycle(0); err != nil {
+		t.Fatalf("Recycle failed: %v", err)
+	}
+	tx.ForgetObject(0)
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit after ForgetObject failed: %v", errCode)
+	}
+}
+
 func TestTransactionSetVerbCodeByIndexStagesUntilCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

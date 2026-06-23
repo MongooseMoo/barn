@@ -58,6 +58,23 @@ set_verb_code(#0, "do_login_command", {
 return 1;
 `
 
+const auditWaifCallersSource = `
+obj = create($waif);
+add_verb(obj, {player, "xd", ":audit_a"}, {"this", "none", "this"});
+set_verb_code(obj, ":audit_a", {"return callers();"});
+add_verb(obj, {player, "xd", ":audit_b"}, {"this", "none", "this"});
+set_verb_code(obj, ":audit_b", {"return this:audit_a();"});
+add_verb(obj, {player, "xd", ":audit_c"}, {"this", "none", "this"});
+set_verb_code(obj, ":audit_c", {
+  "c = this:audit_b();",
+  "return {{c[1][2], typeof(c[1][1]) == WAIF, c[1][4] == this.class}, {c[2][2], typeof(c[2][1]) == WAIF, c[2][4] == this.class}};"
+});
+waif = obj:new();
+result = waif:audit_c();
+recycle(obj);
+return result;
+`
+
 func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
 	if err != nil {
@@ -121,5 +138,74 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 	}
 	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
+	}
+}
+
+func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
+	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+	store := database.NewStoreFromDatabase()
+	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject player failed: %v", errCode)
+	}
+	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
+		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
+		}
+	}
+
+	p := parser.NewParser(auditWaifCallersSource)
+	stmts, err := p.ParseProgram()
+	if err != nil {
+		t.Fatalf("ParseProgram failed: %v", err)
+	}
+	registry := BuildVMRegistry()
+	compiler := bytecode.NewCompilerWithRegistry(registry)
+	prog, err := compiler.CompileStatements(stmts)
+	if err != nil {
+		t.Fatalf("CompileStatements failed: %v", err)
+	}
+
+	ctx := kernel.NewTaskContext()
+	ctx.Player = player
+	ctx.Programmer = player
+	ctx.IsWizard = true
+	ctx.Store = store
+	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.Registry = registry
+	ctx.Task = task.NewTask(1, player, 30000, 1)
+
+	machine := NewVM(store, registry)
+	machine.Context = ctx
+	frame := machine.PrepareVerbFrame(prog, types.ObjNothing, player, player, "", types.ObjNothing, []types.Value{})
+	SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
+	SetLocalByName(frame, prog, "player", types.NewObj(player))
+	SetLocalByName(frame, prog, "caller", types.NewObj(types.ObjNothing))
+	SetLocalByName(frame, prog, "verb", types.NewStr(""))
+	SetLocalByName(frame, prog, "args", types.NewList(nil))
+	SetLocalByName(frame, prog, "argstr", types.NewStr(""))
+	SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
+	SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
+	SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
+	SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
+	SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+
+	result := machine.ExecuteLoop()
+	if result.Flow == types.FlowException {
+		t.Fatalf("waif callers flow exception: %v val=%v stack=%#v", result.Error, result.Val, result.CallStack)
+	}
+	got, ok := result.Val.(types.ListValue)
+	if !ok {
+		t.Fatalf("result = %T %v, want list", result.Val, result.Val)
+	}
+	want := types.NewList([]types.Value{
+		types.NewList([]types.Value{types.NewStr(":audit_b"), types.NewInt(1), types.NewInt(1)}),
+		types.NewList([]types.Value{types.NewStr(":audit_c"), types.NewInt(1), types.NewInt(1)}),
+	})
+	if !got.Equal(want) {
+		t.Fatalf("result = %v, want %v", got, want)
 	}
 }

@@ -378,6 +378,9 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if err := store.Recycle(objID); err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	if tx := readTxn(ctx); tx != nil {
+		tx.ForgetObject(objID)
+	}
 	if globalConnManager != nil {
 		_ = globalConnManager.RecyclePlayer(objID)
 	}
