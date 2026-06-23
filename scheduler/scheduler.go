@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"log"
-	"runtime"
 	"sync"
 	"time"
 
@@ -56,7 +55,7 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 
 // NewSchedulerWithOptions creates a task scheduler with the supplied runtime options.
 func NewSchedulerWithOptions(store *dbstore.Store, options config.Options) *Scheduler {
-	return newSchedulerWithWorkerCount(store, options, runtime.GOMAXPROCS(0))
+	return newSchedulerWithWorkerCount(store, options, 1)
 }
 
 func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, workerCount int) *Scheduler {

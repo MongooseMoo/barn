@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,23 +49,8 @@ func TestSchedulerWorkerPoolStopsCleanly(t *testing.T) {
 	}
 }
 
-func TestNewSchedulerWithOptionsUsesGOMAXPROCSWorkers(t *testing.T) {
-	oldProcs := runtime.GOMAXPROCS(2)
-	defer runtime.GOMAXPROCS(oldProcs)
-
-	s := NewSchedulerWithOptions(dbstore.NewStore(), false)
-	defer s.Stop()
-
-	if s.workerCount != 2 {
-		t.Fatalf("workerCount = %d, want 2", s.workerCount)
-	}
-}
-
-func TestProcessReadyTasksRunsDefaultWorkersInParallel(t *testing.T) {
-	oldProcs := runtime.GOMAXPROCS(2)
-	defer runtime.GOMAXPROCS(oldProcs)
-
-	s := NewSchedulerWithOptions(dbstore.NewStore(), false)
+func TestProcessReadyTasksRunsConfiguredWorkersInParallel(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.DefaultOptions(), 2)
 	defer s.Stop()
 
 	var entered atomic.Int32
