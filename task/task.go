@@ -158,6 +158,12 @@ type Task struct {
 	FromCommand         bool          // True if dispatched by the command parser (top-level command verb)
 	Done                chan struct{} // Closed when task finishes; nil if fire-and-forget
 
+	// OnComplete, when set, is invoked exactly once with the task's terminal
+	// result after the task finishes (returns or raises) — never on a suspend
+	// or fork re-queue. Used to defer server-hook completion (e.g. logging a
+	// player in once a read()-based do_login_command finally returns a player).
+	OnComplete func(Result types.Result)
+
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
 

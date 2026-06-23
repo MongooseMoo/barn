@@ -90,6 +90,43 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	return types.ObjID(-1), nil
 }
 
+// interpretLoginResult maps a completed do_login_command task result to a
+// player ObjID (or a negative value when login did not succeed). It mirrors the
+// tail of callDoLoginCommand and is used by the deferred (read()-resumable)
+// login path, where the result arrives asynchronously after the task finishes.
+func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Result) types.ObjID {
+	if result.Flow == types.FlowException {
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		lines := task.FormatTraceback(stack, result.Error)
+		for _, line := range lines {
+			conn.Send(line)
+		}
+		return types.ObjID(-1)
+	}
+
+	if objVal, ok := result.Val.(types.ObjValue); ok {
+		playerID := objVal.ID()
+		if playerID > 0 {
+			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
+			if errCode == types.E_NONE && hasPlayerFlag {
+				return playerID
+			}
+		}
+	}
+
+	// switch_player may have logged the connection in during verb execution.
+	if currentPlayer := conn.GetPlayer(); currentPlayer > 0 {
+		return currentPlayer
+	}
+
+	return types.ObjID(-1)
+}
+
 // callDoBlankCommand calls #0:do_blank_command and returns whether login should proceed.
 func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool, error) {
 	words := command.CommandWordList(line)

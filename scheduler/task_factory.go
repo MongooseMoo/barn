@@ -3,6 +3,7 @@ package scheduler
 import (
 	"container/heap"
 	"fmt"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -126,6 +127,77 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 	t.ForkCreator = s
 
 	return s.QueueTask(t), nil
+}
+
+// CreateLoginHookTask runs a login-hook verb (do_login_command and friends) as
+// a real, registered, resumable scheduler task. Unlike CallVerbWithArgstr's
+// throwaway task, this task participates in the normal task machinery, so a
+// read() inside the login flow suspends and resumes correctly across an
+// arbitrary number of input round-trips (username, password, ...). The task is
+// run synchronously on the caller's goroutine to completion or to its first
+// read() suspend (so login state is settled before the next input line is
+// read); a suspended task stays registered and resumes when the next line is
+// delivered via deliverToReadingTask. When the task finally returns, onComplete
+// is invoked with the terminal result so the caller can log the player in.
+// Returns the task ID, or an error if the verb cannot be found/compiled (e.g.
+// no do_login_command on the listener).
+// onStart, if non-nil, is invoked with the task ID after the task is
+// registered but before it runs, so callers can record the in-flight task ID
+// (for disconnect cancellation) before onComplete can clear it on a task that
+// completes synchronously without suspending.
+func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64), onComplete func(types.Result)) (int64, error) {
+	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	if err != nil {
+		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
+	}
+
+	program, errors := bytecode.CompileVerb(verb.Code)
+	if len(errors) > 0 {
+		return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+	}
+
+	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	ticks, seconds := foregroundTaskLimits()
+	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	s.populateTaskContextDependencies(t.Context)
+	t.StartTime = time.Now()
+	// Login task runs with verb-owner permissions, matching the throwaway
+	// CallVerbWithArgstr path it replaces (programmer = verb owner).
+	t.Programmer = verb.Owner
+	t.Context.Programmer = verb.Owner
+	t.Context.IsWizard = s.isWizard(verb.Owner)
+	t.Context.ServerInitiated = true
+	t.VerbName = verbName
+	t.VerbLoc = defObjID
+	t.This = objID
+	t.Caller = player
+	t.Argstr = argstr
+	t.VerbArgsValues = append([]types.Value(nil), args...)
+	t.ForkCreator = s
+	t.OnComplete = onComplete
+
+	// Register the task so a read() suspend leaves it discoverable by
+	// FindReadingTask/deliverToReadingTask, then run it synchronously on the
+	// caller's (scheduler/input) goroutine. The task runs until it returns
+	// (OnComplete fires) or suspends on read() (VM saved; it stays registered
+	// and resumes when the next input line is delivered). Running synchronously
+	// here — rather than queuing for the ticker — ensures the login state is
+	// settled before the I/O loop reads the next line, matching ToastStunt's
+	// run-to-suspend-or-completion login semantics.
+	t.SetState(task.TaskQueued)
+	s.mu.Lock()
+	s.tasks[t.ID] = t
+	s.mu.Unlock()
+	task.GetManager().RegisterTask(t)
+
+	if onStart != nil {
+		onStart(t.ID)
+	}
+
+	if err := s.runTask(t); err != nil {
+		return t.ID, err
+	}
+	return t.ID, nil
 }
 
 // CreateBackgroundTask creates a background task (fork)
@@ -266,6 +338,115 @@ func (s *Scheduler) KillTask(taskID int64, killerID types.ObjID) error {
 
 	t.Kill()
 	return nil
+}
+
+// CancelLoginTasksFor forcibly kills and removes EVERY task associated with a
+// disconnecting (pre-login) connection, identified by its negative connID
+// player. This covers both the currently tracked login task and any task left
+// suspended on read() from this connection — so no dangling read()-suspended
+// task can swallow input for a connID later reused by another connection. The
+// task manager is a process-global singleton matched purely by ReadingPlayer,
+// so cancelling by connID (not a single tracked ID) is required for robustness.
+// No permission check — this is a server-internal lifecycle op.
+func (s *Scheduler) CancelLoginTasksFor(connID types.ObjID) {
+	// Collect candidates: tasks owned by this connID (login-hook tasks run with
+	// Owner == connID) and any task currently reading from this connID.
+	var victims []*task.Task
+	s.mu.Lock()
+	for id, t := range s.tasks {
+		if t == nil {
+			continue
+		}
+		if t.Owner == connID || t.ReadingPlayer == connID {
+			victims = append(victims, t)
+			delete(s.tasks, id)
+		}
+	}
+	s.mu.Unlock()
+
+	// Also sweep the global manager for read()-suspended tasks bound to this
+	// connID that the scheduler may not own (defense in depth).
+	for _, t := range task.GetManager().GetAllTasks() {
+		if t != nil && t.ReadingPlayer == connID {
+			victims = append(victims, t)
+		}
+	}
+
+	for _, t := range victims {
+		t.ReadingPlayer = types.ObjNothing
+		t.OnComplete = nil // Don't run login completion for a dead connection.
+		t.Kill()
+		task.GetManager().RemoveTask(t.ID)
+	}
+}
+
+// ResumeReadingTask delivers an input line to a task currently suspended on
+// read() from the given player and runs it synchronously to completion or to
+// its next read() suspend. Returns true if a reading task was found and
+// resumed. Running synchronously (rather than flipping the task to TaskQueued
+// and waiting for the ticker) closes the timing window in which a follow-up
+// input line, arriving before the ticker re-ran the task, would not be found by
+// FindReadingTask and would spawn a parallel do_login_command.
+func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
+	t := task.GetManager().FindReadingTask(player)
+	if t == nil {
+		return false
+	}
+	t.ReadingPlayer = types.ObjNothing
+	if !t.Resume(types.NewStr(line)) {
+		return false
+	}
+	if err := s.runTask(t); err != nil {
+		log.Printf("Task %d (#%d:%s) resume error: %v", t.ID, t.This, t.VerbName, err)
+	}
+	if s.taskOutputFlusher != nil {
+		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
+	}
+	return true
+}
+
+// CleanupFinishedTasks removes completed and killed tasks from both the
+// scheduler's own table and the global task manager. Without this, every task
+// (including unauthenticated pre-login do_login_command tasks) accumulates
+// forever — an unbounded-growth / DoS vector on the pre-auth path. Only
+// terminal tasks are removed; suspended/queued/running tasks are left intact.
+func (s *Scheduler) CleanupFinishedTasks() {
+	var finished []int64
+	s.mu.Lock()
+	for id, t := range s.tasks {
+		if t == nil {
+			delete(s.tasks, id)
+			continue
+		}
+		st := t.GetState()
+		if st == task.TaskCompleted || st == task.TaskKilled {
+			finished = append(finished, id)
+			delete(s.tasks, id)
+		}
+	}
+	s.mu.Unlock()
+
+	mgr := task.GetManager()
+	for _, id := range finished {
+		mgr.RemoveTask(id)
+	}
+}
+
+// IsTaskLive reports whether a task with the given ID exists and is neither
+// completed nor killed. Used to decide whether a connection already has an
+// in-flight login task (so a second do_login_command must not be spawned).
+func (s *Scheduler) IsTaskLive(taskID int64) bool {
+	if taskID == 0 {
+		return false
+	}
+	s.mu.Lock()
+	t := s.tasks[taskID]
+	s.mu.Unlock()
+	if t == nil {
+		return false
+	}
+	st := t.GetState()
+	return st != task.TaskCompleted && st != task.TaskKilled
 }
 
 // GetTask retrieves a task by ID

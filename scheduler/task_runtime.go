@@ -297,6 +297,15 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	}
 
 	t.BytecodeVM = nil // Release VM after completion
+
+	// Fire the terminal-completion callback (if any) exactly once. This branch
+	// is only reached on terminal completion — a suspend returns earlier (the
+	// FlowSuspend block above), so OnComplete never fires on a read() yield.
+	if t.OnComplete != nil {
+		cb := t.OnComplete
+		t.OnComplete = nil
+		cb(result)
+	}
 	return nil
 }
 

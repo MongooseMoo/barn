@@ -63,6 +63,9 @@ func (p *InputProcessor) run() {
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 
+	cleanupTicker := time.NewTicker(5 * time.Second)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -71,6 +74,10 @@ func (p *InputProcessor) run() {
 			p.processInput(input)
 		case <-ticker.C:
 			p.runtime.ProcessReadyTasks()
+		case <-cleanupTicker.C:
+			// Reclaim completed/killed tasks so the pre-auth login path (and all
+			// other tasks) cannot grow unboundedly.
+			p.runtime.CleanupFinishedTasks()
 		}
 	}
 }
@@ -106,14 +113,12 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 }
 
 func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) bool {
-	mgr := task.GetManager()
-	t := mgr.FindReadingTask(player)
-	if t == nil {
-		return false
-	}
-	t.ReadingPlayer = types.ObjNothing
-	t.Resume(types.NewStr(line))
-	return true
+	// Deliver the line to the read()-suspended task and run it synchronously to
+	// completion or to its next read() suspend. Running synchronously here (on
+	// the single input goroutine) closes the window in which a follow-up line,
+	// arriving before the scheduler ticker re-ran the resumed task, would not be
+	// found by FindReadingTask and would spawn a parallel do_login_command.
+	return p.runtime.ResumeReadingTask(player, line)
 }
 
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool) {
@@ -190,6 +195,15 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		delete(cm.playerConns, types.ObjID(-conn.ID))
 	}
 	cm.mu.Unlock()
+
+	// Kill EVERY login task tied to this connection — the tracked one and any
+	// task left suspended on read() from this (negative) connID — so no orphan
+	// lingers to swallow input for a future connection that reuses this connID.
+	// The task manager matches reading tasks purely by ReadingPlayer, so a
+	// per-connID sweep (not a single tracked ID) is required for correctness.
+	conn.SetLoginTaskID(0)
+	p.runtime.CancelLoginTasksFor(types.ObjID(-conn.ID))
+
 	cm.detachOutboundClient(conn.ID)
 	builtins.CloseHeldHTTPInput(player)
 
@@ -223,14 +237,83 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 		line = ""
 	}
 
+	// One login task per connection. If a login task is already in flight, do
+	// NOT spawn a parallel do_login_command. A read()-suspended login task would
+	// have already consumed this line via deliverToReadingTask (run earlier in
+	// processInput), so reaching here with a live login task means it is
+	// suspended on something other than read() (e.g. suspend()) — the line is
+	// dropped rather than starting a competing login. This is the explicit guard
+	// against the parallel-spawn race that otherwise orphans the first task.
+	if id := conn.GetLoginTaskID(); id != 0 {
+		if p.runtime.IsTaskLive(id) {
+			return
+		}
+		conn.SetLoginTaskID(0) // Stale ID for a task that already finished.
+	}
+
 	if !proxyLine && !p.shouldCallDoLoginCommand(conn, line) {
 		return
 	}
 
+	p.dispatchLoginCommand(conn, line)
+}
+
+// dispatchLoginCommand runs the listener's do_login_command as a registered,
+// resumable scheduler task. The login verb may call read() any number of times
+// (username, password, ...); each read() suspends and resumes the same task.
+// When the task finally returns, the completion callback interprets the result
+// and logs the player in. Falls back to the synchronous helper when there is no
+// do_login_command verb (or it cannot be dispatched).
+func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
+	handler := conn.ListenerObject()
+	if errCode := p.store.ObjectExists(handler); errCode != types.E_NONE {
+		return
+	}
+
+	// No login handler: preserve the existing synchronous fallback.
+	if !p.store.HasLocalVerb(handler, "do_login_command") {
+		maxBeforeLogin := p.store.MaxObject()
+		player, _ := p.callDoLoginCommand(conn, line)
+		if player > 0 {
+			p.loginPlayer(conn, player, player > maxBeforeLogin)
+		}
+		return
+	}
+
+	connID := types.ObjID(-conn.ID)
+	words := command.CommandWordList(line)
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
+
 	maxBeforeLogin := p.store.MaxObject()
-	player, _ := p.callDoLoginCommand(conn, line)
-	if player > 0 {
-		p.loginPlayer(conn, player, player > maxBeforeLogin)
+	onStart := func(taskID int64) {
+		conn.SetLoginTaskID(taskID)
+	}
+	onComplete := func(result types.Result) {
+		conn.SetLoginTaskID(0)
+		// Don't log in a connection that has since disconnected (the live conn
+		// for this connID was removed/replaced): that would resurrect a dead
+		// connection or hijack a recycled connID.
+		if p.connManager == nil || p.connManager.getConnectionByConnID(conn.ID) != conn {
+			return
+		}
+		player := p.interpretLoginResult(conn, result)
+		if player > 0 {
+			p.loginPlayer(conn, player, player > maxBeforeLogin)
+		}
+	}
+
+	_, err := p.runtime.CreateLoginHookTask(handler, "do_login_command", args, connID, line, onStart, onComplete)
+	if err != nil {
+		// The verb exists (checked above) but could not be compiled/dispatched.
+		// Do NOT fall back to the synchronous callDoLoginCommand path: that path
+		// runs the verb without read() support and would silently regress the
+		// very bug this change fixes. Surface the failure instead.
+		conn.SetLoginTaskID(0)
+		log.Printf("login task dispatch failed for #%d:do_login_command: %v", handler, err)
+		return
 	}
 }
 

@@ -31,9 +31,14 @@ type Connection struct {
 	listenerObject types.ObjID
 	listenerPort   int64
 	printMessages  bool
-	mu             sync.Mutex
-	ctx            context.Context
-	cancel         context.CancelFunc
+	// loginTaskID is the scheduler task ID of an in-flight login-hook task for
+	// this (not-yet-logged-in) connection, or 0 if none. Used to (a) avoid
+	// spawning a parallel do_login_command while one is already running/reading
+	// and (b) kill the reading login task on disconnect.
+	loginTaskID int64
+	mu          sync.Mutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // NewConnection creates a new connection with a transport
@@ -139,6 +144,20 @@ func (c *Connection) IsLoggedIn() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.loggedIn
+}
+
+// GetLoginTaskID returns the in-flight login-hook task ID (0 if none).
+func (c *Connection) GetLoginTaskID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loginTaskID
+}
+
+// SetLoginTaskID records (or clears, with 0) the in-flight login-hook task ID.
+func (c *Connection) SetLoginTaskID(id int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.loginTaskID = id
 }
 
 // GetOutputPrefix returns the connection's output prefix
