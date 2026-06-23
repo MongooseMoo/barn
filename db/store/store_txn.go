@@ -701,6 +701,28 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 	return names, types.E_NONE
 }
 
+func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		obj := tx.object(id)
+		if !validLiveObject(obj) {
+			return false, types.E_INVARG
+		}
+		tx.markPropertyScan(id, obj)
+		for name, prop := range obj.properties {
+			if prop == nil || !prop.defined {
+				continue
+			}
+			key := propertyNameKey(name)
+			if seen[key] {
+				return true, types.E_NONE
+			}
+			seen[key] = true
+		}
+	}
+	return false, types.E_NONE
+}
+
 func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
