@@ -125,6 +125,12 @@ func stampObjectVerbs(obj *Object, ts uint64) {
 	}
 }
 
+func stampVerb(verb *Verb, ts uint64) {
+	if verb != nil {
+		verb.version = ts
+	}
+}
+
 func stampObjectAll(obj *Object, ts uint64) {
 	stampObjectScalar(obj, ts)
 	stampObjectRelationship(obj, ts)

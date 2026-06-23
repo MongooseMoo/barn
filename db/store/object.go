@@ -154,6 +154,7 @@ type Verb struct {
 	perms   VerbPerms
 	argSpec VerbArgs
 	code    []string // Source lines
+	version uint64
 
 	// hasProgram records whether this verb has a compiled program in the
 	// database's verb-code section, independent of whether its source is empty.
