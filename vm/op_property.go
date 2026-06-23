@@ -461,6 +461,9 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 	switch strings.ToLower(name) {
 	case "name":
 		if str, ok := value.(types.StrValue); ok {
+			if txn != nil {
+				return true, txn.SetObjectName(objID, str.Value())
+			}
 			return true, store.SetObjectName(objID, str.Value())
 		}
 		return false, types.E_NONE
@@ -472,6 +475,9 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 			}
 			if isAnonymous && ctx != nil && !ctx.IsWizard {
 				return true, types.E_PERM
+			}
+			if txn != nil {
+				return true, txn.SetObjectOwner(objID, objVal.ID())
 			}
 			return true, store.SetObjectOwner(objID, objVal.ID())
 		}
@@ -493,6 +499,9 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 				}
 				return true, types.E_PERM
 			}
+			if txn != nil {
+				return true, txn.SetObjectFlag(objID, dbstore.FlagProgrammer, intVal.Val != 0)
+			}
 			return true, store.SetObjectFlag(objID, dbstore.FlagProgrammer, intVal.Val != 0)
 		}
 		return false, types.E_NONE
@@ -508,6 +517,9 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 				}
 				return true, types.E_PERM
 			}
+			if txn != nil {
+				return true, txn.SetObjectFlag(objID, dbstore.FlagWizard, intVal.Val != 0)
+			}
 			return true, store.SetObjectFlag(objID, dbstore.FlagWizard, intVal.Val != 0)
 		}
 		return false, types.E_NONE
@@ -516,21 +528,33 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 		return true, types.E_PERM
 	case "r":
 		if intVal, ok := value.(types.IntValue); ok {
+			if txn != nil {
+				return true, txn.SetObjectFlag(objID, dbstore.FlagRead, intVal.Val != 0)
+			}
 			return true, store.SetObjectFlag(objID, dbstore.FlagRead, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "w":
 		if intVal, ok := value.(types.IntValue); ok {
+			if txn != nil {
+				return true, txn.SetObjectFlag(objID, dbstore.FlagWrite, intVal.Val != 0)
+			}
 			return true, store.SetObjectFlag(objID, dbstore.FlagWrite, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "f":
 		if intVal, ok := value.(types.IntValue); ok {
+			if txn != nil {
+				return true, txn.SetObjectFlag(objID, dbstore.FlagFertile, intVal.Val != 0)
+			}
 			return true, store.SetObjectFlag(objID, dbstore.FlagFertile, intVal.Val != 0)
 		}
 		return false, types.E_NONE
 	case "a":
 		if intVal, ok := value.(types.IntValue); ok {
+			if txn != nil {
+				return true, txn.SetObjectFlag(objID, dbstore.FlagAnonymous, intVal.Val != 0)
+			}
 			return true, store.SetObjectFlag(objID, dbstore.FlagAnonymous, intVal.Val != 0)
 		}
 		return false, types.E_NONE

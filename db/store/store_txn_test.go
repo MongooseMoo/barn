@@ -242,3 +242,128 @@ func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 		t.Fatalf("live property value after commit = %d, want 2", got)
 	}
 }
+
+func TestTransactionDisjointObjectScalarWritesBothCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	childA, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject childA failed: %v", errCode)
+	}
+	childB, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject childB failed: %v", errCode)
+	}
+
+	txA := store.BeginReadOnly(0)
+	txB := store.BeginReadOnly(0)
+	if errCode := txA.SetObjectName(childA, "alpha"); errCode != types.E_NONE {
+		t.Fatalf("txA SetObjectName failed: %v", errCode)
+	}
+	if errCode := txB.SetObjectFlag(childB, FlagRead, true); errCode != types.E_NONE {
+		t.Fatalf("txB SetObjectFlag failed: %v", errCode)
+	}
+
+	if errCode := txA.Commit(); errCode != types.E_NONE {
+		t.Fatalf("txA Commit failed: %v", errCode)
+	}
+	if errCode := txB.Commit(); errCode != types.E_NONE {
+		t.Fatalf("txB Commit failed: %v", errCode)
+	}
+
+	name, errCode := store.ObjectName(childA)
+	if errCode != types.E_NONE {
+		t.Fatalf("ObjectName childA failed: %v", errCode)
+	}
+	if name != "alpha" {
+		t.Fatalf("childA name = %q, want alpha", name)
+	}
+	hasRead, errCode := store.HasObjectFlag(childB, FlagRead)
+	if errCode != types.E_NONE {
+		t.Fatalf("HasObjectFlag childB failed: %v", errCode)
+	}
+	if !hasRead {
+		t.Fatalf("childB read flag = false, want true")
+	}
+}
+
+func TestTransactionSameObjectScalarWriteConflicts(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	first := store.BeginReadOnly(0)
+	second := store.BeginReadOnly(0)
+	if errCode := first.SetObjectName(0, "first"); errCode != types.E_NONE {
+		t.Fatalf("first SetObjectName failed: %v", errCode)
+	}
+	if errCode := second.SetObjectFlag(0, FlagRead, true); errCode != types.E_NONE {
+		t.Fatalf("second SetObjectFlag failed: %v", errCode)
+	}
+
+	if errCode := first.Commit(); errCode != types.E_NONE {
+		t.Fatalf("first Commit failed: %v", errCode)
+	}
+	if errCode := second.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("second Commit = %v, want E_INVARG conflict", errCode)
+	}
+
+	name, errCode := store.ObjectName(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("ObjectName failed: %v", errCode)
+	}
+	if name != "first" {
+		t.Fatalf("name = %q, want first", name)
+	}
+	hasRead, errCode := store.HasObjectFlag(0, FlagRead)
+	if errCode != types.E_NONE {
+		t.Fatalf("HasObjectFlag failed: %v", errCode)
+	}
+	if hasRead {
+		t.Fatalf("read flag = true, want false after conflicting write")
+	}
+}
+
+func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	scalarTx := store.BeginReadOnly(0)
+	propertyTx := store.BeginReadOnly(0)
+	if errCode := scalarTx.SetObjectName(0, "renamed"); errCode != types.E_NONE {
+		t.Fatalf("scalarTx SetObjectName failed: %v", errCode)
+	}
+	if errCode := propertyTx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("propertyTx SetPropertyValue failed: %v", errCode)
+	}
+
+	if errCode := scalarTx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("scalarTx Commit failed: %v", errCode)
+	}
+	if errCode := propertyTx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("propertyTx Commit failed: %v", errCode)
+	}
+
+	name, errCode := store.ObjectName(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("ObjectName failed: %v", errCode)
+	}
+	if name != "renamed" {
+		t.Fatalf("name = %q, want renamed", name)
+	}
+	value, errCode := store.PropertyValue(0, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 2 {
+		t.Fatalf("property a = %d, want 2", got)
+	}
+}
