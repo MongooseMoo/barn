@@ -115,13 +115,17 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	// Set or clear the player flag
+	clearingPlayerFlag := !args[1].Truthy()
 	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.SetObjectFlag(objVal.ID(), dbstore.FlagUser, args[1].Truthy()); errCode != types.E_NONE {
+		if errCode := tx.SetObjectFlag(objVal.ID(), dbstore.FlagUser, !clearingPlayerFlag); errCode != types.E_NONE {
 			return types.Err(errCode)
+		}
+		if clearingPlayerFlag && globalConnManager != nil && resolveConnection(ctx, objVal.ID()) != nil {
+			ctx.PendingBootPlayers = append(ctx.PendingBootPlayers, objVal.ID())
 		}
 		return types.Ok(types.NewInt(0))
 	}
-	if args[1].Truthy() {
+	if !clearingPlayerFlag {
 		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, true); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
