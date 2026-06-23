@@ -29,7 +29,7 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	oldID := objVal.ID()
 
 	// Check object is valid
-	if !store.Valid(oldID) {
+	if !validForRead(ctx, oldID) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -54,8 +54,6 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
 func builtinNewWaif(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -70,11 +68,11 @@ func builtinNewWaif(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Check if class object is valid
-	if !store.Valid(callerID) {
+	if !validForRead(ctx, callerID) {
 		return types.Err(types.E_INVIND)
 	}
 
-	isAnonymous, errCode := store.ObjectIsAnonymous(callerID)
+	isAnonymous, errCode := objectIsAnonymousForRead(ctx, callerID)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVIND)
 	}
@@ -111,7 +109,7 @@ func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if objID == types.ObjNothing {
 		return types.Err(types.E_INVIND)
 	}
-	if !store.Valid(objID) {
+	if !validForRead(ctx, objID) {
 		// Check if recycled vs never existed
 		if store.IsRecycled(objID) {
 			return types.Err(types.E_INVIND)
@@ -120,7 +118,7 @@ func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check wizard permissions
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
 	if !playerIsWizard {
 		return types.Err(types.E_PERM)
 	}

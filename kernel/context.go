@@ -57,6 +57,10 @@ type TaskContext struct {
 	// This allows builtins and limits to read server options from $server_options
 	Store *dbstore.Store
 
+	// StoreTxn is the stable read view for the current task slice.
+	// Mutations still go to Store until write sets are introduced.
+	StoreTxn *dbstore.StoreTxn
+
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
 	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)

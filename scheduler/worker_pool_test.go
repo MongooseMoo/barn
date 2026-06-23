@@ -6,6 +6,7 @@ import (
 	"time"
 
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/parser"
 	"barn/task"
 	"barn/types"
@@ -105,5 +106,68 @@ func TestProcessReadyTasksFlushesInReadyOrder(t *testing.T) {
 	}
 	if flushed[0] != "first" || flushed[1] != "second" {
 		t.Fatalf("flush order = %#v, want [first second]", flushed)
+	}
+}
+
+func TestRunTaskUsesStableReadTransaction(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, false, 1)
+	defer s.Stop()
+	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		if ctx.StoreTxn == nil {
+			t.Fatal("task context did not have a store read transaction")
+		}
+		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("new")); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		return types.Ok(types.NewInt(0))
+	})
+
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3001, 0, parseTestStatements(t, `
+first = #0.snapshot_value;
+mutate_snapshot_value();
+return {first, #0.snapshot_value};
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn {
+		t.Fatalf("result flow = %v, want return", queued.Result.Flow)
+	}
+	values, ok := queued.Result.Val.(types.ListValue)
+	if !ok {
+		t.Fatalf("result value = %T, want list", queued.Result.Val)
+	}
+	if values.Len() != 2 {
+		t.Fatalf("result len = %d, want 2", values.Len())
+	}
+	for i := 1; i <= values.Len(); i++ {
+		str, ok := values.Get(i).(types.StrValue)
+		if !ok {
+			t.Fatalf("result[%d] = %T, want string", i, values.Get(i))
+		}
+		if str.Value() != "old" {
+			t.Fatalf("result[%d] = %q, want old", i, str.Value())
+		}
+	}
+
+	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
+	if errCode != types.E_NONE {
+		t.Fatalf("live PropertyValue failed: %s", errCode)
+	}
+	if got := liveValue.(types.StrValue).Value(); got != "new" {
+		t.Fatalf("live store value = %q, want new", got)
 	}
 }

@@ -15,24 +15,24 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 
 // Registry holds all registered builtin functions
 type Registry struct {
-	funcs         map[string]BuiltinFunc
-	byID          map[int]BuiltinFunc
-	nameToID      map[string]int
-	idToName      map[int]string
-	lineSyncByID  map[int]bool
-	nextID        int
-	verbCaller    VerbCallerFunc // Callback for calling verbs
+	funcs        map[string]BuiltinFunc
+	byID         map[int]BuiltinFunc
+	nameToID     map[string]int
+	idToName     map[int]string
+	lineSyncByID map[int]bool
+	nextID       int
+	verbCaller   VerbCallerFunc // Callback for calling verbs
 }
 
 // NewRegistry creates a new builtin function registry
 func NewRegistry() *Registry {
 	r := &Registry{
-		funcs:         make(map[string]BuiltinFunc),
-		byID:          make(map[int]BuiltinFunc),
-		nameToID:      make(map[string]int),
-		idToName:      make(map[int]string),
-		lineSyncByID:  make(map[int]bool),
-		nextID:        0,
+		funcs:        make(map[string]BuiltinFunc),
+		byID:         make(map[int]BuiltinFunc),
+		nameToID:     make(map[string]int),
+		idToName:     make(map[int]string),
+		lineSyncByID: make(map[int]bool),
+		nextID:       0,
 	}
 
 	// Register type conversion builtins
@@ -419,7 +419,7 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *kernel.TaskContext, 
 		return types.Result{}, false
 	}
 	bfName := "bf_" + name
-	_, _, err := store.FindVerb(types.ObjID(0), bfName)
+	_, _, err := findVerbForRead(ctx, types.ObjID(0), bfName)
 	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
 		verbArgs := append([]types.Value(nil), args...)

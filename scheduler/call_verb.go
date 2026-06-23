@@ -84,6 +84,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	ctx.ServerInitiated = true // Mark as server-initiated
 	ctx.Task = t               // Attach task so VM can track frames
 	ctx.Store = s.store
+	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.Registry = s.registry
 	ctx.PromoteNumbers = s.promoteNumbers
 

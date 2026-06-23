@@ -41,7 +41,7 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if !store.Valid(whatVal.ID()) {
+	if !validForRead(ctx, whatVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
 
@@ -101,7 +101,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
-		if !store.Valid(objVal.ID()) {
+		if !validForRead(ctx, objVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -136,7 +136,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	// Helper to check if object isa any of the parents
 	isaAnyParent := func(objID types.ObjID) bool {
-		if !store.Valid(objID) {
+		if !validForRead(ctx, objID) {
 			return false
 		}
 
@@ -155,7 +155,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		objVal := item.(types.ObjValue) // Already validated
 		objID := objVal.ID()
 
-		if !store.Valid(objID) {
+		if !validForRead(ctx, objID) {
 			continue
 		}
 
@@ -173,7 +173,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		// Check player flag filter
 		playerMatches := true
 		if checkPlayerFlag {
-			hasPlayerFlag, errCode := store.HasObjectFlag(objID, dbstore.FlagUser)
+			hasPlayerFlag, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagUser)
 			playerMatches = errCode == types.E_NONE && hasPlayerFlag
 		}
 

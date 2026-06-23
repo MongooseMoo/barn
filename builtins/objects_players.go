@@ -7,8 +7,8 @@ import (
 )
 
 // isPlayerWizard checks if a player object has wizard permissions
-func isPlayerWizard(store *dbstore.Store, objID types.ObjID) bool {
-	hasWizard, errCode := store.HasObjectFlag(objID, dbstore.FlagWizard)
+func isPlayerWizard(ctx *kernel.TaskContext, objID types.ObjID) bool {
+	hasWizard, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagWizard)
 	return errCode == types.E_NONE && hasWizard
 }
 
@@ -34,8 +34,6 @@ func builtinPlayers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns 1 if object is a player, 0 otherwise
 // Waifs can't be players (E_TYPE)
 func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -53,12 +51,12 @@ func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !validForRead(ctx, objVal.ID()) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot be players - E_TYPE per MOO spec
-	isAnonymous, errCode := store.ObjectIsAnonymous(objVal.ID())
+	isAnonymous, errCode := objectIsAnonymousForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -66,7 +64,7 @@ func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	hasPlayerFlag, errCode := store.HasObjectFlag(objVal.ID(), dbstore.FlagUser)
+	hasPlayerFlag, errCode := hasObjectFlagForRead(ctx, objVal.ID(), dbstore.FlagUser)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -99,12 +97,12 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Err(types.E_INVARG)
 	}
 
-	if !store.Valid(objVal.ID()) {
+	if !validForRead(ctx, objVal.ID()) {
 		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects cannot have player flag set - E_TYPE per MOO spec
-	isAnonymous, errCode := store.ObjectIsAnonymous(objVal.ID())
+	isAnonymous, errCode := objectIsAnonymousForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}

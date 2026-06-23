@@ -42,6 +42,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	ctx.Task = t
 	ctx.TaskID = t.ID
 	ctx.Store = s.store
+	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.Registry = s.registry
 	ctx.PromoteNumbers = s.promoteNumbers
 

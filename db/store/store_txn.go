@@ -100,6 +100,10 @@ func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
 	return types.E_INVIND
 }
 
+func (tx *StoreTxn) Valid(objID types.ObjID) bool {
+	return validLiveObject(tx.objects[objID])
+}
+
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 	obj := tx.objects[objID]
 	if !validLiveObject(obj) {
@@ -130,6 +134,14 @@ func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, ty
 		return false, errCode
 	}
 	return flags.Has(flag), types.E_NONE
+}
+
+func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
+	obj := tx.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	return obj.anonymous, types.E_NONE
 }
 
 func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
@@ -241,6 +253,37 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 	return prop.View(), true, types.E_NONE
 }
 
+func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	obj := tx.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	names := make([]string, 0, len(obj.properties))
+	for _, name := range obj.propOrder {
+		prop := obj.properties[name]
+		if prop != nil && prop.defined {
+			names = append(names, name)
+		}
+	}
+	return names, types.E_NONE
+}
+
+func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
+	obj := tx.objects[objID]
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	_, prop, exists := propertyByName(obj.properties, name)
+	if !exists {
+		return true, types.E_NONE
+	}
+	if prop.defined {
+		return false, types.E_NONE
+	}
+	return prop.clear, types.E_NONE
+}
+
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
 	verb, definer, err := tx.findVerb(objID, verbName)
 	if err != nil {
@@ -314,6 +357,30 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 		}
 	}
 	return nil, fmt.Errorf("verb not found: %s", verbName)
+}
+
+func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	obj := tx.objects[objID]
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+
+	names := make([]string, 0, len(obj.verbList))
+	for _, verb := range obj.verbList {
+		names = append(names, verb.name)
+	}
+	return names, types.E_NONE
+}
+
+func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
+	obj := tx.objects[objID]
+	if !validLiveObject(obj) {
+		return VerbView{}, types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.verbList) {
+		return VerbView{}, types.E_RANGE
+	}
+	return obj.verbList[index].View(), types.E_NONE
 }
 
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {

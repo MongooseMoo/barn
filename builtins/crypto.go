@@ -317,8 +317,6 @@ func hexValue(c byte) int {
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2b$)
 func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -343,7 +341,7 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Check if player is wizard (not just verb owner)
 	// This allows wizard players to use SHA256/SHA512 with custom rounds
 	// even when called from non-wizard verbs
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(store, ctx.Player)
+	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
 
 	// Determine algorithm from salt prefix
 	result, errCode := cryptPasswordWithPerm(password, salt, playerIsWizard)
