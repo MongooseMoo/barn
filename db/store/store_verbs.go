@@ -293,6 +293,7 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 		return 0, types.E_INVIND
 	}
 
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	verbCopy := verb
 	verbPtr := &verbCopy
@@ -316,6 +317,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 		return types.E_VERBNF
 	}
 
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	keysToRefresh := make([]string, 0, 1)
 	for key, entry := range obj.verbs {
@@ -358,6 +360,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 		return types.E_VERBNF
 	}
 
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	oldName := verb.name
 	verb.owner = owner
@@ -388,6 +391,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	if err != nil {
 		return types.E_VERBNF
 	}
+	s.rememberObjectLocked(s.objects[objID])
 	ts := s.bumpClockLocked()
 	verb.argSpec = argSpec
 	stampObjectVerbs(s.objects[objID], ts)
@@ -409,6 +413,7 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 	if err != nil {
 		return types.E_VERBNF
 	}
+	s.rememberObjectLocked(s.objects[objID])
 	ts := s.bumpClockLocked()
 	verb.code = append([]string(nil), lines...)
 	// set_verb_code installs a program (even an empty one) on the verb.
@@ -428,6 +433,7 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	if index < 0 || index >= len(obj.verbList) {
 		return types.E_RANGE
 	}
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	verb := obj.verbList[index]
 	verb.code = append([]string(nil), lines...)

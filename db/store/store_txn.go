@@ -9,6 +9,7 @@ import (
 
 type StoreTxn struct {
 	readTS      uint64
+	store       *Store
 	objects     map[types.ObjID]*Object
 	maxObjID    types.ObjID
 	highWaterID types.ObjID
@@ -21,13 +22,10 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	if readTS == 0 {
 		readTS = s.clock
 	}
-	objects := make(map[types.ObjID]*Object, len(s.objects))
-	for id, obj := range s.objects {
-		objects[id] = cloneObjectForReadTxn(obj)
-	}
 	return &StoreTxn{
 		readTS:      readTS,
-		objects:     objects,
+		store:       s,
+		objects:     make(map[types.ObjID]*Object),
 		maxObjID:    s.maxObjID,
 		highWaterID: s.highWaterID,
 	}
@@ -38,6 +36,38 @@ func (tx *StoreTxn) ReadTimestamp() uint64 {
 		return 0
 	}
 	return tx.readTS
+}
+
+func (tx *StoreTxn) object(objID types.ObjID) *Object {
+	if obj, ok := tx.objects[objID]; ok {
+		return obj
+	}
+	if tx.store == nil {
+		tx.objects[objID] = nil
+		return nil
+	}
+
+	tx.store.mu.RLock()
+	defer tx.store.mu.RUnlock()
+
+	obj := tx.objectLocked(objID)
+	tx.objects[objID] = obj
+	return obj
+}
+
+func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
+	live := tx.store.objects[objID]
+	if live != nil && objectVersion(live) <= tx.readTS {
+		return cloneObjectForReadTxn(live)
+	}
+
+	history := tx.store.history[objID]
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].ts <= tx.readTS {
+			return cloneObjectForReadTxn(history[i].obj)
+		}
+	}
+	return nil
 }
 
 func cloneObjectForReadTxn(obj *Object) *Object {
@@ -90,7 +120,7 @@ func cloneVerbForReadTxn(verb *Verb) *Verb {
 }
 
 func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if validLiveObject(obj) {
 		return types.E_NONE
 	}
@@ -101,11 +131,11 @@ func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
 }
 
 func (tx *StoreTxn) Valid(objID types.ObjID) bool {
-	return validLiveObject(tx.objects[objID])
+	return validLiveObject(tx.object(objID))
 }
 
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return "", types.E_INVIND
 	}
@@ -113,7 +143,7 @@ func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
@@ -121,7 +151,7 @@ func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode
 }
 
 func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
 	}
@@ -137,7 +167,7 @@ func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, ty
 }
 
 func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
@@ -145,7 +175,7 @@ func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode)
 }
 
 func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
@@ -156,7 +186,7 @@ func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -164,7 +194,7 @@ func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) 
 }
 
 func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -172,7 +202,7 @@ func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 }
 
 func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -180,7 +210,7 @@ func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 }
 
 func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
@@ -208,7 +238,7 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, typ
 		}
 		visited[currentID] = true
 
-		current := tx.objects[currentID]
+		current := tx.object(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
@@ -242,7 +272,7 @@ func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, 
 }
 
 func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
 	}
@@ -254,7 +284,7 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 }
 
 func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -270,7 +300,7 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 }
 
 func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
@@ -304,7 +334,7 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string) (*Verb, types.O
 		}
 		visited[current] = true
 
-		obj := tx.objects[current]
+		obj := tx.object(current)
 		if obj == nil || obj.recycled {
 			continue
 		}
@@ -337,7 +367,7 @@ func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbVi
 }
 
 func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb, error) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if obj == nil || obj.recycled {
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
@@ -360,7 +390,7 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 }
 
 func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -373,7 +403,7 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
-	obj := tx.objects[objID]
+	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return VerbView{}, types.E_INVIND
 	}
@@ -384,7 +414,7 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 }
 
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	verbLocObj := tx.objects[verbLoc]
+	verbLocObj := tx.object(verbLoc)
 	if !validLiveObject(verbLocObj) {
 		return VerbView{}, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
 	}
@@ -399,7 +429,7 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 		}
 		visited[current] = true
 
-		obj := tx.objects[current]
+		obj := tx.object(current)
 		if !validLiveObject(obj) {
 			continue
 		}
