@@ -179,7 +179,13 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// If obj defines a property that new_parent or its ancestors also define, that's E_INVARG
 	// (This is different from inherited properties, which can be shadowed)
 	if newParentVal.ID() != types.ObjNothing {
-		conflict, errCode := store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
+		var conflict bool
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			conflict, errCode = tx.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
+		} else {
+			conflict, errCode = store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
+		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -191,11 +197,22 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new_parent or its ancestors.
 	if newParentVal.ID() != types.ObjNothing {
-		newParentProps, errCode := store.DefinedPropertyNamesInAncestry(newParentVal.ID())
+		var newParentProps map[string]bool
+		var conflict bool
+		var errCode types.ErrorCode
+		if tx := readTxn(ctx); tx != nil {
+			newParentProps, errCode = tx.DefinedPropertyNamesInAncestry(newParentVal.ID())
+		} else {
+			newParentProps, errCode = store.DefinedPropertyNamesInAncestry(newParentVal.ID())
+		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		conflict, errCode := store.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
+		if tx := readTxn(ctx); tx != nil {
+			conflict, errCode = tx.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
+		} else {
+			conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
+		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
