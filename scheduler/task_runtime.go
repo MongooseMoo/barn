@@ -220,6 +220,7 @@ retryAttempt:
 			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && retryState.canRetry && attempt < 1 {
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingNotifications(ctx)
+				builtins.DiscardPendingConnectionSwitches(ctx)
 				attempt++
 				goto retryAttempt
 			}
@@ -230,6 +231,10 @@ retryAttempt:
 	}
 	if committed {
 		t.CreatedForks = nil
+		if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
+			result = types.Err(errCode)
+			t.Result = result
+		}
 		if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			t.Result = result
@@ -237,6 +242,7 @@ retryAttempt:
 	} else {
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingNotifications(ctx)
+		builtins.DiscardPendingConnectionSwitches(ctx)
 	}
 
 	// Check context deadline
