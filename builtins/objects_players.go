@@ -115,6 +115,12 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	// Set or clear the player flag
+	if tx := readTxn(ctx); tx != nil {
+		if errCode := tx.SetObjectFlag(objVal.ID(), dbstore.FlagUser, args[1].Truthy()); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		return types.Ok(types.NewInt(0))
+	}
 	if args[1].Truthy() {
 		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, true); errCode != types.E_NONE {
 			return types.Err(errCode)
