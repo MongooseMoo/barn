@@ -495,11 +495,13 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 // Helper functions
 
 // IsBuiltinProperty checks if a property name is a built-in property
-// Built-in properties: name, owner, location, contents, parents, parent, children, programmer, wizard, player, r, w, f, a
+// Built-in properties: name, owner, location, contents, last_move, programmer, wizard, r, w, f, a.
+// parent/parents/children/player are NOT properties -- they have dedicated accessor built-in
+// functions (parent(), parents(), children(), is_player()), so `.parent` etc. raise E_PROPNF.
 func IsBuiltinProperty(name string) bool {
 	switch strings.ToLower(name) {
-	case "name", "owner", "location", "contents", "parents", "parent", "children",
-		"programmer", "wizard", "player", "r", "w", "f", "a":
+	case "name", "owner", "location", "contents", "last_move",
+		"programmer", "wizard", "r", "w", "f", "a":
 		return true
 	default:
 		return false

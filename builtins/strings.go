@@ -773,14 +773,10 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	// Match result format: {start, end, subs, subject}
-	// If empty list, no match - return template unchanged
-	if matchResult.Len() == 0 {
-		return types.Ok(templateVal)
-	}
-
-	// Match result must be {start, end, subs, subject}.
-	if matchResult.Len() < 4 {
+	// subs must be a well-formed match() result: exactly {start, end, groups, subject}
+	// where groups is a list of exactly nine {start, end} marker pairs. ToastStunt
+	// raises E_INVARG for malformed match data rather than best-effort substituting.
+	if matchResult.Len() != 4 {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -794,7 +790,7 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	subs, ok := matchResult.Get(3).(types.ListValue)
-	if !ok {
+	if !ok || subs.Len() != 9 {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -804,11 +800,17 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	subjectText := subject.Value()
-	extract := func(start, end int) string {
-		if start <= 0 || end < 0 || start-1 > len(subjectText) || end > len(subjectText) || start-1 > end {
-			return ""
+	// extract returns the substring for a {start, end} marker. An empty range
+	// (end < start, e.g. the {0, -1} unmatched-group marker) yields "". A non-empty
+	// range that falls outside the subject is invalid -> E_INVARG (ok=false).
+	extract := func(start, end int) (string, bool) {
+		if end < start {
+			return "", true
 		}
-		return subjectText[start-1 : end]
+		if start < 1 || end > len(subjectText) {
+			return "", false
+		}
+		return subjectText[start-1 : end], true
 	}
 
 	// Process template and substitute %N with captured groups.
@@ -824,23 +826,29 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 				// %N -> captured group N
 				groupNum := int(template[i+1] - '0')
 				if groupNum == 0 {
-					result.WriteString(extract(int(startVal.Val), int(endVal.Val)))
-				} else {
-					if groupNum <= subs.Len() {
-						groupRange, ok := subs.Get(groupNum).(types.ListValue)
-						if !ok || groupRange.Len() < 2 {
-							return types.Err(types.E_INVARG)
-						}
-						gStart, ok := groupRange.Get(1).(types.IntValue)
-						if !ok {
-							return types.Err(types.E_INVARG)
-						}
-						gEnd, ok := groupRange.Get(2).(types.IntValue)
-						if !ok {
-							return types.Err(types.E_INVARG)
-						}
-						result.WriteString(extract(int(gStart.Val), int(gEnd.Val)))
+					s, inRange := extract(int(startVal.Val), int(endVal.Val))
+					if !inRange {
+						return types.Err(types.E_INVARG)
 					}
+					result.WriteString(s)
+				} else {
+					groupRange, ok := subs.Get(groupNum).(types.ListValue)
+					if !ok || groupRange.Len() < 2 {
+						return types.Err(types.E_INVARG)
+					}
+					gStart, ok := groupRange.Get(1).(types.IntValue)
+					if !ok {
+						return types.Err(types.E_INVARG)
+					}
+					gEnd, ok := groupRange.Get(2).(types.IntValue)
+					if !ok {
+						return types.Err(types.E_INVARG)
+					}
+					s, inRange := extract(int(gStart.Val), int(gEnd.Val))
+					if !inRange {
+						return types.Err(types.E_INVARG)
+					}
+					result.WriteString(s)
 				}
 				i += 2
 			} else {
