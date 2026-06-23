@@ -483,6 +483,10 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.definePropertyLocked(objID, prop, 0)
+}
+
+func (s *Store) definePropertyLocked(objID types.ObjID, prop Property, ts uint64) types.ErrorCode {
 	obj := s.objects[objID]
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -491,7 +495,9 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 		return types.E_INVARG
 	}
 	s.rememberObjectLocked(obj)
-	ts := s.bumpClockLocked()
+	if ts == 0 {
+		ts = s.bumpClockLocked()
+	}
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
