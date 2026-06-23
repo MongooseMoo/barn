@@ -44,6 +44,7 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !validForRead(ctx, whatVal.ID()) {
 		return types.Err(types.E_INVIND)
 	}
+	oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
 
 	// Check for recursive move (moving into self or descendant)
 	if store.HasContentDescendant(whatVal.ID(), whereVal.ID()) {
@@ -63,6 +64,15 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
 		return types.Err(errCode)
+	}
+	if tx := readTxn(ctx); tx != nil {
+		adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
+		if oldLocationErr == types.E_NONE {
+			adoptIDs = append(adoptIDs, oldLocation)
+		}
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	// TODO: Call exitfunc and enterfunc verbs (Phase 9)
