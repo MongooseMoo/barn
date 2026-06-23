@@ -742,6 +742,35 @@ func TestTransactionSameObjectScalarWriteConflicts(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveObjectSeesCreatedObject(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveObject(obj); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveObject failed: %v", errCode)
+	}
+	if errCode := tx.SetObjectOwner(obj, obj); errCode != types.E_NONE {
+		t.Fatalf("SetObjectOwner on adopted object failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	owner, errCode := store.ObjectOwner(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("ObjectOwner failed: %v", errCode)
+	}
+	if owner != obj {
+		t.Fatalf("owner = #%d, want #%d", owner, obj)
+	}
+}
+
 func TestTransactionObjectLocationStagesUntilCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
