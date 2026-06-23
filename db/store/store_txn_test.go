@@ -185,6 +185,58 @@ func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveRelationshipsSeesMove(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject obj failed: %v", errCode)
+	}
+	oldLocation, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject old location failed: %v", errCode)
+	}
+	newLocation, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject new location failed: %v", errCode)
+	}
+	if errCode := store.MoveObject(obj, oldLocation, 0); errCode != types.E_NONE {
+		t.Fatalf("initial MoveObject failed: %v", errCode)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := tx.Location(obj); errCode != types.E_NONE {
+		t.Fatalf("tx Location obj failed: %v", errCode)
+	}
+	if _, errCode := tx.Contents(oldLocation); errCode != types.E_NONE {
+		t.Fatalf("tx Contents old location failed: %v", errCode)
+	}
+	if errCode := store.MoveObject(obj, newLocation, 0); errCode != types.E_NONE {
+		t.Fatalf("live MoveObject failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveRelationships(obj, oldLocation, newLocation); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships failed: %v", errCode)
+	}
+	location, errCode := tx.Location(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Location after adopt failed: %v", errCode)
+	}
+	if location != newLocation {
+		t.Fatalf("tx Location after adopt = #%d, want #%d", location, newLocation)
+	}
+	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+}
+
 func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
@@ -1027,6 +1079,13 @@ func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	}
 
 	tx := store.BeginReadOnly(0)
+	names, errCode := tx.VerbNames(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx VerbNames failed: %v", errCode)
+	}
+	if len(names) != 0 {
+		t.Fatalf("tx VerbNames before add = %#v, want none", names)
+	}
 	verb := NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
 	if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
 		t.Fatalf("AddVerb failed: %v", errCode)

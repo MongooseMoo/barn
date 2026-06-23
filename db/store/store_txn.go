@@ -203,6 +203,47 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		obj.verbs[name] = cloneVerbForReadTxn(verb)
 	}
 	obj.verbVersion = live.verbVersion
+	tx.verbScans[objID] = live.verbVersion
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCode {
+	if tx == nil {
+		return types.E_NONE
+	}
+	if tx.store == nil {
+		return types.E_INVARG
+	}
+
+	tx.store.mu.RLock()
+	defer tx.store.mu.RUnlock()
+
+	for _, objID := range objIDs {
+		if objID == types.ObjNothing {
+			continue
+		}
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			tx.objects[objID] = nil
+			return types.E_INVIND
+		}
+		obj := tx.objects[objID]
+		if obj == nil {
+			obj = cloneObjectForReadTxn(live)
+			tx.objects[objID] = obj
+		}
+		obj.location = live.location
+		obj.parents = append([]types.ObjID(nil), live.parents...)
+		obj.children = append([]types.ObjID(nil), live.children...)
+		obj.contents = append([]types.ObjID(nil), live.contents...)
+		obj.anonymousChildren = append([]types.ObjID(nil), live.anonymousChildren...)
+		obj.chparentChildren = make(map[types.ObjID]bool, len(live.chparentChildren))
+		for id, tracked := range live.chparentChildren {
+			obj.chparentChildren[id] = tracked
+		}
+		obj.relationshipVersion = live.relationshipVersion
+		tx.relationshipReads[objID] = live.relationshipVersion
+	}
 	return types.E_NONE
 }
 
