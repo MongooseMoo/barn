@@ -33,11 +33,17 @@ func (c *stubConn) GetResolvedName() string   { return "" }
 func (c *stubConn) ListenerPort() int64       { return c.listenerPort }
 
 type stubConnManager struct {
-	conn    Connection
-	listen  int
-	infos   []ListenerInfo
-	added   ListenerSpec
-	removed ListenerDescriptor
+	conn     Connection
+	listen   int
+	infos    []ListenerInfo
+	added    ListenerSpec
+	removed  ListenerDescriptor
+	switches []stubSwitch
+}
+
+type stubSwitch struct {
+	oldPlayer types.ObjID
+	newPlayer types.ObjID
 }
 
 func (m *stubConnManager) GetConnection(player types.ObjID) Connection { return m.conn }
@@ -45,6 +51,7 @@ func (m *stubConnManager) ConnectedPlayers(showAll bool) []types.ObjID { return 
 func (m *stubConnManager) BootPlayer(player types.ObjID) error         { return nil }
 func (m *stubConnManager) RecyclePlayer(player types.ObjID) error      { return nil }
 func (m *stubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
+	m.switches = append(m.switches, stubSwitch{oldPlayer: oldPlayer, newPlayer: newPlayer})
 	return nil
 }
 func (m *stubConnManager) GetListenPort() int { return m.listen }
@@ -165,6 +172,69 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 	}
 	if len(conn.sent) != 0 || len(conn.buffered) != 0 {
 		t.Fatalf("connection output after discard sent=%#v buffered=%#v, want none", conn.sent, conn.buffered)
+	}
+}
+
+func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{conn: &stubConn{}}
+	globalConnManager = manager
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	res := builtinSwitchPlayer(ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
+	if res.IsError() {
+		t.Fatalf("switch_player failed: %v", res.Error)
+	}
+	if len(manager.switches) != 0 {
+		t.Fatalf("switches before flush = %#v, want none", manager.switches)
+	}
+	if len(ctx.PendingConnectionSwitches) != 1 {
+		t.Fatalf("pending switches = %d, want 1", len(ctx.PendingConnectionSwitches))
+	}
+
+	if errCode := FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingConnectionSwitches failed: %v", errCode)
+	}
+	if len(manager.switches) != 1 {
+		t.Fatalf("switches after flush = %#v, want one", manager.switches)
+	}
+	if manager.switches[0].oldPlayer != 7 || manager.switches[0].newPlayer != 8 {
+		t.Fatalf("switch = %#v, want 7->8", manager.switches[0])
+	}
+	if len(ctx.PendingConnectionSwitches) != 0 {
+		t.Fatalf("pending switches after flush = %d, want 0", len(ctx.PendingConnectionSwitches))
+	}
+}
+
+func TestDiscardPendingConnectionSwitchesDropsDeferredSwitch(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{conn: &stubConn{}}
+	globalConnManager = manager
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	res := builtinSwitchPlayer(ctx, []types.Value{types.NewObj(7), types.NewObj(8)})
+	if res.IsError() {
+		t.Fatalf("switch_player failed: %v", res.Error)
+	}
+
+	DiscardPendingConnectionSwitches(ctx)
+	if len(ctx.PendingConnectionSwitches) != 0 {
+		t.Fatalf("pending switches after discard = %d, want 0", len(ctx.PendingConnectionSwitches))
+	}
+	if len(manager.switches) != 0 {
+		t.Fatalf("switches after discard = %#v, want none", manager.switches)
 	}
 }
 

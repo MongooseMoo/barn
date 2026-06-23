@@ -65,6 +65,10 @@ type TaskContext struct {
 	// transaction commits. Failed commits must not leak user-visible output.
 	PendingNotifications []PendingNotification
 
+	// PendingConnectionSwitches holds switch_player() effects until the task's
+	// store transaction commits.
+	PendingConnectionSwitches []PendingConnectionSwitch
+
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
 	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)
@@ -85,6 +89,11 @@ type PendingNotification struct {
 	Player  types.ObjID
 	Message string
 	NoFlush bool
+}
+
+type PendingConnectionSwitch struct {
+	OldPlayer types.ObjID
+	NewPlayer types.ObjID
 }
 
 // NewTaskContext creates a new task context with default values.

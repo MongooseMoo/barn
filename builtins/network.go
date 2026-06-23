@@ -1133,11 +1133,44 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
+	if resolveConnection(ctx, oldPlayerVal.ID()) == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if ctx != nil && ctx.StoreTxn != nil {
+		ctx.PendingConnectionSwitches = append(ctx.PendingConnectionSwitches, kernel.PendingConnectionSwitch{
+			OldPlayer: oldPlayerVal.ID(),
+			NewPlayer: newPlayerVal.ID(),
+		})
+		return types.Ok(types.NewInt(0))
+	}
 
 	if err := globalConnManager.SwitchPlayer(oldPlayerVal.ID(), newPlayerVal.ID()); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+func FlushPendingConnectionSwitches(ctx *kernel.TaskContext) types.ErrorCode {
+	if ctx == nil || len(ctx.PendingConnectionSwitches) == 0 {
+		return types.E_NONE
+	}
+	if globalConnManager == nil {
+		return types.E_INVARG
+	}
+	pending := ctx.PendingConnectionSwitches
+	ctx.PendingConnectionSwitches = nil
+	for _, sw := range pending {
+		if err := globalConnManager.SwitchPlayer(sw.OldPlayer, sw.NewPlayer); err != nil {
+			return types.E_INVARG
+		}
+	}
+	return types.E_NONE
+}
+
+func DiscardPendingConnectionSwitches(ctx *kernel.TaskContext) {
+	if ctx != nil {
+		ctx.PendingConnectionSwitches = nil
+	}
 }
 
 // idle_seconds(player) -> int.
