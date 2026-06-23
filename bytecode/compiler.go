@@ -1969,9 +1969,20 @@ func hasSpliceArgs(args []parser.Expr) bool {
 	return false
 }
 
-// containsIndexMarker checks if an expression tree contains a ^ or $ index marker.
+// containsIndexMarker reports whether expr contains a ^/$ index marker bound
+// to the *current* indexing context — i.e. one not already shadowed by a
+// nested index/range expression's own brackets (which establish their own
+// context for any ^/$ inside them). It must recurse into every expression
+// kind that can hold a child expression so a marker nested arbitrarily deep
+// (e.g. inside a function call argument, list/map literal element, or
+// assignment value) is still detected; under-detection silently falls back
+// to an unbound marker (compiles to a literal -1), not a compile error.
+// Over-detection is harmless: nested index/range expressions always push
+// and restore their own context around their own Index/Start/End fields.
 func containsIndexMarker(expr parser.Expr) bool {
 	switch n := expr.(type) {
+	case nil:
+		return false
 	case *parser.IndexMarkerExpr:
 		return n.Marker == parser.TOKEN_DOLLAR || n.Marker == parser.TOKEN_CARET
 	case *parser.BinaryExpr:
@@ -1982,6 +1993,54 @@ func containsIndexMarker(expr parser.Expr) bool {
 		return containsIndexMarker(n.Expr)
 	case *parser.TernaryExpr:
 		return containsIndexMarker(n.Condition) || containsIndexMarker(n.ThenExpr) || containsIndexMarker(n.ElseExpr)
+	case *parser.IndexExpr:
+		// n.Index is scoped to this IndexExpr's own brackets; only n.Expr
+		// (the collection being indexed) is in the enclosing context.
+		return containsIndexMarker(n.Expr)
+	case *parser.RangeExpr:
+		// n.Start/n.End are scoped to this RangeExpr's own brackets.
+		return containsIndexMarker(n.Expr)
+	case *parser.PropertyExpr:
+		return containsIndexMarker(n.Expr) || containsIndexMarker(n.PropertyExpr)
+	case *parser.VerbCallExpr:
+		if containsIndexMarker(n.Expr) || containsIndexMarker(n.VerbExpr) {
+			return true
+		}
+		for _, arg := range n.Args {
+			if containsIndexMarker(arg) {
+				return true
+			}
+		}
+		return false
+	case *parser.BuiltinCallExpr:
+		for _, arg := range n.Args {
+			if containsIndexMarker(arg) {
+				return true
+			}
+		}
+		return false
+	case *parser.SpliceExpr:
+		return containsIndexMarker(n.Expr)
+	case *parser.CatchExpr:
+		return containsIndexMarker(n.Expr) || containsIndexMarker(n.Default)
+	case *parser.AssignExpr:
+		return containsIndexMarker(n.Target) || containsIndexMarker(n.Value)
+	case *parser.ListExpr:
+		for _, el := range n.Elements {
+			if containsIndexMarker(el) {
+				return true
+			}
+		}
+		return false
+	case *parser.ListRangeExpr:
+		return containsIndexMarker(n.Start) || containsIndexMarker(n.End)
+	case *parser.MapExpr:
+		for _, pair := range n.Pairs {
+			if containsIndexMarker(pair.Key) || containsIndexMarker(pair.Value) {
+				return true
+			}
+		}
+		return false
 	default:
 		return false
 	}
