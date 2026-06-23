@@ -57,3 +57,49 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 		t.Fatalf("live player flag after commit = false, want true")
 	}
 }
+
+func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{conn: &stubConn{}}
+	globalConnManager = manager
+
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := store.SetObjectFlag(obj, dbstore.FlagUser, true); errCode != types.E_NONE {
+		t.Fatalf("SetObjectFlag failed: %v", errCode)
+	}
+
+	ctx := kernel.NewTaskContext()
+	ctx.Store = store
+	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.IsWizard = true
+
+	res := builtinSetPlayerFlag(ctx, []types.Value{types.NewObj(obj), types.NewInt(0)})
+	if res.IsError() {
+		t.Fatalf("set_player_flag failed: %v", res.Error)
+	}
+	if len(manager.boots) != 0 {
+		t.Fatalf("boots before flush = %#v, want none", manager.boots)
+	}
+	if len(ctx.PendingBootPlayers) != 1 || ctx.PendingBootPlayers[0] != obj {
+		t.Fatalf("pending boots = %#v, want [%d]", ctx.PendingBootPlayers, obj)
+	}
+
+	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if errCode := FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingBootPlayers failed: %v", errCode)
+	}
+	if len(manager.boots) != 1 || manager.boots[0] != obj {
+		t.Fatalf("boots after flush = %#v, want [%d]", manager.boots, obj)
+	}
+}
