@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -124,6 +125,13 @@ func builtinToint(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if err == nil {
 			return types.Ok(types.IntValue{Val: i})
 		}
+		// On a pure-numeric overflow, ParseInt returns the saturated
+		// MaxInt64/MinInt64 together with ErrRange. MOO's strtoll-based toint()
+		// clamps the same way, so honor that value rather than falling through
+		// to the float path (which would wrap to the wrong extreme).
+		if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
+			return types.Ok(types.IntValue{Val: i})
+		}
 		if f, ferr := strconv.ParseFloat(str, 64); ferr == nil {
 			return types.Ok(types.IntValue{Val: int64(f)})
 		}
@@ -164,10 +172,13 @@ func builtinTofloat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.FloatValue{Val: float64(v.Code())})
 
 	case types.StrValue:
-		// Parse string as float
+		// Parse string as float. Go's ParseFloat accepts "inf"/"nan" tokens,
+		// but MOO's strtod-based tofloat() does not: a non-finite result is
+		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
+		// reports via err).
 		str := strings.TrimSpace(v.Value())
 		f, err := strconv.ParseFloat(str, 64)
-		if err != nil {
+		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Ok(types.FloatValue{Val: f})
