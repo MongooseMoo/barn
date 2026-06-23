@@ -102,3 +102,30 @@ func TestReadOnlyTransactionClonesReturnedContainers(t *testing.T) {
 		t.Fatalf("mutating returned children changed txn snapshot: %#v", again)
 	}
 }
+
+func TestReadOnlyTransactionLoadsObjectsLazily(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.CreateObject([]types.ObjID{0}, 0, false); errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if got := len(tx.objects); got != 0 {
+		t.Fatalf("BeginReadOnly cached %d objects, want 0", got)
+	}
+	if _, errCode := tx.ObjectName(0); errCode != types.E_NONE {
+		t.Fatalf("ObjectName failed: %v", errCode)
+	}
+	if got := len(tx.objects); got != 1 {
+		t.Fatalf("after one object read cached %d objects, want 1", got)
+	}
+	if _, errCode := tx.Children(0); errCode != types.E_NONE {
+		t.Fatalf("Children failed: %v", errCode)
+	}
+	if got := len(tx.objects); got != 1 {
+		t.Fatalf("relationship read cached %d objects, want still 1", got)
+	}
+}

@@ -38,17 +38,20 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	if what.location != types.ObjNothing {
 		oldLoc := s.objects[what.location]
 		if validLiveObject(oldLoc) {
+			s.rememberObjectLocked(oldLoc)
 			oldLoc.contents = removeObjID(oldLoc.contents, whatID)
 			stampObjectRelationship(oldLoc, ts)
 		}
 	}
 
+	s.rememberObjectLocked(what)
 	what.location = whereID
 	stampObjectRelationship(what, ts)
 
 	if whereID != types.ObjNothing {
 		where := s.objects[whereID]
 		if validLiveObject(where) {
+			s.rememberObjectLocked(where)
 			where.contents = insertObjIDAtMOOPosition(where.contents, whatID, position)
 			stampObjectRelationship(where, ts)
 		}
@@ -287,6 +290,7 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		if !validLiveObject(oldParent) {
 			continue
 		}
+		s.rememberObjectLocked(oldParent)
 		oldParent.children = removeObjID(oldParent.children, objID)
 		if oldParent.chparentChildren != nil {
 			delete(oldParent.chparentChildren, objID)
@@ -294,7 +298,11 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		stampObjectRelationship(oldParent, ts)
 	}
 
+	s.rememberObjectLocked(obj)
 	obj.parents = append([]types.ObjID(nil), newParents...)
+	for _, parentID := range obj.parents {
+		s.rememberObjectLocked(s.objects[parentID])
+	}
 	s.attachChildToParentsLocked(objID, obj.parents, false, true)
 	s.reseedInheritedPropertiesLocked(obj)
 	stampObjectRelationship(obj, ts)

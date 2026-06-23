@@ -28,10 +28,14 @@ Barn task execution becomes multi-core by running independent task slices on wor
 Each task slice uses a transaction context:
 
 - `ReadTS`: stable logical timestamp for reads.
-- `ReadSet`: object/property/verb records and scans observed by the VM/builtins.
+- `ReadSet`: lazily observed object/property/verb records and scans observed by the VM/builtins.
 - `WriteSet`: object/property/verb/lifecycle mutations staged by the VM/builtins.
 - `Effects`: output, traceback, task state transitions, fork creation, finalization, and connection side effects staged until commit.
 - `Mode`: read-write, read-only, or serialized.
+
+Reads are runtime-driven, not whole-world or static-analysis-driven. MOO access is too dynamic for static precomputation to be the authority: property names and verb names can be computed, `eval()` can introduce new access, protected builtin redirects can call arbitrary wrapper verbs, and graph scans depend on current database topology. The authoritative read set is therefore captured lazily as code runs. Static/bytecode analysis may later be used only as an optimization or serialization hint.
+
+`StoreTxn` must resolve only touched objects/records as of `ReadTS`. Store mutations retain pre-write object versions so a transaction can lazily read an object after a concurrent commit and still see the version that existed at its own `ReadTS`. Property/verb/relationship scans record the precise records or scan predicates needed for validation.
 
 Commit:
 
@@ -127,8 +131,9 @@ Work:
   - `FindProperty`, `PropertyValue`, `LocalProperty`;
   - `FindVerb`, `FindParentVerb`, `FindVerbOnObject`;
   - relationship and scan reads used by command matching.
-- Keep existing direct store methods as delegating non-transactional callers for code not yet migrated.
-- Add unit tests that a read-only transaction sees a stable view while later live writes advance versions.
+- Keep existing direct store methods as non-transactional callers for code not yet migrated.
+- Resolve transaction reads lazily from retained object history, rather than cloning the full object map at transaction begin.
+- Add unit tests that a read-only transaction sees a stable view while later live writes advance versions, and that untouched objects are not eagerly cloned.
 
 Gates:
 

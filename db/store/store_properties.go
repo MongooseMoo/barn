@@ -424,6 +424,7 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if !ok {
 		return types.E_PROPNF
 	}
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	if owner != nil {
 		prop.owner = *owner
@@ -446,6 +447,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	if _, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
@@ -484,6 +486,7 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	if _, _, exists := propertyByName(obj.properties, prop.name); exists {
 		return types.E_INVARG
 	}
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	prop.defined = true
 	prop.clear = false
@@ -518,6 +521,7 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 	if !ok || !prop.defined {
 		return types.E_PROPNF
 	}
+	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 
 	delete(obj.properties, actualName)
@@ -543,6 +547,7 @@ func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.Erro
 	}
 	actualName, _, ok := propertyByName(obj.properties, name)
 	if ok {
+		s.rememberObjectLocked(obj)
 		ts := s.bumpClockLocked()
 		delete(obj.properties, actualName)
 		stampObjectProperties(obj, ts)
@@ -597,6 +602,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 		}
 	}
 	if changed {
+		s.rememberObjectLocked(obj)
 		stampObjectProperties(obj, s.bumpClockLocked())
 	}
 	return types.E_NONE
@@ -626,7 +632,10 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 					queue = append(queue, childID)
 					continue
 				}
+				s.rememberObjectLocked(child)
 				delete(child.properties, actualName)
+			} else {
+				s.rememberObjectLocked(child)
 			}
 			child.properties[prop.name] = &Property{
 				name:  prop.name,
@@ -661,6 +670,7 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 				continue
 			}
 			if actualName, prop, ok := propertyByName(child.properties, name); ok && !prop.defined {
+				s.rememberObjectLocked(child)
 				delete(child.properties, actualName)
 				stampObjectProperties(child, ts)
 			}
