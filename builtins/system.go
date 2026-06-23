@@ -601,8 +601,6 @@ func builtinServerLog(ctx *kernel.TaskContext, args []types.Value) types.Result 
 // Reads properties like max_string_concat and caches them globally.
 // Requires wizard permissions.
 func builtinLoadServerOptions(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -616,7 +614,7 @@ func builtinLoadServerOptions(ctx *kernel.TaskContext, args []types.Value) types
 	loaded := LoadServerOptionsForTask(ctx)
 	// Refresh the protected-builtin flags from the same $server_options object,
 	// mirroring Toast's load_server_protect_function_flags().
-	LoadProtectedBuiltinsFromStore(store)
+	LoadProtectedBuiltinsForTask(ctx)
 
 	return types.Ok(types.NewInt(int64(loaded)))
 }
