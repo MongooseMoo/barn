@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"barn/parser"
+	"barn/task"
 	"barn/types"
 )
 
@@ -30,6 +31,59 @@ func analyzeAccessFootprint(stmts []parser.Stmt, knownObjects map[string]types.O
 		analyzer.stmt(stmt)
 	}
 	return analyzer.footprint
+}
+
+func analyzeTaskAccessFootprint(t *task.Task) accessFootprint {
+	stmts, ok := t.Code.([]parser.Stmt)
+	if t == nil || !ok {
+		return unknownAccessFootprint()
+	}
+	return analyzeAccessFootprint(stmts, knownTaskObjects(t))
+}
+
+func unknownAccessFootprint() accessFootprint {
+	return accessFootprint{
+		propertyReads:  make(map[propertyAccess]struct{}),
+		propertyWrites: make(map[propertyAccess]struct{}),
+		unknown:        true,
+	}
+}
+
+func knownTaskObjects(t *task.Task) map[string]types.ObjID {
+	known := map[string]types.ObjID{
+		"player":     t.Owner,
+		"programmer": t.Programmer,
+		"this":       t.This,
+		"caller":     t.Caller,
+		"dobj":       t.Dobj,
+		"iobj":       t.Iobj,
+	}
+	for name, objID := range known {
+		if objID == types.ObjNothing {
+			delete(known, name)
+		}
+	}
+	return known
+}
+
+func accessFootprintsCommute(left, right accessFootprint) bool {
+	if left.unknown || right.unknown {
+		return false
+	}
+	for write := range left.propertyWrites {
+		if _, ok := right.propertyWrites[write]; ok {
+			return false
+		}
+		if _, ok := right.propertyReads[write]; ok {
+			return false
+		}
+	}
+	for write := range right.propertyWrites {
+		if _, ok := left.propertyReads[write]; ok {
+			return false
+		}
+	}
+	return true
 }
 
 type footprintAnalyzer struct {

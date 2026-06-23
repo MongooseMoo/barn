@@ -2,7 +2,9 @@ package scheduler
 
 import (
 	"testing"
+	"time"
 
+	"barn/task"
 	"barn/types"
 )
 
@@ -83,6 +85,74 @@ return property_info(#2, "bar");
 	assertPropertyRead(t, footprint, 2, "bar")
 	if footprint.unknown {
 		t.Fatal("unknown = true, want false")
+	}
+}
+
+func TestAnalyzeTaskAccessFootprintResolvesCommandObjects(t *testing.T) {
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(1201, 10, parseTestStatements(t, `
+this.audit = player.source;
+dobj.target = iobj.source;
+`), ticks, seconds)
+	queued.StartTime = time.Now()
+	queued.Programmer = 11
+	queued.This = 20
+	queued.Caller = 21
+	queued.Dobj = 22
+	queued.Iobj = 23
+
+	footprint := analyzeTaskAccessFootprint(queued)
+
+	assertPropertyWrite(t, footprint, 20, "audit")
+	assertPropertyRead(t, footprint, 10, "source")
+	assertPropertyWrite(t, footprint, 22, "target")
+	assertPropertyRead(t, footprint, 23, "source")
+	if footprint.unknown {
+		t.Fatal("unknown = true, want false")
+	}
+}
+
+func TestAnalyzeTaskAccessFootprintMarksSavedVMUnknown(t *testing.T) {
+	footprint := analyzeTaskAccessFootprint(&task.Task{BytecodeVM: struct{}{}})
+
+	if !footprint.unknown {
+		t.Fatal("unknown = false, want true")
+	}
+}
+
+func TestAccessFootprintsCommuteForDisjointWrites(t *testing.T) {
+	left := analyzeAccessFootprint(parseTestStatements(t, `#1.a = 2;`), nil)
+	right := analyzeAccessFootprint(parseTestStatements(t, `#1.b = 3;`), nil)
+
+	if !accessFootprintsCommute(left, right) {
+		t.Fatal("disjoint property writes did not commute")
+	}
+}
+
+func TestAccessFootprintsDoNotCommuteForSamePropertyWrites(t *testing.T) {
+	left := analyzeAccessFootprint(parseTestStatements(t, `#1.a = 2;`), nil)
+	right := analyzeAccessFootprint(parseTestStatements(t, `#1.A = 3;`), nil)
+
+	if accessFootprintsCommute(left, right) {
+		t.Fatal("same property writes commuted")
+	}
+}
+
+func TestAccessFootprintsDoNotCommuteForReadWrite(t *testing.T) {
+	left := analyzeAccessFootprint(parseTestStatements(t, `return #1.a;`), nil)
+	right := analyzeAccessFootprint(parseTestStatements(t, `#1.a = 3;`), nil)
+
+	if accessFootprintsCommute(left, right) {
+		t.Fatal("read/write conflict commuted")
+	}
+}
+
+func TestAccessFootprintsDoNotCommuteWhenUnknown(t *testing.T) {
+	left := analyzeAccessFootprint(parseTestStatements(t, `return obj.a;`), nil)
+	right := analyzeAccessFootprint(parseTestStatements(t, `#1.b = 3;`), nil)
+
+	if accessFootprintsCommute(left, right) {
+		t.Fatal("unknown footprint commuted")
 	}
 }
 
