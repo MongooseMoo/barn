@@ -281,6 +281,57 @@ func TestTransactionAdoptLiveRelationshipsSeesCreatedChild(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveRelationshipsSeesChangedParents(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject obj failed: %v", errCode)
+	}
+	newParent, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject new parent failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := tx.Parents(obj); errCode != types.E_NONE {
+		t.Fatalf("tx Parents before change failed: %v", errCode)
+	}
+	if _, errCode := tx.Children(0); errCode != types.E_NONE {
+		t.Fatalf("tx Children old parent before change failed: %v", errCode)
+	}
+	if errCode := store.ChangeParents(obj, []types.ObjID{newParent}); errCode != types.E_NONE {
+		t.Fatalf("ChangeParents failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveRelationships(obj, 0, newParent); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships failed: %v", errCode)
+	}
+
+	parents, errCode := tx.Parents(obj)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Parents after change failed: %v", errCode)
+	}
+	if len(parents) != 1 || parents[0] != newParent {
+		t.Fatalf("tx Parents after change = %#v, want #%d", parents, newParent)
+	}
+	oldChildren, errCode := tx.Children(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Children old parent after change failed: %v", errCode)
+	}
+	if len(oldChildren) != 1 || oldChildren[0] != newParent {
+		t.Fatalf("tx old parent children = %#v, want only new parent #%d", oldChildren, newParent)
+	}
+	newChildren, errCode := tx.Children(newParent)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Children new parent after change failed: %v", errCode)
+	}
+	if len(newChildren) != 1 || newChildren[0] != obj {
+		t.Fatalf("tx new parent children = %#v, want object #%d", newChildren, obj)
+	}
+}
+
 func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
