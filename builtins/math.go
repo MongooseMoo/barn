@@ -647,7 +647,7 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			}
 		case types.StrValue:
 			for _, b := range []byte(val.Value()) {
-				encodeByte(&out, b)
+				out.WriteByte(b)
 			}
 		case types.ListValue:
 			for i := 1; i <= val.Len(); i++ {
