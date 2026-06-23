@@ -738,6 +738,21 @@ func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if err := store.Recreate(obj.ID(), parent, owner); err != nil {
 		return types.Err(types.E_INVARG)
 	}
+	if tx := readTxn(ctx); tx != nil {
+		if errCode := tx.AdoptLiveObject(obj.ID()); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		adoptIDs := []types.ObjID{obj.ID()}
+		if parent != types.ObjNothing {
+			adoptIDs = append(adoptIDs, parent)
+		}
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		if errCode := tx.ReseedInheritedProperties(obj.ID()); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 
 	result := types.Ok(types.NewObj(obj.ID()))
 	if !validForRead(ctx, obj.ID()) {

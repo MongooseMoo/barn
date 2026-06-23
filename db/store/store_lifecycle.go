@@ -263,16 +263,34 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
 	newObj := NewObject(id, owner)
-	newObj.parents = []types.ObjID{parent}
+	if parent != types.ObjNothing {
+		parentObj := s.objects[parent]
+		if !validLiveObject(parentObj) {
+			return fmt.Errorf("parent #%d is not valid", parent)
+		}
+		newObj.parents = []types.ObjID{parent}
+	}
 	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
 	stampObjectAll(newObj, ts)
 
 	s.objects[id] = newObj
-	s.rememberObjectLocked(s.objects[parent])
-	s.attachChildToParentsLocked(id, newObj.parents, false, false)
-	stampObjectRelationship(s.objects[parent], ts)
+	s.recycledID = removeRecycledID(s.recycledID, id)
+	if parent != types.ObjNothing {
+		s.rememberObjectLocked(s.objects[parent])
+		s.attachChildToParentsLocked(id, newObj.parents, false, false)
+		stampObjectRelationship(s.objects[parent], ts)
+	}
 
 	return nil
+}
+
+func removeRecycledID(ids []types.ObjID, id types.ObjID) []types.ObjID {
+	for i, candidate := range ids {
+		if candidate == id {
+			return append(ids[:i], ids[i+1:]...)
+		}
+	}
+	return ids
 }
 
 // All returns flat, read-only ObjectViews for every valid (non-recycled)
