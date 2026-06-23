@@ -1070,7 +1070,7 @@ func builtinBootPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewInt(0))
 }
 
-// switch_player(old_player, new_player [, silent]) -> int.
+// switch_player(old_player, new_player [, silent]) -> none.
 func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
@@ -1099,7 +1099,7 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if err := globalConnManager.SwitchPlayer(oldPlayerVal.ID(), newPlayerVal.ID()); err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	return types.Ok(types.NewObj(newPlayerVal.ID()))
+	return types.Ok(types.NewInt(0))
 }
 
 // idle_seconds(player) -> int.
