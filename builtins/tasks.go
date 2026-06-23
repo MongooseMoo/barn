@@ -326,11 +326,6 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			break
 		}
 
-		// Skip server-initiated frames (do_login_command, user_connected, etc.)
-		if frame.ServerInitiated {
-			continue
-		}
-
 		if includeLineNumbers {
 			result = append(result, frame.ToList())
 		} else {
