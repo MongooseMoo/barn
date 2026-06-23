@@ -201,11 +201,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 	}
 	if committed {
+		t.CreatedForks = nil
 		if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			t.Result = result
 		}
 	} else {
+		s.discardCreatedForks(t)
 		builtins.DiscardPendingNotifications(ctx)
 	}
 
@@ -363,6 +365,31 @@ func resultValueContains(value types.Value, text string) bool {
 func (s *Scheduler) sendTaskLine(player types.ObjID, line string) {
 	if s.taskLineSender != nil {
 		s.taskLineSender(player, line)
+	}
+}
+
+func (s *Scheduler) discardCreatedForks(parent *task.Task) {
+	if parent == nil || len(parent.CreatedForks) == 0 {
+		return
+	}
+	created := append([]int64(nil), parent.CreatedForks...)
+	parent.CreatedForks = nil
+
+	s.mu.Lock()
+	for _, id := range created {
+		if child := s.tasks[id]; child != nil {
+			child.Kill()
+			delete(s.tasks, id)
+		}
+	}
+	s.mu.Unlock()
+
+	mgr := task.GetManager()
+	for _, id := range created {
+		if child := mgr.GetTask(id); child != nil {
+			child.Kill()
+		}
+		mgr.RemoveTask(id)
 	}
 }
 

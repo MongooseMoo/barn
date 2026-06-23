@@ -128,8 +128,9 @@ type Task struct {
 	ReadingPlayer   types.ObjID // Player this task is read()ing from (ObjNothing = not reading)
 
 	// For forked tasks
-	ForkInfo *types.ForkInfo // Fork information (only for forked tasks)
-	IsForked bool            // True if this is a forked task
+	ForkInfo     *types.ForkInfo // Fork information (only for forked tasks)
+	IsForked     bool            // True if this is a forked task
+	CreatedForks []int64         // Forked task IDs created during the current execution slice
 
 	// Execution fields (use interface{} to avoid circular imports)
 	Code           interface{}         // []parser.Stmt - parsed code compiled on first run

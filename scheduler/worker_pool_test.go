@@ -171,3 +171,132 @@ return {first, #0.snapshot_value};
 		t.Fatalf("live store value = %q, want new", got)
 	}
 }
+
+func TestRunTaskKeepsForksAfterSuccessfulCommit(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, false, 1)
+	defer s.Stop()
+
+	owner := types.ObjID(7702)
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3002, owner, parseTestStatements(t, `
+fork child (30)
+  suspend(5);
+endfork
+return child;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	defer removeTasksForOwner(s, owner)
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn {
+		t.Fatalf("result flow = %v, want return", queued.Result.Flow)
+	}
+	childID, ok := queued.Result.Val.(types.IntValue)
+	if !ok {
+		t.Fatalf("result value = %T, want child task id", queued.Result.Val)
+	}
+	if len(queued.CreatedForks) != 0 {
+		t.Fatalf("created forks after successful commit = %#v, want none", queued.CreatedForks)
+	}
+	child := task.GetManager().GetTask(childID.Val)
+	if child == nil {
+		t.Fatalf("child task %d was not registered", childID.Val)
+	}
+	if child.Owner != owner || child.GetState() != task.TaskQueued {
+		t.Fatalf("child owner/state = #%d/%s, want #%d/queued", child.Owner, child.GetState(), owner)
+	}
+}
+
+func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, false, 1)
+	defer s.Stop()
+	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		return types.Ok(types.NewInt(0))
+	})
+	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		if ctx.StoreTxn == nil {
+			t.Fatal("task context did not have a store transaction")
+		}
+		if errCode := ctx.StoreTxn.SetPropertyValue(0, "snapshot_value", types.NewStr("task")); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		return types.Ok(types.NewInt(0))
+	})
+
+	owner := types.ObjID(7703)
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3003, owner, parseTestStatements(t, `
+before = #0.snapshot_value;
+fork child (30)
+  suspend(5);
+endfork
+mutate_snapshot_value();
+stage_snapshot_value();
+return child;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	defer removeTasksForOwner(s, owner)
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowException || queued.Result.Error != types.E_INVARG {
+		t.Fatalf("result = flow %v err %v, want E_INVARG exception", queued.Result.Flow, queued.Result.Error)
+	}
+	if len(queued.CreatedForks) != 0 {
+		t.Fatalf("created forks after conflict = %#v, want none", queued.CreatedForks)
+	}
+	for _, task := range task.GetManager().GetQueuedTasks() {
+		if task.Owner == owner {
+			t.Fatalf("conflicted fork task %d remained queued", task.ID)
+		}
+	}
+}
+
+func removeTasksForOwner(s *Scheduler, owner types.ObjID) {
+	var ids []int64
+	s.mu.Lock()
+	for id, task := range s.tasks {
+		if task != nil && task.Owner == owner {
+			task.Kill()
+			ids = append(ids, id)
+			delete(s.tasks, id)
+		}
+	}
+	s.mu.Unlock()
+
+	mgr := task.GetManager()
+	for _, task := range mgr.GetAllTasks() {
+		if task != nil && task.Owner == owner {
+			task.Kill()
+			ids = append(ids, task.ID)
+		}
+	}
+	for _, id := range ids {
+		mgr.RemoveTask(id)
+	}
+}

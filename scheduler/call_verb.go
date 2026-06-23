@@ -131,10 +131,12 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		}
 	}
 	if committed {
+		t.CreatedForks = nil
 		if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
 			result = types.Err(errCode)
 		}
 	} else {
+		s.discardCreatedForks(t)
 		builtins.DiscardPendingNotifications(ctx)
 	}
 
