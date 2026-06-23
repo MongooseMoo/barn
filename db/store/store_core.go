@@ -113,6 +113,12 @@ func stampObjectProperties(obj *Object, ts uint64) {
 	}
 }
 
+func stampProperty(prop *Property, ts uint64) {
+	if prop != nil {
+		prop.version = ts
+	}
+}
+
 func stampObjectVerbs(obj *Object, ts uint64) {
 	if obj != nil {
 		obj.verbVersion = ts

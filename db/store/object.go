@@ -99,6 +99,7 @@ type Property struct {
 	perms   PropertyPerms
 	clear   bool // If true, inherits from parent
 	defined bool // If true, was added via add_property on this object
+	version uint64
 }
 
 // PropertyView is a flat, read-only snapshot of a Property. It is a value (a

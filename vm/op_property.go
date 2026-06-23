@@ -208,7 +208,13 @@ func (vm *VM) executeSetProp() error {
 		if err := vm.checkPropertyWritePerm(prop); err != nil {
 			return err
 		}
-		if errCode := vm.Store.SetPropertyValue(objID, propName, value); errCode != types.E_NONE {
+		errCode := types.E_NONE
+		if txn != nil {
+			errCode = txn.SetPropertyValue(objID, propName, value)
+		} else {
+			errCode = vm.Store.SetPropertyValue(objID, propName, value)
+		}
+		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: property not set: %s", errCode, propName)
 		}
 		return nil
@@ -225,7 +231,13 @@ func (vm *VM) executeSetProp() error {
 		return err
 	}
 
-	if errCode := vm.Store.SetPropertyValue(objID, propName, value); errCode != types.E_NONE {
+	errCode = types.E_NONE
+	if txn != nil {
+		errCode = txn.SetPropertyValue(objID, propName, value)
+	} else {
+		errCode = vm.Store.SetPropertyValue(objID, propName, value)
+	}
+	if errCode != types.E_NONE {
 		return fmt.Errorf("%s: property not set: %s", errCode, propName)
 	}
 	return nil

@@ -8,11 +8,29 @@ import (
 )
 
 type StoreTxn struct {
-	readTS      uint64
-	store       *Store
-	objects     map[types.ObjID]*Object
-	maxObjID    types.ObjID
-	highWaterID types.ObjID
+	readTS         uint64
+	store          *Store
+	objects        map[types.ObjID]*Object
+	propertyReads  map[propertyReadKey]uint64
+	propertyScans  map[types.ObjID]uint64
+	propertyWrites map[propertyWriteKey]propertyWrite
+	maxObjID       types.ObjID
+	highWaterID    types.ObjID
+}
+
+type propertyReadKey struct {
+	objID types.ObjID
+	name  string
+}
+
+type propertyWriteKey struct {
+	objID types.ObjID
+	name  string
+}
+
+type propertyWrite struct {
+	value types.Value
+	prop  Property
 }
 
 func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
@@ -23,11 +41,14 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		readTS = s.clock
 	}
 	return &StoreTxn{
-		readTS:      readTS,
-		store:       s,
-		objects:     make(map[types.ObjID]*Object),
-		maxObjID:    s.maxObjID,
-		highWaterID: s.highWaterID,
+		readTS:         readTS,
+		store:          s,
+		objects:        make(map[types.ObjID]*Object),
+		propertyReads:  make(map[propertyReadKey]uint64),
+		propertyScans:  make(map[types.ObjID]uint64),
+		propertyWrites: make(map[propertyWriteKey]propertyWrite),
+		maxObjID:       s.maxObjID,
+		highWaterID:    s.highWaterID,
 	}
 }
 
@@ -68,6 +89,33 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 		}
 	}
 	return nil
+}
+
+func (tx *StoreTxn) markPropertyRead(objID types.ObjID, prop *Property) {
+	if tx == nil || prop == nil {
+		return
+	}
+	tx.propertyReads[propertyReadKey{objID: objID, name: propertyNameKey(prop.name)}] = prop.version
+}
+
+func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
+	if tx == nil || obj == nil {
+		return
+	}
+	tx.propertyScans[objID] = obj.propertyVersion
+}
+
+func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value types.Value) {
+	prop.value = value
+	prop.clear = false
+	tx.propertyWrites[propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}] = propertyWrite{
+		value: value,
+		prop:  prop,
+	}
+}
+
+func (tx *StoreTxn) HasWrites() bool {
+	return tx != nil && len(tx.propertyWrites) > 0
 }
 
 func cloneObjectForReadTxn(obj *Object) *Object {
@@ -244,6 +292,7 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, typ
 		}
 
 		if _, prop, ok := propertyByName(current.properties, name); ok {
+			tx.markPropertyRead(currentID, prop)
 			if targetProp == nil {
 				targetProp = prop
 			}
@@ -256,6 +305,8 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, typ
 				}
 				return prop, types.E_NONE
 			}
+		} else {
+			tx.markPropertyScan(currentID, current)
 		}
 		queue = append(queue, current.parents...)
 	}
@@ -278,8 +329,10 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 	}
 	_, prop, ok := propertyByName(obj.properties, name)
 	if !ok {
+		tx.markPropertyScan(objID, obj)
 		return PropertyView{}, false, types.E_NONE
 	}
+	tx.markPropertyRead(objID, prop)
 	return prop.View(), true, types.E_NONE
 }
 
@@ -288,6 +341,7 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
+	tx.markPropertyScan(objID, obj)
 
 	names := make([]string, 0, len(obj.properties))
 	for _, name := range obj.propOrder {
@@ -306,12 +360,112 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 	}
 	_, prop, exists := propertyByName(obj.properties, name)
 	if !exists {
+		tx.markPropertyScan(objID, obj)
 		return true, types.E_NONE
 	}
+	tx.markPropertyRead(objID, prop)
 	if prop.defined {
 		return false, types.E_NONE
 	}
 	return prop.clear, types.E_NONE
+}
+
+func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+
+	if _, prop, ok := propertyByName(obj.properties, name); ok {
+		tx.markPropertyRead(objID, prop)
+		prop.clear = false
+		prop.value = value
+		tx.stagePropertyValue(objID, *prop, value)
+		return types.E_NONE
+	}
+
+	inherited, err := tx.findProperty(objID, name)
+	if err != types.E_NONE {
+		return err
+	}
+	override := Property{
+		name:    inherited.name,
+		value:   value,
+		owner:   inherited.owner,
+		perms:   inherited.perms,
+		clear:   false,
+		defined: false,
+		version: inherited.version,
+	}
+	obj.properties[inherited.name] = &override
+	tx.stagePropertyValue(objID, override, value)
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) Commit() types.ErrorCode {
+	if tx == nil || len(tx.propertyWrites) == 0 {
+		return types.E_NONE
+	}
+	if tx.store == nil {
+		return types.E_INVARG
+	}
+
+	tx.store.mu.Lock()
+	defer tx.store.mu.Unlock()
+
+	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
+
+	ts := tx.store.bumpClockLocked()
+	remembered := make(map[types.ObjID]bool)
+	for key, write := range tx.propertyWrites {
+		live := tx.store.objects[key.objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if !remembered[key.objID] {
+			tx.store.rememberObjectLocked(live)
+			remembered[key.objID] = true
+		}
+		if _, prop, ok := propertyByName(live.properties, write.prop.name); ok {
+			prop.clear = false
+			prop.value = write.value
+			stampProperty(prop, ts)
+		} else {
+			prop := write.prop
+			prop.value = write.value
+			prop.clear = false
+			prop.version = ts
+			live.properties[prop.name] = &prop
+		}
+		stampObjectProperties(live, ts)
+	}
+	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
+	for key, version := range tx.propertyReads {
+		live := tx.store.objects[key.objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		_, prop, ok := propertyByName(live.properties, key.name)
+		if !ok || prop.version != version {
+			return types.E_INVARG
+		}
+	}
+	for objID, version := range tx.propertyScans {
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if live.propertyVersion != version {
+			return types.E_INVARG
+		}
+	}
+	return types.E_NONE
 }
 
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {

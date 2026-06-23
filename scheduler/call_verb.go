@@ -122,6 +122,11 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 
 	// Handle fork yields: create child tasks and resume parent
 	result = s.drainForks(t, bcVM, result)
+	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+			result = types.Err(errCode)
+		}
+	}
 
 	// Extract call stack BEFORE popping frames
 	if result.Flow == types.FlowException {
