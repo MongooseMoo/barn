@@ -204,6 +204,16 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	}
 	obj.verbVersion = live.verbVersion
 	tx.verbScans[objID] = live.verbVersion
+	for key := range tx.verbReads {
+		if key.objID != objID {
+			continue
+		}
+		if verb := live.verbs[key.name]; verb != nil {
+			tx.verbReads[key] = verb.version
+			continue
+		}
+		delete(tx.verbReads, key)
+	}
 	return types.E_NONE
 }
 

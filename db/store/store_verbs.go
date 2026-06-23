@@ -292,6 +292,15 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
 	}
+	for _, newName := range verb.names {
+		for _, existing := range obj.verbList {
+			for _, existingName := range existing.names {
+				if strings.EqualFold(existingName, newName) {
+					return 0, types.E_INVARG
+				}
+			}
+		}
+	}
 
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
