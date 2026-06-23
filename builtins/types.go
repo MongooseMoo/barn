@@ -54,12 +54,9 @@ func valueToStr(val types.Value) string {
 		return strconv.FormatInt(v.Val, 10)
 
 	case types.FloatValue:
-		s := strconv.FormatFloat(v.Val, 'g', -1, 64)
-		// Add .0 if no decimal point and not in scientific notation
-		if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
-			s += ".0"
-		}
-		return s
+		// Delegate to the canonical float formatting (15 significant digits,
+		// ToastStunt-compatible) so tostr() matches value output and toliteral().
+		return v.String()
 
 	case types.ObjValue:
 		return fmt.Sprintf("#%d", v.ID())
