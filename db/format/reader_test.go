@@ -12,7 +12,7 @@ import (
 
 func TestLoadDatabase(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("testdata", "toastcore.db")
 
 	database, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestLoadDatabase(t *testing.T) {
 
 func TestParentParsing(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("testdata", "toastcore.db")
 
 	database, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -86,7 +86,7 @@ func TestParentParsing(t *testing.T) {
 
 func TestVerbCount(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("testdata", "toastcore.db")
 
 	database, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -238,9 +238,12 @@ inner_verb
 
 func TestLoadMongooseSnapshot(t *testing.T) {
 	// Test loading the mongoose7_snapshot.db
-	dbPath := "mongoose7_snapshot.db"
+	dbPath := filepath.Join("..", "..", "mongoose7_snapshot.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Skipf("large external fixture not vendored (%s); skipping outside dev env", dbPath)
+	}
 
-	database, err := LoadDatabase(filepath.Join("..", "..", dbPath))
+	database, err := LoadDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to load database: %v", err)
 	}
@@ -259,7 +262,7 @@ func TestLoadMongooseSnapshot(t *testing.T) {
 
 func TestVerbInheritance(t *testing.T) {
 	// Use the toastcore.db from cow_py
-	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("testdata", "toastcore.db")
 
 	database, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -292,7 +295,7 @@ func TestVerbInheritance(t *testing.T) {
 }
 
 func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
-	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("testdata", "toastcore.db")
 
 	database, err := LoadDatabase(dbPath)
 	if err != nil {
@@ -315,7 +318,7 @@ func TestResolvedPropOrderMatchesPropertyMap(t *testing.T) {
 }
 
 func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
-	dbPath := filepath.Join("..", "..", "..", "cow_py", "toastcore.db")
+	dbPath := filepath.Join("testdata", "toastcore.db")
 
 	loaded, err := LoadDatabase(dbPath)
 	if err != nil {
