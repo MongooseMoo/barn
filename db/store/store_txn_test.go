@@ -415,3 +415,38 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 		t.Fatalf("verb scan version = %d, want %d", got, live.verbVersion)
 	}
 }
+
+func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, _, err := tx.FindVerb(0, "look"); err != nil {
+		t.Fatalf("FindVerb failed: %v", err)
+	}
+	if errCode := store.SetVerbCode(0, "look", []string{"return 2;"}); errCode != types.E_NONE {
+		t.Fatalf("SetVerbCode failed: %v", errCode)
+	}
+	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("tx SetPropertyValue failed: %v", errCode)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("tx Commit = %v, want E_INVARG conflict", errCode)
+	}
+	value, errCode := store.PropertyValue(0, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 1 {
+		t.Fatalf("property a = %d, want unchanged value 1", got)
+	}
+}

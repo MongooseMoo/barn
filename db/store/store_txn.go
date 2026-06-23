@@ -515,6 +515,9 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
 		return errCode
 	}
+	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
 
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
@@ -595,6 +598,29 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 			return types.E_INVIND
 		}
 		if live.propertyVersion != version {
+			return types.E_INVARG
+		}
+	}
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
+	for key, version := range tx.verbReads {
+		live := tx.store.objects[key.objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		verb := live.verbs[key.name]
+		if verb == nil || verb.version != version {
+			return types.E_INVARG
+		}
+	}
+	for objID, version := range tx.verbScans {
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if live.verbVersion != version {
 			return types.E_INVARG
 		}
 	}
