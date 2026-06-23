@@ -116,15 +116,12 @@ func (vm *VM) executeCallVerb() error {
 	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
 		lookupVerbName = ":" + lookupVerbName
 	}
-	verb, defObjID, err := vm.Store.FindVerb(objID, lookupVerbName)
+	// A verb without the execute flag does not shadow a same-named, executable
+	// verb defined further up the ancestry chain — ToastStunt's call dispatch
+	// (obj:verb() syntax) skips past it and keeps searching. Only when no
+	// ancestor defines an executable match does dispatch fail, as E_VERBNF.
+	verb, defObjID, err := vm.Store.FindCallableVerb(objID, lookupVerbName)
 	if err != nil {
-		vm.Store.NoteVerbCacheMiss()
-		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
-	}
-
-	// A verb without the execute flag is not callable: ToastStunt treats it as
-	// nonexistent for call dispatch (E_VERBNF), not a permission error.
-	if !verb.Perms.Has(dbstore.VerbExecute) {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}

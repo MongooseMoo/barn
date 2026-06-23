@@ -102,14 +102,11 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(errCode)
 	}
 
-	// Try to find the verb
-	verb, definingObj, err := store.FindVerb(objID, nameVal.Value())
+	// Try to find the verb that would actually answer obj:verb() — a
+	// non-executable same-named verb does not shadow an executable one
+	// defined further up the ancestry chain.
+	verb, definingObj, err := store.FindCallableVerb(objID, nameVal.Value())
 	if err != nil {
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Non-executable verbs always return 0
-	if !verb.Perms.Has(dbstore.VerbExecute) {
 		return types.Ok(types.NewInt(0))
 	}
 

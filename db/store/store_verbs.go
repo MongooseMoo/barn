@@ -150,7 +150,39 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (VerbView, types.Ob
 	return verb.View(), definer, nil
 }
 
+// FindCallableVerb resolves a verb for call dispatch (obj:verb(...) syntax).
+// Unlike FindVerb, a same-named verb without execute permission does not
+// shadow an executable verb of the same name defined further up the
+// ancestry chain; the search continues past it. See findCallableVerbLocked.
+func (s *Store) FindCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	verb, definer, err := s.findCallableVerbLocked(objID, verbName)
+	if err != nil {
+		return VerbView{}, definer, err
+	}
+	return verb.View(), definer, nil
+}
+
 func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	return s.findVerbWalkLocked(objID, verbName, false)
+}
+
+// findCallableVerbLocked walks the ancestry chain exactly like findVerbLocked,
+// but a same-named verb that lacks the execute ("x") permission does not
+// shadow same-named verbs on more distant ancestors: the walk treats it as a
+// non-match and keeps searching further up the chain. ToastStunt's verb-call
+// dispatch behaves this way — a subclass can define a private, non-executable
+// verb of a given name without breaking calls that resolve through it to a
+// public, executable verb defined higher up (e.g. a player class "room area"
+// verb with perms "d" does not block dispatch to $root_class's executable
+// "area room" verb of the same name).
+func (s *Store) findCallableVerbLocked(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+	return s.findVerbWalkLocked(objID, verbName, true)
+}
+
+func (s *Store) findVerbWalkLocked(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	// Track visited objects to prevent infinite loops
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
@@ -179,7 +211,9 @@ func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if matchVerbName(alias, verbName) {
-					return verb, current, nil
+					if !requireExecute || verb.perms.Has(VerbExecute) {
+						return verb, current, nil
+					}
 				}
 			}
 		}
@@ -192,10 +226,10 @@ func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types
 		// fallback for such lookups; the wildcard scan above already handled any
 		// legitimate match.
 		if !strings.Contains(verbName, "*") {
-			if verb, ok := obj.verbs[verbName]; ok {
+			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
 				return verb, current, nil
 			}
-			if verb, ok := obj.verbs[":"+verbName]; ok {
+			if verb, ok := obj.verbs[":"+verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
 				return verb, current, nil
 			}
 		}
