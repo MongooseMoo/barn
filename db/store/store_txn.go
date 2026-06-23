@@ -393,6 +393,102 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	}
 }
 
+func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
+	if tx == nil || oldID == newID {
+		return
+	}
+	for key, prop := range tx.propertyDefines {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.propertyDefines, key)
+		key.objID = newID
+		tx.propertyDefines[key] = prop
+	}
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.propertyDefinitionDeletes, key)
+		key.objID = newID
+		tx.propertyDefinitionDeletes[key] = actualName
+	}
+	for key, write := range tx.propertyWrites {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.propertyWrites, key)
+		key.objID = newID
+		tx.propertyWrites[key] = write
+	}
+	for key, actualName := range tx.propertyDeletes {
+		if key.objID != oldID {
+			continue
+		}
+		delete(tx.propertyDeletes, key)
+		key.objID = newID
+		tx.propertyDeletes[key] = actualName
+	}
+}
+
+func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
+	if tx == nil {
+		return
+	}
+	obj := tx.objects[objID]
+	if !validLiveObject(obj) {
+		return
+	}
+	for key, prop := range tx.propertyDefines {
+		if key.objID != objID {
+			continue
+		}
+		if actualName, _, ok := propertyByName(obj.properties, prop.name); ok {
+			delete(obj.properties, actualName)
+		}
+		obj.properties[prop.name] = cloneProperty(&prop)
+		foundOrder := false
+		for _, name := range obj.propOrder {
+			if strings.EqualFold(name, prop.name) {
+				foundOrder = true
+				break
+			}
+		}
+		if !foundOrder {
+			pos := obj.propDefsCount
+			if pos > len(obj.propOrder) {
+				pos = len(obj.propOrder)
+			}
+			obj.propOrder = append(obj.propOrder, "")
+			copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
+			obj.propOrder[pos] = prop.name
+			obj.propDefsCount++
+		}
+	}
+	for key, write := range tx.propertyWrites {
+		if key.objID != objID {
+			continue
+		}
+		obj.properties[write.prop.name] = cloneProperty(&write.prop)
+	}
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		if key.objID != objID {
+			continue
+		}
+		if liveActual, _, ok := propertyByName(obj.properties, actualName); ok {
+			delete(obj.properties, liveActual)
+		}
+	}
+	for key, actualName := range tx.propertyDeletes {
+		if key.objID != objID {
+			continue
+		}
+		if liveActual, _, ok := propertyByName(obj.properties, actualName); ok {
+			delete(obj.properties, liveActual)
+		}
+	}
+}
+
 func (tx *StoreTxn) ValidationFailed() bool {
 	return tx != nil && tx.validationFail
 }
@@ -593,6 +689,15 @@ func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 	}
 	tx.markObjectRelationshipRead(objID, obj)
 	return append([]types.ObjID(nil), obj.children...), types.E_NONE
+}
+
+func (tx *StoreTxn) AnonymousChildren(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return nil, types.E_INVIND
+	}
+	tx.markObjectRelationshipRead(objID, obj)
+	return append([]types.ObjID(nil), obj.anonymousChildren...), types.E_NONE
 }
 
 func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {

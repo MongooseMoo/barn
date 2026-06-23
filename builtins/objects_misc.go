@@ -43,6 +43,7 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	var oldParents []types.ObjID
 	var oldChildren []types.ObjID
+	var oldAnonymousChildren []types.ObjID
 	var oldContents []types.ObjID
 	oldLocation := types.ObjNothing
 	if tx := readTxn(ctx); tx != nil {
@@ -52,6 +53,10 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			return types.Err(errCode)
 		}
 		oldChildren, errCode = tx.Children(oldID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldAnonymousChildren, errCode = tx.AnonymousChildren(oldID)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -71,12 +76,15 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	if tx := readTxn(ctx); tx != nil {
+		tx.MoveStagedProperties(oldID, newID)
 		tx.ForgetObject(oldID)
 		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		tx.ApplyStagedProperties(newID)
 		adoptIDs := append([]types.ObjID{newID}, oldParents...)
 		adoptIDs = append(adoptIDs, oldChildren...)
+		adoptIDs = append(adoptIDs, oldAnonymousChildren...)
 		adoptIDs = append(adoptIDs, oldContents...)
 		if oldLocation != types.ObjNothing {
 			adoptIDs = append(adoptIDs, oldLocation)
