@@ -85,6 +85,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	ctx.Task = t               // Attach task so VM can track frames
 	ctx.Store = s.store
 	ctx.Registry = s.registry
+	ctx.PromoteNumbers = s.promoteNumbers
 
 	// Push activation frame for traceback support
 	t.PushFrame(task.ActivationFrame{

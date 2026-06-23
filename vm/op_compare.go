@@ -19,6 +19,14 @@ func (vm *VM) executeEq() error {
 		}
 		return nil
 	}
+	if eq, ok := vm.promoteNumericEqual(a, b); ok {
+		if eq {
+			vm.Push(types.IntValue{Val: 1})
+		} else {
+			vm.Push(types.IntValue{Val: 0})
+		}
+		return nil
+	}
 	if a.Equal(b) {
 		vm.Push(types.IntValue{Val: 1})
 	} else {
@@ -31,6 +39,14 @@ func (vm *VM) executeNe() error {
 	b := vm.Pop()
 	a := vm.Pop()
 	if eq, ok := boolIntEqual(a, b); ok {
+		if eq {
+			vm.Push(types.IntValue{Val: 0})
+		} else {
+			vm.Push(types.IntValue{Val: 1})
+		}
+		return nil
+	}
+	if eq, ok := vm.promoteNumericEqual(a, b); ok {
 		if eq {
 			vm.Push(types.IntValue{Val: 0})
 		} else {
@@ -51,7 +67,7 @@ func (vm *VM) executeLt() error {
 	a := vm.Pop()
 
 	// Type-specific comparison
-	result, err := compareValues(a, b)
+	result, err := compareValues(a, b, vm.promoting())
 	if err != nil {
 		return err
 	}
@@ -68,7 +84,7 @@ func (vm *VM) executeLe() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	result, err := compareValues(a, b)
+	result, err := compareValues(a, b, vm.promoting())
 	if err != nil {
 		return err
 	}
@@ -85,7 +101,7 @@ func (vm *VM) executeGt() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	result, err := compareValues(a, b)
+	result, err := compareValues(a, b, vm.promoting())
 	if err != nil {
 		return err
 	}
@@ -102,7 +118,7 @@ func (vm *VM) executeGe() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	result, err := compareValues(a, b)
+	result, err := compareValues(a, b, vm.promoting())
 	if err != nil {
 		return err
 	}
@@ -162,8 +178,30 @@ func (vm *VM) executeIn() error {
 	}
 }
 
-// Helper function to compare values
-func compareValues(a, b types.Value) (int, error) {
+// promoteNumericEqual implements PROMOTE_NUMBERS == / != semantics (do_equals):
+// when enabled and the operands are a mixed int/float pair, they are compared as
+// doubles. The second return is false (not handled) when promotion is off or the
+// operands are not a mixed int/float pair, so the caller falls back to a.Equal(b).
+func (vm *VM) promoteNumericEqual(a, b types.Value) (equal bool, handled bool) {
+	if !vm.promoting() {
+		return false, false
+	}
+	_, aIsInt := a.(types.IntValue)
+	_, bIsInt := b.(types.IntValue)
+	_, aIsFloat := a.(types.FloatValue)
+	_, bIsFloat := b.(types.FloatValue)
+	mixed := (aIsInt && bIsFloat) || (aIsFloat && bIsInt)
+	if !mixed {
+		return false, false
+	}
+	af, _ := numericToFloat(a)
+	bf, _ := numericToFloat(b)
+	return af == bf, true
+}
+
+// Helper function to compare values. When promote is true (PROMOTE_NUMBERS),
+// mixed int/float operands are compared as doubles instead of raising E_TYPE.
+func compareValues(a, b types.Value, promote bool) (int, error) {
 	// Integer comparison
 	aInt, aIsInt := a.(types.IntValue)
 	bInt, bIsInt := b.(types.IntValue)
@@ -191,6 +229,17 @@ func compareValues(a, b types.Value) (int, error) {
 	}
 
 	if (aIsInt && bIsFloat) || (aIsFloat && bIsInt) {
+		// PROMOTE_NUMBERS: compare mixed int/float as doubles (compare_numbers).
+		if promote {
+			af, _ := numericToFloat(a)
+			bf, _ := numericToFloat(b)
+			if af < bf {
+				return -1, nil
+			} else if af > bf {
+				return 1, nil
+			}
+			return 0, nil
+		}
 		return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
 	}
 

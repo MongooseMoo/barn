@@ -55,6 +55,9 @@ func main() {
 	dumpPath := flag.String("dump", "", "Dump database to path and exit")
 	checkpointInterval := flag.Int("checkpoint-interval", 3600, "Checkpoint interval in seconds (0=disabled)")
 
+	// Numeric semantics
+	promoteNumbers := flag.Bool("promote-numbers", false, "Enable ToastStunt mongoose PROMOTE_NUMBERS: auto-promote int to float in mixed int/float arithmetic and comparison (default off = strict E_TYPE)")
+
 	flag.Parse()
 
 	// Handle -dump flag: dump database and exit
@@ -141,7 +144,7 @@ func main() {
 		trace.Init(false, nil, nil)
 	}
 
-	srv, err := server.NewServer(*dbPath, listenerSpecs, *checkpointInterval)
+	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, *promoteNumbers)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

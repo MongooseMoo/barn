@@ -28,23 +28,32 @@ type Scheduler struct {
 	taskLineSender          func(types.ObjID, string)
 	tracebackSender         func(types.ObjID, types.ErrorCode, []task.ActivationFrame)
 	taskOutputFlusher       func(types.ObjID, string)
+	promoteNumbers          bool
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 }
 
-// NewScheduler creates a task scheduler.
+// NewScheduler creates a task scheduler with strict (default) numeric semantics.
 func NewScheduler(store *dbstore.Store) *Scheduler {
+	return NewSchedulerWithOptions(store, false)
+}
+
+// NewSchedulerWithOptions creates a task scheduler. When promoteNumbers is true,
+// mixed int/float arithmetic and comparison auto-promote (ToastStunt mongoose
+// PROMOTE_NUMBERS); when false, strict E_TYPE behavior is used.
+func NewSchedulerWithOptions(store *dbstore.Store, promoteNumbers bool) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
-		tasks:      make(map[int64]*task.Task),
-		waiting:    NewTaskQueue(),
-		nextTaskID: 1,
-		registry:   vm.BuildVMRegistry(),
-		store:      store,
-		ctx:        ctx,
-		cancel:     cancel,
+		tasks:          make(map[int64]*task.Task),
+		waiting:        NewTaskQueue(),
+		nextTaskID:     1,
+		registry:       vm.BuildVMRegistry(),
+		store:          store,
+		promoteNumbers: promoteNumbers,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
@@ -71,6 +80,7 @@ func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	}
 	ctx.Store = s.store
 	ctx.Registry = s.registry
+	ctx.PromoteNumbers = s.promoteNumbers
 }
 
 // Stop cancels scheduler-owned task contexts.

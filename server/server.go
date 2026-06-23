@@ -30,6 +30,7 @@ type Server struct {
 	dbPath             string
 	listenerSpecs      []builtins.ListenerSpec
 	checkpointInterval time.Duration
+	promoteNumbers     bool
 	running            bool
 	mu                 sync.Mutex
 	shutdownChan       chan struct{}
@@ -38,8 +39,14 @@ type Server struct {
 	cancel             context.CancelFunc
 }
 
-// NewServer creates a new MOO server
+// NewServer creates a new MOO server with strict (default) numeric semantics.
 func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
+	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, false)
+}
+
+// NewServerWithOptions creates a new MOO server. When promoteNumbers is true,
+// the scheduler runs with ToastStunt mongoose PROMOTE_NUMBERS semantics.
+func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, promoteNumbers bool) (*Server, error) {
 	if len(listenerSpecs) == 0 {
 		return nil, fmt.Errorf("no listeners configured")
 	}
@@ -49,6 +56,7 @@ func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointI
 		dbPath:             dbPath,
 		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
+		promoteNumbers:     promoteNumbers,
 		shutdownChan:       make(chan struct{}),
 		checkpointChan:     make(chan struct{}),
 		ctx:                ctx,
@@ -64,7 +72,7 @@ func (s *Server) LoadDatabase() error {
 	}
 
 	s.store = database.NewStoreFromDatabase()
-	s.scheduler = runtime.NewScheduler(s.store)
+	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.promoteNumbers)
 	s.input = NewInputProcessor(s.store, s.scheduler)
 	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
 

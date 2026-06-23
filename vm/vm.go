@@ -536,7 +536,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		endIdx := vm.ReadByte()
 		offset := vm.ReadShort()
 		frame := vm.CurrentFrame()
-		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx])
+		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx], vm.promoting())
 		if err != nil {
 			return err
 		}

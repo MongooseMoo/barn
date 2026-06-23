@@ -66,6 +66,11 @@ type TaskContext struct {
 	// When a string operation would produce a result longer than this, E_QUOTA is returned
 	// Default matches ToastStunt's DEFAULT_MAX_STRING_CONCAT
 	MaxStringConcat int
+
+	// PromoteNumbers, when true, enables ToastStunt-mongoose PROMOTE_NUMBERS behavior:
+	// mixed int/float arithmetic and comparison auto-promote the int operand to float
+	// instead of raising E_TYPE. Defaults to false (strict, conformant behavior).
+	PromoteNumbers bool
 }
 
 // NewTaskContext creates a new task context with default values.
