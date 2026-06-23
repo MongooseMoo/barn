@@ -612,8 +612,8 @@ func builtinLoadServerOptions(ctx *kernel.TaskContext, args []types.Value) types
 		return types.Err(types.E_PERM)
 	}
 
-	// Load server options from $server_options object into global cache
-	loaded := LoadServerOptionsFromStore(store)
+	// Load server options from $server_options object into global cache.
+	loaded := LoadServerOptionsForTask(ctx)
 	// Refresh the protected-builtin flags from the same $server_options object,
 	// mirroring Toast's load_server_protect_function_flags().
 	LoadProtectedBuiltinsFromStore(store)

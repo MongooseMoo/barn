@@ -86,10 +86,22 @@ func findDefinedProperty(objID types.ObjID, name string, store *dbstore.Store) (
 	return prop, true
 }
 
-// LoadServerOptionsFromStore reads limits from $server_options object and caches them.
-// This is called by the load_server_options() builtin.
-// Returns the number of options successfully loaded.
-func LoadServerOptionsFromStore(store *dbstore.Store) int {
+type propertyReader func(types.ObjID, string) (dbstore.PropertyView, bool)
+
+func cacheServerOptionsDefaults() {
+	serverOptionsCache.Lock()
+	serverOptionsCache.maxStringConcat = defaultMaxStringConcat
+	serverOptionsCache.maxListValueBytes = defaultMaxListValueBytes
+	serverOptionsCache.maxMapValueBytes = defaultMaxMapValueBytes
+	serverOptionsCache.fgTicks = defaultFgTicks
+	serverOptionsCache.bgTicks = defaultBgTicks
+	serverOptionsCache.fgSeconds = defaultFgSeconds
+	serverOptionsCache.bgSeconds = defaultBgSeconds
+	serverOptionsCache.maxStackDepth = defaultMaxStackDepth
+	serverOptionsCache.Unlock()
+}
+
+func loadServerOptions(findProperty propertyReader, findDefined propertyReader) int {
 	// Reset to defaults on every load, matching Toast's cache refresh behavior.
 	nextString := defaultMaxStringConcat
 	nextList := defaultMaxListValueBytes
@@ -101,49 +113,22 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	nextMaxStackDepth := defaultMaxStackDepth
 	loaded := 0
 
-	if store == nil {
-		serverOptionsCache.Lock()
-		serverOptionsCache.maxStringConcat = nextString
-		serverOptionsCache.maxListValueBytes = nextList
-		serverOptionsCache.maxMapValueBytes = nextMap
-		serverOptionsCache.fgTicks = nextFgTicks
-		serverOptionsCache.bgTicks = nextBgTicks
-		serverOptionsCache.fgSeconds = nextFgSeconds
-		serverOptionsCache.bgSeconds = nextBgSeconds
-		serverOptionsCache.maxStackDepth = nextMaxStackDepth
-		serverOptionsCache.Unlock()
+	if findProperty == nil || findDefined == nil {
+		cacheServerOptionsDefaults()
 		return 0
 	}
 
 	// Look up the server_options property on #0 (searching inheritance chain)
-	serverOptsProp, err := store.FindProperty(0, "server_options")
-	if err != types.E_NONE {
-		serverOptionsCache.Lock()
-		serverOptionsCache.maxStringConcat = nextString
-		serverOptionsCache.maxListValueBytes = nextList
-		serverOptionsCache.maxMapValueBytes = nextMap
-		serverOptionsCache.fgTicks = nextFgTicks
-		serverOptionsCache.bgTicks = nextBgTicks
-		serverOptionsCache.fgSeconds = nextFgSeconds
-		serverOptionsCache.bgSeconds = nextBgSeconds
-		serverOptionsCache.maxStackDepth = nextMaxStackDepth
-		serverOptionsCache.Unlock()
+	serverOptsProp, ok := findProperty(0, "server_options")
+	if !ok {
+		cacheServerOptionsDefaults()
 		return 0 // No server_options property
 	}
 
 	// The property value should be an object reference
 	serverOptsRef, ok := serverOptsProp.Value.(types.ObjValue)
 	if !ok {
-		serverOptionsCache.Lock()
-		serverOptionsCache.maxStringConcat = nextString
-		serverOptionsCache.maxListValueBytes = nextList
-		serverOptionsCache.maxMapValueBytes = nextMap
-		serverOptionsCache.fgTicks = nextFgTicks
-		serverOptionsCache.bgTicks = nextBgTicks
-		serverOptionsCache.fgSeconds = nextFgSeconds
-		serverOptionsCache.bgSeconds = nextBgSeconds
-		serverOptionsCache.maxStackDepth = nextMaxStackDepth
-		serverOptionsCache.Unlock()
+		cacheServerOptionsDefaults()
 		return 0 // server_options is not an object
 	}
 
@@ -151,7 +136,7 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	serverOptsID := serverOptsRef.ID()
 
 	// Read max_string_concat (searching inheritance chain)
-	if prop, ok := findDefinedProperty(serverOptsID, "max_string_concat", store); ok {
+	if prop, ok := findDefined(serverOptsID, "max_string_concat"); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextString = canonicalizeLimit(int(intVal.Val), minStringConcatLimit, maxStringConcatLimit)
 			loaded++
@@ -159,7 +144,7 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 
 	// Read max_list_value_bytes
-	if prop, ok := findDefinedProperty(serverOptsID, "max_list_value_bytes", store); ok {
+	if prop, ok := findDefined(serverOptsID, "max_list_value_bytes"); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextList = canonicalizeLimit(int(intVal.Val), minListValueBytesLimit, maxListValueBytesLimit)
 			loaded++
@@ -167,38 +152,38 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 
 	// Read max_map_value_bytes
-	if prop, ok := findDefinedProperty(serverOptsID, "max_map_value_bytes", store); ok {
+	if prop, ok := findDefined(serverOptsID, "max_map_value_bytes"); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok {
 			nextMap = canonicalizeLimit(int(intVal.Val), minMapValueBytesLimit, maxMapValueBytesLimit)
 			loaded++
 		}
 	}
 
-	if prop, ok := findDefinedProperty(serverOptsID, "fg_ticks", store); ok {
+	if prop, ok := findDefined(serverOptsID, "fg_ticks"); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
 			nextFgTicks = intVal.Val
 			loaded++
 		}
 	}
-	if prop, ok := findDefinedProperty(serverOptsID, "bg_ticks", store); ok {
+	if prop, ok := findDefined(serverOptsID, "bg_ticks"); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
 			nextBgTicks = intVal.Val
 			loaded++
 		}
 	}
-	if prop, ok := findDefinedProperty(serverOptsID, "fg_seconds", store); ok {
+	if prop, ok := findDefined(serverOptsID, "fg_seconds"); ok {
 		if seconds, ok := numericSeconds(prop.Value); ok && seconds > 0 {
 			nextFgSeconds = seconds
 			loaded++
 		}
 	}
-	if prop, ok := findDefinedProperty(serverOptsID, "bg_seconds", store); ok {
+	if prop, ok := findDefined(serverOptsID, "bg_seconds"); ok {
 		if seconds, ok := numericSeconds(prop.Value); ok && seconds > 0 {
 			nextBgSeconds = seconds
 			loaded++
 		}
 	}
-	if prop, ok := findDefinedProperty(serverOptsID, "max_stack_depth", store); ok {
+	if prop, ok := findDefined(serverOptsID, "max_stack_depth"); ok {
 		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
 			nextMaxStackDepth = int(intVal.Val)
 			loaded++
@@ -217,6 +202,51 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 	serverOptionsCache.Unlock()
 
 	return loaded
+}
+
+// LoadServerOptionsFromStore reads limits from $server_options object and caches them.
+// This is called at server startup and when no task transaction is active.
+// Returns the number of options successfully loaded.
+func LoadServerOptionsFromStore(store *dbstore.Store) int {
+	if store == nil {
+		return loadServerOptions(nil, nil)
+	}
+	return loadServerOptions(
+		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
+			prop, err := store.FindProperty(objID, name)
+			if err != types.E_NONE {
+				return dbstore.PropertyView{}, false
+			}
+			return prop, true
+		},
+		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
+			return findDefinedProperty(objID, name, store)
+		},
+	)
+}
+
+// LoadServerOptionsForTask reads limits through the active task view so
+// same-task updates to $server_options take effect before the task commits.
+func LoadServerOptionsForTask(ctx *kernel.TaskContext) int {
+	if ctx == nil {
+		return loadServerOptions(nil, nil)
+	}
+	return loadServerOptions(
+		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
+			prop, err := findPropertyForRead(ctx, objID, name)
+			if err != types.E_NONE {
+				return dbstore.PropertyView{}, false
+			}
+			return prop, true
+		},
+		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
+			prop, ok, err := localPropertyForRead(ctx, objID, name)
+			if err != types.E_NONE || !ok || !prop.Defined {
+				return dbstore.PropertyView{}, false
+			}
+			return prop, true
+		},
+	)
 }
 
 func numericSeconds(value types.Value) (float64, bool) {
