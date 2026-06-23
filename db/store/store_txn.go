@@ -11,6 +11,8 @@ type StoreTxn struct {
 	readTS         uint64
 	store          *Store
 	objects        map[types.ObjID]*Object
+	scalarReads    map[types.ObjID]uint64
+	scalarWrites   map[types.ObjID]objectScalarWrite
 	propertyReads  map[propertyReadKey]uint64
 	propertyScans  map[types.ObjID]uint64
 	propertyWrites map[propertyWriteKey]propertyWrite
@@ -21,6 +23,15 @@ type StoreTxn struct {
 type propertyReadKey struct {
 	objID types.ObjID
 	name  string
+}
+
+type objectScalarWrite struct {
+	nameSet  bool
+	name     string
+	ownerSet bool
+	owner    types.ObjID
+	flagsSet bool
+	flags    ObjectFlags
 }
 
 type propertyWriteKey struct {
@@ -44,6 +55,8 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		readTS:         readTS,
 		store:          s,
 		objects:        make(map[types.ObjID]*Object),
+		scalarReads:    make(map[types.ObjID]uint64),
+		scalarWrites:   make(map[types.ObjID]objectScalarWrite),
 		propertyReads:  make(map[propertyReadKey]uint64),
 		propertyScans:  make(map[types.ObjID]uint64),
 		propertyWrites: make(map[propertyWriteKey]propertyWrite),
@@ -91,6 +104,16 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 	return nil
 }
 
+func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
+	if tx == nil || obj == nil {
+		return
+	}
+	if _, exists := tx.scalarReads[objID]; exists {
+		return
+	}
+	tx.scalarReads[objID] = obj.scalarVersion
+}
+
 func (tx *StoreTxn) markPropertyRead(objID types.ObjID, prop *Property) {
 	if tx == nil || prop == nil {
 		return
@@ -115,7 +138,7 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value t
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && len(tx.propertyWrites) > 0
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.propertyWrites) > 0)
 }
 
 func cloneObjectForReadTxn(obj *Object) *Object {
@@ -187,6 +210,7 @@ func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 	if !validLiveObject(obj) {
 		return "", types.E_INVIND
 	}
+	tx.markObjectScalarRead(objID, obj)
 	return obj.name, types.E_NONE
 }
 
@@ -195,6 +219,7 @@ func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
+	tx.markObjectScalarRead(objID, obj)
 	return obj.owner, types.E_NONE
 }
 
@@ -203,6 +228,7 @@ func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
 	}
+	tx.markObjectScalarRead(objID, obj)
 	return obj.flags, types.E_NONE
 }
 
@@ -219,7 +245,54 @@ func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
+	tx.markObjectScalarRead(objID, obj)
 	return obj.anonymous, types.E_NONE
+}
+
+func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	tx.markObjectScalarRead(objID, obj)
+	obj.name = name
+	write := tx.scalarWrites[objID]
+	write.nameSet = true
+	write.name = name
+	tx.scalarWrites[objID] = write
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	tx.markObjectScalarRead(objID, obj)
+	obj.owner = owner
+	write := tx.scalarWrites[objID]
+	write.ownerSet = true
+	write.owner = owner
+	tx.scalarWrites[objID] = write
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	tx.markObjectScalarRead(objID, obj)
+	if enabled {
+		obj.flags = obj.flags.Set(flag)
+	} else {
+		obj.flags = obj.flags.Clear(flag)
+	}
+	write := tx.scalarWrites[objID]
+	write.flagsSet = true
+	write.flags = obj.flags
+	tx.scalarWrites[objID] = write
+	return types.E_NONE
 }
 
 func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
@@ -403,7 +476,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 }
 
 func (tx *StoreTxn) Commit() types.ErrorCode {
-	if tx == nil || len(tx.propertyWrites) == 0 {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyWrites) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -413,12 +486,35 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
 
+	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
 	if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
 		return errCode
 	}
 
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
+	for objID, write := range tx.scalarWrites {
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if !remembered[objID] {
+			tx.store.rememberObjectLocked(live)
+			remembered[objID] = true
+		}
+		if write.nameSet {
+			live.name = write.name
+		}
+		if write.ownerSet {
+			live.owner = write.owner
+		}
+		if write.flagsSet {
+			live.flags = write.flags
+		}
+		stampObjectScalar(live, ts)
+	}
 	for key, write := range tx.propertyWrites {
 		live := tx.store.objects[key.objID]
 		if !validLiveObject(live) {
@@ -441,7 +537,21 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		}
 		stampObjectProperties(live, ts)
 	}
+	tx.scalarWrites = make(map[types.ObjID]objectScalarWrite)
 	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
+	for objID, version := range tx.scalarReads {
+		live := tx.store.objects[objID]
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if live.scalarVersion != version {
+			return types.E_INVARG
+		}
+	}
 	return types.E_NONE
 }
 
