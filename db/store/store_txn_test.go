@@ -674,6 +674,32 @@ func TestTransactionDuplicateDefinedPropertySeesStagedDefinitions(t *testing.T) 
 	}
 }
 
+func TestTransactionTruthyPropertiesWithPrefixSeesStagedDefinitions(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if errCode := tx.DefineProperty(0, NewProperty("protect_length", types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty protect_length failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(0, NewProperty("protect_tostr", types.NewInt(0), 0, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty protect_tostr failed: %v", errCode)
+	}
+
+	flags, errCode := tx.TruthyPropertiesWithPrefixInAncestry(0, "protect_")
+	if errCode != types.E_NONE {
+		t.Fatalf("TruthyPropertiesWithPrefixInAncestry failed: %v", errCode)
+	}
+	if !flags["length"] {
+		t.Fatalf("protect_length not reported truthy: %#v", flags)
+	}
+	if flags["tostr"] {
+		t.Fatalf("protect_tostr reported truthy despite false value: %#v", flags)
+	}
+}
+
 func TestTransactionDefinedPropertyConflictSeesStagedDefinitions(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

@@ -701,6 +701,50 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 	return names, types.E_NONE
 }
 
+func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
+	if !validLiveObject(tx.object(objID)) {
+		return nil, types.E_INVIND
+	}
+
+	result := make(map[string]bool)
+	seenObjects := make(map[types.ObjID]bool)
+	decidedNames := make(map[string]bool)
+	lowerPrefix := strings.ToLower(prefix)
+	queue := []types.ObjID{objID}
+
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seenObjects[currentID] {
+			continue
+		}
+		seenObjects[currentID] = true
+
+		current := tx.object(currentID)
+		if !validLiveObject(current) {
+			continue
+		}
+		tx.markPropertyScan(currentID, current)
+		for propName, prop := range current.properties {
+			if prop == nil || !strings.HasPrefix(strings.ToLower(propName), lowerPrefix) {
+				continue
+			}
+			tx.markPropertyRead(currentID, prop)
+			name := propName[len(prefix):]
+			if name == "" || decidedNames[name] || prop.clear {
+				continue
+			}
+			decidedNames[name] = true
+			if prop.value != nil && prop.value.Truthy() {
+				result[name] = true
+			}
+		}
+		queue = append(queue, current.parents...)
+	}
+
+	return result, types.E_NONE
+}
+
 func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
 	seen := make(map[string]bool)
 	for _, id := range ids {
