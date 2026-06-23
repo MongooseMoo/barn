@@ -524,6 +524,21 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 					return types.Err(errCode)
 				}
+				if t, ok := ctx.Task.(*task.Task); ok {
+					t.CreatedForks = nil
+				}
+				if errCode := FlushPendingServerOptions(ctx); errCode != types.E_NONE {
+					return types.Err(errCode)
+				}
+				if errCode := FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
+					return types.Err(errCode)
+				}
+				if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
+					return types.Err(errCode)
+				}
+				if errCode := FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+					return types.Err(errCode)
+				}
 			}
 			globalTaskYielder.YieldReadyTasks()
 			if ctx.Store != nil {
