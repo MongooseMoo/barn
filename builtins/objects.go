@@ -346,6 +346,30 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	var oldParents []types.ObjID
+	var oldChildren []types.ObjID
+	var oldContents []types.ObjID
+	oldLocation := types.ObjNothing
+	if tx := readTxn(ctx); tx != nil {
+		var errCode types.ErrorCode
+		oldParents, errCode = tx.Parents(objID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldChildren, errCode = tx.Children(objID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldContents, errCode = tx.Contents(objID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldLocation, errCode = tx.Location(objID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
+
 	// TODO: Check permissions (Layer 8.5)
 
 	// Invoke :recycle hook if present. Missing hook and hook errors are ignored.
@@ -390,6 +414,15 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	if tx := readTxn(ctx); tx != nil {
 		tx.ForgetObject(objID)
+		adoptIDs := append([]types.ObjID{}, oldParents...)
+		adoptIDs = append(adoptIDs, oldChildren...)
+		adoptIDs = append(adoptIDs, oldContents...)
+		if oldLocation != types.ObjNothing {
+			adoptIDs = append(adoptIDs, oldLocation)
+		}
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 	if globalConnManager != nil {
 		_ = globalConnManager.RecyclePlayer(objID)
