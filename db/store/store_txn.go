@@ -503,6 +503,29 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 	return types.E_NONE
 }
 
+func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if _, prop, ok := propertyByName(obj.properties, name); ok {
+		tx.markPropertyRead(objID, prop)
+		if owner != nil {
+			prop.owner = *owner
+		}
+		if perms != nil {
+			prop.perms = *perms
+		}
+		tx.propertyWrites[propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}] = propertyWrite{
+			value: prop.value,
+			prop:  *prop,
+		}
+		return types.E_NONE
+	}
+	tx.markPropertyScan(objID, obj)
+	return types.E_PROPNF
+}
+
 func (tx *StoreTxn) Commit() types.ErrorCode {
 	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.propertyWrites) == 0) {
 		return types.E_NONE
@@ -560,8 +583,11 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 			remembered[key.objID] = true
 		}
 		if _, prop, ok := propertyByName(live.properties, write.prop.name); ok {
-			prop.clear = false
-			prop.value = write.value
+			prop.value = write.prop.value
+			prop.owner = write.prop.owner
+			prop.perms = write.prop.perms
+			prop.clear = write.prop.clear
+			prop.defined = write.prop.defined
 			stampProperty(prop, ts)
 		} else {
 			prop := write.prop

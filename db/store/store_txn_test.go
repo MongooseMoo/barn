@@ -211,6 +211,94 @@ func TestTransactionSamePropertyWriteConflicts(t *testing.T) {
 	}
 }
 
+func TestTransactionSetPropertyInfoStagesUntilCommit(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	newOwner := types.ObjID(7)
+	newPerms := PropRead
+	if errCode := tx.SetPropertyInfo(0, "a", &newOwner, &newPerms); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyInfo failed: %v", errCode)
+	}
+
+	txProp, ok, errCode := tx.LocalProperty(0, "a")
+	if errCode != types.E_NONE || !ok {
+		t.Fatalf("tx LocalProperty ok=%v err=%v, want local property", ok, errCode)
+	}
+	if txProp.Owner != newOwner || txProp.Perms != newPerms {
+		t.Fatalf("tx property info owner=%d perms=%v, want owner=%d perms=%v", txProp.Owner, txProp.Perms, newOwner, newPerms)
+	}
+	liveProp, ok, errCode := store.LocalProperty(0, "a")
+	if errCode != types.E_NONE || !ok {
+		t.Fatalf("live LocalProperty ok=%v err=%v, want local property", ok, errCode)
+	}
+	if liveProp.Owner == newOwner || liveProp.Perms == newPerms {
+		t.Fatalf("live property info changed before commit: owner=%d perms=%v", liveProp.Owner, liveProp.Perms)
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	liveProp, ok, errCode = store.LocalProperty(0, "a")
+	if errCode != types.E_NONE || !ok {
+		t.Fatalf("live LocalProperty after commit ok=%v err=%v, want local property", ok, errCode)
+	}
+	if liveProp.Owner != newOwner || liveProp.Perms != newPerms {
+		t.Fatalf("live property info owner=%d perms=%v, want owner=%d perms=%v", liveProp.Owner, liveProp.Perms, newOwner, newPerms)
+	}
+}
+
+func TestTransactionPropertyInfoConflictsWithValueWrite(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	infoTx := store.BeginReadOnly(0)
+	valueTx := store.BeginReadOnly(0)
+	newPerms := PropRead
+	if errCode := infoTx.SetPropertyInfo(0, "a", nil, &newPerms); errCode != types.E_NONE {
+		t.Fatalf("infoTx SetPropertyInfo failed: %v", errCode)
+	}
+	if errCode := valueTx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("valueTx SetPropertyValue failed: %v", errCode)
+	}
+
+	if errCode := infoTx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("infoTx Commit failed: %v", errCode)
+	}
+	if errCode := valueTx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("valueTx Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !valueTx.ValidationFailed() {
+		t.Fatalf("valueTx did not record validation failure")
+	}
+
+	value, errCode := store.PropertyValue(0, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 1 {
+		t.Fatalf("property a = %d, want unchanged value 1", got)
+	}
+	prop, ok, errCode := store.LocalProperty(0, "a")
+	if errCode != types.E_NONE || !ok {
+		t.Fatalf("LocalProperty ok=%v err=%v, want local property", ok, errCode)
+	}
+	if prop.Perms != newPerms {
+		t.Fatalf("property perms = %v, want %v", prop.Perms, newPerms)
+	}
+}
+
 func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
