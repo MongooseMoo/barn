@@ -13,6 +13,19 @@ func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	return calculateObjectBytes(obj), types.E_NONE
 }
 
+func (tx *StoreTxn) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return 0, types.E_INVIND
+	}
+	tx.markObjectScalarRead(objID, obj)
+	tx.markPropertyScan(objID, obj)
+	for _, prop := range obj.properties {
+		tx.markPropertyRead(objID, prop)
+	}
+	return calculateObjectBytes(obj), types.E_NONE
+}
+
 func calculateObjectBytes(obj *Object) int {
 	count := 64 + 8
 

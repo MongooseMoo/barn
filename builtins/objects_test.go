@@ -59,3 +59,39 @@ func TestMoveInvalidObjectsReturnInvarg(t *testing.T) {
 		t.Fatalf("move(valid, #-5) = %#v, want E_INVARG", res)
 	}
 }
+
+func TestObjectBytesSeesStagedProperties(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	ctx := kernel.NewTaskContext()
+	ctx.Store = store
+	ctx.StoreTxn = store.BeginReadOnly(0)
+	ctx.IsWizard = true
+	ctx.Programmer = 0
+	ctx.Player = 0
+
+	before := builtinObjectBytes(ctx, []types.Value{types.NewObj(obj)})
+	if before.IsError() {
+		t.Fatalf("object_bytes before failed: %v", before.Error)
+	}
+	beforeVal := before.Val.(types.IntValue).Val
+
+	if errCode := ctx.StoreTxn.DefineProperty(obj, dbstore.NewProperty("test1", types.NewStr("hello world"), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	after := builtinObjectBytes(ctx, []types.Value{types.NewObj(obj)})
+	if after.IsError() {
+		t.Fatalf("object_bytes after failed: %v", after.Error)
+	}
+	afterVal := after.Val.(types.IntValue).Val
+	if afterVal <= beforeVal {
+		t.Fatalf("object_bytes after staged property = %d, before = %d", afterVal, beforeVal)
+	}
+}

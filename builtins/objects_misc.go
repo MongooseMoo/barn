@@ -162,7 +162,13 @@ func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	bytes, errCode := store.ObjectByteEstimate(objID)
+	var bytes int
+	var errCode types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		bytes, errCode = tx.ObjectByteEstimate(objID)
+	} else {
+		bytes, errCode = store.ObjectByteEstimate(objID)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
