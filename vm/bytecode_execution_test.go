@@ -128,6 +128,26 @@ func TestBytecodeExpressionBasics(t *testing.T) {
 	}
 }
 
+func TestBytecodeErrorOrderingComparisons(t *testing.T) {
+	cases := map[string]int64{
+		"E_NONE < E_TYPE":   1,
+		"E_TYPE < E_NONE":   0,
+		"E_NONE <= E_NONE":  1,
+		"E_PERM > E_TYPE":   1,
+		"E_PERM >= E_PERM":  1,
+		"E_DIV < E_PERM":    1,
+		"E_RANGE < E_PERM":  0,
+		"E_QUOTA > E_RANGE": 1,
+	}
+	for expr, want := range cases {
+		t.Run(expr, func(t *testing.T) {
+			requireInt(t, runBytecodeExpr(t, expr), want)
+		})
+	}
+
+	requireError(t, runBytecodeExpr(t, "E_NONE < 1"), types.E_TYPE)
+}
+
 func TestBytecodeScatterAssignment(t *testing.T) {
 	cases := map[string][]types.Value{
 		"optional_default": {

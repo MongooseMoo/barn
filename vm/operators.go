@@ -659,6 +659,19 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 		return 0, types.E_NONE
 	}
 
+	// ERR comparison (by code)
+	leftErr, leftIsErr := left.(types.ErrValue)
+	rightErr, rightIsErr := right.(types.ErrValue)
+
+	if leftIsErr && rightIsErr {
+		if leftErr.Code() < rightErr.Code() {
+			return -1, types.E_NONE
+		} else if leftErr.Code() > rightErr.Code() {
+			return 1, types.E_NONE
+		}
+		return 0, types.E_NONE
+	}
+
 	// Type mismatch
 	return 0, types.E_TYPE
 }
