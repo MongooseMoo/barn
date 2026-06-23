@@ -204,6 +204,32 @@ func TestBytecodeVerbCallExceptions(t *testing.T) {
 	requireString(t, runBytecodeProgram(t, noExecCaught, store, nil), "no such verb")
 }
 
+func TestPassWithNoParentRaisesInvind(t *testing.T) {
+	store := newBytecodeVerbStore()
+	obj, errCode := store.CreateObject(nil, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(obj, dbstore.NewVerb("foo", []string{"foo"}, 0,
+		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"return pass();"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	result := runBytecodeProgram(t, "return `#1:foo() ! ANY';", store, nil)
+	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
+		t.Fatalf("flow = %v error = %v val = %v, want caught error value", result.Flow, result.Error, result.Val)
+	}
+	errVal, ok := result.Val.(types.ErrValue)
+	if !ok {
+		t.Fatalf("value = %T %v, want ErrValue", result.Val, result.Val)
+	}
+	if errVal.Code() != types.E_INVIND {
+		t.Fatalf("caught error = %v, want E_INVIND", errVal.Code())
+	}
+}
+
 func TestBytecodeFinallyDuringVerbUnwind(t *testing.T) {
 	store := newBytecodeVerbStore()
 	program := `

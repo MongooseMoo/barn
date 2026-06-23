@@ -331,6 +331,17 @@ func (vm *VM) executePass() error {
 	}
 
 	txn := vm.storeTxn()
+	var parents []types.ObjID
+	var parentsErr types.ErrorCode
+	if txn != nil {
+		parents, parentsErr = txn.Parents(verbLoc)
+	} else {
+		parents, parentsErr = vm.Store.Parents(verbLoc)
+	}
+	if parentsErr != types.E_NONE || len(parents) == 0 {
+		return fmt.Errorf("E_INVIND: pass() has no parent object")
+	}
+
 	verb, defObjID, err := findParentVerbForRead(vm.Store, txn, verbLoc, verbName)
 	if err != nil {
 		// Distinguish two cases the way ToastStunt does: if the defining object
