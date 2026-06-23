@@ -276,5 +276,19 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 		return 0, nil
 	}
 
+	// Error comparison (by integer code). MOO's relational operators order error
+	// values by their numeric code (E_NONE=0, E_TYPE=1, ...), matching ToastStunt.
+	aErr, aIsErr := a.(types.ErrValue)
+	bErr, bIsErr := b.(types.ErrValue)
+
+	if aIsErr && bIsErr {
+		if aErr.Code() < bErr.Code() {
+			return -1, nil
+		} else if aErr.Code() > bErr.Code() {
+			return 1, nil
+		}
+		return 0, nil
+	}
+
 	return 0, fmt.Errorf("E_TYPE: cannot compare %s and %s", a.Type().String(), b.Type().String())
 }
