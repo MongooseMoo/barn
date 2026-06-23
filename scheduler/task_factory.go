@@ -279,7 +279,11 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		LineNumber: 1,
 	})
 
-	return s.QueueTask(t)
+	childID := s.QueueTask(t)
+	if parent != nil {
+		parent.CreatedForks = append(parent.CreatedForks, childID)
+	}
+	return childID
 }
 
 // ResumeTask resumes a suspended task
