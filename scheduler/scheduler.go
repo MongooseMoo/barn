@@ -30,9 +30,22 @@ type Scheduler struct {
 	tracebackSender         func(types.ObjID, types.ErrorCode, []task.ActivationFrame)
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
+	taskWork                chan taskWorkItem
+	workersWG               sync.WaitGroup
+	workerCount             int
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
+}
+
+type taskWorkItem struct {
+	task    *task.Task
+	results chan<- taskRunResult
+}
+
+type taskRunResult struct {
+	task *task.Task
+	err  error
 }
 
 // NewScheduler creates a task scheduler with default runtime options.
@@ -42,17 +55,26 @@ func NewScheduler(store *dbstore.Store) *Scheduler {
 
 // NewSchedulerWithOptions creates a task scheduler with the supplied runtime options.
 func NewSchedulerWithOptions(store *dbstore.Store, options config.Options) *Scheduler {
+	return newSchedulerWithWorkerCount(store, options, 1)
+}
+
+func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, workerCount int) *Scheduler {
+	if workerCount < 1 {
+		workerCount = 1
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
-		tasks:      make(map[int64]*task.Task),
-		waiting:    NewTaskQueue(),
-		nextTaskID: 1,
-		registry:   vm.BuildVMRegistry(),
-		store:      store,
-		options:    options,
-		ctx:        ctx,
-		cancel:     cancel,
+		tasks:       make(map[int64]*task.Task),
+		waiting:     NewTaskQueue(),
+		nextTaskID:  1,
+		registry:    vm.BuildVMRegistry(),
+		store:       store,
+		options:     options,
+		taskWork:    make(chan taskWorkItem),
+		workerCount: workerCount,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
@@ -69,8 +91,31 @@ func NewSchedulerWithOptions(store *dbstore.Store, options config.Options) *Sche
 		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
 		return nil
 	})
+	s.startWorkers()
 
 	return s
+}
+
+func (s *Scheduler) startWorkers() {
+	for i := 0; i < s.workerCount; i++ {
+		s.workersWG.Add(1)
+		go s.workerLoop()
+	}
+}
+
+func (s *Scheduler) workerLoop() {
+	defer s.workersWG.Done()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case work := <-s.taskWork:
+			work.results <- taskRunResult{
+				task: work.task,
+				err:  s.runTask(work.task),
+			}
+		}
+	}
 }
 
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
@@ -85,6 +130,7 @@ func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 // Stop cancels scheduler-owned task contexts.
 func (s *Scheduler) Stop() {
 	s.cancel()
+	s.workersWG.Wait()
 }
 
 func (s *Scheduler) SetPendingFinalizationSink(sink func([]types.Value)) {
@@ -148,10 +194,30 @@ func (s *Scheduler) ProcessReadyTasks() int {
 
 	s.mu.Unlock()
 
+	s.runReadyTasks(readyTasks)
+	return len(readyTasks)
+}
+
+func (s *Scheduler) runReadyTasks(readyTasks []*task.Task) {
+	if len(readyTasks) == 0 {
+		return
+	}
+
+	results := make(chan taskRunResult, len(readyTasks))
 	for _, t := range readyTasks {
-		err := s.runTask(t)
-		if err != nil {
-			log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
+		s.taskWork <- taskWorkItem{task: t, results: results}
+	}
+
+	byID := make(map[int64]taskRunResult, len(readyTasks))
+	for range readyTasks {
+		result := <-results
+		byID[result.task.ID] = result
+	}
+
+	for _, t := range readyTasks {
+		result := byID[t.ID]
+		if result.err != nil {
+			log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, result.err)
 		}
 
 		if s.taskOutputFlusher != nil {
@@ -162,7 +228,6 @@ func (s *Scheduler) ProcessReadyTasks() int {
 			close(t.Done)
 		}
 	}
-	return len(readyTasks)
 }
 
 func (s *Scheduler) YieldReadyTasks() int {
