@@ -245,6 +245,9 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	}
 	if committed {
 		t.CreatedForks = nil
+		if errCode := builtins.FlushPendingServerOptions(ctx); errCode != types.E_NONE {
+			result = types.Err(errCode)
+		}
 		if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
 			result = types.Err(errCode)
 		}
@@ -259,6 +262,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		builtins.DiscardPendingNotifications(ctx)
 		builtins.DiscardPendingConnectionSwitches(ctx)
 		builtins.DiscardPendingBootPlayers(ctx)
+		builtins.DiscardPendingServerOptions(ctx)
 	}
 
 	// Extract call stack BEFORE popping frames
