@@ -202,6 +202,17 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		}
 		obj.verbs[name] = cloneVerbForReadTxn(verb)
 	}
+	for key, write := range tx.verbWrites {
+		if key.objID != objID {
+			continue
+		}
+		verb := obj.verbs[key.name]
+		if verb == nil {
+			continue
+		}
+		verb.code = append([]string(nil), write.code...)
+		verb.hasProgram = true
+	}
 	obj.verbVersion = live.verbVersion
 	tx.verbScans[objID] = live.verbVersion
 	for key := range tx.verbReads {
@@ -332,6 +343,54 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 
 func (tx *StoreTxn) HasWrites() bool {
 	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0)
+}
+
+func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
+	if tx == nil {
+		return
+	}
+	tx.objects[objID] = nil
+	delete(tx.scalarReads, objID)
+	delete(tx.scalarWrites, objID)
+	delete(tx.relationshipReads, objID)
+	delete(tx.relationshipWrites, objID)
+	delete(tx.propertyScans, objID)
+	delete(tx.verbScans, objID)
+	for key := range tx.propertyReads {
+		if key.objID == objID {
+			delete(tx.propertyReads, key)
+		}
+	}
+	for key := range tx.propertyDefines {
+		if key.objID == objID {
+			delete(tx.propertyDefines, key)
+		}
+	}
+	for key := range tx.propertyDefinitionDeletes {
+		if key.objID == objID {
+			delete(tx.propertyDefinitionDeletes, key)
+		}
+	}
+	for key := range tx.propertyWrites {
+		if key.objID == objID {
+			delete(tx.propertyWrites, key)
+		}
+	}
+	for key := range tx.propertyDeletes {
+		if key.objID == objID {
+			delete(tx.propertyDeletes, key)
+		}
+	}
+	for key := range tx.verbReads {
+		if key.objID == objID {
+			delete(tx.verbReads, key)
+		}
+	}
+	for key := range tx.verbWrites {
+		if key.objID == objID {
+			delete(tx.verbWrites, key)
+		}
+	}
 }
 
 func (tx *StoreTxn) ValidationFailed() bool {

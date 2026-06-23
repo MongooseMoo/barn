@@ -2,13 +2,92 @@ package scheduler
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"barn/builtins"
+	"barn/bytecode"
+	"barn/command"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/parser"
 	"barn/types"
 )
+
+type evalCommandStubConn struct {
+	sent []string
+}
+
+func (c *evalCommandStubConn) Send(message string) error {
+	c.sent = append(c.sent, message)
+	return nil
+}
+func (c *evalCommandStubConn) Buffer(message string)     {}
+func (c *evalCommandStubConn) Flush() error              { return nil }
+func (c *evalCommandStubConn) RemoteAddr() string        { return "" }
+func (c *evalCommandStubConn) GetOutputPrefix() string   { return "" }
+func (c *evalCommandStubConn) GetOutputSuffix() string   { return "" }
+func (c *evalCommandStubConn) BufferedOutputLength() int { return 0 }
+func (c *evalCommandStubConn) ConnectedSeconds() int64   { return 0 }
+func (c *evalCommandStubConn) IdleSeconds() int64        { return 0 }
+func (c *evalCommandStubConn) GetResolvedName() string   { return "" }
+func (c *evalCommandStubConn) ListenerPort() int64       { return 0 }
+
+type evalCommandStubConnManager struct {
+	player types.ObjID
+	conn   *evalCommandStubConn
+}
+
+func (m *evalCommandStubConnManager) GetConnection(player types.ObjID) builtins.Connection {
+	if player == m.player {
+		return m.conn
+	}
+	return nil
+}
+func (m *evalCommandStubConnManager) ConnectedPlayers(showAll bool) []types.ObjID {
+	return []types.ObjID{m.player}
+}
+func (m *evalCommandStubConnManager) BootPlayer(player types.ObjID) error { return nil }
+func (m *evalCommandStubConnManager) RecyclePlayer(player types.ObjID) error {
+	return nil
+}
+func (m *evalCommandStubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
+	return nil
+}
+func (m *evalCommandStubConnManager) GetListenPort() int { return 0 }
+func (m *evalCommandStubConnManager) ListenerInfos() []builtins.ListenerInfo {
+	return nil
+}
+func (m *evalCommandStubConnManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
+	return builtins.ListenerDescriptor{}, nil
+}
+func (m *evalCommandStubConnManager) RemoveListener(desc builtins.ListenerDescriptor) error {
+	return nil
+}
+func (m *evalCommandStubConnManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
+	return types.ObjNothing, nil
+}
+func (m *evalCommandStubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
+	return "", nil
+}
+
+const auditWaifCommandSource = `
+obj = create($waif);
+add_verb(obj, {player, "xd", ":audit_a"}, {"this", "none", "this"});
+set_verb_code(obj, ":audit_a", {"return callers();"});
+add_verb(obj, {player, "xd", ":audit_b"}, {"this", "none", "this"});
+set_verb_code(obj, ":audit_b", {"return this:audit_a();"});
+add_verb(obj, {player, "xd", ":audit_c"}, {"this", "none", "this"});
+set_verb_code(obj, ":audit_c", {
+  "c = this:audit_b();",
+  "return {{c[1][2], typeof(c[1][1]) == WAIF, c[1][4] == this.class}, {c[2][2], typeof(c[2][1]) == WAIF, c[2][4] == this.class}};"
+});
+waif = obj:new();
+result = waif:audit_c();
+recycle(obj);
+return result;
+`
 
 func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 	store := dbstore.NewStore()
@@ -53,6 +132,59 @@ func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 	}
 	if lines[1] != "{1, 4}" {
 		t.Fatalf("eval result = %q, want {1, 4}", lines[1])
+	}
+}
+
+func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
+	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+	store := database.NewStoreFromDatabase()
+	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject player failed: %v", errCode)
+	}
+	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
+		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
+		}
+	}
+	if errCode := store.MoveObject(player, 2, 0); errCode != types.E_NONE {
+		t.Fatalf("MoveObject player failed: %v", errCode)
+	}
+
+	conn := &evalCommandStubConn{}
+	builtins.SetConnectionManager(&evalCommandStubConnManager{player: player, conn: conn})
+	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
+
+	cmd := command.ParseCommand("eval " + auditWaifCommandSource)
+	match := command.FindVerb(store, player, 2, cmd)
+	if match == nil {
+		t.Fatalf("FindVerb eval returned nil")
+	}
+	program, errors := bytecode.CompileVerb(match.Verb.Code)
+	if len(errors) > 0 {
+		t.Fatalf("CompileVerb eval failed: %v", errors)
+	}
+	match.Statements = program.Statements
+
+	s := NewScheduler(store)
+	defer s.Stop()
+	s.ExecuteVerbTaskSync(player, match, cmd, "")
+
+	want := []string{
+		"-=!-^-!=-",
+		"{1, {{\":audit_b\", 1, 1}, {\":audit_c\", 1, 1}}}",
+		"-=!-v-!=-",
+	}
+	if len(conn.sent) != len(want) {
+		t.Fatalf("sent = %#v, want %#v", conn.sent, want)
+	}
+	for i := range want {
+		if conn.sent[i] != want[i] {
+			t.Fatalf("sent = %#v, want %#v", conn.sent, want)
+		}
 	}
 }
 
