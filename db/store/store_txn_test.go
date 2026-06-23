@@ -237,6 +237,50 @@ func TestTransactionAdoptLiveRelationshipsSeesMove(t *testing.T) {
 	}
 }
 
+func TestTransactionAdoptLiveRelationshipsSeesCreatedChild(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	children, errCode := tx.Children(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Children before create failed: %v", errCode)
+	}
+	if len(children) != 0 {
+		t.Fatalf("tx Children before create = %#v, want empty", children)
+	}
+
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject child failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveObject(child); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveObject failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveRelationships(child, 0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveRelationships failed: %v", errCode)
+	}
+
+	children, errCode = tx.Children(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx Children after create failed: %v", errCode)
+	}
+	if len(children) != 1 || children[0] != child {
+		t.Fatalf("tx Children after create = %#v, want child #%d", children, child)
+	}
+	if errCode := tx.SetPropertyValue(0, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+}
+
 func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

@@ -241,6 +241,10 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		adoptIDs := append([]types.ObjID{newID}, parents...)
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	// Call :initialize verb if it exists
