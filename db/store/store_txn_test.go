@@ -367,3 +367,51 @@ func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
 		t.Fatalf("property a = %d, want 2", got)
 	}
 }
+
+func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, _, err := tx.FindVerb(0, "look"); err != nil {
+		t.Fatalf("FindVerb failed: %v", err)
+	}
+
+	live := store.objects[0]
+	verb := live.verbs["look"]
+	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+		t.Fatalf("verb read version = %d, want %d", got, verb.version)
+	}
+	if got := tx.verbScans[0]; got != live.verbVersion {
+		t.Fatalf("verb scan version = %d, want %d", got, live.verbVersion)
+	}
+}
+
+func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if _, errCode := store.AddVerb(0, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	if _, errCode := tx.VerbByIndex(0, 0); errCode != types.E_NONE {
+		t.Fatalf("VerbByIndex failed: %v", errCode)
+	}
+
+	live := store.objects[0]
+	verb := live.verbs["look"]
+	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
+		t.Fatalf("verb read version = %d, want %d", got, verb.version)
+	}
+	if got := tx.verbScans[0]; got != live.verbVersion {
+		t.Fatalf("verb scan version = %d, want %d", got, live.verbVersion)
+	}
+}
