@@ -78,6 +78,9 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
+		if tc != nil && tc.StoreTxn != nil && tc.Task != nil {
+			return s.CallVerbInContext(objID, verbName, args, tc)
+		}
 		player := types.ObjNothing
 		if tc != nil {
 			player = tc.Player

@@ -188,6 +188,49 @@ func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	}
 }
 
+func TestMoveAcceptUsesCurrentTaskTransaction(t *testing.T) {
+	database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+	store := database.NewStoreFromDatabase()
+	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject player failed: %v", errCode)
+	}
+	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
+		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
+		}
+	}
+
+	s := NewScheduler(store)
+	defer s.Stop()
+	lines := s.EvalCommandOutput(player, `
+try
+  add_property(#0, "audit_move_accept_seen", $nothing, {#0, "rw"});
+except (E_INVARG)
+endtry
+thing = create($nothing);
+dest = create($nothing);
+add_verb(dest, {player, "xd", "accept"}, {"this", "none", "this"});
+set_verb_code(dest, "accept", {
+  "#0.audit_move_accept_seen = args[1];",
+  "return 0;"
+});
+move(thing, dest);
+result = {#0.audit_move_accept_seen == thing, thing.location == dest};
+recycle(thing);
+recycle(dest);
+delete_property(#0, "audit_move_accept_seen");
+return result;
+`, "", "")
+
+	if len(lines) != 1 || lines[0] != "{1, {1, 1}}" {
+		t.Fatalf("lines = %#v, want {1, {1, 1}}", lines)
+	}
+}
+
 func TestForkedZeroDelayResumeCommitsPostSuspendWrites(t *testing.T) {
 	store := dbstore.NewStore()
 	wizard := dbstore.NewObjectBuilder(0)
