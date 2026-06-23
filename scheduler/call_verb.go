@@ -3,6 +3,7 @@ package scheduler
 import (
 	"log"
 
+	"barn/builtins"
 	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -122,10 +123,19 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 
 	// Handle fork yields: create child tasks and resume parent
 	result = s.drainForks(t, bcVM, result)
+	committed := true
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result = types.Err(errCode)
+			committed = false
 		}
+	}
+	if committed {
+		if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
+			result = types.Err(errCode)
+		}
+	} else {
+		builtins.DiscardPendingNotifications(ctx)
 	}
 
 	// Extract call stack BEFORE popping frames

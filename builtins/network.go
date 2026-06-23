@@ -844,7 +844,6 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	message := messageVal.Value()
-	trace.Notify(player, message)
 
 	noFlush := false
 	if len(args) >= 3 {
@@ -857,6 +856,16 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(1))
 	}
 
+	if ctx != nil && ctx.StoreTxn != nil {
+		ctx.PendingNotifications = append(ctx.PendingNotifications, kernel.PendingNotification{
+			Player:  player,
+			Message: message,
+			NoFlush: noFlush,
+		})
+		return types.Ok(types.NewInt(0))
+	}
+
+	trace.Notify(player, message)
 	if noFlush {
 		conn.Buffer(message)
 		return types.Ok(types.NewInt(0))
@@ -865,6 +874,35 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
+}
+
+func FlushPendingNotifications(ctx *kernel.TaskContext) types.ErrorCode {
+	if ctx == nil || len(ctx.PendingNotifications) == 0 {
+		return types.E_NONE
+	}
+	pending := ctx.PendingNotifications
+	ctx.PendingNotifications = nil
+	for _, note := range pending {
+		conn := resolveConnection(ctx, note.Player)
+		if conn == nil {
+			continue
+		}
+		trace.Notify(note.Player, note.Message)
+		if note.NoFlush {
+			conn.Buffer(note.Message)
+			continue
+		}
+		if err := conn.Send(note.Message); err != nil {
+			return types.E_INVARG
+		}
+	}
+	return types.E_NONE
+}
+
+func DiscardPendingNotifications(ctx *kernel.TaskContext) {
+	if ctx != nil {
+		ctx.PendingNotifications = nil
+	}
 }
 
 // listeners([find]) -> list of listener maps.

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"barn/builtins"
 	"barn/bytecode"
 	"barn/command"
 	dbstore "barn/db/store"
@@ -191,11 +192,21 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	result = s.drainForks(t, bcVM, result)
 	t.Result = result
 
+	committed := true
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			t.Result = result
+			committed = false
 		}
+	}
+	if committed {
+		if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
+			result = types.Err(errCode)
+			t.Result = result
+		}
+	} else {
+		builtins.DiscardPendingNotifications(ctx)
 	}
 
 	// Check context deadline

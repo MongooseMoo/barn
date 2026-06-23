@@ -3,6 +3,7 @@ package builtins
 import (
 	"testing"
 
+	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
 )
@@ -10,15 +11,22 @@ import (
 type stubConn struct {
 	remote       string
 	listenerPort int64
+	sent         []string
+	buffered     []string
 }
 
-func (c *stubConn) Send(message string) error { return nil }
-func (c *stubConn) Buffer(message string)     {}
+func (c *stubConn) Send(message string) error {
+	c.sent = append(c.sent, message)
+	return nil
+}
+func (c *stubConn) Buffer(message string) {
+	c.buffered = append(c.buffered, message)
+}
 func (c *stubConn) Flush() error              { return nil }
 func (c *stubConn) RemoteAddr() string        { return c.remote }
 func (c *stubConn) GetOutputPrefix() string   { return "" }
 func (c *stubConn) GetOutputSuffix() string   { return "" }
-func (c *stubConn) BufferedOutputLength() int { return 0 }
+func (c *stubConn) BufferedOutputLength() int { return len(c.buffered) }
 func (c *stubConn) ConnectedSeconds() int64   { return 0 }
 func (c *stubConn) IdleSeconds() int64        { return 0 }
 func (c *stubConn) GetResolvedName() string   { return "" }
@@ -67,6 +75,97 @@ func (m *stubConnManager) OpenNetworkConnection(host string, port int64) (types.
 }
 func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
 	return "lookup", nil
+}
+
+func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	conn := &stubConn{}
+	globalConnManager = &stubConnManager{conn: conn}
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.Player = 7
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("hello")})
+	if res.IsError() {
+		t.Fatalf("notify failed: %v", res.Error)
+	}
+	if len(conn.sent) != 0 {
+		t.Fatalf("sent before flush = %#v, want none", conn.sent)
+	}
+	if len(ctx.PendingNotifications) != 1 {
+		t.Fatalf("pending notifications = %d, want 1", len(ctx.PendingNotifications))
+	}
+
+	if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingNotifications failed: %v", errCode)
+	}
+	if len(conn.sent) != 1 || conn.sent[0] != "hello" {
+		t.Fatalf("sent after flush = %#v, want hello", conn.sent)
+	}
+	if len(ctx.PendingNotifications) != 0 {
+		t.Fatalf("pending notifications after flush = %d, want 0", len(ctx.PendingNotifications))
+	}
+}
+
+func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	conn := &stubConn{}
+	globalConnManager = &stubConnManager{conn: conn}
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.Player = 7
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("held"), types.NewInt(1)})
+	if res.IsError() {
+		t.Fatalf("notify failed: %v", res.Error)
+	}
+	if len(conn.buffered) != 0 {
+		t.Fatalf("buffered before flush = %#v, want none", conn.buffered)
+	}
+
+	if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingNotifications failed: %v", errCode)
+	}
+	if len(conn.sent) != 0 {
+		t.Fatalf("sent after no-flush notify = %#v, want none", conn.sent)
+	}
+	if len(conn.buffered) != 1 || conn.buffered[0] != "held" {
+		t.Fatalf("buffered after flush = %#v, want held", conn.buffered)
+	}
+}
+
+func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	conn := &stubConn{}
+	globalConnManager = &stubConnManager{conn: conn}
+
+	store := dbstore.NewStore()
+	ctx := kernel.NewTaskContext()
+	ctx.Player = 7
+	ctx.StoreTxn = store.BeginReadOnly(0)
+
+	res := builtinNotify(ctx, []types.Value{types.NewObj(7), types.NewStr("discard")})
+	if res.IsError() {
+		t.Fatalf("notify failed: %v", res.Error)
+	}
+
+	DiscardPendingNotifications(ctx)
+	if len(ctx.PendingNotifications) != 0 {
+		t.Fatalf("pending notifications after discard = %d, want 0", len(ctx.PendingNotifications))
+	}
+	if len(conn.sent) != 0 || len(conn.buffered) != 0 {
+		t.Fatalf("connection output after discard sent=%#v buffered=%#v, want none", conn.sent, conn.buffered)
+	}
 }
 
 func TestConnectionNameFormats(t *testing.T) {
