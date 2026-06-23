@@ -41,10 +41,49 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewObj(oldID))
 	}
 
+	var oldParents []types.ObjID
+	var oldChildren []types.ObjID
+	var oldContents []types.ObjID
+	oldLocation := types.ObjNothing
+	if tx := readTxn(ctx); tx != nil {
+		var errCode types.ErrorCode
+		oldParents, errCode = tx.Parents(oldID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldChildren, errCode = tx.Children(oldID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldContents, errCode = tx.Contents(oldID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		oldLocation, errCode = tx.Location(oldID)
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
+
 	// Renumber the object
 	err := store.Renumber(oldID, newID)
 	if err != nil {
 		return types.Err(types.E_INVARG)
+	}
+	if tx := readTxn(ctx); tx != nil {
+		tx.ForgetObject(oldID)
+		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		adoptIDs := append([]types.ObjID{newID}, oldParents...)
+		adoptIDs = append(adoptIDs, oldChildren...)
+		adoptIDs = append(adoptIDs, oldContents...)
+		if oldLocation != types.ObjNothing {
+			adoptIDs = append(adoptIDs, oldLocation)
+		}
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 	}
 
 	return types.Ok(types.NewObj(newID))
