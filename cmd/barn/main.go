@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -73,6 +74,10 @@ func main() {
 	noOutbound := flag.Bool("no-outbound", false, "Disable outbound network connections, overriding --config")
 	noOutboundShort := flag.Bool("O", false, "Alias for --no-outbound")
 
+	// Runtime GC tuning (0/-1 leave Go's GOMEMLIMIT/GOGC env honoring intact)
+	gomemlimitMiB := flag.Int("gomemlimit-mib", 0, "Soft memory limit in MiB (0=unset, honor GOMEMLIMIT env)")
+	gogc := flag.Int("gogc", -1, "GC target percentage (-1=unset, honor GOGC env)")
+
 	flag.Parse()
 
 	if *listProfiles {
@@ -115,6 +120,18 @@ func main() {
 	if *profileID != "" && *configPath == "" {
 		log.Fatal("--config is required with --profile-id")
 	}
+
+	// Apply GC overrides only when explicitly set; otherwise leave Go's
+	// automatic GOMEMLIMIT/GOGC env-var honoring untouched.
+	if *gomemlimitMiB > 0 {
+		debug.SetMemoryLimit(int64(*gomemlimitMiB) * 1024 * 1024)
+		log.Printf("GC memory limit: %d MiB", *gomemlimitMiB)
+	}
+	if *gogc >= 0 {
+		debug.SetGCPercent(*gogc)
+		log.Printf("GC target: %d%%", *gogc)
+	}
+
 
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
