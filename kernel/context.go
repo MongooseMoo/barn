@@ -47,6 +47,11 @@ type TaskContext struct {
 	// Import cycle prevention: This is stored as interface{} and cast to *task.Task when needed
 	Task interface{}
 
+	// InSchedulerWorker is true while this task is running on a scheduler worker.
+	// It prevents yield helpers from recursively dispatching more work onto the
+	// same saturated worker pool.
+	InSchedulerWorker bool
+
 	// CallerVM is a reference to the VM that is currently calling a builtin.
 	// This allows eval() to push a frame on the calling VM instead of creating
 	// a separate VM, matching Toast's behavior where eval() adds an activation

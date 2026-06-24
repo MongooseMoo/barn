@@ -14,6 +14,7 @@ import (
 	"barn/bytecode"
 	"barn/command"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	runtime "barn/scheduler"
 	"barn/task"
 	"barn/trace"
@@ -706,6 +707,6 @@ func (p *InputProcessor) parseProgramTarget(player, location types.ObjID, spec s
 	return target, verbName, true
 }
 
-func (p *InputProcessor) YieldReadyTasks() int {
+func (p *InputProcessor) YieldReadyTasks(_ *kernel.TaskContext) int {
 	return p.runtime.ProcessReadyTasks()
 }

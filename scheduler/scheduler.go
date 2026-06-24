@@ -114,9 +114,15 @@ func (s *Scheduler) workerLoop() {
 		case <-s.ctx.Done():
 			return
 		case work := <-s.taskWork:
+			if work.task != nil && work.task.Context != nil {
+				work.task.Context.InSchedulerWorker = true
+			}
 			work.results <- taskRunResult{
 				task: work.task,
 				err:  s.runTask(work.task),
+			}
+			if work.task != nil && work.task.Context != nil {
+				work.task.Context.InSchedulerWorker = false
 			}
 		}
 	}
@@ -335,7 +341,10 @@ func (s *Scheduler) runTaskBatch(readyTasks []*task.Task) {
 	}
 }
 
-func (s *Scheduler) YieldReadyTasks() int {
+func (s *Scheduler) YieldReadyTasks(ctx *kernel.TaskContext) int {
+	if ctx != nil && ctx.InSchedulerWorker {
+		return 0
+	}
 	return s.ProcessReadyTasks()
 }
 

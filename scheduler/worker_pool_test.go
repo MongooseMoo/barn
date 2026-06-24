@@ -104,6 +104,57 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 	}
 }
 
+func TestYieldReadyTasksFromWorkerDoesNotDispatchRecursively(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.DefaultOptions(), 1)
+	defer s.Stop()
+
+	var yieldReturned atomic.Int32
+	owner := types.ObjID(7704)
+	ticks, seconds := foregroundTaskLimits()
+	s.registry.Register("enqueue_and_yield", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		child := task.NewTaskFull(1112, owner, parseTestStatements(t, "return 42;"), ticks, seconds)
+		child.StartTime = time.Now().Add(-time.Second)
+		child.Done = make(chan struct{})
+		s.QueueTask(child)
+		if got := s.YieldReadyTasks(ctx); got != 0 {
+			return types.Err(types.E_INVARG)
+		}
+		select {
+		case <-child.Done:
+			return types.Err(types.E_INVARG)
+		default:
+		}
+		yieldReturned.Add(1)
+		return types.Ok(types.NewInt(0))
+	})
+
+	queued := task.NewTaskFull(1111, owner, parseTestStatements(t, "enqueue_and_yield(); return 1;"), ticks, seconds)
+	queued.StartTime = time.Now().Add(-time.Second)
+	queued.Done = make(chan struct{})
+	s.QueueTask(queued)
+	defer removeTasksForOwner(s, owner)
+
+	done := make(chan int, 1)
+	go func() {
+		done <- s.ProcessReadyTasks()
+	}()
+
+	select {
+	case got := <-done:
+		if got != 1 {
+			t.Fatalf("ProcessReadyTasks() = %d, want 1", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ProcessReadyTasks deadlocked while yielding ready work from a worker")
+	}
+	if yieldReturned.Load() != 1 {
+		t.Fatalf("worker yield returns = %d, want 1", yieldReturned.Load())
+	}
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("second ProcessReadyTasks() = %d, want queued child", got)
+	}
+}
+
 func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.DefaultOptions(), 2)
 	defer s.Stop()

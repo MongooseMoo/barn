@@ -10,7 +10,7 @@ import (
 )
 
 type TaskYielder interface {
-	YieldReadyTasks() int
+	YieldReadyTasks(*kernel.TaskContext) int
 }
 
 var globalTaskYielder TaskYielder
@@ -540,7 +540,7 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 					return types.Err(errCode)
 				}
 			}
-			globalTaskYielder.YieldReadyTasks()
+			globalTaskYielder.YieldReadyTasks(ctx)
 			if ctx.Store != nil {
 				ctx.StoreTxn = ctx.Store.BeginReadOnly(0)
 			}
