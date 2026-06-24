@@ -82,6 +82,55 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	}
 }
 
+func TestStartRollsBackBindFailure(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("occupy local port: %v", err)
+	}
+	defer occupied.Close()
+	port := int64(occupied.Addr().(*net.TCPAddr).Port)
+
+	store := dbstore.NewStore()
+	scheduler := runtime.NewScheduler(store)
+	input := NewInputProcessor(store, scheduler)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		store:          store,
+		scheduler:      scheduler,
+		input:          input,
+		connManager:    NewConnectionManager(int(port)),
+		listenerSpecs:  []builtins.ListenerSpec{{Protocol: builtins.ListenerProtocolTCP, Port: port, Interface: "127.0.0.1"}},
+		checkpointChan: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	if err := s.Start(); err == nil {
+		t.Fatalf("Start succeeded on occupied port")
+	}
+
+	s.mu.Lock()
+	running := s.running
+	s.mu.Unlock()
+	if running {
+		t.Fatalf("server remained running after bind failure")
+	}
+	if infos := s.connManager.ListenerInfos(); len(infos) != 0 {
+		t.Fatalf("listeners after bind failure = %+v, want none", infos)
+	}
+	select {
+	case <-s.ctx.Done():
+	default:
+		t.Fatalf("server context was not canceled after bind failure")
+	}
+	select {
+	case <-input.ctx.Done():
+	default:
+		t.Fatalf("input processor was not stopped after bind failure")
+	}
+}
+
 func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)

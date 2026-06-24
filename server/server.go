@@ -177,7 +177,11 @@ func (s *Server) Start() error {
 	// Bind listener sockets before server_started so MOO code can inspect
 	// listeners(), but do not accept connections until the hook returns.
 	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+		s.cancel()
+		s.connManager.CloseListeners()
 		s.input.Stop()
+		s.scheduler.Stop()
+		s.backgroundWG.Wait()
 		s.mu.Lock()
 		s.running = false
 		s.mu.Unlock()
