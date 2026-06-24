@@ -61,8 +61,20 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		savedVM.Ticks = 0
 	}
 
-	// Set up cancellation with deadline
-	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
+	// Set up cancellation with deadline. The budget deadline must be anchored
+	// to when the task actually starts running, not its (possibly long-past)
+	// scheduled start time — otherwise a fork-delayed or checkpoint-restored
+	// task whose StartTime has already elapsed (e.g. the server was down for
+	// a while between checkpoint and restart) gets an already-expired
+	// deadline and is killed instantly with context.DeadlineExceeded.
+	// t.StartTime itself is left untouched since it's spec-visible via
+	// queued_tasks() and used for scheduling order
+	// (scheduler/task_queue.go's readyTime()).
+	budgetAnchor := t.StartTime
+	if now := time.Now(); budgetAnchor.Before(now) {
+		budgetAnchor = now
+	}
+	deadline := budgetAnchor.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
 	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
 	t.CancelFunc = cancel
 	defer cancel()
