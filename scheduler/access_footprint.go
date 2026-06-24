@@ -14,9 +14,10 @@ type propertyAccess struct {
 }
 
 type accessFootprint struct {
-	propertyReads  map[propertyAccess]struct{}
-	propertyWrites map[propertyAccess]struct{}
-	unknown        bool
+	propertyReads     map[propertyAccess]struct{}
+	propertyWrites    map[propertyAccess]struct{}
+	liveStoreMutation bool
+	unknown           bool
 }
 
 func analyzeAccessFootprint(stmts []parser.Stmt, knownObjects map[string]types.ObjID) accessFootprint {
@@ -96,6 +97,11 @@ type footprintAnalyzer struct {
 
 func (a *footprintAnalyzer) markUnknown() {
 	a.footprint.unknown = true
+}
+
+func (a *footprintAnalyzer) markLiveStoreMutation() {
+	a.footprint.liveStoreMutation = true
+	a.markUnknown()
 }
 
 func (a *footprintAnalyzer) read(access propertyAccess) {
@@ -301,6 +307,8 @@ func (a *footprintAnalyzer) builtinCall(call *parser.BuiltinCallExpr) {
 	}
 
 	switch strings.ToLower(call.Name) {
+	case "create", "recycle", "chparent", "chparents", "move", "set_player_flag", "new_waif", "add_verb", "delete_verb", "set_verb_info", "set_verb_args", "set_verb_code":
+		a.markLiveStoreMutation()
 	case "add_property", "delete_property", "set_property_info", "clear_property":
 		if access, ok := a.staticBuiltinPropertyAccess(call); ok {
 			a.write(access)

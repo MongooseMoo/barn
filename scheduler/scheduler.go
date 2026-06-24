@@ -249,6 +249,9 @@ func (s *Scheduler) readyTaskBatches(readyTasks []*task.Task) [][]*task.Task {
 			footprint:  analyzeTaskAccessFootprint(t),
 			optimistic: taskIsConflictRetryable(t),
 		}
+		if candidate.footprint.liveStoreMutation {
+			candidate.optimistic = false
+		}
 		if !candidateCanJoinBatch(candidate, current) {
 			flush()
 		}

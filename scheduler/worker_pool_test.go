@@ -167,6 +167,29 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	}
 }
 
+func TestReadyTaskBatchesKeepLiveStoreMutatorsSolo(t *testing.T) {
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.DefaultOptions(), 2)
+	defer s.Stop()
+
+	ticks, seconds := foregroundTaskLimits()
+	first := task.NewTaskFull(1223, 7, parseTestStatements(t, `create(#0); #1.a = #1.a + 1;`), ticks, seconds)
+	second := task.NewTaskFull(1224, 7, parseTestStatements(t, `create(#0); #1.a = #1.a + 1;`), ticks, seconds)
+
+	batches := s.readyTaskBatches([]*task.Task{first, second})
+
+	if len(batches) != 2 {
+		t.Fatalf("batch count = %d, want 2", len(batches))
+	}
+	for i, batch := range batches {
+		if len(batch) != 1 {
+			t.Fatalf("batch %d size = %d, want 1", i, len(batch))
+		}
+	}
+	if batches[0][0] != first || batches[1][0] != second {
+		t.Fatal("live-store mutator task order changed")
+	}
+}
+
 // A non-retryable task (resumed/forked: its mid-flight state cannot be re-run from
 // the original statements) must stay solo when its footprint is unknown, because an
 // optimistic conflict could not be recovered by retry.
