@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -51,10 +52,111 @@ func (p *InputProcessor) Stop() {
 
 func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 	p.connManager = cm
+	if cm != nil {
+		cm.setConnectionHandler(p.HandleConnection)
+	}
 }
 
 func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 	p.inputQueue <- evt
+}
+
+// HandleConnection reads transport input and serializes it onto the input queue.
+// All MOO verb execution remains on the scheduler/input goroutine.
+func (p *InputProcessor) HandleConnection(conn *Connection) {
+	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
+
+	defer func() {
+		done := make(chan struct{})
+		p.EnqueueInput(command.InputEvent{
+			ConnID:       conn.ID,
+			IsDisconnect: true,
+			Done:         done,
+		})
+		<-done
+		conn.Close()
+	}()
+
+	connectTimeout := 5 * time.Minute
+	if p.connManager != nil {
+		connectTimeout = p.connManager.connectTimeout
+	}
+	if value, ok := p.getServerOption(0, "connect_timeout"); ok {
+		if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
+			connectTimeout = time.Duration(seconds.Val) * time.Second
+		}
+	}
+
+	// Send initial welcome banner by enqueuing empty string to scheduler.
+	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0).
+	{
+		done := make(chan struct{})
+		p.EnqueueInput(command.InputEvent{
+			ConnID: conn.ID,
+			Player: types.ObjID(-conn.ID),
+			Line:   "",
+			Done:   done,
+		})
+		<-done
+	}
+
+	for {
+		select {
+		case <-conn.ctx.Done():
+			return
+		default:
+		}
+
+		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
+			if conn.IsLoggedIn() {
+				_ = deadlineTransport.SetReadDeadline(time.Time{})
+			} else {
+				_ = deadlineTransport.SetReadDeadline(time.Now().Add(connectTimeout))
+			}
+		}
+
+		player := conn.GetPlayer()
+		if !conn.IsLoggedIn() {
+			player = types.ObjID(-conn.ID)
+		}
+
+		var line string
+		var isOutOfBand bool
+		var err error
+		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
+			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
+				line, err = binaryTransport.ReadChunk()
+			} else {
+				line, err = conn.ReadLine()
+			}
+		} else if inputTransport, ok := conn.transport.(InputTransport); ok {
+			line, isOutOfBand, err = inputTransport.ReadInput()
+		} else {
+			line, err = conn.ReadLine()
+		}
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
+				continue
+			}
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
+				conn.Send("*** Timed-out waiting for login. ***")
+				p.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
+				return
+			}
+			log.Printf("Connection %d read error: %v", conn.ID, err)
+			return
+		}
+
+		done := make(chan struct{})
+		p.EnqueueInput(command.InputEvent{
+			ConnID:      conn.ID,
+			Player:      player,
+			Line:        line,
+			IsOutOfBand: isOutOfBand,
+			Done:        done,
+		})
+		<-done
+	}
 }
 
 func (p *InputProcessor) run() {

@@ -77,7 +77,7 @@ func (s *Server) LoadDatabase() error {
 	s.store = database.NewStoreFromDatabase()
 	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.options)
 	s.input = NewInputProcessor(s.store, s.scheduler)
-	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
+	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 
 	s.input.SetConnectionManager(s.connManager)
 	s.scheduler.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)

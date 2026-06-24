@@ -24,7 +24,7 @@ import (
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	certPath, keyPath := writeSelfSignedCertificate(t)
-	cm := NewConnectionManager(nil, 0)
+	cm := NewConnectionManager(0)
 
 	desc, err := cm.AddListener(builtins.ListenerSpec{
 		Protocol:           "tls",
@@ -56,7 +56,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 }
 
 func TestAddTLSListenerRequiresCertificateAndKey(t *testing.T) {
-	cm := NewConnectionManager(nil, 0)
+	cm := NewConnectionManager(0)
 	_, err := cm.AddListener(builtins.ListenerSpec{
 		Protocol:  "tls",
 		Port:      0,
@@ -124,8 +124,7 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 
 	scheduler := runtime.NewScheduler(store)
 	input := NewInputProcessor(store, scheduler)
-	srv := &Server{scheduler: scheduler, input: input}
-	cm := NewConnectionManager(srv, 0)
+	cm := NewConnectionManager(0)
 	input.SetConnectionManager(cm)
 	input.Start()
 	defer input.Stop()

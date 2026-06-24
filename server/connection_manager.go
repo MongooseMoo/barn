@@ -2,8 +2,6 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/command"
-	"barn/trace"
 	"barn/types"
 	"crypto/tls"
 	"errors"
@@ -48,7 +46,7 @@ type ConnectionManager struct {
 	playerConnHistory map[types.ObjID][]*Connection
 	nextConnID        int64
 	mu                sync.Mutex
-	server            *Server
+	connectionHandler func(*Connection)
 	listeners         map[listenerKey]*listenerRecord
 	outboundClients   map[int64]net.Conn
 	listenPort        int
@@ -56,7 +54,7 @@ type ConnectionManager struct {
 }
 
 // NewConnectionManager creates a new connection manager
-func NewConnectionManager(server *Server, port int) *ConnectionManager {
+func NewConnectionManager(port int) *ConnectionManager {
 	return &ConnectionManager{
 		connections:       make(map[int64]*Connection),
 		playerConns:       make(map[types.ObjID]*Connection),
@@ -64,10 +62,15 @@ func NewConnectionManager(server *Server, port int) *ConnectionManager {
 		listeners:         make(map[listenerKey]*listenerRecord),
 		outboundClients:   make(map[int64]net.Conn),
 		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
-		server:            server,
 		listenPort:        port,
 		connectTimeout:    5 * time.Minute,
 	}
+}
+
+func (cm *ConnectionManager) setConnectionHandler(handler func(*Connection)) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.connectionHandler = handler
 }
 
 // GetListenPort returns the port the server is listening on
@@ -187,7 +190,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 	log.Printf("New connection from %s (ID: %d)", conn.RemoteAddr(), conn.ID)
 
 	// Handle connection in goroutine
-	go cm.HandleConnection(conn)
+	go cm.handleConnection(conn)
 }
 
 func (cm *ConnectionManager) serveWebSocketListener(record *listenerRecord) {
@@ -221,7 +224,18 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 
 	log.Printf("New %s connection from %s (ID: %d)", record.protocol, conn.RemoteAddr(), conn.ID)
 
-	go cm.HandleConnection(conn)
+	go cm.handleConnection(conn)
+}
+
+func (cm *ConnectionManager) handleConnection(conn *Connection) {
+	cm.mu.Lock()
+	handler := cm.connectionHandler
+	cm.mu.Unlock()
+	if handler == nil {
+		_ = conn.Close()
+		return
+	}
+	handler(conn)
 }
 
 // NewConnectionFromTransport creates a connection from any transport (for testing)
@@ -237,109 +251,6 @@ func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Co
 	cm.mu.Unlock()
 
 	return conn
-}
-
-// HandleConnection processes a connection (exported for testing).
-// This is now an I/O-only loop: it reads lines and enqueues InputEvents
-// for the scheduler to process. All MOO verb execution happens on the
-// scheduler goroutine.
-func (cm *ConnectionManager) HandleConnection(conn *Connection) {
-	// Trace new connection
-	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
-
-	defer func() {
-		// Enqueue disconnect event and wait for it to be processed
-		done := make(chan struct{})
-		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID:       conn.ID,
-			IsDisconnect: true,
-			Done:         done,
-		})
-		<-done
-		conn.Close()
-	}()
-
-	// Set up timeout for unlogged connections
-	connectTimeout := cm.connectTimeout
-	if cm.server != nil && cm.server.input != nil {
-		if value, ok := cm.server.input.getServerOption(0, "connect_timeout"); ok {
-			if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
-				connectTimeout = time.Duration(seconds.Val) * time.Second
-			}
-		}
-	}
-
-	// Send initial welcome banner by enqueuing empty string to scheduler
-	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
-	{
-		done := make(chan struct{})
-		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID: conn.ID,
-			Player: types.ObjID(-conn.ID),
-			Line:   "",
-			Done:   done,
-		})
-		<-done
-	}
-
-	// I/O loop: read lines, enqueue events, wait for processing
-	for {
-		select {
-		case <-conn.ctx.Done():
-			return
-		default:
-		}
-
-		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
-			if conn.IsLoggedIn() {
-				_ = deadlineTransport.SetReadDeadline(time.Time{})
-			} else {
-				_ = deadlineTransport.SetReadDeadline(time.Now().Add(connectTimeout))
-			}
-		}
-
-		player := conn.GetPlayer()
-		if !conn.IsLoggedIn() {
-			player = types.ObjID(-conn.ID)
-		}
-
-		var line string
-		var isOutOfBand bool
-		var err error
-		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
-			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
-				line, err = binaryTransport.ReadChunk()
-			} else {
-				line, err = conn.ReadLine()
-			}
-		} else if inputTransport, ok := conn.transport.(InputTransport); ok {
-			line, isOutOfBand, err = inputTransport.ReadInput()
-		} else {
-			line, err = conn.ReadLine()
-		}
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
-				continue
-			}
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
-				conn.Send("*** Timed-out waiting for login. ***")
-				cm.server.input.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
-				return
-			}
-			log.Printf("Connection %d read error: %v", conn.ID, err)
-			return
-		}
-
-		done := make(chan struct{})
-		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID:      conn.ID,
-			Player:      player,
-			Line:        line,
-			IsOutOfBand: isOutOfBand,
-			Done:        done,
-		})
-		<-done
-	}
 }
 
 // listContainsString checks if a MOO list contains a string value.

@@ -25,7 +25,7 @@ func (l *fakeListener) Addr() net.Addr {
 }
 
 func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
-	cm := NewConnectionManager(nil, 7777)
+	cm := NewConnectionManager(7777)
 	tcp := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 
 	desc, err := cm.registerListener(tcp, builtins.ListenerSpec{
@@ -57,7 +57,7 @@ func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
 }
 
 func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
-	cm := NewConnectionManager(nil, 7777)
+	cm := NewConnectionManager(7777)
 	first := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 	second := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 
@@ -85,7 +85,7 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 }
 
 func TestStartListenersCreatesMultipleTCPListeners(t *testing.T) {
-	cm := NewConnectionManager(nil, 0)
+	cm := NewConnectionManager(0)
 	err := cm.StartListeners([]builtins.ListenerSpec{
 		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
 		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
