@@ -34,7 +34,7 @@ type Server struct {
 	options            config.Options
 	running            bool
 	mu                 sync.Mutex
-	shutdownChan       chan struct{}
+	shutdownMessage    string
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -60,7 +60,6 @@ func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, 
 		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		options:            options,
-		shutdownChan:       make(chan struct{}),
 		checkpointChan:     make(chan struct{}),
 		ctx:                ctx,
 		cancel:             cancel,
@@ -118,13 +117,30 @@ func (s *Server) LoadDatabase() error {
 
 	// Wire dump_database() builtin to server checkpoint
 	builtins.SetDumpFunc(func() error { return s.checkpoint() })
-	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext) error {
+	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
 				s.store.AppendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
 			}
 		}
-		s.Shutdown()
+		shutdownMessage := "Server shutdown"
+		if ctx != nil {
+			caller := fmt.Sprintf("#%d", ctx.Programmer)
+			if name, errCode := s.store.ObjectName(ctx.Programmer); errCode == types.E_NONE && name != "" {
+				caller = name
+			}
+			shutdownMessage = "shutdown() called by " + caller
+			if message != "" {
+				shutdownMessage += ": " + message
+			}
+		} else if message != "" {
+			shutdownMessage = message
+		}
+		if unclean {
+			s.Panic(shutdownMessage)
+			return nil
+		}
+		s.Shutdown(shutdownMessage)
 		return nil
 	})
 
@@ -209,7 +225,7 @@ func (s *Server) handleSignals() {
 	select {
 	case <-sigChan:
 		log.Println("Received shutdown signal")
-		s.Shutdown()
+		s.Shutdown("Server shutdown")
 	case <-s.ctx.Done():
 		return
 	}
@@ -292,13 +308,14 @@ func (s *Server) checkpoint() error {
 	return nil
 }
 
-// Shutdown initiates graceful shutdown
-func (s *Server) Shutdown() {
+// Shutdown initiates graceful shutdown.
+func (s *Server) Shutdown(message string) {
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
 		return
 	}
+	s.shutdownMessage = message
 	s.mu.Unlock()
 
 	log.Println("Initiating shutdown...")
@@ -309,12 +326,20 @@ func (s *Server) Shutdown() {
 func (s *Server) shutdown() error {
 	log.Println("Shutting down server...")
 
+	s.mu.Lock()
+	message := s.shutdownMessage
+	s.mu.Unlock()
+	if message == "" {
+		message = "Server shutdown"
+	}
+
 	// Call #0:shutdown_started()
-	if err := s.callShutdownStarted("Server shutdown"); err != nil {
+	if err := s.callShutdownStarted(message); err != nil {
 		log.Printf("Warning: #0:shutdown_started() failed: %v", err)
 	}
 
-	// Stop scheduler
+	s.connManager.CloseListeners()
+
 	s.input.Stop()
 	s.scheduler.Stop()
 

@@ -141,6 +141,27 @@ func (cm *ConnectionManager) StartAccepting() {
 	}
 }
 
+// CloseListeners closes every bound listener, including startup-owned primary
+// listeners. It is the shutdown counterpart to RemoveListener, which preserves
+// the MOO-level rule that primary listeners cannot be removed at runtime.
+func (cm *ConnectionManager) CloseListeners() {
+	cm.mu.Lock()
+	records := make([]*listenerRecord, 0, len(cm.listeners))
+	for key, record := range cm.listeners {
+		records = append(records, record)
+		delete(cm.listeners, key)
+	}
+	cm.mu.Unlock()
+
+	for _, record := range records {
+		if record.httpServer != nil {
+			_ = record.httpServer.Close()
+			continue
+		}
+		_ = record.listener.Close()
+	}
+}
+
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
 	port, ipv6, err := parseListenerPort(listener.Addr())
 	if err != nil {

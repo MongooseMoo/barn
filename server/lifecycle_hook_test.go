@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"testing"
 
 	"barn/builtins"
@@ -54,7 +55,7 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("bind listeners: %v", err)
 	}
-	defer closeAllListeners(cm)
+	defer cm.CloseListeners()
 
 	builtins.SetConnectionManager(cm)
 	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
@@ -75,5 +76,72 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	listenerCount, ok := value.(types.IntValue)
 	if !ok || listenerCount.Val != 1 {
 		t.Fatalf("listener_count = %v, want 1", value)
+	}
+}
+
+func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("listener_count", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define listener_count property: %v", errCode)
+	}
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("shutdown_message", types.NewStr(""), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define shutdown_message property: %v", errCode)
+	}
+	addTestVerb(store, system, "shutdown_started",
+		"#0.listener_count = length(listeners());",
+		"#0.shutdown_message = args[1];",
+	)
+
+	cm := NewConnectionManager(7777)
+	listener := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
+	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   0,
+	}, true, nil); err != nil {
+		t.Fatalf("register listener: %v", err)
+	}
+	defer cm.CloseListeners()
+
+	builtins.SetConnectionManager(cm)
+	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
+
+	scheduler := runtime.NewScheduler(store)
+	s := &Server{
+		store:           store,
+		scheduler:       scheduler,
+		input:           NewInputProcessor(store, scheduler),
+		connManager:     cm,
+		shutdownMessage: "Maintenance",
+	}
+
+	if err := s.shutdown(); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	value, errCode := store.PropertyValue(system, "listener_count")
+	if errCode != types.E_NONE {
+		t.Fatalf("read listener_count: %v", errCode)
+	}
+	listenerCount, ok := value.(types.IntValue)
+	if !ok || listenerCount.Val != 1 {
+		t.Fatalf("listener_count = %v, want 1", value)
+	}
+
+	value, errCode = store.PropertyValue(system, "shutdown_message")
+	if errCode != types.E_NONE {
+		t.Fatalf("read shutdown_message: %v", errCode)
+	}
+	shutdownMessage, ok := value.(types.StrValue)
+	if !ok || shutdownMessage.Value() != "Maintenance" {
+		t.Fatalf("shutdown_message = %v, want Maintenance", value)
+	}
+
+	if !listener.closed {
+		t.Fatalf("listener was not closed")
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 0 {
+		t.Fatalf("listeners after shutdown = %+v, want none", infos)
 	}
 }

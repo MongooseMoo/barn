@@ -140,7 +140,7 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bind tls listener: %v", err)
 	}
-	defer closeAllListeners(cm)
+	defer cm.CloseListeners()
 	cm.StartAccepting()
 
 	port := cm.ListenerInfos()[0].Port

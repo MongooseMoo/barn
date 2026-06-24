@@ -393,7 +393,7 @@ func builtinDbDiskSize(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // globalDumpFunc is set by the server to trigger a database checkpoint.
 var globalDumpFunc func() error
-var globalShutdownFunc func(ctx *kernel.TaskContext) error
+var globalShutdownFunc func(ctx *kernel.TaskContext, message string, unclean bool) error
 
 // SetDumpFunc sets the function called by dump_database() to trigger a checkpoint.
 func SetDumpFunc(f func() error) {
@@ -401,7 +401,7 @@ func SetDumpFunc(f func() error) {
 }
 
 // SetShutdownFunc sets the function called by shutdown() to stop the server.
-func SetShutdownFunc(f func(ctx *kernel.TaskContext) error) {
+func SetShutdownFunc(f func(ctx *kernel.TaskContext, message string, unclean bool) error) {
 	globalShutdownFunc = f
 }
 
@@ -773,16 +773,28 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 }
 
 func builtinShutdown(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	// ToastStunt's shutdown accepts an optional (message, delay) pair; the
+	// ToastStunt's shutdown accepts an optional (message, panic) pair; the
 	// permission check happens after argument validation.
 	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
+	}
+	message := ""
+	if len(args) >= 1 {
+		messageVal, ok := args[0].(types.StrValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		message = messageVal.Value()
+	}
+	unclean := false
+	if len(args) == 2 {
+		unclean = args[1].Truthy()
 	}
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 	if globalShutdownFunc != nil {
-		if err := globalShutdownFunc(ctx); err != nil {
+		if err := globalShutdownFunc(ctx, message, unclean); err != nil {
 			return types.Err(types.E_INVARG)
 		}
 	}

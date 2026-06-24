@@ -116,7 +116,7 @@ func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bind listeners: %v", err)
 	}
-	defer closeAllListeners(cm)
+	defer cm.CloseListeners()
 
 	infos := cm.ListenerInfos()
 	if len(infos) != 2 {
@@ -166,18 +166,33 @@ func TestRegisterListenerDoesNotAcceptUntilStartAccepting(t *testing.T) {
 	}
 }
 
-func closeAllListeners(cm *ConnectionManager) {
-	cm.mu.Lock()
-	records := make([]*listenerRecord, 0, len(cm.listeners))
-	for _, record := range cm.listeners {
-		records = append(records, record)
+func TestCloseListenersClosesPrimaryListeners(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	primary := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
+	secondary := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}}
+
+	if _, err := cm.registerListener(primary, builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   5,
+	}, true, nil); err != nil {
+		t.Fatalf("register primary listener: %v", err)
 	}
-	cm.mu.Unlock()
-	for _, record := range records {
-		if record.httpServer != nil {
-			_ = record.httpServer.Close()
-		} else {
-			_ = record.listener.Close()
-		}
+	if _, err := cm.registerListener(secondary, builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   6,
+	}, false, nil); err != nil {
+		t.Fatalf("register secondary listener: %v", err)
+	}
+
+	cm.CloseListeners()
+
+	if !primary.closed {
+		t.Fatalf("primary listener was not closed")
+	}
+	if !secondary.closed {
+		t.Fatalf("secondary listener was not closed")
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 0 {
+		t.Fatalf("listeners after CloseListeners = %+v, want none", infos)
 	}
 }
