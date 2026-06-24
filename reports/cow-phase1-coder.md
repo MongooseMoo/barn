@@ -2,7 +2,7 @@
 
 ## VERDICT: GO
 
-Commit hash: (filled below after commit)
+Commit hash: `dd59f972942cf4f33fccff1938781e02ce2933c7`
 Commit message: `Decentralize scalar/relationship/delete/verb commit writes (COW phase 1)`
 
 Build target used: **`make build`** (`go build -o barn.exe ./cmd/barn/`). Only `barn.exe`
