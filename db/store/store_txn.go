@@ -1396,22 +1396,22 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	}
 	tx.validationFail = false
 
-	// COW Phase 0 fast path: a commit whose ENTIRE write set is property-value
-	// writes (no scalar/relationship/define/define-delete/property-delete/verb
-	// writes) and that did not mutate the live store directly is applied
-	// decentralized — under store.mu.RLock + per-slot mutexes, building and
-	// publishing new immutable images instead of taking the exclusive store.mu.Lock.
-	// Disjoint such commits run in parallel. Every other commit shape stays on the
-	// coarse exclusive path below (unchanged in-place apply).
+	// COW Phase 1 decentralized fast path: a commit whose ENTIRE write footprint is
+	// within the decentralized write kinds — scalar (name/owner/flags), relationship
+	// (location), property-value, property-delete, verb-code — with NO property
+	// DEFINE / DEFINE-DELETE (the HARD descendant-propagating walkers, Phase 2) and
+	// that did not mutate the live store directly is applied decentralized: under
+	// store.mu.RLock + per-slot mutexes, building and publishing new immutable images
+	// instead of taking the exclusive store.mu.Lock. Disjoint such commits run in
+	// parallel. A footprint that includes property define/define-delete, or a
+	// liveMutated task, falls back to the coarse exclusive path below (unchanged
+	// in-place apply). The earlier guard already established at least one write is
+	// staged, so reaching here with both define maps empty and !liveMutated means at
+	// least one decentralized write exists.
 	if !tx.liveMutated &&
-		len(tx.propertyWrites) > 0 &&
-		len(tx.scalarWrites) == 0 &&
-		len(tx.relationshipWrites) == 0 &&
 		len(tx.propertyDefines) == 0 &&
-		len(tx.propertyDefinitionDeletes) == 0 &&
-		len(tx.propertyDeletes) == 0 &&
-		len(tx.verbWrites) == 0 {
-		return tx.commitDecentralizedPropertyValues()
+		len(tx.propertyDefinitionDeletes) == 0 {
+		return tx.commitDecentralized()
 	}
 
 	tx.store.mu.Lock()
