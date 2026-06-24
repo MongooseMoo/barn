@@ -1,152 +1,115 @@
-# COW Phase 2 — coder working notes (IN PROGRESS)
+# COW Phase 2 — coder report
 
-## Mission
-Move property DEFINE (`propertyDefines`) and DEFINE-DELETE (`propertyDefinitionDeletes`)
-commit-apply writes onto the decentralized COW path in `commitDecentralized`.
+## VERDICT: GO — committed
 
-## Build rule
-ONLY `make build` -> `barn.exe`. No other server binary name (firewall modal hangs run).
+- **Commit:** `7190f97` "Decentralize property define/delete commits over the inheriting subtree (COW phase 2)"
+- **Branch:** `work/mvcc-concurrent-moo` (no push/merge/rebase/switch performed)
+- **Make target:** `make build` → `go build -o barn.exe ./cmd/barn/` (canonical `barn.exe`; no other server binary built; no stray `barn-*.exe`).
 
-## KEY FINDINGS SO FAR
+All five gates green AND the define/delete footprint is proven complete. Property DEFINE
+(`propertyDefines`) and DEFINITION-DELETE (`propertyDefinitionDeletes`) commit-apply writes are
+now on the decentralized COW path; the coarse `store.mu.Lock` commit fallback is reached only for
+`liveMutated` commits.
 
-### Footprint (Q1) — the staging already decomposes the subtree
-- The **txn staging side already enumerates the full define/delete footprint**:
-  - `StoreTxn.DefineProperty` (store_txn.go:1188) stages `propertyDefines[key]=prop`
-    for the DEFINER only, then `propagateDefinedProperty` (1219) WALKS DESCENDANTS via
-    `current.children` and stages a `propertyWrites` entry (a clear inherited slot) for
-    EACH inheriting descendant.
-  - `StoreTxn.DeleteDefinedProperty` (1319) stages `propertyDefinitionDeletes[key]` for
-    definer, then `removeInheritedProperty` (1353) walks descendants via `current.children`
-    and stages `propertyDeletes` for each inheriting descendant.
-- So by the time we reach Commit, the footprint = {definer in propertyDefines/Deletes}
-  ∪ {descendants already present in propertyWrites/propertyDeletes}. The descendant images
-  are ALREADY on the decentralized path (Phase 1 handles propertyWrites/propertyDeletes).
-- The COARSE commit path's `definePropertyLocked`/`deleteDefinedPropertyLocked` RE-WALK
-  descendants (store_properties.go:516,550). This is REDUNDANT with the staged descendant
-  writes but idempotent (writes the same clear slot / deletes same key). NEED TO VERIFY
-  the decentralized path must apply define on the DEFINER's image only (the propOrder/
-  propDefsCount/defined-slot bits the descendant propertyWrites don't carry), and let the
-  already-staged descendant propertyWrites/propertyDeletes handle descendants.
+## What changed
+- `db/store/store_cow.go`:
+  - New `buildImageWithPropertyDefine` and `buildImageWithPropertyDefinitionDelete` — DEFINER-ONLY
+    image builds (copy `properties` map + `propOrder` slice + `propDefsCount`; share every other
+    collection), mirroring `definePropertyLocked` / `deleteDefinedPropertyLocked` minus the
+    descendant walk.
+  - `commitDecentralized`: footprint now collects `propertyDefines` + `propertyDefinitionDeletes`
+    objIDs; pre-build validation (define→E_INVARG on collision, delete→E_PROPNF if not defined),
+    all before `bumpClock`/build (atomic, no partial side effect); builds defines/def-deletes on the
+    definer image in fixed kind order.
+  - `buildImageWithPropertyValue` new-slot branch now HONORS the staged `clear` flag instead of
+    forcing `clear=false` (required: a define-propagated descendant slot stages `clear=true`).
+- `db/store/store_txn.go`: removed the `len(propertyDefines)==0 && len(propertyDefinitionDeletes)==0`
+  guard from `Commit` routing; now only `tx.liveMutated` falls back to the coarse path.
 
-### Anon objects (Q2) — RESOLVED: cannot propagate to anon
-- `attachChildToParentsLocked` (store_relationships.go:5-23): anonymous children go into
-  `parent.anonymousChildren`, NON-anon into `parent.children`.
-- ALL propagation walkers (propagatePropertyToDescendantsLocked store_properties.go:628;
-  removeInheritedPropertyLocked :671; txn propagateDefinedProperty :1219; removeInheritedProperty
-  :1353) iterate `current.children` ONLY — never anonymousChildren.
-- builtins/properties.go:343-344, 395-396: explicit note "Toast does NOT invalidate
-  anonymous descendants when a parent's property schema changes."
-- CONCLUSION: define/delete footprint NEVER includes anon objects. No anon slot work needed.
+## Resolution of the 3 required questions
 
-### Verb aliasing (Q3)
-- buildImageWithVerbCode (store_cow.go:135) already preserves verbs-map/verbList identity.
-- Define/delete don't touch verbs, so the definer image build only touches `properties`,
-  `propOrder`, `propDefsCount`. Need a build helper that copies properties map + propOrder
-  slice + propDefsCount, leaving verbs/verbList shared. Verb aliasing irrelevant for define.
+### Q1 — Footprint completeness (PROVEN COMPLETE)
+The txn staging side **already enumerates the full subtree**. `StoreTxn.DefineProperty`
+(`store_txn.go:1188`) stages `propertyDefines[key]=prop` for the DEFINER, then
+`propagateDefinedProperty` (`:1219`) BFS-walks `current.children` and stages a per-descendant
+clear-slot `propertyWrites` entry for every inheriting descendant. `DeleteDefinedProperty`
+(`:1319`) + `removeInheritedProperty` (`:1353`) stages a per-descendant `propertyDeletes` for each.
+So at commit, `{definer in propertyDefines/Deletes} ∪ {descendants in propertyWrites/propertyDeletes}`
+= the exact set the coarse `propagatePropertyToDescendantsLocked` (`store_properties.go:628`) /
+`removeInheritedPropertyLocked` (`:671`) would write. The decentralized committer locks every one of
+those slots ascending by ObjID.
 
-## PLAN
-1. Add `buildImageWithPropertyDefine(old, prop, ts)` and `buildImageWithPropertyDefinitionDelete(old, actualName, ts)`
-   — DEFINER-ONLY image (copy properties map + propOrder + propDefsCount). Descendants handled
-   by existing staged propertyWrites/propertyDeletes (Phase 1 builders).
-2. Extend `commitDecentralized` footprint collection to include propertyDefines/Deletes objIDs,
-   apply define/delete to the definer image in fixed kind order.
-3. Remove the `len(tx.propertyDefines)==0 && len(propertyDefinitionDeletes)==0` guard from Commit routing.
-4. Add stress test. Run all gates.
+- Descendants that **already define an override** of the property are correctly EXCLUDED from the
+  write set in BOTH paths (staging `:1241-1243` and coarse `:648-650` skip the write but continue the
+  walk), and deeper descendants below an override are correctly INCLUDED in both.
+- **Topology can't shift under the committer:** only coarse `store.mu.Lock` mutators change
+  `children`; the decentralized committer holds `store.mu.RLock` (which excludes `Lock`), so the
+  subtree enumerated at stage time is frozen through build+publish. Additionally, a concurrently
+  added descendant cannot silently escape: `propagateDefinedProperty`/`removeInheritedProperty` call
+  `markObjectRelationshipRead` on every walked node (`:1233,:1367`), recording each parent's
+  `relationshipVersion`; `CreateObject` bumps the parent's `relationshipVersion` on child-attach
+  (`store_lifecycle.go:37`), so `validateObjectRelationshipReadsLocked` fails the commit (E_INVARG)
+  and the retry re-walks to cover the new child.
 
-## OPEN VERIFICATION
-- Confirm the coarse re-walk redundancy: does descendant propagation get applied by the
-  staged propertyWrites alone, or do I need the definer image build to also re-walk? Believe
-  staged writes are sufficient — must TEST (define-on-object-with-descendants conformance + unit).
-- propOrder ordering on define: definePropertyLocked inserts at propDefsCount position.
+### Q2 — Anonymous objects (RESOLVED: cannot propagate to anon)
+`attachChildToParentsLocked` (`store_relationships.go:5-23`) puts anonymous children into
+`parent.anonymousChildren` and NON-anon into `parent.children`. Every propagation walker (coarse and
+txn-staging) iterates `current.children` **only**, never `anonymousChildren`. So a property
+define/delete footprint **never includes an anonymous descendant** — no anon slot work is needed.
+This matches Toast: `builtins/properties.go:343-344,395-396` note "ToastStunt does NOT invalidate
+anonymous descendants when a parent's property schema changes." No `anonObjects` involvement.
 
-## IMPLEMENTATION DONE (not yet built/tested)
-- store_cow.go: added buildImageWithPropertyDefine + buildImageWithPropertyDefinitionDelete
-  (DEFINER-ONLY image builds: copy properties map + propOrder slice + propDefsCount; share
-  everything else). Mirror definePropertyLocked / deleteDefinedPropertyLocked exactly minus
-  the descendant walk.
-- commitDecentralized: footprint now collects propertyDefines + propertyDefinitionDeletes objIDs;
-  added pre-build validation (define => not-already-exists E_INVARG; del => must be defined E_PROPNF);
-  grouped defines/def-deletes by object; build loop applies defines then def-deletes then propWrites etc.
-- Commit routing: removed `len(propertyDefines)==0 && len(propertyDefinitionDeletes)==0` guard.
-  Now ONLY tx.liveMutated falls back to coarse store.mu.Lock.
-- Updated commitDecentralized doc comment with full footprint proof + anon argument.
+### Q3 — Verb verbs/verbList aliasing (CONFIRMED, and not exercised by define/delete)
+`buildImageWithVerbCode` (`store_cow.go`) already substitutes the edited `*Verb` identity-preservingly
+into BOTH `verbs` (map) and `verbList` (slice), like `cloneObjectForReadTxn`. The new define/delete
+builders do not touch verbs at all (they copy only `properties`/`propOrder`/`propDefsCount` and share
+`verbs`/`verbList` by reference), so verb aliasing is preserved by construction.
 
-## FOOTPRINT PROOF (Q1) — COMPLETE
-Footprint locked = definer (from propertyDefines/Deletes) ∪ all staged descendants (from
-propertyWrites/propertyDeletes that the txn's propagateDefinedProperty/removeInheritedProperty
-enumerated by BFS over `children`). Descendants whose inherited value does NOT change (those
-with their own `defined` override) are correctly excluded (staging skips writing them; coarse
-propagatePropertyToDescendantsLocked also skips them). Topology frozen: only coarse store.mu.Lock
-mutators change children; committer holds RLock => excluded.
+## New stress test
+`TestCOWConcurrentDefineDeleteSubtreeRaceFree` in `db/store/cow_define_subtree_race_test.go`:
+- 8 disjoint subtrees (root + 2 chains × depth 3). Each subtree writer repeatedly DEFINEs a
+  uniquely-named property on its root then DELETEs it, each via `StoreTxn.Commit` (decentralized COW,
+  !liveMutated). After define it asserts **every descendant resolves the inherited value** (no
+  lost/torn define); after delete it asserts **every descendant returns E_PROPNF** (no lost delete).
+- 16 reader goroutines hammer the raw `Store.*` funnel (`PropertyValue`/`ObjectName`/`Parents`) on
+  descendants and assert: whenever the property is present, its inherited value is the single correct
+  value (never torn/partial).
+- 8 disjoint ordinary property-value committers run concurrently (proves define/delete commits run
+  alongside ordinary decentralized commits).
+- Final state asserts all subtree props gone (each writer ends on delete) and all objects readable.
+- **Result:** `go test -race -run TestCOWConcurrentDefineDeleteSubtreeRaceFree ./db/store` → ok 1.756s
+  (-race clean, all inheritance/correctness assertions pass).
 
-## NEXT
-- go build ./... ; go vet ./db/store
-- go test ./...
-- add stress test (TestCOWConcurrentDefineDeleteSubtree)
-- go test -race ./db/store ./vm ./scheduler
-- make build; full managed conformance
-- scaling test
-## BUG FOUND + FIXED during testing
-- TestTransactionDefinePropertyStagesAndPropagatesOnCommit failed: descendant clear slot
-  came back defined=false clear=FALSE (want clear=TRUE).
-- Root cause: buildImageWithPropertyValue else-branch (new slot) FORCED np.clear=false.
-  Under coarse path this was fine because define created the clear=true slot first and the
-  propertyWrites loop hit the EXISTING-slot if-branch. Under decentralized path the descendant
-  has ONLY the staged propertyWrite (clear=true) and hits the else-branch -> lost clear flag.
-- Fix: else-branch now HONORS w.prop.clear (removed forced np.clear=false). Safe for normal
-  SetPropertyValue (stages clear=false) and correct for define-descendant (stages clear=true).
-- After fix: go test ./db/store green; go test ./... green.
+## Gate results (all green)
+1. **build/vet:** `go build ./...` clean; `go vet ./db/store` clean (no copylocks). PASS.
+2. **`go test ./...`:** all packages ok (builtins, db/store, scheduler, vm, server, …). PASS. (Caught
+   one real bug — see below — fixed, re-green.)
+3. **`go test -race ./db/store ./vm ./scheduler -count=1`:** clean — db/store 1.978s, vm 1.161s,
+   scheduler 119.132s. Includes existing COW race tests + the new stress test. PASS.
+4. **Full managed conformance** (once, against the `make build` `barn.exe`):
+   `16 failed, 3971 passed, 131 skipped`. All 16 failures proven PRE-EXISTING (no define/inheritance/
+   anon/property regression): 9× `limits::*` E_QUOTA value-bytes (match Phase 1 verify report) + 7
+   non-property (gap_followups telnet IAC, 2× verb_dispatch shadowing, 2× control_flow ternary-string,
+   2× index_and_range dollar-list). The 7 non-limits were re-run against a HEAD baseline build
+   (without my change): `7 failed` identically → proven pre-existing. PASS.
+5. **Scaling** `go test ./scheduler -run TestConcurrencyCommitDominatedDisjoint -count=3`: all 3 runs
+   PASS; speedup@32 = 1.40x / 1.17x / 1.14x (noisy microbench; monotonic increase with worker count
+   holds every run). This path is property-VALUE commits, untouched by the Phase 2 define/delete edits,
+   so no scaling regression. PASS.
 
-## GATE RESULTS SO FAR
-- Gate 1 build/vet: PASS (go build ./... BUILD_OK; go vet ./db/store VET_OK)
-- Gate 2 go test ./...: PASS (all packages ok)
-- New stress test: TestCOWConcurrentDefineDeleteSubtreeRaceFree in
-  db/store/cow_define_subtree_race_test.go (disjoint subtrees define<->delete on roots via
-  decentralized COW, descendants assert inherited value present after define / E_PROPNF after
-  delete; readers assert no torn inherited value; disjoint committers concurrent).
+## Bug found + fixed during testing
+`TestTransactionDefinePropertyStagesAndPropagatesOnCommit` initially failed: a descendant's clear
+inherited slot came back `clear=false`. Root cause: `buildImageWithPropertyValue`'s new-slot (else)
+branch forced `np.clear=false`. Under the old coarse routing this was harmless (the define loop created
+the `clear=true` slot first, so the propertyWrites loop hit the existing-slot branch). Under the
+decentralized path a descendant has ONLY the staged `propertyWrite` (which carries `clear=true` from
+`propagateDefinedProperty`), so the else branch dropped the clear flag. Fix: honor `w.prop.clear`.
+Verified correct for both normal SetPropertyValue overrides (stage `clear=false`) and define-propagated
+descendant slots (stage `clear=true`).
 
-## GATE RESULTS (updated)
-- Gate 1 build/vet: PASS
-- Gate 2 go test ./...: PASS
-- Gate 3 -race ./db/store ./vm ./scheduler -count=1: PASS (db/store 1.978s, vm 1.161s,
-  scheduler 119.132s) — includes new TestCOWConcurrentDefineDeleteSubtreeRaceFree (also
-  ran standalone -race: ok 1.756s).
-- Gate 5 scaling TestConcurrencyCommitDominatedDisjoint -count=3: PASS (all 3 runs PASS;
-  speedup@32 = 1.40x / 1.17x / 1.14x — noisy microbench, monotonic increase with workers
-  holds; this path is property-value commits UNCHANGED by Phase 2 define/delete edits).
-- make build: PASS -> barn.exe (only server binary present).
-
-## BLOCKER: conformance runner
-- `uv run --project ../../moo-conformance-tests moo-conformance ...` fails:
-  "failed to remove file .venv/lib64: Access is denied (os error 5)" — uv venv sync issue,
-  not a barn issue. Need alternate invocation (uv tool run, or pre-existing venv, or python -m).
-## CONFORMANCE (Gate 4): 16 failed, 3971 passed, 131 skipped (144.91s) against make-built barn.exe
-Failures categorized — NONE are define/inheritance/anon/property:
-- 12x limits::* (named pre-existing category): setadd/listinsert/listappend/listset/appending/
-  rangeset(list+map)/decode_binary/mapdelete max_value_bytes E_QUOTA checks.
-- 1x gap_followups::audit_telnet_iac_delivered_as_oob_command (telnet IAC)
-- 2x verb_dispatch::audit_non_executable_verb_shadow / pass_skips_non_executable (verb dispatch)
-- 2x control_flow::ternary_concatenated_string_* (parser/control flow)
-- 2x index_and_range::dollar_list_nested_* (index/range $)
-=> all unrelated to property schema. Need to confirm pre-existing (compare vs baseline).
-
-## ANALYST REVIEW (adversary pass) — items 1-5 CLEAN; FINDING B raised + RESOLVED:
-- FINDING B (footprint hole if a child added concurrently after stage): RESOLVED.
-  propagateDefinedProperty/removeInheritedProperty call markObjectRelationshipRead on EVERY
-  walked node (store_txn.go:1233,1299,1367) recording relationshipVersion. CreateObject bumps
-  the parent's relationshipVersion via stampObjectRelationship (store_lifecycle.go:37). At commit
-  validateObjectRelationshipReadsLocked checks them -> a concurrent child-add fails validation
-  (E_INVARG) -> retry re-walks and covers the new child. ALSO: decentralized path holds RLock,
-  CreateObject holds Lock -> mutually exclusive anyway. No hole.
-- FINDING A/C: cosmetic fragility (the validLiveObject loop at store_cow.go:378 runs before the
-  define/delete property checks, so live is non-nil — safe). Adding a guard comment.
-
-## CONFORMANCE PRE-EXISTING PROOF (rigorous)
-- git stash blocked; instead backed up my 2 files to /tmp/cow2bak, `git checkout -- ` both to
-  HEAD (baseline WITHOUT my change), `make build`, ran the 7 NON-limits failing tests:
-  => 7 failed, 4111 deselected — IDENTICAL 7 failures fail on baseline. PROVEN pre-existing.
-- The 9 limits::* failures match Phase 1 verify report exactly (pre-existing E_QUOTA value-bytes).
-- Restored my files from /tmp/cow2bak, rebuilt. All 16 conformance failures = pre-existing.
-  ZERO define/inheritance/anon/property regressions.
-
-## STATUS: all gates green, footprint proven. Committing.
+## Adversarial review
+An analyst pass verified the 5 correctness properties (footprint completeness, propOrder/propDefsCount
+fidelity, the clear-flag fix, error/atomicity contract, case-sensitivity) — all CLEAN. Its one raised
+risk (FINDING B: a concurrently-added descendant escaping the footprint) is resolved above via
+relationship-read validation + RLock/Lock exclusion. A fragility note (FINDING A) was addressed with a
+guard comment at `store_cow.go:389` ("do not reorder these checks above the validLiveObject loop").
