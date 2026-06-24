@@ -30,7 +30,11 @@ func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 	reachable := make(map[types.ObjID]struct{})
 	queue := make([]types.ObjID, 0)
 
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !validLiveObject(obj) || obj.anonymous {
 			continue
 		}
@@ -74,7 +78,7 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 			continue
 		}
 
-		obj := s.objects[id]
+		obj := s.load(id)
 		if !validLiveObject(obj) || !obj.anonymous {
 			continue
 		}
@@ -103,7 +107,7 @@ func (s *Store) UnreachableAnonymousValues(reachable map[types.ObjID]struct{}, r
 
 	ids := make([]types.ObjID, 0, len(refs))
 	for id := range refs {
-		obj := s.objects[id]
+		obj := s.load(id)
 		if !validLiveObject(obj) || !obj.anonymous {
 			continue
 		}
@@ -129,7 +133,11 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	defer s.mu.RUnlock()
 
 	candidates := make([]types.ObjID, 0)
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !validLiveObject(obj) || !obj.anonymous {
 			continue
 		}
@@ -169,7 +177,11 @@ func (s *Store) PersistentWaifRoots() []types.WaifValue {
 	defer s.mu.RUnlock()
 
 	roots := make([]types.WaifValue, 0)
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !validLiveObject(obj) {
 			continue
 		}

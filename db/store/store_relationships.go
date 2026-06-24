@@ -4,7 +4,7 @@ import "barn/types"
 
 func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.ObjID, anonymous bool, chparent bool) {
 	for _, parentID := range parents {
-		parent := s.objects[parentID]
+		parent := s.load(parentID)
 		if !validLiveObject(parent) {
 			continue
 		}
@@ -26,14 +26,14 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	what := s.objects[whatID]
+	what := s.load(whatID)
 	if !validLiveObject(what) {
 		return types.E_INVIND
 	}
 
 	ts := s.bumpClockLocked()
 	if what.location != types.ObjNothing {
-		oldLoc := s.objects[what.location]
+		oldLoc := s.load(what.location)
 		if validLiveObject(oldLoc) {
 			s.rememberObjectLocked(oldLoc)
 			oldLoc.contents = removeObjID(oldLoc.contents, whatID)
@@ -46,7 +46,7 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	stampObjectRelationship(what, ts)
 
 	if whereID != types.ObjNothing {
-		where := s.objects[whereID]
+		where := s.load(whereID)
 		if validLiveObject(where) {
 			s.rememberObjectLocked(where)
 			where.contents = insertObjIDAtMOOPosition(where.contents, whatID, position)
@@ -60,7 +60,7 @@ func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
@@ -74,7 +74,7 @@ func (s *Store) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -85,7 +85,7 @@ func (s *Store) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -96,7 +96,7 @@ func (s *Store) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -107,7 +107,7 @@ func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
@@ -118,7 +118,7 @@ func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, t
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -140,7 +140,7 @@ func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, t
 		}
 		seen[currentID] = true
 		result = append(result, currentID)
-		current := s.objects[currentID]
+		current := s.load(currentID)
 		if validLiveObject(current) {
 			queue = append(queue, current.parents...)
 		}
@@ -153,7 +153,7 @@ func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -175,7 +175,7 @@ func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID,
 		}
 		seen[currentID] = true
 		result = append(result, currentID)
-		current := s.objects[currentID]
+		current := s.load(currentID)
 		if validLiveObject(current) {
 			queue = append(queue, current.children...)
 		}
@@ -188,8 +188,8 @@ func (s *Store) HasAncestor(objID, ancestorID types.ObjID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
-	if !validLiveObject(obj) || !validLiveObject(s.objects[ancestorID]) {
+	obj := s.load(objID)
+	if !validLiveObject(obj) || !validLiveObject(s.load(ancestorID)) {
 		return false
 	}
 	if objID == ancestorID {
@@ -208,7 +208,7 @@ func (s *Store) HasAncestor(objID, ancestorID types.ObjID) bool {
 		if currentID == ancestorID {
 			return true
 		}
-		current := s.objects[currentID]
+		current := s.load(currentID)
 		if validLiveObject(current) {
 			queue = append(queue, current.parents...)
 		}
@@ -220,7 +220,7 @@ func (s *Store) HasDescendant(objID, descendantID types.ObjID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return false
 	}
@@ -232,7 +232,7 @@ func (s *Store) hasDescendantLocked(obj *Object, descendantID types.ObjID) bool 
 		if childID == descendantID {
 			return true
 		}
-		child := s.objects[childID]
+		child := s.load(childID)
 		if validLiveObject(child) && s.hasDescendantLocked(child, descendantID) {
 			return true
 		}
@@ -248,7 +248,7 @@ func (s *Store) HasContentDescendant(objID, targetID types.ObjID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if !validLiveObject(s.objects[objID]) {
+	if !validLiveObject(s.load(objID)) {
 		return false
 	}
 
@@ -264,7 +264,7 @@ func (s *Store) HasContentDescendant(objID, targetID types.ObjID) bool {
 		if currentID == targetID {
 			return true
 		}
-		current := s.objects[currentID]
+		current := s.load(currentID)
 		if validLiveObject(current) {
 			queue = append(queue, current.contents...)
 		}
@@ -276,14 +276,14 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
 
 	ts := s.bumpClockLocked()
 	for _, oldParentID := range obj.parents {
-		oldParent := s.objects[oldParentID]
+		oldParent := s.load(oldParentID)
 		if !validLiveObject(oldParent) {
 			continue
 		}
@@ -298,14 +298,14 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 	s.rememberObjectLocked(obj)
 	obj.parents = append([]types.ObjID(nil), newParents...)
 	for _, parentID := range obj.parents {
-		s.rememberObjectLocked(s.objects[parentID])
+		s.rememberObjectLocked(s.load(parentID))
 	}
 	s.attachChildToParentsLocked(objID, obj.parents, false, true)
 	s.reseedInheritedPropertiesLocked(obj)
 	stampObjectRelationship(obj, ts)
 	stampObjectProperties(obj, ts)
 	for _, parentID := range obj.parents {
-		stampObjectRelationship(s.objects[parentID], ts)
+		stampObjectRelationship(s.load(parentID), ts)
 	}
 	return types.E_NONE
 }

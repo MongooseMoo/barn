@@ -6,7 +6,7 @@ func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
 	}
@@ -130,7 +130,8 @@ func (s *Store) ResetMaxObject() {
 	maxAny := types.ObjID(-1)
 	maxNonAnon := types.ObjID(-1)
 
-	for id, obj := range s.objects {
+	for id, slot := range s.objects {
+		obj := slot.ptr.Load()
 		if obj == nil || obj.recycled {
 			continue
 		}

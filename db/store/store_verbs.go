@@ -65,7 +65,7 @@ func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return false
 	}
@@ -86,7 +86,7 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 		}
 		visited[currentID] = true
 
-		obj := s.objects[currentID]
+		obj := s.load(currentID)
 		if !validLiveObject(obj) {
 			continue
 		}
@@ -117,7 +117,7 @@ func (s *Store) VerbCandidatesInAncestry(objID types.ObjID) ([]VerbCandidate, ty
 		}
 		visited[currentID] = true
 
-		obj := s.objects[currentID]
+		obj := s.load(currentID)
 		if !validLiveObject(obj) {
 			continue
 		}
@@ -167,7 +167,7 @@ func (s *Store) findVerbLocked(objID types.ObjID, verbName string) (*Verb, types
 		visited[current] = true
 
 		// Get object (skip if invalid)
-		obj := s.objects[current]
+		obj := s.load(current)
 		if obj == nil || obj.recycled {
 			continue
 		}
@@ -226,7 +226,7 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, 
 }
 
 func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Verb, error) {
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if obj == nil || obj.recycled {
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
@@ -258,7 +258,7 @@ func (s *Store) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
@@ -274,7 +274,7 @@ func (s *Store) VerbByIndex(objID types.ObjID, index int) (VerbView, types.Error
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return VerbView{}, types.E_INVIND
 	}
@@ -288,7 +288,7 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
 	}
@@ -313,7 +313,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -357,7 +357,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -391,18 +391,18 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !validLiveObject(s.objects[objID]) {
+	if !validLiveObject(s.load(objID)) {
 		return types.E_INVIND
 	}
 	verb, _, err := s.findVerbLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
-	s.rememberObjectLocked(s.objects[objID])
+	s.rememberObjectLocked(s.load(objID))
 	ts := s.bumpClockLocked()
 	verb.argSpec = argSpec
 	stampVerb(verb, ts)
-	stampObjectVerbs(s.objects[objID], ts)
+	stampObjectVerbs(s.load(objID), ts)
 	return types.E_NONE
 }
 
@@ -414,20 +414,20 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !validLiveObject(s.objects[objID]) {
+	if !validLiveObject(s.load(objID)) {
 		return types.E_INVIND
 	}
 	verb, _, err := s.findVerbLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
-	s.rememberObjectLocked(s.objects[objID])
+	s.rememberObjectLocked(s.load(objID))
 	ts := s.bumpClockLocked()
 	verb.code = append([]string(nil), lines...)
 	// set_verb_code installs a program (even an empty one) on the verb.
 	verb.hasProgram = true
 	stampVerb(verb, ts)
-	stampObjectVerbs(s.objects[objID], ts)
+	stampObjectVerbs(s.load(objID), ts)
 	return types.E_NONE
 }
 
@@ -435,7 +435,7 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -457,7 +457,7 @@ func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	verbLocObj := s.objects[verbLoc]
+	verbLocObj := s.load(verbLoc)
 	if !validLiveObject(verbLocObj) {
 		return VerbView{}, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
 	}
@@ -472,7 +472,7 @@ func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, 
 		}
 		visited[current] = true
 
-		obj := s.objects[current]
+		obj := s.load(current)
 		if !validLiveObject(obj) {
 			continue
 		}
@@ -498,7 +498,7 @@ func (s *Store) FindLocalVerbForProgramming(objID types.ObjID, verbName string) 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return false
 	}
