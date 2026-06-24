@@ -6,9 +6,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"barn/builtins"
 	"barn/bytecode"
@@ -226,8 +228,23 @@ func main() {
 		log.Fatalf("Failed to load database: %v", err)
 	}
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signalDone := make(chan struct{})
+	go func() {
+		select {
+		case <-sigChan:
+			log.Println("Received shutdown signal")
+			srv.Shutdown("Server shutdown")
+		case <-signalDone:
+		}
+	}()
+
 	log.Printf("Starting server...")
-	if err := srv.Start(); err != nil {
+	err = srv.Start()
+	close(signalDone)
+	signal.Stop(sigChan)
+	if err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }

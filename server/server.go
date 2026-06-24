@@ -6,9 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"barn/builtins"
@@ -197,12 +195,6 @@ func (s *Server) Start() error {
 	s.backgroundWG.Add(1)
 	go func() {
 		defer s.backgroundWG.Done()
-		s.handleSignals()
-	}()
-
-	s.backgroundWG.Add(1)
-	go func() {
-		defer s.backgroundWG.Done()
 		s.checkpointLoop()
 	}()
 
@@ -221,20 +213,6 @@ func (s *Server) mainLoop() error {
 				log.Printf("Checkpoint failed: %v", err)
 			}
 		}
-	}
-}
-
-// handleSignals handles OS signals
-func (s *Server) handleSignals() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case <-sigChan:
-		log.Println("Received shutdown signal")
-		s.Shutdown("Server shutdown")
-	case <-s.ctx.Done():
-		return
 	}
 }
 
