@@ -337,23 +337,24 @@ func (s *Scheduler) YieldReadyTasks() int {
 	return s.ProcessReadyTasks()
 }
 
-// liveTaskVMs returns the saved VMs of other tasks whose anonymous-object references
-// must be preserved when `exclude` runs orphan-anonymous GC.
+// collectSiblingGCRefs snapshots the anonymous-object and waif references held by
+// every OTHER task's saved VM, for use when `exclude` runs orphan GC / waif
+// finalization. The references are collected here, under s.mu, rather than by handing
+// VM pointers back to be walked after the lock is dropped — that is the whole point:
 //
-// It deliberately skips tasks in the Running state. This is both a correctness and a
-// concurrency-safety requirement once tasks execute in parallel: a running sibling is
-// actively mutating its VM on another goroutine, so walking that VM here is a data
-// race. It is also unnecessary — orphan GC only ever recycles objects created during
-// the excluded task's own current slice (ID >= its capture floor), and a concurrently
-// running sibling cannot hold a reference to those, since nothing the excluded task
-// created this slice has been committed or handed off to it. The tasks that legitimately
-// can reference them (e.g. forked children carrying a copy of the creating environment)
-// are queued or suspended, not running, so they are still scanned and still protected.
-func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
+//   - A running sibling is actively mutating its VM on another goroutine, so it is
+//     skipped (orphan GC never recycles objects a concurrent sibling could hold, since
+//     this task's current-slice creations are not yet committed or handed off).
+//   - A queued/suspended sibling's VM is read here while s.mu is held. Because task
+//     dispatch (ProcessReadyTasks) and the Running transition in runTask both take
+//     s.mu, no sibling can begin executing — and thus begin mutating its VM — while we
+//     read it. Walking the pointers after releasing s.mu would race exactly that
+//     transition.
+func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.WaifValue) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var roots []*vm.VM
+	anonRefs = make(map[types.ObjID]struct{})
 	for _, queued := range s.tasks {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue
@@ -363,10 +364,11 @@ func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 			continue
 		}
 		if exec, ok := queued.BytecodeVM.(*vm.VM); ok && exec != nil {
-			roots = append(roots, exec)
+			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
+			vm.CollectWaifsFromVM(exec, &waifRefs)
 		}
 	}
-	return roots
+	return anonRefs, waifRefs
 }
 
 func (s *Scheduler) isWizard(objID types.ObjID) bool {

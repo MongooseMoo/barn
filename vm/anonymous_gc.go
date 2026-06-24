@@ -33,6 +33,14 @@ func collectCompositeAnonymousRefs(v types.Value, out map[types.ObjID]struct{}) 
 	}
 }
 
+// CollectAnonymousRefsFromVM gathers the anonymous-object IDs reachable from a VM's
+// frames and stack into out. It touches only VM state (no Store lock), so callers may
+// run it while holding the scheduler lock to snapshot a sibling task's references
+// without racing that task's execution.
+func CollectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
+	collectAnonymousRefsFromVM(exec, out)
+}
+
 func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	if exec == nil {
 		return
@@ -100,24 +108,30 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
 func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext) {
-	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0)
+	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0, nil)
 }
 
 // AutoRecycleOrphanAnonymousSince performs orphan-anonymous collection but only
 // recycles anonymous objects with IDs >= minID. This lets task/eval callers
 // collect objects created during the current execution without sweeping
 // pre-existing database state.
-func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext, minID types.ObjID, extraVMs ...*VM) {
+// siblingRefs holds anonymous IDs already collected from other tasks' VMs (under the
+// scheduler lock, so they were snapshotted without racing those tasks). localVMs are
+// VMs owned by the calling goroutine (this task's own VM), safe to walk here.
+func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
 	if ctx == nil || store == nil || registry == nil {
 		return
 	}
 
 	reachable := buildPersistentAnonymousReachability(store)
-	liveRefs := make(map[types.ObjID]struct{})
+	liveRefs := make(map[types.ObjID]struct{}, len(siblingRefs))
+	for id := range siblingRefs {
+		liveRefs[id] = struct{}{}
+	}
 	if callerVM, ok := ctx.CallerVM.(*VM); ok {
 		collectAnonymousRefsFromVM(callerVM, liveRefs)
 	}
-	for _, exec := range extraVMs {
+	for _, exec := range localVMs {
 		collectAnonymousRefsFromVM(exec, liveRefs)
 	}
 	expandAnonymousReachability(store, reachable, liveRefs)

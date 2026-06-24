@@ -21,20 +21,24 @@ func waifInList(needle types.WaifValue, haystack []types.WaifValue) bool {
 	return false
 }
 
-func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
+func (s *Scheduler) liveWaifs(siblingWaifs []types.WaifValue, rootVMs ...*vm.VM) []types.WaifValue {
 	roots := s.store.PersistentWaifRoots()
+	roots = append(roots, siblingWaifs...)
 	for _, exec := range rootVMs {
 		vm.CollectWaifsFromVM(exec, &roots)
 	}
 	return roots
 }
 
-func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.WaifValue, rootVMs ...*vm.VM) {
+// finalizePendingWaifs recycles the task's pending waifs that nothing still
+// references. siblingWaifs are waif references already snapshotted from other tasks'
+// VMs under the scheduler lock; rootVMs are this goroutine's own VMs.
+func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.WaifValue, siblingWaifs []types.WaifValue, rootVMs ...*vm.VM) {
 	if len(pending) == 0 || ctx == nil {
 		return
 	}
 
-	live := s.liveWaifs(rootVMs...)
+	live := s.liveWaifs(siblingWaifs, rootVMs...)
 	for _, waif := range pending {
 		if waifInList(waif, live) {
 			continue

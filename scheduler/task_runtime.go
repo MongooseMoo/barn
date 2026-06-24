@@ -46,7 +46,13 @@ retryAttempt:
 	if attempt > 0 {
 		retryState.restore(t)
 	}
+	// Publish the Running transition under s.mu, the lock collectSiblingGCRefs holds
+	// while it reads sibling tasks' VMs. This guarantees a concurrent GC walk either
+	// sees this task as Running (and skips its VM) or blocks here before this goroutine
+	// touches the VM below — closing the popped-but-not-yet-running race window.
+	s.mu.Lock()
 	t.SetState(task.TaskRunning)
+	s.mu.Unlock()
 
 	ctx := t.Context
 	if ctx == nil {
@@ -315,8 +321,8 @@ retryAttempt:
 	if result.Flow == types.FlowSuspend {
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 		// is a GC boundary for newly-created orphan anonymous objects.
-		liveVMs := append([]*vm.VM{bcVM}, s.liveTaskVMs(t)...)
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+		siblingAnon, _ := s.collectSiblingGCRefs(t)
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
@@ -422,11 +428,11 @@ retryAttempt:
 			}
 		}
 	} else {
-		liveVMs := s.liveTaskVMs(t)
+		siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
 		if bcVM != nil {
-			s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), liveVMs...)
+			s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), siblingWaifs, bcVM)
 		}
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
