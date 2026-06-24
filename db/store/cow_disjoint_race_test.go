@@ -23,11 +23,11 @@ import (
 // under -race. Run with: go test -race -run TestCOWDisjointCommitsRaceFree ./db/store
 func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 	const (
-		nObjects     = 16
-		nWriters     = 16 // one writer goroutine per object (disjoint footprints)
-		nReaders     = 16
-		commitsEach  = 200
-		readsEach    = 2000
+		nObjects    = 16
+		nWriters    = 16 // one writer goroutine per object (disjoint footprints)
+		nReaders    = 16
+		commitsEach = 200
+		readsEach   = 2000
 	)
 
 	store := NewStore()

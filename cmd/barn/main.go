@@ -147,7 +147,6 @@ func main() {
 		log.Printf("GC target: %d%% (default)", defaultGOGCPercent)
 	}
 
-
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
 		database, err := dbformat.LoadDatabase(*dbPath)

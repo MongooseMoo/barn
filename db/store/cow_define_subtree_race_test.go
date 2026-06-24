@@ -35,17 +35,18 @@ import (
 // Under COW every commit publishes new immutable images and never mutates the old ones a
 // reader Loaded, so this MUST be clean under -race AND the descendant-inheritance
 // assertions must hold. Run with:
-//   go test -race -run TestCOWConcurrentDefineDeleteSubtreeRaceFree ./db/store
+//
+//	go test -race -run TestCOWConcurrentDefineDeleteSubtreeRaceFree ./db/store
 func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 	const (
-		nSubtrees    = 8
-		depthPerArm  = 3 // chain depth below each root
-		armsPerRoot  = 2 // fan-out: two chains per root
-		roundsEach   = 120
-		nReaders     = 16
-		readsEach    = 4000
-		nDisjoint    = 8
-		commitsEach  = 200
+		nSubtrees   = 8
+		depthPerArm = 3 // chain depth below each root
+		armsPerRoot = 2 // fan-out: two chains per root
+		roundsEach  = 120
+		nReaders    = 16
+		readsEach   = 4000
+		nDisjoint   = 8
+		commitsEach = 200
 	)
 
 	store := NewStore()
