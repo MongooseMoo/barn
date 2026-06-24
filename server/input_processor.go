@@ -513,27 +513,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		}
 
 		if huhMatch := command.FindHuhVerb(p.store, player, location, usePlayerHuh); huhMatch != nil {
-			if huhMatch.Statements == nil && len(huhMatch.Verb.Code) > 0 {
-				program, errors := bytecode.CompileVerb(huhMatch.Verb.Code)
-				if len(errors) > 0 {
-					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-					if outputSuffix != "" {
-						_ = conn.Send(outputSuffix)
-					}
-					return
-				}
-				huhMatch.Statements = program.Statements
-			}
-
-			if len(huhMatch.Statements) == 0 {
-				conn.Send("I couldn't understand that.")
-				if outputSuffix != "" {
-					_ = conn.Send(outputSuffix)
-				}
-				return
-			}
-
-			p.runtime.ExecuteVerbTaskSync(player, huhMatch, cmd, outputSuffix)
+			p.executeCommandMatch(conn, player, cmd, huhMatch, outputSuffix, "I couldn't understand that.")
 			return
 		}
 		conn.Send("I couldn't understand that.")
@@ -543,6 +523,10 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
+	p.executeCommandMatch(conn, player, cmd, match, outputSuffix, fmt.Sprintf("[%s has no code]", match.Verb.Name))
+}
+
+func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
 	if match.Statements == nil && len(match.Verb.Code) > 0 {
 		program, errors := bytecode.CompileVerb(match.Verb.Code)
 		if len(errors) > 0 {
@@ -556,7 +540,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	}
 
 	if len(match.Statements) == 0 {
-		conn.Send(fmt.Sprintf("[%s has no code]", match.Verb.Name))
+		conn.Send(emptyMessage)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
