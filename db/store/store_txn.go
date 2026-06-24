@@ -1396,21 +1396,19 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	}
 	tx.validationFail = false
 
-	// COW Phase 1 decentralized fast path: a commit whose ENTIRE write footprint is
-	// within the decentralized write kinds — scalar (name/owner/flags), relationship
-	// (location), property-value, property-delete, verb-code — with NO property
-	// DEFINE / DEFINE-DELETE (the HARD descendant-propagating walkers, Phase 2) and
+	// COW decentralized fast path: a commit whose ENTIRE write footprint is within the
+	// decentralized write kinds — scalar (name/owner/flags), relationship (location),
+	// property DEFINE, property DEFINITION-DELETE (Phase 2 — the descendant-propagating
+	// walkers, whose full inheriting subtree is already staged as per-descendant
+	// propertyWrites/propertyDeletes), property-value, property-delete, verb-code — and
 	// that did not mutate the live store directly is applied decentralized: under
 	// store.mu.RLock + per-slot mutexes, building and publishing new immutable images
 	// instead of taking the exclusive store.mu.Lock. Disjoint such commits run in
-	// parallel. A footprint that includes property define/define-delete, or a
-	// liveMutated task, falls back to the coarse exclusive path below (unchanged
-	// in-place apply). The earlier guard already established at least one write is
-	// staged, so reaching here with both define maps empty and !liveMutated means at
-	// least one decentralized write exists.
-	if !tx.liveMutated &&
-		len(tx.propertyDefines) == 0 &&
-		len(tx.propertyDefinitionDeletes) == 0 {
+	// parallel. A liveMutated task falls back to the coarse exclusive path below
+	// (unchanged in-place apply). The earlier guard already established at least one
+	// write is staged, so reaching here with !liveMutated means at least one
+	// decentralized write exists.
+	if !tx.liveMutated {
 		return tx.commitDecentralized()
 	}
 

@@ -54,11 +54,18 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		updated.version = ts
 		newProps[liveName] = &updated
 	} else {
-		// New property slot on this object (mirrors the coarse path's else branch):
-		// the staged prop carries metadata; value comes from the write, clear=false.
+		// New property slot on this object: the staged prop carries metadata; value
+		// comes from the write. Honor the staged clear flag: a normal inherited-override
+		// SetPropertyValue stages clear=false (store_txn.go:344), but a DESCENDANT
+		// clear-slot staged by a property-define propagation stages clear=true
+		// (propagateDefinedProperty, store_txn.go:1249-1260) — that write reseeds the
+		// inherited slot and MUST remain clear so reads fall through to the new
+		// definition. (The coarse path preserved this because the define loop created
+		// the clear=true slot first and its propertyWrites loop then hit the existing
+		// slot; under the decentralized path the descendant has only the propertyWrite,
+		// so the clear flag must be honored here.)
 		np := w.prop
 		np.value = w.value
-		np.clear = false
 		np.version = ts
 		newProps[np.name] = &np
 	}
@@ -124,6 +131,86 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 	return &img
 }
 
+// buildImageWithPropertyDefine returns a NEW immutable *Object equal to old except for
+// the property `prop` newly DEFINED on the definer object O, with the propertyVersion
+// stamped to ts. This mirrors definePropertyLocked's mutation of the DEFINER ONLY
+// (store_properties.go:501-514): it does NOT propagate clear inherited slots to
+// descendants — that propagation is staged separately by the txn (propagateDefinedProperty,
+// store_txn.go:1219) as per-descendant propertyWrites and is applied to each descendant's
+// own image by buildImageWithPropertyValue. Each descendant image is built independently
+// from its own published image, so define-on-O and the descendant clear-slot writes are
+// independent per-object builds within the same atomically-published footprint.
+//
+// Both the properties map AND the propOrder slice are copied (the two collections this
+// write mutates); every other collection (verbs/verbList/parents/children/contents/...) is
+// shared by reference with the old image. The new defined property is a freshly-allocated
+// *Property so the old image is never mutated. Caller has already validated that the
+// property does not already exist on O (the staging side enforced E_INVARG).
+func buildImageWithPropertyDefine(old *Object, prop Property, ts uint64) *Object {
+	img := *old // shallow struct copy: shares all slices/maps/pointers with old
+
+	newProps := make(map[string]*Property, len(old.properties)+1)
+	for name, p := range old.properties {
+		newProps[name] = p
+	}
+
+	// Mirror definePropertyLocked: stamp the defined property and add it.
+	prop.defined = true
+	prop.clear = false
+	prop.version = ts
+	newProps[prop.name] = cloneProperty(&prop)
+
+	// Insert the new name into propOrder at the propDefsCount position (mirrors the
+	// coarse path's insertion order). Copy the slice so the old image's propOrder is
+	// never mutated.
+	pos := old.propDefsCount
+	if pos > len(old.propOrder) {
+		pos = len(old.propOrder)
+	}
+	newOrder := make([]string, 0, len(old.propOrder)+1)
+	newOrder = append(newOrder, old.propOrder[:pos]...)
+	newOrder = append(newOrder, prop.name)
+	newOrder = append(newOrder, old.propOrder[pos:]...)
+
+	img.properties = newProps
+	img.propOrder = newOrder
+	img.propDefsCount = old.propDefsCount + 1
+	img.propertyVersion = ts
+	return &img
+}
+
+// buildImageWithPropertyDefinitionDelete returns a NEW immutable *Object equal to old
+// except the property DEFINITION named actualName removed from the definer object O, with
+// the propertyVersion stamped to ts. This mirrors deleteDefinedPropertyLocked's mutation
+// of the DEFINER ONLY (store_properties.go:544-549): it does NOT remove inherited copies
+// from descendants — that removal is staged separately by the txn (removeInheritedProperty,
+// store_txn.go:1353) as per-descendant propertyDeletes and is applied to each descendant's
+// own image by buildImageWithPropertyDelete.
+//
+// Both the properties map AND the propOrder slice are copied; every other collection is
+// shared by reference. Caller has validated the property is defined on O (staging side).
+func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts uint64) *Object {
+	img := *old // shallow struct copy
+
+	newProps := make(map[string]*Property, len(old.properties))
+	liveActual := actualName
+	for name, p := range old.properties {
+		newProps[name] = p
+	}
+	if la, _, ok := propertyByName(newProps, actualName); ok {
+		liveActual = la
+		delete(newProps, liveActual)
+	}
+
+	img.properties = newProps
+	img.propOrder = removeString(old.propOrder, liveActual)
+	if old.propDefsCount > 0 {
+		img.propDefsCount = old.propDefsCount - 1
+	}
+	img.propertyVersion = ts
+	return &img
+}
+
 // buildImageWithVerbCode returns a NEW immutable *Object equal to old except for the
 // single verb (keyed by name) having its code replaced and hasProgram set, with the
 // edited verb's version and the object's verbVersion stamped to ts. Caller has already
@@ -185,20 +272,33 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 }
 
 // commitDecentralized applies a commit whose ENTIRE write footprint is within the
-// Phase-1 decentralized write kinds — scalar (name/owner/flags), relationship
-// (location), property-value, property-delete, and verb-code writes — with no
-// property DEFINE / DEFINE-DELETE (the HARD descendant-propagating walkers stay on
-// the coarse path) and not tx.liveMutated. It runs under store.mu.RLock so disjoint
-// committers proceed in parallel; per-object slot mutexes (taken in ascending ObjID
-// order, deadlock-free) serialize same-object committers and exclude concurrent
-// publishers of the same slot. Read-set validation reads immutable images via
-// load(); on mismatch the whole commit fails with the same contract as the coarse
-// path (E_INVARG + validationFail). For each object in the footprint a SINGLE new
-// immutable image is built applying all of that object's writes (in a fixed kind
-// order), then every image is published atomically per slot.
+// decentralized write kinds — scalar (name/owner/flags), relationship (location),
+// property DEFINE, property DEFINITION-DELETE, property-value, property-delete, and
+// verb-code writes — and is not tx.liveMutated. It runs under store.mu.RLock so
+// disjoint committers proceed in parallel; per-object slot mutexes (taken in ascending
+// ObjID order, deadlock-free) serialize same-object committers and exclude concurrent
+// publishers of the same slot. Read-set validation reads immutable images via load();
+// on mismatch the whole commit fails with the same contract as the coarse path
+// (E_INVARG + validationFail). For each object in the footprint a SINGLE new immutable
+// image is built applying all of that object's writes (in a fixed kind order), then
+// every image is published atomically per slot.
 //
-// Caller guarantees (see Commit's routing): at least one decentralized write is
-// staged, propertyDefines and propertyDefinitionDeletes are both empty, and
+// PROPERTY DEFINE/DELETE FOOTPRINT (Phase 2): a define/definition-delete on object O
+// propagates to O's inheriting DESCENDANTS. The txn staging side has already enumerated
+// that subtree: StoreTxn.DefineProperty walks O's children BFS (propagateDefinedProperty,
+// store_txn.go:1219) and stages a per-descendant propertyWrites clear-slot for every
+// inheriting descendant; DeleteDefinedProperty stages per-descendant propertyDeletes
+// (removeInheritedProperty, :1353). So the define/delete itself applies ONLY to the
+// definer's image here, and the descendant images are built from the already-staged
+// propertyWrites/propertyDeletes. The footprint locked below = definer ∪ every staged
+// descendant, covering the WHOLE affected subtree. The walkers traverse `children` only,
+// never `anonymousChildren`, so anonymous descendants are never in the footprint — which
+// matches Toast (a parent property-schema change does NOT touch anon descendants;
+// builtins/properties.go:343-344). Topology cannot shift under us: only coarse
+// store.mu.Lock mutators change parents/children, and we hold store.mu.RLock (excludes
+// Lock), so the subtree the staging enumerated is frozen through build+publish.
+//
+// Caller guarantees (see Commit's routing): at least one write is staged and
 // !tx.liveMutated.
 func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	s := tx.store
@@ -221,6 +321,12 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 	for id := range tx.relationshipWrites {
 		addID(id)
+	}
+	for key := range tx.propertyDefines {
+		addID(key.objID)
+	}
+	for key := range tx.propertyDefinitionDeletes {
+		addID(key.objID)
 	}
 	for key := range tx.propertyWrites {
 		addID(key.objID)
@@ -280,8 +386,43 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 			return types.E_VERBNF
 		}
 	}
+	// The validLiveObject loop above has already proven every footprint object (which
+	// includes every propertyDefines/propertyDefinitionDeletes definer) is live, so the
+	// s.load(key.objID) results below are non-nil — do not reorder these checks above it.
+	//
+	// A property DEFINE must not collide with a property already present on the
+	// definer's image (mirrors definePropertyLocked's E_INVARG, store_properties.go:494).
+	for key := range tx.propertyDefines {
+		live := s.load(key.objID)
+		if _, _, exists := propertyByName(live.properties, key.name); exists {
+			return types.E_INVARG
+		}
+	}
+	// A property DEFINE-DELETE must target a property defined on the definer's image
+	// (mirrors deleteDefinedPropertyLocked's E_PROPNF, store_properties.go:536).
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		live := s.load(key.objID)
+		_, prop, ok := propertyByName(live.properties, actualName)
+		if !ok || !prop.defined {
+			return types.E_PROPNF
+		}
+	}
 
 	ts := s.bumpClock()
+
+	// Group property defines / definition-deletes by object. A define applies only to
+	// the DEFINER's image (descendant clear-slots are already staged as propertyWrites
+	// on the descendants' own images by propagateDefinedProperty); a definition-delete
+	// applies only to the DEFINER's image (descendant removals are staged as
+	// propertyDeletes by removeInheritedProperty).
+	propDefinesByObj := make(map[types.ObjID][]Property)
+	for key, prop := range tx.propertyDefines {
+		propDefinesByObj[key.objID] = append(propDefinesByObj[key.objID], prop)
+	}
+	propDefDeletesByObj := make(map[types.ObjID][]string)
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		propDefDeletesByObj[key.objID] = append(propDefDeletesByObj[key.objID], actualName)
+	}
 
 	// Group property-value writes by object so an object edited by multiple property
 	// writes in one txn folds into a single new image.
@@ -309,6 +450,15 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		}
 		if w, ok := tx.relationshipWrites[id]; ok {
 			img = buildImageWithRelationship(img, w, ts)
+		}
+		// Property DEFINE / DEFINITION-DELETE on the definer image first: they
+		// establish/remove the defined slot + propOrder before any inherited-slot
+		// value writes (different property names, so order is independent in practice).
+		for _, prop := range propDefinesByObj[id] {
+			img = buildImageWithPropertyDefine(img, prop, ts)
+		}
+		for _, actualName := range propDefDeletesByObj[id] {
+			img = buildImageWithPropertyDefinitionDelete(img, actualName, ts)
 		}
 		for _, w := range propWritesByObj[id] {
 			img = buildImageWithPropertyValue(img, w, ts)
