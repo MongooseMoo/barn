@@ -35,6 +35,7 @@ type Server struct {
 	running            bool
 	mu                 sync.Mutex
 	shutdownMessage    string
+	backgroundWG       sync.WaitGroup
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
@@ -193,11 +194,17 @@ func (s *Server) Start() error {
 	// Start listening for connections
 	s.connManager.StartAccepting()
 
-	// Set up signal handling
-	go s.handleSignals()
+	s.backgroundWG.Add(1)
+	go func() {
+		defer s.backgroundWG.Done()
+		s.handleSignals()
+	}()
 
-	// Set up periodic checkpoints
-	go s.checkpointLoop()
+	s.backgroundWG.Add(1)
+	go func() {
+		defer s.backgroundWG.Done()
+		s.checkpointLoop()
+	}()
 
 	// Main loop
 	return s.mainLoop()
@@ -370,6 +377,7 @@ func (s *Server) shutdown() error {
 	}
 
 	s.scheduler.Stop()
+	s.backgroundWG.Wait()
 
 	s.mu.Lock()
 	s.running = false

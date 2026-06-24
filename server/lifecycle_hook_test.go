@@ -210,6 +210,41 @@ func TestShutdownWaitsForDisconnectCleanup(t *testing.T) {
 	}
 }
 
+func TestShutdownWaitsForBackgroundGoroutines(t *testing.T) {
+	store := dbstore.NewStore()
+	scheduler := runtime.NewScheduler(store)
+	s := &Server{
+		store:           store,
+		scheduler:       scheduler,
+		input:           NewInputProcessor(store, scheduler),
+		connManager:     NewConnectionManager(7777),
+		shutdownMessage: "Maintenance",
+	}
+
+	release := make(chan struct{})
+	s.backgroundWG.Add(1)
+	go func() {
+		defer s.backgroundWG.Done()
+		<-release
+	}()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.shutdown()
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("shutdown returned before background goroutine completed: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+}
+
 func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
