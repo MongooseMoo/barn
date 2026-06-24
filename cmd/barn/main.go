@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -58,7 +59,22 @@ func main() {
 	// Numeric semantics
 	promoteNumbers := flag.Bool("promote-numbers", false, "Enable ToastStunt mongoose PROMOTE_NUMBERS: auto-promote int to float in mixed int/float arithmetic and comparison (default off = strict E_TYPE)")
 
+	// Runtime GC tuning (0/-1 leave Go's GOMEMLIMIT/GOGC env honoring intact)
+	gomemlimitMiB := flag.Int("gomemlimit-mib", 0, "Soft memory limit in MiB (0=unset, honor GOMEMLIMIT env)")
+	gogc := flag.Int("gogc", -1, "GC target percentage (-1=unset, honor GOGC env)")
+
 	flag.Parse()
+
+	// Apply GC overrides only when explicitly set; otherwise leave Go's
+	// automatic GOMEMLIMIT/GOGC env-var honoring untouched.
+	if *gomemlimitMiB > 0 {
+		debug.SetMemoryLimit(int64(*gomemlimitMiB) * 1024 * 1024)
+		log.Printf("GC memory limit: %d MiB", *gomemlimitMiB)
+	}
+	if *gogc >= 0 {
+		debug.SetGCPercent(*gogc)
+		log.Printf("GC target: %d%%", *gogc)
+	}
 
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
