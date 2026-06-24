@@ -47,6 +47,59 @@ func (l *fakeListener) acceptCount() int {
 	return l.accepts
 }
 
+type recordingTransport struct {
+	mu       sync.Mutex
+	lines    []string
+	closed   bool
+	remote   string
+	readLine chan string
+}
+
+func newRecordingTransport(remote string) *recordingTransport {
+	return &recordingTransport{
+		remote:   remote,
+		readLine: make(chan string),
+	}
+}
+
+func (t *recordingTransport) ReadLine() (string, error) {
+	line, ok := <-t.readLine
+	if !ok {
+		return "", net.ErrClosed
+	}
+	return line, nil
+}
+
+func (t *recordingTransport) WriteLine(line string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.lines = append(t.lines, line)
+	return nil
+}
+
+func (t *recordingTransport) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.closed = true
+	return nil
+}
+
+func (t *recordingTransport) RemoteAddr() string {
+	return t.remote
+}
+
+func (t *recordingTransport) writtenLines() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]string(nil), t.lines...)
+}
+
+func (t *recordingTransport) isClosed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
+}
+
 func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	tcp := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
@@ -194,5 +247,30 @@ func TestCloseListenersClosesPrimaryListeners(t *testing.T) {
 	}
 	if infos := cm.ListenerInfos(); len(infos) != 0 {
 		t.Fatalf("listeners after CloseListeners = %+v, want none", infos)
+	}
+}
+
+func TestCloseConnectionsSendsShutdownBannerAndClosesTransports(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	firstTransport := newRecordingTransport("first")
+	secondTransport := newRecordingTransport("second")
+
+	cm.NewConnectionFromTransport(firstTransport)
+	cm.NewConnectionFromTransport(secondTransport)
+
+	cm.CloseConnections("Maintenance")
+
+	want := []string{"*** Shutting down: Maintenance ***"}
+	if got := firstTransport.writtenLines(); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("first lines = %+v, want %+v", got, want)
+	}
+	if got := secondTransport.writtenLines(); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("second lines = %+v, want %+v", got, want)
+	}
+	if !firstTransport.isClosed() {
+		t.Fatalf("first transport was not closed")
+	}
+	if !secondTransport.isClosed() {
+		t.Fatalf("second transport was not closed")
 	}
 }

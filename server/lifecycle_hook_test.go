@@ -145,3 +145,31 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 		t.Fatalf("listeners after shutdown = %+v, want none", infos)
 	}
 }
+
+func TestShutdownClosesActiveConnectionsWithMessage(t *testing.T) {
+	store := dbstore.NewStore()
+	scheduler := runtime.NewScheduler(store)
+	cm := NewConnectionManager(7777)
+	transport := newRecordingTransport("client")
+	cm.NewConnectionFromTransport(transport)
+
+	s := &Server{
+		store:           store,
+		scheduler:       scheduler,
+		input:           NewInputProcessor(store, scheduler),
+		connManager:     cm,
+		shutdownMessage: "Maintenance",
+	}
+
+	if err := s.shutdown(); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	lines := transport.writtenLines()
+	if len(lines) != 1 || lines[0] != "*** Shutting down: Maintenance ***" {
+		t.Fatalf("shutdown lines = %+v, want shutdown banner", lines)
+	}
+	if !transport.isClosed() {
+		t.Fatalf("transport was not closed")
+	}
+}

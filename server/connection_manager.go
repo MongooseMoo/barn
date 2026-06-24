@@ -162,6 +162,24 @@ func (cm *ConnectionManager) CloseListeners() {
 	}
 }
 
+// CloseConnections sends the shutdown banner to every active connection and
+// closes its transport. Normal disconnect processing remains responsible for
+// removing connections from the manager maps.
+func (cm *ConnectionManager) CloseConnections(message string) {
+	cm.mu.Lock()
+	connections := make([]*Connection, 0, len(cm.connections))
+	for _, conn := range cm.connections {
+		connections = append(connections, conn)
+	}
+	cm.mu.Unlock()
+
+	line := fmt.Sprintf("*** Shutting down: %s ***", message)
+	for _, conn := range connections {
+		_ = conn.Send(line)
+		_ = conn.Close()
+	}
+}
+
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
 	port, ipv6, err := parseListenerPort(listener.Addr())
 	if err != nil {

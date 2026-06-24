@@ -339,6 +339,7 @@ func (s *Server) shutdown() error {
 	}
 
 	s.connManager.CloseListeners()
+	s.connManager.CloseConnections(message)
 
 	s.input.Stop()
 	s.scheduler.Stop()
