@@ -1733,6 +1733,7 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 
 	// Normal path: pop the except handler
 	c.emit(OP_END_EXCEPT)
+	c.emitByte(1) // 1 clause, matching the OP_TRY_EXCEPT above
 
 	// Jump past the handler body
 	endJump := c.emitJump(OP_JUMP)
@@ -2364,6 +2365,7 @@ func (c *Compiler) compileTryExcept(n *parser.TryExceptStmt) error {
 
 	// OP_END_EXCEPT pops handlers from ExceptStack
 	c.emit(OP_END_EXCEPT)
+	c.emitByte(byte(numClauses))
 
 	// Jump past all handler blocks (normal path)
 	endJump := c.emitJump(OP_JUMP)
@@ -2493,6 +2495,7 @@ func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error
 
 	// End except handlers (normal path)
 	c.emit(OP_END_EXCEPT)
+	c.emitByte(byte(numClauses))
 	endExceptJump := c.emitJump(OP_JUMP)
 
 	// Compile handler bodies

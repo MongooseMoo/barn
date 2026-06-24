@@ -209,18 +209,21 @@ func (vm *VM) executeTryExcept() error {
 	return nil
 }
 
-// executeEndExcept handles OP_END_EXCEPT: pop all except handlers for current try block
+// executeEndExcept handles OP_END_EXCEPT <num_clauses>: pop exactly the
+// handlers pushed by the matching OP_TRY_EXCEPT. Popping "while top is
+// Except-type" instead of an exact count is wrong whenever a try/except is
+// nested inside another try/except's body (e.g. a backtick catch-expression
+// evaluated inside an outer try) — closing the inner block would also
+// consume the outer block's still-live handlers, since both are
+// HandlerExcept-typed with nothing else distinguishing them.
 func (vm *VM) executeEndExcept() {
 	frame := vm.CurrentFrame()
-	// Pop all except handlers from the stack (they were pushed by the most recent OP_TRY_EXCEPT)
-	// We pop from the end until we hit a non-Except handler or empty
-	for len(frame.ExceptStack) > 0 {
-		top := frame.ExceptStack[len(frame.ExceptStack)-1]
-		if top.Type != bytecode.HandlerExcept {
-			break
-		}
-		frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
+	numClauses := int(vm.ReadByte())
+	n := numClauses
+	if n > len(frame.ExceptStack) {
+		n = len(frame.ExceptStack)
 	}
+	frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-n]
 }
 
 // executeTryFinally handles OP_TRY_FINALLY: push a finally handler
