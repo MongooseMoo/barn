@@ -140,7 +140,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
 				conn.Send("*** Timed-out waiting for login. ***")
-				p.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
+				p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 				return
 			}
 			log.Printf("Connection %d read error: %v", conn.ID, err)
@@ -350,7 +350,7 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	}
 
 	if wasLoggedIn {
-		p.callUserClientDisconnected(handler, player)
+		p.callUserHook(handler, "user_client_disconnected", player)
 	}
 
 	log.Printf("Connection %d closed", conn.ID)
