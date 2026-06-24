@@ -512,18 +512,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 			usePlayerHuh = option.Truthy()
 		}
 
-		huhTarget := location
-		if usePlayerHuh {
-			huhTarget = player
-		}
-
-		if huhVerb, huhVerbLoc, err := p.store.FindVerb(huhTarget, "huh"); err == nil {
-			huhMatch := &command.VerbMatch{
-				Verb:    huhVerb,
-				This:    huhTarget,
-				VerbLoc: huhVerbLoc,
-			}
-
+		if huhMatch := command.FindHuhVerb(p.store, player, location, usePlayerHuh); huhMatch != nil {
 			if huhMatch.Statements == nil && len(huhMatch.Verb.Code) > 0 {
 				program, errors := bytecode.CompileVerb(huhMatch.Verb.Code)
 				if len(errors) > 0 {

@@ -197,3 +197,19 @@ func FindVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, cm
 
 	return nil
 }
+
+func FindHuhVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, usePlayerHuh bool) *VerbMatch {
+	target := location
+	if usePlayerHuh {
+		target = player
+	}
+	verb, verbLoc, err := store.FindVerb(target, "huh")
+	if err != nil {
+		return nil
+	}
+	return &VerbMatch{
+		Verb:    verb,
+		This:    target,
+		VerbLoc: verbLoc,
+	}
+}
