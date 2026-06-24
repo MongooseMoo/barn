@@ -216,14 +216,14 @@ func (vm *VM) executeTryExcept() error {
 // evaluated inside an outer try) — closing the inner block would also
 // consume the outer block's still-live handlers, since both are
 // HandlerExcept-typed with nothing else distinguishing them.
-func (vm *VM) executeEndExcept() {
+func (vm *VM) executeEndExcept() error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.ReadByte())
-	n := numClauses
-	if n > len(frame.ExceptStack) {
-		n = len(frame.ExceptStack)
+	if numClauses > len(frame.ExceptStack) {
+		return fmt.Errorf("internal error: END_EXCEPT wants to pop %d handlers from stack of %d", numClauses, len(frame.ExceptStack))
 	}
-	frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-n]
+	frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-numClauses]
+	return nil
 }
 
 // executeTryFinally handles OP_TRY_FINALLY: push a finally handler

@@ -1677,7 +1677,7 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 	// With default:
 	//   OP_TRY_EXCEPT 1 [codes...] [0 = no var] [handler_ip:short]
 	//   [expr]
-	//   OP_END_EXCEPT
+	//   OP_END_EXCEPT 1
 	//   OP_JUMP [end]
 	//   handler_ip: [default expr]
 	//   end:
@@ -1685,7 +1685,7 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 	// Without default (return the error value):
 	//   OP_TRY_EXCEPT 1 [codes...] [var+1] [handler_ip:short]
 	//   [expr]
-	//   OP_END_EXCEPT
+	//   OP_END_EXCEPT 1
 	//   OP_JUMP [end]
 	//   handler_ip: OP_GET_VAR [var]   (error was stored by HandleError)
 	//   end:
@@ -2310,7 +2310,7 @@ func (c *Compiler) compileTryExcept(n *parser.TryExceptStmt) error {
 	//   OP_TRY_EXCEPT <num_clauses>
 	//     per clause: <num_codes> <code1> <code2>... <var_index+1> <handler_offset:short>
 	//   [body]
-	//   OP_END_EXCEPT
+	//   OP_END_EXCEPT <num_clauses>
 	//   OP_JUMP <end_offset>  (skip past handler blocks on normal path)
 	//   [handler 1 body]
 	//   OP_JUMP <end_offset>
@@ -2447,7 +2447,7 @@ func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error
 	//   OP_TRY_FINALLY <finally_ip:short>
 	//   OP_TRY_EXCEPT <num_clauses> [clause metadata...]
 	//   [body]
-	//   OP_END_EXCEPT
+	//   OP_END_EXCEPT <num_clauses>
 	//   OP_JUMP <past_handlers>
 	//   [handler bodies...]
 	//   <past_handlers>:

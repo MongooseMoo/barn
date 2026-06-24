@@ -25,34 +25,6 @@ Your instinct on failure is to immediately start investigating Barn code. **THAT
 
 ---
 
-## THE BUGFIX WORKFLOW (mandatory for every bug)
-
-This is the only acceptable sequence for finding and fixing a Barn bug. Do not skip steps, do not reorder them, do not fix code before step 2 is green/red as specified.
-
-0. **Before starting (and before any new test run against real data):** kill all running `moo`/`barn.exe`/`barn` processes (check with `ps -u $(whoami)`, don't assume nothing is running), and copy a *fresh* `chatmud.db` — never reuse a long-lived copy across test runs, since a stale Barn/Toast process can checkpoint/save back to a copy and silently corrupt it. Make a new disposable copy per test run.
-1. **Find a bug.** You don't yet know why it's happening — just that Barn's observed behavior is wrong (or differs from Toast).
-2. **Write a test in moo-conformance-tests that reproduces the bug as directly as possible.** It must be RED on Barn and GREEN on Toast. Write it against the symptom you observed, not a guessed root cause — you don't know the root cause yet.
-3. **Run that test to confirm** it is in fact red on Barn and green on Toast before doing anything else.
-4. **Find the bug's cause** (or form a hypothesis). Use Rule Zero throughout: verify behavior against Toast, don't assume.
-5. **Fix the bug** in Barn.
-6. **Run step 3's test again.**
-7. **Repeat 4–6** until the test is green on both Toast and Barn.
-8. **Run the full conformance suite** (not just the new test).
-9. **If anything fails**, go back to step 2 — treat each regression/failure as its own bug needing its own red/green test.
-10. **Open a PR for the fix** (in the `barn` repo).
-11. **Open a PR for the conformance test** (in the `moo-conformance-tests` repo).
-12. **If the next bug you want to investigate depends on this unmerged fix**, branch the new work off this fix's branch before restarting at step 1.
-
-**If step 4 concludes the conformance test's premise is wrong** (not a real Barn bug, e.g. the test encoded a misunderstood scenario): this does not relax "never touch the conformance tests." Gather the same Toast-vs-Barn proof this workflow already demands, explain it to Q, and only edit/remove the test with Q's explicit go-ahead.
-
-**If code was already written before a red/green test existed for it** (workflow violation mid-task): don't discard the fix. Retroactively write the test for step 2, temporarily revert the fix to confirm the test is red on Barn and green on Toast, reapply the fix, confirm green, then continue at step 8.
-
-**PR ordering:** open the fix PR (barn repo) and the test PR (moo-conformance-tests repo) together once the fix is confirmed working — they're separate repos with no hard dependency. Cross-reference each PR's counterpart in its description.
-
-**Cleanup, before opening PRs:** kill any leftover `moo`/`barn.exe` test processes you started. Delete scratch tools/dirs (e.g. `cmd/*_tmp/`) and scratch db copies that aren't meant to be committed. `git status --short` should show only the files this bug's fix/test actually touches before you commit.
-
----
-
 ## CRITICAL: NEVER Touch The Conformance Tests
 
 **The moo-conformance-tests are SACRED. They are the spec. They define correct behavior.**

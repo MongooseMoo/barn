@@ -30,6 +30,9 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	if !validLiveObject(what) {
 		return types.E_INVIND
 	}
+	if whereID != types.ObjNothing && !validLiveObject(s.objects[whereID]) {
+		return types.E_INVARG
+	}
 
 	if what.location != types.ObjNothing {
 		oldLoc := s.objects[what.location]

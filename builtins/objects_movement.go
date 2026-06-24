@@ -41,8 +41,8 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if !store.Valid(whatVal.ID()) {
-		return types.Err(types.E_INVIND)
+	if !store.Valid(whatVal.ID()) || (whereVal.ID() != types.ObjNothing && !store.Valid(whereVal.ID())) {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Check for recursive move (moving into self or descendant)
