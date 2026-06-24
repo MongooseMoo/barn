@@ -117,6 +117,9 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 
 	anonGCFloor := s.store.NextID()
+	// Sample the global anon-creation counter consistently with anonGCFloor so the
+	// orphan-anon GC sweep can be skipped when no anonymous object was created.
+	anonFloor := s.store.AnonCreationCount()
 	result := bcVM.ExecuteLoop()
 
 	// Handle yielded control flow (fork/suspend) until the eval completes.
@@ -192,9 +195,20 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 
 	// Match Toast lifecycle semantics for eval: orphan anonymous objects are
 	// collected once evaluation completes and locals are out of scope.
-	siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
-	s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), siblingWaifs, bcVM)
-	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+	// Take pending waifs first to preserve that side effect/ordering, then do the
+	// s.mu sibling scan and the O(N) anon reachability sweep only when there is
+	// something to GC (an anon was created since the floor, or pending waifs).
+	pending := bcVM.TakePendingWaifs()
+	anonCreated := s.store.AnonCreationCount() != anonFloor
+	if anonCreated || len(pending) > 0 {
+		siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
+		if len(pending) > 0 {
+			s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
+		}
+		if anonCreated {
+			vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+		}
+	}
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}
