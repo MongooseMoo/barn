@@ -391,11 +391,11 @@ func builtinDbDiskSize(ctx *kernel.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewInt(0))
 }
 
-// globalDumpFunc is set by the server to trigger a database checkpoint.
+// globalDumpFunc is set by the server to request a database checkpoint.
 var globalDumpFunc func() error
 var globalShutdownFunc func(ctx *kernel.TaskContext, message string, unclean bool) error
 
-// SetDumpFunc sets the function called by dump_database() to trigger a checkpoint.
+// SetDumpFunc sets the function called by dump_database() to request a checkpoint.
 func SetDumpFunc(f func() error) {
 	globalDumpFunc = f
 }

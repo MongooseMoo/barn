@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"errors"
 	"testing"
 
 	"barn/kernel"
@@ -57,5 +58,28 @@ func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
 	result := builtinShutdown(ctx, []types.Value{types.NewInt(1)})
 	if !result.IsError() || result.Error != types.E_TYPE {
 		t.Fatalf("shutdown result = %+v, want E_TYPE", result)
+	}
+}
+
+func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
+	previous := globalDumpFunc
+	t.Cleanup(func() { globalDumpFunc = previous })
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	ctx.Programmer = 7
+
+	called := false
+	SetDumpFunc(func() error {
+		called = true
+		return errors.New("request failed")
+	})
+
+	result := builtinDumpDatabase(ctx, nil)
+	if !result.IsNormal() {
+		t.Fatalf("dump_database result = %+v, want normal", result)
+	}
+	if !called {
+		t.Fatalf("dump_database did not call checkpoint request function")
 	}
 }

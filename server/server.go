@@ -60,7 +60,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, 
 		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		options:            options,
-		checkpointChan:     make(chan struct{}),
+		checkpointChan:     make(chan struct{}, 1),
 		ctx:                ctx,
 		cancel:             cancel,
 	}, nil
@@ -115,8 +115,8 @@ func (s *Server) LoadDatabase() error {
 	builtins.SetInputForcer(s.input)
 	builtins.SetTaskYielder(s.scheduler)
 
-	// Wire dump_database() builtin to server checkpoint
-	builtins.SetDumpFunc(func() error { return s.checkpoint() })
+	// Wire dump_database() builtin to request a server-loop checkpoint.
+	builtins.SetDumpFunc(func() error { return s.requestCheckpoint() })
 	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
@@ -242,11 +242,27 @@ func (s *Server) checkpointLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			s.checkpointChan <- struct{}{}
+			if err := s.requestCheckpoint(); err != nil {
+				return
+			}
 		case <-s.ctx.Done():
 			return
 		}
 	}
+}
+
+func (s *Server) requestCheckpoint() error {
+	select {
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	default:
+	}
+
+	select {
+	case s.checkpointChan <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // checkpoint saves the database to disk
@@ -410,11 +426,6 @@ func (s *Server) callShutdownStarted(message string) error {
 	}
 	_, err := s.scheduler.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
 	return err
-}
-
-// DumpDatabase triggers an immediate checkpoint
-func (s *Server) DumpDatabase() error {
-	return s.checkpoint()
 }
 
 func copyFile(src, dst string) error {

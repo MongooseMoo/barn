@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"path/filepath"
 	"testing"
@@ -251,5 +252,82 @@ func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	}
 	if val, ok := finished.(types.IntValue); !ok || val.Val != 1 {
 		t.Fatalf("checkpoint_finished = %v, want 1", finished)
+	}
+}
+
+func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define checkpoint_started property: %v", errCode)
+	}
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_finished", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define checkpoint_finished property: %v", errCode)
+	}
+	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = #0.checkpoint_started + 1;")
+	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = #0.checkpoint_finished + args[1];")
+
+	scheduler := runtime.NewScheduler(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		store:          store,
+		scheduler:      scheduler,
+		input:          NewInputProcessor(store, scheduler),
+		connManager:    NewConnectionManager(7777),
+		dbPath:         filepath.Join(t.TempDir(), "requested.db"),
+		checkpointChan: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	if err := s.requestCheckpoint(); err != nil {
+		t.Fatalf("request checkpoint: %v", err)
+	}
+	if err := s.requestCheckpoint(); err != nil {
+		t.Fatalf("second request checkpoint: %v", err)
+	}
+
+	started, errCode := store.PropertyValue(system, "checkpoint_started")
+	if errCode != types.E_NONE {
+		t.Fatalf("read checkpoint_started before loop: %v", errCode)
+	}
+	if val, ok := started.(types.IntValue); !ok || val.Val != 0 {
+		t.Fatalf("checkpoint_started before loop = %v, want 0", started)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.mainLoop()
+	}()
+
+	deadline := time.After(time.Second)
+	for {
+		finished, errCode := store.PropertyValue(system, "checkpoint_finished")
+		if errCode != types.E_NONE {
+			t.Fatalf("read checkpoint_finished: %v", errCode)
+		}
+		if val, ok := finished.(types.IntValue); ok && val.Val == 1 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("checkpoint request was not processed")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	cancel()
+	if err := <-errCh; err != nil {
+		t.Fatalf("main loop: %v", err)
+	}
+
+	started, errCode = store.PropertyValue(system, "checkpoint_started")
+	if errCode != types.E_NONE {
+		t.Fatalf("read checkpoint_started after loop: %v", errCode)
+	}
+	if val, ok := started.(types.IntValue); !ok || val.Val != 1 {
+		t.Fatalf("checkpoint_started after loop = %v, want one coalesced checkpoint", started)
 	}
 }
