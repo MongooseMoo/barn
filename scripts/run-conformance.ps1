@@ -10,6 +10,7 @@ param(
     [string]$PytestModule = "moo_conformance",
     [string]$K = "",
     [string[]]$ExtraPytestArgs = @(),
+    [string[]]$ExtraServerArgs = @(),
     [string]$ReportsRoot = "reports/runs",
     [int]$StartupTimeoutSec = 20,
     [switch]$KeepRunDb,
@@ -143,14 +144,15 @@ $pytestExit = 1
 Write-Section "Run"
 Write-Host "Run ID: $runId"
 Write-Host "Run Dir: $runDir"
-Write-Host "Server:  $Binary -db $RunDb -port $Port"
+$serverArgs = @("-db", $RunDb, "-port", $Port.ToString()) + $ExtraServerArgs
+Write-Host "Server:  $Binary $($serverArgs -join ' ')"
 Write-Host "Pytest:  $pytestCmdText"
 
 try {
     Stop-PortListeners -ListenPort $Port
 
     $server = Start-Process -FilePath $Binary `
-        -ArgumentList @("-db", $RunDb, "-port", $Port.ToString()) `
+        -ArgumentList $serverArgs `
         -RedirectStandardOutput $serverOutLog `
         -RedirectStandardError $serverErrLog `
         -PassThru

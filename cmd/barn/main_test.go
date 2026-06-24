@@ -2,6 +2,7 @@ package main
 
 import (
 	"barn/builtins"
+	"barn/profile"
 	"testing"
 )
 
@@ -51,5 +52,15 @@ func TestBuildListenerSpecsRejectsInvalidListen(t *testing.T) {
 	_, err := buildListenerSpecs(7777, []string{"tcp://:70000"}, false)
 	if err == nil {
 		t.Fatalf("accepted invalid listener spec")
+	}
+}
+
+func TestListProfilesLoadsCommittedRegistry(t *testing.T) {
+	registry, err := profile.LoadRegistry("../../profiles/barn/profiles.json")
+	if err != nil {
+		t.Fatalf("load profile registry: %v", err)
+	}
+	if _, ok := registry.Find("barn-linux-testdb-outbound-off"); !ok {
+		t.Fatal("missing outbound-off profile")
 	}
 }

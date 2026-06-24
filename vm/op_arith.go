@@ -11,7 +11,7 @@ import (
 
 // promoting reports whether PROMOTE_NUMBERS is enabled for the current task.
 func (vm *VM) promoting() bool {
-	return vm.Context != nil && vm.Context.PromoteNumbers
+	return vm.Context != nil && vm.Context.RuntimeOptions.PromoteNumbers
 }
 
 // promoteNumericPair returns the float64 values of a and b when each is numeric

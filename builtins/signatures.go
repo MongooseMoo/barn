@@ -745,9 +745,6 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if globalConnManager == nil {
-		return types.Err(types.E_INVARG)
-	}
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -760,6 +757,12 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 		return types.Err(types.E_TYPE)
 	}
 	if port.Val <= 0 || port.Val > 65535 {
+		return types.Err(types.E_INVARG)
+	}
+	if !ctx.RuntimeOptions.OutboundNetwork {
+		return types.Err(types.E_PERM)
+	}
+	if globalConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
 	conn, err := globalConnManager.OpenNetworkConnection(host.Value(), port.Val)

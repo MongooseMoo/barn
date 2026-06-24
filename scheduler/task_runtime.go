@@ -43,7 +43,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	ctx.TaskID = t.ID
 	ctx.Store = s.store
 	ctx.Registry = s.registry
-	ctx.PromoteNumbers = s.promoteNumbers
+	ctx.RuntimeOptions = s.options
 
 	// A task resuming after suspend runs under background limits: Toast treats
 	// resumed tasks as background tasks, and time spent suspended does not count

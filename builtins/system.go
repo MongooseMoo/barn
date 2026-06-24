@@ -526,7 +526,13 @@ func builtinCtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // With arg: returns specific version info (not fully implemented yet)
 func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	const versionString = "1.0.0-barn"
-	features := types.NewList([]types.Value{types.NewStr("64bit")})
+	options := ctx.RuntimeOptions
+	featureNames := options.FeatureNames()
+	featureValues := make([]types.Value, 0, len(featureNames))
+	for _, feature := range featureNames {
+		featureValues = append(featureValues, types.NewStr(feature))
+	}
+	features := types.NewList(featureValues)
 	versionInfo := []types.Value{
 		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(1)}),
 		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(0)}),
@@ -561,11 +567,20 @@ func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Ok(types.NewStr(versionString))
 	case "features":
 		return types.Ok(features)
-	case "options.OUTBOUND_NETWORK":
-		return types.Ok(types.NewInt(1))
+	case "options.OUTBOUND_NETWORK", "options/OUTBOUND_NETWORK":
+		return types.Ok(types.NewInt(boolToInt64(options.OutboundNetwork)))
+	case "options.PROMOTE_NUMBERS", "options/PROMOTE_NUMBERS":
+		return types.Ok(types.NewInt(boolToInt64(options.PromoteNumbers)))
 	default:
 		return types.Err(types.E_INVARG)
 	}
+}
+
+func boolToInt64(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 // builtinServerLog implements server_log(message)

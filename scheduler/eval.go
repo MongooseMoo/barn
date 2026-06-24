@@ -54,7 +54,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	ctx.IsWizard = s.isWizard(player)
 	ctx.Store = s.store
 	ctx.Registry = s.registry
-	ctx.PromoteNumbers = s.promoteNumbers
+	ctx.RuntimeOptions = s.options
 
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.

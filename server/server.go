@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"barn/builtins"
+	"barn/config"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -30,7 +31,7 @@ type Server struct {
 	dbPath             string
 	listenerSpecs      []builtins.ListenerSpec
 	checkpointInterval time.Duration
-	promoteNumbers     bool
+	options            config.Options
 	running            bool
 	mu                 sync.Mutex
 	shutdownChan       chan struct{}
@@ -39,16 +40,18 @@ type Server struct {
 	cancel             context.CancelFunc
 }
 
-// NewServer creates a new MOO server with strict (default) numeric semantics.
+// NewServer creates a new MOO server with default runtime options.
 func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
-	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, false)
+	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, config.DefaultOptions())
 }
 
-// NewServerWithOptions creates a new MOO server. When promoteNumbers is true,
-// the scheduler runs with ToastStunt mongoose PROMOTE_NUMBERS semantics.
-func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, promoteNumbers bool) (*Server, error) {
+// NewServerWithOptions creates a new MOO server with the supplied runtime options.
+func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, options config.Options) (*Server, error) {
 	if len(listenerSpecs) == 0 {
 		return nil, fmt.Errorf("no listeners configured")
+	}
+	if err := options.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid runtime options: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -56,7 +59,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, 
 		dbPath:             dbPath,
 		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
-		promoteNumbers:     promoteNumbers,
+		options:            options,
 		shutdownChan:       make(chan struct{}),
 		checkpointChan:     make(chan struct{}),
 		ctx:                ctx,
@@ -72,7 +75,7 @@ func (s *Server) LoadDatabase() error {
 	}
 
 	s.store = database.NewStoreFromDatabase()
-	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.promoteNumbers)
+	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.options)
 	s.input = NewInputProcessor(s.store, s.scheduler)
 	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
 
