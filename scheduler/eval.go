@@ -192,9 +192,9 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 
 	// Match Toast lifecycle semantics for eval: orphan anonymous objects are
 	// collected once evaluation completes and locals are out of scope.
-	liveVMs := s.liveTaskVMs(t)
-	s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), liveVMs...)
-	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+	siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
+	s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), siblingWaifs, bcVM)
+	vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:
 	// Success: {1, value}
