@@ -90,6 +90,10 @@ store_txn.go has many `tx.store.objects[id]` sites (objectLocked:151-152, AdoptL
 - gate4 conformance: AFTER 9 failed/3862 passed/131 skipped. BASELINE 242f177 (rebuilt in worktree): IDENTICAL 9 failed/3862 passed/131 skipped, SAME 9 limits::* tests. DELTA = ZERO. The 9 failures are pre-existing max_value_bytes/QUOTA tests, unrelated to COW.
 - go vet ./... has 2 pre-existing warnings (moo_client IPv6, vm/stack ReadByte) - NOT in db/store, NOT mine. go vet ./db/store clean.
 - Committing on branch work/mvcc-concurrent-moo (no push/merge/rebase/switch).
+## DONE. VERDICT GO. Commit 65a1759 (COW phase 0) + d46efa3 (report hash). Branch work/mvcc-concurrent-moo, no push.
+## Confirmed at committed state: go build ./... clean; go test -race ./db/store (incl new stress tests) clean.
+## Reverted cosmetic gofmt drift in builder.go (not part of change). Tracked tree clean.
+
 ## Files: db/store/store_core.go, store_txn.go, store_lifecycle.go, store_properties.go, store_relationships.go, store_verbs.go, store_metrics.go, store_reachability.go, store_snapshot.go, store_cow.go (new), cow_disjoint_race_test.go (new), store_txn_test.go, store_verbs_test.go.
 ## NOTE: history-for-free used in decentralized path only (old image is immutable there). Coarse path still clones via rememberObjectLocked - correct (coarse mutates in place after). objectLocked reads history[i].obj and CLONES it -> safe whether entry is a clone or a shared immutable image.
 The design Part 5 has commit NOT taking the global store.mu (decentralized). But Phase-0 scope item 3 says "leave commit on coarse store.mu.Lock" is NOT what it says — it says leave OTHER mutators on coarse lock. The property-value commit path must be decentralized (slot.mu only, lock-free validation) to scale. But other commit-apply kinds + builtins stay under store.mu. So commit must branch: if the ONLY writes are property-value writes -> decentralized path (no store.mu); else -> coarse path (store.mu). Coherence: property-publish committer (slot.mu, no store.mu) vs coarse writer (store.mu). They CAN run concurrently. Must argue they don't corrupt each other. Need to think hard here — this is the crux.
