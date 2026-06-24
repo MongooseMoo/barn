@@ -26,6 +26,13 @@ type InputProcessor struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
+
+	// Each connection's input is processed on its own goroutine (keyed by ConnID),
+	// so a single connection's lines stay strictly ordered (required by the
+	// read()/login classification in processInput) while different connections run
+	// concurrently. The main run() loop only demuxes events onto these lanes.
+	workersMu sync.Mutex
+	workers   map[int64]chan command.InputEvent
 }
 
 func NewInputProcessor(store *dbstore.Store, runtimeScheduler *runtime.Scheduler) *InputProcessor {
@@ -36,6 +43,7 @@ func NewInputProcessor(store *dbstore.Store, runtimeScheduler *runtime.Scheduler
 		inputQueue: make(chan command.InputEvent, 256),
 		ctx:        ctx,
 		cancel:     cancel,
+		workers:    make(map[int64]chan command.InputEvent),
 	}
 }
 
@@ -71,13 +79,56 @@ func (p *InputProcessor) run() {
 		case <-p.ctx.Done():
 			return
 		case input := <-p.inputQueue:
-			p.processInput(input)
+			p.dispatch(input)
 		case <-ticker.C:
 			p.runtime.ProcessReadyTasks()
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
 			p.runtime.CleanupFinishedTasks()
+		}
+	}
+}
+
+// dispatch routes an input event onto its connection's serial lane, creating the
+// lane (and its goroutine) on first use. Per-connection serialization preserves the
+// read()/login ordering invariants of processInput; cross-connection events run
+// concurrently.
+func (p *InputProcessor) dispatch(input command.InputEvent) {
+	p.workersMu.Lock()
+	ch, ok := p.workers[input.ConnID]
+	if !ok {
+		ch = make(chan command.InputEvent, 64)
+		p.workers[input.ConnID] = ch
+		p.wg.Add(1)
+		go p.connectionWorker(input.ConnID, ch)
+	}
+	p.workersMu.Unlock()
+
+	select {
+	case ch <- input:
+	case <-p.ctx.Done():
+	}
+}
+
+func (p *InputProcessor) connectionWorker(connID int64, ch chan command.InputEvent) {
+	defer p.wg.Done()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case input := <-ch:
+			p.processInput(input)
+			if input.IsDisconnect {
+				// The connection is gone; retire its lane. A later event for a reused
+				// ConnID will spin up a fresh lane.
+				p.workersMu.Lock()
+				if p.workers[connID] == ch {
+					delete(p.workers, connID)
+				}
+				p.workersMu.Unlock()
+				return
+			}
 		}
 	}
 }
