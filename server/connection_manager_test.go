@@ -80,7 +80,10 @@ func (t *recordingTransport) WriteLine(line string) error {
 func (t *recordingTransport) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.closed = true
+	if !t.closed {
+		t.closed = true
+		close(t.readLine)
+	}
 	return nil
 }
 

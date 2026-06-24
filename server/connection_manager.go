@@ -47,6 +47,7 @@ type ConnectionManager struct {
 	playerConnHistory map[types.ObjID][]*Connection
 	nextConnID        int64
 	mu                sync.Mutex
+	connectionWG      sync.WaitGroup
 	connectionHandler func(*Connection)
 	listeners         map[listenerKey]*listenerRecord
 	outboundClients   map[int64]net.Conn
@@ -178,6 +179,7 @@ func (cm *ConnectionManager) CloseConnections(message string) {
 		_ = conn.Send(line)
 		_ = conn.Close()
 	}
+	cm.connectionWG.Wait()
 }
 
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
@@ -269,7 +271,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 
 	log.Printf("New connection from %s (ID: %d)", conn.RemoteAddr(), conn.ID)
 
-	// Handle connection in goroutine
+	cm.connectionWG.Add(1)
 	go cm.handleConnection(conn)
 }
 
@@ -304,10 +306,13 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 
 	log.Printf("New %s connection from %s (ID: %d)", record.protocol, conn.RemoteAddr(), conn.ID)
 
+	cm.connectionWG.Add(1)
 	go cm.handleConnection(conn)
 }
 
 func (cm *ConnectionManager) handleConnection(conn *Connection) {
+	defer cm.connectionWG.Done()
+
 	cm.mu.Lock()
 	handler := cm.connectionHandler
 	cm.mu.Unlock()

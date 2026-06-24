@@ -173,3 +173,36 @@ func TestShutdownClosesActiveConnectionsWithMessage(t *testing.T) {
 		t.Fatalf("transport was not closed")
 	}
 }
+
+func TestShutdownWaitsForDisconnectCleanup(t *testing.T) {
+	store := dbstore.NewStore()
+	scheduler := runtime.NewScheduler(store)
+	cm := NewConnectionManager(7777)
+	input := NewInputProcessor(store, scheduler)
+	input.SetConnectionManager(cm)
+	input.Start()
+
+	transport := newRecordingTransport("client")
+	conn := cm.NewConnectionFromTransport(transport)
+	cm.connectionWG.Add(1)
+	go cm.handleConnection(conn)
+
+	s := &Server{
+		store:           store,
+		scheduler:       scheduler,
+		input:           input,
+		connManager:     cm,
+		shutdownMessage: "Maintenance",
+	}
+
+	if err := s.shutdown(); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	if got := cm.getConnectionByConnID(conn.ID); got != nil {
+		t.Fatalf("connection still registered after shutdown: %+v", got)
+	}
+	if conn := cm.GetConnection(types.ObjID(-conn.ID)); conn != nil {
+		t.Fatalf("negative player mapping still registered after shutdown")
+	}
+}
