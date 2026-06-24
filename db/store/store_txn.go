@@ -30,6 +30,18 @@ type StoreTxn struct {
 	highWaterID               types.ObjID
 }
 
+// lazySet inserts into a possibly-nil map, allocating it on first insert. The
+// write-staging maps on StoreTxn are left nil by BeginReadOnly and stay nil for
+// read-only tasks; only an actual stage allocates. A nil map is indistinguishable
+// from an empty one for read/range/delete/len/validate/commit, so only inserts
+// need this guard.
+func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
+	if *m == nil {
+		*m = make(map[K]V)
+	}
+	(*m)[k] = v
+}
+
 // MarkLiveMutated records that the owning task has mutated the live Store directly,
 // outside this transaction (create/recycle/chparent/move/add_verb/...). Such a
 // mutation advances live versions past this txn's read snapshot, so at commit the
@@ -94,24 +106,20 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		readTS = s.clock
 	}
 	return &StoreTxn{
-		readTS:                    readTS,
-		store:                     s,
-		objects:                   make(map[types.ObjID]*Object),
-		scalarReads:               make(map[types.ObjID]uint64),
-		scalarWrites:              make(map[types.ObjID]objectScalarWrite),
-		relationshipReads:         make(map[types.ObjID]uint64),
-		relationshipWrites:        make(map[types.ObjID]objectRelationshipWrite),
-		propertyReads:             make(map[propertyReadKey]uint64),
-		propertyScans:             make(map[types.ObjID]uint64),
-		propertyDefines:           make(map[propertyWriteKey]Property),
-		propertyDefinitionDeletes: make(map[propertyWriteKey]string),
-		propertyWrites:            make(map[propertyWriteKey]propertyWrite),
-		propertyDeletes:           make(map[propertyWriteKey]string),
-		verbReads:                 make(map[verbReadKey]uint64),
-		verbScans:                 make(map[types.ObjID]uint64),
-		verbWrites:                make(map[verbWriteKey]verbWrite),
-		maxObjID:                  s.maxObjID,
-		highWaterID:               s.highWaterID,
+		readTS:            readTS,
+		store:             s,
+		objects:           make(map[types.ObjID]*Object),
+		scalarReads:       make(map[types.ObjID]uint64),
+		relationshipReads: make(map[types.ObjID]uint64),
+		propertyReads:     make(map[propertyReadKey]uint64),
+		propertyScans:     make(map[types.ObjID]uint64),
+		verbReads:         make(map[verbReadKey]uint64),
+		verbScans:         make(map[types.ObjID]uint64),
+		// scalarWrites, relationshipWrites, propertyDefines,
+		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
+		// are left nil and lazily allocated on first stage (see lazySet).
+		maxObjID:    s.maxObjID,
+		highWaterID: s.highWaterID,
 	}
 }
 
@@ -329,13 +337,13 @@ func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value t
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
 	delete(tx.propertyDeletes, key)
 	if _, stagedDefine := tx.propertyDefines[key]; stagedDefine {
-		tx.propertyDefines[key] = prop
+		lazySet(&tx.propertyDefines, key, prop)
 		return
 	}
-	tx.propertyWrites[key] = propertyWrite{
+	lazySet(&tx.propertyWrites, key, propertyWrite{
 		value: value,
 		prop:  prop,
-	}
+	})
 }
 
 func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
@@ -417,7 +425,7 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 		}
 		delete(tx.propertyDefines, key)
 		key.objID = newID
-		tx.propertyDefines[key] = prop
+		lazySet(&tx.propertyDefines, key, prop)
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		if key.objID != oldID {
@@ -425,7 +433,7 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 		}
 		delete(tx.propertyDefinitionDeletes, key)
 		key.objID = newID
-		tx.propertyDefinitionDeletes[key] = actualName
+		lazySet(&tx.propertyDefinitionDeletes, key, actualName)
 	}
 	for key, write := range tx.propertyWrites {
 		if key.objID != oldID {
@@ -433,7 +441,7 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 		}
 		delete(tx.propertyWrites, key)
 		key.objID = newID
-		tx.propertyWrites[key] = write
+		lazySet(&tx.propertyWrites, key, write)
 	}
 	for key, actualName := range tx.propertyDeletes {
 		if key.objID != oldID {
@@ -441,7 +449,7 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 		}
 		delete(tx.propertyDeletes, key)
 		key.objID = newID
-		tx.propertyDeletes[key] = actualName
+		lazySet(&tx.propertyDeletes, key, actualName)
 	}
 }
 
@@ -625,7 +633,7 @@ func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCod
 	write := tx.scalarWrites[objID]
 	write.nameSet = true
 	write.name = name
-	tx.scalarWrites[objID] = write
+	lazySet(&tx.scalarWrites, objID, write)
 	return types.E_NONE
 }
 
@@ -639,7 +647,7 @@ func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.E
 	write := tx.scalarWrites[objID]
 	write.ownerSet = true
 	write.owner = owner
-	tx.scalarWrites[objID] = write
+	lazySet(&tx.scalarWrites, objID, write)
 	return types.E_NONE
 }
 
@@ -657,7 +665,7 @@ func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled b
 	write := tx.scalarWrites[objID]
 	write.flagsSet = true
 	write.flags = obj.flags
-	tx.scalarWrites[objID] = write
+	lazySet(&tx.scalarWrites, objID, write)
 	return types.E_NONE
 }
 
@@ -671,7 +679,7 @@ func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID
 	write := tx.relationshipWrites[objID]
 	write.locationSet = true
 	write.location = location
-	tx.relationshipWrites[objID] = write
+	lazySet(&tx.relationshipWrites, objID, write)
 	return types.E_NONE
 }
 
@@ -1046,10 +1054,10 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 			continue
 		}
 		key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
-		tx.propertyWrites[key] = propertyWrite{
+		lazySet(&tx.propertyWrites, key, propertyWrite{
 			value: prop.value,
 			prop:  *prop,
-		}
+		})
 	}
 	return types.E_NONE
 }
@@ -1156,13 +1164,13 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 		key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
 		delete(tx.propertyDeletes, key)
 		if _, stagedDefine := tx.propertyDefines[key]; stagedDefine {
-			tx.propertyDefines[key] = *prop
+			lazySet(&tx.propertyDefines, key, *prop)
 			return types.E_NONE
 		}
-		tx.propertyWrites[key] = propertyWrite{
+		lazySet(&tx.propertyWrites, key, propertyWrite{
 			value: prop.value,
 			prop:  *prop,
-		}
+		})
 		return types.E_NONE
 	}
 	tx.markPropertyScan(objID, obj)
@@ -1184,7 +1192,7 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, prop Property) types.Error
 	prop.clear = false
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
 	delete(tx.propertyDeletes, key)
-	tx.propertyDefines[key] = prop
+	lazySet(&tx.propertyDefines, key, prop)
 	obj.properties[prop.name] = cloneProperty(&prop)
 
 	pos := obj.propDefsCount
@@ -1238,10 +1246,10 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, prop *Property) 
 				clear:   true,
 				defined: false,
 			}
-			tx.propertyWrites[propertyWriteKey{objID: childID, name: propertyNameKey(prop.name)}] = propertyWrite{
+			lazySet(&tx.propertyWrites, propertyWriteKey{objID: childID, name: propertyNameKey(prop.name)}, propertyWrite{
 				value: prop.value,
 				prop:  *child.properties[prop.name],
-			}
+			})
 			queue = append(queue, childID)
 		}
 	}
@@ -1262,7 +1270,7 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
 	delete(tx.propertyWrites, key)
 	delete(tx.propertyDefines, key)
-	tx.propertyDeletes[key] = actualName
+	lazySet(&tx.propertyDeletes, key, actualName)
 	return types.E_NONE
 }
 
@@ -1327,7 +1335,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 	delete(tx.propertyWrites, key)
 	delete(tx.propertyDeletes, key)
 	if !stagedDefine {
-		tx.propertyDefinitionDeletes[key] = actualName
+		lazySet(&tx.propertyDefinitionDeletes, key, actualName)
 	}
 
 	tx.removeInheritedProperty(objID, actualName)
@@ -1521,13 +1529,13 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		stampVerb(verb, ts)
 		stampObjectVerbs(live, ts)
 	}
-	tx.scalarWrites = make(map[types.ObjID]objectScalarWrite)
-	tx.relationshipWrites = make(map[types.ObjID]objectRelationshipWrite)
-	tx.propertyDefines = make(map[propertyWriteKey]Property)
-	tx.propertyDefinitionDeletes = make(map[propertyWriteKey]string)
-	tx.propertyWrites = make(map[propertyWriteKey]propertyWrite)
-	tx.propertyDeletes = make(map[propertyWriteKey]string)
-	tx.verbWrites = make(map[verbWriteKey]verbWrite)
+	tx.scalarWrites = nil
+	tx.relationshipWrites = nil
+	tx.propertyDefines = nil
+	tx.propertyDefinitionDeletes = nil
+	tx.propertyWrites = nil
+	tx.propertyDeletes = nil
+	tx.verbWrites = nil
 	return types.E_NONE
 }
 
@@ -1689,9 +1697,9 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string) {
 	verb.code = append([]string(nil), lines...)
 	verb.hasProgram = true
-	tx.verbWrites[verbWriteKey{objID: objID, name: verb.name}] = verbWrite{
+	lazySet(&tx.verbWrites, verbWriteKey{objID: objID, name: verb.name}, verbWrite{
 		code: append([]string(nil), lines...),
-	}
+	})
 }
 
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
