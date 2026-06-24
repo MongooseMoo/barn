@@ -21,6 +21,9 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	obj.anonymous = anonymous
 	if anonymous {
 		obj.flags = obj.flags.Set(FlagAnonymous)
+		// Record that an anonymous object was created so the orphan-anon GC
+		// fast-path can detect creations since a task's floor without s.mu.
+		s.anonCreations.Add(1)
 	}
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
 	stampObjectAll(obj, ts)

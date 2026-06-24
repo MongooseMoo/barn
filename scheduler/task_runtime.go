@@ -94,6 +94,10 @@ retryAttempt:
 	var result types.Result
 	var bcVM *vm.VM
 	anonGCFloor := s.store.NextID()
+	// Sample the global anon-creation counter at the SAME point as anonGCFloor so
+	// the two are consistent. If it is unchanged at task end, no anonymous object
+	// was created since the floor and the orphan-anon GC sweep can be skipped.
+	anonFloor := s.store.AnonCreationCount()
 
 	if t.BytecodeVM != nil {
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
@@ -321,8 +325,14 @@ retryAttempt:
 	if result.Flow == types.FlowSuspend {
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 		// is a GC boundary for newly-created orphan anonymous objects.
-		siblingAnon, _ := s.collectSiblingGCRefs(t)
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+		// Fast-path: if no anonymous object was created since this task's floor,
+		// the orphan recycle candidate set (anon with id >= floor) is provably
+		// empty, so the O(N) reachability sweep — and the s.mu sibling-ref scan
+		// it needs — would do nothing. Skip both.
+		if s.store.AnonCreationCount() != anonFloor {
+			siblingAnon, _ := s.collectSiblingGCRefs(t)
+			vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
@@ -428,11 +438,26 @@ retryAttempt:
 			}
 		}
 	} else {
-		siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
+		// Take pending waifs first to preserve that side effect and its ordering
+		// exactly as before. Then take the s.mu sibling-ref scan and the O(N) anon
+		// reachability sweep only when there is actually something to GC: an
+		// anonymous object was created since the floor, or there are pending waifs.
+		// In the overwhelmingly common case (no anon created, no pending waifs)
+		// both the sibling scan and the sweep are provably empty and are skipped.
+		var pending []types.WaifValue
 		if bcVM != nil {
-			s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), siblingWaifs, bcVM)
+			pending = bcVM.TakePendingWaifs()
 		}
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+		anonCreated := s.store.AnonCreationCount() != anonFloor
+		if anonCreated || len(pending) > 0 {
+			siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
+			if len(pending) > 0 {
+				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
+			}
+			if anonCreated {
+				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+			}
+		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 type Store struct {
@@ -15,6 +16,14 @@ type Store struct {
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
 	clock       uint64
 	history     map[types.ObjID][]objectHistory
+
+	// anonCreations is a monotonic counter bumped every time an anonymous object
+	// is created via CreateObject(..., anonymous=true). It lets the orphan-anon GC
+	// fast-path detect, without taking s.mu, whether any anonymous object could
+	// have been created since a task's GC floor; if not, the orphan recycle
+	// candidate set (anon with id >= floor) is provably empty and the O(N)
+	// reachability sweep can be skipped. Read/written atomically.
+	anonCreations atomic.Uint64
 
 	// anonObjects holds anonymous objects out-of-band, keyed by the identity id
 	// they were loaded/created with. Anonymous objects NEVER live in the regular
@@ -41,6 +50,17 @@ func NewStore() *Store {
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
 	}
+}
+
+// AnonCreationCount returns the number of anonymous objects created via
+// CreateObject(..., anonymous=true) over the store's lifetime. It is read
+// atomically without taking s.mu, so it can be sampled at task start (alongside
+// the GC floor) and compared at task end to learn whether any anonymous object
+// was created since the floor. When the count is unchanged, the orphan-anon
+// recycle candidate set is provably empty and the O(N) reachability sweep can be
+// skipped entirely.
+func (s *Store) AnonCreationCount() uint64 {
+	return s.anonCreations.Load()
 }
 
 func (s *Store) ReadTimestamp() uint64 {
