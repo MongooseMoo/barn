@@ -542,6 +542,9 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			}
 			globalTaskYielder.YieldReadyTasks(ctx)
 			if ctx.Store != nil {
+				if old := ctx.StoreTxn; old != nil {
+					old.Release()
+				}
 				ctx.StoreTxn = ctx.Store.BeginReadOnly(0)
 			}
 		}
