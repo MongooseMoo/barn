@@ -92,6 +92,57 @@ func TestReadLineStripsIACWILL(t *testing.T) {
 	}
 }
 
+func TestReadInputReturnsIACCommandOutOfBand(t *testing.T) {
+	data := []byte{0xFF, 0xFB, 0x01, 'h', 'i', '\n'}
+	transport := newTestTransport(data)
+
+	line, isOOB, err := transport.ReadInput()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !isOOB {
+		t.Fatalf("expected out-of-band telnet command")
+	}
+	if line != string([]byte{0xFF, 0xFB, 0x01}) {
+		t.Errorf("expected raw IAC command bytes, got %q", line)
+	}
+
+	line, isOOB, err = transport.ReadInput()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if isOOB {
+		t.Fatalf("expected normal line after telnet command")
+	}
+	if line != "hi" {
+		t.Errorf("expected %q, got %q", "hi", line)
+	}
+}
+
+func TestReadInputPreservesLineAcrossMidLineIAC(t *testing.T) {
+	data := []byte{'h', 'e', 0xFF, 0xFB, 0x01, 'l', 'l', 'o', '\n'}
+	transport := newTestTransport(data)
+
+	_, isOOB, err := transport.ReadInput()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !isOOB {
+		t.Fatalf("expected out-of-band telnet command")
+	}
+
+	line, isOOB, err := transport.ReadInput()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if isOOB {
+		t.Fatalf("expected normal line after telnet command")
+	}
+	if line != "hello" {
+		t.Errorf("expected %q, got %q", "hello", line)
+	}
+}
+
 func TestReadLineStripsIACWONT(t *testing.T) {
 	// IAC WONT ECHO
 	data := []byte{0xFF, 0xFC, 0x01, 'h', 'i', '\n'}

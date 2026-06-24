@@ -304,6 +304,7 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 		}
 
 		var line string
+		var isOutOfBand bool
 		var err error
 		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
@@ -311,6 +312,8 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 			} else {
 				line, err = conn.ReadLine()
 			}
+		} else if inputTransport, ok := conn.transport.(InputTransport); ok {
+			line, isOutOfBand, err = inputTransport.ReadInput()
 		} else {
 			line, err = conn.ReadLine()
 		}
@@ -329,10 +332,11 @@ func (cm *ConnectionManager) HandleConnection(conn *Connection) {
 
 		done := make(chan struct{})
 		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID: conn.ID,
-			Player: player,
-			Line:   line,
-			Done:   done,
+			ConnID:      conn.ID,
+			Player:      player,
+			Line:        line,
+			IsOutOfBand: isOutOfBand,
+			Done:        done,
 		})
 		<-done
 	}

@@ -96,6 +96,12 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 
 	oob := strings.HasPrefix(input.Line, "#$#")
 	disableOOB := builtins.ConnectionOptionTruthy(input.Player, "disable-oob")
+	if input.IsOutOfBand || (oob && !disableOOB) {
+		if !disableOOB {
+			p.processOutOfBand(input)
+		}
+		return
+	}
 	if !(oob && !disableOOB) && builtins.HandleHeldInput(input.Player, input.Line, false) {
 		return
 	}
@@ -110,6 +116,34 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	p.processCommand(input)
+}
+
+func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
+	cm := p.connManager
+	if cm == nil {
+		return
+	}
+
+	conn := cm.getConnectionByConnID(input.ConnID)
+	if conn == nil {
+		return
+	}
+
+	words := command.CommandWordList(input.Line)
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
+	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
+	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		p.runtime.SendTracebackToPlayer(input.Player, result.Error, stack)
+	}
 }
 
 func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) bool {
@@ -335,25 +369,6 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	}
 
 	if p.processProgrammingInput(conn, input.Line) {
-		return
-	}
-
-	if strings.HasPrefix(input.Line, "#$#") && !builtins.ConnectionOptionTruthy(player, "disable-oob") {
-		words := command.CommandWordList(input.Line)
-		args := make([]types.Value, len(words))
-		for i, word := range words {
-			args[i] = types.NewStr(word)
-		}
-		result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, player, input.Line)
-		if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-			var stack []task.ActivationFrame
-			if result.CallStack != nil {
-				if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-					stack = st
-				}
-			}
-			p.runtime.SendTracebackToPlayer(player, result.Error, stack)
-		}
 		return
 	}
 
