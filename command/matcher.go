@@ -8,27 +8,6 @@ import (
 	"barn/types"
 )
 
-// ParseCommandForPlayer parses a player command and resolves its direct and
-// indirect object strings against the player's inventory and location.
-func ParseCommandForPlayer(store *dbstore.Store, player types.ObjID, location types.ObjID, input string) *ParsedCommand {
-	cmd := ParseCommand(input)
-	ResolveCommandObjects(store, player, location, cmd)
-	return cmd
-}
-
-// ResolveCommandObjects fills the dobj/iobj fields on an already parsed command.
-func ResolveCommandObjects(store *dbstore.Store, player types.ObjID, location types.ObjID, cmd *ParsedCommand) {
-	if cmd == nil {
-		return
-	}
-	if cmd.Dobjstr != "" {
-		cmd.Dobj = MatchObject(store, player, location, cmd.Dobjstr)
-	}
-	if cmd.Iobjstr != "" {
-		cmd.Iobj = MatchObject(store, player, location, cmd.Iobjstr)
-	}
-}
-
 // MatchObject resolves an object name string to an object ID
 // Searches: special syntax (#N, me, here) -> inventory -> room contents
 func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID, name string) types.ObjID {

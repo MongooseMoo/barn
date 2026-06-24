@@ -474,7 +474,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	cmd := command.ParseCommandForPlayer(p.store, player, location, input.Line)
+	cmd := command.ParsePlayerCommand(p.store, player, location, input.Line)
 	if cmd.Verb == "" {
 		return
 	}

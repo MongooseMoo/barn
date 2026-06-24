@@ -7,14 +7,14 @@ import (
 	"barn/types"
 )
 
-func TestParseCommandForPlayerResolvesObjects(t *testing.T) {
+func TestParsePlayerCommandResolvesObjects(t *testing.T) {
 	store := dbstore.NewStore()
 	addCommandTestObject(t, store, 2, "player", types.ObjNothing, []types.ObjID{4})
 	addCommandTestObject(t, store, 3, "room", types.ObjNothing, []types.ObjID{5})
 	addCommandTestObject(t, store, 4, "key", 2, nil)
 	addCommandTestObject(t, store, 5, "box", 3, nil)
 
-	cmd := ParseCommandForPlayer(store, 2, 3, "put key in box")
+	cmd := ParsePlayerCommand(store, 2, 3, "put key in box")
 
 	if cmd.Dobjstr != "key" {
 		t.Fatalf("Dobjstr = %q, want key", cmd.Dobjstr)
