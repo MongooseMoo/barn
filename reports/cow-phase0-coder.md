@@ -11,7 +11,7 @@ the history node eliminates the per-commit `cloneObjectForReadTxn` deep clone.
 Committed on branch `work/mvcc-concurrent-moo` (no push / merge / rebase / switch):
 
 - **Commit: `Publish committed objects copy-on-write (COW phase 0)`**
-- **Hash: see "Commit" section at the end** (filled after `git commit`).
+- **Hash: `65a1759098c84192b92e811bd780ae419345311b`**
 
 Conformance and `-race` were re-confirmed green at the committed state (below).
 
@@ -189,4 +189,7 @@ the in-place path paid. RISK #1 did not materialize.
   through `store.load(...)`; no assertion weakened.
 
 ## Commit
-(hash filled in below after committing)
+`65a1759098c84192b92e811bd780ae419345311b` — "Publish committed objects
+copy-on-write (COW phase 0)" on branch `work/mvcc-concurrent-moo`. No push /
+merge / rebase / switch. Confirmed at the committed state: `go build ./...` clean
+and `go test -race ./db/store` (incl. the new stress tests) clean (see below).
