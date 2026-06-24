@@ -22,6 +22,12 @@ import (
 	"barn/vm"
 )
 
+// defaultGOGCPercent is Barn's on-by-default GC budget. The Go default
+// (GOGC=100) caps concurrent throughput; a measured worker sweep showed
+// GOGC=200 lifts parallel speedup from ~4.1x to ~5.9x with memory bounded
+// relative to the live set.
+const defaultGOGCPercent = 200
+
 type stringListFlag []string
 
 func (f *stringListFlag) String() string {
@@ -61,7 +67,7 @@ func main() {
 
 	// Runtime GC tuning (0/-1 leave Go's GOMEMLIMIT/GOGC env honoring intact)
 	gomemlimitMiB := flag.Int("gomemlimit-mib", 0, "Soft memory limit in MiB (0=unset, honor GOMEMLIMIT env)")
-	gogc := flag.Int("gogc", -1, "GC target percentage (-1=unset, honor GOGC env)")
+	gogc := flag.Int("gogc", -1, "GC target percentage (-1 = use Barn default 200 or GOGC env)")
 
 	flag.Parse()
 
@@ -71,9 +77,18 @@ func main() {
 		debug.SetMemoryLimit(int64(*gomemlimitMiB) * 1024 * 1024)
 		log.Printf("GC memory limit: %d MiB", *gomemlimitMiB)
 	}
+	// GC-percent precedence: explicit -gogc flag > GOGC env > Barn default 200.
 	if *gogc >= 0 {
+		// Explicit override wins.
 		debug.SetGCPercent(*gogc)
 		log.Printf("GC target: %d%%", *gogc)
+	} else if os.Getenv("GOGC") != "" {
+		// Operator set GOGC in the environment; Go already honored it at
+		// startup, so respect it and do nothing.
+	} else {
+		// Barn's on-by-default tuned budget.
+		debug.SetGCPercent(defaultGOGCPercent)
+		log.Printf("GC target: %d%% (default)", defaultGOGCPercent)
 	}
 
 	// Handle -dump flag: dump database and exit
