@@ -35,6 +35,14 @@ type Store struct {
 	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
 	history     map[types.ObjID][]objectHistory
 
+	// floorMu guards activeReadTS, the multiset of readTS values of currently-live
+	// read-only transactions. historyFloor() = min key (or clock if empty) is the
+	// boundary below which old history versions are provably dead and may be pruned
+	// (COW Phase 4 history GC). A registration leak only keeps the floor low
+	// (conservative: no prune), never prunes a live-needed version.
+	floorMu      sync.Mutex
+	activeReadTS map[uint64]int
+
 	// anonCreations is a monotonic counter bumped every time an anonymous object
 	// is created via CreateObject(..., anonymous=true). It lets the orphan-anon GC
 	// fast-path detect, without taking s.mu, whether any anonymous object could
@@ -169,6 +177,17 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 		ts:  ts,
 		obj: cloneObjectForReadTxn(obj),
 	})
+
+	// History GC (Phase 4): prune this object's now-dead old versions below the
+	// live-read floor. The coarse path holds store.mu.Lock (exclusive), so this is
+	// safe against objectLocked and the decentralized committer (both hold only
+	// store.mu.RLock); pruneObjectHistory takes historyMu as a leaf lock (always
+	// nested inside store.mu — no lock-order inversion). The just-appended entry
+	// carries the pre-mutation version; the caller stamps a strictly-newer version
+	// onto the live image right after, so the live (current) image is never in
+	// history and never pruned. Keeping the newest history entry <= floor preserves
+	// every live reader's snapshot.
+	s.pruneObjectHistory(obj.id, s.historyFloor())
 }
 
 func stampObjectScalar(obj *Object, ts uint64) {

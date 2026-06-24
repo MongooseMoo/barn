@@ -2,7 +2,9 @@ package store
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
+	"sync/atomic"
 
 	"barn/types"
 )
@@ -28,6 +30,10 @@ type StoreTxn struct {
 	liveMutated               bool
 	maxObjID                  types.ObjID
 	highWaterID               types.ObjID
+	// released guards the readTS deregistration (Phase 4 history GC) so the floor
+	// registration is removed exactly once whether by the scheduler's explicit
+	// Release or the runtime-finalizer backstop. See store_history_gc.go.
+	released atomic.Bool
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
@@ -105,7 +111,13 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	if readTS == 0 {
 		readTS = s.clock.Load()
 	}
-	return &StoreTxn{
+	// Register this txn's readTS as live BEFORE returning, under store.mu (held for
+	// the whole call), so the history-GC floor can never advance past a reader that
+	// is about to issue reads at readTS. The matching deregistration is StoreTxn.
+	// Release (called by the scheduler) with a runtime-finalizer backstop so a
+	// dropped-without-Release txn cannot leak its registration forever.
+	s.registerReadTS(readTS)
+	tx := &StoreTxn{
 		readTS:            readTS,
 		store:             s,
 		objects:           make(map[types.ObjID]*Object),
@@ -121,6 +133,8 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		maxObjID:    s.maxObjID,
 		highWaterID: s.highWaterID,
 	}
+	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
+	return tx
 }
 
 func (tx *StoreTxn) ReadTimestamp() uint64 {
