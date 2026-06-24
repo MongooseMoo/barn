@@ -25,11 +25,13 @@ func (c *stubConn) GetResolvedName() string   { return "" }
 func (c *stubConn) ListenerPort() int64       { return c.listenerPort }
 
 type stubConnManager struct {
-	conn    Connection
-	listen  int
-	infos   []ListenerInfo
-	added   ListenerSpec
-	removed ListenerDescriptor
+	conn        Connection
+	listen      int
+	infos       []ListenerInfo
+	added       ListenerSpec
+	removed     ListenerDescriptor
+	switchedOld types.ObjID
+	switchedNew types.ObjID
 }
 
 func (m *stubConnManager) GetConnection(player types.ObjID) Connection { return m.conn }
@@ -37,6 +39,8 @@ func (m *stubConnManager) ConnectedPlayers(showAll bool) []types.ObjID { return 
 func (m *stubConnManager) BootPlayer(player types.ObjID) error         { return nil }
 func (m *stubConnManager) RecyclePlayer(player types.ObjID) error      { return nil }
 func (m *stubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
+	m.switchedOld = oldPlayer
+	m.switchedNew = newPlayer
 	return nil
 }
 func (m *stubConnManager) GetListenPort() int { return m.listen }
@@ -67,6 +71,35 @@ func (m *stubConnManager) OpenNetworkConnection(host string, port int64) (types.
 }
 func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool) (string, error) {
 	return "lookup", nil
+}
+
+func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
+	prev := globalConnManager
+	defer func() { globalConnManager = prev }()
+
+	manager := &stubConnManager{}
+	globalConnManager = manager
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+
+	res := builtinSwitchPlayer(ctx, []types.Value{
+		types.NewObj(2),
+		types.NewObj(3),
+	})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	got, ok := res.Val.(types.IntValue)
+	if !ok {
+		t.Fatalf("got %T, want int no-value representation", res.Val)
+	}
+	if got.Val != 0 {
+		t.Fatalf("got %d, want 0", got.Val)
+	}
+	if manager.switchedOld != 2 || manager.switchedNew != 3 {
+		t.Fatalf("switch called with (%d, %d), want (2, 3)", manager.switchedOld, manager.switchedNew)
+	}
 }
 
 func TestConnectionNameFormats(t *testing.T) {

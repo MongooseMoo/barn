@@ -116,15 +116,12 @@ func (vm *VM) executeCallVerb() error {
 	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
 		lookupVerbName = ":" + lookupVerbName
 	}
-	verb, defObjID, err := vm.Store.FindVerb(objID, lookupVerbName)
+	// A verb without the execute flag does not shadow a same-named, executable
+	// verb defined further up the ancestry chain — ToastStunt's call dispatch
+	// (obj:verb() syntax) skips past it and keeps searching. Only when no
+	// ancestor defines an executable match does dispatch fail, as E_VERBNF.
+	verb, defObjID, err := vm.Store.FindCallableVerb(objID, lookupVerbName)
 	if err != nil {
-		vm.Store.NoteVerbCacheMiss()
-		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
-	}
-
-	// A verb without the execute flag is not callable: ToastStunt treats it as
-	// nonexistent for call dispatch (E_VERBNF), not a permission error.
-	if !verb.Perms.Has(dbstore.VerbExecute) {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
@@ -328,6 +325,10 @@ func (vm *VM) executePass() error {
 		return fmt.Errorf("E_INVIND: no object store available")
 	}
 
+	// FindParentVerb walks ancestors the same way obj:verb() dispatch does
+	// (FindCallableVerb): a non-executable same-named verb on an intermediate
+	// ancestor is skipped, not treated as a match, so it never shadows an
+	// executable verb defined further up the chain.
 	verb, defObjID, err := vm.Store.FindParentVerb(verbLoc, verbName)
 	if err != nil {
 		// Distinguish two cases the way ToastStunt does: if the defining object
@@ -338,11 +339,6 @@ func (vm *VM) executePass() error {
 			return fmt.Errorf("E_INVIND: pass() has no parent object")
 		}
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
-	}
-
-	// Check execute permission
-	if !verb.Perms.Has(dbstore.VerbExecute) {
-		return fmt.Errorf("E_PERM: parent verb %s is not executable", verbName)
 	}
 
 	// Compile the parent verb to bytecode
