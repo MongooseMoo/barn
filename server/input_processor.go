@@ -479,20 +479,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	verbUpper := strings.ToUpper(cmd.Verb)
-	switch verbUpper {
-	case "PREFIX", "OUTPUTPREFIX":
-		conn.mu.Lock()
-		conn.outputPrefix = cmd.Argstr
-		conn.mu.Unlock()
-		return
-	case "SUFFIX", "OUTPUTSUFFIX":
-		conn.mu.Lock()
-		conn.outputSuffix = cmd.Argstr
-		conn.mu.Unlock()
-		return
-	case ".PROGRAM":
-		p.startProgrammingMode(conn, player, location, cmd.Argstr)
+	if p.executeBeforeDoCommandIntrinsic(conn, player, location, cmd) {
 		return
 	}
 
@@ -516,16 +503,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 
 	match := command.FindVerb(p.store, player, location, cmd)
 	if match == nil {
-		if verbUpper == "EVAL" {
-			code := strings.TrimSpace(cmd.Argstr)
-			if code != "" {
-				for _, line := range p.runtime.EvalCommandOutput(player, code, conn.GetOutputPrefix(), conn.GetOutputSuffix()) {
-					_ = conn.Send(line)
-				}
-			}
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
+		if p.executeAfterVerbMissIntrinsic(conn, player, cmd, outputSuffix) {
 			return
 		}
 
@@ -597,6 +575,44 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	}
 
 	p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+}
+
+func (p *InputProcessor) executeBeforeDoCommandIntrinsic(conn *Connection, player, location types.ObjID, cmd *command.ParsedCommand) bool {
+	switch command.LookupIntrinsic(cmd.Verb, command.IntrinsicBeforeDoCommand) {
+	case command.IntrinsicProgram:
+		p.startProgrammingMode(conn, player, location, cmd.Argstr)
+		return true
+	case command.IntrinsicPrefix:
+		conn.mu.Lock()
+		conn.outputPrefix = cmd.Argstr
+		conn.mu.Unlock()
+		return true
+	case command.IntrinsicSuffix:
+		conn.mu.Lock()
+		conn.outputSuffix = cmd.Argstr
+		conn.mu.Unlock()
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, outputSuffix string) bool {
+	switch command.LookupIntrinsic(cmd.Verb, command.IntrinsicAfterVerbMiss) {
+	case command.IntrinsicEval:
+		code := strings.TrimSpace(cmd.Argstr)
+		if code != "" {
+			for _, line := range p.runtime.EvalCommandOutput(player, code, conn.GetOutputPrefix(), conn.GetOutputSuffix()) {
+				_ = conn.Send(line)
+			}
+		}
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) bool {
