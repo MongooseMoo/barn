@@ -474,6 +474,21 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		s.objects[id].ptr.Store(img)
 	}
 
+	// History GC (Phase 4): now that this commit appended a fresh newest version to
+	// each touched object, prune the now-dead old versions below the live-read floor.
+	// We still hold each touched slot's mutex and store.mu.RLock; pruneObjectHistory
+	// takes historyMu (serializing with objectLocked's header capture and concurrent
+	// committers). The floor is sampled once: it only moves DOWN if a new reader
+	// registers a smaller readTS, and a reader can never have a readTS below the
+	// versions we just stamped (they carry the just-bumped ts), so a slightly stale
+	// (higher) floor here would still never prune a live-needed version — but to be
+	// strictly conservative we sample after the appends so any concurrently-begun
+	// reader is already counted.
+	floor := s.historyFloor()
+	for _, id := range writeIDs {
+		s.pruneObjectHistory(id, floor)
+	}
+
 	tx.scalarWrites = nil
 	tx.relationshipWrites = nil
 	tx.propertyDefines = nil

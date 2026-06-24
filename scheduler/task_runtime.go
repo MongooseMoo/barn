@@ -66,6 +66,12 @@ retryAttempt:
 	ctx.Task = t
 	ctx.TaskID = t.ID
 	ctx.Store = s.store
+	// Release any txn left on this context from a previous attempt/run before
+	// beginning a fresh one, so its readTS deregisters from the history-GC floor
+	// promptly (the runtime finalizer is only a backstop).
+	if old := ctx.StoreTxn; old != nil {
+		old.Release()
+	}
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.LiveStoreMutated = false
 	ctx.Registry = s.registry
@@ -278,6 +284,7 @@ retryAttempt:
 		builtins.DiscardPendingServerOptions(ctx)
 	}
 	if committed && committedWrites && ctx.StoreTxn != nil {
+		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginReadOnly(0)
 	}
 
@@ -331,6 +338,7 @@ retryAttempt:
 				result = types.Err(errCode)
 				t.Result = result
 			}
+			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 	}
@@ -376,6 +384,7 @@ retryAttempt:
 				result = types.Err(errCode)
 				t.Result = result
 			}
+			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 
