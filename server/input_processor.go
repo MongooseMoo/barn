@@ -474,7 +474,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	cmd := command.ParseCommand(input.Line)
+	cmd := command.ParseCommandForPlayer(p.store, player, location, input.Line)
 	if cmd.Verb == "" {
 		return
 	}
@@ -512,13 +512,6 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 			_ = conn.Send(outputSuffix)
 		}
 		return
-	}
-
-	if cmd.Dobjstr != "" {
-		cmd.Dobj = command.MatchObject(p.store, player, location, cmd.Dobjstr)
-	}
-	if cmd.Iobjstr != "" {
-		cmd.Iobj = command.MatchObject(p.store, player, location, cmd.Iobjstr)
 	}
 
 	match := command.FindVerb(p.store, player, location, cmd)
