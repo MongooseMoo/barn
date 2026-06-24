@@ -63,7 +63,8 @@ func (s *Store) Snapshot() Snapshot {
 
 	// propertyNames must be computed over the live objects so parent-chain walks
 	// see the full graph; build them keyed by id.
-	for id, obj := range s.objects {
+	for id, slot := range s.objects {
+		obj := slot.ptr.Load()
 		if obj == nil {
 			continue
 		}
@@ -72,7 +73,8 @@ func (s *Store) Snapshot() Snapshot {
 		snapshot.Objects[id] = so
 	}
 
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
 		if obj == nil {
 			continue
 		}
@@ -136,7 +138,11 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		seen[id] = struct{}{}
 		queue = append(queue, id)
 	}
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !validLiveObject(obj) || obj.anonymous {
 			continue
 		}

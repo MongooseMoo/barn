@@ -109,7 +109,7 @@ func objectVerbVersionForTest(t *testing.T, store *Store, objID types.ObjID) uin
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 
-	obj := store.objects[objID]
+	obj := store.load(objID)
 	if !validLiveObject(obj) {
 		t.Fatalf("object #%d not found", objID)
 	}

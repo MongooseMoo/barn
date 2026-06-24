@@ -103,7 +103,7 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	defer s.mu.RUnlock()
 
 	if readTS == 0 {
-		readTS = s.clock
+		readTS = s.clock.Load()
 	}
 	return &StoreTxn{
 		readTS:            readTS,
@@ -148,12 +148,20 @@ func (tx *StoreTxn) object(objID types.ObjID) *Object {
 }
 
 func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
-	live := tx.store.objects[objID]
+	live := tx.store.load(objID)
 	if live != nil && objectVersion(live) <= tx.readTS {
 		return cloneObjectForReadTxn(live)
 	}
 
+	// The history slice header is read under historyMu: a decentralized COW
+	// committer (holding only store.mu.RLock, which does not exclude this reader's
+	// RLock) appends to s.history under historyMu. Capturing the slice header here
+	// is enough — append never mutates the existing entries the walk reads, and the
+	// committer reassigns the map value to a (possibly new) header, so the captured
+	// header is a stable snapshot. The clone below runs outside the lock.
+	tx.store.historyMu.Lock()
 	history := tx.store.history[objID]
+	tx.store.historyMu.Unlock()
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].ts <= tx.readTS {
 			return cloneObjectForReadTxn(history[i].obj)
@@ -173,7 +181,7 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
 
-	live := tx.store.objects[objID]
+	live := tx.store.load(objID)
 	if !validLiveObject(live) {
 		tx.objects[objID] = nil
 		return types.E_INVIND
@@ -203,7 +211,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
 
-	live := tx.store.objects[objID]
+	live := tx.store.load(objID)
 	if !validLiveObject(live) {
 		tx.objects[objID] = nil
 		return types.E_INVIND
@@ -265,7 +273,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		if objID == types.ObjNothing {
 			continue
 		}
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			tx.objects[objID] = nil
 			return types.E_INVIND
@@ -1024,7 +1032,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 	obj.properties = newProps
 
 	tx.store.mu.RLock()
-	live := tx.store.objects[objID]
+	live := tx.store.load(objID)
 	if !validLiveObject(live) {
 		tx.store.mu.RUnlock()
 		return types.E_INVIND
@@ -1388,6 +1396,24 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	}
 	tx.validationFail = false
 
+	// COW Phase 0 fast path: a commit whose ENTIRE write set is property-value
+	// writes (no scalar/relationship/define/define-delete/property-delete/verb
+	// writes) and that did not mutate the live store directly is applied
+	// decentralized — under store.mu.RLock + per-slot mutexes, building and
+	// publishing new immutable images instead of taking the exclusive store.mu.Lock.
+	// Disjoint such commits run in parallel. Every other commit shape stays on the
+	// coarse exclusive path below (unchanged in-place apply).
+	if !tx.liveMutated &&
+		len(tx.propertyWrites) > 0 &&
+		len(tx.scalarWrites) == 0 &&
+		len(tx.relationshipWrites) == 0 &&
+		len(tx.propertyDefines) == 0 &&
+		len(tx.propertyDefinitionDeletes) == 0 &&
+		len(tx.propertyDeletes) == 0 &&
+		len(tx.verbWrites) == 0 {
+		return tx.commitDecentralizedPropertyValues()
+	}
+
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
 
@@ -1419,7 +1445,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
 	for objID, write := range tx.scalarWrites {
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1439,7 +1465,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		stampObjectScalar(live, ts)
 	}
 	for objID, write := range tx.relationshipWrites {
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1453,7 +1479,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		stampObjectRelationship(live, ts)
 	}
 	for key, prop := range tx.propertyDefines {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1463,7 +1489,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		remembered[key.objID] = true
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1473,7 +1499,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		remembered[key.objID] = true
 	}
 	for key, write := range tx.propertyWrites {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1498,7 +1524,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		stampObjectProperties(live, ts)
 	}
 	for key, actualName := range tx.propertyDeletes {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1512,7 +1538,7 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		stampObjectProperties(live, ts)
 	}
 	for key, write := range tx.verbWrites {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1545,21 +1571,21 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 // longer exist are dropped; the write apply path validates object existence.
 func (tx *StoreTxn) adoptLiveReadsLocked() {
 	for objID := range tx.scalarReads {
-		if live := tx.store.objects[objID]; validLiveObject(live) {
+		if live := tx.store.load(objID); validLiveObject(live) {
 			tx.scalarReads[objID] = live.scalarVersion
 		} else {
 			delete(tx.scalarReads, objID)
 		}
 	}
 	for objID := range tx.relationshipReads {
-		if live := tx.store.objects[objID]; validLiveObject(live) {
+		if live := tx.store.load(objID); validLiveObject(live) {
 			tx.relationshipReads[objID] = live.relationshipVersion
 		} else {
 			delete(tx.relationshipReads, objID)
 		}
 	}
 	for key := range tx.propertyReads {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			delete(tx.propertyReads, key)
 			continue
@@ -1571,14 +1597,14 @@ func (tx *StoreTxn) adoptLiveReadsLocked() {
 		}
 	}
 	for objID := range tx.propertyScans {
-		if live := tx.store.objects[objID]; validLiveObject(live) {
+		if live := tx.store.load(objID); validLiveObject(live) {
 			tx.propertyScans[objID] = live.propertyVersion
 		} else {
 			delete(tx.propertyScans, objID)
 		}
 	}
 	for key := range tx.verbReads {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			delete(tx.verbReads, key)
 			continue
@@ -1590,7 +1616,7 @@ func (tx *StoreTxn) adoptLiveReadsLocked() {
 		}
 	}
 	for objID := range tx.verbScans {
-		if live := tx.store.objects[objID]; validLiveObject(live) {
+		if live := tx.store.load(objID); validLiveObject(live) {
 			tx.verbScans[objID] = live.verbVersion
 		} else {
 			delete(tx.verbScans, objID)
@@ -1600,7 +1626,7 @@ func (tx *StoreTxn) adoptLiveReadsLocked() {
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 	for objID, version := range tx.scalarReads {
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1613,7 +1639,7 @@ func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 	for objID, version := range tx.relationshipReads {
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1626,7 +1652,7 @@ func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 	for key, version := range tx.propertyReads {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1636,7 +1662,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 		}
 	}
 	for objID, version := range tx.propertyScans {
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1649,7 +1675,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 	for key, version := range tx.verbReads {
-		live := tx.store.objects[key.objID]
+		live := tx.store.load(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1659,7 +1685,7 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 		}
 	}
 	for objID, version := range tx.verbScans {
-		live := tx.store.objects[objID]
+		live := tx.store.load(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}

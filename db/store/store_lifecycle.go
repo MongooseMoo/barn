@@ -29,12 +29,12 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	stampObjectAll(obj, ts)
 
 	for _, parentID := range obj.parents {
-		s.rememberObjectLocked(s.objects[parentID])
+		s.rememberObjectLocked(s.load(parentID))
 	}
 	s.insertObjectLocked(obj)
 	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
 	for _, parentID := range obj.parents {
-		stampObjectRelationship(s.objects[parentID], ts)
+		stampObjectRelationship(s.load(parentID), ts)
 	}
 	return newID, types.E_NONE
 }
@@ -72,8 +72,8 @@ func (s *Store) Valid(id types.ObjID) bool {
 		return false
 	}
 
-	obj, ok := s.objects[id]
-	if !ok {
+	obj := s.load(id)
+	if obj == nil {
 		return false
 	}
 
@@ -96,8 +96,8 @@ func (s *Store) IsRecycled(id types.ObjID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj, ok := s.objects[id]
-	if !ok {
+	obj := s.load(id)
+	if obj == nil {
 		return false
 	}
 
@@ -122,13 +122,13 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 		}
 		visited[currentID] = true
 
-		current := s.objects[currentID]
+		current := s.load(currentID)
 		if current == nil || current.recycled {
 			continue
 		}
 
 		for _, childID := range current.anonymousChildren {
-			child := s.objects[childID]
+			child := s.load(childID)
 			if child != nil && child.anonymous {
 				s.rememberObjectLocked(child)
 				child.flags = child.flags.Set(FlagInvalid)
@@ -150,8 +150,8 @@ func (s *Store) Recycle(id types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj, ok := s.objects[id]
-	if !ok {
+	obj := s.load(id)
+	if obj == nil {
 		return fmt.Errorf("object #%d does not exist", id)
 	}
 
@@ -167,7 +167,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	ts := s.bumpClockLocked()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
-		child := s.objects[childID]
+		child := s.load(childID)
 		if !validLiveObject(child) {
 			continue
 		}
@@ -194,7 +194,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 		stampObjectRelationship(child, ts)
 
 		for _, newParentID := range objParents {
-			newParent := s.objects[newParentID]
+			newParent := s.load(newParentID)
 			if validLiveObject(newParent) && !slices.Contains(newParent.children, childID) {
 				s.rememberObjectLocked(newParent)
 				newParent.children = append(newParent.children, childID)
@@ -204,7 +204,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	}
 
 	for _, contentID := range obj.contents {
-		content := s.objects[contentID]
+		content := s.load(contentID)
 		if validLiveObject(content) {
 			s.rememberObjectLocked(content)
 			content.location = types.ObjNothing
@@ -214,7 +214,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj.contents = []types.ObjID{}
 
 	if obj.location != types.ObjNothing {
-		oldLoc := s.objects[obj.location]
+		oldLoc := s.load(obj.location)
 		if validLiveObject(oldLoc) {
 			s.rememberObjectLocked(oldLoc)
 			oldLoc.contents = removeObjID(oldLoc.contents, id)
@@ -227,7 +227,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	obj.verbs = make(map[string]*Verb)
 
 	for _, parentID := range obj.parents {
-		parent := s.objects[parentID]
+		parent := s.load(parentID)
 		if validLiveObject(parent) {
 			s.rememberObjectLocked(parent)
 			parent.children = removeObjID(parent.children, id)
@@ -253,8 +253,8 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj, ok := s.objects[id]
-	if !ok {
+	obj := s.load(id)
+	if obj == nil {
 		return fmt.Errorf("object #%d does not exist", id)
 	}
 
@@ -267,7 +267,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	ts := s.bumpClockLocked()
 	newObj := NewObject(id, owner)
 	if parent != types.ObjNothing {
-		parentObj := s.objects[parent]
+		parentObj := s.load(parent)
 		if !validLiveObject(parentObj) {
 			return fmt.Errorf("parent #%d is not valid", parent)
 		}
@@ -276,12 +276,12 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	newObj.properties = s.copyInheritedPropertiesLocked(newObj.parents)
 	stampObjectAll(newObj, ts)
 
-	s.objects[id] = newObj
+	s.publishLocked(id, newObj)
 	s.recycledID = removeRecycledID(s.recycledID, id)
 	if parent != types.ObjNothing {
-		s.rememberObjectLocked(s.objects[parent])
+		s.rememberObjectLocked(s.load(parent))
 		s.attachChildToParentsLocked(id, newObj.parents, false, false)
-		stampObjectRelationship(s.objects[parent], ts)
+		stampObjectRelationship(s.load(parent), ts)
 	}
 
 	return nil
@@ -304,7 +304,11 @@ func (s *Store) All() []ObjectView {
 	defer s.mu.RUnlock()
 
 	result := make([]ObjectView, 0, len(s.objects))
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !obj.recycled {
 			result = append(result, obj.view())
 		}
@@ -317,7 +321,11 @@ func (s *Store) Players() []types.ObjID {
 	defer s.mu.RUnlock()
 
 	result := []types.ObjID{}
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !obj.recycled && obj.flags.Has(FlagUser) {
 			result = append(result, obj.id)
 		}
@@ -345,8 +353,8 @@ func (s *Store) LowestFreeID() types.ObjID {
 
 	// Check for gaps in ID sequence (0 to maxObjID)
 	for id := types.ObjID(0); id <= s.maxObjID; id++ {
-		obj, exists := s.objects[id]
-		if !exists {
+		obj := s.load(id)
+		if obj == nil {
 			return id
 		}
 		if obj.recycled {
@@ -366,8 +374,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	defer s.mu.Unlock()
 
 	// Get the object to renumber
-	obj, ok := s.objects[oldID]
-	if !ok || obj.recycled {
+	obj := s.load(oldID)
+	if obj == nil || obj.recycled {
 		return fmt.Errorf("object #%d does not exist", oldID)
 	}
 
@@ -378,7 +386,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 
 	// Check new ID is available
 	var recycledTarget *Object
-	if existing, exists := s.objects[newID]; exists {
+	if existing := s.load(newID); existing != nil {
 		if !existing.recycled {
 			return fmt.Errorf("object #%d already exists", newID)
 		}
@@ -401,8 +409,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	stampObjectAll(obj, ts)
 
 	// Move in store
-	s.objects[oldID] = tombstone
-	s.objects[newID] = obj
+	s.publishLocked(oldID, tombstone)
+	s.publishLocked(newID, obj)
 
 	// Update recycledID list - remove newID if present, add oldID
 	newRecycled := []types.ObjID{}
@@ -415,8 +423,9 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	s.recycledID = newRecycled
 
 	// Update all references in ALL objects
-	for _, other := range s.objects {
-		if other.recycled {
+	for _, slot := range s.objects {
+		other := slot.ptr.Load()
+		if other == nil || other.recycled {
 			continue
 		}
 

@@ -144,7 +144,7 @@ func TestTransactionChildrenTracksRelationshipRead(t *testing.T) {
 		t.Fatalf("Children failed: %v", errCode)
 	}
 
-	live := store.objects[0]
+	live := store.load(0)
 	if got := tx.relationshipReads[0]; got != live.relationshipVersion {
 		t.Fatalf("relationship read version = %d, want %d", got, live.relationshipVersion)
 	}
@@ -1370,7 +1370,7 @@ func TestTransactionFindVerbTracksReadAndScan(t *testing.T) {
 		t.Fatalf("FindVerb failed: %v", err)
 	}
 
-	live := store.objects[0]
+	live := store.load(0)
 	verb := live.verbs["look"]
 	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)
@@ -1394,7 +1394,7 @@ func TestTransactionVerbByIndexTracksReadAndScan(t *testing.T) {
 		t.Fatalf("VerbByIndex failed: %v", errCode)
 	}
 
-	live := store.objects[0]
+	live := store.load(0)
 	verb := live.verbs["look"]
 	if got := tx.verbReads[verbReadKey{objID: 0, name: "look"}]; got != verb.version {
 		t.Fatalf("verb read version = %d, want %d", got, verb.version)

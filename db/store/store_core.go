@@ -8,13 +8,31 @@ import (
 	"sync/atomic"
 )
 
+// objectSlot is the per-id storage cell in Store.objects. The published image
+// (slot.ptr) is an IMMUTABLE *Object: once a pointer is Stored into a slot, that
+// *Object's fields and the *Property/*Verb nodes it owns are never written again.
+// Readers Load() the pointer once and use that frozen snapshot — no lock, no torn
+// read. The copy-on-write property-value committer builds a NEW *Object and
+// publishes it via slot.ptr.Store under slot.mu; same-object committers serialize
+// on slot.mu, disjoint committers never share a slot.
+//
+// The slot struct (not the *Object) carries the sync.Mutex, so the mutex is never
+// value-copied with the image (no copylocks). The map of *objectSlot has stable
+// slot identity for the slot's lifetime; the map skeleton (adding a key) is still
+// mutated only under store.mu.
+type objectSlot struct {
+	ptr atomic.Pointer[Object]
+	mu  sync.Mutex
+}
+
 type Store struct {
 	mu          sync.RWMutex
-	objects     map[types.ObjID]*Object
+	objects     map[types.ObjID]*objectSlot
 	maxObjID    types.ObjID   // Highest non-anonymous object ID (for max_object())
 	highWaterID types.ObjID   // Highest allocated ID (including anonymous, for NextID())
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
-	clock       uint64
+	clock       atomic.Uint64
+	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
 	history     map[types.ObjID][]objectHistory
 
 	// anonCreations is a monotonic counter bumped every time an anonymous object
@@ -43,12 +61,51 @@ type Store struct {
 
 func NewStore() *Store {
 	return &Store{
-		objects:     make(map[types.ObjID]*Object),
+		objects:     make(map[types.ObjID]*objectSlot),
 		anonObjects: make(map[types.ObjID]*Object),
 		maxObjID:    -1,
 		highWaterID: -1,
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
+	}
+}
+
+// load returns the currently-published immutable *Object for id, or nil if the
+// slot does not exist. The returned *Object is a frozen snapshot: read its fields
+// freely; never mutate it (it may be shared with concurrent readers). Callers on
+// the read paths hold store.mu.RLock so the map skeleton is stable during the
+// lookup; the atomic Load itself is the acquire barrier that publishes the image.
+func (s *Store) load(id types.ObjID) *Object {
+	if slot := s.objects[id]; slot != nil {
+		return slot.ptr.Load()
+	}
+	return nil
+}
+
+// slotFor returns the slot for id, creating it under store.mu if absent. Callers
+// hold store.mu (exclusive) when this may create a slot (map-skeleton mutation).
+func (s *Store) slotFor(id types.ObjID) *objectSlot {
+	slot := s.objects[id]
+	if slot == nil {
+		slot = &objectSlot{}
+		s.objects[id] = slot
+	}
+	return slot
+}
+
+// publishLocked publishes obj into id's slot. Used by the coarse (store.mu-held)
+// writers and by object insertion; the map skeleton is mutated under store.mu.
+func (s *Store) publishLocked(id types.ObjID, obj *Object) {
+	s.slotFor(id).ptr.Store(obj)
+}
+
+func (s *Store) bumpClock() uint64 {
+	for {
+		v := s.clock.Add(1)
+		if v != 0 {
+			return v
+		}
+		// wrapped to 0: skip it (0 means "unset"); loop bumps again
 	}
 }
 
@@ -64,18 +121,17 @@ func (s *Store) AnonCreationCount() uint64 {
 }
 
 func (s *Store) ReadTimestamp() uint64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.clock
+	return s.clock.Load()
 }
 
+// bumpClockLocked advances the global commit clock and returns the new value.
+// The clock is an atomic counter (Option B): bumping it does not require
+// store.mu, so the decentralized COW committer (which holds only store.mu.RLock)
+// and the coarse writers (store.mu.Lock) draw distinct, globally-monotonic
+// timestamps from the same source. The "_Locked" suffix is retained for the many
+// coarse callers; the operation itself is lock-free.
 func (s *Store) bumpClockLocked() uint64 {
-	s.clock++
-	if s.clock == 0 {
-		s.clock++
-	}
-	return s.clock
+	return s.bumpClock()
 }
 
 type objectHistory struct {
@@ -165,8 +221,8 @@ func (s *Store) Get(id types.ObjID) (ObjectView, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj, ok := s.objects[id]
-	if !ok || obj.recycled || obj.flags.Has(FlagInvalid) {
+	obj := s.load(id)
+	if obj == nil || obj.recycled || obj.flags.Has(FlagInvalid) {
 		return ObjectView{}, false
 	}
 	return obj.view(), true
@@ -179,8 +235,8 @@ func (s *Store) GetUnsafe(id types.ObjID) (ObjectView, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj, ok := s.objects[id]
-	if !ok || obj == nil {
+	obj := s.load(id)
+	if obj == nil {
 		return ObjectView{}, false
 	}
 	return obj.view(), true
@@ -193,7 +249,7 @@ func (s *Store) Add(obj *Object) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, exists := s.objects[obj.id]; exists {
+	if s.load(obj.id) != nil {
 		return fmt.Errorf("object #%d already exists", obj.id)
 	}
 
@@ -231,7 +287,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 }
 
 func (s *Store) insertObjectLocked(obj *Object) {
-	s.objects[obj.id] = obj
+	s.publishLocked(obj.id, obj)
 
 	// Update high water ID (tracks all allocations including anonymous)
 	if obj.id > s.highWaterID {
@@ -249,7 +305,7 @@ func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -264,7 +320,7 @@ func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -279,7 +335,7 @@ func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -294,7 +350,7 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -313,7 +369,7 @@ func (s *Store) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return "", types.E_INVIND
 	}
@@ -324,7 +380,7 @@ func (s *Store) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
 	}
@@ -335,7 +391,7 @@ func (s *Store) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
 	}
@@ -346,7 +402,7 @@ func (s *Store) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
@@ -357,7 +413,7 @@ func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
@@ -368,7 +424,7 @@ func (s *Store) ObjectExists(objID types.ObjID) types.ErrorCode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if validLiveObject(obj) {
 		return types.E_NONE
 	}
@@ -388,7 +444,11 @@ func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []ty
 	}
 
 	result := make([]types.ObjID, 0)
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if !validLiveObject(obj) {
 			continue
 		}
@@ -408,7 +468,11 @@ func (s *Store) ObjectsOwnedBy(owner types.ObjID) []types.ObjID {
 	defer s.mu.RUnlock()
 
 	result := make([]types.ObjID, 0)
-	for _, obj := range s.objects {
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if obj == nil {
+			continue
+		}
 		if validLiveObject(obj) && obj.owner == owner {
 			result = append(result, obj.id)
 		}
@@ -420,7 +484,7 @@ func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
+	obj := s.load(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
 	}
