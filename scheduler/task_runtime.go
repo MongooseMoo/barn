@@ -19,6 +19,8 @@ import (
 	"barn/vm"
 )
 
+var ErrCommandVerbNoCode = errors.New("command verb has no code")
+
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
@@ -373,11 +375,19 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 	return result
 }
 
-// ExecuteVerbTaskSync creates and immediately runs a verb task on the scheduler goroutine.
-func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) {
+// ExecuteVerbTaskSync creates and immediately runs a command verb task on the scheduler goroutine.
+func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
+	program, compileErrors := bytecode.CompileVerb(match.Verb.Code)
+	if len(compileErrors) > 0 {
+		return fmt.Errorf("Verb compile error: %s", compileErrors[0])
+	}
+	if len(program.Statements) == 0 {
+		return ErrCommandVerbNoCode
+	}
+
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner
@@ -416,4 +426,5 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 	}
+	return nil
 }

@@ -9,7 +9,6 @@ import (
 
 	"barn/builtins"
 	"barn/bytecode"
-	"barn/command"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -58,40 +57,6 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 	// Set wizard flag based on player
 	t.Context.IsWizard = s.isWizard(player)
 	return s.QueueTask(t)
-}
-
-// CreateVerbTask creates a task to execute a verb
-func (s *Scheduler) CreateVerbTask(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) <-chan struct{} {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
-	t.StartTime = time.Now()
-	// Task runs with verb owner permissions (MOO programmer semantics).
-	t.Programmer = match.Verb.Owner
-	t.Context.Programmer = match.Verb.Owner
-	t.Context.IsWizard = s.isWizard(match.Verb.Owner)
-
-	// Set up verb context
-	t.VerbName = cmd.Verb
-	t.VerbLoc = match.VerbLoc
-	t.This = match.This
-	t.Caller = player
-	t.Argstr = cmd.Argstr
-	t.Args = cmd.Args
-	t.Dobjstr = cmd.Dobjstr
-	t.Dobj = cmd.Dobj
-	t.Prepstr = cmd.Prepstr
-	t.Iobjstr = cmd.Iobjstr
-	t.Iobj = cmd.Iobj
-	t.CommandOutputSuffix = outputSuffix
-	t.ForkCreator = s // Give task access to scheduler for forks
-
-	// Create done channel so callers can wait for task completion
-	t.Done = make(chan struct{})
-
-	s.QueueTask(t)
-	return t.Done
 }
 
 // CreateServerVerbTask queues a server-initiated hook verb so it runs through

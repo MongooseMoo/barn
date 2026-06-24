@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -527,27 +528,20 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 }
 
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
-	if match.Statements == nil && len(match.Verb.Code) > 0 {
-		program, errors := bytecode.CompileVerb(match.Verb.Code)
-		if len(errors) > 0 {
-			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
-			return
-		}
-		match.Statements = program.Statements
-	}
-
-	if len(match.Statements) == 0 {
+	err := p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+	if errors.Is(err, runtime.ErrCommandVerbNoCode) {
 		conn.Send(emptyMessage)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return
 	}
-
-	p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+	if err != nil {
+		conn.Send(err.Error())
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+	}
 }
 
 func (p *InputProcessor) executeBeforeDoCommandIntrinsic(conn *Connection, player, location types.ObjID, cmd *command.ParsedCommand) bool {

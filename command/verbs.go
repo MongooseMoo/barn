@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/types"
 )
 
@@ -13,11 +12,6 @@ type VerbMatch struct {
 	Verb    dbstore.VerbView
 	This    types.ObjID // Object the verb is called on ('this' in MOO)
 	VerbLoc types.ObjID // Object where verb is defined (for traceback)
-
-	// Statements carries the lazily-compiled AST for this match. The AST no
-	// longer lives on dbstore.Verb (moved to barn/bytecode); the scheduler
-	// compiles it on demand and the task factory reads it from here.
-	Statements []parser.Stmt
 }
 
 // verbNameMatches checks if a verb name matches a search string
