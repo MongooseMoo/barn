@@ -342,7 +342,6 @@ func (s *Server) shutdown() error {
 	s.connManager.CloseConnections(message)
 
 	s.input.Stop()
-	s.scheduler.Stop()
 
 	// Final checkpoint (unless checkpointing was explicitly disabled)
 	if s.checkpointInterval > 0 {
@@ -353,6 +352,8 @@ func (s *Server) shutdown() error {
 	} else {
 		log.Println("Final checkpoint skipped (checkpointing disabled)")
 	}
+
+	s.scheduler.Stop()
 
 	s.mu.Lock()
 	s.running = false
