@@ -130,7 +130,7 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 	defer input.Stop()
 	defer scheduler.Stop()
 
-	err := cm.StartListeners([]builtins.ListenerSpec{{
+	err := cm.BindListeners([]builtins.ListenerSpec{{
 		Protocol:           "tls",
 		Port:               0,
 		Interface:          "127.0.0.1",
@@ -138,9 +138,10 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 		TLSKeyPath:         keyPath,
 	}})
 	if err != nil {
-		t.Fatalf("start tls listener: %v", err)
+		t.Fatalf("bind tls listener: %v", err)
 	}
 	defer closeAllListeners(cm)
+	cm.StartAccepting()
 
 	port := cm.ListenerInfos()[0].Port
 	client, err := tls.Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)), &tls.Config{InsecureSkipVerify: true})

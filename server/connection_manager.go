@@ -31,6 +31,7 @@ type listenerRecord struct {
 	tlsConfig     *tls.Config
 	httpServer    *http.Server
 	primary       bool
+	accepting     bool
 }
 
 type listenerKey struct {
@@ -78,21 +79,66 @@ func (cm *ConnectionManager) GetListenPort() int {
 	return cm.listenPort
 }
 
-// StartListeners starts startup-owned listeners.
-func (cm *ConnectionManager) StartListeners(specs []builtins.ListenerSpec) error {
+// BindListeners creates startup-owned listener sockets without accepting
+// connections yet.
+func (cm *ConnectionManager) BindListeners(specs []builtins.ListenerSpec) error {
 	if len(specs) == 0 {
 		return fmt.Errorf("no listeners configured")
 	}
+
+	originalPort := cm.listenPort
+	bound := make([]builtins.ListenerDescriptor, 0, len(specs))
 	for i, spec := range specs {
 		desc, err := cm.addListener(spec, true)
 		if err != nil {
+			for _, boundDesc := range bound {
+				key := listenerKeyFromDescriptor(boundDesc)
+				cm.mu.Lock()
+				record := cm.listeners[key]
+				if record != nil {
+					delete(cm.listeners, key)
+				}
+				cm.mu.Unlock()
+				if record != nil {
+					if record.httpServer != nil {
+						_ = record.httpServer.Close()
+					} else {
+						_ = record.listener.Close()
+					}
+				}
+			}
+			cm.listenPort = originalPort
 			return err
 		}
+		bound = append(bound, desc)
 		if i == 0 {
 			cm.listenPort = int(desc.Port)
 		}
 	}
 	return nil
+}
+
+// StartAccepting begins accept loops for all bound listeners that are not
+// already accepting.
+func (cm *ConnectionManager) StartAccepting() {
+	cm.mu.Lock()
+	records := make([]*listenerRecord, 0, len(cm.listeners))
+	for _, record := range cm.listeners {
+		if record.accepting {
+			continue
+		}
+		record.accepting = true
+		records = append(records, record)
+	}
+	cm.mu.Unlock()
+
+	for _, record := range records {
+		if record.httpServer != nil {
+			go cm.serveWebSocketListener(record)
+		} else {
+			go cm.acceptConnections(record)
+		}
+	}
 }
 
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
@@ -145,11 +191,6 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		log.Printf("Added %s listener on port %d for #%d", spec.Protocol, port, spec.Object)
 	}
 
-	if record.httpServer != nil {
-		go cm.serveWebSocketListener(record)
-	} else {
-		go cm.acceptConnections(record)
-	}
 	return desc, nil
 }
 
@@ -449,7 +490,12 @@ func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
 }
 
 func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
-	return cm.addListener(spec, false)
+	desc, err := cm.addListener(spec, false)
+	if err != nil {
+		return builtins.ListenerDescriptor{}, err
+	}
+	cm.StartAccepting()
+	return desc, nil
 }
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {

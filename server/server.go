@@ -159,15 +159,23 @@ func (s *Server) Start() error {
 	// Start scheduler
 	s.input.Start()
 
+	// Bind listener sockets before server_started so MOO code can inspect
+	// listeners(), but do not accept connections until the hook returns.
+	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+		s.input.Stop()
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		return fmt.Errorf("listen failed: %w", err)
+	}
+
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
 		log.Printf("Warning: #0:server_started() failed: %v", err)
 	}
 
 	// Start listening for connections
-	if err := s.connManager.StartListeners(s.listenerSpecs); err != nil {
-		return fmt.Errorf("listen failed: %w", err)
-	}
+	s.connManager.StartAccepting()
 
 	// Set up signal handling
 	go s.handleSignals()

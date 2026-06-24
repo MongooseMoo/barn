@@ -3,25 +3,48 @@ package server
 import (
 	"barn/builtins"
 	"net"
+	"sync"
 	"testing"
+	"time"
 )
 
 type fakeListener struct {
-	addr   net.Addr
-	closed bool
+	addr     net.Addr
+	closed   bool
+	mu       sync.Mutex
+	accepts  int
+	acceptCh chan struct{}
 }
 
 func (l *fakeListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	l.accepts++
+	acceptCh := l.acceptCh
+	l.mu.Unlock()
+	if acceptCh != nil {
+		select {
+		case acceptCh <- struct{}{}:
+		default:
+		}
+	}
 	return nil, net.ErrClosed
 }
 
 func (l *fakeListener) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.closed = true
 	return nil
 }
 
 func (l *fakeListener) Addr() net.Addr {
 	return l.addr
+}
+
+func (l *fakeListener) acceptCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.accepts
 }
 
 func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
@@ -84,14 +107,14 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 	}
 }
 
-func TestStartListenersCreatesMultipleTCPListeners(t *testing.T) {
+func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 	cm := NewConnectionManager(0)
-	err := cm.StartListeners([]builtins.ListenerSpec{
+	err := cm.BindListeners([]builtins.ListenerSpec{
 		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
 		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
 	})
 	if err != nil {
-		t.Fatalf("start listeners: %v", err)
+		t.Fatalf("bind listeners: %v", err)
 	}
 	defer closeAllListeners(cm)
 
@@ -109,6 +132,40 @@ func TestStartListenersCreatesMultipleTCPListeners(t *testing.T) {
 	}
 }
 
+func TestRegisterListenerDoesNotAcceptUntilStartAccepting(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	listener := &fakeListener{
+		addr:     &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888},
+		acceptCh: make(chan struct{}, 1),
+	}
+
+	desc, err := cm.registerListener(listener, builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   5,
+	}, false, nil)
+	if err != nil {
+		t.Fatalf("register listener: %v", err)
+	}
+	defer func() { _ = cm.RemoveListener(desc) }()
+
+	select {
+	case <-listener.acceptCh:
+		t.Fatalf("listener accepted before StartAccepting")
+	default:
+	}
+	if got := listener.acceptCount(); got != 0 {
+		t.Fatalf("accept count = %d before StartAccepting, want 0", got)
+	}
+
+	cm.StartAccepting()
+
+	select {
+	case <-listener.acceptCh:
+	case <-time.After(time.Second):
+		t.Fatalf("listener did not start accepting")
+	}
+}
+
 func closeAllListeners(cm *ConnectionManager) {
 	cm.mu.Lock()
 	records := make([]*listenerRecord, 0, len(cm.listeners))
@@ -117,6 +174,10 @@ func closeAllListeners(cm *ConnectionManager) {
 	}
 	cm.mu.Unlock()
 	for _, record := range records {
-		_ = record.listener.Close()
+		if record.httpServer != nil {
+			_ = record.httpServer.Close()
+		} else {
+			_ = record.listener.Close()
+		}
 	}
 }
