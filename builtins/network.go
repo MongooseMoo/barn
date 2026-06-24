@@ -202,16 +202,18 @@ func defaultConnectionOptions() map[string]types.Value {
 
 func getConnectionOptions(player types.ObjID) map[string]types.Value {
 	connectionOptionState.mu.RLock()
+	defer connectionOptionState.mu.RUnlock()
 	existing, ok := connectionOptionState.byPlayer[player]
-	connectionOptionState.mu.RUnlock()
-	if ok {
-		out := make(map[string]types.Value, len(existing))
-		for k, v := range existing {
-			out[k] = v
-		}
-		return out
+	if !ok {
+		return defaultConnectionOptions()
 	}
-	return defaultConnectionOptions()
+	// Copy under the read lock: setConnectionOption mutates the stored map in
+	// place, so releasing before the copy races a concurrent writer.
+	out := make(map[string]types.Value, len(existing))
+	for k, v := range existing {
+		out[k] = v
+	}
+	return out
 }
 
 func setConnectionOption(player types.ObjID, name string, value types.Value) {
