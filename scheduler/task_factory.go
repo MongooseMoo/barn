@@ -59,20 +59,20 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 	return s.QueueTask(t)
 }
 
-// CreateServerVerbTask queues a server-initiated hook verb so it runs through
-// the normal scheduler/task machinery and can suspend, fork, and shut down.
-func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (int64, error) {
+// RunServerVerbTask runs a server-initiated hook verb through the normal
+// scheduler/task machinery until it completes or reaches its first suspend.
+func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)
 	if err != nil {
-		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
+		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
 	program, errors := bytecode.CompileVerb(verb.Code)
 	if len(errors) > 0 {
-		return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+		return types.Result{}, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
 	}
 	if len(program.Statements) == 0 && len(verb.Code) == 0 {
-		return 0, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
+		return types.Result{}, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
@@ -91,7 +91,19 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 
-	return s.QueueTask(t), nil
+	t.SetState(task.TaskQueued)
+	s.mu.Lock()
+	s.tasks[t.ID] = t
+	s.mu.Unlock()
+	task.GetManager().RegisterTask(t)
+
+	if err := s.runTask(t); err != nil {
+		return t.Result, err
+	}
+	if s.taskOutputFlusher != nil {
+		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
+	}
+	return t.Result, nil
 }
 
 // CreateLoginHookTask runs a login-hook verb (do_login_command and friends) as

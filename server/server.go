@@ -346,7 +346,7 @@ func (s *Server) callServerStarted() error {
 	if !s.store.HasLocalVerb(0, "server_started") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "server_started", nil, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "server_started", nil, 0)
 	return err
 }
 
@@ -355,7 +355,7 @@ func (s *Server) callCheckpointStarted() error {
 	if !s.store.HasLocalVerb(0, "checkpoint_started") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_started", nil, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
@@ -364,7 +364,7 @@ func (s *Server) callCheckpointFinished(success bool) error {
 	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 
@@ -373,7 +373,7 @@ func (s *Server) callShutdownStarted(message string) error {
 	if !s.store.HasLocalVerb(0, "shutdown_started") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
 	return err
 }
 
