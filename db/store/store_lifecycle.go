@@ -23,7 +23,27 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	}
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
 
-	s.insertObjectLocked(obj)
+	if anonymous {
+		// Anonymous objects live out-of-band in s.anonObjects, never in the
+		// numbered s.objects map (see the field comment in store_core.go and
+		// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
+		// has id == NOTHING and is removed from the numbered objects[] array
+		// (db_make_anonymous, db_objects.cc:449); it is only assigned an
+		// above-max serialization id at dump time (dbpriv_assign_anonymous_object,
+		// db_objects.cc:415). Routing runtime creation here keeps the planner, GC
+		// scan, and serializer over a single set of anonymous objects, so a
+		// runtime-created anon survives a checkpoint just like a loaded one.
+		//
+		// We still bump highWaterID so the identity id (newID) is never handed
+		// out again to a future allocation, but we do NOT touch maxObjID:
+		// anonymous objects must not affect max_object().
+		s.anonObjects[newID] = obj
+		if newID > s.highWaterID {
+			s.highWaterID = newID
+		}
+	} else {
+		s.insertObjectLocked(obj)
+	}
 	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
 	return newID, types.E_NONE
 }
