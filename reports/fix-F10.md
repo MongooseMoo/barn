@@ -72,7 +72,7 @@ $ go vet ./scheduler/ ./task/      # clean, no output
   only the pre-existing intentional F8 red).
 
 ## Commit
-`COMMIT_HASH_PLACEHOLDER` on branch `review/branch-stocktake-2026-06-25`.
+`4a683ac` on branch `review/branch-stocktake-2026-06-25`.
 
 ## Files changed
 - `task/task.go` — added `doneClosed` field + `CloseDone()` once-guarded closer.
