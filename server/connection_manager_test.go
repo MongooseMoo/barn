@@ -47,6 +47,52 @@ func (l *fakeListener) acceptCount() int {
 	return l.accepts
 }
 
+type blockingListener struct {
+	addr    net.Addr
+	entered chan struct{}
+	release chan struct{}
+	closed  bool
+	mu      sync.Mutex
+}
+
+func newBlockingListener() *blockingListener {
+	return &blockingListener{
+		addr:    &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888},
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+}
+
+func (l *blockingListener) Accept() (net.Conn, error) {
+	select {
+	case l.entered <- struct{}{}:
+	default:
+	}
+	<-l.release
+	return nil, net.ErrClosed
+}
+
+func (l *blockingListener) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closed = true
+	return nil
+}
+
+func (l *blockingListener) Addr() net.Addr {
+	return l.addr
+}
+
+func (l *blockingListener) releaseAccept() {
+	close(l.release)
+}
+
+func (l *blockingListener) isClosed() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.closed
+}
+
 type recordingTransport struct {
 	mu       sync.Mutex
 	lines    []string
@@ -250,6 +296,47 @@ func TestCloseListenersClosesPrimaryListeners(t *testing.T) {
 	}
 	if infos := cm.ListenerInfos(); len(infos) != 0 {
 		t.Fatalf("listeners after CloseListeners = %+v, want none", infos)
+	}
+}
+
+func TestCloseListenersWaitsForAcceptLoops(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	listener := newBlockingListener()
+
+	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   5,
+	}, true, nil); err != nil {
+		t.Fatalf("register listener: %v", err)
+	}
+	cm.StartAccepting()
+
+	select {
+	case <-listener.entered:
+	case <-time.After(time.Second):
+		t.Fatalf("listener did not start accepting")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		cm.CloseListeners()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatalf("CloseListeners returned before accept loop exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if !listener.isClosed() {
+		t.Fatalf("listener was not closed")
+	}
+
+	listener.releaseAccept()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("CloseListeners did not return after accept loop exited")
 	}
 }
 

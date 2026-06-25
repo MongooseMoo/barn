@@ -32,6 +32,7 @@ type listenerRecord struct {
 	httpServer    *http.Server
 	primary       bool
 	accepting     bool
+	done          chan struct{}
 }
 
 type listenerKey struct {
@@ -134,11 +135,14 @@ func (cm *ConnectionManager) StartAccepting() {
 	cm.mu.Unlock()
 
 	for _, record := range records {
-		if record.httpServer != nil {
-			go cm.serveWebSocketListener(record)
-		} else {
-			go cm.acceptConnections(record)
-		}
+		go func(record *listenerRecord) {
+			defer close(record.done)
+			if record.httpServer != nil {
+				cm.serveWebSocketListener(record)
+				return
+			}
+			cm.acceptConnections(record)
+		}(record)
 	}
 }
 
@@ -147,19 +151,31 @@ func (cm *ConnectionManager) StartAccepting() {
 // the MOO-level rule that primary listeners cannot be removed at runtime.
 func (cm *ConnectionManager) CloseListeners() {
 	cm.mu.Lock()
-	records := make([]*listenerRecord, 0, len(cm.listeners))
+	type listenerToClose struct {
+		record *listenerRecord
+		wait   bool
+	}
+	records := make([]listenerToClose, 0, len(cm.listeners))
 	for key, record := range cm.listeners {
-		records = append(records, record)
+		records = append(records, listenerToClose{
+			record: record,
+			wait:   record.accepting,
+		})
 		delete(cm.listeners, key)
 	}
 	cm.mu.Unlock()
 
-	for _, record := range records {
-		if record.httpServer != nil {
-			_ = record.httpServer.Close()
+	for _, item := range records {
+		if item.record.httpServer != nil {
+			_ = item.record.httpServer.Close()
 			continue
 		}
-		_ = record.listener.Close()
+		_ = item.record.listener.Close()
+	}
+	for _, item := range records {
+		if item.wait {
+			<-item.record.done
+		}
 	}
 }
 
@@ -208,6 +224,7 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		tls:           spec.Protocol == "tls" || spec.Protocol == "wss",
 		tlsConfig:     tlsConfig,
 		primary:       primary,
+		done:          make(chan struct{}),
 	}
 	if desc.Protocol == "ws" || desc.Protocol == "wss" {
 		record.httpServer = &http.Server{
@@ -599,12 +616,19 @@ func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) er
 		return fmt.Errorf("cannot remove primary listener")
 	}
 	delete(cm.listeners, key)
+	wait := record.accepting
 	cm.mu.Unlock()
 
+	var err error
 	if record.httpServer != nil {
-		return record.httpServer.Close()
+		err = record.httpServer.Close()
+	} else {
+		err = record.listener.Close()
 	}
-	return record.listener.Close()
+	if wait {
+		<-record.done
+	}
+	return err
 }
 
 func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
