@@ -59,4 +59,5 @@ _QueuedTasksSortOrder.
 `go vet ./builtins/` clean.
 
 ## Commit
-<filled in after commit>
+`1c6b2138c0476d4cdeb8586c1e1e257353382c47` on branch
+`review/branch-stocktake-2026-06-25`.
