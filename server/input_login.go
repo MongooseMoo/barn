@@ -43,8 +43,14 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	}
 
 	if !s.store.HasLocalVerb(handler, "do_login_command") {
-		conn.Send("Welcome! (No login handler defined)")
-		return types.ObjID(2), nil
+		// Match ToastStunt: when #0:do_login_command (the listener handler) does
+		// not exist, do_login_task initializes result to TYPE_INT 0 and the verb
+		// call leaves it unchanged (toaststunt/src/tasks.cc:884). The login
+		// predicate then fails because result is not a user object
+		// (tasks.cc:921 `result.type == TYPE_OBJ && is_user(result.v.obj)`), so
+		// the connection is NOT logged in — no player is assigned and Toast does
+		// NOT substitute a default wizard. Return a negative ObjID (login refused).
+		return types.ObjID(-1), nil
 	}
 
 	connID := types.ObjID(-conn.ID)

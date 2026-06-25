@@ -37,13 +37,19 @@ func TestReview_FallbackLoginReturnsWizardWithNoLoginHandler(t *testing.T) {
 
 	player, _ := s.callDoLoginCommand(conn, "connect wizard")
 
-	// WANT: login refused (player < 0) when no handler is defined.
-	// GOT: hardcoded return of player #2 (the wizard) — any connection becomes wizard.
-	if player == 2 {
+	// Toast behavior: with no listener do_login_command verb, do_login_task
+	// leaves its result at the default TYPE_INT 0, so the login predicate
+	// (result is a user object) is false and the connection is NOT logged in
+	// — Toast assigns no player and never substitutes a default wizard.
+	// See toaststunt/src/tasks.cc:884 (default result.type = TYPE_INT) and
+	// :921 (login only when `result.type == TYPE_OBJ && is_user(result.v.obj)`).
+	// Barn must therefore return a negative ObjID (login refused), not #2.
+	if player >= 0 {
 		t.Fatalf(
-			"callDoLoginCommand with no do_login_command verb returned player #%d (wizard): "+
-				"security hole — unauthenticated connections get instant wizard access "+
-				"(input_login.go:47 hardcoded fallback `return types.ObjID(2), nil`)",
+			"callDoLoginCommand with no do_login_command verb returned player #%d: "+
+				"login must be refused (negative ObjID) when no handler exists, matching "+
+				"ToastStunt do_login_task (tasks.cc:884,921). A non-negative result here "+
+				"is a security hole — unauthenticated connections become a real player.",
 			player,
 		)
 	}
