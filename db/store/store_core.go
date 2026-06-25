@@ -27,15 +27,19 @@ type objectSlot struct {
 
 // readTSShardCount shards the live-readTS registry. Sized to scatter a typical
 // worker fleet (GOMAXPROCS) so register/deregister rarely collide, while keeping
-// historyFloor()'s per-commit cross-shard scan cheap.
+// historyFloor()'s per-commit cross-shard min read cheap.
 const readTSShardCount = 16
 
-// readTSShard is one shard of the live-readTS multiset. It is padded to a cache
-// line so adjacent shards' mutexes never false-share.
+// readTSShard is one shard of the live-readTS multiset. `min` caches the smallest
+// live readTS in this shard (0 == shard empty) so the per-commit floor read does
+// NOT have to iterate the map — the only map iteration is the rare rescan when the
+// current minimum is the entry being removed. Padded to a cache line so adjacent
+// shards' mutexes never false-share.
 type readTSShard struct {
 	mu     sync.Mutex
 	counts map[uint64]int
-	_      [40]byte // pad: Mutex(8) + map ptr(8) + pad(40) = 56; rounded clear of a line
+	min    uint64
+	_      [32]byte // pad: Mutex(8) + map ptr(8) + min(8) + pad(32) = 56; clear of a line
 }
 
 type Store struct {
