@@ -25,20 +25,33 @@ func TestReview_ObjEqualIgnoresAnonFlag(t *testing.T) {
 	}
 }
 
-// TestReview_WaifSetPropertyMutatesOriginal confirms that WaifValue.SetProperty
-// mutates the shared underlying properties map, corrupting the original value.
-// WaifValue is a value-receiver struct containing a reference-type map, so
-// copies share the same backing map and SetProperty's in-place write is visible
-// through any alias.
+// TestReview_WaifSetPropertyMutatesOriginal asserts true Toast REFERENCE
+// semantics for waifs (F4). The original review framed this as a broken
+// copy-on-write, but waifs are reference types in ToastStunt: a TYPE_WAIF Var
+// holds a `Waif *` (structures.h:174), aliasing only addref's that pointer
+// (utils.cc:282-284), var_dup refuses to copy a waif (utils.cc:340-341 ->
+// waif.cc:612 "can't dup waif yet"), and waif_put_prop mutates the one shared
+// waif in place (waif.cc:742). So `w2 = w1; w2.x = 42` MUST make `w1.x == 42`,
+// while two SEPARATELY created waifs are independent.
 func TestReview_WaifSetPropertyMutatesOriginal(t *testing.T) {
 	w1 := NewWaif(1, 2)
-	w2 := w1 // struct copy — should be independent
+	w2 := w1 // alias — same underlying waif (reference type)
 
 	w2 = w2.SetProperty("x", NewInt(42))
 
-	// w1 must not see the property set on w2.
-	if _, ok := w1.GetProperty("x"); ok {
-		t.Fatal("BUG: SetProperty on a WaifValue copy mutated the original's property map — the map is shared between struct copies, not COW")
+	// w1 MUST see the property set through its alias w2.
+	got, ok := w1.GetProperty("x")
+	if !ok {
+		t.Fatal("waif reference semantics broken: w1 does not see property set via its alias w2 (Toast waif_put_prop mutates the shared waif, waif.cc:742)")
+	}
+	if iv, ok := got.(IntValue); !ok || iv.Val != 42 {
+		t.Fatalf("w1.x = %v, want 42 via aliased mutation", got)
+	}
+
+	// Two independently created waifs are independent references.
+	other := NewWaif(1, 2)
+	if _, ok := other.GetProperty("x"); ok {
+		t.Fatal("two separately created waifs must be independent references, but a separate waif saw w2's property")
 	}
 }
 

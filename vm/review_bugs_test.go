@@ -61,27 +61,24 @@ func TestReview_MapInKeyNotPresent(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// B2: WaifValue has aliased shared mutable state, not copy-on-write semantics.
+// B2 (F4): Waifs are REFERENCE types — aliases share one underlying waif.
 //
-// WaifValue is a Go struct (value type) whose `properties` field is a
-// map[string]Value (reference type).  Copying a WaifValue copies the struct
-// header but NOT the underlying map — all copies share the same map.
-// SetProperty mutates that shared map in place, so every copy of the waif
-// sees every mutation.  This violates the expected value semantics and
-// enables ghost aliasing in the VM when the same waif is stored in multiple
-// local variables.
+// The original review framed WaifValue's shared mutable state as a broken
+// copy-on-write. It is not a bug: ToastStunt waifs are reference types. A
+// TYPE_WAIF Var holds a `Waif *` pointer (structures.h:174); aliasing only
+// addref's that pointer (utils.cc:282-284); var_dup refuses to copy a waif
+// (utils.cc:340-341 -> waif.cc:612 "can't dup waif yet"); and waif_put_prop
+// mutates the one shared waif in place (waif.cc:742). So `b = a; b.foo = 99`
+// MUST make `a.foo == 99`. These tests now assert that reference behavior.
 //
-// The VM path (op_property.go:249) also discards the returned WaifValue:
-//   _ = waif.SetProperty(propName, value)
-// but because of the shared map the mutation happens anyway.  If WaifValue is
-// ever fixed to be truly copy-on-write the discard will then silently break
-// all property writes on locally-held waifs.
+// This is also why the VM path (op_property.go:249) can discard the returned
+// WaifValue: the underlying waif is shared, so the in-place mutation is visible
+// to all holders — exactly Toast's semantics.
 // ---------------------------------------------------------------------------
 
 func TestReview_WaifPropertyMutationAliasesAcrossStructCopies(t *testing.T) {
-	// Simulate two MOO locals pointing to "the same waif":
-	//   a = some_waif; b = a
-	// Both a and b are struct copies of the same WaifValue.
+	// Two MOO locals pointing to "the same waif":  a = some_waif; b = a
+	// Both alias one underlying reference-typed waif.
 	waif := types.NewWaif(1, 0)
 	localA := waif
 	localB := waif
@@ -89,25 +86,31 @@ func TestReview_WaifPropertyMutationAliasesAcrossStructCopies(t *testing.T) {
 	// Mutate through localA (as the VM does in setWaifProp).
 	localA.SetProperty("foo", types.NewInt(99))
 
-	// Correct (value semantics): localB should NOT see the mutation.
-	// Buggy  (aliased map):      localB.foo == 99.
+	// Reference semantics: localB MUST see the mutation through the shared waif.
 	val, ok := localB.GetProperty("foo")
-	if ok {
-		t.Errorf("localB.foo = %v after mutating localA.foo; "+
-			"WaifValue.properties map is shared across struct copies — "+
-			"all aliases see every mutation (types/waif.go)", val)
+	if !ok {
+		t.Fatalf("localB.foo not set after mutating localA.foo; waifs are reference " +
+			"types and aliases must share one underlying waif (waif.cc:742)")
+	}
+	if iv, ok := val.(types.IntValue); !ok || iv.Val != 99 {
+		t.Errorf("localB.foo = %v, want 99 via aliased mutation", val)
 	}
 }
 
 func TestReview_WaifSetPropertyMutatesOriginalNotCopy(t *testing.T) {
-	// SetProperty is advertised as returning a new copy; original should be pristine.
+	// Waifs are reference types: SetProperty mutates the shared underlying waif
+	// in place (Toast waif_put_prop, waif.cc:742), visible through the original
+	// handle even when the returned value is discarded.
 	waif := types.NewWaif(1, 0)
 	_ = waif.SetProperty("hp", types.NewInt(42))
 
-	_, ok := waif.GetProperty("hp")
-	if ok {
-		t.Error("WaifValue.SetProperty mutated the original struct via shared map; " +
-			"copy-on-write semantics are broken (types/waif.go:68-75)")
+	val, ok := waif.GetProperty("hp")
+	if !ok {
+		t.Fatal("WaifValue.SetProperty did not mutate the shared waif; reference " +
+			"semantics require the original handle to observe the write (types/waif.go)")
+	}
+	if iv, ok := val.(types.IntValue); !ok || iv.Val != 42 {
+		t.Errorf("waif.hp = %v, want 42", val)
 	}
 }
 
