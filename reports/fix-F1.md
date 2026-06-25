@@ -79,4 +79,5 @@ These predate this change (the fix touches only verb-mutator lookup and cannot
 affect data/io/renumber/snapshot/read-perm behavior).
 
 ## Commit
-COMMIT_HASH_PLACEHOLDER
+`dafa70dd4dd1f1da39d0100cb813bf40a062faba` (branch
+`review/branch-stocktake-2026-06-25`)
