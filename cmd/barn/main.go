@@ -29,10 +29,21 @@ import (
 )
 
 // defaultGOGCPercent is Barn's on-by-default GC budget. The Go default
-// (GOGC=100) caps concurrent throughput; a measured worker sweep showed
-// GOGC=200 lifts parallel speedup from ~4.1x to ~5.9x with memory bounded
-// relative to the live set.
-const defaultGOGCPercent = 200
+// (GOGC=100) makes the garbage collector the binding constraint on concurrent
+// throughput: the VM heap-boxes every arithmetic value into the types.Value
+// interface, so compute-heavy worker fleets allocate hard and collapse onto GC.
+// A measured 32-worker sweep on the realistic verb-call path (serial baseline
+// flat, so this is real parallelism, not a per-task-cost artifact) showed:
+//
+//	GOGC=100 -> 4.56x   GOGC=200 -> 6.78x   GOGC=400 -> 8.50x
+//	GOGC=800 -> 9.76x   GOGC=off -> 11.41x
+//
+// 400 banks most of the win (~8.5x) at ~4x heap growth between collections —
+// a balanced default for unknown deployment RAM. Operators with more memory can
+// raise -gogc toward 800 (near-10x); pair an aggressive value with -gomemlimit-mib
+// so it degrades gracefully under pressure. Reducing the allocation itself
+// (unboxing types.Value) would deliver the same parallelism at default memory.
+const defaultGOGCPercent = 400
 
 type stringListFlag []string
 
@@ -133,7 +144,7 @@ func main() {
 		debug.SetMemoryLimit(int64(*gomemlimitMiB) * 1024 * 1024)
 		log.Printf("GC memory limit: %d MiB", *gomemlimitMiB)
 	}
-	// GC-percent precedence: explicit -gogc flag > GOGC env > Barn default 200.
+	// GC-percent precedence: explicit -gogc flag > GOGC env > Barn default.
 	if *gogc >= 0 {
 		// Explicit override wins.
 		debug.SetGCPercent(*gogc)
