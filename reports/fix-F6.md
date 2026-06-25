@@ -72,4 +72,4 @@ above. No NEW functional failures; my change touches only `BytecodeVM` access,
 which is orthogonal to the Done-channel and ID-counter code those tests exercise.
 
 ## Commit
-`COMMIT_HASH_PLACEHOLDER`
+`a509367`
