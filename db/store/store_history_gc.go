@@ -34,6 +34,9 @@ func (s *Store) registerReadTS(readTS uint64) {
 		sh.counts = make(map[uint64]int)
 	}
 	sh.counts[readTS]++
+	if sh.min == 0 || readTS < sh.min {
+		sh.min = readTS
+	}
 	sh.mu.Unlock()
 }
 
@@ -48,8 +51,27 @@ func (s *Store) deregisterReadTS(readTS uint64) {
 		sh.counts[readTS] = n - 1
 	} else if n == 1 {
 		delete(sh.counts, readTS)
+		// Removing the cached minimum: rescan this shard (only) for the new min.
+		// This is the sole place the shard map is iterated; the shard holds at most
+		// a handful of distinct readTS values, and the per-commit floor read below
+		// never iterates.
+		if readTS == sh.min {
+			sh.min = shardMinLocked(sh.counts)
+		}
 	}
 	sh.mu.Unlock()
+}
+
+// shardMinLocked returns the smallest key in counts, or 0 if empty. Caller holds
+// the shard mutex.
+func shardMinLocked(counts map[uint64]int) uint64 {
+	min := uint64(0)
+	for ts := range counts {
+		if min == 0 || ts < min {
+			min = ts
+		}
+	}
+	return min
 }
 
 // historyFloor returns the minimum readTS of any currently-live transaction, or
@@ -67,18 +89,22 @@ func (s *Store) deregisterReadTS(readTS uint64) {
 // under the same locks the new txn must pass through). In all cases the floor
 // returned is <= the readTS of every txn that can still read.
 func (s *Store) historyFloor() uint64 {
+	// Exact min over the live-readTS registry, read from each shard's cached `min`
+	// (maintained by register/deregister) instead of iterating the shard maps —
+	// register/deregister already paid for keeping `min` current, so the per-commit
+	// floor read is just a min over readTSShardCount integers under their shard
+	// locks. The floor stays exact, so prompt history pruning is preserved.
 	min := uint64(0)
 	have := false
 	for i := range s.readTSShards {
 		sh := &s.readTSShards[i]
 		sh.mu.Lock()
-		for ts := range sh.counts {
-			if !have || ts < min {
-				min = ts
-				have = true
-			}
-		}
+		shMin := sh.min
 		sh.mu.Unlock()
+		if shMin != 0 && (!have || shMin < min) {
+			min = shMin
+			have = true
+		}
 	}
 	if !have {
 		return s.clock.Load()

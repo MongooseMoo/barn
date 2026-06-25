@@ -25,3 +25,6 @@ toaststunt_test.db
 # Python / tooling
 .python-version
 __pycache__/
+
+# Profiling probe artifacts
+.probes/
