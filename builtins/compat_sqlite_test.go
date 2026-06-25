@@ -29,6 +29,24 @@ func resetSQLiteTestState(t *testing.T) {
 	}
 }
 
+// TestSqliteOpenRefusesSandboxEscape confirms the sole sqlite path entry point
+// (sqlite_open) rejects a traversal escape with E_INVARG, matching the fileio
+// builtins (and Toast's file_resolve_path -> file_verify_path NULL -> E_INVARG,
+// toaststunt/src/sqlite.cc:241-246).
+func TestSqliteOpenRefusesSandboxEscape(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	ctx := sqliteWizardCtx()
+	for _, escape := range []string{"../escape.db", "../../etc/escape.db"} {
+		res := builtinSqliteOpen(ctx, []types.Value{types.NewStr(escape)})
+		if !res.IsError() || res.Error != types.E_INVARG {
+			t.Fatalf("sqlite_open(%q): want E_INVARG, got result=%v err=%v",
+				escape, res.Val, res.Error)
+		}
+	}
+}
+
 func sqliteWizardCtx() *kernel.TaskContext {
 	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true

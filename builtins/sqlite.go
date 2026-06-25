@@ -305,11 +305,21 @@ func builtinSqliteOpen(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	if path != ":memory:" {
+		// Confine the database file to the files/ sandbox the same way every
+		// fileio builtin does. Toast resolves the sqlite path through
+		// file_resolve_path (toaststunt/src/sqlite.cc:241), which both verifies
+		// the path (file_verify_path) and prepends file_subdir
+		// (toaststunt/src/fileio.cc:318-335). sanitizeFilePath is the verify
+		// step; resolveFilePath is the file_subdir-prefix step. Calling only
+		// sanitizeFilePath left the DB at a CWD-relative path (sandbox escape).
 		sanitized, err := sanitizeFilePath(path)
 		if err != nil {
 			return types.Err(types.E_INVARG)
 		}
-		path = sanitized
+		if err := ensureFilesRoot(); err != nil {
+			return types.Err(types.E_FILE)
+		}
+		path = resolveFilePath(sanitized)
 	}
 
 	db, err := sql.Open("sqlite", path)
