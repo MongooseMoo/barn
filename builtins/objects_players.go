@@ -127,7 +127,7 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 		}
 		// Clearing the player flag on a currently-connected player terminates
 		// its live connection (matching Toast).
-		if cm := connManagerOf(ctx); cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
+		if cm := hostOf(ctx).ConnManager; cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
 			_ = cm.BootPlayer(objVal.ID())
 		}
 	}

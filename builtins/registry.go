@@ -23,19 +23,11 @@ type Registry struct {
 	nextID       int
 	verbCaller   VerbCallerFunc // Callback for calling verbs
 
-	// Server-provided capabilities the builtins package cannot implement itself
-	// (networking, input injection, task scheduling, process lifecycle). The
-	// owner of the registry (the scheduler/server) wires these after
-	// construction via the Set* methods below, exactly as it does verbCaller.
-	// A Registry without them wired — db tools, the oracle, pure-builtin tests —
-	// runs every pure builtin and returns the normal error (E_PERM/E_INVARG)
-	// from any builtin that needs an absent capability.
-	connManager  ConnectionManager
-	inputForcer  InputForcer
-	taskYielder  TaskYielder
-	runGC        func(ctx *kernel.TaskContext) error
-	dumpFunc     func() error
-	shutdownFunc func(ctx *kernel.TaskContext, message string, unclean bool) error
+	// host holds the server-provided capabilities the builtins package cannot
+	// implement itself (networking, scheduling, lifecycle). The registry's owner
+	// wires it after construction via the Set* methods; builtins read it via
+	// hostOf(ctx). See host.go.
+	host Host
 }
 
 // NewRegistry creates a new builtin function registry

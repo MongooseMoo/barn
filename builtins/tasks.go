@@ -513,7 +513,7 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if yielder := taskYielderOf(ctx); len(args) >= 2 && yielder != nil {
+	if yielder := hostOf(ctx).TaskYielder; len(args) >= 2 && yielder != nil {
 		tickThreshold := args[1].(types.IntValue).Val
 		if ctx.TicksRemaining <= tickThreshold {
 			yielder.YieldReadyTasks()

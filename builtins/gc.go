@@ -31,7 +31,7 @@ func builtinRunGC(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// a way to force collection
 	runtime.GC()
 
-	if runGC := runGCOf(ctx); runGC != nil {
+	if runGC := hostOf(ctx).RunGC; runGC != nil {
 		if err := runGC(ctx); err != nil {
 			return types.Err(types.E_INVARG)
 		}

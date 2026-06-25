@@ -194,7 +194,7 @@ func builtinQueueInfo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			seen[ctx.Player] = struct{}{}
 			players = append(players, ctx.Player)
 		}
-		if cm := connManagerOf(ctx); cm != nil {
+		if cm := hostOf(ctx).ConnManager; cm != nil {
 			for _, p := range cm.ConnectedPlayers(false) {
 				if _, ok := seen[p]; ok {
 					continue
@@ -399,7 +399,7 @@ func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_PERM)
 	}
 	log.Printf("CHECKPOINTING: dump_database() requested by #%d", ctx.Programmer)
-	if dump := dumpFuncOf(ctx); dump != nil {
+	if dump := hostOf(ctx).Checkpoint; dump != nil {
 		if err := dump(); err != nil {
 			log.Printf("dump_database() error: %v", err)
 			// MOO spec: dump_database() returns 0 on success
@@ -451,7 +451,7 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Check player is connected
-	if cm := connManagerOf(ctx); cm == nil || cm.GetConnection(player) == nil {
+	if cm := hostOf(ctx).ConnManager; cm == nil || cm.GetConnection(player) == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
@@ -512,7 +512,7 @@ func builtinForceInput(ctx *kernel.TaskContext, args []types.Value) types.Result
 		atFront = args[2].Truthy()
 	}
 
-	if forcer := inputForcerOf(ctx); forcer != nil {
+	if forcer := hostOf(ctx).InputForcer; forcer != nil {
 		forcer.ForceInput(target.ID(), line.Value(), atFront)
 	}
 	return types.Ok(types.NewInt(0))
@@ -627,7 +627,7 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -712,7 +712,7 @@ func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -750,7 +750,7 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 	if !ctx.RuntimeOptions.OutboundNetwork {
 		return types.Err(types.E_PERM)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -782,7 +782,7 @@ func builtinShutdown(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if shutdown := shutdownFuncOf(ctx); shutdown != nil {
+	if shutdown := hostOf(ctx).Shutdown; shutdown != nil {
 		if err := shutdown(ctx, message, unclean); err != nil {
 			return types.Err(types.E_INVARG)
 		}

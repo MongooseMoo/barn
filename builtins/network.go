@@ -139,7 +139,7 @@ func parseConnectionTarget(v types.Value) (types.ObjID, bool) {
 }
 
 func resolveConnection(ctx *kernel.TaskContext, player types.ObjID) Connection {
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return nil
 	}
@@ -820,7 +820,7 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
-	if connManagerOf(ctx) == nil {
+	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -862,7 +862,7 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
@@ -953,7 +953,7 @@ func builtinConnectedPlayers(ctx *kernel.TaskContext, args []types.Value) types.
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -985,7 +985,7 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	if connManagerOf(ctx) == nil {
+	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1023,7 +1023,7 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 		listenPort := 0
 		if conn.ListenerPort() > 0 {
 			listenPort = int(conn.ListenerPort())
-		} else if cm := connManagerOf(ctx); cm != nil {
+		} else if cm := hostOf(ctx).ConnManager; cm != nil {
 			listenPort = cm.GetListenPort()
 		}
 		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s, port %s", listenPort, host, port)))
@@ -1041,7 +1041,7 @@ func builtinBootPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1085,7 +1085,7 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 			return types.Err(types.E_TYPE)
 		}
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1101,7 +1101,7 @@ func builtinIdleSeconds(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if connManagerOf(ctx) == nil {
+	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1126,7 +1126,7 @@ func builtinConnectedSeconds(ctx *kernel.TaskContext, args []types.Value) types.
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if connManagerOf(ctx) == nil {
+	if hostOf(ctx).ConnManager == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1151,7 +1151,7 @@ func builtinConnectionInfo(ctx *kernel.TaskContext, args []types.Value) types.Re
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1196,7 +1196,7 @@ func builtinConnectionNameLookup(ctx *kernel.TaskContext, args []types.Value) ty
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
-	cm := connManagerOf(ctx)
+	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -1279,7 +1279,7 @@ func builtinSetConnectionOption(ctx *kernel.TaskContext, args []types.Value) typ
 			wakeConn.WakeInputReader()
 		}
 	}
-	if forcer := inputForcerOf(ctx); name == "hold-input" && !args[2].Truthy() && forcer != nil {
+	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !args[2].Truthy() && forcer != nil {
 		for _, line := range drainHeldCommands(player) {
 			forcer.ForceInput(player, line, false)
 		}

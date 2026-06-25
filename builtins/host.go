@@ -2,75 +2,56 @@ package builtins
 
 import "barn/kernel"
 
-// This file gathers the server-provided host capabilities that builtins depend
-// on but the builtins package cannot implement itself: networking, input
-// injection, task scheduling, and process lifecycle. Each is an instance field
-// on *Registry (declared in registry.go), wired by the registry's owner via the
-// Set* methods here and read by builtins via the *Of accessors. This mirrors the
-// verbCaller / SetVerbCaller / CallVerb trio that the Registry already uses.
-//
-// Ownership lives on the Registry instance — there is no package-global state.
-// A Registry whose host is unwired returns nil from the accessors, and each
-// builtin turns that into its usual MOO error.
+// Hooks the server installs for lifecycle builtins (run_gc, dump_database,
+// shutdown). Named so the signatures are written once, not at every field,
+// setter, and use site.
+type (
+	GCHook         func(ctx *kernel.TaskContext) error
+	CheckpointHook func() error
+	ShutdownHook   func(ctx *kernel.TaskContext, message string, unclean bool) error
+)
+
+// Host bundles the server-provided capabilities that builtins depend on but the
+// builtins package cannot implement itself: networking, input injection, task
+// scheduling, and process lifecycle. The Registry owns one Host, wired by its
+// owner (the scheduler/server) after construction; builtins read it via
+// hostOf(ctx). A zero Host — db tools, the oracle, pure-builtin tests — leaves
+// every field nil, and each builtin turns a nil capability into its usual MOO
+// error. This mirrors the verbCaller / SetVerbCaller pattern the Registry uses;
+// ownership lives on the instance, not in package-global state.
+type Host struct {
+	ConnManager ConnectionManager
+	InputForcer InputForcer
+	TaskYielder TaskYielder
+	RunGC       GCHook
+	Checkpoint  CheckpointHook
+	Shutdown    ShutdownHook
+}
+
+// hostOf returns the Host wired onto the task's registry, or the zero Host when
+// no registry is present. The type assertion guards the kernel<->builtins import
+// cycle, which forces ctx.Registry to be typed as interface{}.
+func hostOf(ctx *kernel.TaskContext) Host {
+	if r, ok := ctx.Registry.(*Registry); ok {
+		return r.host
+	}
+	return Host{}
+}
 
 // SetConnectionManager wires the connection manager used by network builtins.
-func (r *Registry) SetConnectionManager(cm ConnectionManager) { r.connManager = cm }
+func (r *Registry) SetConnectionManager(cm ConnectionManager) { r.host.ConnManager = cm }
 
 // SetInputForcer wires the input forcer used by force_input/set_connection_option.
-func (r *Registry) SetInputForcer(f InputForcer) { r.inputForcer = f }
+func (r *Registry) SetInputForcer(f InputForcer) { r.host.InputForcer = f }
 
 // SetTaskYielder wires the scheduler hook used by resume() to run ready tasks.
-func (r *Registry) SetTaskYielder(y TaskYielder) { r.taskYielder = y }
+func (r *Registry) SetTaskYielder(y TaskYielder) { r.host.TaskYielder = y }
 
 // SetRunGCFunc wires the anonymous-object GC entry point used by run_gc().
-func (r *Registry) SetRunGCFunc(f func(ctx *kernel.TaskContext) error) { r.runGC = f }
+func (r *Registry) SetRunGCFunc(f GCHook) { r.host.RunGC = f }
 
 // SetDumpFunc wires the checkpoint request used by dump_database().
-func (r *Registry) SetDumpFunc(f func() error) { r.dumpFunc = f }
+func (r *Registry) SetDumpFunc(f CheckpointHook) { r.host.Checkpoint = f }
 
 // SetShutdownFunc wires the process-lifecycle hook used by shutdown().
-func (r *Registry) SetShutdownFunc(f func(ctx *kernel.TaskContext, message string, unclean bool) error) {
-	r.shutdownFunc = f
-}
-
-func connManagerOf(ctx *kernel.TaskContext) ConnectionManager {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.connManager
-	}
-	return nil
-}
-
-func inputForcerOf(ctx *kernel.TaskContext) InputForcer {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.inputForcer
-	}
-	return nil
-}
-
-func taskYielderOf(ctx *kernel.TaskContext) TaskYielder {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.taskYielder
-	}
-	return nil
-}
-
-func runGCOf(ctx *kernel.TaskContext) func(ctx *kernel.TaskContext) error {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.runGC
-	}
-	return nil
-}
-
-func dumpFuncOf(ctx *kernel.TaskContext) func() error {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.dumpFunc
-	}
-	return nil
-}
-
-func shutdownFuncOf(ctx *kernel.TaskContext) func(ctx *kernel.TaskContext, message string, unclean bool) error {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.shutdownFunc
-	}
-	return nil
-}
+func (r *Registry) SetShutdownFunc(f ShutdownHook) { r.host.Shutdown = f }
