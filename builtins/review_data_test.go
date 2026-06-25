@@ -1,0 +1,210 @@
+package builtins
+
+import (
+	"math"
+	"testing"
+
+	"barn/kernel"
+	"barn/types"
+)
+
+// TestReview_Data_* tests written by the analyst agent to probe suspected bugs
+// in the data-type builtins (lists, maps, strings, math, json, url, ansi, pcre).
+
+func reviewDataCtx() *kernel.TaskContext {
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	return ctx
+}
+
+// ── MATH ──────────────────────────────────────────────────────────────────────
+
+// CRITICAL: abs(math.MinInt64) silently overflows back to MinInt64.
+// Toast raises E_FLOAT for integer overflow. Barn returns the same
+// negative value because -MinInt64 overflows in two's-complement.
+func TestReview_Data_AbsMinInt64Overflow(t *testing.T) {
+	ctx := reviewDataCtx()
+	result := builtinAbs(ctx, []types.Value{types.NewInt(math.MinInt64)})
+	// Must be an error, NOT a value. The "result" is still negative which is nonsensical.
+	if result.IsNormal() {
+		got := result.Val.(types.IntValue).Val
+		if got < 0 {
+			t.Errorf("abs(MinInt64) = %d (negative!), want an error", got)
+		}
+		// Even if positive, it's wrong — MinInt64 has no positive int64 representation.
+		t.Errorf("abs(MinInt64) returned a value %d instead of an error", got)
+	}
+}
+
+// ── LISTS ─────────────────────────────────────────────────────────────────────
+
+// HIGH: unique() uses elem.String() (includes quotes; case-sensitive) for the
+// dedup key, so {"hello","HELLO"} is not deduplicated even though MOO string
+// equality is case-insensitive (StrValue.Equal uses EqualFold).
+func TestReview_Data_UniqueStrCaseInsensitive(t *testing.T) {
+	ctx := reviewDataCtx()
+	list := types.NewList([]types.Value{types.NewStr("hello"), types.NewStr("HELLO")})
+	result := builtinUnique(ctx, []types.Value{list})
+	if !result.IsNormal() {
+		t.Fatalf("unique returned error: %v", result.Error)
+	}
+	got := result.Val.(types.ListValue)
+	if got.Len() != 1 {
+		t.Errorf("unique({\"hello\",\"HELLO\"}) = %d elements, want 1 (MOO strings are case-insensitive)", got.Len())
+	}
+}
+
+// HIGH: is_member() uses strictEqual (case-SENSITIVE) for list search, but
+// setadd/setremove use Equal (case-INSENSITIVE). In MOO "hello" == "HELLO",
+// so is_member("HELLO", {"hello"}) should return 1.
+func TestReview_Data_IsMemberStrCaseSensitiveBug(t *testing.T) {
+	ctx := reviewDataCtx()
+	list := types.NewList([]types.Value{types.NewStr("hello")})
+	result := builtinIsMember(ctx, []types.Value{types.NewStr("HELLO"), list})
+	if !result.IsNormal() {
+		t.Fatalf("is_member returned error: %v", result.Error)
+	}
+	got := result.Val.(types.IntValue).Val
+	if got != 1 {
+		t.Errorf("is_member(\"HELLO\", {\"hello\"}) = %d, want 1 (MOO string equality is case-insensitive)", got)
+	}
+}
+
+// HIGH: setadd uses Equal (case-insensitive) but unique uses String() (case-sensitive).
+// They must agree: an element added by setadd must be treated as a duplicate by unique.
+// setadd({"hello"}, "HELLO") → {"hello"} (sees them as equal).
+// unique({"hello","HELLO"}) must also return {"hello"}.
+func TestReview_Data_SetaddUniqueConsistency(t *testing.T) {
+	ctx := reviewDataCtx()
+
+	// setadd sees "HELLO" as already present (case-insensitive match).
+	list := types.NewList([]types.Value{types.NewStr("hello")})
+	saResult := builtinSetadd(ctx, []types.Value{list, types.NewStr("HELLO")})
+	if !saResult.IsNormal() {
+		t.Fatalf("setadd returned error: %v", saResult.Error)
+	}
+	saList := saResult.Val.(types.ListValue)
+	if saList.Len() != 1 {
+		t.Fatalf("setadd({\"hello\"}, \"HELLO\") has %d elements, want 1", saList.Len())
+	}
+
+	// unique must also collapse {"hello","HELLO"} to one element.
+	dupeList := types.NewList([]types.Value{types.NewStr("hello"), types.NewStr("HELLO")})
+	uqResult := builtinUnique(ctx, []types.Value{dupeList})
+	if !uqResult.IsNormal() {
+		t.Fatalf("unique returned error: %v", uqResult.Error)
+	}
+	uqList := uqResult.Val.(types.ListValue)
+	if uqList.Len() != 1 {
+		t.Errorf("setadd sees them as equal (len=1) but unique keeps both (len=%d) — inconsistent", uqList.Len())
+	}
+}
+
+// MEDIUM: sort(list, keys, natural, reverse) silently ignores keys/natural/reverse.
+// sort({1,2,3}, {}, 0, 1) with reverse=1 should return {3,2,1} but returns {1,2,3}.
+func TestReview_Data_SortReverseIgnored(t *testing.T) {
+	ctx := reviewDataCtx()
+	list := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2), types.NewInt(3)})
+	result := builtinSort(ctx, []types.Value{
+		list,
+		types.NewList([]types.Value{}), // keys (empty = identity)
+		types.NewInt(0),                // natural
+		types.NewInt(1),                // reverse = true
+	})
+	if !result.IsNormal() {
+		t.Fatalf("sort returned error: %v", result.Error)
+	}
+	got := result.Val.(types.ListValue)
+	first := got.Get(1).(types.IntValue).Val
+	if first != 3 {
+		t.Errorf("sort({1,2,3}, {}, 0, 1) first element = %d, want 3 (reverse flag ignored)", first)
+	}
+}
+
+// ── PCRE ──────────────────────────────────────────────────────────────────────
+
+// HIGH: pcre_match returns {} immediately for an empty subject without attempting
+// the match. Patterns like ".*" match the empty string. Toast returns a match.
+func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
+	ctx := reviewDataCtx()
+	// Pattern ".*" matches the empty string — should produce one match.
+	result := builtinPcreMatch(ctx, []types.Value{
+		types.NewStr(""),   // subject
+		types.NewStr(".*"), // pattern
+	})
+	if !result.IsNormal() {
+		t.Fatalf("pcre_match returned error: %v", result.Error)
+	}
+	got := result.Val.(types.ListValue)
+	if got.Len() == 0 {
+		t.Errorf("pcre_match(\"\", \".*\") = {} (empty), want a match result for the empty string")
+	}
+}
+
+// ── STRINGS ───────────────────────────────────────────────────────────────────
+
+// MEDIUM: strings.Title is deprecated and uses simple Unicode space-boundary
+// splitting; it title-cases after every space including mid-word spaces.
+// capitalize("hello world") should return "Hello World".
+// This test documents the deprecated function call; it may pass currently
+// but will break under future Go versions that remove strings.Title.
+func TestReview_Data_CapitalizeDeprecatedTitle(t *testing.T) {
+	ctx := reviewDataCtx()
+	result := builtinCapitalize(ctx, []types.Value{types.NewStr("hello world")})
+	if !result.IsNormal() {
+		t.Fatalf("capitalize returned error: %v", result.Error)
+	}
+	got := result.Val.(types.StrValue).Value()
+	// strings.Title has a known bug with Unicode apostrophes ("it's" → "It'S").
+	// Demonstrate the apostrophe bug:
+	result2 := builtinCapitalize(ctx, []types.Value{types.NewStr("it's a test")})
+	if !result2.IsNormal() {
+		t.Fatalf("capitalize returned error: %v", result2.Error)
+	}
+	got2 := result2.Val.(types.StrValue).Value()
+	// strings.Title produces "It'S A Test" (capitalizes after apostrophe) which is wrong.
+	// Correct result would be "It's A Test".
+	if got2 == "It'S A Test" {
+		t.Errorf("capitalize(\"it's a test\") = %q (strings.Title apostrophe bug: 'S capitalized)", got2)
+	}
+	_ = got // suppress unused-var
+}
+
+// MEDIUM: mapvalues comment says "INT < FLOAT < OBJ < ERR < STR" but
+// CompareMapKeys actually implements "INT < OBJ < FLOAT < ERR < STR".
+// Validate the ACTUAL ordering (not the comment) to catch future regressions.
+func TestReview_Data_MapkeysActualOrder(t *testing.T) {
+	ctx := reviewDataCtx()
+	// Build map with int, obj, float, err, str keys.
+	m := types.NewMap([][2]types.Value{
+		{types.NewStr("z"), types.NewInt(1)},
+		{types.NewFloat(2.0), types.NewInt(2)},
+		{types.NewInt(10), types.NewInt(3)},
+		{types.NewObj(5), types.NewInt(4)},
+		{types.NewErr(types.E_PERM), types.NewInt(5)},
+	})
+	result := builtinMapkeys(ctx, []types.Value{m})
+	if !result.IsNormal() {
+		t.Fatalf("mapkeys returned error: %v", result.Error)
+	}
+	keys := result.Val.(types.ListValue)
+	if keys.Len() != 5 {
+		t.Fatalf("mapkeys returned %d keys, want 5", keys.Len())
+	}
+	// Actual code order: INT(0) < OBJ(1) < FLOAT(2) < ERR(3) < STR(4)
+	// Comment claims: INT < FLOAT < OBJ < ERR < STR — if comment is right, test fails
+	_, isInt := keys.Get(1).(types.IntValue)
+	_, isObj := keys.Get(2).(types.ObjValue)
+	_, isFloat := keys.Get(3).(types.FloatValue)
+	_, isErr := keys.Get(4).(types.ErrValue)
+	_, isStr := keys.Get(5).(types.StrValue)
+	if !(isInt && isObj && isFloat && isErr && isStr) {
+		// Document the discrepancy: the mapkeys comment says INT<FLOAT<OBJ<ERR<STR
+		// but the code (CompareMapKeys) does INT<OBJ<FLOAT<ERR<STR.
+		// This test verifies what the CODE actually does; if Toast says otherwise,
+		// the implementation order is the bug.
+		t.Logf("mapkeys order: [1]=%T [2]=%T [3]=%T [4]=%T [5]=%T",
+			keys.Get(1), keys.Get(2), keys.Get(3), keys.Get(4), keys.Get(5))
+		t.Errorf("mapkeys ordering does not match INT<OBJ<FLOAT<ERR<STR (as implemented in CompareMapKeys)")
+	}
+}
