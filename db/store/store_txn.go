@@ -36,11 +36,11 @@ type StoreTxn struct {
 	released atomic.Bool
 }
 
-// lazySet inserts into a possibly-nil map, allocating it on first insert. The
-// write-staging maps on StoreTxn are left nil by BeginReadOnly and stay nil for
-// read-only tasks; only an actual stage allocates. A nil map is indistinguishable
-// from an empty one for read/range/delete/len/validate/commit, so only inserts
-// need this guard.
+// lazySet inserts into a possibly-nil map, allocating it on first insert. Every
+// read-tracking and write-staging map on StoreTxn is left nil by BeginReadOnly and
+// allocated only when something is actually recorded; a tiny task touches only a
+// couple of them. A nil map is indistinguishable from an empty one for
+// read/range/delete/len/validate/commit, so only inserts need this guard.
 func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 	if *m == nil {
 		*m = make(map[K]V)
@@ -118,18 +118,15 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	// dropped-without-Release txn cannot leak its registration forever.
 	s.registerReadTS(readTS)
 	tx := &StoreTxn{
-		readTS:            readTS,
-		store:             s,
-		objects:           make(map[types.ObjID]*Object),
-		scalarReads:       make(map[types.ObjID]uint64),
-		relationshipReads: make(map[types.ObjID]uint64),
-		propertyReads:     make(map[propertyReadKey]uint64),
-		propertyScans:     make(map[types.ObjID]uint64),
-		verbReads:         make(map[verbReadKey]uint64),
-		verbScans:         make(map[types.ObjID]uint64),
-		// scalarWrites, relationshipWrites, propertyDefines,
-		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
-		// are left nil and lazily allocated on first stage (see lazySet).
+		readTS: readTS,
+		store:  s,
+		// All read-tracking maps (objects, scalarReads, relationshipReads,
+		// propertyReads, propertyScans, verbReads, verbScans) and all write-staging
+		// maps (scalarWrites, relationshipWrites, propertyDefines,
+		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, verbWrites) are
+		// left nil and lazily allocated on first insert (see lazySet). A tiny task
+		// touches only one or two of them, so eagerly allocating all fourteen wastes
+		// allocations and GC work on every transaction.
 		maxObjID:    s.maxObjID,
 		highWaterID: s.highWaterID,
 	}
@@ -149,7 +146,7 @@ func (tx *StoreTxn) object(objID types.ObjID) *Object {
 		return obj
 	}
 	if tx.store == nil {
-		tx.objects[objID] = nil
+		lazySet(&tx.objects, objID, nil)
 		return nil
 	}
 
@@ -157,7 +154,7 @@ func (tx *StoreTxn) object(objID types.ObjID) *Object {
 	defer tx.store.mu.RUnlock()
 
 	obj := tx.objectLocked(objID)
-	tx.objects[objID] = obj
+	lazySet(&tx.objects, objID, obj)
 	return obj
 }
 
@@ -189,7 +186,7 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 		return types.E_NONE
 	}
 	if tx.store == nil {
-		tx.objects[objID] = nil
+		lazySet(&tx.objects, objID, nil)
 		return types.E_INVIND
 	}
 	tx.store.mu.RLock()
@@ -197,10 +194,10 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 
 	live := tx.store.load(objID)
 	if !validLiveObject(live) {
-		tx.objects[objID] = nil
+		lazySet(&tx.objects, objID, nil)
 		return types.E_INVIND
 	}
-	tx.objects[objID] = cloneObjectForReadTxn(live)
+	lazySet(&tx.objects, objID, cloneObjectForReadTxn(live))
 	if objID > tx.maxObjID {
 		tx.maxObjID = objID
 	}
@@ -227,7 +224,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 
 	live := tx.store.load(objID)
 	if !validLiveObject(live) {
-		tx.objects[objID] = nil
+		lazySet(&tx.objects, objID, nil)
 		return types.E_INVIND
 	}
 
@@ -258,7 +255,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		verb.hasProgram = true
 	}
 	obj.verbVersion = live.verbVersion
-	tx.verbScans[objID] = live.verbVersion
+	lazySet(&tx.verbScans, objID, live.verbVersion)
 	for key := range tx.verbReads {
 		if key.objID != objID {
 			continue
@@ -289,13 +286,13 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		}
 		live := tx.store.load(objID)
 		if !validLiveObject(live) {
-			tx.objects[objID] = nil
+			lazySet(&tx.objects, objID, nil)
 			return types.E_INVIND
 		}
 		obj := tx.objects[objID]
 		if obj == nil {
 			obj = cloneObjectForReadTxn(live)
-			tx.objects[objID] = obj
+			lazySet(&tx.objects, objID, obj)
 		}
 		obj.location = live.location
 		obj.parents = append([]types.ObjID(nil), live.parents...)
@@ -307,7 +304,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 			obj.chparentChildren[id] = tracked
 		}
 		obj.relationshipVersion = live.relationshipVersion
-		tx.relationshipReads[objID] = live.relationshipVersion
+		lazySet(&tx.relationshipReads, objID, live.relationshipVersion)
 	}
 	return types.E_NONE
 }
@@ -319,7 +316,7 @@ func (tx *StoreTxn) markObjectScalarRead(objID types.ObjID, obj *Object) {
 	if _, exists := tx.scalarReads[objID]; exists {
 		return
 	}
-	tx.scalarReads[objID] = obj.scalarVersion
+	lazySet(&tx.scalarReads, objID, obj.scalarVersion)
 }
 
 func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
@@ -329,7 +326,7 @@ func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
 	if _, exists := tx.relationshipReads[objID]; exists {
 		return
 	}
-	tx.relationshipReads[objID] = obj.relationshipVersion
+	lazySet(&tx.relationshipReads, objID, obj.relationshipVersion)
 }
 
 func (tx *StoreTxn) markPropertyRead(objID types.ObjID, prop *Property) {
@@ -343,14 +340,14 @@ func (tx *StoreTxn) markPropertyRead(objID types.ObjID, prop *Property) {
 	if _, staged := tx.propertyWrites[key]; staged {
 		return
 	}
-	tx.propertyReads[propertyReadKey{objID: objID, name: propertyNameKey(prop.name)}] = prop.version
+	lazySet(&tx.propertyReads, propertyReadKey{objID: objID, name: propertyNameKey(prop.name)}, prop.version)
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 	if tx == nil || obj == nil {
 		return
 	}
-	tx.propertyScans[objID] = obj.propertyVersion
+	lazySet(&tx.propertyScans, objID, obj.propertyVersion)
 }
 
 func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value types.Value) {
@@ -375,14 +372,14 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 	if _, staged := tx.verbWrites[verbWriteKey{objID: objID, name: verb.name}]; staged {
 		return
 	}
-	tx.verbReads[verbReadKey{objID: objID, name: verb.name}] = verb.version
+	lazySet(&tx.verbReads, verbReadKey{objID: objID, name: verb.name}, verb.version)
 }
 
 func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 	if tx == nil || obj == nil {
 		return
 	}
-	tx.verbScans[objID] = obj.verbVersion
+	lazySet(&tx.verbScans, objID, obj.verbVersion)
 }
 
 func (tx *StoreTxn) HasWrites() bool {
@@ -393,7 +390,7 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	if tx == nil {
 		return
 	}
-	tx.objects[objID] = nil
+	lazySet(&tx.objects, objID, nil)
 	delete(tx.scalarReads, objID)
 	delete(tx.scalarWrites, objID)
 	delete(tx.relationshipReads, objID)
@@ -1055,7 +1052,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 	liveVersion := live.propertyVersion
 	tx.store.mu.RUnlock()
 
-	tx.propertyScans[objID] = liveVersion
+	lazySet(&tx.propertyScans, objID, liveVersion)
 	for key := range tx.propertyReads {
 		if key.objID == objID {
 			delete(tx.propertyReads, key)
