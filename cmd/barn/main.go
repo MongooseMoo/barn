@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -245,6 +246,10 @@ func main() {
 	close(signalDone)
 	signal.Stop(sigChan)
 	if err != nil {
+		if errors.Is(err, server.ErrPanicShutdown) {
+			log.Printf("Server panic shutdown: %v", err)
+			os.Exit(1)
+		}
 		log.Fatalf("Server error: %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -33,11 +34,14 @@ type Server struct {
 	running            bool
 	mu                 sync.Mutex
 	shutdownMessage    string
+	terminalErr        error
 	backgroundWG       sync.WaitGroup
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
 }
+
+var ErrPanicShutdown = errors.New("panic shutdown")
 
 // NewServer creates a new MOO server with default runtime options.
 func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
@@ -211,6 +215,12 @@ func (s *Server) mainLoop() error {
 	for {
 		select {
 		case <-s.ctx.Done():
+			s.mu.Lock()
+			terminalErr := s.terminalErr
+			s.mu.Unlock()
+			if terminalErr != nil {
+				return terminalErr
+			}
 			return s.shutdown()
 		case <-s.checkpointChan:
 			if err := s.checkpoint(); err != nil {
@@ -370,7 +380,7 @@ func (s *Server) shutdown() error {
 }
 
 // Panic performs emergency shutdown
-func (s *Server) Panic(message string) {
+func (s *Server) Panic(message string) error {
 	log.Printf("PANIC: %s", message)
 
 	// Attempt emergency database dump
@@ -379,7 +389,12 @@ func (s *Server) Panic(message string) {
 		log.Printf("Emergency dump failed: %v", err)
 	}
 
-	os.Exit(1)
+	err := fmt.Errorf("%w: %s", ErrPanicShutdown, message)
+	s.mu.Lock()
+	s.terminalErr = err
+	s.mu.Unlock()
+	s.cancel()
+	return err
 }
 
 // callServerStarted calls #0:server_started()

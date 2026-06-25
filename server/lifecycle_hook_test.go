@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"testing"
@@ -336,6 +337,69 @@ func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	}
 	if val, ok := finished.(types.IntValue); !ok || val.Val != 1 {
 		t.Fatalf("checkpoint_finished = %v, want 1", finished)
+	}
+}
+
+func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define checkpoint_started property: %v", errCode)
+	}
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_finished", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define checkpoint_finished property: %v", errCode)
+	}
+	if errCode := store.DefineProperty(system, dbstore.NewProperty("shutdown_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define shutdown_started property: %v", errCode)
+	}
+	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
+	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = args[1];")
+	addTestVerb(store, system, "shutdown_started", "#0.shutdown_started = 1;")
+
+	scheduler := runtime.NewScheduler(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		store:          store,
+		scheduler:      scheduler,
+		input:          NewInputProcessor(store, scheduler),
+		connManager:    NewConnectionManager(7777),
+		dbPath:         filepath.Join(t.TempDir(), "panic.db"),
+		checkpointChan: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	if err := s.Panic("boom"); !errors.Is(err, ErrPanicShutdown) {
+		t.Fatalf("Panic error = %v, want ErrPanicShutdown", err)
+	}
+	if err := s.mainLoop(); !errors.Is(err, ErrPanicShutdown) {
+		t.Fatalf("mainLoop error = %v, want ErrPanicShutdown", err)
+	}
+
+	started, errCode := store.PropertyValue(system, "checkpoint_started")
+	if errCode != types.E_NONE {
+		t.Fatalf("read checkpoint_started: %v", errCode)
+	}
+	if val, ok := started.(types.IntValue); !ok || val.Val != 1 {
+		t.Fatalf("checkpoint_started = %v, want 1", started)
+	}
+
+	finished, errCode := store.PropertyValue(system, "checkpoint_finished")
+	if errCode != types.E_NONE {
+		t.Fatalf("read checkpoint_finished: %v", errCode)
+	}
+	if val, ok := finished.(types.IntValue); !ok || val.Val != 1 {
+		t.Fatalf("checkpoint_finished = %v, want 1", finished)
+	}
+
+	shutdownStarted, errCode := store.PropertyValue(system, "shutdown_started")
+	if errCode != types.E_NONE {
+		t.Fatalf("read shutdown_started: %v", errCode)
+	}
+	if val, ok := shutdownStarted.(types.IntValue); !ok || val.Val != 0 {
+		t.Fatalf("shutdown_started = %v, want 0", shutdownStarted)
 	}
 }
 
