@@ -109,16 +109,20 @@ func (s *Server) LoadDatabase() error {
 		}
 	})
 
+	// Wire the host capabilities the server provides onto the scheduler's
+	// builtin registry (the registry owns them; there is no global state).
+	reg := s.scheduler.Registry()
+
 	// Wire notify() builtin to connection manager
-	builtins.SetConnectionManager(s.connManager)
+	reg.SetConnectionManager(s.connManager)
 
 	// Wire force_input() builtin to scheduler
-	builtins.SetInputForcer(s.input)
-	builtins.SetTaskYielder(s.scheduler)
+	reg.SetInputForcer(s.input)
+	reg.SetTaskYielder(s.scheduler)
 
 	// Wire dump_database() builtin to request a server-loop checkpoint.
-	builtins.SetDumpFunc(func() error { return s.requestCheckpoint() })
-	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+	reg.SetDumpFunc(func() error { return s.requestCheckpoint() })
+	reg.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
 				s.store.AppendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))

@@ -7,6 +7,16 @@ import (
 	"barn/types"
 )
 
+// ctxWithConnManager returns a task context whose registry has the given
+// connection manager wired, mirroring how the server wires its registry.
+func ctxWithConnManager(cm ConnectionManager) *kernel.TaskContext {
+	r := NewRegistry()
+	r.SetConnectionManager(cm)
+	ctx := kernel.NewTaskContext()
+	ctx.Registry = r
+	return ctx
+}
+
 type stubConn struct {
 	remote       string
 	listenerPort int64
@@ -74,13 +84,9 @@ func (m *stubConnManager) ConnectionNameLookup(player types.ObjID, rewrite bool)
 }
 
 func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
 	manager := &stubConnManager{}
-	globalConnManager = manager
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
 
 	res := builtinSwitchPlayer(ctx, []types.Value{
@@ -103,15 +109,10 @@ func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
 }
 
 func TestConnectionNameFormats(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
-	globalConnManager = &stubConnManager{
+	ctx := ctxWithConnManager(&stubConnManager{
 		conn:   &stubConn{remote: "[::1]:4567", listenerPort: 7777},
 		listen: 7777,
-	}
-
-	ctx := kernel.NewTaskContext()
+	})
 	ctx.Player = 7
 
 	cases := []struct {
@@ -154,13 +155,9 @@ func TestConnectionNameFormats(t *testing.T) {
 }
 
 func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
 	manager := &stubConnManager{}
-	globalConnManager = manager
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
 
 	res := builtinListen(ctx, []types.Value{
@@ -189,13 +186,9 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 }
 
 func TestListenBuildsTLSListenerSpec(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
 	manager := &stubConnManager{}
-	globalConnManager = manager
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
 
 	res := builtinListen(ctx, []types.Value{
@@ -227,13 +220,9 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 }
 
 func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
 	manager := &stubConnManager{}
-	globalConnManager = manager
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
 
 	res := builtinListen(ctx, []types.Value{
@@ -265,13 +254,9 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 }
 
 func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
 	manager := &stubConnManager{}
-	globalConnManager = manager
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	ctx.IsWizard = true
 
 	res := builtinUnlisten(ctx, []types.Value{
@@ -291,10 +276,7 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 }
 
 func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
-	globalConnManager = &stubConnManager{
+	manager := &stubConnManager{
 		infos: []ListenerInfo{
 			{
 				Object:        5,
@@ -311,7 +293,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 		},
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	res := builtinListeners(ctx, []types.Value{
 		types.NewMap([][2]types.Value{
 			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},

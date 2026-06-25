@@ -8,13 +8,6 @@ import (
 	"barn/types"
 )
 
-var globalRunGCFunc func(ctx *kernel.TaskContext) error
-
-// SetRunGCFunc sets the callback for MOO-level anonymous-object collection.
-func SetRunGCFunc(f func(ctx *kernel.TaskContext) error) {
-	globalRunGCFunc = f
-}
-
 // ============================================================================
 // GARBAGE COLLECTION BUILTINS
 // ============================================================================
@@ -38,8 +31,8 @@ func builtinRunGC(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// a way to force collection
 	runtime.GC()
 
-	if globalRunGCFunc != nil {
-		if err := globalRunGCFunc(ctx); err != nil {
+	if runGC := runGCOf(ctx); runGC != nil {
+		if err := runGC(ctx); err != nil {
 			return types.Err(types.E_INVARG)
 		}
 	}

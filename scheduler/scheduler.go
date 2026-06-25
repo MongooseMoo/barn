@@ -65,13 +65,17 @@ func NewSchedulerWithOptions(store *dbstore.Store, options config.Options) *Sche
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
-	builtins.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
+	s.registry.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
 		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
 		return nil
 	})
 
 	return s
 }
+
+// Registry returns the scheduler's builtin registry so the owning server can
+// wire host capabilities (connection manager, lifecycle hooks) onto it.
+func (s *Scheduler) Registry() *builtins.Registry { return s.registry }
 
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	if ctx == nil {

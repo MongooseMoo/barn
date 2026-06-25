@@ -13,12 +13,6 @@ type TaskYielder interface {
 	YieldReadyTasks() int
 }
 
-var globalTaskYielder TaskYielder
-
-func SetTaskYielder(yielder TaskYielder) {
-	globalTaskYielder = yielder
-}
-
 // Task management builtins - full implementation
 
 // builtinQueuedTasks: queued_tasks() → LIST
@@ -519,10 +513,10 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if len(args) >= 2 && globalTaskYielder != nil {
+	if yielder := taskYielderOf(ctx); len(args) >= 2 && yielder != nil {
 		tickThreshold := args[1].(types.IntValue).Val
 		if ctx.TicksRemaining <= tickThreshold {
-			globalTaskYielder.YieldReadyTasks()
+			yielder.YieldReadyTasks()
 		}
 	}
 

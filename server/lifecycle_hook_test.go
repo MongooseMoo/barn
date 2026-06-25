@@ -61,13 +61,11 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	}
 	defer cm.CloseListeners()
 
-	builtins.SetConnectionManager(cm)
-	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
-
 	s := &Server{
 		store:     store,
 		scheduler: runtime.NewScheduler(store),
 	}
+	s.scheduler.Registry().SetConnectionManager(cm)
 
 	if err := s.callServerStarted(); err != nil {
 		t.Fatalf("call server_started: %v", err)
@@ -157,10 +155,8 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	}
 	defer cm.CloseListeners()
 
-	builtins.SetConnectionManager(cm)
-	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
-
 	scheduler := runtime.NewScheduler(store)
+	scheduler.Registry().SetConnectionManager(cm)
 	s := &Server{
 		store:           store,
 		scheduler:       scheduler,

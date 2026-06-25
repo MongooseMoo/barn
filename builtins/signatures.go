@@ -194,8 +194,8 @@ func builtinQueueInfo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			seen[ctx.Player] = struct{}{}
 			players = append(players, ctx.Player)
 		}
-		if globalConnManager != nil {
-			for _, p := range globalConnManager.ConnectedPlayers(false) {
+		if cm := connManagerOf(ctx); cm != nil {
+			for _, p := range cm.ConnectedPlayers(false) {
 				if _, ok := seen[p]; ok {
 					continue
 				}
@@ -391,20 +391,6 @@ func builtinDbDiskSize(ctx *kernel.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewInt(0))
 }
 
-// globalDumpFunc is set by the server to request a database checkpoint.
-var globalDumpFunc func() error
-var globalShutdownFunc func(ctx *kernel.TaskContext, message string, unclean bool) error
-
-// SetDumpFunc sets the function called by dump_database() to request a checkpoint.
-func SetDumpFunc(f func() error) {
-	globalDumpFunc = f
-}
-
-// SetShutdownFunc sets the function called by shutdown() to stop the server.
-func SetShutdownFunc(f func(ctx *kernel.TaskContext, message string, unclean bool) error) {
-	globalShutdownFunc = f
-}
-
 func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
@@ -413,8 +399,8 @@ func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_PERM)
 	}
 	log.Printf("CHECKPOINTING: dump_database() requested by #%d", ctx.Programmer)
-	if globalDumpFunc != nil {
-		if err := globalDumpFunc(); err != nil {
+	if dump := dumpFuncOf(ctx); dump != nil {
+		if err := dump(); err != nil {
 			log.Printf("dump_database() error: %v", err)
 			// MOO spec: dump_database() returns 0 on success
 			// On error, still return 0 (Toast behavior)
@@ -465,7 +451,7 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Check player is connected
-	if globalConnManager == nil || globalConnManager.GetConnection(player) == nil {
+	if cm := connManagerOf(ctx); cm == nil || cm.GetConnection(player) == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
@@ -526,8 +512,8 @@ func builtinForceInput(ctx *kernel.TaskContext, args []types.Value) types.Result
 		atFront = args[2].Truthy()
 	}
 
-	if globalInputForcer != nil {
-		globalInputForcer.ForceInput(target.ID(), line.Value(), atFront)
+	if forcer := inputForcerOf(ctx); forcer != nil {
+		forcer.ForceInput(target.ID(), line.Value(), atFront)
 	}
 	return types.Ok(types.NewInt(0))
 }
@@ -641,7 +627,8 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if globalConnManager == nil {
+	cm := connManagerOf(ctx)
+	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if len(args) < 2 || len(args) > 3 {
@@ -714,7 +701,7 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	desc, err := globalConnManager.AddListener(spec)
+	desc, err := cm.AddListener(spec)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -725,7 +712,8 @@ func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if globalConnManager == nil {
+	cm := connManagerOf(ctx)
+	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if len(args) != 1 {
@@ -735,7 +723,7 @@ func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	if err := globalConnManager.RemoveListener(desc); err != nil {
+	if err := cm.RemoveListener(desc); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
@@ -762,10 +750,11 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 	if !ctx.RuntimeOptions.OutboundNetwork {
 		return types.Err(types.E_PERM)
 	}
-	if globalConnManager == nil {
+	cm := connManagerOf(ctx)
+	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	conn, err := globalConnManager.OpenNetworkConnection(host.Value(), port.Val)
+	conn, err := cm.OpenNetworkConnection(host.Value(), port.Val)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -793,8 +782,8 @@ func builtinShutdown(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if globalShutdownFunc != nil {
-		if err := globalShutdownFunc(ctx, message, unclean); err != nil {
+	if shutdown := shutdownFuncOf(ctx); shutdown != nil {
+		if err := shutdown(ctx, message, unclean); err != nil {
 			return types.Err(types.E_INVARG)
 		}
 	}

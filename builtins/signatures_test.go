@@ -9,18 +9,17 @@ import (
 )
 
 func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
-	previous := globalShutdownFunc
-	t.Cleanup(func() { globalShutdownFunc = previous })
-
+	r := NewRegistry()
 	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 	ctx.Programmer = 7
+	ctx.Registry = r
 
 	called := false
 	var gotCtx *kernel.TaskContext
 	var gotMessage string
 	var gotUnclean bool
-	SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+	r.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		called = true
 		gotCtx = ctx
 		gotMessage = message
@@ -47,14 +46,14 @@ func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
 }
 
 func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
-	previous := globalShutdownFunc
-	t.Cleanup(func() { globalShutdownFunc = previous })
-	SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+	r := NewRegistry()
+	r.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		t.Fatalf("shutdown callback should not run")
 		return nil
 	})
 
 	ctx := kernel.NewTaskContext()
+	ctx.Registry = r
 	result := builtinShutdown(ctx, []types.Value{types.NewInt(1)})
 	if !result.IsError() || result.Error != types.E_TYPE {
 		t.Fatalf("shutdown result = %+v, want E_TYPE", result)
@@ -62,15 +61,14 @@ func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
 }
 
 func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
-	previous := globalDumpFunc
-	t.Cleanup(func() { globalDumpFunc = previous })
-
+	r := NewRegistry()
 	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 	ctx.Programmer = 7
+	ctx.Registry = r
 
 	called := false
-	SetDumpFunc(func() error {
+	r.SetDumpFunc(func() error {
 		called = true
 		return errors.New("request failed")
 	})
