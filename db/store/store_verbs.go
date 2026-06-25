@@ -350,7 +350,13 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 		return types.E_INVIND
 	}
 
-	verb, _, err := s.findVerbLocked(objID, name)
+	// Toast resolves delete_verb against verbs DEFINED ON THIS OBJECT only
+	// (bf_delete_verb -> find_described_verb -> db_find_defined_verb /
+	// db_find_indexed_verb, which iterate o->verbdefs with no ancestry walk).
+	// A verb that exists only on an ancestor yields a null handle -> E_VERBNF,
+	// and the ancestor's verb is never touched. See src/verbs.cc:240 and
+	// src/db_verbs.cc:670/701.
+	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil || verb == nil {
 		return types.E_VERBNF
 	}
@@ -390,7 +396,11 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	verb, _, err := s.findVerbLocked(objID, name)
+	// set_verb_info operates only on a verb DEFINED ON THIS OBJECT, never on an
+	// inherited one (Toast bf_set_verb_info -> find_described_verb ->
+	// db_find_defined_verb; src/verbs.cc:346, src/db_verbs.cc:670). An inherited
+	// verb -> E_VERBNF, leaving the ancestor's verb unchanged.
+	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
@@ -419,7 +429,10 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	if !validLiveObject(s.objects[objID]) {
 		return types.E_INVIND
 	}
-	verb, _, err := s.findVerbLocked(objID, name)
+	// set_verb_args operates only on a verb DEFINED ON THIS OBJECT (Toast
+	// bf_set_verb_args -> find_described_verb -> db_find_defined_verb;
+	// src/verbs.cc:444). Inherited verb -> E_VERBNF, ancestor untouched.
+	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
@@ -438,7 +451,10 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 	if !validLiveObject(s.objects[objID]) {
 		return types.E_INVIND
 	}
-	verb, _, err := s.findVerbLocked(objID, name)
+	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
+	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
+	// src/verbs.cc:528). Inherited verb -> E_VERBNF, ancestor untouched.
+	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
 	}
