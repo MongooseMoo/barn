@@ -167,7 +167,22 @@ type Task struct {
 	// For compatibility with old server.Task
 	Programmer types.ObjID // Permission context (usually same as Owner)
 
+	doneClosed bool // guards Done against double-close
+
 	mu sync.RWMutex
+}
+
+// CloseDone closes the task's Done channel exactly once. It is a no-op when
+// Done is nil or has already been closed, so callers may invoke it on every
+// terminal-state transition without risking a close-of-closed-channel panic.
+func (t *Task) CloseDone() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.Done == nil || t.doneClosed {
+		return
+	}
+	t.doneClosed = true
+	close(t.Done)
 }
 
 // NewTask creates a new task

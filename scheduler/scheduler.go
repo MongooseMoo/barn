@@ -162,8 +162,12 @@ func (s *Scheduler) ProcessReadyTasks() int {
 			s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 		}
 
-		if t.Done != nil {
-			close(t.Done)
+		// runTask returns nil for both suspend/yield and terminal completion.
+		// Only signal Done when the task has actually terminated (Completed or
+		// Killed); a merely suspended task is still alive and will be closed
+		// later when it truly finishes. CloseDone guards against double-close.
+		if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+			t.CloseDone()
 		}
 	}
 	return len(readyTasks)
