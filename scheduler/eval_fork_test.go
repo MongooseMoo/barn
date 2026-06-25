@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"barn/builtins"
-	"barn/bytecode"
 	"barn/command"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
@@ -164,12 +163,6 @@ func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	if match == nil {
 		t.Fatalf("FindVerb eval returned nil")
 	}
-	program, errors := bytecode.CompileVerb(match.Verb.Code)
-	if len(errors) > 0 {
-		t.Fatalf("CompileVerb eval failed: %v", errors)
-	}
-	match.Statements = program.Statements
-
 	s := NewScheduler(store)
 	defer s.Stop()
 	s.ExecuteVerbTaskSync(player, match, cmd, "")
@@ -272,13 +265,6 @@ return {pi[1] == b && pi[2] == "", c.foo == "foo"};
 	match := command.FindVerb(store, player, 2, cmd)
 	if match == nil {
 		t.Fatalf("FindVerb eval returned nil")
-	}
-	if match.Statements == nil && len(match.Verb.Code) > 0 {
-		program, errors := bytecode.CompileVerb(match.Verb.Code)
-		if len(errors) > 0 {
-			t.Fatalf("CompileVerb eval failed: %v", errors)
-		}
-		match.Statements = program.Statements
 	}
 	s.ExecuteVerbTaskSync(player, match, cmd, "")
 
