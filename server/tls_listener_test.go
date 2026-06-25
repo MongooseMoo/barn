@@ -27,7 +27,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	cm := NewConnectionManager(0)
 
 	desc, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:           "tls",
+		Protocol:           builtins.ListenerProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,
@@ -38,7 +38,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	defer func() { _ = cm.RemoveListener(desc) }()
 
-	if desc.Protocol != "tls" || desc.Port <= 0 {
+	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port <= 0 {
 		t.Fatalf("unexpected descriptor: %+v", desc)
 	}
 
@@ -47,7 +47,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 		t.Fatalf("got %d listener infos, want 1", len(infos))
 	}
 	info := infos[0]
-	if info.Protocol != "tls" ||
+	if info.Protocol != builtins.ListenerProtocolTLS ||
 		info.Port != desc.Port ||
 		!info.TLS ||
 		info.Interface != "127.0.0.1" {
@@ -58,7 +58,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 func TestAddTLSListenerRequiresCertificateAndKey(t *testing.T) {
 	cm := NewConnectionManager(0)
 	_, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:  "tls",
+		Protocol:  builtins.ListenerProtocolTLS,
 		Port:      0,
 		Interface: "127.0.0.1",
 	})
@@ -131,7 +131,7 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 	defer scheduler.Stop()
 
 	err := cm.BindListeners([]builtins.ListenerSpec{{
-		Protocol:           "tls",
+		Protocol:           builtins.ListenerProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,

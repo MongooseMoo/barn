@@ -15,7 +15,12 @@ import (
 	"barn/types"
 )
 
-const ListenerProtocolTCP = "tcp"
+const (
+	ListenerProtocolTCP             = "tcp"
+	ListenerProtocolTLS             = "tls"
+	ListenerProtocolWebSocket       = "ws"
+	ListenerProtocolSecureWebSocket = "wss"
+)
 
 type ListenerSpec struct {
 	Protocol           string
@@ -744,7 +749,7 @@ func normalizeListenerProtocol(protocol string) string {
 
 func listenerProtocolSupported(protocol string) bool {
 	switch normalizeListenerProtocol(protocol) {
-	case ListenerProtocolTCP, "tls", "ws", "wss":
+	case ListenerProtocolTCP, ListenerProtocolTLS, ListenerProtocolWebSocket, ListenerProtocolSecureWebSocket:
 		return true
 	default:
 		return false

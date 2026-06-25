@@ -2,8 +2,11 @@ package server
 
 import (
 	"barn/builtins"
+	"bufio"
 	"crypto/tls"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -194,6 +197,42 @@ func (c *setupBlockingConn) isClosed() bool {
 	return c.closed
 }
 
+type blockingHijackResponseWriter struct {
+	header      http.Header
+	hijackOnce  sync.Once
+	entered     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func newBlockingHijackResponseWriter() *blockingHijackResponseWriter {
+	return &blockingHijackResponseWriter{
+		header:  make(http.Header),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (w *blockingHijackResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *blockingHijackResponseWriter) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
+func (w *blockingHijackResponseWriter) WriteHeader(int) {}
+
+func (w *blockingHijackResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.hijackOnce.Do(func() { close(w.entered) })
+	<-w.release
+	return nil, nil, net.ErrClosed
+}
+
+func (w *blockingHijackResponseWriter) releaseHijack() {
+	w.releaseOnce.Do(func() { close(w.release) })
+}
+
 type recordingTransport struct {
 	mu       sync.Mutex
 	lines    []string
@@ -263,7 +302,7 @@ func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
 	}
 
 	err = cm.RemoveListener(builtins.ListenerDescriptor{
-		Protocol: "ws",
+		Protocol: builtins.ListenerProtocolWebSocket,
 		Port:     8888,
 		Path:     "/",
 	})
@@ -475,7 +514,7 @@ func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
 	cm.connectTimeout = time.Hour
 
 	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
-		Protocol: "tls",
+		Protocol: builtins.ListenerProtocolTLS,
 		Object:   5,
 	}, true, &tls.Config{Certificates: []tls.Certificate{cert.Certificate}}); err != nil {
 		t.Fatalf("register listener: %v", err)
@@ -508,5 +547,56 @@ func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatalf("CloseConnections did not return after setup goroutine exited")
+	}
+}
+
+func TestCloseConnectionsWaitsForWebSocketSetup(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	record := &listenerRecord{
+		protocol: builtins.ListenerProtocolWebSocket,
+		path:     "/",
+	}
+	response := newBlockingHijackResponseWriter()
+	defer response.releaseHijack()
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Sec-WebSocket-Version", "13")
+	request.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	handlerDone := make(chan struct{})
+	go func() {
+		cm.handleWebSocketRequest(record, response, request)
+		close(handlerDone)
+	}()
+
+	select {
+	case <-response.entered:
+	case <-time.After(time.Second):
+		t.Fatalf("WebSocket setup did not enter hijack")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		cm.CloseConnections("Maintenance")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatalf("CloseConnections returned before WebSocket setup exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	response.releaseHijack()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("CloseConnections did not return after WebSocket setup exited")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatalf("WebSocket handler did not return after hijack release")
 	}
 }

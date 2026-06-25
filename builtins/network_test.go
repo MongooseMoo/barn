@@ -202,7 +202,7 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 		types.NewObj(42),
 		types.NewInt(8889),
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr("tls")},
+			{types.NewStr("protocol"), types.NewStr(ListenerProtocolTLS)},
 			{types.NewStr("certificate"), types.NewStr("server.crt")},
 			{types.NewStr("key"), types.NewStr("server.key")},
 		}),
@@ -216,10 +216,10 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 	}
 	protocol, _ := desc.Get(types.NewStr("protocol"))
 	port, _ := desc.Get(types.NewStr("port"))
-	if protocol.(types.StrValue).Value() != "tls" || port.(types.IntValue).Val != 8889 {
+	if protocol.(types.StrValue).Value() != ListenerProtocolTLS || port.(types.IntValue).Val != 8889 {
 		t.Fatalf("unexpected descriptor: %s", desc.String())
 	}
-	if manager.added.Protocol != "tls" ||
+	if manager.added.Protocol != ListenerProtocolTLS ||
 		manager.added.TLSCertificatePath != "server.crt" ||
 		manager.added.TLSKeyPath != "server.key" {
 		t.Fatalf("unexpected spec: %+v", manager.added)
@@ -240,7 +240,7 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 		types.NewObj(42),
 		types.NewInt(8890),
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr("ws")},
+			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},
 			{types.NewStr("path"), types.NewStr("/moo")},
 		}),
 	})
@@ -254,12 +254,12 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 	protocol, _ := desc.Get(types.NewStr("protocol"))
 	port, _ := desc.Get(types.NewStr("port"))
 	path, _ := desc.Get(types.NewStr("path"))
-	if protocol.(types.StrValue).Value() != "ws" ||
+	if protocol.(types.StrValue).Value() != ListenerProtocolWebSocket ||
 		port.(types.IntValue).Val != 8890 ||
 		path.(types.StrValue).Value() != "/moo" {
 		t.Fatalf("unexpected descriptor: %s", desc.String())
 	}
-	if manager.added.Protocol != "ws" || manager.added.Path != "/moo" {
+	if manager.added.Protocol != ListenerProtocolWebSocket || manager.added.Path != "/moo" {
 		t.Fatalf("unexpected spec: %+v", manager.added)
 	}
 }
@@ -276,7 +276,7 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 
 	res := builtinUnlisten(ctx, []types.Value{
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr("ws")},
+			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},
 			{types.NewStr("port"), types.NewInt(8888)},
 			{types.NewStr("path"), types.NewStr("/moo")},
 		}),
@@ -284,7 +284,7 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	want := ListenerDescriptor{Protocol: "ws", Port: 8888, Path: "/moo"}
+	want := ListenerDescriptor{Protocol: ListenerProtocolWebSocket, Port: 8888, Path: "/moo"}
 	if !listenerDescriptorEqual(manager.removed, want) {
 		t.Fatalf("removed %+v, want %+v", manager.removed, want)
 	}
@@ -299,7 +299,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 			{
 				Object:        5,
 				Port:          8888,
-				Protocol:      "ws",
+				Protocol:      ListenerProtocolWebSocket,
 				Path:          "/moo",
 				PrintMessages: true,
 			},
@@ -314,7 +314,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	res := builtinListeners(ctx, []types.Value{
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr("ws")},
+			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},
 			{types.NewStr("port"), types.NewInt(8888)},
 			{types.NewStr("path"), types.NewStr("/moo")},
 		}),
@@ -336,7 +336,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	protocol, _ := entry.Get(types.NewStr("protocol"))
 	path, _ := entry.Get(types.NewStr("path"))
 	tlsValue, _ := entry.Get(types.NewStr("TLS"))
-	if protocol.(types.StrValue).Value() != "ws" ||
+	if protocol.(types.StrValue).Value() != ListenerProtocolWebSocket ||
 		path.(types.StrValue).Value() != "/moo" ||
 		tlsValue.(types.IntValue).Val != 0 {
 		t.Fatalf("unexpected listener entry: %s", entry.String())

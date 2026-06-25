@@ -238,12 +238,12 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		printMessages: spec.PrintMessages,
 		ipv6:          ipv6,
 		iface:         spec.Interface,
-		tls:           spec.Protocol == "tls" || spec.Protocol == "wss",
+		tls:           spec.Protocol == builtins.ListenerProtocolTLS || spec.Protocol == builtins.ListenerProtocolSecureWebSocket,
 		tlsConfig:     tlsConfig,
 		primary:       primary,
 		done:          make(chan struct{}),
 	}
-	if desc.Protocol == "ws" || desc.Protocol == "wss" {
+	if desc.Protocol == builtins.ListenerProtocolWebSocket || desc.Protocol == builtins.ListenerProtocolSecureWebSocket {
 		record.httpServer = &http.Server{
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				cm.handleWebSocketRequest(record, w, r)
@@ -344,6 +344,16 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 		http.Error(w, "WebSocket upgrade required", http.StatusUpgradeRequired)
 		return
 	}
+
+	cm.mu.Lock()
+	if cm.closing {
+		cm.mu.Unlock()
+		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
+		return
+	}
+	cm.connectionSetupWG.Add(1)
+	cm.mu.Unlock()
+	defer cm.connectionSetupWG.Done()
 
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
@@ -596,10 +606,10 @@ func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.L
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" && spec.Protocol != "ws" {
+	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != builtins.ListenerProtocolTLS && spec.Protocol != builtins.ListenerProtocolWebSocket {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
 	}
-	if spec.Protocol == "ws" {
+	if spec.Protocol == builtins.ListenerProtocolWebSocket {
 		if spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
 			return builtins.ListenerDescriptor{}, fmt.Errorf("ws listener does not accept TLS options")
 		}
@@ -614,7 +624,7 @@ func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary boo
 	if spec.Path != "" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("%s listener does not accept path", spec.Protocol)
 	}
-	if spec.Protocol == "tls" {
+	if spec.Protocol == builtins.ListenerProtocolTLS {
 		if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
 			return builtins.ListenerDescriptor{}, fmt.Errorf("tls listener requires certificate and key")
 		}
@@ -765,7 +775,7 @@ func normalizeListenerProtocol(protocol string) string {
 
 func canonicalListenerPath(protocol, path string) string {
 	switch protocol {
-	case "ws", "wss":
+	case builtins.ListenerProtocolWebSocket, builtins.ListenerProtocolSecureWebSocket:
 		if path == "" {
 			return "/"
 		}
