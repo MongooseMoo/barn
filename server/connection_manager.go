@@ -49,9 +49,12 @@ type ConnectionManager struct {
 	nextConnID        int64
 	mu                sync.Mutex
 	connectionWG      sync.WaitGroup
+	connectionSetupWG sync.WaitGroup
 	connectionHandler func(*Connection)
 	listeners         map[listenerKey]*listenerRecord
+	setupConns        map[net.Conn]struct{}
 	outboundClients   map[int64]net.Conn
+	closing           bool
 	listenPort        int
 	connectTimeout    time.Duration
 }
@@ -63,6 +66,7 @@ func NewConnectionManager(port int) *ConnectionManager {
 		playerConns:       make(map[types.ObjID]*Connection),
 		playerConnHistory: make(map[types.ObjID][]*Connection),
 		listeners:         make(map[listenerKey]*listenerRecord),
+		setupConns:        make(map[net.Conn]struct{}),
 		outboundClients:   make(map[int64]net.Conn),
 		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
 		listenPort:        port,
@@ -184,6 +188,19 @@ func (cm *ConnectionManager) CloseListeners() {
 // removing connections from the manager maps.
 func (cm *ConnectionManager) CloseConnections(message string) {
 	cm.mu.Lock()
+	cm.closing = true
+	setupConns := make([]net.Conn, 0, len(cm.setupConns))
+	for conn := range cm.setupConns {
+		setupConns = append(setupConns, conn)
+	}
+	cm.mu.Unlock()
+
+	for _, conn := range setupConns {
+		_ = conn.Close()
+	}
+	cm.connectionSetupWG.Wait()
+
+	cm.mu.Lock()
 	connections := make([]*Connection, 0, len(cm.connections))
 	for _, conn := range cm.connections {
 		connections = append(connections, conn)
@@ -264,7 +281,25 @@ func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
 			continue
 		}
 
-		go cm.handleNewConnection(record, socket)
+		cm.mu.Lock()
+		if cm.closing {
+			cm.mu.Unlock()
+			_ = socket.Close()
+			continue
+		}
+		cm.connectionSetupWG.Add(1)
+		cm.setupConns[socket] = struct{}{}
+		cm.mu.Unlock()
+
+		go func() {
+			defer cm.connectionSetupWG.Done()
+			defer func() {
+				cm.mu.Lock()
+				delete(cm.setupConns, socket)
+				cm.mu.Unlock()
+			}()
+			cm.handleNewConnection(record, socket)
+		}()
 	}
 }
 

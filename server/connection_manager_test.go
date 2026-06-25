@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	"crypto/tls"
 	"net"
 	"sync"
 	"testing"
@@ -91,6 +92,106 @@ func (l *blockingListener) isClosed() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.closed
+}
+
+type singleConnListener struct {
+	addr   net.Addr
+	conn   net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newSingleConnListener(conn net.Conn) *singleConnListener {
+	return &singleConnListener{
+		addr:   &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888},
+		conn:   conn,
+		closed: make(chan struct{}),
+	}
+}
+
+func (l *singleConnListener) Accept() (net.Conn, error) {
+	if l.conn != nil {
+		conn := l.conn
+		l.conn = nil
+		return conn, nil
+	}
+	<-l.closed
+	return nil, net.ErrClosed
+}
+
+func (l *singleConnListener) Close() error {
+	l.once.Do(func() { close(l.closed) })
+	return nil
+}
+
+func (l *singleConnListener) Addr() net.Addr {
+	return l.addr
+}
+
+type setupBlockingConn struct {
+	readStarted chan struct{}
+	releaseRead chan struct{}
+	releaseOnce sync.Once
+	closed      bool
+	mu          sync.Mutex
+}
+
+func newSetupBlockingConn() *setupBlockingConn {
+	return &setupBlockingConn{
+		readStarted: make(chan struct{}),
+		releaseRead: make(chan struct{}),
+	}
+}
+
+func (c *setupBlockingConn) Read([]byte) (int, error) {
+	select {
+	case <-c.readStarted:
+	default:
+		close(c.readStarted)
+	}
+	<-c.releaseRead
+	return 0, net.ErrClosed
+}
+
+func (c *setupBlockingConn) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
+func (c *setupBlockingConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *setupBlockingConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 7777}
+}
+
+func (c *setupBlockingConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8889}
+}
+
+func (c *setupBlockingConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *setupBlockingConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *setupBlockingConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+func (c *setupBlockingConn) release() {
+	c.releaseOnce.Do(func() { close(c.releaseRead) })
+}
+
+func (c *setupBlockingConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
 }
 
 type recordingTransport struct {
@@ -362,5 +463,50 @@ func TestCloseConnectionsSendsShutdownBannerAndClosesTransports(t *testing.T) {
 	}
 	if !secondTransport.isClosed() {
 		t.Fatalf("second transport was not closed")
+	}
+}
+
+func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
+	cert := selfSignedCertificate(t)
+	setupConn := newSetupBlockingConn()
+	defer setupConn.release()
+	listener := newSingleConnListener(setupConn)
+	cm := NewConnectionManager(7777)
+	cm.connectTimeout = time.Hour
+
+	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
+		Protocol: "tls",
+		Object:   5,
+	}, true, &tls.Config{Certificates: []tls.Certificate{cert.Certificate}}); err != nil {
+		t.Fatalf("register listener: %v", err)
+	}
+	cm.StartAccepting()
+	select {
+	case <-setupConn.readStarted:
+	case <-time.After(time.Second):
+		t.Fatalf("accepted connection did not enter TLS setup")
+	}
+
+	cm.CloseListeners()
+	done := make(chan struct{})
+	go func() {
+		cm.CloseConnections("Maintenance")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatalf("CloseConnections returned before setup goroutine exited")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if !setupConn.isClosed() {
+		t.Fatalf("setup connection was not closed")
+	}
+
+	setupConn.release()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("CloseConnections did not return after setup goroutine exited")
 	}
 }
