@@ -87,4 +87,4 @@ id from `s.anonObjects`. This is the same situation that already applied to load
 anon and is beyond F2 (data-loss-at-checkpoint) scope; no test covers it.
 
 ## Commit
-`COMMIT_HASH_PLACEHOLDER`
+`7318d24` on branch `review/branch-stocktake-2026-06-25`
