@@ -336,6 +336,28 @@ func (t *Task) SetTaskLocal(val types.Value) {
 	t.TaskLocal = val
 }
 
+// BytecodeVMValue returns the saved bytecode VM handle (thread-safe).
+//
+// BytecodeVM is read by the scheduler from goroutines other than the one
+// running the task (e.g. liveTaskVMs scanning sibling tasks for orphan-anonymous
+// GC, and ProcessReadyTasks' readiness check), so every access must hold t.mu.
+// This accessor is a leaf with respect to the scheduler's s.mu: it never
+// acquires any other lock, so the scheduler may safely hold s.mu while calling
+// it (lock order: s.mu -> task.mu, never the reverse).
+func (t *Task) BytecodeVMValue() interface{} {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.BytecodeVM
+}
+
+// SetBytecodeVM stores (or clears, with nil) the bytecode VM handle (thread-safe).
+// See BytecodeVMValue for the locking rationale and ordering.
+func (t *Task) SetBytecodeVM(machine interface{}) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.BytecodeVM = machine
+}
+
 // Suspend suspends the task for a duration
 func (t *Task) Suspend(duration time.Duration) {
 	t.mu.Lock()

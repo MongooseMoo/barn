@@ -83,7 +83,7 @@ func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	for name, value := range saved.Variables {
 		vm.SetLocalByName(frame, prog, name, value)
 	}
-	t.BytecodeVM = machine
+	t.SetBytecodeVM(machine)
 
 	t.PushFrame(task.ActivationFrame{
 		This:       saved.This,

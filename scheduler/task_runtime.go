@@ -52,7 +52,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// against the execution budget. Reset both the tick and second budgets (and
 	// the start time used for the deadline below) so ticks_left()/seconds_left()
 	// and the hard deadline reflect a fresh background slice.
-	if savedVM, ok := t.BytecodeVM.(*vm.VM); ok && savedVM.IsYielded() {
+	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); ok && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits()
 		t.TicksLimit = bgTicks
 		t.TicksUsed = 0
@@ -85,10 +85,10 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	var bcVM *vm.VM
 	anonGCFloor := s.store.NextID()
 
-	if t.BytecodeVM != nil {
+	if savedVM := t.BytecodeVMValue(); savedVM != nil {
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
 		var ok bool
-		bcVM, ok = t.BytecodeVM.(*vm.VM)
+		bcVM, ok = savedVM.(*vm.VM)
 		if !ok {
 			t.SetState(task.TaskKilled)
 			return errors.New("invalid saved VM state")
@@ -213,13 +213,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			}
 		}
 		t.SetState(task.TaskKilled)
-		t.BytecodeVM = nil
+		t.SetBytecodeVM(nil)
 		return taskCtx.Err()
 	default:
 	}
 
 	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
-		t.BytecodeVM = bcVM
+		t.SetBytecodeVM(bcVM)
 		if t.WakeValue != nil {
 			bcVM.SetResumeValue(t.WakeValue)
 			t.WakeValue = nil
@@ -236,7 +236,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
 
 		// Save VM state for later Resume()
-		t.BytecodeVM = bcVM
+		t.SetBytecodeVM(bcVM)
 		if t.GetState() == task.TaskQueued {
 			s.mu.Lock()
 			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
@@ -311,7 +311,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
 	}
 
-	t.BytecodeVM = nil // Release VM after completion
+	t.SetBytecodeVM(nil) // Release VM after completion
 
 	// Fire the terminal-completion callback (if any) exactly once. This branch
 	// is only reached on terminal completion — a suspend returns earlier (the

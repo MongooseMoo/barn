@@ -143,7 +143,7 @@ func (s *Scheduler) ProcessReadyTasks() int {
 			continue
 		}
 
-		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVM != nil) {
+		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) {
 			if (t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
 				readyTasks = append(readyTasks, t)
 			}
@@ -186,7 +186,7 @@ func (s *Scheduler) liveTaskVMs(exclude *task.Task) []*vm.VM {
 		if state == task.TaskCompleted || state == task.TaskKilled {
 			continue
 		}
-		if exec, ok := queued.BytecodeVM.(*vm.VM); ok && exec != nil {
+		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
 			roots = append(roots, exec)
 		}
 	}

@@ -239,7 +239,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 			vm.SetLocalByName(frame, forkProg, varName, varVal)
 		}
 
-		t.BytecodeVM = childVM
+		t.SetBytecodeVM(childVM)
 	} else {
 		return 0 // Unknown fork body type
 	}
