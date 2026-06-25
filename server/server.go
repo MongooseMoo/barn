@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -275,43 +273,10 @@ func (s *Server) checkpoint() error {
 
 	start := time.Now()
 
-	// Write to temp file
-	tempPath := s.dbPath + ".tmp"
-	tempFile, err := os.Create(tempPath)
-	if err != nil {
-		s.callCheckpointFinished(false)
-		return fmt.Errorf("create temp file: %w", err)
-	}
-
-	writer := dbformat.NewWriter(tempFile, s.store.Snapshot())
 	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
-	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
-	if err := writer.WriteDatabase(); err != nil {
-		tempFile.Close()
-		os.Remove(tempPath)
+	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.Snapshot(), queuedTasks, suspendedTasks); err != nil {
 		s.callCheckpointFinished(false)
-		return fmt.Errorf("write database: %w", err)
-	}
-
-	if err := tempFile.Close(); err != nil {
-		os.Remove(tempPath)
-		s.callCheckpointFinished(false)
-		return fmt.Errorf("close temp file: %w", err)
-	}
-
-	// Atomic rename temp -> main database
-	if err := os.Rename(tempPath, s.dbPath); err != nil {
-		// On Windows, need to remove dest first
-		os.Remove(s.dbPath)
-		if err := os.Rename(tempPath, s.dbPath); err != nil {
-			s.callCheckpointFinished(false)
-			return fmt.Errorf("rename temp to main: %w", err)
-		}
-	}
-
-	if err := copyFile(s.dbPath, s.dbPath+".new"); err != nil {
-		s.callCheckpointFinished(false)
-		return fmt.Errorf("write sibling checkpoint: %w", err)
+		return err
 	}
 
 	// Call #0:checkpoint_finished(success)
@@ -431,25 +396,6 @@ func (s *Server) callShutdownStarted(message string) error {
 	}
 	_, err := s.scheduler.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
 	return err
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
 }
 
 func boolToInt(v bool) int64 {
