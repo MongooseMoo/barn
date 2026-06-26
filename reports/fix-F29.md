@@ -49,4 +49,4 @@ ok  barn/vm       0.904s
 go vet ./parser/  (clean)
 ```
 
-Commit: <filled at commit time>
+Commit: 088e2f1
