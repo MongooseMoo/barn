@@ -1,13 +1,12 @@
 package format
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestWriteCheckpointWritesMainAndSibling(t *testing.T) {
+func TestWriteCheckpointWritesOnlyToNewFile(t *testing.T) {
 	loaded, err := LoadDatabase(filepath.Join("..", "..", "Test_fresh2.db"))
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
@@ -18,22 +17,13 @@ func TestWriteCheckpointWritesMainAndSibling(t *testing.T) {
 		t.Fatalf("WriteCheckpoint failed: %v", err)
 	}
 
-	mainBytes, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read main checkpoint: %v", err)
-	}
-	siblingBytes, err := os.ReadFile(path + ".new")
-	if err != nil {
-		t.Fatalf("read sibling checkpoint: %v", err)
-	}
-	if !bytes.Equal(mainBytes, siblingBytes) {
-		t.Fatalf("sibling checkpoint does not match main checkpoint")
+	// Input path must not be created or modified.
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("input path %s should not exist after checkpoint", path)
 	}
 
-	if _, err := LoadDatabase(path); err != nil {
-		t.Fatalf("load main checkpoint: %v", err)
-	}
+	// Output path+".new" must be written and loadable.
 	if _, err := LoadDatabase(path + ".new"); err != nil {
-		t.Fatalf("load sibling checkpoint: %v", err)
+		t.Fatalf("load output checkpoint: %v", err)
 	}
 }
