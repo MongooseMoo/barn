@@ -81,17 +81,11 @@ func (s *Store) Valid(id types.ObjID) bool {
 		return false
 	}
 
-	obj, ok := s.objects[id]
-	if !ok {
-		return false
-	}
-
-	// Check if recycled or explicitly invalidated
-	if obj.recycled || obj.flags.Has(FlagInvalid) {
-		return false
-	}
-
-	return true
+	// Resolve through liveObjectLocked so a valid anonymous value (loaded or
+	// runtime-created via create(...,1), which now lives only in s.anonObjects)
+	// is reported valid, not just numbered objects. liveObjectLocked already
+	// excludes recycled/invalidated objects.
+	return s.liveObjectLocked(id) != nil
 }
 
 // IsRecycled checks if an object ID was recycled (vs never existed)
@@ -154,13 +148,19 @@ func (s *Store) Recycle(id types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj, ok := s.objects[id]
-	if !ok {
+	// Resolve through both maps so recycle() of a valid anonymous value (which
+	// lives in s.anonObjects) finds it. The relationship cleanup below operates
+	// over numbered relatives (an anon's parents are numbered; it has no
+	// children/contents), so it is left numbered-structural.
+	obj := s.liveObjectLocked(id)
+	if obj == nil {
+		if r := s.objects[id]; r != nil && r.recycled {
+			return fmt.Errorf("object #%d already recycled", id)
+		}
+		if r := s.anonObjects[id]; r != nil && r.recycled {
+			return fmt.Errorf("object #%d already recycled", id)
+		}
 		return fmt.Errorf("object #%d does not exist", id)
-	}
-
-	if obj.recycled {
-		return fmt.Errorf("object #%d already recycled", id)
 	}
 
 	// Note: recycling an object does NOT invalidate anonymous descendants in
@@ -434,12 +434,46 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		}
 	}
 
-	// Fix owners in anonymous objects as well. Toast walks anonymous_objects and
-	// rewrites the object .owner and each propval .owner (anonymous objects carry
-	// no verbdefs) — db_objects.cc:686-705.
+	// Fix references in anonymous objects as well. Before F2 (commit 7318d24)
+	// runtime anonymous objects lived in the numbered s.objects map, so the
+	// structural walk above rewrote their parent/location/etc. references to a
+	// renumbered object. F2 moved them out-of-band into s.anonObjects, so they
+	// must be walked here to preserve that behavior — otherwise an anonymous
+	// child of a renumbered object keeps a stale parent id and property access
+	// through it fails (E_PROPNF). Toast walks anonymous_objects in
+	// db_renumber_object for the same reason (db_objects.cc:686-705); anonymous
+	// objects carry no verbdefs, so only object/propval owners are rewritten for
+	// ownership, alongside the structural parent/child/location/contents refs.
 	for _, anon := range s.anonObjects {
 		if anon == nil {
 			continue
+		}
+		for i, pid := range anon.parents {
+			if pid == oldID {
+				anon.parents[i] = newID
+			}
+		}
+		for i, cid := range anon.children {
+			if cid == oldID {
+				anon.children[i] = newID
+			}
+		}
+		for i, cid := range anon.anonymousChildren {
+			if cid == oldID {
+				anon.anonymousChildren[i] = newID
+			}
+		}
+		if anon.chparentChildren != nil && anon.chparentChildren[oldID] {
+			delete(anon.chparentChildren, oldID)
+			anon.chparentChildren[newID] = true
+		}
+		if anon.location == oldID {
+			anon.location = newID
+		}
+		for i, cid := range anon.contents {
+			if cid == oldID {
+				anon.contents[i] = newID
+			}
 		}
 		anon.owner = rewriteOwner(anon.owner)
 		for _, p := range anon.properties {

@@ -6,8 +6,8 @@ func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.objects[objID]
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return 0, types.E_INVIND
 	}
 	return calculateObjectBytes(obj), types.E_NONE
