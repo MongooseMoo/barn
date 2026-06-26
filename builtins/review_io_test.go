@@ -71,9 +71,16 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 	fpath := filepath.Join("files", fname)
 	defer os.Remove(fpath)
 
-	// Line 1 contains a non-printable byte (0x01) between printable chars.
-	// In binary mode each byte must be ~XX-encoded when non-printable,
-	// so the expected line is "ab~01c".
+	// Line 1 contains a non-printable byte (0x01) between printable chars and
+	// ends with a newline.  Toast applies the handle's file_type in_filter to
+	// the raw getline() output (newline included):
+	//   - binary mode (raw_bytes_to_binary): non-printable bytes -> "~XX", so
+	//     "ab\x01c\n" -> "ab~01c~0A".  (Cf. ToastStunt test_fileio.rb:171
+	//     test_that_reading_text_in_binary_mode_is_ok: "...five\n" -> "...five~0A".)
+	//   - text mode (raw_bytes_to_clean): non-printable bytes are dropped, so
+	//     "ab\x01c\n" -> "abc".
+	// The old scanner.Text() code returned the raw "ab\x01c" in both modes,
+	// which this test rejects.
 	if err := os.WriteFile(fpath, []byte("ab\x01c\nline2\n"), 0o644); err != nil {
 		t.Fatalf("setup WriteFile: %v", err)
 	}
@@ -81,38 +88,50 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 
-	// "r-bf": read, no-rw, binary, no-flush
-	openRes := builtinFileOpen(ctx, []types.Value{
-		types.NewStr(fname),
-		types.NewStr("r-bf"),
-	})
-	if openRes.IsError() {
-		t.Fatalf("file_open error: %v", openRes.Error)
-	}
-	handleID := openRes.Val.(types.IntValue).Val
-	defer builtinFileClose(ctx, []types.Value{types.NewInt(handleID)})
+	readLine1 := func(mode string) string {
+		t.Helper()
+		openRes := builtinFileOpen(ctx, []types.Value{
+			types.NewStr(fname),
+			types.NewStr(mode),
+		})
+		if openRes.IsError() {
+			t.Fatalf("file_open(%q) error: %v", mode, openRes.Error)
+		}
+		handleID := openRes.Val.(types.IntValue).Val
+		defer builtinFileClose(ctx, []types.Value{types.NewInt(handleID)})
 
-	res := builtinFileReadlines(ctx, []types.Value{
-		types.NewInt(handleID),
-		types.NewInt(1),
-		types.NewInt(1),
-	})
-	if res.IsError() {
-		t.Fatalf("file_readlines error: %v", res.Error)
+		res := builtinFileReadlines(ctx, []types.Value{
+			types.NewInt(handleID),
+			types.NewInt(1),
+			types.NewInt(1),
+		})
+		if res.IsError() {
+			t.Fatalf("file_readlines(%q) error: %v", mode, res.Error)
+		}
+		list, ok := res.Val.(types.ListValue)
+		if !ok || list.Len() == 0 {
+			t.Fatalf("expected a 1-element list, got %v", res.Val)
+		}
+		return list.Get(1).(types.StrValue).Value()
 	}
 
-	list, ok := res.Val.(types.ListValue)
-	if !ok || list.Len() == 0 {
-		t.Fatalf("expected a 1-element list, got %v", res.Val)
-	}
-
-	got := list.Get(1).(types.StrValue).Value()
-	const want = "ab~01c"
-	if got != want {
+	// Binary mode ("r-bf"): non-printable bytes (incl. the trailing newline)
+	// must be ~XX-encoded.
+	if got, want := readLine1("r-bf"), "ab~01c~0A"; got != want {
 		t.Fatalf(
 			"CONFIRMED BUG (M1): file_readlines in binary mode returned %q, want %q.\n"+
-				"Cause: builtinFileReadlines ignores h.binary; it calls scanner.Text() directly\n"+
-				"without filterTextMode (text path) or encodeBinaryBytes (binary path).",
+				"Cause: builtinFileReadlines ignores h.binary; it called scanner.Text() directly\n"+
+				"without encodeBinaryBytes (binary path).",
+			got, want,
+		)
+	}
+
+	// Text mode ("r-tf"): non-printable bytes must be filtered out.
+	if got, want := readLine1("r-tf"), "abc"; got != want {
+		t.Fatalf(
+			"CONFIRMED BUG (M1): file_readlines in text mode returned %q, want %q.\n"+
+				"Cause: builtinFileReadlines ignores h.binary; it called scanner.Text() directly\n"+
+				"without filterTextMode (text path).",
 			got, want,
 		)
 	}

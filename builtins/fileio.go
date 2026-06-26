@@ -373,21 +373,34 @@ func builtinFileReadlines(ctx *kernel.TaskContext, args []types.Value) types.Res
 	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
-	scanner := bufio.NewScanner(h.file)
+	// Read line-by-line keeping the trailing '\n' (getline semantics), then
+	// apply the handle's mode-dependent filter exactly like file_read /
+	// file_readline do. Toast applies the file_type in_filter to the raw
+	// getline() output (newline included): binary mode ~XX-encodes
+	// non-printable bytes (incl. '\n' -> "~0A"), text mode drops them.
+	// See ToastStunt src/fileio.cc bf_file_readlines (in_filter on line,len)
+	// and src/utils.cc raw_bytes_to_binary / raw_bytes_to_clean.
+	reader := bufio.NewReader(h.file)
 	out := make([]types.Value, 0)
 	lineNo := int64(0)
-	for scanner.Scan() {
-		lineNo++
-		if lineNo < start.Val {
-			continue
+	for lineNo < end.Val {
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			lineNo++
+			if lineNo >= start.Val {
+				if h.binary {
+					out = append(out, types.NewStr(encodeBinaryBytes(line)))
+				} else {
+					out = append(out, types.NewStr(filterTextMode(line)))
+				}
+			}
 		}
-		if lineNo > end.Val {
-			break
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return types.Err(types.E_FILE)
 		}
-		out = append(out, types.NewStr(scanner.Text()))
-	}
-	if err := scanner.Err(); err != nil {
-		return types.Err(types.E_FILE)
 	}
 	return types.Ok(types.NewList(out))
 }
