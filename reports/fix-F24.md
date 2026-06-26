@@ -64,4 +64,4 @@ Success path and error codes (E_PERM/E_INVARG/E_TYPE) unchanged.
   `VerbCodeAllowsOwnerWithoutReadBit`); no NEW failures.
 
 ## Commit
-`COMMIT_HASH_PLACEHOLDER` on `review/branch-stocktake-2026-06-25`.
+`f09ba86` on `review/branch-stocktake-2026-06-25`.
