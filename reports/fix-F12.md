@@ -76,4 +76,4 @@ ok  	barn/builtins
   (untouched — other findings). No NEW failures.
 
 ## Commit
-`<filled after commit>`
+`96baf6f`
