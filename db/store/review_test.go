@@ -188,9 +188,20 @@ func TestReview_RuntimeAnonLostAtSnapshot(t *testing.T) {
 	}
 }
 
-// TestReview_RenumberDoesNotUpdatePropertyValues confirms that Renumber fails to
-// update ObjValue references stored in property values. After Renumber(oldID,
-// newID), any property whose value is ObjValue(oldID) still holds the stale id.
+// TestReview_RenumberDoesNotUpdatePropertyValues documents the DELIBERATE
+// ToastStunt/LambdaMOO behaviour: renumber() rewrites only structural/built-in
+// references (parents, children, location, contents) and owner fields. It does
+// NOT walk arbitrary property VALUES to rewrite object references buried inside
+// them. An ObjValue(oldID) stored in a property therefore retains the stale id
+// after renumber.
+//
+// Authority: db_renumber_object in C:/Users/Q/src/toaststunt/src/db_objects.cc
+// lines 569-714. The FIX macro (591-619) only touches parents/children and
+// location/contents; lines 624-641 fix anonymous children's parent slots; lines
+// 643-652 fix all_users; lines 653-705 rewrite only the .owner fields of
+// objects, verbdefs and propvals. The property propval VALUES (p[i].var) are
+// never scanned for TYPE_OBJ refs. Barn's Renumber matches this exactly, so the
+// stale reference below is correct, not a bug.
 func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 	s := NewStore()
 
@@ -214,7 +225,9 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 		t.Fatalf("Renumber(1,2): %v", err)
 	}
 
-	// After renumber, #0's "ref" property should point to #2, not stale #1.
+	// After renumber, #0's "ref" property value is NOT rewritten: it still holds
+	// the stale id #1, matching ToastStunt's db_renumber_object (see citation
+	// above). The MOO programmer is responsible for fixing property-value refs.
 	prop, ec := s.FindProperty(0, "ref")
 	if ec != types.E_NONE {
 		t.Fatalf("FindProperty ref after renumber: %v", ec)
@@ -223,10 +236,7 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 	if !ok {
 		t.Fatalf("ref property value is not ObjValue: %T", prop.Value)
 	}
-	if objVal.ID() == 1 {
-		t.Errorf("Renumber did not update property value: ref still points to old id #1; want #2")
-	}
-	if objVal.ID() != 2 {
-		t.Errorf("ref property value = #%d, want #2", objVal.ID())
+	if objVal.ID() != 1 {
+		t.Errorf("ref property value = #%d, want stale #1 (Toast does not rewrite property-value refs)", objVal.ID())
 	}
 }
