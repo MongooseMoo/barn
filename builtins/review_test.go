@@ -171,6 +171,26 @@ func TestReview_VerbCodeAllowsOwnerWithoutReadBit(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("verb_code returned unexpected error %v; want a list of code lines", result)
 	}
+
+	// A non-owner, non-wizard with no 'r' bit must still be denied (E_PERM).
+	ctx.Programmer = 5 // does not own the verb (owner is #0)
+	denied := builtinVerbCode(ctx, []types.Value{
+		types.NewObj(obj),
+		types.NewStr("secret"),
+	})
+	if !denied.IsError() || denied.Error != types.E_PERM {
+		t.Fatalf("verb_code: non-owner non-wizard with no 'r' bit — want E_PERM, got %v", denied)
+	}
+
+	// A verb with the 'r' bit set is readable by anyone (still non-owner #5).
+	mustAddVerb(t, store, obj, "public", 0, dbstore.VerbRead|dbstore.VerbExecute)
+	readable := builtinVerbCode(ctx, []types.Value{
+		types.NewObj(obj),
+		types.NewStr("public"),
+	})
+	if !readable.IsNormal() {
+		t.Fatalf("verb_code: 'r'-set verb should be readable by anyone, got %v", readable)
+	}
 }
 
 // ============================================================================

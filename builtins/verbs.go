@@ -311,8 +311,11 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_VERBNF)
 	}
 
-	// Check read permission (wizards can always read)
-	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard {
+	// Check read permission: wizards and the verb's owner can always read its
+	// code; everyone else needs the 'r' (VerbRead) bit. Matches ToastStunt
+	// db_verb_allows (db_verbs.cc:880): (flags & VF_READ) || progr == owner ||
+	// is_wizard(progr); denial returns E_PERM (verbs.cc:493-494).
+	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
 		return types.Err(types.E_PERM)
 	}
 
