@@ -72,4 +72,4 @@ $ go vet ./builtins/      # clean, no output
   this fix does not touch). No new failures introduced.
 
 ## Commit
-`<filled after commit>` on branch `review/branch-stocktake-2026-06-25`.
+`dbc37b7` on branch `review/branch-stocktake-2026-06-25`.
