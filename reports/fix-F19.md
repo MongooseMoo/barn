@@ -61,4 +61,4 @@ Remaining `./parser/...` and `./vm/...` failures (E_INTRPT, UnparseForWithIndexV
 BreakLabelAsIdentExpr, MapIn*) are unrelated pre-existing intentionally-red review tests for
 other findings; none touch scatter/list parsing.
 
-Commit: <FILLED AFTER COMMIT>
+Commit: 1d331ac
