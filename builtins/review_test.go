@@ -215,4 +215,67 @@ func TestReview_AddVerbUsesProgNotPlayerForPerm(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("add_verb returned unexpected error %v", result)
 	}
+
+	// Contract, other half: a non-owner non-wizard programmer must still get
+	// E_PERM regardless of who the connection player is. Toast bf_add_verb:
+	// !db_object_allows(obj, progr, FLAG_WRITE) || (progr != owner && !is_wizard).
+	ctx.Programmer = 5 // does NOT own obj (#0) and is not wizard
+	ctx.Player = 0     // even though player happens to own obj
+	denied := builtinAddVerb(ctx, []types.Value{
+		types.NewObj(obj),
+		types.NewList([]types.Value{
+			types.NewObj(0), // valid owner; perm check (progr!=owner) is what must fire
+			types.NewStr("rx"),
+			types.NewStr("other"),
+		}),
+		types.NewList([]types.Value{
+			types.NewStr("none"),
+			types.NewStr("none"),
+			types.NewStr("none"),
+		}),
+	})
+	if !denied.IsError() || denied.Error != types.E_PERM {
+		t.Fatalf("add_verb by non-owner non-wizard programmer should be E_PERM, got %v", denied)
+	}
+}
+
+// ============================================================================
+// SIBLING of F24: disassemble() owner check used ctx.Player instead of
+// ctx.Programmer. Toast bf_disassemble (disassemble.cc:483) gates on
+// db_verb_allows(h, progr, VF_READ) (db_verbs.cc:880): verb flag OR
+// progr == verb owner OR is_wizard(progr) — all keyed on the programmer.
+// ============================================================================
+func TestReview_DisassembleUsesProgNotPlayerForPerm(t *testing.T) {
+	ctx, store := newReviewCtx(t)
+	ctx.IsWizard = false
+
+	// Object and a non-readable verb both owned by programmer #0.
+	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
+	mustAddVerb(t, store, obj, "secret", 0, dbstore.VerbExecute) // no 'r' flag
+
+	// Lowered task perms: programmer owns the verb, player does not.
+	ctx.Programmer = 0
+	ctx.Player = 5
+
+	res := builtinDisassemble(ctx, []types.Value{
+		types.NewObj(obj),
+		types.NewStr("secret"),
+	})
+	if res.IsError() && res.Error == types.E_PERM {
+		t.Fatalf("disassemble denied owning programmer (#0); ctx.Player=#5 wrongly used (BUG): got E_PERM")
+	}
+	if !res.IsNormal() {
+		t.Fatalf("disassemble returned unexpected error %v", res)
+	}
+
+	// Non-owner non-wizard on a non-readable verb must get E_PERM.
+	ctx.Programmer = 5
+	ctx.Player = 0
+	denied := builtinDisassemble(ctx, []types.Value{
+		types.NewObj(obj),
+		types.NewStr("secret"),
+	})
+	if !denied.IsError() || denied.Error != types.E_PERM {
+		t.Fatalf("disassemble by non-owner non-wizard should be E_PERM, got %v", denied)
+	}
 }
