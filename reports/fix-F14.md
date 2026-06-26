@@ -82,4 +82,4 @@ address in `keyHash`). Left as a follow-up per the prompt's scope guidance.
 
 ## Commit
 
-<filled after commit>
+`de565d4054072df0b639d7dbea046ab7536dcf64`
