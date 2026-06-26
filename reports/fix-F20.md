@@ -41,4 +41,4 @@ branch (`Container == nil`) is unchanged. Label still prepended when present.
 - After:  `for L x, k in (mylist)` (correct container+key syntax, stable round-trip)
 
 ## Commit
-COMMIT_HASH_PLACEHOLDER (branch review/branch-stocktake-2026-06-25)
+daefa93 (branch review/branch-stocktake-2026-06-25)
