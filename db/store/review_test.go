@@ -188,6 +188,59 @@ func TestReview_RuntimeAnonLostAtSnapshot(t *testing.T) {
 	}
 }
 
+// TestReview_RenumberRewritesVerbAndPropOwners confirms that Renumber rewrites
+// ownership references that point at the old id, not just the renumbered object's
+// own .owner. ToastStunt's db_renumber_object walks every object and rewrites the
+// object's own .owner, each verbdef's .owner, and each propval's .owner when they
+// equal the old id (db_objects.cc:653-705, plus anonymous objects 686-705).
+//
+// Barn previously only rewrote the object .owner field, leaving verb owners and
+// property owners pointing at the stale (now-recycled) old id.
+func TestReview_RenumberRewritesVerbAndPropOwners(t *testing.T) {
+	s := NewStore()
+
+	// #0: holds a verb and a property both OWNED BY #1.
+	if err := s.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+	// #1: the object we will renumber to #2. It owns the verb/prop on #0.
+	if err := s.Add(NewObject(1, 0)); err != nil {
+		t.Fatalf("Add #1: %v", err)
+	}
+
+	// A verb on #0 owned by #1.
+	if _, ec := s.AddVerb(0, NewVerb("greet", []string{"greet"}, 1, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); ec != types.E_NONE {
+		t.Fatalf("AddVerb greet on #0: %v", ec)
+	}
+	// A property on #0 owned by #1.
+	if ec := s.DefineProperty(0, NewProperty("color", types.NewStr("red"), 1, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty color: %v", ec)
+	}
+
+	// Renumber #1 -> #2.
+	if err := s.Renumber(1, 2); err != nil {
+		t.Fatalf("Renumber(1,2): %v", err)
+	}
+
+	// The renumbered object's own owner is unchanged here (#0), but the verb and
+	// property owners that pointed at #1 MUST now point at #2.
+	verb, err := s.FindVerbOnObject(0, "greet")
+	if err != nil {
+		t.Fatalf("FindVerbOnObject greet: %v", err)
+	}
+	if verb.Owner != 2 {
+		t.Errorf("verb owner = #%d after renumber, want #2 (Toast rewrites verbdef owners)", verb.Owner)
+	}
+
+	prop, _, ec := s.LocalProperty(0, "color")
+	if ec != types.E_NONE {
+		t.Fatalf("LocalProperty color: %v", ec)
+	}
+	if prop.Owner != 2 {
+		t.Errorf("property owner = #%d after renumber, want #2 (Toast rewrites propval owners)", prop.Owner)
+	}
+}
+
 // TestReview_RenumberDoesNotUpdatePropertyValues documents the DELIBERATE
 // ToastStunt/LambdaMOO behaviour: renumber() rewrites only structural/built-in
 // references (parents, children, location, contents) and owner fields. It does
@@ -220,9 +273,25 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 		t.Fatalf("DefineProperty ref: %v", ec)
 	}
 
+	// Also create a STRUCTURAL reference to #1: move #0 inside #1 so #0.location
+	// == #1. Renumber must rewrite this built-in slot (the positive control that
+	// keeps the property-value negative below honest).
+	if ec := s.MoveObject(0, 1, 0); ec != types.E_NONE {
+		t.Fatalf("MoveObject #0 into #1: %v", ec)
+	}
+
 	// Renumber #1 -> #2
 	if err := s.Renumber(1, 2); err != nil {
 		t.Fatalf("Renumber(1,2): %v", err)
+	}
+
+	// Positive control: the structural location slot DID update to #2.
+	loc, ec := s.Location(0)
+	if ec != types.E_NONE {
+		t.Fatalf("Location(0) after renumber: %v", ec)
+	}
+	if loc != 2 {
+		t.Errorf("location ref = #%d after renumber, want #2 (Toast rewrites structural refs)", loc)
 	}
 
 	// After renumber, #0's "ref" property value is NOT rewritten: it still holds

@@ -368,6 +368,21 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	newRecycled = append(newRecycled, oldID)
 	s.recycledID = newRecycled
 
+	// rewriteOwner mirrors ToastStunt's owner-fix rule in db_renumber_object
+	// (src/db_objects.cc:666-669, applied identically to verbdef owners at
+	// 671-675 and propval owners at 679-683): an owner equal to the freed new id
+	// is cleared to NOTHING, and an owner equal to the old id becomes the new id.
+	rewriteOwner := func(o types.ObjID) types.ObjID {
+		switch o {
+		case newID:
+			return types.ObjNothing
+		case oldID:
+			return newID
+		default:
+			return o
+		}
+	}
+
 	// Update all references in ALL objects
 	for _, other := range s.objects {
 		if other.recycled {
@@ -408,9 +423,27 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			}
 		}
 
-		// Update Owner
-		if other.owner == oldID {
-			other.owner = newID
+		// Fix owners of the object, its verbdefs and its propvals, matching
+		// ToastStunt db_renumber_object (db_objects.cc:653-684).
+		other.owner = rewriteOwner(other.owner)
+		for _, v := range other.verbs {
+			v.owner = rewriteOwner(v.owner)
+		}
+		for _, p := range other.properties {
+			p.owner = rewriteOwner(p.owner)
+		}
+	}
+
+	// Fix owners in anonymous objects as well. Toast walks anonymous_objects and
+	// rewrites the object .owner and each propval .owner (anonymous objects carry
+	// no verbdefs) — db_objects.cc:686-705.
+	for _, anon := range s.anonObjects {
+		if anon == nil {
+			continue
+		}
+		anon.owner = rewriteOwner(anon.owner)
+		for _, p := range anon.properties {
+			p.owner = rewriteOwner(p.owner)
 		}
 	}
 
