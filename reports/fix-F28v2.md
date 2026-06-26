@@ -112,4 +112,4 @@ sentinel-clear is a no-op for it. Zero-yield behavior is untouched. Timed
 
 ## Commit
 
-`COMMIT_HASH_PLACEHOLDER` on `review/branch-stocktake-2026-06-25`.
+`ac95153` on `review/branch-stocktake-2026-06-25`.
