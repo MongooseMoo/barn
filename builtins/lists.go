@@ -261,8 +261,23 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 }
 
-// builtinSort sorts a list
-// sort(list [, keys] [, natural] [, reverse]) -> list
+// builtinSort sorts a list, matching ToastStunt's bf_sort / sort_callback.
+//
+// Signature (toaststunt src/list.cc:1779, sort_callback 947-1020):
+//
+//	sort(list [, keys] [, natural] [, reverse]) -> list
+//	register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
+//
+//   - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
+//     list itself". When non-empty it must have the same length as list, else
+//     E_INVARG, and the returned elements come from list (not keys).
+//   - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
+//   - reverse (INT):  when true, the sorted order is reversed.
+//
+// Errors: bad arity -> E_ARGS; wrong arg types -> E_TYPE (Toast enforces these via
+// register_function's type tokens); the sort-key list must be homogeneous and made
+// of scalar sortable values (INT/FLOAT/OBJ/ERR/STR) or E_TYPE; an empty list/empty
+// keys yields {}. String comparison is case-insensitive (strcasecmp), matching Toast.
 func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
@@ -273,21 +288,104 @@ func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// For now, implement simple sort (ignoring keys, natural, reverse)
-	// TODO: Implement full sort with all parameters
-
-	// Copy list elements
-	elements := make([]types.Value, list.Len())
-	for i := 1; i <= list.Len(); i++ {
-		elements[i-1] = list.Get(i)
+	// arg 2: keys. Empty keys list == identity (sort by the list itself).
+	var keys types.ListValue
+	useKeys := false
+	if len(args) >= 2 {
+		keys, ok = args[1].(types.ListValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		useKeys = keys.Len() > 0
 	}
 
-	// Sort using Go's sort package
-	sort.Slice(elements, func(i, j int) bool {
-		return compareValues(elements[i], elements[j]) < 0
-	})
+	// arg 3: natural flag (INT). arg 4: reverse flag (INT). is_true == nonzero.
+	natural := false
+	if len(args) >= 3 {
+		n, ok := args[2].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		natural = n.Val != 0
+	}
+	reverse := false
+	if len(args) >= 4 {
+		r, ok := args[3].(types.IntValue)
+		if !ok {
+			return types.Err(types.E_TYPE)
+		}
+		reverse = r.Val != 0
+	}
 
-	return types.Ok(types.NewList(elements))
+	// The list we actually compare on: the keys list if provided, else list.
+	sortList := list
+	if useKeys {
+		sortList = keys
+	}
+
+	n := sortList.Len()
+	if n == 0 {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+	if useKeys && list.Len() != keys.Len() {
+		return types.Err(types.E_INVARG)
+	}
+
+	// All sort-key elements must share the first element's type and be a scalar
+	// sortable value. LIST/MAP/ANON/WAIF (and any type mismatch) -> E_TYPE.
+	keyType := sortList.Get(1).Type()
+	for i := 1; i <= n; i++ {
+		t := sortList.Get(i).Type()
+		if t != keyType || t == types.TYPE_LIST || t == types.TYPE_MAP ||
+			t == types.TYPE_ANON || t == types.TYPE_WAIF {
+			return types.Err(types.E_TYPE)
+		}
+	}
+
+	// Sort indices (1-based) so a keys-driven sort can map back into list.
+	idx := make([]int, n)
+	for i := range idx {
+		idx[i] = i + 1
+	}
+	sort.SliceStable(idx, func(i, j int) bool {
+		return sortLess(sortList.Get(idx[i]), sortList.Get(idx[j]), natural)
+	})
+	if reverse {
+		for i, j := 0, len(idx)-1; i < j; i, j = i+1, j-1 {
+			idx[i], idx[j] = idx[j], idx[i]
+		}
+	}
+
+	result := make([]types.Value, n)
+	for p, it := range idx {
+		result[p] = list.Get(it)
+	}
+	return types.Ok(types.NewList(result))
+}
+
+// sortLess implements Toast's VarCompare (list.cc:980-1006): numeric ordering for
+// INT/FLOAT/OBJ, error-code ordering for ERR, and case-insensitive (optionally
+// natural) ordering for STR. Both operands are guaranteed the same scalar type.
+func sortLess(a, b types.Value, natural bool) bool {
+	switch av := a.(type) {
+	case types.IntValue:
+		return av.Val < b.(types.IntValue).Val
+	case types.FloatValue:
+		return av.Val < b.(types.FloatValue).Val
+	case types.ObjValue:
+		return av.ID() < b.(types.ObjValue).ID()
+	case types.ErrValue:
+		return av.Code() < b.(types.ErrValue).Code()
+	case types.StrValue:
+		bs := b.(types.StrValue).Value()
+		if natural {
+			return strnatcasecmp(av.Value(), bs) < 0
+		}
+		return strcasecmp(av.Value(), bs) < 0
+	default:
+		// Toast's VarCompare logs and returns 0 for unknown types; treat as equal.
+		return false
+	}
 }
 
 // builtinReverse reverses a list or string
@@ -356,78 +454,159 @@ func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // HELPER FUNCTIONS
 // ============================================================================
 
-// compareValues compares two MOO values for sorting
-// Returns: -1 if a < b, 0 if a == b, 1 if a > b
-func compareValues(a, b types.Value) int {
-	// Type codes for ordering
-	aType := a.Type()
-	bType := b.Type()
-
-	if aType != bType {
-		// Different types: order by type code
-		if aType < bType {
-			return -1
-		}
-		return 1
+// strcasecmp is a byte-wise, ASCII case-insensitive string compare matching the
+// libc strcasecmp() that Toast's VarCompare uses for default string sorting.
+func strcasecmp(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
 	}
-
-	// Same type: compare values
-	switch av := a.(type) {
-	case types.IntValue:
-		bv := b.(types.IntValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
+	for i := 0; i < n; i++ {
+		ca, cb := asciiLower(a[i]), asciiLower(b[i])
+		if ca != cb {
+			if ca < cb {
+				return -1
+			}
 			return 1
 		}
-		return 0
-
-	case types.FloatValue:
-		bv := b.(types.FloatValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
-			return 1
-		}
-		return 0
-
-	case types.StrValue:
-		bv := b.(types.StrValue)
-		if av.Value() < bv.Value() {
-			return -1
-		} else if av.Value() > bv.Value() {
-			return 1
-		}
-		return 0
-
-	case types.ObjValue:
-		bv := b.(types.ObjValue)
-		if av.ID() < bv.ID() {
-			return -1
-		} else if av.ID() > bv.ID() {
-			return 1
-		}
-		return 0
-
-	case types.ErrValue:
-		bv := b.(types.ErrValue)
-		if av.Code() < bv.Code() {
-			return -1
-		} else if av.Code() > bv.Code() {
-			return 1
-		}
-		return 0
-
+	}
+	switch {
+	case len(a) < len(b):
+		return -1
+	case len(a) > len(b):
+		return 1
 	default:
-		// Lists, maps, etc.: compare by string representation
-		as := a.String()
-		bs := b.String()
-		if as < bs {
+		return 0
+	}
+}
+
+// strnatcasecmp is a faithful port of strnatcasecmp() from Toast's
+// dependencies/strnatcmp.c (strnatcmp0 with fold_case=1): natural-order, ASCII
+// case-insensitive comparison used when sort()'s natural flag is set on strings.
+func strnatcasecmp(a, b string) int {
+	ai, bi := 0, 0
+	for {
+		ca, cb := byteAt(a, ai), byteAt(b, bi)
+
+		// skip over leading spaces
+		for isSpaceByte(ca) {
+			ai++
+			ca = byteAt(a, ai)
+		}
+		for isSpaceByte(cb) {
+			bi++
+			cb = byteAt(b, bi)
+		}
+
+		// process a run of digits
+		if isDigitByte(ca) && isDigitByte(cb) {
+			fractional := ca == '0' || cb == '0'
+			var result int
+			if fractional {
+				result = natCompareLeft(a, ai, b, bi)
+			} else {
+				result = natCompareRight(a, ai, b, bi)
+			}
+			if result != 0 {
+				return result
+			}
+		}
+
+		if ca == 0 && cb == 0 {
+			return 0
+		}
+
+		ca, cb = asciiUpper(ca), asciiUpper(cb)
+		if ca < cb {
 			return -1
-		} else if as > bs {
+		}
+		if ca > cb {
 			return 1
 		}
-		return 0
+		ai++
+		bi++
+	}
+}
+
+// natCompareRight mirrors compare_right() in strnatcmp.c: the longest run of
+// digits wins, ties broken by the greatest value (remembered in bias).
+func natCompareRight(a string, ai int, b string, bi int) int {
+	bias := 0
+	for {
+		ca, cb := byteAt(a, ai), byteAt(b, bi)
+		switch {
+		case !isDigitByte(ca) && !isDigitByte(cb):
+			return bias
+		case !isDigitByte(ca):
+			return -1
+		case !isDigitByte(cb):
+			return 1
+		case ca < cb:
+			if bias == 0 {
+				bias = -1
+			}
+		case ca > cb:
+			if bias == 0 {
+				bias = 1
+			}
+		}
+		ai++
+		bi++
+	}
+}
+
+// natCompareLeft mirrors compare_left() in strnatcmp.c: the first differing
+// digit wins (used for fractional / zero-leading runs).
+func natCompareLeft(a string, ai int, b string, bi int) int {
+	for {
+		ca, cb := byteAt(a, ai), byteAt(b, bi)
+		switch {
+		case !isDigitByte(ca) && !isDigitByte(cb):
+			return 0
+		case !isDigitByte(ca):
+			return -1
+		case !isDigitByte(cb):
+			return 1
+		case ca < cb:
+			return -1
+		case ca > cb:
+			return 1
+		}
+		ai++
+		bi++
+	}
+}
+
+// byteAt returns s[i], or 0 when out of range, emulating C NUL termination.
+func byteAt(s string, i int) byte {
+	if i < len(s) {
+		return s[i]
+	}
+	return 0
+}
+
+func asciiLower(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
+}
+
+func asciiUpper(c byte) byte {
+	if c >= 'a' && c <= 'z' {
+		return c - ('a' - 'A')
+	}
+	return c
+}
+
+func isDigitByte(c byte) bool { return c >= '0' && c <= '9' }
+
+func isSpaceByte(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\v', '\f', '\r':
+		return true
+	default:
+		return false
 	}
 }
 
