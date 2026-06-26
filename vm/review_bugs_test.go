@@ -10,19 +10,35 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// B1: `in` operator on a map checks VALUES instead of KEYS
+// B1 (F27): `in` operator on a map searches VALUES — and that is CORRECT.
 //
-// ToastStunt semantics: `x in map` returns the 1-based position of x among
-// the map's *keys* (sorted in MOO canonical order), or 0 if x is not a key.
-// Both executeIn (op_compare.go) and inOp (operators.go) search pair[1]
-// (the value slot) not pair[0] (the key slot).
+// The review (reports/review-vm.md F27) claimed `x in map` should search the
+// map's KEYS. That is FALSE. ToastStunt source is the authority:
 //
-// Evidence: "a" in ["a" -> 1]
-//   Keys:   {"a"} → "a" is at position 1 → correct answer: 1
-//   Values: {1}   → "a" is not a value  → actual answer:  0  (bug)
+//   execute.cc:1403  OP_IN  → ans.v.num = ismember(lhs, rhs, 0)
+//   collection.cc:31-43 do_map_iteration / 46-69 ismember:
+//       the map branch calls mapforeach (map.cc:809, key-sorted rbtree order)
+//       and compares the iterated *value* against lhs:
+//           equality(value, ismember_data->value, case_matters)
+//       returning the running 1-based index `i` on the first VALUE match, else 0.
+//
+// So `x in map` returns the 1-based position (in key-sorted order) of the first
+// pair whose VALUE equals x, or 0. case_matters=0 → case-INSENSITIVE.
+//
+// Conformance corroboration (moo-conformance-tests builtins/map.yaml, which
+// drives the identical ismember helper via is_member):
+//   is_member("FOO", ["FOO" -> "BAR"]) == 0  (map.yaml:126-129) — "FOO" is a
+//       KEY, not a value, so it is NOT found. Proves key-search is wrong.
+//   is_member("5", ["3"->"3","1"->"1","4"->"4","5"->"5","9"->"9","2"->"2"]) == 5
+//       (map.yaml:116-119) — value "5" sits at key-sorted position 5.
+//
+// Barn's executeIn (op_compare.go) and the dead inOp (operators.go) already
+// implement this value-search. The tests below assert Toast's TRUE returns.
 // ---------------------------------------------------------------------------
 
-func TestReview_MapInChecksValuesNotKeys(t *testing.T) {
+func TestReview_MapInSearchesValues(t *testing.T) {
+	// "a" is a KEY in ["a" -> 1], not a value. Toast searches values, so it is
+	// not found → 0. (collection.cc:36 compares the value slot, not the key.)
 	result := runBytecodeExpr(t, `"a" in ["a" -> 1]`)
 	if result.Flow == types.FlowException {
 		t.Fatalf("unexpected exception %s: %v", result.Error, result.Val)
@@ -31,17 +47,15 @@ func TestReview_MapInChecksValuesNotKeys(t *testing.T) {
 	if !ok {
 		t.Fatalf("result is not an int: %T %v", result.Val, result.Val)
 	}
-	// Correct: 1 (key found at sorted-position 1).  Current: 0 (value scan).
-	if got.Val != 1 {
-		t.Errorf(`"a" in ["a" -> 1] = %d, want 1 (key lookup); `+
-			`op_compare.go executeIn and operators.go inOp both scan pair[1] (values)`, got.Val)
+	if got.Val != 0 {
+		t.Errorf(`"a" in ["a" -> 1] = %d, want 0 ("a" is a key, not a value; `+
+			`Toast ismember searches values — collection.cc:36)`, got.Val)
 	}
 }
 
-func TestReview_MapInValueFoundAsKey_ReturnsZero(t *testing.T) {
-	// 1 is a VALUE, not a KEY, in ["a" -> 1].
-	// Correct (key-based): 0 — 1 is not a key.
-	// Buggy  (value-based): 1 — value 1 found at sorted-position 1.
+func TestReview_MapInValueFoundReturnsKeySortedPosition(t *testing.T) {
+	// 1 IS the value of key "a" in ["a" -> 1]. Toast searches values and
+	// returns the 1-based key-sorted position of the matching pair → 1.
 	result := runBytecodeExpr(t, `1 in ["a" -> 1]`)
 	if result.Flow == types.FlowException {
 		t.Fatalf("unexpected exception %s: %v", result.Error, result.Val)
@@ -50,13 +64,20 @@ func TestReview_MapInValueFoundAsKey_ReturnsZero(t *testing.T) {
 	if !ok {
 		t.Fatalf("result is not an int: %T %v", result.Val, result.Val)
 	}
-	if got.Val != 0 {
-		t.Errorf(`1 in ["a" -> 1] = %d, want 0; current impl finds the value instead of a key`, got.Val)
+	if got.Val != 1 {
+		t.Errorf(`1 in ["a" -> 1] = %d, want 1 (value 1 at key-sorted position 1; `+
+			`Toast ismember — collection.cc:36,65)`, got.Val)
 	}
 }
 
-// Sanity: a key that is genuinely absent returns 0 regardless of impl.
-func TestReview_MapInKeyNotPresent(t *testing.T) {
+// A value at a later key-sorted position returns that position, mirroring
+// is_member("5", ...) == 5 in conformance map.yaml:116-119.
+func TestReview_MapInValueAtSortedPosition(t *testing.T) {
+	requireInt(t, runBytecodeExpr(t, `30 in ["b" -> 20, "a" -> 10, "c" -> 30]`), 3)
+}
+
+// Sanity: a token that is neither key nor value returns 0.
+func TestReview_MapInNotPresent(t *testing.T) {
 	requireInt(t, runBytecodeExpr(t, `"z" in ["a" -> 1]`), 0)
 }
 
