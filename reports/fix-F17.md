@@ -96,4 +96,4 @@ FileReadlinesBinaryMode, QueuedTasksSortOrder, VerbCodeAllowsOwnerWithoutReadBit
 AddVerbUsesProgNotPlayerForPerm.
 
 ## Commit
-<filled after commit>
+`b5aa61a` on `review/branch-stocktake-2026-06-25`.
