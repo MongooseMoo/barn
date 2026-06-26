@@ -73,4 +73,4 @@ positive structural-ref control — while keeping the property-VALUE negative
 - After fix: `barn/db/store` ok, `barn/db/format` ok. `go vet ./db/store/` clean.
 
 ## Commit
-COMMIT_HASH_PLACEHOLDER (branch review/branch-stocktake-2026-06-25)
+bcca321d91d3031d3c9a50ed8ba0fa27695ca393 (branch review/branch-stocktake-2026-06-25)
