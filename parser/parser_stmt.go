@@ -642,10 +642,50 @@ func (p *Parser) parseScatterOrExprStatement() (Stmt, error) {
 	return p.parseExpressionStatement()
 }
 
-// looksLikeScatter checks if the current position looks like scatter assignment
+// looksLikeScatter reports whether the leading '{' begins a scatter-assignment
+// target rather than a list-literal expression.
+//
+// A '{...}' is fundamentally a list literal; it is a scatter target ONLY when a
+// top-level '=' immediately follows the matching '}'. This mirrors ToastStunt's
+// grammar (src/parser.y): a brace-group reduces to a list expr via
+//
+//	expr: '{' arglist '}'                          (parser.y:630)
+//
+// and only becomes a scatter assignment when an '=' follows, either by
+// reinterpreting a list LHS
+//
+//	expr: expr '=' expr   // if LHS is EXPR_LIST -> EXPR_SCATTER   (parser.y:466-487)
+//
+// or via the dedicated optional/rest production
+//
+//	expr: '{' scatter '}' '=' expr                 (parser.y:488-495)
+//
+// The LALR parser distinguishes the two with one token of lookahead on '='.
+// We reproduce that by scanning a cloned lexer over the brace group (tracking
+// (), [] and {} nesting) and checking the token after the matching '}'.
+//
+// p.current is the opening '{'; p.peek is the first token inside it.
 func (p *Parser) looksLikeScatter() bool {
-	// { identifier or { ? or { @
-	return p.peek.Type == TOKEN_IDENTIFIER || p.peek.Type == TOKEN_QUESTION || p.peek.Type == TOKEN_AT
+	// Lexer is a pure value struct (no shared mutable state), so a copy gives an
+	// independent cursor we can advance without disturbing the real parser.
+	lex := *p.lexer
+	depth := 1 // the opening '{' (p.current) is already consumed
+	tok := p.peek
+	for {
+		switch tok.Type {
+		case TOKEN_LBRACE, TOKEN_LBRACKET, TOKEN_LPAREN:
+			depth++
+		case TOKEN_RBRACE, TOKEN_RBRACKET, TOKEN_RPAREN:
+			depth--
+			if depth == 0 {
+				// tok is the matching '}'; scatter iff a top-level '=' follows.
+				return lex.NextToken().Type == TOKEN_ASSIGN
+			}
+		case TOKEN_EOF:
+			return false
+		}
+		tok = lex.NextToken()
+	}
 }
 
 // parseScatterStatement parses a scatter assignment
