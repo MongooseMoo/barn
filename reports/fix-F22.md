@@ -64,4 +64,4 @@ go vet ./server/   # clean
 - After: only `TestReview_WebSocketWakeInputReaderDoesNotSetDeadline` FAIL (unrelated, untouched). F22 green.
 
 ## Commit
-(see below)
+`ef84319843e5b8a94d88ddc8f81d9a3feedc34b5` on `review/branch-stocktake-2026-06-25`.
