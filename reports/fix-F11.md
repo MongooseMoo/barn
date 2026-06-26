@@ -100,4 +100,4 @@ touch:
 - traditional DES — preserved.
 
 ## Commit
-COMMIT_HASH_PLACEHOLDER (branch review/branch-stocktake-2026-06-25)
+dc21daa297c60ca967ec191ff5ea330a14618e1e (branch review/branch-stocktake-2026-06-25)
