@@ -50,4 +50,4 @@ PASS
   red tests (separate finding, unchanged). No NEW failures.
 
 ## Commit
-COMMIT_HASH_PLACEHOLDER
+587e4e2aa899bd1d7e913220a056dd17849b4042
