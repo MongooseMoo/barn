@@ -43,8 +43,12 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	mgr := task.GetManager()
 	tasks := mgr.GetQueuedTasks()
+	// Toast returns waiting tasks in ascending start-time order (earliest
+	// first). It never sorts in bf_queued_tasks (tasks.cc:2571-2581); the
+	// ordering comes from waiting_tasks, which enqueue_waiting keeps sorted
+	// ascending by start_tv (tasks.cc:1193-1204). Match that here.
 	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].StartTime.After(tasks[j].StartTime)
+		return tasks[i].StartTime.Before(tasks[j].StartTime)
 	})
 
 	result := make([]types.Value, 0, len(tasks))

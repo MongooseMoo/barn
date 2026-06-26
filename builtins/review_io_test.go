@@ -139,8 +139,18 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // H4: queued_tasks() sort order is inverted
-// builtinQueuedTasks sorts with StartTime.After() which produces descending
-// order (newest first).  Toast returns ascending order (oldest first).
+// builtinQueuedTasks sorted with StartTime.After() which produces descending
+// order (newest first).
+//
+// Toast authority (WSL oracle down — source is authoritative):
+//   - bf_queued_tasks (tasks.cc:2496) builds the result by iterating the task
+//     queues; it applies NO sort of its own.
+//   - The forked/suspended tasks come from waiting_tasks (tasks.cc:2571-2581),
+//     which enqueue_waiting (tasks.cc:1182-1205) keeps sorted ASCENDING by
+//     start_tv — each task is inserted before the first existing task with a
+//     strictly greater start time (timercmp(..., <), tasks.cc:1193,1200).
+//   So queued_tasks() returns tasks earliest-start-time first (ascending).
+//   The review's "ascending (oldest first)" expectation is CORRECT.
 // ---------------------------------------------------------------------------
 
 func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
