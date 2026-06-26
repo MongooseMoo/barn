@@ -133,21 +133,46 @@ func TestReview_Data_SortReverseIgnored(t *testing.T) {
 
 // ── PCRE ──────────────────────────────────────────────────────────────────────
 
-// HIGH: pcre_match returns {} immediately for an empty subject without attempting
-// the match. Patterns like ".*" match the empty string. Toast returns a match.
+// F30 (CORRECTED): the original analyst finding claimed pcre_match("", ".*")
+// should return a match because ".*" matches the empty string. The Toast SOURCE
+// refutes this: bf_pcre_match's match loop is `while (offset < subject_length)`
+// (toaststunt/src/pcre_moo.cc:208). For an empty subject subject_length == 0, so
+// the loop NEVER iterates and the function returns its initial `new_list(0)` =>
+// {} (pcre_moo.cc:188,320), regardless of pattern. The conformance suite pins
+// this too: pcre_match_empty_subject (moo-conformance-tests
+// .../builtins/pcre.yaml:201-205) expects value: []. Barn's empty-subject
+// short-circuit (builtins/pcre.go) therefore MATCHES Toast; removing it would
+// diverge (Go's regexp matches "" with ".*" -> [[0 0]]). This test pins Toast's
+// TRUE result and guards against a "fix" that makes Barn return a spurious match.
 func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
 	ctx := reviewDataCtx()
-	// Pattern ".*" matches the empty string — should produce one match.
+	// Empty subject + an empty-string-matching pattern: Toast returns {}.
 	result := builtinPcreMatch(ctx, []types.Value{
 		types.NewStr(""),   // subject
-		types.NewStr(".*"), // pattern
+		types.NewStr(".*"), // pattern (matches "" in PCRE, but loop never runs)
 	})
 	if !result.IsNormal() {
-		t.Fatalf("pcre_match returned error: %v", result.Error)
+		t.Fatalf("pcre_match(\"\", \".*\") returned error: %v", result.Error)
 	}
 	got := result.Val.(types.ListValue)
-	if got.Len() == 0 {
-		t.Errorf("pcre_match(\"\", \".*\") = {} (empty), want a match result for the empty string")
+	if got.Len() != 0 {
+		t.Errorf("pcre_match(\"\", \".*\") = %d entries, want 0 ({}) — Toast's loop "+
+			"`while (offset < subject_length)` never iterates for an empty subject "+
+			"(pcre_moo.cc:208)", got.Len())
+	}
+
+	// A genuine non-match on a NON-empty subject must also return {} (loop runs,
+	// pcre2_match returns NOMATCH, break -> empty list). Confirms the empty-subject
+	// short-circuit isn't masking the normal non-match path.
+	nm := builtinPcreMatch(ctx, []types.Value{
+		types.NewStr("foobar"),
+		types.NewStr("baz"),
+	})
+	if !nm.IsNormal() {
+		t.Fatalf("pcre_match(\"foobar\", \"baz\") returned error: %v", nm.Error)
+	}
+	if n := nm.Val.(types.ListValue).Len(); n != 0 {
+		t.Errorf("pcre_match(\"foobar\", \"baz\") = %d entries, want 0 ({})", n)
 	}
 }
 
