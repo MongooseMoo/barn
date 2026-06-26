@@ -51,4 +51,4 @@ None call `unique`; no NEW failures introduced.
 - After:  both PASS. Other red tests unchanged.
 
 ## Commit
-<filled below>
+`0b3918a` on branch `review/branch-stocktake-2026-06-25`.
