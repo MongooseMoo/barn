@@ -1,13 +1,17 @@
 package server
 
 import (
+	"context"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
 	dbstore "barn/db/store"
 	runtime "barn/scheduler"
 	"barn/types"
+
+	"github.com/coder/websocket"
 )
 
 // badAddrTransport is a Transport whose RemoteAddr returns an unparseable address.
@@ -101,34 +105,67 @@ func TestReview_ConnectionNameLookupFailedLookupDoesNotRewrite(t *testing.T) {
 	}
 }
 
-// TestReview_WebSocketWakeInputReaderDoesNotSetDeadline demonstrates that
-// WakeInputReader on a WebSocket-backed connection fails to interrupt a
-// blocking read. WebSocketTransport.WakeReader() is a no-op, which prevents
-// the fallback to SetReadDeadline(time.Now()) in WakeInputReader.
-// Consequence: graceful per-connection shutdown cannot unblock a WS reader.
-func TestReview_WebSocketWakeInputReaderDoesNotSetDeadline(t *testing.T) {
-	// NewWebSocketTransport with nil conn — we test only deadline-setting behavior,
-	// not actual network I/O.
-	wst := NewWebSocketTransport(nil, "test:1234")
+// blockingWSConn is an in-process stand-in for *websocket.Conn whose Read
+// parks until its context is cancelled — exactly how coder/websocket's real
+// Read behaves. It lets us assert the wake contract without an HTTP handshake
+// or a real port bind.
+type blockingWSConn struct {
+	reading chan struct{} // closed when Read first parks
+	once    sync.Once
+}
+
+func (c *blockingWSConn) Read(ctx context.Context) (websocket.MessageType, []byte, error) {
+	c.once.Do(func() { close(c.reading) })
+	<-ctx.Done()
+	return websocket.MessageText, nil, ctx.Err()
+}
+
+func (c *blockingWSConn) Write(context.Context, websocket.MessageType, []byte) error { return nil }
+func (c *blockingWSConn) Close(websocket.StatusCode, string) error                   { return nil }
+
+// TestReview_WebSocketWakeInputReaderInterruptsBlockedRead asserts the real
+// lifecycle contract: after WakeInputReader, a WebSocket read that is parked in
+// conn.Read MUST return promptly so conn.Close / graceful shutdown can proceed.
+//
+// Against the old no-op WakeReader() this test FAILS: WakeInputReader takes the
+// WakeReader path (the transport satisfies the interface), the no-op does
+// nothing, the in-flight read never unblocks, and the test times out.
+func TestReview_WebSocketWakeInputReaderInterruptsBlockedRead(t *testing.T) {
+	fake := &blockingWSConn{reading: make(chan struct{})}
+	wst := NewWebSocketTransport(fake, "test:1234")
 	conn := NewConnection(2, wst)
 
-	// After WakeInputReader, the WebSocket transport's deadline should be set to
-	// time.Now() (or past), so that any in-progress conn.Read(ctx) times out.
-	// If WakeReader() is a no-op and falls through to SetReadDeadline is skipped,
-	// the deadline stays zero and blocking reads are never interrupted.
+	done := make(chan error, 1)
+	go func() {
+		_, err := wst.ReadLine()
+		done <- err
+	}()
+
+	// Ensure the read is actually parked inside conn.Read(ctx) before we wake it.
+	select {
+	case <-fake.reading:
+	case <-time.After(2 * time.Second):
+		t.Fatal("read never started")
+	}
+
 	conn.WakeInputReader()
 
-	deadline := wst.readDeadline()
-	if deadline.IsZero() {
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("blocked WebSocket read returned nil error after WakeInputReader; expected interruption")
+		}
+	case <-time.After(2 * time.Second):
 		t.Fatal(
-			"WakeInputReader on a WebSocketTransport left readDeadline at zero: " +
-				"WakeReader() is a no-op (websocket_transport.go:85) and satisfies the " +
-				"WakeReader interface, preventing fallthrough to SetReadDeadline(time.Now()). " +
-				"Result: conn.Close() cannot interrupt a blocked WebSocket read.",
+			"WakeInputReader did not interrupt the blocked WebSocket read: " +
+				"WakeReader() failed to cancel the in-flight read context, so " +
+				"conn.Close()/graceful shutdown cannot unblock a parked WS reader.",
 		)
 	}
-	// Deadline should be <= now (in the past or present) to actually wake a reader.
-	if deadline.After(time.Now().Add(time.Second)) {
-		t.Fatalf("readDeadline %v is in the future — would not interrupt a current read", deadline)
+
+	// Secondary: the deadline is stamped so a read starting after the wake also
+	// returns immediately (matches TCPTransport's SetReadDeadline(time.Now())).
+	if d := wst.readDeadline(); d.IsZero() {
+		t.Fatal("WakeReader left readDeadline at zero")
 	}
 }
