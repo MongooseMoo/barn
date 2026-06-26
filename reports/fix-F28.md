@@ -68,4 +68,4 @@ go vet ./builtins/   # clean, no output
 
 ## Commit
 
-<filled after commit>
+`f395706` on `review/branch-stocktake-2026-06-25`
