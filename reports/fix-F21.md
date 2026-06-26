@@ -74,4 +74,4 @@ flipped red→green; `bytecode` is fully green.
 `go vet ./parser/` gate.)
 
 ## Commit
-`<filled in below>` on `review/branch-stocktake-2026-06-25`.
+`d9924c7` on `review/branch-stocktake-2026-06-25`.
