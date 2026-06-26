@@ -60,11 +60,26 @@ func TestReview_WaifSetPropertyMutatesOriginal(t *testing.T) {
 // distinct waif instances with the same class and identical properties are
 // considered equal, even though waif identity in MOO is reference-based.
 func TestReview_WaifEqualUsesDeepequalNotIdentity(t *testing.T) {
+	// Toast waif equality is REFERENCE IDENTITY, not structural: utils.cc:478
+	// (`equality`: `return lhs.v.waif == rhs.v.waif;`) and utils.cc:431 (the
+	// `compare` path: `return lhs.v.waif == rhs.v.waif ? 0 : 1;`). Both halves of
+	// that contract are pinned here.
 	w1 := NewWaif(1, 2)
 	w2 := NewWaif(1, 2)
-	// Two independently created waifs with same class/owner should NOT be equal
-	// (MOO waifs use reference identity), but Equal uses structural comparison.
+	// Half 1: two independently created waifs with same class/owner/props are
+	// distinct references and must NOT be equal.
 	if w1.Equal(w2) {
 		t.Fatal("BUG: two independently created WaifValues with same class/owner compare Equal — waif equality must use reference identity, not structural comparison")
+	}
+	// Even with identical property contents they remain unequal (no deep compare).
+	w1.SetProperty("x", NewInt(7))
+	w2.SetProperty("x", NewInt(7))
+	if w1.Equal(w2) {
+		t.Fatal("BUG: two distinct waifs with identical properties compare Equal — Equal must not deep-compare property contents")
+	}
+	// Half 2: two handles sharing the SAME underlying *waifData ARE equal.
+	w1alias := w1
+	if !w1.Equal(w1alias) {
+		t.Fatal("BUG: two WaifValue handles referencing the same underlying waif must compare Equal under reference identity")
 	}
 }

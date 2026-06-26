@@ -52,20 +52,20 @@ func (w WaifValue) String() string {
 
 // Equal checks if two waifs are equal.
 //
-// NOTE: Toast waif equality is reference identity (utils.cc:431,478:
-// `lhs.v.waif == rhs.v.waif`). That correction is finding F14 and is handled
-// separately; this still uses structural comparison and is intentionally left
-// for the F14 fix.
+// Waif equality is REFERENCE IDENTITY, matching ToastStunt: two waif Vars are
+// equal iff they hold the same `Waif *` pointer — Toast does NOT deep-compare
+// property contents. See utils.cc:478 (`equality`: `return lhs.v.waif ==
+// rhs.v.waif;`) and utils.cc:431 (the `compare` path: `return lhs.v.waif ==
+// rhs.v.waif ? 0 : 1;`). After the F4 representation change a WaifValue is a
+// thin handle over a shared `*waifData`, so identity is simply `data` pointer
+// equality. Two independently created waifs (distinct `*waifData`) are NOT
+// equal even if their class/owner/properties are identical (finding F14).
 func (w WaifValue) Equal(other Value) bool {
 	otherWaif, ok := other.(WaifValue)
 	if !ok {
 		return false
 	}
-	if w.data == nil || otherWaif.data == nil {
-		return w.data == otherWaif.data
-	}
-	return w.data.class == otherWaif.data.class &&
-		equalMaps(w.data.properties, otherWaif.data.properties)
+	return w.data == otherWaif.data
 }
 
 // Truthy returns whether the waif is truthy
@@ -126,18 +126,4 @@ func (w WaifValue) PropertyNames() []string {
 		names = append(names, name)
 	}
 	return names
-}
-
-// equalMaps checks if two property maps are equal
-func equalMaps(a, b map[string]Value) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key, valA := range a {
-		valB, ok := b[key]
-		if !ok || !valA.Equal(valB) {
-			return false
-		}
-	}
-	return true
 }
