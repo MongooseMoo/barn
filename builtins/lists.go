@@ -329,15 +329,22 @@ func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Use map to track seen values
-	seen := make(map[string]bool)
+	// Dedup using MOO value equality (.Equal), the same equality setadd uses
+	// (Toast list.cc setadd -> ismember(.., case_matters=0), case-insensitive for
+	// strings). unique is a set-dedup operation, so it must agree with setadd: an
+	// element setadd treats as a duplicate must also be collapsed here. A prior
+	// elem.String() map key was case-SENSITIVE and disagreed with setadd.
 	var unique []types.Value
-
 	for i := 1; i <= list.Len(); i++ {
 		elem := list.Get(i)
-		key := elem.String() // Use string representation as key
-		if !seen[key] {
-			seen[key] = true
+		dup := false
+		for _, seen := range unique {
+			if seen.Equal(elem) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
 			unique = append(unique, elem)
 		}
 	}
