@@ -65,4 +65,4 @@ ok  	barn/types	0.262s
   failures introduced; the only file changed is `types/obj.go`.
 
 ## Commit
-COMMIT_HASH_PLACEHOLDER
+ffe6704
