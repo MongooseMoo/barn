@@ -285,6 +285,16 @@ func sqliteLimitCategory(v types.Value) (int64, types.ErrorCode) {
 	}
 }
 
+// sqliteOpenError mirrors Toast's make_raise_pack(E_NONE, err, zero) on sqlite3_open failure.
+func sqliteOpenError(msg string) types.Result {
+	exceptionList := types.NewList([]types.Value{
+		types.NewErr(types.E_NONE),
+		types.NewStr(msg),
+		types.NewInt(0),
+	})
+	return types.Result{Flow: types.FlowException, Error: types.E_NONE, Val: exceptionList}
+}
+
 func builtinSqliteOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
@@ -309,12 +319,12 @@ func builtinSqliteOpen(ctx *kernel.TaskContext, args []types.Value) types.Result
 		if err != nil {
 			return types.Err(types.E_INVARG)
 		}
-		path = sanitized
+		path = resolveFilePath(sanitized)
 	}
 
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
-		return types.Err(types.E_FILE)
+		return sqliteOpenError(err.Error())
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
@@ -322,7 +332,7 @@ func builtinSqliteOpen(ctx *kernel.TaskContext, args []types.Value) types.Result
 	conn, err := db.Conn(context.Background())
 	if err != nil {
 		_ = db.Close()
-		return types.Err(types.E_FILE)
+		return sqliteOpenError(err.Error())
 	}
 
 	sqliteState.mu.Lock()
