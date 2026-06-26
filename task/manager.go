@@ -148,8 +148,12 @@ func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.Ob
 func (m *Manager) SuspendTask(task *Task, seconds float64) {
 	switch {
 	case seconds < 0:
-		// Indefinite suspension (requires explicit resume()).
-		task.Suspend(0)
+		// Indefinite suspension (requires explicit resume()). Stamp a
+		// far-future StartTime sentinel so the task sorts LAST in
+		// queued_tasks(), mirroring ToastStunt's INTNUM_MAX start_tv for an
+		// indefinite suspend (tasks.cc:1306-1307). WakeTime stays zero so it
+		// never auto-wakes — only an explicit resume() wakes it.
+		task.SuspendIndefinite()
 	case seconds == 0:
 		// suspend(0) is a scheduler yield point; queue immediately.
 		task.Suspend(0)

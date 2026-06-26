@@ -163,10 +163,6 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 	earlier := task.NewTask(earlierID, 1, 10000, 30)
 	later := task.NewTask(laterID, 1, 10000, 30)
 
-	// Give them clearly distinct start times.
-	earlier.StartTime = time.Now().Add(-10 * time.Second)
-	later.StartTime = time.Now()
-
 	// Set a non-empty verb name so GetQueuedTasks does not filter them as
 	// eval scaffolding (which filters IsForked && VerbName == "").
 	earlier.VerbName = "review_earlier_verb"
@@ -176,6 +172,11 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 	mgr.RegisterTask(later)
 	mgr.SuspendTask(earlier, -1)
 	mgr.SuspendTask(later, -1)
+	// Give them clearly distinct start times. SuspendTask(-1) stamps the
+	// indefinite-suspend sentinel onto StartTime, so override it AFTERWARDS to
+	// exercise the ascending comparator with two distinct, finite start times.
+	earlier.StartTime = time.Now().Add(-10 * time.Second)
+	later.StartTime = time.Now()
 	defer mgr.RemoveTask(earlierID)
 	defer mgr.RemoveTask(laterID)
 
@@ -225,6 +226,92 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 				"Fix: change After to Before in the sort.SliceStable call.",
 			laterIdx, earlierIdx,
 		)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F28v2: an indefinitely-suspended task must sort LAST in queued_tasks().
+//
+// ToastStunt's enqueue_suspended_task sets start_tv.tv_sec = INTNUM_MAX for an
+// indefinite suspend (no/negative seconds; tasks.cc:1306-1307), so it sorts
+// after every timed task. Under Barn's ascending comparator (F28), an
+// indefinitely-suspended task must therefore appear AFTER a later-scheduled
+// timed (e.g. fork) task. Regression guard for verify-F28.md's
+// waif::queued_tasks_returns_valid_waifs_for_programmers failure: a fork(100)
+// task (:c) and an indefinite suspend() task (:a) must come out :c then :a.
+// ---------------------------------------------------------------------------
+
+func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
+	mgr := task.GetManager()
+
+	const timedID = int64(88811)
+	const indefID = int64(88812)
+
+	timed := task.NewTask(timedID, 1, 10000, 30)
+	indef := task.NewTask(indefID, 1, 10000, 30)
+
+	timed.VerbName = "review_timed_verb"
+	indef.VerbName = "review_indef_verb"
+
+	mgr.RegisterTask(timed)
+	mgr.RegisterTask(indef)
+
+	// timed: a future-scheduled task (mirrors fork(100)). Finite start time.
+	timed.StartTime = time.Now().Add(100 * time.Second)
+	// indef: indefinite suspend() — SuspendTask(-1) stamps the far-future
+	// IndefiniteSuspendStartTime sentinel onto StartTime.
+	mgr.SuspendTask(indef, -1)
+	timed.SetState(task.TaskSuspended)
+
+	defer mgr.RemoveTask(timedID)
+	defer mgr.RemoveTask(indefID)
+
+	// Sanity: the indefinite suspend got the far-future sentinel and no wake
+	// deadline (so the scheduler never auto-wakes it).
+	if !indef.StartTime.Equal(task.IndefiniteSuspendStartTime) {
+		t.Fatalf("indefinite-suspended task StartTime = %v, want sentinel %v",
+			indef.StartTime, task.IndefiniteSuspendStartTime)
+	}
+	if indef.WakeDue(time.Now()) {
+		t.Fatalf("indefinite-suspended task reported WakeDue=true; it must never auto-wake")
+	}
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+
+	res := builtinQueuedTasks(ctx, []types.Value{})
+	if res.IsError() {
+		t.Fatalf("queued_tasks() error: %v", res.Error)
+	}
+	list, ok := res.Val.(types.ListValue)
+	if !ok {
+		t.Fatalf("expected list result, got %T", res.Val)
+	}
+
+	timedIdx, indefIdx := 0, 0
+	for i := 1; i <= list.Len(); i++ {
+		entry, ok := list.Get(i).(types.ListValue)
+		if !ok {
+			continue
+		}
+		idVal, ok := entry.Get(1).(types.IntValue)
+		if !ok {
+			continue
+		}
+		switch idVal.Val {
+		case timedID:
+			timedIdx = i
+		case indefID:
+			indefIdx = i
+		}
+	}
+
+	if timedIdx == 0 || indefIdx == 0 {
+		t.Fatalf("could not find both tasks in queued_tasks() (timedIdx=%d indefIdx=%d)", timedIdx, indefIdx)
+	}
+	if indefIdx < timedIdx {
+		t.Fatalf("indefinite-suspended task sorted at %d BEFORE timed task at %d; "+
+			"it must sort LAST (mirror Toast INTNUM_MAX start_tv)", indefIdx, timedIdx)
 	}
 }
 

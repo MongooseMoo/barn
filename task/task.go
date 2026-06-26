@@ -373,6 +373,15 @@ func (t *Task) SetBytecodeVM(machine interface{}) {
 	t.BytecodeVM = machine
 }
 
+// IndefiniteSuspendStartTime is the sentinel StartTime stamped on an
+// indefinitely-suspended task (suspend() with no/negative seconds). It mirrors
+// ToastStunt's enqueue_suspended_task, which sets start_tv.tv_sec = INTNUM_MAX
+// for an indefinite suspend (tasks.cc:1306-1307) so the task sorts AFTER every
+// timed task in queued_tasks(). It is a far-future instant so the ascending
+// queued_tasks comparator orders such tasks last. WakeTime is deliberately left
+// zero so the scheduler never auto-wakes it — only an explicit resume() does.
+var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
+
 // Suspend suspends the task for a duration
 func (t *Task) Suspend(duration time.Duration) {
 	t.mu.Lock()
@@ -381,6 +390,18 @@ func (t *Task) Suspend(duration time.Duration) {
 	if duration > 0 {
 		t.WakeTime = time.Now().Add(duration)
 	}
+}
+
+// SuspendIndefinite suspends the task with no wake deadline (suspend() with
+// no/negative seconds). The task waits for an explicit resume() and must never
+// auto-wake, so WakeTime stays zero. StartTime is stamped with the far-future
+// IndefiniteSuspendStartTime sentinel so the task sorts LAST in queued_tasks()
+// (ascending by start time), matching ToastStunt's INTNUM_MAX start_tv.
+func (t *Task) SuspendIndefinite() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.State = TaskSuspended
+	t.StartTime = IndefiniteSuspendStartTime
 }
 
 // Resume resumes the task with a value
@@ -397,6 +418,15 @@ func (t *Task) Resume(value types.Value) bool {
 	}
 	t.State = TaskQueued
 	t.WakeValue = value
+	// An indefinitely-suspended task carries the far-future
+	// IndefiniteSuspendStartTime sentinel so it sorts last in queued_tasks().
+	// Once explicitly resumed it must become runnable now, but the scheduler's
+	// readiness gate keys off StartTime (scheduler.go: !StartTime.After(now)),
+	// so clear the sentinel back to now. runTask() re-stamps StartTime when the
+	// resumed VM actually runs, so this only affects the brief queued window.
+	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
+		t.StartTime = time.Now()
+	}
 	return true
 }
 
