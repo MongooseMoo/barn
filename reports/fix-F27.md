@@ -79,4 +79,4 @@ go vet ./vm/                              → 1 PRE-EXISTING note only:
 ```
 
 ## Commit
-`<filled below>` on `review/branch-stocktake-2026-06-25`.
+`aa6f82fd1b763bbd2ce0ce010dd10fc049d8e369` on `review/branch-stocktake-2026-06-25`.
