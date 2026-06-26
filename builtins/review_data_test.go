@@ -19,20 +19,30 @@ func reviewDataCtx() *kernel.TaskContext {
 
 // ── MATH ──────────────────────────────────────────────────────────────────────
 
-// CRITICAL: abs(math.MinInt64) silently overflows back to MinInt64.
-// Toast raises E_FLOAT for integer overflow. Barn returns the same
-// negative value because -MinInt64 overflows in two's-complement.
+// abs(math.MinInt64) returns MinInt64 UNCHANGED — this matches Toast.
+// Toast's bf_abs (toaststunt/src/numbers.cc:513-526) does a plain integer
+// negation with NO overflow check:
+//
+//	if (r.type == TYPE_INT) {
+//	    if (r.v.num < 0)
+//	        r.v.num = -r.v.num;
+//	}
+//
+// On INT_MIN, C's two's-complement `-x` overflows back to INT_MIN (still
+// negative), and Toast returns it as-is — no E_FLOAT, no E_INVARG. Verified
+// with the WSL oracle: `abs(-9223372036854775807 - 1)` => -9223372036854775808.
+// Barn's builtinAbs (math.go:27-30) mirrors this exactly, so it is correct.
+// This test pins that behavior to prevent a well-meaning "overflow check"
+// regression that would diverge from Toast.
 func TestReview_Data_AbsMinInt64Overflow(t *testing.T) {
 	ctx := reviewDataCtx()
 	result := builtinAbs(ctx, []types.Value{types.NewInt(math.MinInt64)})
-	// Must be an error, NOT a value. The "result" is still negative which is nonsensical.
-	if result.IsNormal() {
-		got := result.Val.(types.IntValue).Val
-		if got < 0 {
-			t.Errorf("abs(MinInt64) = %d (negative!), want an error", got)
-		}
-		// Even if positive, it's wrong — MinInt64 has no positive int64 representation.
-		t.Errorf("abs(MinInt64) returned a value %d instead of an error", got)
+	if !result.IsNormal() {
+		t.Fatalf("abs(MinInt64) returned error %v, want value MinInt64 (Toast returns it unchanged)", result.Error)
+	}
+	got := result.Val.(types.IntValue).Val
+	if got != math.MinInt64 {
+		t.Errorf("abs(MinInt64) = %d, want %d (two's-complement overflow; matches Toast bf_abs)", got, int64(math.MinInt64))
 	}
 }
 
