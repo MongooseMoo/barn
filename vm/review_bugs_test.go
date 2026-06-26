@@ -133,6 +133,28 @@ func TestReview_ContainsWaifFalsePositive_SameClassOwnerDistinctInstances(t *tes
 			"should compare by instance identity, not class+owner " +
 			"(collection_helpers.go:62)")
 	}
+
+	// True-positive half: genuine containment by the SAME instance MUST be
+	// detected (matches Toast refers_to, waif.cc:250 pointer identity).
+	// 1) The target waif IS itself.
+	if !containsWaif(waifA, waifA) {
+		t.Error("containsWaif(waifA, waifA) = false; a waif must contain itself (instance identity)")
+	}
+	// 2) The target nested inside a list.
+	if !containsWaif(types.NewList([]types.Value{waifA}), waifA) {
+		t.Error("containsWaif({waifA}, waifA) = false; should detect target inside a list")
+	}
+	// 3) The target held in another waif's property (Toast recurses into
+	//    waif propvals, waif.cc:252-256). waifB holds waifA on .child.
+	container := types.NewWaif(2, 0)
+	container.SetProperty("child", waifA)
+	if !containsWaif(container, waifA) {
+		t.Error("containsWaif(container, waifA) = false; should detect target stored in another waif's property")
+	}
+	// Distinct same-class instance in that property must still NOT match waifB.
+	if containsWaif(container, waifB) {
+		t.Error("containsWaif(container, waifB) = true; distinct instance must not match via class+owner")
+	}
 }
 
 // ---------------------------------------------------------------------------
