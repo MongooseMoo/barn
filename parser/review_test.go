@@ -54,9 +54,21 @@ func TestReview_UnparseForWithIndexVar(t *testing.T) {
 	lines := UnparseProgram(stmts)
 	got := strings.Join(lines, "\n")
 
-	// The unparser must preserve `x, k in (mylist)`, not emit a garbage range.
-	if !strings.Contains(got, "x, k in") {
-		t.Fatalf("BUG: UnparseProgram for for-with-index-variable produced wrong output:\n%s\n\nExpected output containing 'x, k in (mylist)'", got)
+	// The unparser must emit the `for value, index in (container)` surface
+	// (ToastStunt parser.y:160-174), preserving the label, not a garbage range.
+	if !strings.Contains(got, "for L x, k in (mylist)") {
+		t.Fatalf("BUG: UnparseProgram for for-with-index-variable produced wrong output:\n%s\n\nExpected output containing 'for L x, k in (mylist)'", got)
+	}
+
+	// Round-trip: the unparsed source must re-parse and re-unparse identically.
+	p2 := NewParser(got)
+	stmts2, err := p2.ParseProgram()
+	if err != nil {
+		t.Fatalf("BUG: unparsed for-with-index source failed to re-parse: %v\nsource:\n%s", err, got)
+	}
+	got2 := strings.Join(UnparseProgram(stmts2), "\n")
+	if got != got2 {
+		t.Fatalf("BUG: for-with-index round-trip not stable:\nfirst:\n%s\nsecond:\n%s", got, got2)
 	}
 }
 
