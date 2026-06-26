@@ -399,24 +399,17 @@ func (p *Parser) parseReturnStatement() (Stmt, error) {
 	}, nil
 }
 
-// parseBreakStatement parses break statements
-// Syntax: break; OR break expr;
-// The expr becomes the value of the enclosing loop
+// parseBreakStatement parses break statements.
+// Syntax: break; OR break ID; where ID names an enclosing loop.
+// Mirrors parseContinueStatement (ToastStunt parser.y:241-252).
 func (p *Parser) parseBreakStatement() (Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'break'
 
-	var value Expr
 	var label string
-
-	// Check for optional expression or label
-	if p.current.Type != TOKEN_SEMICOLON {
-		// Parse expression
-		expr, err := p.ParseExpression(0)
-		if err != nil {
-			return nil, fmt.Errorf("error in break value: %w", err)
-		}
-		value = expr
+	if p.current.Type == TOKEN_IDENTIFIER {
+		label = p.current.Value
+		p.nextToken()
 	}
 
 	// Expect semicolon
@@ -428,7 +421,6 @@ func (p *Parser) parseBreakStatement() (Stmt, error) {
 	return &BreakStmt{
 		Pos:   pos,
 		Label: label,
-		Value: value,
 	}, nil
 }
 

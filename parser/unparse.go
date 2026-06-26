@@ -115,9 +115,6 @@ func unparseStmt(stmt Stmt, indent int) string {
 		return strings.TrimSuffix(sb.String(), "\n")
 
 	case *BreakStmt:
-		if s.Value != nil {
-			return indentStr + "break " + unparseExpr(s.Value, precedenceLowest) + ";"
-		}
 		if s.Label != "" {
 			return indentStr + "break " + s.Label + ";"
 		}

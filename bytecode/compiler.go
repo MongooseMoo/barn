@@ -2231,34 +2231,15 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 }
 
 func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
-	label := n.Label
-	valueExpr := n.Value
-
-	// "break ident;" is ambiguous between a loop target and a value expression.
-	// If a loop target (label/value/index name) with that identifier exists,
-	// treat it as a targeted break.
-	if label == "" && valueExpr != nil {
-		if ident, ok := valueExpr.(*parser.IdentifierExpr); ok {
-			if c.findLoopByTarget(ident.Name) != nil {
-				label = ident.Name
-				valueExpr = nil
-			}
-		}
+	// Mirror compileContinue: an explicit loop name must resolve to an
+	// enclosing loop, otherwise raise "Invalid loop name" (ToastStunt
+	// parser.y:1205-1206, check_loop_name LOOP_BREAK).
+	loop := c.findLoopByTarget(n.Label)
+	if loop == nil && n.Label != "" {
+		return fmt.Errorf("Invalid loop name")
 	}
-
-	loop := c.findLoopByTarget(label)
 	if loop == nil {
 		return fmt.Errorf("break outside of loop")
-	}
-
-	// If break has a value expression, compile it and store to loop result variable.
-	// Otherwise the result variable already holds the default (0).
-	if valueExpr != nil {
-		if err := c.compileNode(valueExpr); err != nil {
-			return err
-		}
-		c.emit(OP_SET_VAR)
-		c.emitByte(byte(loop.ResultVar))
 	}
 
 	// Emit a forward jump past the loop end (will be patched by endLoop)
