@@ -54,10 +54,24 @@ func (o ObjValue) Truthy() bool {
 	return false
 }
 
-// Equal compares two values for equality
+// Equal compares two values for equality.
+//
+// This mirrors ToastStunt's equality() (src/utils.cc:444): it switches on the
+// value type FIRST, so values of different types never compare equal (the
+// cross-type fall-through returns 0, src/utils.cc:484). A regular object is
+// TYPE_OBJ and an anonymous object is TYPE_ANON, so they are never equal even
+// with the same numeric id. Within a type:
+//   - TYPE_OBJ compares by id (utils.cc:455: lhs.v.obj == rhs.v.obj).
+//   - TYPE_ANON compares by reference identity (utils.cc:476: lhs.v.anon ==
+//     rhs.v.anon). Barn's ObjValue does not carry an anon pointer/handle — it
+//     only has the numeric id — so we approximate anon identity with id
+//     equality. This is correct for distinguishing anon from regular and for
+//     comparing the same anon handle to itself; it cannot detect two distinct
+//     anon instances that happen to share an id (a known limitation of the
+//     ObjValue representation).
 func (o ObjValue) Equal(other Value) bool {
 	if otherObj, ok := other.(ObjValue); ok {
-		return o.id == otherObj.id
+		return o.anonymous == otherObj.anonymous && o.id == otherObj.id
 	}
 	return false
 }
