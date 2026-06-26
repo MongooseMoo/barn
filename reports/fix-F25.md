@@ -58,4 +58,4 @@ set_verb_code. Therefore no change is made here per the prompt's instructions.
 F25, and has no red test — out of scope for this fix.)
 
 ## Commit
-See `git log` on `review/branch-stocktake-2026-06-25`.
+`c98f3ec168c3aa9b3ba641b9396370028007d929` on `review/branch-stocktake-2026-06-25`.
