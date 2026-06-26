@@ -721,19 +721,34 @@ func (cm *ConnectionManager) ConnectionNameLookup(player types.ObjID, rewrite bo
 		return "", fmt.Errorf("connection not found")
 	}
 
-	host, _, err := net.SplitHostPort(conn.RemoteAddr())
+	// SplitHostPort fails when RemoteAddr() carries no parseable host:port; that
+	// failure is signalled by the empty host, in which case we fall back to the
+	// raw address (the deterministic numeric value, matching Toast's behavior).
+	host, _, _ := net.SplitHostPort(conn.RemoteAddr())
 	host = strings.Trim(host, "[]")
 	if host == "" {
 		host = conn.RemoteAddr()
 	}
 
-	names, err := net.LookupAddr(host)
+	// Reverse-DNS lookup. On failure, deterministically fall back to the numeric
+	// host. Toast does the same (network.cc:985 get_nameinfo -> get_ntop numeric
+	// fallback; network.cc:1593 keeps the existing name on getaddrinfo failure)
+	// and never surfaces a lookup error to MOO — so we keep the (string, error)
+	// error channel reserved for "connection not found" above.
 	resolved := host
-	if err == nil && len(names) > 0 {
+	names, lookupErr := net.LookupAddr(host)
+	lookupOK := lookupErr == nil && len(names) > 0
+	if lookupOK {
 		resolved = strings.TrimSuffix(names[0], ".")
 	}
 
-	if rewrite {
+	// Only overwrite the cached connection name when the lookup actually
+	// succeeded. Toast gates the rewrite on the lookup status (server.cc:2980,
+	// `rewrite_connect_name && status == 0`); previously Barn ignored lookupErr
+	// and rewrote the name to the numeric fallback on every failure, corrupting
+	// the value returned by connection_name(). The lookup error now drives that
+	// decision instead of being silently discarded.
+	if rewrite && lookupOK {
 		conn.SetResolvedName(resolved)
 	}
 	return resolved, nil

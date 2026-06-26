@@ -55,23 +55,48 @@ func TestReview_FallbackLoginReturnsWizardWithNoLoginHandler(t *testing.T) {
 	}
 }
 
-// TestReview_ConnectionNameLookupNeverErrors demonstrates that
-// ConnectionNameLookup always returns a nil error, even when the connection's
-// remote address is malformed and the lookup fails. Callers expecting error
-// propagation get a silent partial result instead.
-func TestReview_ConnectionNameLookupNeverErrors(t *testing.T) {
+// TestReview_ConnectionNameLookupFailedLookupDoesNotRewrite pins the true
+// ToastStunt contract for connection_name_lookup when reverse DNS fails:
+//   - the call returns the deterministic numeric fallback (the raw host) with
+//     NO error surfaced to MOO (Toast: network.cc:985,1593 — get_ntop / keep
+//     existing name; only a missing connection is an error), and
+//   - the cached connection name is NOT rewritten on a failed lookup (Toast
+//     gates the rewrite on lookup success, server.cc:2980 `status == 0`).
+//
+// The previous code silently discarded net.LookupAddr's error and rewrote the
+// stored name to the numeric fallback on EVERY failure, corrupting the value
+// later returned by connection_name(). This test fails against that code.
+func TestReview_ConnectionNameLookupFailedLookupDoesNotRewrite(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	conn := cm.NewConnectionFromTransport(badAddrTransport{})
 
-	// The remote addr "not-a-valid-addr" will cause net.SplitHostPort to fail
-	// and net.LookupAddr to fail. ConnectionNameLookup should surface that error
-	// rather than always returning (resolved, nil).
-	_, err := cm.ConnectionNameLookup(types.ObjID(-conn.ID), false)
-	if err == nil {
-		t.Fatal(
-			"ConnectionNameLookup returned nil error for an invalid remote address: " +
-				"errors from net.SplitHostPort and net.LookupAddr are silently discarded " +
-				"(connection_manager.go:739 always returns `resolved, nil`)",
+	// The remote addr "not-a-valid-addr" makes net.SplitHostPort and the
+	// reverse net.LookupAddr fail in-process (no network).
+	name, err := cm.ConnectionNameLookup(types.ObjID(-conn.ID), true /* rewrite */)
+	if err != nil {
+		t.Fatalf(
+			"ConnectionNameLookup surfaced an error for a failed reverse lookup: %v; "+
+				"Toast falls back to the numeric host without raising to MOO "+
+				"(only a missing connection is an error)",
+			err,
+		)
+	}
+	if name != "not-a-valid-addr" {
+		t.Fatalf(
+			"ConnectionNameLookup returned %q; expected the deterministic numeric "+
+				"fallback %q on a failed reverse lookup", name, "not-a-valid-addr",
+		)
+	}
+
+	// The decisive assertion: a FAILED lookup must not overwrite the cached
+	// connection name (Toast skips the rewrite unless status == 0). Old code
+	// called SetResolvedName(resolved) unconditionally, leaving it set here.
+	if got := conn.GetResolvedName(); got != "" {
+		t.Fatalf(
+			"failed reverse lookup rewrote the cached connection name to %q: "+
+				"net.LookupAddr's error was silently discarded and the rewrite ran "+
+				"anyway (connection_manager.go), diverging from Toast which only "+
+				"rewrites on a successful lookup (server.cc:2980)", got,
 		)
 	}
 }
