@@ -67,4 +67,5 @@ ok  	barn/db/store	0.253s
 
 ## Commit
 
-<filled in after commit>
+`18346179c95d052f8abd2a1c6cdb7545ddab9eed` on branch
+`review/branch-stocktake-2026-06-25` (report hash recorded post-commit).
