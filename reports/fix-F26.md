@@ -79,4 +79,5 @@ seek-save/seek-restore behavior are preserved.
 
 ## Commit
 
-`COMMIT_HASH_PLACEHOLDER` on `review/branch-stocktake-2026-06-25`.
+`eaaa40f2018a63e5cb9557819cfd957626901a50` on
+`review/branch-stocktake-2026-06-25`.
