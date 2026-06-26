@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash"
+	"strconv"
 	"strings"
 
 	"barn/kernel"
@@ -436,101 +437,327 @@ func cryptPassword(password, salt string) (string, error) {
 	return result, nil
 }
 
-// cryptMD5 implements MD5 crypt ($1$)
+// ----------------------------------------------------------------------------
+// Standard Unix crypt(3) password hashing: md5crypt ($1$), sha256crypt ($5$),
+// sha512crypt ($6$).
+//
+// These implement the EXACT algorithms that glibc crypt(3) uses, which is what
+// ToastStunt delegates to for these schemes (toaststunt/src/crypto.cc:373,
+// bf_crypt -> system crypt(string, salt)).  sha256crypt/sha512crypt follow
+// Ulrich Drepper's SHA-crypt specification (http://www.akkadia.org/drepper/
+// SHA-crypt.txt); md5crypt follows Poul-Henning Kamp's FreeBSD MD5-crypt.
+//
+// The rounds= parameter is HONORED, with clamping ONLY as the spec defines
+// (1000..999999999, default 5000) -- never a silent 1000 cap.  The algorithm
+// and the GNU base64 output ordering are ported from the well-known pure-Go
+// implementation github.com/GehirnInc/crypt (BSD-licensed), which is verified
+// against the published Drepper/glibc known-answer vectors.
+// ----------------------------------------------------------------------------
+
+const (
+	shaCryptRoundsMin     = 1000
+	shaCryptRoundsMax     = 999999999
+	shaCryptRoundsDefault = 5000
+	shaCryptSaltLenMax    = 16
+	md5CryptSaltLenMax    = 8
+)
+
+// cryptB64Alphabet is the GNU/crypt base64 alphabet used by md5crypt and
+// SHA-crypt (note: starts with "./", differs from standard base64).
+const cryptB64Alphabet = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// cryptBase64_24Bit encodes bytes using the crypt-specific base64 variant that
+// processes up to 3 bytes at a time in little-endian 6-bit groups, emitting no
+// padding.  Matches glibc's b64_from_24bit ordering.
+func cryptBase64_24Bit(src []byte) []byte {
+	if len(src) == 0 {
+		return []byte{}
+	}
+	dst := make([]byte, (len(src)*8+5)/6)
+	di, si := 0, 0
+	n := len(src) / 3 * 3
+	for si < n {
+		val := uint(src[si+2])<<16 | uint(src[si+1])<<8 | uint(src[si])
+		dst[di+0] = cryptB64Alphabet[val&0x3f]
+		dst[di+1] = cryptB64Alphabet[val>>6&0x3f]
+		dst[di+2] = cryptB64Alphabet[val>>12&0x3f]
+		dst[di+3] = cryptB64Alphabet[val>>18]
+		di += 4
+		si += 3
+	}
+	rem := len(src) - si
+	if rem == 0 {
+		return dst
+	}
+	val := uint(src[si+0])
+	if rem == 2 {
+		val |= uint(src[si+1]) << 8
+	}
+	dst[di+0] = cryptB64Alphabet[val&0x3f]
+	dst[di+1] = cryptB64Alphabet[val>>6&0x3f]
+	if rem == 2 {
+		dst[di+2] = cryptB64Alphabet[val>>12]
+	}
+	return dst
+}
+
+// cryptRepeatBytes returns a slice of the given length filled by repeating
+// input (the "seq" construction from the SHA-crypt spec, steps 16/20).
+func cryptRepeatBytes(input []byte, length int) []byte {
+	if len(input) == 0 {
+		return make([]byte, length)
+	}
+	out := make([]byte, length)
+	for i := 0; i < length; i += len(input) {
+		copy(out[i:], input)
+	}
+	return out
+}
+
+// parseCryptSalt parses a "$<id>$[rounds=N$]salt" prefix.  It returns the salt
+// (truncated to saltLenMax, terminated at the next '$'), the effective rounds
+// (clamped to [shaCryptRoundsMin, shaCryptRoundsMax]), and whether a rounds=
+// parameter was explicitly present.  hasRounds controls whether the rounds=
+// parameter is recognized (md5crypt has no rounds).
+func parseCryptSalt(salt, magic string, hasRounds bool, saltLenMax int) (saltValue string, rounds int, roundsGiven bool) {
+	rounds = shaCryptRoundsDefault
+	rest := strings.TrimPrefix(salt, magic)
+	if hasRounds && strings.HasPrefix(rest, "rounds=") {
+		afterEq := rest[len("rounds="):]
+		if dollar := strings.IndexByte(afterEq, '$'); dollar >= 0 {
+			if n, err := strconv.Atoi(afterEq[:dollar]); err == nil {
+				rounds = n
+				if rounds < shaCryptRoundsMin {
+					rounds = shaCryptRoundsMin
+				}
+				if rounds > shaCryptRoundsMax {
+					rounds = shaCryptRoundsMax
+				}
+				roundsGiven = true
+				rest = afterEq[dollar+1:]
+			}
+		}
+	}
+	// Salt ends at the next '$' (the hash separator) if present.
+	if dollar := strings.IndexByte(rest, '$'); dollar >= 0 {
+		rest = rest[:dollar]
+	}
+	if len(rest) > saltLenMax {
+		rest = rest[:saltLenMax]
+	}
+	return rest, rounds, roundsGiven
+}
+
+// cryptMD5 implements Poul-Henning Kamp's MD5-crypt ($1$), the algorithm used
+// by glibc crypt(3) for the "$1$" prefix.
 func cryptMD5(password, salt string) (string, error) {
-	// Extract salt value (between $1$ and next $ or end)
-	saltValue := extractSalt(salt, "$1$")
-	if saltValue == "" {
-		saltValue = generateRandomSalt(8)
+	// A random salt is only synthesized when no salt argument was supplied at
+	// all; "$1$$" is a deliberately EMPTY salt (matches glibc crypt(3)).
+	if salt == "" {
+		salt = "$1$" + generateRandomSalt(md5CryptSaltLenMax)
 	}
-	// Simplified MD5 crypt - hash password + salt
+	saltValue, _, _ := parseCryptSalt(salt, "$1$", false, md5CryptSaltLenMax)
+	key := []byte(password)
+	saltB := []byte(saltValue)
+	keyLen := len(key)
+
+	// Compute sumB = MD5(key || salt || key)
 	h := md5.New()
-	h.Write([]byte(password))
-	h.Write([]byte(saltValue))
-	hashBytes := h.Sum(nil)
-	return "$1$" + saltValue + "$" + base64Encode(hashBytes), nil
+	h.Write(key)
+	h.Write(saltB)
+	h.Write(key)
+	sumB := h.Sum(nil)
+
+	// Compute sumA = MD5(key || "$1$" || salt || repeat(sumB, keyLen) || ...)
+	h.Reset()
+	h.Write(key)
+	h.Write([]byte("$1$"))
+	h.Write(saltB)
+	h.Write(cryptRepeatBytes(sumB, keyLen))
+	for i := keyLen; i > 0; i >>= 1 {
+		if i%2 == 0 {
+			h.Write(key[0:1])
+		} else {
+			h.Write([]byte{0})
+		}
+	}
+	sumA := h.Sum(nil)
+
+	// 1000 rounds of strengthening.
+	for i := 0; i < 1000; i++ {
+		h.Reset()
+		if i%2 != 0 {
+			h.Write(key)
+		} else {
+			h.Write(sumA)
+		}
+		if i%3 != 0 {
+			h.Write(saltB)
+		}
+		if i%7 != 0 {
+			h.Write(key)
+		}
+		if i&1 != 0 {
+			h.Write(sumA)
+		} else {
+			h.Write(key)
+		}
+		copy(sumA, h.Sum(nil))
+	}
+
+	out := cryptBase64_24Bit([]byte{
+		sumA[12], sumA[6], sumA[0],
+		sumA[13], sumA[7], sumA[1],
+		sumA[14], sumA[8], sumA[2],
+		sumA[15], sumA[9], sumA[3],
+		sumA[5], sumA[10], sumA[4],
+		sumA[11],
+	})
+	return "$1$" + saltValue + "$" + string(out), nil
 }
 
-// cryptSHA256 implements SHA256 crypt ($5$)
+// cryptSHA256 implements Ulrich Drepper's sha256crypt ($5$), the algorithm used
+// by glibc crypt(3) for the "$5$" prefix.  rounds= is honored (clamped only to
+// the spec range 1000..999999999, default 5000).
 func cryptSHA256(password, salt string) (string, error) {
-	// Parse rounds if present
-	prefix := "$5$"
-	rounds := 5000
-	saltValue := ""
-
-	if strings.HasPrefix(salt, "$5$rounds=") {
-		// Extract rounds
-		rest := salt[10:] // skip "$5$rounds="
-		dollarIdx := strings.Index(rest, "$")
-		if dollarIdx > 0 {
-			fmt.Sscanf(rest[:dollarIdx], "%d", &rounds)
-			saltValue = extractSalt(rest[dollarIdx+1:], "")
-			prefix = fmt.Sprintf("$5$rounds=%d$", rounds)
-		}
-	} else {
-		saltValue = extractSalt(salt, "$5$")
+	if salt == "" {
+		salt = "$5$" + generateRandomSalt(shaCryptSaltLenMax)
 	}
-
-	if saltValue == "" {
-		saltValue = generateRandomSalt(16)
+	saltValue, rounds, roundsGiven := parseCryptSalt(salt, "$5$", true, shaCryptSaltLenMax)
+	sumA := shaCryptDigest(sha256.New, []byte(password), []byte(saltValue), rounds)
+	ordered := []byte{
+		sumA[20], sumA[10], sumA[0],
+		sumA[11], sumA[1], sumA[21],
+		sumA[2], sumA[22], sumA[12],
+		sumA[23], sumA[13], sumA[3],
+		sumA[14], sumA[4], sumA[24],
+		sumA[5], sumA[25], sumA[15],
+		sumA[26], sumA[16], sumA[6],
+		sumA[17], sumA[7], sumA[27],
+		sumA[8], sumA[28], sumA[18],
+		sumA[29], sumA[19], sumA[9],
+		sumA[30], sumA[31],
 	}
-
-	// Limit rounds for test performance
-	actualRounds := rounds
-	if actualRounds > 1000 {
-		actualRounds = 1000
-	}
-
-	// Simplified SHA256 crypt
-	h := sha256.New()
-	h.Write([]byte(password))
-	h.Write([]byte(saltValue))
-	for i := 0; i < actualRounds; i++ {
-		h.Write(h.Sum(nil))
-	}
-	hashBytes := h.Sum(nil)
-	return prefix + saltValue + "$" + base64Encode(hashBytes), nil
+	return shaCryptOutput("$5$", saltValue, rounds, roundsGiven, ordered), nil
 }
 
-// cryptSHA512 implements SHA512 crypt ($6$)
+// cryptSHA512 implements Ulrich Drepper's sha512crypt ($6$), the algorithm used
+// by glibc crypt(3) for the "$6$" prefix.  rounds= is honored (clamped only to
+// the spec range 1000..999999999, default 5000).
 func cryptSHA512(password, salt string) (string, error) {
-	// Parse rounds if present
-	prefix := "$6$"
-	rounds := 5000
-	saltValue := ""
+	if salt == "" {
+		salt = "$6$" + generateRandomSalt(shaCryptSaltLenMax)
+	}
+	saltValue, rounds, roundsGiven := parseCryptSalt(salt, "$6$", true, shaCryptSaltLenMax)
+	sumA := shaCryptDigest(sha512.New, []byte(password), []byte(saltValue), rounds)
+	ordered := []byte{
+		sumA[42], sumA[21], sumA[0],
+		sumA[1], sumA[43], sumA[22],
+		sumA[23], sumA[2], sumA[44],
+		sumA[45], sumA[24], sumA[3],
+		sumA[4], sumA[46], sumA[25],
+		sumA[26], sumA[5], sumA[47],
+		sumA[48], sumA[27], sumA[6],
+		sumA[7], sumA[49], sumA[28],
+		sumA[29], sumA[8], sumA[50],
+		sumA[51], sumA[30], sumA[9],
+		sumA[10], sumA[52], sumA[31],
+		sumA[32], sumA[11], sumA[53],
+		sumA[54], sumA[33], sumA[12],
+		sumA[13], sumA[55], sumA[34],
+		sumA[35], sumA[14], sumA[56],
+		sumA[57], sumA[36], sumA[15],
+		sumA[16], sumA[58], sumA[37],
+		sumA[38], sumA[17], sumA[59],
+		sumA[60], sumA[39], sumA[18],
+		sumA[19], sumA[61], sumA[40],
+		sumA[41], sumA[20], sumA[62],
+		sumA[63],
+	}
+	return shaCryptOutput("$6$", saltValue, rounds, roundsGiven, ordered), nil
+}
 
-	if strings.HasPrefix(salt, "$6$rounds=") {
-		// Extract rounds
-		rest := salt[10:] // skip "$6$rounds="
-		dollarIdx := strings.Index(rest, "$")
-		if dollarIdx > 0 {
-			fmt.Sscanf(rest[:dollarIdx], "%d", &rounds)
-			saltValue = extractSalt(rest[dollarIdx+1:], "")
-			prefix = fmt.Sprintf("$6$rounds=%d$", rounds)
+// shaCryptOutput assembles the final "$id$[rounds=N$]salt$hash" string.  The
+// "rounds=" segment is emitted only when the caller explicitly requested rounds
+// (matching glibc, which omits it for the default).
+func shaCryptOutput(magic, saltValue string, rounds int, roundsGiven bool, ordered []byte) string {
+	var b strings.Builder
+	b.WriteString(magic)
+	if roundsGiven {
+		b.WriteString("rounds=")
+		b.WriteString(strconv.Itoa(rounds))
+		b.WriteByte('$')
+	}
+	b.WriteString(saltValue)
+	b.WriteByte('$')
+	b.Write(cryptBase64_24Bit(ordered))
+	return b.String()
+}
+
+// shaCryptDigest runs the Drepper SHA-crypt key derivation for the given hash
+// constructor (sha256.New or sha512.New) and returns the raw digest bytes
+// (before the algorithm-specific output permutation).
+func shaCryptDigest(newHash func() hash.Hash, key, saltB []byte, rounds int) []byte {
+	keyLen := len(key)
+	saltLen := len(saltB)
+	h := newHash()
+
+	// sumB = H(key || salt || key)  (steps 4-8)
+	h.Write(key)
+	h.Write(saltB)
+	h.Write(key)
+	sumB := h.Sum(nil)
+
+	// sumA  (steps 1-3, 9-12)
+	h.Reset()
+	h.Write(key)
+	h.Write(saltB)
+	h.Write(cryptRepeatBytes(sumB, keyLen))
+	for i := keyLen; i > 0; i >>= 1 {
+		if i%2 == 0 {
+			h.Write(key)
+		} else {
+			h.Write(sumB)
 		}
-	} else {
-		saltValue = extractSalt(salt, "$6$")
 	}
+	sumA := h.Sum(nil)
 
-	if saltValue == "" {
-		saltValue = generateRandomSalt(16)
+	// seqP  (steps 13-16): repeat(H(key * keyLen), keyLen)
+	h.Reset()
+	for i := 0; i < keyLen; i++ {
+		h.Write(key)
 	}
+	seqP := cryptRepeatBytes(h.Sum(nil), keyLen)
 
-	// Limit rounds for test performance
-	actualRounds := rounds
-	if actualRounds > 1000 {
-		actualRounds = 1000
+	// seqS  (steps 17-20): repeat(H(salt * (16 + sumA[0])), saltLen)
+	h.Reset()
+	for i := 0; i < 16+int(sumA[0]); i++ {
+		h.Write(saltB)
 	}
+	seqS := cryptRepeatBytes(h.Sum(nil), saltLen)
 
-	// Simplified SHA512 crypt
-	h := sha512.New()
-	h.Write([]byte(password))
-	h.Write([]byte(saltValue))
-	for i := 0; i < actualRounds; i++ {
-		h.Write(h.Sum(nil))
+	// Step 21: the strengthening loop, honoring the requested round count.
+	for i := 0; i < rounds; i++ {
+		h.Reset()
+		if i&1 != 0 {
+			h.Write(seqP)
+		} else {
+			h.Write(sumA)
+		}
+		if i%3 != 0 {
+			h.Write(seqS)
+		}
+		if i%7 != 0 {
+			h.Write(seqP)
+		}
+		if i&1 != 0 {
+			h.Write(sumA)
+		} else {
+			h.Write(seqP)
+		}
+		copy(sumA, h.Sum(nil))
 	}
-	hashBytes := h.Sum(nil)
-	return prefix + saltValue + "$" + base64Encode(hashBytes), nil
+	return sumA
 }
 
 // cryptBcrypt implements bcrypt ($2a$, $2b$, $2y$)
