@@ -153,31 +153,33 @@ func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
 
 // ── STRINGS ───────────────────────────────────────────────────────────────────
 
-// MEDIUM: strings.Title is deprecated and uses simple Unicode space-boundary
-// splitting; it title-cases after every space including mid-word spaces.
-// capitalize("hello world") should return "Hello World".
-// This test documents the deprecated function call; it may pass currently
-// but will break under future Go versions that remove strings.Title.
+// F18: capitalize() must uppercase ONLY the first character, leaving the rest
+// untouched — matching the MOO library verb $string_utils:capitalize
+// ("string with first letter capitalized"; mongoose.db:73488). capitalize is
+// not a ToastStunt C++ builtin (no match in toaststunt/src/; oracle rejects
+// `capitalize(...)` as an unknown builtin), so the MOO library verb's
+// "upcase the first letter only" behavior is authoritative. The old code used
+// the deprecated strings.Title, which title-cased EVERY word and even
+// upper-cased after apostrophes ("it's a test" -> "It'S A Test").
 func TestReview_Data_CapitalizeDeprecatedTitle(t *testing.T) {
 	ctx := reviewDataCtx()
-	result := builtinCapitalize(ctx, []types.Value{types.NewStr("hello world")})
-	if !result.IsNormal() {
-		t.Fatalf("capitalize returned error: %v", result.Error)
+	cases := []struct{ in, want string }{
+		{"hello world", "Hello world"}, // only first char, not every word
+		{"it's a test", "It's a test"}, // no spurious cap after apostrophe
+		{"ABC", "ABC"},                 // already-capitalized first char unchanged
+		{"", ""},                       // empty string stays empty
+		{"123abc", "123abc"},           // non-letter first char left as-is
 	}
-	got := result.Val.(types.StrValue).Value()
-	// strings.Title has a known bug with Unicode apostrophes ("it's" → "It'S").
-	// Demonstrate the apostrophe bug:
-	result2 := builtinCapitalize(ctx, []types.Value{types.NewStr("it's a test")})
-	if !result2.IsNormal() {
-		t.Fatalf("capitalize returned error: %v", result2.Error)
+	for _, c := range cases {
+		result := builtinCapitalize(ctx, []types.Value{types.NewStr(c.in)})
+		if !result.IsNormal() {
+			t.Fatalf("capitalize(%q) returned error: %v", c.in, result.Error)
+		}
+		got := result.Val.(types.StrValue).Value()
+		if got != c.want {
+			t.Errorf("capitalize(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
-	got2 := result2.Val.(types.StrValue).Value()
-	// strings.Title produces "It'S A Test" (capitalizes after apostrophe) which is wrong.
-	// Correct result would be "It's A Test".
-	if got2 == "It'S A Test" {
-		t.Errorf("capitalize(\"it's a test\") = %q (strings.Title apostrophe bug: 'S capitalized)", got2)
-	}
-	_ = got // suppress unused-var
 }
 
 // MEDIUM: mapvalues comment says "INT < FLOAT < OBJ < ERR < STR" but

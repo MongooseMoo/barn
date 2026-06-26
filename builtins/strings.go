@@ -333,7 +333,10 @@ func builtinDowncase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(strings.ToLower(str.Value())))
 }
 
-// builtinCapitalize capitalizes first letter of each word
+// builtinCapitalize uppercases only the first character of the string,
+// leaving the rest unchanged. This matches the MOO library verb
+// $string_utils:capitalize ("string with first letter capitalized").
+// capitalize is not a ToastStunt C++ builtin; it is Barn-only.
 // capitalize(str) -> str
 func builtinCapitalize(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
@@ -345,7 +348,13 @@ func builtinCapitalize(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	return types.Ok(types.NewStr(strings.Title(str.Value())))
+	s := str.Value()
+	if s == "" {
+		return types.Ok(types.NewStr(""))
+	}
+	// Uppercase only the first character (byte-indexed, matching MOO's
+	// string[1] semantics), leaving the remainder of the string intact.
+	return types.Ok(types.NewStr(strings.ToUpper(s[:1]) + s[1:]))
 }
 
 // builtinExplode splits a string into a list of substrings
