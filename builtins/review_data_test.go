@@ -64,19 +64,31 @@ func TestReview_Data_UniqueStrCaseInsensitive(t *testing.T) {
 	}
 }
 
-// HIGH: is_member() uses strictEqual (case-SENSITIVE) for list search, but
-// setadd/setremove use Equal (case-INSENSITIVE). In MOO "hello" == "HELLO",
-// so is_member("HELLO", {"hello"}) should return 1.
-func TestReview_Data_IsMemberStrCaseSensitiveBug(t *testing.T) {
+// is_member() is case-SENSITIVE by default, matching ToastStunt: bf_is_member
+// (collection.cc:84) sets case_matters = (argcount < 3) || is_true(arg3), so the
+// 2-arg form is_member(value, list) compares with case_matters=true. Hence
+// is_member("HELLO", {"hello"}) returns 0. (NOTE: setadd/setremove DO fold case —
+// list.cc:151,163 call ismember(...,0) — but is_member itself does not.)
+func TestReview_Data_IsMemberStrCaseSensitive(t *testing.T) {
 	ctx := reviewDataCtx()
 	list := types.NewList([]types.Value{types.NewStr("hello")})
-	result := builtinIsMember(ctx, []types.Value{types.NewStr("HELLO"), list})
-	if !result.IsNormal() {
-		t.Fatalf("is_member returned error: %v", result.Error)
+
+	// Case mismatch -> not found (case-sensitive).
+	miss := builtinIsMember(ctx, []types.Value{types.NewStr("HELLO"), list})
+	if !miss.IsNormal() {
+		t.Fatalf("is_member returned error: %v", miss.Error)
 	}
-	got := result.Val.Int()
-	if got != 1 {
-		t.Errorf("is_member(\"HELLO\", {\"hello\"}) = %d, want 1 (MOO string equality is case-insensitive)", got)
+	if got := miss.Val.Int(); got != 0 {
+		t.Errorf("is_member(\"HELLO\", {\"hello\"}) = %d, want 0 (Toast is_member is case-sensitive, collection.cc:84)", got)
+	}
+
+	// Exact case -> found at position 1.
+	hit := builtinIsMember(ctx, []types.Value{types.NewStr("hello"), list})
+	if !hit.IsNormal() {
+		t.Fatalf("is_member returned error: %v", hit.Error)
+	}
+	if got := hit.Val.Int(); got != 1 {
+		t.Errorf("is_member(\"hello\", {\"hello\"}) = %d, want 1", got)
 	}
 }
 
