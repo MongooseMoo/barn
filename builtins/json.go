@@ -26,11 +26,12 @@ func builtinGenerateJson(ctx *kernel.TaskContext, args []types.Value) types.Resu
 
 	// Parse options if provided
 	if len(args) > 1 {
-		optsVal, ok := args[1].(types.StrValue)
+		optsVal := args[1]
+		ok := optsVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		opts := optsVal.Value()
+		opts := optsVal.Str()
 		// Validate mode string - must be one of the valid modes or empty
 		if opts != "" && opts != "common-subset" && opts != "embedded-types" &&
 			!strings.HasPrefix(opts, "pretty") && !strings.Contains(opts, "embedded") {
@@ -69,15 +70,15 @@ func builtinGenerateJson(ctx *kernel.TaskContext, args []types.Value) types.Resu
 // embeddedTypes: when true, add type suffixes (|obj, |err, |int, |float)
 // isKey: when true, this value is being used as a map key
 func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, types.ErrorCode) {
-	switch val := v.(type) {
-	case types.IntValue:
+	switch v.Type() {
+	case types.TYPE_INT:
 		if embeddedTypes && isKey {
-			return fmt.Sprintf("%d|int", val.Val), types.E_NONE
+			return fmt.Sprintf("%d|int", v.Int()), types.E_NONE
 		}
-		return val.Val, types.E_NONE
+		return v.Int(), types.E_NONE
 
-	case types.FloatValue:
-		f := val.Val
+	case types.TYPE_FLOAT:
+		f := v.Float()
 		// Check for NaN and Infinity
 		if math.IsNaN(f) || math.IsInf(f, 0) {
 			return nil, types.E_FLOAT
@@ -99,36 +100,36 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		// Use json.Number to avoid re-formatting
 		return json.Number(s), types.E_NONE
 
-	case types.StrValue:
+	case types.TYPE_STR:
 		// Convert MOO binary escapes (~XX) to actual bytes
 		// JSON marshaler will then produce proper \n, \r, \t, \uXXXX escapes
-		s := val.Value()
+		s := v.Str()
 		result := decodeBinaryEscapes(s)
 		return result, types.E_NONE
 
-	case types.BoolValue:
-		return val.Val, types.E_NONE
+	case types.TYPE_BOOL:
+		return v.Bool(), types.E_NONE
 
-	case types.ObjValue:
+	case types.TYPE_OBJ, types.TYPE_ANON:
 		// Anonymous objects cannot be serialized to JSON
-		if val.IsAnonymous() {
+		if v.IsAnonymous() {
 			return nil, types.E_INVARG
 		}
 		if embeddedTypes {
-			return fmt.Sprintf("#%d|obj", val.ID()), types.E_NONE
+			return fmt.Sprintf("#%d|obj", v.ID()), types.E_NONE
 		}
-		return fmt.Sprintf("#%d", val.ID()), types.E_NONE
+		return fmt.Sprintf("#%d", v.ID()), types.E_NONE
 
-	case types.ErrValue:
+	case types.TYPE_ERR:
 		if embeddedTypes {
-			return val.String() + "|err", types.E_NONE
+			return v.String() + "|err", types.E_NONE
 		}
-		return val.String(), types.E_NONE
+		return v.String(), types.E_NONE
 
-	case types.ListValue:
-		arr := make([]interface{}, val.Len())
-		for i := 1; i <= val.Len(); i++ {
-			elem := val.Get(i)
+	case types.TYPE_LIST:
+		arr := make([]interface{}, v.Len())
+		for i := 1; i <= v.Len(); i++ {
+			elem := v.Get(i)
 			jsonElem, err := mooToJSON(elem, embeddedTypes, false)
 			if err != types.E_NONE {
 				return nil, err
@@ -137,9 +138,9 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		}
 		return arr, types.E_NONE
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		// Use orderedMap to preserve MOO key ordering
-		pairs := val.Pairs()
+		pairs := v.Pairs()
 		// Sort pairs by MOO key order (int < float < obj < err < str)
 		sortedPairs := make([][2]types.Value, len(pairs))
 		copy(sortedPairs, pairs)
@@ -151,7 +152,7 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 			value := pair[1]
 
 			// Anonymous objects as map keys are invalid for JSON encoding.
-			if objKey, ok := key.(types.ObjValue); ok && objKey.IsAnonymous() {
+			if isObjectRef(key) && key.IsAnonymous() {
 				return nil, types.E_INVARG
 			}
 
@@ -166,8 +167,8 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 				keyStr = fmt.Sprintf("%v", keyVal)
 			} else {
 				// Default mode - use raw value for strings, String() for others
-				if strKey, ok := key.(types.StrValue); ok {
-					keyStr = strKey.Value()
+				if key.Type() == types.TYPE_STR {
+					keyStr = key.Str()
 				} else {
 					keyStr = key.String()
 				}
@@ -196,7 +197,8 @@ func builtinParseJson(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	strVal, ok := args[0].(types.StrValue)
+	strVal := args[0]
+	ok := strVal.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -204,15 +206,15 @@ func builtinParseJson(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Parse optional mode argument
 	embeddedTypes := false
 	if len(args) == 2 {
-		modeVal, ok := args[1].(types.StrValue)
-		if !ok {
+		modeVal := args[1]
+		if modeVal.Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		mode := modeVal.Value()
+		mode := modeVal.Str()
 		embeddedTypes = strings.Contains(mode, "embedded")
 	}
 
-	jsonStr := strVal.Value()
+	jsonStr := strVal.Str()
 	// Preserve distinction between JSON "\t" escapes and "\u0009":
 	// - "\t" should decode to a literal tab character
 	// - "\u0009" should round-trip to MOO binary escape ~09
@@ -343,7 +345,7 @@ func parseEmbeddedType(s string) (types.Value, bool) {
 			return types.NewErr(errCode), true
 		}
 	}
-	return nil, false
+	return types.None, false
 }
 
 // normalizeJSONEscapes converts JSON escapes to match MOO behavior:
@@ -489,16 +491,16 @@ func sortMapPairsForJSON(pairs [][2]types.Value) {
 // This matches MOO/ToastStunt map key ordering
 func compareJSONKeys(a, b types.Value) int {
 	typeOrder := func(v types.Value) int {
-		switch v.(type) {
-		case types.IntValue:
+		switch v.Type() {
+		case types.TYPE_INT:
 			return 0
-		case types.ObjValue:
+		case types.TYPE_OBJ, types.TYPE_ANON:
 			return 1
-		case types.FloatValue:
+		case types.TYPE_FLOAT:
 			return 2
-		case types.ErrValue:
+		case types.TYPE_ERR:
 			return 3
-		case types.StrValue:
+		case types.TYPE_STR:
 			return 4
 		default:
 			return 5
@@ -512,43 +514,38 @@ func compareJSONKeys(a, b types.Value) int {
 	}
 
 	// Same type, compare values
-	switch av := a.(type) {
-	case types.IntValue:
-		bv := b.(types.IntValue)
-		if av.Val < bv.Val {
+	switch a.Type() {
+	case types.TYPE_INT:
+		if a.Int() < b.Int() {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if a.Int() > b.Int() {
 			return 1
 		}
 		return 0
-	case types.FloatValue:
-		bv := b.(types.FloatValue)
-		if av.Val < bv.Val {
+	case types.TYPE_FLOAT:
+		if a.Float() < b.Float() {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if a.Float() > b.Float() {
 			return 1
 		}
 		return 0
-	case types.ObjValue:
-		bv := b.(types.ObjValue)
-		if av.ID() < bv.ID() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if a.ID() < b.ID() {
 			return -1
-		} else if av.ID() > bv.ID() {
+		} else if a.ID() > b.ID() {
 			return 1
 		}
 		return 0
-	case types.ErrValue:
-		bv := b.(types.ErrValue)
-		if av.Code() < bv.Code() {
+	case types.TYPE_ERR:
+		if a.Code() < b.Code() {
 			return -1
-		} else if av.Code() > bv.Code() {
+		} else if a.Code() > b.Code() {
 			return 1
 		}
 		return 0
-	case types.StrValue:
-		bv := b.(types.StrValue)
+	case types.TYPE_STR:
 		// Case-insensitive comparison for strings
-		return strings.Compare(strings.ToLower(av.Value()), strings.ToLower(bv.Value()))
+		return strings.Compare(strings.ToLower(a.Str()), strings.ToLower(b.Str()))
 	}
 	return 0
 }

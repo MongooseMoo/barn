@@ -16,39 +16,36 @@ func resetHTTPTestState(player types.ObjID) {
 	httpHeldInputState.mu.Unlock()
 }
 
-func mustMapValue(t *testing.T, value types.Value) types.MapValue {
+func mustMapValue(t *testing.T, value types.Value) types.Value {
 	t.Helper()
-	m, ok := value.(types.MapValue)
-	if !ok {
+	if value.Type() != types.TYPE_MAP {
 		t.Fatalf("expected map value, got %T", value)
 	}
-	return m
+	return value
 }
 
-func mustStringAt(t *testing.T, m types.MapValue, key string) string {
+func mustStringAt(t *testing.T, m types.Value, key string) string {
 	t.Helper()
-	value, ok := m.Get(types.NewStr(key))
+	value, ok := m.MapGet(types.NewStr(key))
 	if !ok {
 		t.Fatalf("missing key %q", key)
 	}
-	str, ok := value.(types.StrValue)
-	if !ok {
+	if value.Type() != types.TYPE_STR {
 		t.Fatalf("expected string at %q, got %T", key, value)
 	}
-	return str.Value()
+	return value.Str()
 }
 
-func mustIntAt(t *testing.T, m types.MapValue, key string) int64 {
+func mustIntAt(t *testing.T, m types.Value, key string) int64 {
 	t.Helper()
-	value, ok := m.Get(types.NewStr(key))
+	value, ok := m.MapGet(types.NewStr(key))
 	if !ok {
 		t.Fatalf("missing key %q", key)
 	}
-	n, ok := value.(types.IntValue)
-	if !ok {
+	if value.Type() != types.TYPE_INT {
 		t.Fatalf("expected int at %q, got %T", key, value)
 	}
-	return n.Val
+	return value.Int()
 }
 
 func TestParseHTTPRequestContentLength(t *testing.T) {
@@ -67,7 +64,7 @@ func TestParseHTTPRequestContentLength(t *testing.T) {
 	if got := mustStringAt(t, result, "body"); got != "HELLO" {
 		t.Fatalf("got body %q", got)
 	}
-	headersValue, ok := result.Get(types.NewStr("headers"))
+	headersValue, ok := result.MapGet(types.NewStr("headers"))
 	if !ok {
 		t.Fatal("missing headers")
 	}
@@ -90,7 +87,7 @@ func TestParseHTTPRequestWithoutVersion(t *testing.T) {
 	if got := mustStringAt(t, result, "uri"); got != "/legacy" {
 		t.Fatalf("got uri %q", got)
 	}
-	headersValue, ok := result.Get(types.NewStr("headers"))
+	headersValue, ok := result.MapGet(types.NewStr("headers"))
 	if !ok {
 		t.Fatal("missing headers")
 	}
@@ -98,7 +95,7 @@ func TestParseHTTPRequestWithoutVersion(t *testing.T) {
 	if got := mustStringAt(t, headers, "foo"); got != "bar" {
 		t.Fatalf("got foo header %q", got)
 	}
-	if _, ok := result.Get(types.NewStr("version")); ok {
+	if _, ok := result.MapGet(types.NewStr("version")); ok {
 		t.Fatal("did not expect version key")
 	}
 }
@@ -110,7 +107,7 @@ func TestParseHTTPRequestFoldedHeaders(t *testing.T) {
 		t.Fatal("expected complete request parse")
 	}
 
-	headersValue, ok := mustMapValue(t, value).Get(types.NewStr("headers"))
+	headersValue, ok := mustMapValue(t, value).MapGet(types.NewStr("headers"))
 	if !ok {
 		t.Fatal("missing headers")
 	}
@@ -155,12 +152,11 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 		t.Fatal("expected read to complete immediately")
 	}
 
-	n, ok := value.(types.IntValue)
-	if !ok {
+	if value.Type() != types.TYPE_INT {
 		t.Fatalf("expected int result, got %T", value)
 	}
-	if n.Val != 0 {
-		t.Fatalf("got %d, want 0", n.Val)
+	if value.Int() != 0 {
+		t.Fatalf("got %d, want 0", value.Int())
 	}
 }
 
@@ -198,7 +194,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	if got := mustStringAt(t, result, "uri"); got != "/2" {
 		t.Fatalf("got uri %q", got)
 	}
-	headersValue, ok := result.Get(types.NewStr("headers"))
+	headersValue, ok := result.MapGet(types.NewStr("headers"))
 	if !ok {
 		t.Fatal("missing headers")
 	}

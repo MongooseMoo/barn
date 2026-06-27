@@ -49,7 +49,7 @@ func LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 
 	serverOptsProp, err := store.FindProperty(0, "server_options")
 	if err == types.E_NONE {
-		if ref, ok := serverOptsProp.Value.(types.ObjValue); ok {
+		if ref := serverOptsProp.Value; isObjectRef(ref) {
 			flags, errCode := store.TruthyPropertiesWithPrefixInAncestry(ref.ID(), protectPrefix)
 			if errCode == types.E_NONE {
 				next = flags

@@ -21,8 +21,8 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// }
 
 	// Get object to renumber
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -101,8 +101,8 @@ func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	// Check argument type
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
