@@ -33,11 +33,10 @@ func BuildVMRegistry() *builtins.Registry {
 
 		var lines []string
 		for _, arg := range args {
-			strVal, ok := arg.(types.StrValue)
-			if !ok {
+			if arg.Type() != types.TYPE_STR {
 				return types.Err(types.E_TYPE)
 			}
-			lines = append(lines, strVal.Value())
+			lines = append(lines, arg.Str())
 		}
 
 		code := fmt.Sprintf("%s", joinLines(lines))
@@ -83,7 +82,7 @@ func BuildVMRegistry() *builtins.Registry {
 			if result.Flow == types.FlowException {
 				return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
 			}
-			if result.Val == nil {
+			if result.Val.IsNone() {
 				result.Val = types.NewInt(0)
 			}
 			return types.Ok(types.NewList([]types.Value{types.NewInt(1), result.Val}))
@@ -112,7 +111,7 @@ func BuildVMRegistry() *builtins.Registry {
 		}
 
 		for i := range frame.Locals {
-			frame.Locals[i] = types.UnboundValue{}
+			frame.Locals[i] = types.Unbound
 		}
 
 		SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))

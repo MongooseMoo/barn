@@ -27,7 +27,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	if result.Flow == types.FlowException {
 		t.Fatalf("setup failed: %v", result.Error)
 	}
-	if got := result.Val.(types.StrValue).Value(); got != "child-override" {
+	if got := result.Val.Str(); got != "child-override" {
 		t.Fatalf("setup returned %q, want child-override", got)
 	}
 
@@ -62,7 +62,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	if prop.Clear {
 		t.Fatalf("reloaded child persist_prop unexpectedly clear")
 	}
-	if got := prop.Value.(types.StrValue).Value(); got != "child-override" {
+	if got := prop.Value.Str(); got != "child-override" {
 		t.Fatalf("reloaded child override = %q, want child-override", got)
 	}
 }
