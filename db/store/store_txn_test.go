@@ -1673,3 +1673,67 @@ func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
 		t.Fatalf("PropertyValues[0] = %d, want 2", got)
 	}
 }
+
+// TestTransactionAdoptAndCommitAnonymousObject is the regression guard for the F2
+// merge gap: a runtime-created anonymous object lives out-of-band in s.anonObjects
+// (no numbered slot, no history). The MVCC read-transaction resolvers were only
+// numbered-aware, so create($object, 1) (-> tx.AdoptLiveObject on the anon id) and
+// any commit whose write footprint targets the anon returned E_INVIND, cascading to
+// 95 conformance failures. This test exercises both the adoption resolver and the
+// commit apply path (coarse routing via writeFootprintHasAnon).
+func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add #0: %v", err)
+	}
+	// Inheritable property the anon will write through its parent #0.
+	if errCode := store.DefineProperty(0, NewProperty("a", types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty #0.a: %v", errCode)
+	}
+
+	// Runtime-created anonymous object: lands in s.anonObjects, not the numbered map.
+	anon, ec := store.CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject anonymous: %v", ec)
+	}
+
+	tx := store.BeginReadOnly(0)
+
+	// (1) PRIMARY: adoption of a freshly-created anon must succeed (was E_INVIND).
+	if errCode := tx.AdoptLiveObject(anon); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveObject(anon) = %v, want E_NONE", errCode)
+	}
+
+	// (2) The anon round-trips valid + anonymous through the txn.
+	if !tx.Valid(anon) {
+		t.Fatalf("tx.Valid(anon) = false, want true")
+	}
+	isAnon, errCode := tx.ObjectIsAnonymous(anon)
+	if errCode != types.E_NONE {
+		t.Fatalf("tx.ObjectIsAnonymous(anon) err = %v", errCode)
+	}
+	if !isAnon {
+		t.Fatalf("tx.ObjectIsAnonymous(anon) = false, want true")
+	}
+
+	// (3) SIBLING COVERAGE: stage a property-value write on the anon, then commit.
+	// This exercises the commit apply path; the anon write footprint must route to
+	// the coarse exclusive path (writeFootprintHasAnon) instead of commitDecentralized,
+	// which has no slot for the anon id and previously returned E_INVIND.
+	if errCode := tx.SetPropertyValue(anon, "a", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue(anon, a) = %v, want E_NONE", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit() = %v, want E_NONE", errCode)
+	}
+
+	// (4) The committed value is readable from a fresh read transaction.
+	tx2 := store.BeginReadOnly(0)
+	value, errCode := tx2.PropertyValue(anon, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue(anon, a) after commit = %v, want E_NONE", errCode)
+	}
+	if got := value.(types.IntValue).Val; got != 2 {
+		t.Fatalf("PropertyValue(anon, a) after commit = %d, want 2", got)
+	}
+}

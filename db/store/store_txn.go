@@ -205,13 +205,17 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
 
-	live := tx.store.load(objID)
+	// liveObjectLocked falls back to s.anonObjects, so a freshly-created anonymous
+	// object (create(parent, 1) -> this) is adopted, not just numbered objects.
+	live := tx.store.liveObjectLocked(objID)
 	if !validLiveObject(live) {
 		tx.objects[objID] = nil
 		return types.E_INVIND
 	}
 	tx.objects[objID] = cloneObjectForReadTxn(live)
-	if objID > tx.maxObjID {
+	// Anonymous objects do not participate in max_object() (CreateObject /
+	// insertObjectLocked bump only highWaterID for anon); mirror that here.
+	if !live.anonymous && objID > tx.maxObjID {
 		tx.maxObjID = objID
 	}
 	if objID > tx.highWaterID {
@@ -235,7 +239,10 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	tx.store.mu.RLock()
 	defer tx.store.mu.RUnlock()
 
-	live := tx.store.load(objID)
+	// Resolve through liveObjectLocked for symmetry with the other tx resolvers so
+	// an anonymous definer is found out-of-band (anon carry no local verbList, so
+	// this is defensive — add_verb on an anon is rejected at the builtin).
+	live := tx.store.liveObjectLocked(objID)
 	if !validLiveObject(live) {
 		tx.objects[objID] = nil
 		return types.E_INVIND
@@ -401,6 +408,60 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 
 func (tx *StoreTxn) HasWrites() bool {
 	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0)
+}
+
+// writeFootprintHasAnon reports whether any staged write targets an anonymous
+// object (one that lives out-of-band in s.anonObjects). Commit uses it to keep an
+// anon write off the decentralized fast path and onto the coarse exclusive path
+// (anon has no COW slot). It takes store.mu.RLock for the membership scan and
+// releases it (deferred) before the caller takes the coarse store.mu.Lock — the
+// RWMutex is not upgradable, so the scan must complete and unlock first.
+func (tx *StoreTxn) writeFootprintHasAnon() bool {
+	if tx == nil || tx.store == nil {
+		return false
+	}
+	tx.store.mu.RLock()
+	defer tx.store.mu.RUnlock()
+
+	isAnon := func(objID types.ObjID) bool {
+		return tx.store.anonObjects[objID] != nil
+	}
+	for objID := range tx.scalarWrites {
+		if isAnon(objID) {
+			return true
+		}
+	}
+	for objID := range tx.relationshipWrites {
+		if isAnon(objID) {
+			return true
+		}
+	}
+	for key := range tx.propertyDefines {
+		if isAnon(key.objID) {
+			return true
+		}
+	}
+	for key := range tx.propertyDefinitionDeletes {
+		if isAnon(key.objID) {
+			return true
+		}
+	}
+	for key := range tx.propertyWrites {
+		if isAnon(key.objID) {
+			return true
+		}
+	}
+	for key := range tx.propertyDeletes {
+		if isAnon(key.objID) {
+			return true
+		}
+	}
+	for key := range tx.verbWrites {
+		if isAnon(key.objID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
@@ -1060,7 +1121,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 	obj.properties = newProps
 
 	tx.store.mu.RLock()
-	live := tx.store.load(objID)
+	live := tx.store.liveObjectLocked(objID)
 	if !validLiveObject(live) {
 		tx.store.mu.RUnlock()
 		return types.E_INVIND
@@ -1452,7 +1513,18 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// (unchanged in-place apply). The earlier guard already established at least one
 	// write is staged, so reaching here with !liveMutated means at least one
 	// decentralized write exists.
-	if !tx.liveMutated {
+	// An anonymous object lives out-of-band in s.anonObjects with NO COW slot and
+	// NO per-id history (see store_core.go liveObjectLocked). The decentralized
+	// committer publishes new immutable images into numbered slots, so it cannot
+	// apply a write that targets an anon id (no slot -> E_INVIND, and any in-place
+	// anon mutation under its RLock + per-slot-mutex would be unsynchronized — anon
+	// has no slot mutex — a data race). Route any commit whose staged write
+	// footprint includes an anon id onto the coarse exclusive path, exactly as a
+	// liveMutated task is routed; that path holds store.mu.Lock EXCLUSIVE, which
+	// excludes RLock readers and decentralized committers, making the in-place anon
+	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
+	// releases it before the coarse Lock here (RWMutex is not upgradable).
+	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
 		return tx.commitDecentralized()
 	}
 
@@ -1487,11 +1559,14 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
 	for objID, write := range tx.scalarWrites {
-		live := tx.store.load(objID)
+		// liveObjectLocked resolves anon ids out-of-band; anon are mutated in place
+		// under this exclusive lock with NO history snapshot (they carry no per-id
+		// history — see the MVCC note in liveObjectLocked / objectLocked).
+		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !remembered[objID] {
+		if !live.anonymous && !remembered[objID] {
 			tx.store.rememberObjectLocked(live)
 			remembered[objID] = true
 		}
@@ -1507,11 +1582,11 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		stampObjectScalar(live, ts)
 	}
 	for objID, write := range tx.relationshipWrites {
-		live := tx.store.load(objID)
+		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !remembered[objID] {
+		if !live.anonymous && !remembered[objID] {
 			tx.store.rememberObjectLocked(live)
 			remembered[objID] = true
 		}
@@ -1521,7 +1596,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		stampObjectRelationship(live, ts)
 	}
 	for key, prop := range tx.propertyDefines {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1531,7 +1606,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		remembered[key.objID] = true
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1541,11 +1616,11 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		remembered[key.objID] = true
 	}
 	for key, write := range tx.propertyWrites {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !remembered[key.objID] {
+		if !live.anonymous && !remembered[key.objID] {
 			tx.store.rememberObjectLocked(live)
 			remembered[key.objID] = true
 		}
@@ -1566,11 +1641,11 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		stampObjectProperties(live, ts)
 	}
 	for key, actualName := range tx.propertyDeletes {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !remembered[key.objID] {
+		if !live.anonymous && !remembered[key.objID] {
 			tx.store.rememberObjectLocked(live)
 			remembered[key.objID] = true
 		}
@@ -1580,7 +1655,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		stampObjectProperties(live, ts)
 	}
 	for key, write := range tx.verbWrites {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1588,7 +1663,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if verb == nil {
 			return types.E_VERBNF
 		}
-		if !remembered[key.objID] {
+		if !live.anonymous && !remembered[key.objID] {
 			tx.store.rememberObjectLocked(live)
 			remembered[key.objID] = true
 		}
@@ -1613,21 +1688,21 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 // longer exist are dropped; the write apply path validates object existence.
 func (tx *StoreTxn) adoptLiveReadsLocked() {
 	for objID := range tx.scalarReads {
-		if live := tx.store.load(objID); validLiveObject(live) {
+		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
 			tx.scalarReads[objID] = live.scalarVersion
 		} else {
 			delete(tx.scalarReads, objID)
 		}
 	}
 	for objID := range tx.relationshipReads {
-		if live := tx.store.load(objID); validLiveObject(live) {
+		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
 			tx.relationshipReads[objID] = live.relationshipVersion
 		} else {
 			delete(tx.relationshipReads, objID)
 		}
 	}
 	for key := range tx.propertyReads {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			delete(tx.propertyReads, key)
 			continue
@@ -1639,14 +1714,14 @@ func (tx *StoreTxn) adoptLiveReadsLocked() {
 		}
 	}
 	for objID := range tx.propertyScans {
-		if live := tx.store.load(objID); validLiveObject(live) {
+		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
 			tx.propertyScans[objID] = live.propertyVersion
 		} else {
 			delete(tx.propertyScans, objID)
 		}
 	}
 	for key := range tx.verbReads {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			delete(tx.verbReads, key)
 			continue
@@ -1658,7 +1733,7 @@ func (tx *StoreTxn) adoptLiveReadsLocked() {
 		}
 	}
 	for objID := range tx.verbScans {
-		if live := tx.store.load(objID); validLiveObject(live) {
+		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
 			tx.verbScans[objID] = live.verbVersion
 		} else {
 			delete(tx.verbScans, objID)
@@ -1668,7 +1743,7 @@ func (tx *StoreTxn) adoptLiveReadsLocked() {
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 	for objID, version := range tx.scalarReads {
-		live := tx.store.load(objID)
+		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1681,7 +1756,7 @@ func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 	for objID, version := range tx.relationshipReads {
-		live := tx.store.load(objID)
+		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1694,7 +1769,7 @@ func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 	for key, version := range tx.propertyReads {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1704,7 +1779,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 		}
 	}
 	for objID, version := range tx.propertyScans {
-		live := tx.store.load(objID)
+		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1717,7 +1792,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 	for key, version := range tx.verbReads {
-		live := tx.store.load(key.objID)
+		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
@@ -1727,7 +1802,7 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 		}
 	}
 	for objID, version := range tx.verbScans {
-		live := tx.store.load(objID)
+		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
