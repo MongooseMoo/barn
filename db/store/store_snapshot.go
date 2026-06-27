@@ -317,23 +317,23 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 // deterministic dump. This guarantees len(names) == len(obj.properties) in every
 // case while preserving the load-time ordering.
 func snapshotPropertyNames(obj *Object) []string {
-	names := make([]string, 0, len(obj.properties))
-	seen := make(map[string]bool, len(obj.properties))
+	// Capacity: propOrder entries + any extra properties not in propOrder.
+	names := make([]string, 0, len(obj.propOrder)+len(obj.properties))
+	seen := make(map[string]bool, len(obj.propOrder)+len(obj.properties))
 	for _, name := range obj.propOrder {
-		if _, ok := obj.properties[name]; !ok {
-			// propOrder entry with no backing property slot: skip it so the
-			// emitted count tracks the actual property map.
-			continue
-		}
 		if seen[name] {
 			continue
 		}
+		// Include propOrder entries even when the backing property slot is absent
+		// (e.g. cleared via ClearPropertyOverride). The writer emits TypeClear for
+		// those slots, which round-trips correctly. Skipping them here would shift
+		// all subsequent property values on reload and corrupt the database.
 		names = append(names, name)
 		seen[name] = true
 	}
 
 	// Append any property not represented in propOrder (e.g. runtime-inherited
-	// slots) so no propval is dropped.
+	// slots added by propagatePropertyToDescendantsLocked) so no propval is dropped.
 	var extra []string
 	for name := range obj.properties {
 		if !seen[name] {
