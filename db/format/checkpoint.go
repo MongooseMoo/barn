@@ -2,15 +2,15 @@ package format
 
 import (
 	"fmt"
-	"io"
 	"os"
 
 	"barn/db/store"
 	"barn/task"
 )
 
-// WriteCheckpoint writes a database checkpoint to path and path+".new".
+// WriteCheckpoint writes a database checkpoint to path+".new", never modifying path.
 func WriteCheckpoint(path string, snapshot store.Snapshot, queuedTasks, suspendedTasks []task.Snapshot) error {
+	outPath := path + ".new"
 	tempPath := path + ".tmp"
 	tempFile, err := os.Create(tempPath)
 	if err != nil {
@@ -30,34 +30,8 @@ func WriteCheckpoint(path string, snapshot store.Snapshot, queuedTasks, suspende
 		return fmt.Errorf("close temp file: %w", err)
 	}
 
-	if err := os.Rename(tempPath, path); err != nil {
-		os.Remove(path)
-		if err := os.Rename(tempPath, path); err != nil {
-			return fmt.Errorf("rename temp to main: %w", err)
-		}
-	}
-
-	if err := copyFile(path, path+".new"); err != nil {
-		return fmt.Errorf("write sibling checkpoint: %w", err)
+	if err := os.Rename(tempPath, outPath); err != nil {
+		return fmt.Errorf("rename temp to output: %w", err)
 	}
 	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
 }

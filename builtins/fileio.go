@@ -65,8 +65,10 @@ func sanitizeFilePath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("empty path")
 	}
-	if filepath.IsAbs(path) {
-		return "", fmt.Errorf("absolute path disallowed")
+	// Toast's file_resolve_path strips a leading "/" rather than rejecting it,
+	// rooting the path inside files/ (so "/tmp/foo" → "files/tmp/foo").
+	if len(path) > 0 && path[0] == '/' {
+		path = path[1:]
 	}
 	// Toast's file_verify_path uses Unix semantics: only "/" separates path
 	// components and a backslash is an ordinary filename character. Reject the
