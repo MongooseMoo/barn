@@ -107,19 +107,13 @@ func (vm *VM) executeStringAppend() error {
 	b := vm.Pop()
 	a := vm.Pop()
 
-	if aStr, ok := a.(types.StrValue); ok {
-		bStr, ok := b.(types.StrValue)
-		if !ok {
-			return fmt.Errorf("E_TYPE: invalid operands for +")
-		}
-
-		if errCode := builtins.CheckStringLength(aStr.Len() + bStr.Len()); errCode != types.E_NONE {
-			return fmt.Errorf("E_QUOTA: string too long")
-		}
-		vm.Push(aStr.Append(bStr))
-		return nil
-	}
-
+	// Numeric-first: this handler is also reached by the `x = x + expr`
+	// self-accumulation peephole for int/float accumulators, so test the
+	// numeric types before string to avoid a failed StrValue assertion every
+	// iteration of a numeric hot loop (mirrors executeAdd's ordering). Pure
+	// reordering — no behavior change: a Value has exactly one dynamic type, so
+	// no operand matches two branches, and the string-a + non-string-b early
+	// E_TYPE below still fires unchanged.
 	if aInt, ok := a.(types.IntValue); ok {
 		if bInt, ok := b.(types.IntValue); ok {
 			vm.Push(types.IntValue{Val: aInt.Val + bInt.Val})
@@ -131,6 +125,19 @@ func (vm *VM) executeStringAppend() error {
 			vm.Push(types.FloatValue{Val: aFloat.Val + bFloat.Val})
 			return nil
 		}
+	}
+
+	if aStr, ok := a.(types.StrValue); ok {
+		bStr, ok := b.(types.StrValue)
+		if !ok {
+			return fmt.Errorf("E_TYPE: invalid operands for +")
+		}
+
+		if errCode := builtins.CheckStringLength(aStr.Len() + bStr.Len()); errCode != types.E_NONE {
+			return fmt.Errorf("E_QUOTA: string too long")
+		}
+		vm.Push(aStr.Append(bStr))
+		return nil
 	}
 
 	if aList, aIsList := a.(types.ListValue); aIsList {
