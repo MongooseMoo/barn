@@ -160,4 +160,6 @@ truncated data; I re-ran the full benchmark in the foreground (exit 0, 120.97s,
 all 9 workloads) and used that. No disk failure occurred.
 
 ## Commit
-`perf(c5): cut per-builtin-call ceremony` — hash recorded below after commit.
+`perf(c5): cut per-builtin-call ceremony` — commit **`e4ede2d`** on branch
+`perf/c5-builtin` (parent `617505f`). This report's hash annotation was added in
+the immediate follow-up doc commit.
