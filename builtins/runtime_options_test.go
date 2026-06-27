@@ -22,7 +22,7 @@ func TestServerVersionReportsOutboundNetworkOption(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("server_version returned error: %s", result.Error)
 	}
-	if got := result.Val.(types.IntValue).Val; got != 0 {
+	if got := result.Val.Int(); got != 0 {
 		t.Fatalf("OUTBOUND_NETWORK = %d, want 0", got)
 	}
 }
@@ -34,9 +34,9 @@ func TestServerVersionFeaturesHideDisabledOutboundNetwork(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("server_version returned error: %s", result.Error)
 	}
-	features := result.Val.(types.ListValue)
+	features := result.Val
 	for _, feature := range features.Elements() {
-		if s, ok := feature.(types.StrValue); ok && s.Value() == config.FeatureOutboundNetwork {
+		if feature.Type() == types.TYPE_STR && feature.Str() == config.FeatureOutboundNetwork {
 			t.Fatalf("disabled features unexpectedly include %s", config.FeatureOutboundNetwork)
 		}
 	}

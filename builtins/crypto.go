@@ -33,7 +33,8 @@ func builtinEncodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -44,7 +45,7 @@ func builtinEncodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	// First decode any ~XX escapes in the input
-	bytes, hasError := decodeBinaryString(str.Value())
+	bytes, hasError := decodeBinaryString(str.Str())
 	if hasError {
 		return types.Err(types.E_INVARG)
 	}
@@ -74,7 +75,8 @@ func builtinDecodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -88,10 +90,10 @@ func builtinDecodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	var err error
 	if urlSafe {
 		// URL-safe can be with or without padding, or partial padding
-		input := strings.TrimRight(str.Value(), "=")
+		input := strings.TrimRight(str.Str(), "=")
 		decoded, err = base64.RawURLEncoding.DecodeString(input)
 	} else {
-		decoded, err = base64.StdEncoding.DecodeString(str.Value())
+		decoded, err = base64.StdEncoding.DecodeString(str.Str())
 	}
 
 	if err != nil {
@@ -127,20 +129,20 @@ func builtinEncodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	// Helper to encode a single value, returns error code or 0 if ok
 	var encodeValue func(v types.Value) types.ErrorCode
 	encodeValue = func(v types.Value) types.ErrorCode {
-		switch val := v.(type) {
-		case types.StrValue:
-			for _, b := range []byte(val.Value()) {
+		switch v.Type() {
+		case types.TYPE_STR:
+			for _, b := range []byte(v.Str()) {
 				encodeByte(&result, b)
 			}
-		case types.IntValue:
-			if val.Val < 0 || val.Val > 255 {
+		case types.TYPE_INT:
+			if v.Int() < 0 || v.Int() > 255 {
 				return types.E_INVARG
 			}
-			encodeByte(&result, byte(val.Val))
-		case types.ListValue:
+			encodeByte(&result, byte(v.Int()))
+		case types.TYPE_LIST:
 			// List can contain strings or integers
-			for i := 1; i <= val.Len(); i++ {
-				if err := encodeValue(val.Get(i)); err != 0 {
+			for i := 1; i <= v.Len(); i++ {
+				if err := encodeValue(v.Get(i)); err != 0 {
 					return err
 				}
 			}
@@ -192,7 +194,8 @@ func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
@@ -204,20 +207,20 @@ func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	fullyNumeric := false
 	asStr := false
 	if len(args) == 2 {
-		switch flag := args[1].(type) {
-		case types.StrValue:
-			if flag.Value() == "as_str" {
+		switch args[1].Type() {
+		case types.TYPE_STR:
+			if args[1].Str() == "as_str" {
 				asStr = true
 			}
-		case types.IntValue:
-			if flag.Val != 0 {
+		case types.TYPE_INT:
+			if args[1].Int() != 0 {
 				fullyNumeric = true
 			}
 		}
 	}
 
 	// Decode the binary string
-	bytes, hasErr := decodeBinaryString(str.Value())
+	bytes, hasErr := decodeBinaryString(str.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
@@ -324,21 +327,23 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	password := str.Value()
+	password := str.Str()
 
 	// Salt is optional - generate random if not provided
 	salt := ""
 	if len(args) == 2 {
-		saltVal, ok := args[1].(types.StrValue)
+		saltVal := args[1]
+		ok := saltVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		salt = saltVal.Value()
+		salt = saltVal.Str()
 	}
 
 	// Check if player is wizard (not just verb owner)
@@ -952,18 +957,20 @@ func builtinStringHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	algo := "sha256"
 	if len(args) >= 2 {
-		algoVal, ok := args[1].(types.StrValue)
+		algoVal := args[1]
+		ok := algoVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		algo = algoVal.Value()
+		algo = algoVal.Str()
 	}
 
 	binaryOutput := false
@@ -976,7 +983,7 @@ func builtinStringHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	hasher.Write([]byte(str.Value()))
+	hasher.Write([]byte(str.Str()))
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {
@@ -993,18 +1000,20 @@ func builtinBinaryHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
 	algo := "sha256"
 	if len(args) >= 2 {
-		algoVal, ok := args[1].(types.StrValue)
+		algoVal := args[1]
+		ok := algoVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		algo = algoVal.Value()
+		algo = algoVal.Str()
 	}
 
 	binaryOutput := false
@@ -1013,7 +1022,7 @@ func builtinBinaryHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	// Decode binary string
-	bytes, hasErr := decodeBinaryString(str.Value())
+	bytes, hasErr := decodeBinaryString(str.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
@@ -1042,11 +1051,12 @@ func builtinValueHash(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	algo := "sha256"
 	if len(args) >= 2 {
-		algoVal, ok := args[1].(types.StrValue)
+		algoVal := args[1]
+		ok := algoVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		algo = algoVal.Value()
+		algo = algoVal.Str()
 	}
 
 	binaryOutput := false
@@ -1081,29 +1091,31 @@ func builtinStringHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	keyVal, ok := args[1].(types.StrValue)
-	if !ok {
+	keyVal := args[1]
+	if keyVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Decode key as binary string
-	key, hasErr := decodeBinaryString(keyVal.Value())
+	key, hasErr := decodeBinaryString(keyVal.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
 
 	algo := "sha256"
 	if len(args) >= 3 {
-		algoVal, ok := args[2].(types.StrValue)
+		algoVal := args[2]
+		ok := algoVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		algo = algoVal.Value()
+		algo = algoVal.Str()
 	}
 
 	binaryOutput := false
@@ -1117,7 +1129,7 @@ func builtinStringHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	mac := hmac.New(h, key)
-	mac.Write([]byte(str.Value()))
+	mac.Write([]byte(str.Str()))
 	hashBytes := mac.Sum(nil)
 
 	if binaryOutput {
@@ -1134,34 +1146,36 @@ func builtinBinaryHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
+	str := args[0]
+	ok := str.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	keyVal, ok := args[1].(types.StrValue)
-	if !ok {
+	keyVal := args[1]
+	if keyVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Decode both as binary strings
-	data, hasErr := decodeBinaryString(str.Value())
+	data, hasErr := decodeBinaryString(str.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
 
-	key, hasErr := decodeBinaryString(keyVal.Value())
+	key, hasErr := decodeBinaryString(keyVal.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
 
 	algo := "sha256"
 	if len(args) >= 3 {
-		algoVal, ok := args[2].(types.StrValue)
+		algoVal := args[2]
+		ok := algoVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		algo = algoVal.Value()
+		algo = algoVal.Str()
 	}
 
 	binaryOutput := false
@@ -1192,23 +1206,24 @@ func builtinValueHmac(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	keyVal, ok := args[1].(types.StrValue)
-	if !ok {
+	keyVal := args[1]
+	if keyVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	key, hasErr := decodeBinaryString(keyVal.Value())
+	key, hasErr := decodeBinaryString(keyVal.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
 
 	algo := "sha256"
 	if len(args) >= 3 {
-		algoVal, ok := args[2].(types.StrValue)
+		algoVal := args[2]
+		ok := algoVal.Type() == types.TYPE_STR
 		if !ok {
 			return types.Err(types.E_TYPE)
 		}
-		algo = algoVal.Value()
+		algo = algoVal.Str()
 	}
 
 	binaryOutput := false
@@ -1265,23 +1280,23 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	prefix, ok := args[0].(types.StrValue)
-	if !ok {
+	prefix := args[0]
+	if prefix.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	randomVal, ok := args[1].(types.StrValue)
-	if !ok {
+	randomVal := args[1]
+	if randomVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Decode the random data as binary string
-	randomBytes, hasErr := decodeBinaryString(randomVal.Value())
+	randomBytes, hasErr := decodeBinaryString(randomVal.Str())
 	if hasErr {
 		return types.Err(types.E_INVARG)
 	}
 
-	prefixStr := prefix.Value()
+	prefixStr := prefix.Str()
 	var result string
 
 	// Base64-like encoding for salt characters
@@ -1398,12 +1413,13 @@ func builtinRandomBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	countVal, ok := args[0].(types.IntValue)
+	countVal := args[0]
+	ok := countVal.Type() == types.TYPE_INT
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
 
-	count := int(countVal.Val)
+	count := int(countVal.Int())
 	if count < 0 || count > 10000 {
 		return types.Err(types.E_INVARG)
 	}

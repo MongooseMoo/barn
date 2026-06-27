@@ -281,7 +281,7 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 func (s *Store) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
 	prop, errCode := s.FindProperty(objID, name)
 	if errCode != types.E_NONE {
-		return nil, errCode
+		return types.None, errCode
 	}
 	return prop.Value, types.E_NONE
 }
@@ -341,7 +341,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 				continue
 			}
 			decidedNames[name] = true
-			if prop.value != nil && prop.value.Truthy() {
+			if !prop.value.IsNone() && prop.value.Truthy() {
 				result[name] = true
 			}
 		}

@@ -14,8 +14,7 @@ func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	urlVal, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 	if !ctx.IsWizard {
@@ -27,23 +26,21 @@ func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	method := "GET"
 	body := ""
 	if len(args) >= 2 {
-		m, ok := args[1].(types.StrValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		method = strings.ToUpper(strings.TrimSpace(m.Value()))
+		method = strings.ToUpper(strings.TrimSpace(args[1].Str()))
 		if method == "" {
 			method = "GET"
 		}
 	}
 	if len(args) == 3 {
-		b, ok := args[2].(types.StrValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		body = b.Value()
+		body = args[2].Str()
 	}
-	req, err := http.NewRequest(method, urlVal.Value(), strings.NewReader(body))
+	req, err := http.NewRequest(method, args[0].Str(), strings.NewReader(body))
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}

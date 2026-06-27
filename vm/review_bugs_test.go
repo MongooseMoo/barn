@@ -43,13 +43,13 @@ func TestReview_MapInSearchesValues(t *testing.T) {
 	if result.Flow == types.FlowException {
 		t.Fatalf("unexpected exception %s: %v", result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.IntValue)
-	if !ok {
-		t.Fatalf("result is not an int: %T %v", result.Val, result.Val)
+	if result.Val.Type() != types.TYPE_INT {
+		t.Fatalf("result is not an int: %v", result.Val)
 	}
-	if got.Val != 0 {
+	got := result.Val.Int()
+	if got != 0 {
 		t.Errorf(`"a" in ["a" -> 1] = %d, want 0 ("a" is a key, not a value; `+
-			`Toast ismember searches values — collection.cc:36)`, got.Val)
+			`Toast ismember searches values — collection.cc:36)`, got)
 	}
 }
 
@@ -60,13 +60,13 @@ func TestReview_MapInValueFoundReturnsKeySortedPosition(t *testing.T) {
 	if result.Flow == types.FlowException {
 		t.Fatalf("unexpected exception %s: %v", result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.IntValue)
-	if !ok {
-		t.Fatalf("result is not an int: %T %v", result.Val, result.Val)
+	if result.Val.Type() != types.TYPE_INT {
+		t.Fatalf("result is not an int: %v", result.Val)
 	}
-	if got.Val != 1 {
+	got := result.Val.Int()
+	if got != 1 {
 		t.Errorf(`1 in ["a" -> 1] = %d, want 1 (value 1 at key-sorted position 1; `+
-			`Toast ismember — collection.cc:36,65)`, got.Val)
+			`Toast ismember — collection.cc:36,65)`, got)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestReview_WaifPropertyMutationAliasesAcrossStructCopies(t *testing.T) {
 		t.Fatalf("localB.foo not set after mutating localA.foo; waifs are reference " +
 			"types and aliases must share one underlying waif (waif.cc:742)")
 	}
-	if iv, ok := val.(types.IntValue); !ok || iv.Val != 99 {
+	if val.Type() != types.TYPE_INT || val.Int() != 99 {
 		t.Errorf("localB.foo = %v, want 99 via aliased mutation", val)
 	}
 }
@@ -130,7 +130,7 @@ func TestReview_WaifSetPropertyMutatesOriginalNotCopy(t *testing.T) {
 		t.Fatal("WaifValue.SetProperty did not mutate the shared waif; reference " +
 			"semantics require the original handle to observe the write (types/waif.go)")
 	}
-	if iv, ok := val.(types.IntValue); !ok || iv.Val != 42 {
+	if val.Type() != types.TYPE_INT || val.Int() != 42 {
 		t.Errorf("waif.hp = %v, want 42", val)
 	}
 }

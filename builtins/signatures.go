@@ -71,6 +71,15 @@ func signatureForFunction(name string) functionSignature {
 	}
 }
 
+// isObjectRef reports whether v is an object reference (regular or anonymous).
+// The pre-de-box code used a single ObjValue type whose assertion matched both
+// TYPE_OBJ and TYPE_ANON, so callers that asserted ObjValue accepted anonymous
+// references too; this preserves that exact behavior.
+func isObjectRef(v types.Value) bool {
+	t := v.Type()
+	return t == types.TYPE_OBJ || t == types.TYPE_ANON
+}
+
 func valueMatchesFunctionArgType(v types.Value, expected int64) bool {
 	switch expected {
 	case -1:
@@ -103,7 +112,7 @@ func validateKnownFunctionArgs(name string, sig functionSignature, args []types.
 			break
 		}
 		if name == "next_recycled_object" && expected == int64(types.TYPE_OBJ) {
-			if _, ok := args[i].(types.IntValue); ok {
+			if args[i].Type() == types.TYPE_INT {
 				continue
 			}
 		}
@@ -137,11 +146,10 @@ func builtinFunctionInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Ok(types.NewList(entries))
 	}
 
-	nameVal, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	name := nameVal.Value()
+	name := args[0].Str()
 	if _, found := r.Get(name); !found {
 		return types.Err(types.E_INVARG)
 	}
@@ -157,18 +165,18 @@ func builtinCallFunction(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
-	name, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	fn, found := r.Get(name.Value())
+	name := args[0].Str()
+	fn, found := r.Get(name)
 	if !found {
 		return types.Err(types.E_INVARG)
 	}
 	result := fn(ctx, args[1:])
-	if name.Value() == "max_object" && result.IsNormal() {
-		if intVal, ok := result.Val.(types.IntValue); ok {
-			return types.Ok(types.NewObj(types.ObjID(intVal.Val)))
+	if name == "max_object" && result.IsNormal() {
+		if result.Val.Type() == types.TYPE_INT {
+			return types.Ok(types.NewObj(types.ObjID(result.Val.Int())))
 		}
 	}
 	return result
@@ -282,14 +290,14 @@ func builtinThreadPool(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	if _, ok := args[0].(types.StrValue); !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	if _, ok := args[1].(types.StrValue); !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 	if len(args) == 3 {
-		if _, ok := args[2].(types.IntValue); !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
 	}
@@ -301,7 +309,7 @@ func builtinSetThreadMode(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Err(types.E_ARGS)
 	}
 	if len(args) == 1 {
-		if _, ok := args[0].(types.IntValue); !ok {
+		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
 	}
@@ -430,11 +438,10 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Determine target player
 	player := ctx.Player
 	if len(args) >= 1 {
-		obj, ok := args[0].(types.ObjValue)
-		if !ok {
+		if !isObjectRef(args[0]) {
 			return types.Err(types.E_TYPE)
 		}
-		player = obj.ID()
+		player = args[0].Obj()
 		if !ctx.IsWizard {
 			store := ctx.Store
 			owner, errCode := store.ObjectOwner(player)
@@ -481,10 +488,10 @@ func builtinFlushInput(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	target, ok := args[0].(types.ObjValue)
-	if !ok {
+	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
+	target := args[0]
 	if !ctx.IsWizard && target.ID() != ctx.Player {
 		return types.Err(types.E_PERM)
 	}
@@ -495,14 +502,14 @@ func builtinForceInput(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	target, ok := args[0].(types.ObjValue)
-	if !ok {
+	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
-	line, ok := args[1].(types.StrValue)
-	if !ok {
+	target := args[0]
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
+	line := args[1]
 	if !ctx.IsWizard && target.ID() != ctx.Player {
 		return types.Err(types.E_PERM)
 	}
@@ -513,7 +520,7 @@ func builtinForceInput(ctx *kernel.TaskContext, args []types.Value) types.Result
 	}
 
 	if forcer := hostOf(ctx).InputForcer; forcer != nil {
-		forcer.ForceInput(target.ID(), line.Value(), atFront)
+		forcer.ForceInput(target.ID(), line.Str(), atFront)
 	}
 	return types.Ok(types.NewInt(0))
 }
@@ -525,11 +532,10 @@ func builtinBufferedOutputLength(ctx *kernel.TaskContext, args []types.Value) ty
 
 	target := ctx.Player
 	if len(args) == 1 {
-		obj, ok := args[0].(types.ObjValue)
-		if !ok {
+		if !isObjectRef(args[0]) {
 			return types.Err(types.E_TYPE)
 		}
-		target = obj.ID()
+		target = args[0].Obj()
 		if !ctx.IsWizard && target != ctx.Player {
 			return types.Err(types.E_PERM)
 		}
@@ -553,11 +559,10 @@ func builtinConnectionOptions(ctx *kernel.TaskContext, args []types.Value) types
 		return types.Err(types.E_ARGS)
 	}
 
-	obj, ok := args[0].(types.ObjValue)
-	if !ok {
+	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
-	target := obj.ID()
+	target := args[0].Obj()
 	if !ctx.IsWizard && target != ctx.Player {
 		return types.Err(types.E_PERM)
 	}
@@ -567,11 +572,10 @@ func builtinConnectionOptions(ctx *kernel.TaskContext, args []types.Value) types
 
 	options := getConnectionOptions(target)
 	if len(args) == 2 {
-		nameVal, ok := args[1].(types.StrValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		name := nameVal.Value()
+		name := args[1].Str()
 		if !validConnectionOption(name) {
 			return types.Err(types.E_INVARG)
 		}
@@ -603,11 +607,10 @@ func builtinOutputDelimiters(ctx *kernel.TaskContext, args []types.Value) types.
 		return types.Err(types.E_ARGS)
 	}
 
-	obj, ok := args[0].(types.ObjValue)
-	if !ok {
+	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
-	target := obj.ID()
+	target := args[0].Obj()
 	if !ctx.IsWizard && target != ctx.Player {
 		return types.Err(types.E_PERM)
 	}
@@ -634,69 +637,61 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	obj, ok := args[0].(types.ObjValue)
-	if !ok {
+	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
-	port, ok := args[1].(types.IntValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
-	if port.Val < 0 || port.Val > 65535 {
+	port := args[1].Int()
+	if port < 0 || port > 65535 {
 		return types.Err(types.E_INVARG)
 	}
 
 	spec := ListenerSpec{
 		Protocol: ListenerProtocolTCP,
-		Object:   obj.ID(),
-		Port:     port.Val,
+		Object:   args[0].Obj(),
+		Port:     port,
 	}
 	if len(args) >= 3 {
-		options, ok := args[2].(types.MapValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_MAP {
 			return types.Err(types.E_TYPE)
 		}
-		for _, pair := range options.Pairs() {
-			key, ok := pair[0].(types.StrValue)
-			if !ok {
+		for _, pair := range args[2].Pairs() {
+			if pair[0].Type() != types.TYPE_STR {
 				continue
 			}
-			switch key.Value() {
+			switch pair[0].Str() {
 			case "print-messages":
 				spec.PrintMessages = pair[1].Truthy()
 			case "protocol":
-				protocol, ok := pair[1].(types.StrValue)
-				if !ok {
+				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
 				}
-				spec.Protocol = normalizeListenerProtocol(protocol.Value())
+				spec.Protocol = normalizeListenerProtocol(pair[1].Str())
 				if !listenerProtocolSupported(spec.Protocol) {
 					return types.Err(types.E_INVARG)
 				}
 			case "interface":
-				iface, ok := pair[1].(types.StrValue)
-				if !ok {
+				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
 				}
-				spec.Interface = iface.Value()
+				spec.Interface = pair[1].Str()
 			case "path":
-				path, ok := pair[1].(types.StrValue)
-				if !ok {
+				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
 				}
-				spec.Path = path.Value()
+				spec.Path = pair[1].Str()
 			case "certificate":
-				cert, ok := pair[1].(types.StrValue)
-				if !ok {
+				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
 				}
-				spec.TLSCertificatePath = cert.Value()
+				spec.TLSCertificatePath = pair[1].Str()
 			case "key":
-				keyPath, ok := pair[1].(types.StrValue)
-				if !ok {
+				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
 				}
-				spec.TLSKeyPath = keyPath.Value()
+				spec.TLSKeyPath = pair[1].Str()
 			}
 		}
 	}
@@ -736,15 +731,14 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	host, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	port, ok := args[1].(types.IntValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
-	if port.Val <= 0 || port.Val > 65535 {
+	port := args[1].Int()
+	if port <= 0 || port > 65535 {
 		return types.Err(types.E_INVARG)
 	}
 	if !ctx.RuntimeOptions.OutboundNetwork {
@@ -754,7 +748,7 @@ func builtinOpenNetworkConnection(ctx *kernel.TaskContext, args []types.Value) t
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	conn, err := cm.OpenNetworkConnection(host.Value(), port.Val)
+	conn, err := cm.OpenNetworkConnection(args[0].Str(), port)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -769,11 +763,10 @@ func builtinShutdown(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	message := ""
 	if len(args) >= 1 {
-		messageVal, ok := args[0].(types.StrValue)
-		if !ok {
+		if args[0].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		message = messageVal.Value()
+		message = args[0].Str()
 	}
 	unclean := false
 	if len(args) == 2 {
@@ -801,7 +794,7 @@ func builtinSpellcheck(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if _, ok := args[0].(types.StrValue); !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 	return types.Ok(types.NewList([]types.Value{}))

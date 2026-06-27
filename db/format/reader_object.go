@@ -9,6 +9,17 @@ import (
 	"strings"
 )
 
+// asObjID reports whether v is an object reference (regular or anonymous) and,
+// if so, returns its id. It mirrors the old `v.(types.ObjValue)` type assertion,
+// which succeeded for both TYPE_OBJ and TYPE_ANON (anonymous objects were an
+// ObjValue with anonymous=true).
+func asObjID(v types.Value) (types.ObjID, bool) {
+	if v.Type() == types.TYPE_OBJ || v.Type() == types.TYPE_ANON {
+		return v.Obj(), true
+	}
+	return 0, false
+}
+
 // readObject reads a single object
 func (database *Database) readObject(r *bufio.Reader) (*store.ObjectBuilder, error) {
 	return database.readObjectCommon(r, true)
@@ -75,8 +86,8 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if objVal, ok := locVal.(types.ObjValue); ok {
-		obj.SetLocation(objVal.ID())
+	if id, ok := asObjID(locVal); ok {
+		obj.SetLocation(id)
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.location is not an object", objID))
 		obj.SetLocation(types.ObjNothing)
@@ -95,11 +106,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if listVal, ok := contentsVal.(types.ListValue); ok {
+	if contentsVal.Type() == types.TYPE_LIST {
 		validContents := true
-		for i := 1; i <= listVal.Len(); i++ {
-			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.AppendContent(objVal.ID())
+		for i := 1; i <= contentsVal.Len(); i++ {
+			if id, ok := asObjID(contentsVal.Get(i)); ok {
+				obj.AppendContent(id)
 			} else {
 				validContents = false
 			}
@@ -118,12 +129,12 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 		return nil, err
 	}
 	// Parents can be either a single object or a list of objects
-	if listVal, ok := parentsVal.(types.ListValue); ok {
+	if parentsVal.Type() == types.TYPE_LIST {
 		validParents := true
 		// Multiple parents (list)
-		for i := 1; i <= listVal.Len(); i++ {
-			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.AppendParent(objVal.ID())
+		for i := 1; i <= parentsVal.Len(); i++ {
+			if id, ok := asObjID(parentsVal.Get(i)); ok {
+				obj.AppendParent(id)
 			} else {
 				validParents = false
 			}
@@ -132,10 +143,10 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
 			obj.SetParents(nil)
 		}
-	} else if objVal, ok := parentsVal.(types.ObjValue); ok {
+	} else if id, ok := asObjID(parentsVal); ok {
 		// Single parent (common case)
-		if objVal.ID() != -1 {
-			obj.AppendParent(objVal.ID())
+		if id != -1 {
+			obj.AppendParent(id)
 		}
 	} else {
 		database.recordStartupRepair(fmt.Sprintf("#%d.parents is not an object or list of objects", objID))
@@ -146,11 +157,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	if err != nil {
 		return nil, err
 	}
-	if listVal, ok := childrenVal.(types.ListValue); ok {
+	if childrenVal.Type() == types.TYPE_LIST {
 		validChildren := true
-		for i := 1; i <= listVal.Len(); i++ {
-			if objVal, ok := listVal.Get(i).(types.ObjValue); ok {
-				obj.AppendChild(objVal.ID())
+		for i := 1; i <= childrenVal.Len(); i++ {
+			if id, ok := asObjID(childrenVal.Get(i)); ok {
+				obj.AppendChild(id)
 			} else {
 				validChildren = false
 			}
@@ -262,7 +273,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 
 		// If value is nil, this is a CLEAR property (type code 5)
 		// It should inherit its value from the parent object
-		clear := propValue == nil
+		clear := propValue.IsNone()
 
 		// Owner
 		propOwner, err := readObjID(r)

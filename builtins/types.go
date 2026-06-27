@@ -18,7 +18,7 @@ func builtinTypeof(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	return types.Ok(types.IntValue{Val: int64(args[0].Type())})
+	return types.Ok(types.NewInt(int64(args[0].Type())))
 }
 
 // builtinTostr converts values to strings and concatenates them
@@ -47,34 +47,34 @@ func builtinTostr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // valueToStr converts a single value to its string representation
 func valueToStr(val types.Value) string {
-	switch v := val.(type) {
-	case types.StrValue:
-		return v.Value()
+	switch val.Type() {
+	case types.TYPE_STR:
+		return val.Str()
 
-	case types.IntValue:
-		return strconv.FormatInt(v.Val, 10)
+	case types.TYPE_INT:
+		return strconv.FormatInt(val.Int(), 10)
 
-	case types.FloatValue:
+	case types.TYPE_FLOAT:
 		// Delegate to the canonical float formatting (15 significant digits,
 		// ToastStunt-compatible) so tostr() matches value output and toliteral().
-		return v.String()
+		return val.String()
 
-	case types.ObjValue:
-		return fmt.Sprintf("#%d", v.ID())
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		return fmt.Sprintf("#%d", val.ID())
 
-	case types.ErrValue:
-		return v.Code().Message()
+	case types.TYPE_ERR:
+		return val.Code().Message()
 
-	case types.BoolValue:
-		if v.Val {
+	case types.TYPE_BOOL:
+		if val.Bool() {
 			return "true"
 		}
 		return "false"
 
-	case types.ListValue:
+	case types.TYPE_LIST:
 		return "{list}"
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		return "[map]"
 
 	default:
@@ -94,48 +94,48 @@ func builtinToint(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	val := args[0]
 
-	switch v := val.(type) {
-	case types.IntValue:
+	switch val.Type() {
+	case types.TYPE_INT:
 		// Already an int, return as-is
-		return types.Ok(v)
+		return types.Ok(val)
 
-	case types.FloatValue:
+	case types.TYPE_FLOAT:
 		// Truncate float to int
-		return types.Ok(types.IntValue{Val: int64(v.Val)})
+		return types.Ok(types.NewInt(int64(val.Float())))
 
-	case types.ObjValue:
+	case types.TYPE_OBJ, types.TYPE_ANON:
 		// Object ID as int
-		return types.Ok(types.IntValue{Val: int64(v.ID())})
+		return types.Ok(types.NewInt(int64(val.ID())))
 
-	case types.ErrValue:
+	case types.TYPE_ERR:
 		// Error code ordinal as int
-		return types.Ok(types.IntValue{Val: int64(v.Code())})
+		return types.Ok(types.NewInt(int64(val.Code())))
 
-	case types.BoolValue:
-		if v.Val {
-			return types.Ok(types.IntValue{Val: 1})
+	case types.TYPE_BOOL:
+		if val.Bool() {
+			return types.Ok(types.NewInt(1))
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
-	case types.StrValue:
+	case types.TYPE_STR:
 		// Parse string as integer first. If that fails, parse as float and truncate.
 		// Per MOO semantics: returns 0 for unparseable strings (not E_INVARG).
-		str := strings.TrimSpace(v.Value())
+		str := strings.TrimSpace(val.Str())
 		i, err := strconv.ParseInt(str, 10, 64)
 		if err == nil {
-			return types.Ok(types.IntValue{Val: i})
+			return types.Ok(types.NewInt(i))
 		}
 		// On a pure-numeric overflow, ParseInt returns the saturated
 		// MaxInt64/MinInt64 together with ErrRange. MOO's strtoll-based toint()
 		// clamps the same way, so honor that value rather than falling through
 		// to the float path (which would wrap to the wrong extreme).
 		if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
-			return types.Ok(types.IntValue{Val: i})
+			return types.Ok(types.NewInt(i))
 		}
 		if f, ferr := strconv.ParseFloat(str, 64); ferr == nil {
-			return types.Ok(types.IntValue{Val: int64(f)})
+			return types.Ok(types.NewInt(int64(f)))
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
 	default:
 		// Cannot convert this type to int
@@ -154,34 +154,34 @@ func builtinTofloat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	val := args[0]
 
-	switch v := val.(type) {
-	case types.FloatValue:
+	switch val.Type() {
+	case types.TYPE_FLOAT:
 		// Already a float, return as-is
-		return types.Ok(v)
+		return types.Ok(val)
 
-	case types.IntValue:
+	case types.TYPE_INT:
 		// Convert int to float
-		return types.Ok(types.FloatValue{Val: float64(v.Val)})
+		return types.Ok(types.NewFloat(float64(val.Int())))
 
-	case types.ObjValue:
+	case types.TYPE_OBJ, types.TYPE_ANON:
 		// Object ID as float
-		return types.Ok(types.FloatValue{Val: float64(v.ID())})
+		return types.Ok(types.NewFloat(float64(val.ID())))
 
-	case types.ErrValue:
+	case types.TYPE_ERR:
 		// Error code ordinal as float
-		return types.Ok(types.FloatValue{Val: float64(v.Code())})
+		return types.Ok(types.NewFloat(float64(val.Code())))
 
-	case types.StrValue:
+	case types.TYPE_STR:
 		// Parse string as float. Go's ParseFloat accepts "inf"/"nan" tokens,
 		// but MOO's strtod-based tofloat() does not: a non-finite result is
 		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
 		// reports via err).
-		str := strings.TrimSpace(v.Value())
+		str := strings.TrimSpace(val.Str())
 		f, err := strconv.ParseFloat(str, 64)
 		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			return types.Err(types.E_INVARG)
 		}
-		return types.Ok(types.FloatValue{Val: f})
+		return types.Ok(types.NewFloat(f))
 
 	default:
 		// Cannot convert this type to float
@@ -218,27 +218,27 @@ func builtinToobj(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	val := args[0]
 
-	switch v := val.(type) {
-	case types.ObjValue:
-		return types.Ok(v)
+	switch val.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		return types.Ok(val)
 
-	case types.IntValue:
-		return types.Ok(types.NewObj(types.ObjID(v.Val)))
+	case types.TYPE_INT:
+		return types.Ok(types.NewObj(types.ObjID(val.Int())))
 
-	case types.FloatValue:
-		return types.Ok(types.NewObj(types.ObjID(int64(v.Val))))
+	case types.TYPE_FLOAT:
+		return types.Ok(types.NewObj(types.ObjID(int64(val.Float()))))
 
-	case types.ErrValue:
-		return types.Ok(types.NewObj(types.ObjID(v.Code())))
+	case types.TYPE_ERR:
+		return types.Ok(types.NewObj(types.ObjID(val.Code())))
 
-	case types.BoolValue:
-		if v.Val {
+	case types.TYPE_BOOL:
+		if val.Bool() {
 			return types.Ok(types.NewObj(1))
 		}
 		return types.Ok(types.NewObj(0))
 
-	case types.StrValue:
-		str := strings.TrimSpace(v.Value())
+	case types.TYPE_STR:
+		str := strings.TrimSpace(val.Str())
 		// Parse "#123" format
 		if len(str) > 0 && str[0] == '#' {
 			str = str[1:]
@@ -273,14 +273,12 @@ func builtinEqual(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // This is used by equal() builtin, not by == operator
 func strictEqual(a, b types.Value) bool {
 	// For maps, do case-sensitive comparison of keys and values
-	aMap, aIsMap := a.(types.MapValue)
-	bMap, bIsMap := b.(types.MapValue)
-	if aIsMap && bIsMap {
-		if aMap.Len() != bMap.Len() {
+	if a.Type() == types.TYPE_MAP && b.Type() == types.TYPE_MAP {
+		if a.Len() != b.Len() {
 			return false
 		}
-		aPairs := aMap.Pairs()
-		bPairs := bMap.Pairs()
+		aPairs := a.Pairs()
+		bPairs := b.Pairs()
 		// Compare in sorted order
 		sortPairs(aPairs)
 		sortPairs(bPairs)
@@ -294,14 +292,12 @@ func strictEqual(a, b types.Value) bool {
 	}
 
 	// For lists, recursively check with strictEqual
-	aList, aIsList := a.(types.ListValue)
-	bList, bIsList := b.(types.ListValue)
-	if aIsList && bIsList {
-		if aList.Len() != bList.Len() {
+	if a.Type() == types.TYPE_LIST && b.Type() == types.TYPE_LIST {
+		if a.Len() != b.Len() {
 			return false
 		}
-		for i := 1; i <= aList.Len(); i++ {
-			if !strictEqual(aList.Get(i), bList.Get(i)) {
+		for i := 1; i <= a.Len(); i++ {
+			if !strictEqual(a.Get(i), b.Get(i)) {
 				return false
 			}
 		}
@@ -309,10 +305,8 @@ func strictEqual(a, b types.Value) bool {
 	}
 
 	// For strings, case-SENSITIVE comparison
-	aStr, aIsStr := a.(types.StrValue)
-	bStr, bIsStr := b.(types.StrValue)
-	if aIsStr && bIsStr {
-		return aStr.Value() == bStr.Value()
+	if a.Type() == types.TYPE_STR && b.Type() == types.TYPE_STR {
+		return a.Str() == b.Str()
 	}
 
 	// For other types, use standard Equal
@@ -354,18 +348,16 @@ func comparePairKeys(a, b types.Value) int {
 	}
 
 	// Same type, compare values
-	switch av := a.(type) {
-	case types.IntValue:
-		bv := b.(types.IntValue)
-		if av.Val < bv.Val {
+	switch a.Type() {
+	case types.TYPE_INT:
+		if a.Int() < b.Int() {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if a.Int() > b.Int() {
 			return 1
 		}
 		return 0
-	case types.StrValue:
-		bv := b.(types.StrValue)
-		return strings.Compare(av.Value(), bv.Value())
+	case types.TYPE_STR:
+		return strings.Compare(a.Str(), b.Str())
 	}
 	return 0
 }
@@ -374,8 +366,8 @@ func comparePairKeys(a, b types.Value) int {
 // HELPER FUNCTIONS
 // ============================================================================
 
-// listToString converts a ListValue to its MOO string representation
-func listToString(list types.ListValue) string {
+// listToString converts a list value to its MOO string representation
+func listToString(list types.Value) string {
 	if list.Len() == 0 {
 		return "{}"
 	}
@@ -388,8 +380,8 @@ func listToString(list types.ListValue) string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
-// mapToString converts a MapValue to its MOO string representation
-func mapToString(m types.MapValue) string {
+// mapToString converts a map value to its MOO string representation
+func mapToString(m types.Value) string {
 	pairs := m.Pairs()
 	if len(pairs) == 0 {
 		return "[]"

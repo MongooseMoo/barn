@@ -50,11 +50,12 @@ func builtinParseAnsi(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	s, ok := args[0].(types.StrValue)
+	s := args[0]
+	ok := s.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	converted := ansiTagRe.ReplaceAllStringFunc(s.Value(), func(tag string) string {
+	converted := ansiTagRe.ReplaceAllStringFunc(s.Str(), func(tag string) string {
 		name := strings.ToLower(tag[1 : len(tag)-1])
 		if code, ok := ansiTags[name]; ok {
 			return code
@@ -68,11 +69,12 @@ func builtinRemoveAnsi(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	s, ok := args[0].(types.StrValue)
+	s := args[0]
+	ok := s.Type() == types.TYPE_STR
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	strippedTags := ansiTagRe.ReplaceAllStringFunc(s.Value(), func(tag string) string {
+	strippedTags := ansiTagRe.ReplaceAllStringFunc(s.Str(), func(tag string) string {
 		name := strings.ToLower(tag[1 : len(tag)-1])
 		if _, ok := ansiTags[name]; ok {
 			return ""

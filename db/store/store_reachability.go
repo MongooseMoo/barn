@@ -6,17 +6,17 @@ import (
 )
 
 func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{}) {
-	switch val := value.(type) {
-	case types.ObjValue:
-		if val.IsAnonymous() {
-			out[val.ID()] = struct{}{}
+	switch value.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if value.IsAnonymous() {
+			out[value.ID()] = struct{}{}
 		}
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+	case types.TYPE_LIST:
+		for _, elem := range value.Elements() {
 			collectAnonymousObjectRefs(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
 			collectAnonymousObjectRefs(pair[0], out)
 			collectAnonymousObjectRefs(pair[1], out)
 		}
@@ -176,27 +176,27 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	return candidates
 }
 
-func collectWaifsFromValue(value types.Value, out *[]types.WaifValue) {
-	switch val := value.(type) {
-	case types.WaifValue:
-		*out = append(*out, val)
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+func collectWaifsFromValue(value types.Value, out *[]types.Value) {
+	switch value.Type() {
+	case types.TYPE_WAIF:
+		*out = append(*out, value)
+	case types.TYPE_LIST:
+		for _, elem := range value.Elements() {
 			collectWaifsFromValue(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
 			collectWaifsFromValue(pair[0], out)
 			collectWaifsFromValue(pair[1], out)
 		}
 	}
 }
 
-func (s *Store) PersistentWaifRoots() []types.WaifValue {
+func (s *Store) PersistentWaifRoots() []types.Value {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	roots := make([]types.WaifValue, 0)
+	roots := make([]types.Value, 0)
 	for _, obj := range s.objects {
 		if !validLiveObject(obj) {
 			continue

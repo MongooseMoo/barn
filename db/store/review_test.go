@@ -183,7 +183,8 @@ func TestReview_RuntimeAnonLostAtSnapshot(t *testing.T) {
 	if !hasProp {
 		t.Fatal("snapshot #0 missing anon_ref property")
 	}
-	if objVal, isObj := refProp.Value.(types.ObjValue); !isObj || objVal.ID() == types.ObjNothing {
+	rv := refProp.Value
+	if (rv.Type() != types.TYPE_OBJ && rv.Type() != types.TYPE_ANON) || rv.ID() == types.ObjNothing {
 		t.Errorf("snapshot rewrote anon_ref to NOTHING; got %v", refProp.Value)
 	}
 }
@@ -301,11 +302,11 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 	if ec != types.E_NONE {
 		t.Fatalf("FindProperty ref after renumber: %v", ec)
 	}
-	objVal, ok := prop.Value.(types.ObjValue)
-	if !ok {
-		t.Fatalf("ref property value is not ObjValue: %T", prop.Value)
+	rv := prop.Value
+	if rv.Type() != types.TYPE_OBJ && rv.Type() != types.TYPE_ANON {
+		t.Fatalf("ref property value is not an object: %v", prop.Value)
 	}
-	if objVal.ID() != 1 {
-		t.Errorf("ref property value = #%d, want stale #1 (Toast does not rewrite property-value refs)", objVal.ID())
+	if rv.ID() != 1 {
+		t.Errorf("ref property value = #%d, want stale #1 (Toast does not rewrite property-value refs)", rv.ID())
 	}
 }

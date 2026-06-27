@@ -4,6 +4,7 @@ import (
 	"barn/types"
 	"fmt"
 	"slices"
+	"unsafe"
 )
 
 func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
@@ -488,19 +489,19 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 // breadth-first. Permission metadata comes from the nearest property slot, while
 // a clear slot inherits the first non-clear value from an ancestor.
 
-func (s *Store) RegisterWaif(classID types.ObjID, waif *types.WaifValue) {
+func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.waifRegistry == nil {
-		s.waifRegistry = make(map[types.ObjID]map[*types.WaifValue]struct{})
+		s.waifRegistry = make(map[types.ObjID]map[unsafe.Pointer]struct{})
 	}
 
 	if s.waifRegistry[classID] == nil {
-		s.waifRegistry[classID] = make(map[*types.WaifValue]struct{})
+		s.waifRegistry[classID] = make(map[unsafe.Pointer]struct{})
 	}
 
-	s.waifRegistry[classID][waif] = struct{}{}
+	s.waifRegistry[classID][waif.WaifIdentity()] = struct{}{}
 }
 
 // WaifCount returns the total number of live waifs across all classes

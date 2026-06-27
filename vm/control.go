@@ -29,17 +29,17 @@ func (vm *VM) executeFork() error {
 	delay := vm.Pop()
 
 	var delaySeconds float64
-	switch v := delay.(type) {
-	case types.IntValue:
-		if v.Val < 0 {
+	switch delay.Type() {
+	case types.TYPE_INT:
+		if delay.Int() < 0 {
 			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
 		}
-		delaySeconds = float64(v.Val)
-	case types.FloatValue:
-		if v.Val < 0 {
+		delaySeconds = float64(delay.Int())
+	case types.TYPE_FLOAT:
+		if delay.Float() < 0 {
 			return fmt.Errorf("E_INVARG: fork delay must be non-negative")
 		}
-		delaySeconds = v.Val
+		delaySeconds = delay.Float()
 	default:
 		return fmt.Errorf("E_TYPE: fork delay must be numeric")
 	}
@@ -82,7 +82,7 @@ func (vm *VM) executeFork() error {
 			playerObj = vm.Context.Player
 		}
 	}
-	var thisValue types.Value
+	thisValue := types.None
 	if vm.Context != nil {
 		thisValue = vm.Context.ThisValue
 	}

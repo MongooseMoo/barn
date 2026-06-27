@@ -815,7 +815,7 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		for i, name := range names {
 			c.emit(OP_GET_VAR)
 			c.emitByte(byte(listVar))
-			c.emitConstant(types.IntValue{Val: int64(i + 1)})
+			c.emitConstant(types.NewInt(int64(i + 1)))
 			c.emit(OP_INDEX)
 			idx := c.declareVariable(name)
 			c.emit(OP_SET_VAR)
@@ -1541,7 +1541,7 @@ func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
 	}
 
 	if n.Marker == parser.TOKEN_CARET {
-		c.emitConstant(types.IntValue{Val: 1})
+		c.emitConstant(types.NewInt(1))
 		return nil
 	}
 
@@ -1552,7 +1552,7 @@ func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
 	} else {
 		// No index context (shouldn't happen for well-formed index/range expressions).
 		// Fall back to literal -1 (will produce E_RANGE at runtime).
-		c.emitConstant(types.IntValue{Val: -1})
+		c.emitConstant(types.NewInt(-1))
 	}
 
 	return nil
@@ -2644,7 +2644,7 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 			c.emit(op)
 		}
 		c.emit(OP_ADD)
-		c.emitConstant(types.IntValue{Val: int64(requiredReserve)})
+		c.emitConstant(types.NewInt(int64(requiredReserve)))
 		c.emit(OP_GT)
 	}
 

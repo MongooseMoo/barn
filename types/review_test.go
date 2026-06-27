@@ -44,7 +44,7 @@ func TestReview_WaifSetPropertyMutatesOriginal(t *testing.T) {
 	if !ok {
 		t.Fatal("waif reference semantics broken: w1 does not see property set via its alias w2 (Toast waif_put_prop mutates the shared waif, waif.cc:742)")
 	}
-	if iv, ok := got.(IntValue); !ok || iv.Val != 42 {
+	if got.Type() != TYPE_INT || got.Int() != 42 {
 		t.Fatalf("w1.x = %v, want 42 via aliased mutation", got)
 	}
 

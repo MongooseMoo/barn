@@ -73,7 +73,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	if childProp.Clear {
 		t.Fatalf("reloaded child %q unexpectedly clear", propName)
 	}
-	if got := childProp.Value.(types.StrValue).Value(); got != "child-override" {
+	if got := childProp.Value.Str(); childProp.Value.Type() != types.TYPE_STR || got != "child-override" {
 		t.Fatalf("child override = %q, want child-override", got)
 	}
 }
@@ -168,7 +168,7 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 	if !ok {
 		t.Fatalf("reloaded child missing sentinel after clear+checkpoint")
 	}
-	if got := prop.Value.(types.StrValue).Value(); got != "expected-value" {
+	if got := prop.Value.Str(); got != "expected-value" {
 		t.Fatalf("sentinel = %q after clear+roundtrip, want expected-value (property values shifted by missing cleared slot)", got)
 	}
 }

@@ -97,9 +97,9 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		bcVM.Context = ctx
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
-			if t.WakeValue != nil {
+			if !t.WakeValue.IsNone() {
 				bcVM.SetResumeValue(t.WakeValue)
-				t.WakeValue = nil // Consume — don't leak into future suspends
+				t.WakeValue = types.None // Consume — don't leak into future suspends
 			}
 			// Resume after suspend
 			result = bcVM.Resume()
@@ -139,6 +139,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// Push initial activation frame for traceback support
 			t.PushFrame(task.ActivationFrame{
 				This:       t.This,
+				ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
 				Player:     t.Owner,
 				Programmer: t.Programmer,
 				Caller:     t.Caller,
@@ -220,9 +221,9 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 
 	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
 		t.SetBytecodeVM(bcVM)
-		if t.WakeValue != nil {
+		if !t.WakeValue.IsNone() {
 			bcVM.SetResumeValue(t.WakeValue)
-			t.WakeValue = nil
+			t.WakeValue = types.None
 		}
 		result = bcVM.Resume()
 		t.Result = result
@@ -349,7 +350,7 @@ func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message t
 }
 
 func resultValueContains(value types.Value, text string) bool {
-	if value == nil {
+	if value.IsNone() {
 		return false
 	}
 	return strings.Contains(strings.ToLower(value.String()), strings.ToLower(text))

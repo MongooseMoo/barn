@@ -97,7 +97,7 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 		if openRes.IsError() {
 			t.Fatalf("file_open(%q) error: %v", mode, openRes.Error)
 		}
-		handleID := openRes.Val.(types.IntValue).Val
+		handleID := openRes.Val.Int()
 		defer builtinFileClose(ctx, []types.Value{types.NewInt(handleID)})
 
 		res := builtinFileReadlines(ctx, []types.Value{
@@ -108,11 +108,11 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 		if res.IsError() {
 			t.Fatalf("file_readlines(%q) error: %v", mode, res.Error)
 		}
-		list, ok := res.Val.(types.ListValue)
-		if !ok || list.Len() == 0 {
+		list := res.Val
+		if list.Type() != types.TYPE_LIST || list.Len() == 0 {
 			t.Fatalf("expected a 1-element list, got %v", res.Val)
 		}
-		return list.Get(1).(types.StrValue).Value()
+		return list.Get(1).Str()
 	}
 
 	// Binary mode ("r-bf"): non-printable bytes (incl. the trailing newline)
@@ -188,23 +188,23 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 		t.Fatalf("queued_tasks() error: %v", res.Error)
 	}
 
-	list, ok := res.Val.(types.ListValue)
-	if !ok {
-		t.Fatalf("expected list result, got %T", res.Val)
+	list := res.Val
+	if list.Type() != types.TYPE_LIST {
+		t.Fatalf("expected list result, got %v", res.Val)
 	}
 
 	// Locate our two tasks in the result.
 	earlierIdx, laterIdx := 0, 0
 	for i := 1; i <= list.Len(); i++ {
-		entry, ok := list.Get(i).(types.ListValue)
-		if !ok {
+		entry := list.Get(i)
+		if entry.Type() != types.TYPE_LIST {
 			continue
 		}
-		idVal, ok := entry.Get(1).(types.IntValue)
-		if !ok {
+		idVal := entry.Get(1)
+		if idVal.Type() != types.TYPE_INT {
 			continue
 		}
-		switch idVal.Val {
+		switch idVal.Int() {
 		case earlierID:
 			earlierIdx = i
 		case laterID:
@@ -283,22 +283,22 @@ func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("queued_tasks() error: %v", res.Error)
 	}
-	list, ok := res.Val.(types.ListValue)
-	if !ok {
-		t.Fatalf("expected list result, got %T", res.Val)
+	list := res.Val
+	if list.Type() != types.TYPE_LIST {
+		t.Fatalf("expected list result, got %v", res.Val)
 	}
 
 	timedIdx, indefIdx := 0, 0
 	for i := 1; i <= list.Len(); i++ {
-		entry, ok := list.Get(i).(types.ListValue)
-		if !ok {
+		entry := list.Get(i)
+		if entry.Type() != types.TYPE_LIST {
 			continue
 		}
-		idVal, ok := entry.Get(1).(types.IntValue)
-		if !ok {
+		idVal := entry.Get(1)
+		if idVal.Type() != types.TYPE_INT {
 			continue
 		}
-		switch idVal.Val {
+		switch idVal.Int() {
 		case timedID:
 			timedIdx = i
 		case indefID:

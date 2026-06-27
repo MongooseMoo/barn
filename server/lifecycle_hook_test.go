@@ -36,8 +36,7 @@ func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read property: %v", errCode)
 	}
-	started, ok := value.(types.IntValue)
-	if !ok || started.Val != 1 {
+	if value.Type() != types.TYPE_INT || value.Int() != 1 {
 		t.Fatalf("started = %v, want 1 before callServerStarted returns", value)
 	}
 }
@@ -75,8 +74,7 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read property: %v", errCode)
 	}
-	listenerCount, ok := value.(types.IntValue)
-	if !ok || listenerCount.Val != 1 {
+	if value.Type() != types.TYPE_INT || value.Int() != 1 {
 		t.Fatalf("listener_count = %v, want 1", value)
 	}
 }
@@ -173,8 +171,7 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read listener_count: %v", errCode)
 	}
-	listenerCount, ok := value.(types.IntValue)
-	if !ok || listenerCount.Val != 1 {
+	if value.Type() != types.TYPE_INT || value.Int() != 1 {
 		t.Fatalf("listener_count = %v, want 1", value)
 	}
 
@@ -182,8 +179,7 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read shutdown_message: %v", errCode)
 	}
-	shutdownMessage, ok := value.(types.StrValue)
-	if !ok || shutdownMessage.Value() != "Maintenance" {
+	if value.Type() != types.TYPE_STR || value.Str() != "Maintenance" {
 		t.Fatalf("shutdown_message = %v, want Maintenance", value)
 	}
 
@@ -323,7 +319,7 @@ func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started: %v", errCode)
 	}
-	if val, ok := started.(types.IntValue); !ok || val.Val != 1 {
+	if started.Type() != types.TYPE_INT || started.Int() != 1 {
 		t.Fatalf("checkpoint_started = %v, want 1", started)
 	}
 
@@ -331,7 +327,7 @@ func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_finished: %v", errCode)
 	}
-	if val, ok := finished.(types.IntValue); !ok || val.Val != 1 {
+	if finished.Type() != types.TYPE_INT || finished.Int() != 1 {
 		t.Fatalf("checkpoint_finished = %v, want 1", finished)
 	}
 }
@@ -378,7 +374,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started: %v", errCode)
 	}
-	if val, ok := started.(types.IntValue); !ok || val.Val != 1 {
+	if started.Type() != types.TYPE_INT || started.Int() != 1 {
 		t.Fatalf("checkpoint_started = %v, want 1", started)
 	}
 
@@ -386,7 +382,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_finished: %v", errCode)
 	}
-	if val, ok := finished.(types.IntValue); !ok || val.Val != 1 {
+	if finished.Type() != types.TYPE_INT || finished.Int() != 1 {
 		t.Fatalf("checkpoint_finished = %v, want 1", finished)
 	}
 
@@ -394,7 +390,7 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read shutdown_started: %v", errCode)
 	}
-	if val, ok := shutdownStarted.(types.IntValue); !ok || val.Val != 0 {
+	if shutdownStarted.Type() != types.TYPE_INT || shutdownStarted.Int() != 0 {
 		t.Fatalf("shutdown_started = %v, want 0", shutdownStarted)
 	}
 }
@@ -437,7 +433,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started before loop: %v", errCode)
 	}
-	if val, ok := started.(types.IntValue); !ok || val.Val != 0 {
+	if started.Type() != types.TYPE_INT || started.Int() != 0 {
 		t.Fatalf("checkpoint_started before loop = %v, want 0", started)
 	}
 
@@ -452,7 +448,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 		if errCode != types.E_NONE {
 			t.Fatalf("read checkpoint_finished: %v", errCode)
 		}
-		if val, ok := finished.(types.IntValue); ok && val.Val == 1 {
+		if finished.Type() == types.TYPE_INT && finished.Int() == 1 {
 			break
 		}
 		select {
@@ -471,7 +467,7 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read checkpoint_started after loop: %v", errCode)
 	}
-	if val, ok := started.(types.IntValue); !ok || val.Val != 1 {
+	if started.Type() != types.TYPE_INT || started.Int() != 1 {
 		t.Fatalf("checkpoint_started after loop = %v, want one coalesced checkpoint", started)
 	}
 }

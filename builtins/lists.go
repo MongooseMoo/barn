@@ -20,21 +20,20 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	value := args[1]
 
 	// Default: append to end
 	index := list.Len()
 	if len(args) == 3 {
-		idx, ok := args[2].(types.IntValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		index = int(idx.Val)
+		index = int(args[2].Int())
 		if index < 0 || index > list.Len() {
 			return types.Err(types.E_RANGE)
 		}
@@ -60,21 +59,20 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	value := args[1]
 
 	// Default: insert at beginning
 	index := 1
 	if len(args) == 3 {
-		idx, ok := args[2].(types.IntValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		index = int(idx.Val)
+		index = int(args[2].Int())
 		// Clamp to valid range
 		if index <= 0 {
 			index = 1
@@ -101,17 +99,16 @@ func builtinListdelete(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
+		return types.Err(types.E_TYPE)
+	}
+	list := args[0]
+
+	if args[1].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
 
-	idx, ok := args[1].(types.IntValue)
-	if !ok {
-		return types.Err(types.E_TYPE)
-	}
-
-	index := int(idx.Val)
+	index := int(args[1].Int())
 	if index < 1 || index > list.Len() {
 		return types.Err(types.E_RANGE)
 	}
@@ -133,19 +130,18 @@ func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	value := args[1]
 
-	idx, ok := args[2].(types.IntValue)
-	if !ok {
+	if args[2].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
 
-	index := int(idx.Val)
+	index := int(args[2].Int())
 	if index < 1 || index > list.Len() {
 		return types.Err(types.E_RANGE)
 	}
@@ -167,10 +163,10 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	value := args[1]
 
@@ -199,10 +195,10 @@ func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	value := args[1]
 
@@ -233,17 +229,19 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	value := args[0]
 
-	switch collection := args[1].(type) {
-	case types.ListValue:
+	switch args[1].Type() {
+	case types.TYPE_LIST:
+		collection := args[1]
 		// Find value in list (case-sensitive for strings)
 		for i := 1; i <= collection.Len(); i++ {
 			if strictEqual(collection.Get(i), value) {
-				return types.Ok(types.IntValue{Val: int64(i)})
+				return types.Ok(types.NewInt(int64(i)))
 			}
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
-	case types.MapValue:
+	case types.TYPE_MAP:
+		collection := args[1]
 		// For maps, is_member searches for a VALUE and returns the position
 		// of its key in the sorted key list (1-based), or 0 if not found
 		// This is case-SENSITIVE for string values (uses strictEqual)
@@ -251,10 +249,10 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		sortMapPairs(pairs)
 		for i, pair := range pairs {
 			if strictEqual(pair[1], value) {
-				return types.Ok(types.IntValue{Val: int64(i + 1)})
+				return types.Ok(types.NewInt(int64(i + 1)))
 			}
 		}
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 
 	default:
 		return types.Err(types.E_TYPE)
@@ -283,38 +281,36 @@ func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	// arg 2: keys. Empty keys list == identity (sort by the list itself).
-	var keys types.ListValue
+	var keys types.Value
 	useKeys := false
 	if len(args) >= 2 {
-		keys, ok = args[1].(types.ListValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_LIST {
 			return types.Err(types.E_TYPE)
 		}
+		keys = args[1]
 		useKeys = keys.Len() > 0
 	}
 
 	// arg 3: natural flag (INT). arg 4: reverse flag (INT). is_true == nonzero.
 	natural := false
 	if len(args) >= 3 {
-		n, ok := args[2].(types.IntValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		natural = n.Val != 0
+		natural = args[2].Int() != 0
 	}
 	reverse := false
 	if len(args) >= 4 {
-		r, ok := args[3].(types.IntValue)
-		if !ok {
+		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		reverse = r.Val != 0
+		reverse = args[3].Int() != 0
 	}
 
 	// The list we actually compare on: the keys list if provided, else list.
@@ -367,21 +363,21 @@ func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // INT/FLOAT/OBJ, error-code ordering for ERR, and case-insensitive (optionally
 // natural) ordering for STR. Both operands are guaranteed the same scalar type.
 func sortLess(a, b types.Value, natural bool) bool {
-	switch av := a.(type) {
-	case types.IntValue:
-		return av.Val < b.(types.IntValue).Val
-	case types.FloatValue:
-		return av.Val < b.(types.FloatValue).Val
-	case types.ObjValue:
-		return av.ID() < b.(types.ObjValue).ID()
-	case types.ErrValue:
-		return av.Code() < b.(types.ErrValue).Code()
-	case types.StrValue:
-		bs := b.(types.StrValue).Value()
+	switch a.Type() {
+	case types.TYPE_INT:
+		return a.Int() < b.Int()
+	case types.TYPE_FLOAT:
+		return a.Float() < b.Float()
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		return a.ID() < b.ID()
+	case types.TYPE_ERR:
+		return a.Code() < b.Code()
+	case types.TYPE_STR:
+		bs := b.Str()
 		if natural {
-			return strnatcasecmp(av.Value(), bs) < 0
+			return strnatcasecmp(a.Str(), bs) < 0
 		}
-		return strcasecmp(av.Value(), bs) < 0
+		return strcasecmp(a.Str(), bs) < 0
 	default:
 		// Toast's VarCompare logs and returns 0 for unknown types; treat as equal.
 		return false
@@ -396,16 +392,17 @@ func builtinReverse(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	switch v := args[0].(type) {
-	case types.ListValue:
+	switch args[0].Type() {
+	case types.TYPE_LIST:
+		v := args[0]
 		// Copy and reverse list elements.
 		elements := make([]types.Value, v.Len())
 		for i := 1; i <= v.Len(); i++ {
 			elements[v.Len()-i] = v.Get(i)
 		}
 		return types.Ok(types.NewList(elements))
-	case types.StrValue:
-		runes := []rune(v.Value())
+	case types.TYPE_STR:
+		runes := []rune(args[0].Str())
 		for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
 			runes[i], runes[j] = runes[j], runes[i]
 		}
@@ -422,10 +419,10 @@ func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	// Dedup using MOO value equality (.Equal), the same equality setadd uses
 	// (Toast list.cc setadd -> ismember(.., case_matters=0), case-insensitive for
@@ -618,11 +615,11 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// First arg must be a list
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		fmt.Printf("[SLICE DEBUG] First arg not a list: %T = %v\n", args[0], args[0])
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	// Default index is 1
 	var index types.Value = types.NewInt(1)
@@ -639,24 +636,24 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	result := make([]types.Value, 0, list.Len())
 
-	switch idx := index.(type) {
-	case types.IntValue:
+	switch index.Type() {
+	case types.TYPE_INT:
 		// Single integer index
-		i := int(idx.Val)
+		i := int(index.Int())
 		if i < 1 {
 			return types.Err(types.E_RANGE)
 		}
 
 		for j := 1; j <= list.Len(); j++ {
 			elem := list.Get(j)
-			switch e := elem.(type) {
-			case types.ListValue:
-				if i > e.Len() {
+			switch elem.Type() {
+			case types.TYPE_LIST:
+				if i > elem.Len() {
 					return types.Err(types.E_RANGE)
 				}
-				result = append(result, e.Get(i))
-			case types.StrValue:
-				runes := []rune(e.Value())
+				result = append(result, elem.Get(i))
+			case types.TYPE_STR:
+				runes := []rune(elem.Str())
 				if i > len(runes) {
 					return types.Err(types.E_RANGE)
 				}
@@ -667,40 +664,39 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			}
 		}
 
-	case types.ListValue:
+	case types.TYPE_LIST:
 		// List of indices
-		if idx.Len() == 0 {
+		if index.Len() == 0 {
 			return types.Err(types.E_RANGE)
 		}
 
 		// Validate all indices are positive integers
-		indices := make([]int, idx.Len())
-		for k := 1; k <= idx.Len(); k++ {
-			idxVal := idx.Get(k)
-			intIdx, ok := idxVal.(types.IntValue)
-			if !ok {
+		indices := make([]int, index.Len())
+		for k := 1; k <= index.Len(); k++ {
+			idxVal := index.Get(k)
+			if idxVal.Type() != types.TYPE_INT {
 				return types.Err(types.E_INVARG)
 			}
-			if intIdx.Val < 1 {
+			if idxVal.Int() < 1 {
 				return types.Err(types.E_RANGE)
 			}
-			indices[k-1] = int(intIdx.Val)
+			indices[k-1] = int(idxVal.Int())
 		}
 
 		for j := 1; j <= list.Len(); j++ {
 			elem := list.Get(j)
 			subResult := make([]types.Value, 0, len(indices))
 
-			switch e := elem.(type) {
-			case types.ListValue:
+			switch elem.Type() {
+			case types.TYPE_LIST:
 				for _, i := range indices {
-					if i > e.Len() {
+					if i > elem.Len() {
 						return types.Err(types.E_RANGE)
 					}
-					subResult = append(subResult, e.Get(i))
+					subResult = append(subResult, elem.Get(i))
 				}
-			case types.StrValue:
-				runes := []rune(e.Value())
+			case types.TYPE_STR:
+				runes := []rune(elem.Str())
 				for _, i := range indices {
 					if i > len(runes) {
 						return types.Err(types.E_RANGE)
@@ -714,18 +710,17 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			result = append(result, types.NewList(subResult))
 		}
 
-	case types.StrValue:
+	case types.TYPE_STR:
 		// String key for map lookups
-		key := idx.Value()
+		key := index.Str()
 
 		for j := 1; j <= list.Len(); j++ {
 			elem := list.Get(j)
-			m, ok := elem.(types.MapValue)
-			if !ok {
+			if elem.Type() != types.TYPE_MAP {
 				return types.Err(types.E_INVARG)
 			}
 
-			val, found := m.Get(types.NewStr(key))
+			val, found := elem.MapGet(types.NewStr(key))
 			if found {
 				result = append(result, val)
 			} else if hasDefault {

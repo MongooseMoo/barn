@@ -21,11 +21,11 @@ func valueFromLiteral(lit *parser.LiteralExpr) (types.Value, error) {
 	case parser.LiteralErr:
 		code, ok := errorNameToCode(lit.ErrorName)
 		if !ok {
-			return nil, fmt.Errorf("unknown error code: %s", lit.ErrorName)
+			return types.None, fmt.Errorf("unknown error code: %s", lit.ErrorName)
 		}
 		return types.NewErr(code), nil
 	default:
-		return nil, fmt.Errorf("unknown literal kind: %d", lit.Kind)
+		return types.None, fmt.Errorf("unknown literal kind: %d", lit.Kind)
 	}
 }
 

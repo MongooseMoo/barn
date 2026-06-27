@@ -83,8 +83,8 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		connectTimeout = p.connManager.connectTimeout
 	}
 	if value, ok := p.getServerOption(0, "connect_timeout"); ok {
-		if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
-			connectTimeout = time.Duration(seconds.Val) * time.Second
+		if value.Type() == types.TYPE_INT && value.Int() > 0 {
+			connectTimeout = time.Duration(value.Int()) * time.Second
 		}
 	}
 

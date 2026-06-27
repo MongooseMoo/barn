@@ -41,12 +41,12 @@ func builtinIsPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs can't be players
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_TYPE)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 	if objVal.ID() == types.ObjNothing {
@@ -87,12 +87,12 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	// Waifs can't have player flag set
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_TYPE)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 	if objVal.ID() == types.ObjNothing {

@@ -18,8 +18,8 @@ func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -51,12 +51,12 @@ func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs have no parents
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -88,12 +88,12 @@ func builtinChildren(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs have no children
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -133,13 +133,13 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	newParentVal, ok := args[1].(types.ObjValue)
-	if !ok {
+	newParentVal := args[1]
+	if !isObjectRef(newParentVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -244,13 +244,13 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	parentsList, ok := args[1].(types.ListValue)
-	if !ok {
+	parentsList := args[1]
+	if parentsList.Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -264,12 +264,11 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	seenParents := make(map[types.ObjID]bool)
 
 	for i, elem := range elements {
-		parentVal, ok := elem.(types.ObjValue)
-		if !ok {
+		if !isObjectRef(elem) {
 			return types.Err(types.E_TYPE)
 		}
 
-		parentID := parentVal.ID()
+		parentID := elem.ID()
 
 		// Check for self-parenting FIRST (before validating parent exists)
 		if parentID == objVal.ID() {
@@ -355,8 +354,8 @@ func builtinAncestors(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -382,8 +381,8 @@ func builtinDescendants(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -410,19 +409,19 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
 	var ancestors []types.ObjID
-	switch ancestorVal := args[1].(type) {
-	case types.ObjValue:
-		ancestors = append(ancestors, ancestorVal.ID())
-	case types.ListValue:
-		for i := 1; i <= ancestorVal.Len(); i++ {
-			parentVal, ok := ancestorVal.Get(i).(types.ObjValue)
-			if !ok {
+	switch args[1].Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		ancestors = append(ancestors, args[1].ID())
+	case types.TYPE_LIST:
+		for i := 1; i <= args[1].Len(); i++ {
+			parentVal := args[1].Get(i)
+			if !isObjectRef(parentVal) {
 				return types.Err(types.E_TYPE)
 			}
 			ancestors = append(ancestors, parentVal.ID())
@@ -468,22 +467,20 @@ func builtinLocateByName(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	needle, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	needleStr := strings.TrimSpace(needle.Value())
+	needleStr := strings.TrimSpace(args[0].Str())
 	if needleStr == "" {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
 	caseSensitive := false
 	if len(args) == 2 {
-		cs, ok := args[1].(types.IntValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = cs.Val != 0
+		caseSensitive = args[1].Int() != 0
 	}
 
 	matchingIDs := store.ObjectIDsByNameSubstring(needleStr, caseSensitive)
@@ -501,8 +498,8 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 	if !store.Valid(objVal.ID()) {
@@ -515,19 +512,17 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		checkParent bool
 	)
 	if len(args) >= 2 {
-		baseVal, ok := args[1].(types.ObjValue)
-		if !ok {
+		if !isObjectRef(args[1]) {
 			return types.Err(types.E_TYPE)
 		}
-		baseID = baseVal.ID()
+		baseID = args[1].ID()
 		hasBase = true
 	}
 	if len(args) == 3 {
-		flag, ok := args[2].(types.IntValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		checkParent = flag.Val != 0
+		checkParent = args[2].Int() != 0
 	}
 
 	out := make([]types.Value, 0)
@@ -560,8 +555,8 @@ func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	owner, ok := args[0].(types.ObjValue)
-	if !ok {
+	owner := args[0]
+	if !isObjectRef(owner) {
 		return types.Err(types.E_TYPE)
 	}
 	if !store.Valid(owner.ID()) {
@@ -573,7 +568,7 @@ func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		out = append(out, types.NewObj(id))
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].(types.ObjValue).ID() < out[j].(types.ObjValue).ID()
+		return out[i].ID() < out[j].ID()
 	})
 	return types.Ok(types.NewList(out))
 }
@@ -603,11 +598,11 @@ func builtinNextRecycledObject(ctx *kernel.TaskContext, args []types.Value) type
 
 	start := types.ObjID(-1)
 	if len(args) == 1 {
-		switch startArg := args[0].(type) {
-		case types.ObjValue:
-			start = startArg.ID()
-		case types.IntValue:
-			start = types.ObjID(startArg.Val)
+		switch args[0].Type() {
+		case types.TYPE_OBJ, types.TYPE_ANON:
+			start = args[0].ID()
+		case types.TYPE_INT:
+			start = types.ObjID(args[0].Int())
 		default:
 			return types.Err(types.E_TYPE)
 		}
@@ -641,25 +636,23 @@ func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	obj, ok := args[0].(types.ObjValue)
-	if !ok {
+	obj := args[0]
+	if !isObjectRef(obj) {
 		return types.Err(types.E_TYPE)
 	}
 	parent := types.ObjNothing
 	owner := ctx.Programmer
 	if len(args) >= 2 {
-		p, ok := args[1].(types.ObjValue)
-		if !ok {
+		if !isObjectRef(args[1]) {
 			return types.Err(types.E_TYPE)
 		}
-		parent = p.ID()
+		parent = args[1].ID()
 	}
 	if len(args) == 3 {
-		o, ok := args[2].(types.ObjValue)
-		if !ok {
+		if !isObjectRef(args[2]) {
 			return types.Err(types.E_TYPE)
 		}
-		owner = o.ID()
+		owner = args[2].ID()
 	}
 	if err := store.Recreate(obj.ID(), parent, owner); err != nil {
 		return types.Err(types.E_INVARG)
