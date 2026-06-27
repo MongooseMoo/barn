@@ -56,6 +56,18 @@ func (v Value) SetProperty(name string, value Value) Value {
 	return v
 }
 
+// WaifIdentity returns the heap-payload pointer that uniquely identifies this
+// waif value. Two waifs created by separate NewWaif calls have distinct
+// identities; copies of the same waif Value share their ref and therefore report
+// the same identity (waifs have reference semantics). It REPLACES the old
+// db/store registry key, which was a *WaifValue pointer — the de-boxed Value no
+// longer exposes such a pointer, so callers that need a stable per-waif map key
+// (e.g. the live-waif registry) key on this instead. The returned pointer is the
+// real GC-traced ref word, so storing it as a map key keeps the waif payload
+// alive, exactly as the old *WaifValue key did. Only meaningful when
+// Type()==TYPE_WAIF.
+func (v Value) WaifIdentity() unsafe.Pointer { return v.ref }
+
 // PropertyNames returns the names of all properties set on this waif.
 func (v Value) PropertyNames() []string {
 	w := v.waifRep()

@@ -220,3 +220,24 @@ func TestScalarAccessors(t *testing.T) {
 		t.Error("NewBool(false).Truthy() should be false")
 	}
 }
+
+// TestWaifIdentity verifies the waif-identity accessor added for the db/store
+// live-waif registry: distinct waifs have distinct identities, and copies of the
+// same waif Value share a stable identity (reference semantics).
+func TestWaifIdentity(t *testing.T) {
+	w1 := NewWaif(5, 2)
+	w2 := NewWaif(5, 2)
+	if w1.WaifIdentity() == w2.WaifIdentity() {
+		t.Error("distinct waifs must have distinct identities")
+	}
+	w1copy := w1
+	if w1.WaifIdentity() != w1copy.WaifIdentity() {
+		t.Error("a copy of a waif Value must share its identity")
+	}
+	// Mutating through the copy is visible via the original (shared payload),
+	// confirming identity tracks the shared heap rep.
+	w1copy.SetProperty("x", NewInt(7))
+	if got, ok := w1.GetProperty("x"); !ok || !got.Equal(NewInt(7)) {
+		t.Error("waif identity copies must share the property map")
+	}
+}

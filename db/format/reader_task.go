@@ -27,7 +27,7 @@ func (database *Database) readFinalizations(r *bufio.Reader) error {
 		if err != nil {
 			return fmt.Errorf("read pending finalization %d: %w", i, err)
 		}
-		if objVal, ok := val.(types.ObjValue); ok && objVal.IsAnonymous() && objVal.ID() < 0 {
+		if val.Type() == types.TYPE_ANON && val.Obj() < 0 {
 			continue
 		}
 		database.PendingFinalizations = append(database.PendingFinalizations, val)
@@ -116,13 +116,13 @@ func (database *Database) readQueuedTaskActivation(r *bufio.Reader, task *Queued
 	}
 	if tempThis, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read activation this value: %w", err)
-	} else if obj, ok := tempThis.(types.ObjValue); ok {
-		task.This = obj.ID()
+	} else if id, ok := asObjID(tempThis); ok {
+		task.This = id
 	}
 	if tempVerbLoc, err := database.readValue(r); err != nil {
 		return fmt.Errorf("read activation verb location: %w", err)
-	} else if obj, ok := tempVerbLoc.(types.ObjValue); ok {
-		task.VerbLoc = obj.ID()
+	} else if id, ok := asObjID(tempVerbLoc); ok {
+		task.VerbLoc = id
 	}
 
 	if _, err := r.ReadString('\n'); err != nil {

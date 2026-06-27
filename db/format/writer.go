@@ -167,72 +167,73 @@ func (w *Writer) writeBool(b bool) error {
 
 // writeValue writes a type-tagged value (type code on its own line, then value)
 func (w *Writer) writeValue(v types.Value) error {
-	if v == nil {
-		// nil represents CLEAR (for clear properties)
+	// None (the de-boxed nil sentinel) represents CLEAR (for clear properties).
+	// IsNone MUST be checked before the Type() switch: None.Type() reports
+	// TYPE_INT, so a tag switch alone would mis-serialize it as integer 0.
+	if v.IsNone() {
 		return w.writeInt(TypeClear)
 	}
 
-	switch val := v.(type) {
-	case types.IntValue:
+	switch v.Type() {
+	case types.TYPE_INT:
 		if err := w.writeInt(TypeInt); err != nil {
 			return err
 		}
-		return w.writeInt64(val.Val)
+		return w.writeInt64(v.Int())
 
-	case types.ObjValue:
-		// Anonymous objects use TYPE_ANON, regular use TYPE_OBJ
-		if val.IsAnonymous() {
-			if err := w.writeInt(TypeAnon); err != nil {
-				return err
-			}
-		} else {
-			if err := w.writeInt(TypeObj); err != nil {
-				return err
-			}
+	case types.TYPE_OBJ:
+		if err := w.writeInt(TypeObj); err != nil {
+			return err
 		}
-		return w.writeObjID(val.ID())
+		return w.writeObjID(v.Obj())
 
-	case types.StrValue:
+	case types.TYPE_ANON:
+		if err := w.writeInt(TypeAnon); err != nil {
+			return err
+		}
+		return w.writeObjID(v.Obj())
+
+	case types.TYPE_STR:
 		if err := w.writeInt(TypeStr); err != nil {
 			return err
 		}
-		return w.writeString(val.Value())
+		return w.writeString(v.Str())
 
-	case types.ErrValue:
+	case types.TYPE_ERR:
 		if err := w.writeInt(TypeErr); err != nil {
 			return err
 		}
-		return w.writeInt(int(val.Code()))
+		return w.writeInt(int(v.Code()))
 
-	case types.ListValue:
+	case types.TYPE_LIST:
 		if err := w.writeInt(TypeList); err != nil {
 			return err
 		}
-		return w.writeListContents(val)
+		return w.writeListContents(v)
 
-	case types.FloatValue:
+	case types.TYPE_FLOAT:
 		if err := w.writeInt(TypeFloat); err != nil {
 			return err
 		}
-		return w.writeFloat(val.Val)
+		return w.writeFloat(v.Float())
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		if err := w.writeInt(TypeMap); err != nil {
 			return err
 		}
-		return w.writeMapContents(val)
+		return w.writeMapContents(v)
 
-	case types.BoolValue:
+	case types.TYPE_BOOL:
 		if err := w.writeInt(TypeBool); err != nil {
 			return err
 		}
-		return w.writeBool(val.Val)
+		return w.writeBool(v.Bool())
 
-	case types.WaifValue:
+	case types.TYPE_WAIF:
 		if err := w.writeInt(TypeWaif); err != nil {
 			return err
 		}
-		return w.writeWaif(val)
+		return w.writeWaif(v)
 
 	default:
 		// Unknown type - try to handle as None
@@ -243,36 +244,36 @@ func (w *Writer) writeValue(v types.Value) error {
 // writeValueRaw writes a value without type tag (just the raw data)
 // Used for suspended task values where type is in header
 func (w *Writer) writeValueRaw(v types.Value) error {
-	if v == nil {
+	if v.IsNone() {
 		return nil // CLEAR/NONE have no value
 	}
 
-	switch val := v.(type) {
-	case types.IntValue:
-		return w.writeInt64(val.Val)
-	case types.ObjValue:
-		return w.writeObjID(val.ID())
-	case types.StrValue:
-		return w.writeString(val.Value())
-	case types.ErrValue:
-		return w.writeInt(int(val.Code()))
-	case types.ListValue:
-		return w.writeListContents(val)
-	case types.FloatValue:
-		return w.writeFloat(val.Val)
-	case types.MapValue:
-		return w.writeMapContents(val)
-	case types.BoolValue:
-		return w.writeBool(val.Val)
-	case types.WaifValue:
-		return w.writeWaif(val)
+	switch v.Type() {
+	case types.TYPE_INT:
+		return w.writeInt64(v.Int())
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		return w.writeObjID(v.Obj())
+	case types.TYPE_STR:
+		return w.writeString(v.Str())
+	case types.TYPE_ERR:
+		return w.writeInt(int(v.Code()))
+	case types.TYPE_LIST:
+		return w.writeListContents(v)
+	case types.TYPE_FLOAT:
+		return w.writeFloat(v.Float())
+	case types.TYPE_MAP:
+		return w.writeMapContents(v)
+	case types.TYPE_BOOL:
+		return w.writeBool(v.Bool())
+	case types.TYPE_WAIF:
+		return w.writeWaif(v)
 	default:
 		return nil
 	}
 }
 
 // writeListContents writes list contents without type tag (count + items)
-func (w *Writer) writeListContents(l types.ListValue) error {
+func (w *Writer) writeListContents(l types.Value) error {
 	length := l.Len()
 	if err := w.writeInt(length); err != nil {
 		return err
@@ -286,7 +287,7 @@ func (w *Writer) writeListContents(l types.ListValue) error {
 }
 
 // writeMapContents writes map contents without type tag (count + key/value pairs)
-func (w *Writer) writeMapContents(m types.MapValue) error {
+func (w *Writer) writeMapContents(m types.Value) error {
 	pairs := m.Pairs()
 	if err := w.writeInt(len(pairs)); err != nil {
 		return err
@@ -304,30 +305,31 @@ func (w *Writer) writeMapContents(m types.MapValue) error {
 
 // getTypeCode returns the type code for a value
 func getTypeCode(v types.Value) int {
-	if v == nil {
+	// None (de-boxed nil) is CLEAR. Check before the Type() switch because
+	// None.Type() reports TYPE_INT.
+	if v.IsNone() {
 		return TypeClear
 	}
-	switch val := v.(type) {
-	case types.IntValue:
+	switch v.Type() {
+	case types.TYPE_INT:
 		return TypeInt
-	case types.ObjValue:
-		if val.IsAnonymous() {
-			return TypeAnon
-		}
+	case types.TYPE_OBJ:
 		return TypeObj
-	case types.StrValue:
+	case types.TYPE_ANON:
+		return TypeAnon
+	case types.TYPE_STR:
 		return TypeStr
-	case types.ErrValue:
+	case types.TYPE_ERR:
 		return TypeErr
-	case types.ListValue:
+	case types.TYPE_LIST:
 		return TypeList
-	case types.FloatValue:
+	case types.TYPE_FLOAT:
 		return TypeFloat
-	case types.MapValue:
+	case types.TYPE_MAP:
 		return TypeMap
-	case types.BoolValue:
+	case types.TYPE_BOOL:
 		return TypeBool
-	case types.WaifValue:
+	case types.TYPE_WAIF:
 		return TypeWaif
 	default:
 		return TypeNone
@@ -336,7 +338,7 @@ func getTypeCode(v types.Value) int {
 
 // writeWaif writes a waif value
 // First write of a waif is a definition ("c N"), subsequent writes are references ("r N")
-func (w *Writer) writeWaif(waif types.WaifValue) error {
+func (w *Writer) writeWaif(waif types.Value) error {
 	idx := w.nextWaifID
 	w.nextWaifID++
 
