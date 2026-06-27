@@ -100,14 +100,11 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(errCode)
 	}
 
-	// Try to find the verb
-	verb, definingObj, err := findVerbForRead(ctx, objID, nameVal.Value())
+	// Try to find the verb that would actually answer obj:verb() — a
+	// non-executable same-named verb does not shadow an executable one
+	// defined further up the ancestry chain.
+	verb, definingObj, err := findCallableVerbForRead(ctx, objID, nameVal.Value())
 	if err != nil {
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Non-executable verbs always return 0
-	if !verb.Perms.Has(dbstore.VerbExecute) {
 		return types.Ok(types.NewInt(0))
 	}
 
@@ -304,8 +301,11 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_VERBNF)
 	}
 
-	// Check read permission (wizards can always read)
-	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard {
+	// Check read permission: wizards and the verb's owner can always read its
+	// code; everyone else needs the 'r' (VerbRead) bit. Matches ToastStunt
+	// db_verb_allows (db_verbs.cc:880): (flags & VF_READ) || progr == owner ||
+	// is_wizard(progr); denial returns E_PERM (verbs.cc:493-494).
+	if !verb.Perms.Has(dbstore.VerbRead) && !ctx.IsWizard && ctx.Programmer != verb.Owner {
 		return types.Err(types.E_PERM)
 	}
 
@@ -428,8 +428,12 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Check permissions:
-	// - Must have write permission on object (or be wizard)
+	// Check permissions against the task's effective programmer (ctx.Programmer),
+	// NOT the connection player. Toast bf_add_verb uses progr:
+	//   !db_object_allows(obj, progr, FLAG_WRITE) || (progr != owner && !is_wizard(progr))
+	// (verbs.cc:198-199, db_object_allows db_objects.cc:1294). Using ctx.Player
+	// here wrongly denied an owning programmer under lowered task perms.
+	// - Must have write permission on object (or own it / be wizard)
 	// - Must be the owner specified in verbinfo (or be wizard)
 	if !ctx.IsWizard {
 		// Check write permission on object
@@ -441,11 +445,11 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		if !hasWrite && objectOwner != ctx.Player {
+		if !hasWrite && objectOwner != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
 		// Check caller is the owner in verbinfo
-		if ownerID != ctx.Player {
+		if ownerID != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
 	}
@@ -885,9 +889,12 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
-	// Check read permission: wizard, owner, or verb has 'r' flag
+	// Check read permission against the task's effective programmer: wizard,
+	// verb owner, or verb has 'r' flag. Toast bf_disassemble uses progr via
+	// db_verb_allows(h, progr, VF_READ) (disassemble.cc:483, db_verbs.cc:880).
+	// Using ctx.Player here mismatched lowered task perms.
 	hasRead := verb.Perms.Has(dbstore.VerbRead)
-	isOwner := verb.Owner == ctx.Player
+	isOwner := verb.Owner == ctx.Programmer
 	if !ctx.IsWizard && !isOwner && !hasRead {
 		return types.Err(types.E_PERM)
 	}

@@ -12,5 +12,6 @@
 ## Conformance Verification Rule
 
 - Before debugging, implementing, or changing Barn for a conformance-test behavior that is uncertain, surprising, order-dependent, or poorly understood, first verify the exact behavior against Toast.
+- For Barn Toast-oracle and conformance work, Toast means the WSL oracle documented in `reports/toast-oracle-wsl.md`: `/root/src/toaststunt/build-release/moo` (`~/src/toaststunt/build-release/moo` inside WSL). Do not use Windows Toast binaries for this workflow unless the user explicitly asks for a Windows Toast repro.
 - Do not spend time on Barn-side root-cause analysis until the expected Toast behavior has been confirmed.
 - If Toast verification is blocked, stop and say so plainly before proceeding further.

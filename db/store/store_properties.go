@@ -18,7 +18,7 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 		}
 		visited[currentID] = true
 
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
@@ -95,7 +95,7 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, t
 		}
 		visited[currentID] = true
 
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
@@ -140,8 +140,8 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return nil, types.E_INVIND
 	}
 
@@ -162,7 +162,7 @@ func (s *Store) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bo
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if !validLiveObject(s.load(objID)) {
+	if s.liveObjectLocked(objID) == nil {
 		return nil, types.E_INVIND
 	}
 	return s.definedPropertyNamesInAncestryLocked([]types.ObjID{objID}), types.E_NONE
@@ -181,7 +181,7 @@ func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[st
 		}
 		visited[currentID] = true
 
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
@@ -202,8 +202,8 @@ func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types
 
 	seen := make(map[string]bool)
 	for _, id := range ids {
-		obj := s.load(id)
-		if !validLiveObject(obj) {
+		obj := s.liveObjectLocked(id)
+		if obj == nil {
 			return false, types.E_INVARG
 		}
 		for name, prop := range obj.properties {
@@ -224,12 +224,12 @@ func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parent
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return false, types.E_INVIND
 	}
 	for _, parentID := range parentIDs {
-		if !validLiveObject(s.load(parentID)) {
+		if s.liveObjectLocked(parentID) == nil {
 			return false, types.E_INVARG
 		}
 	}
@@ -247,8 +247,8 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return false, types.E_INVIND
 	}
 
@@ -260,7 +260,7 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 		}
 		visited[current.id] = true
 		for childID := range current.chparentChildren {
-			child := s.load(childID)
+			child := s.liveObjectLocked(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -291,8 +291,8 @@ func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCod
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return nil, types.E_INVIND
 	}
 
@@ -309,7 +309,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if !validLiveObject(s.load(objID)) {
+	if s.liveObjectLocked(objID) == nil {
 		return nil, types.E_INVIND
 	}
 
@@ -326,7 +326,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 		}
 		seenObjects[currentID] = true
 
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
@@ -358,8 +358,8 @@ func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, boo
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return PropertyView{}, false, types.E_INVIND
 	}
 	_, prop, ok := propertyByName(obj.properties, name)
@@ -397,8 +397,8 @@ func (s *Store) PropertyClearState(objID types.ObjID, name string) (bool, types.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return false, types.E_INVIND
 	}
 	_, prop, exists := propertyByName(obj.properties, name)
@@ -417,8 +417,8 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	_, prop, ok := propertyByName(obj.properties, name)
@@ -445,8 +445,8 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	s.rememberObjectLocked(obj)
@@ -487,8 +487,8 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 }
 
 func (s *Store) definePropertyLocked(objID types.ObjID, prop Property, ts uint64) types.ErrorCode {
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	if _, _, exists := propertyByName(obj.properties, prop.name); exists {
@@ -528,8 +528,8 @@ func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.Erro
 }
 
 func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts uint64) types.ErrorCode {
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	actualName, prop, ok := propertyByName(obj.properties, name)
@@ -558,8 +558,8 @@ func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.Erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	actualName, _, ok := propertyByName(obj.properties, name)
@@ -585,12 +585,12 @@ func (s *Store) HasDefinedPropertyInDescendants(objID types.ObjID, name string) 
 			continue
 		}
 		visited[currentID] = true
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.load(childID)
+			child := s.liveObjectLocked(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -607,8 +607,8 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	changed := false
@@ -635,12 +635,12 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 			continue
 		}
 		visited[currentID] = true
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.load(childID)
+			child := s.liveObjectLocked(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -678,12 +678,12 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 			continue
 		}
 		visited[currentID] = true
-		current := s.load(currentID)
+		current := s.liveObjectLocked(currentID)
 		if !validLiveObject(current) {
 			continue
 		}
 		for _, childID := range current.children {
-			child := s.load(childID)
+			child := s.liveObjectLocked(childID)
 			if !validLiveObject(child) {
 				continue
 			}

@@ -18,7 +18,12 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	// An empty subject simply yields no matches (Toast returns {}).
+	// An empty subject always yields no matches (Toast returns {}), even for
+	// patterns that match the empty string like ".*" or "^$". Toast's match loop
+	// is `while (offset < subject_length)` (toaststunt/src/pcre_moo.cc:208); with
+	// subject_length == 0 the loop body never runs and ret stays new_list(0).
+	// Corroborated by conformance test pcre_match_empty_subject
+	// (moo-conformance-tests .../builtins/pcre.yaml:201-205 -> value: []).
 	if subject.Value() == "" {
 		return types.Ok(types.NewList([]types.Value{}))
 	}

@@ -284,13 +284,12 @@ type ForStmt struct {
 func (s *ForStmt) Position() Position { return s.Pos }
 func (s *ForStmt) stmtNode()          {}
 
-// BreakStmt represents break statement
-// In MOO, break can optionally take an expression: break expr;
-// This expression becomes the value of the loop
+// BreakStmt represents break statement.
+// In MOO, break optionally takes a loop name: break ID; (ToastStunt parser.y:241-252).
+// An unknown loop name is a compile error ("Invalid loop name"), mirroring continue.
 type BreakStmt struct {
 	Pos   Position
-	Label string // Optional loop label to break (only if Value is nil)
-	Value Expr   // Optional value expression (loop evaluates to this)
+	Label string // Optional enclosing-loop name to break out of
 }
 
 func (s *BreakStmt) Position() Position { return s.Pos }

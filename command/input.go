@@ -7,6 +7,7 @@ type InputEvent struct {
 	ConnID       int64
 	Player       types.ObjID
 	Line         string
+	IsOutOfBand  bool
 	IsDisconnect bool
 	Done         chan struct{}
 }

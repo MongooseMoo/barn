@@ -120,7 +120,7 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 		if errCode := tx.SetObjectFlag(objVal.ID(), dbstore.FlagUser, !clearingPlayerFlag); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		if clearingPlayerFlag && globalConnManager != nil && resolveConnection(ctx, objVal.ID()) != nil {
+		if cm := hostOf(ctx).ConnManager; clearingPlayerFlag && cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
 			ctx.PendingBootPlayers = append(ctx.PendingBootPlayers, objVal.ID())
 		}
 		return types.Ok(types.NewInt(0))
@@ -135,8 +135,8 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 		}
 		// Clearing the player flag on a currently-connected player terminates
 		// its live connection (matching Toast).
-		if globalConnManager != nil && resolveConnection(ctx, objVal.ID()) != nil {
-			_ = globalConnManager.BootPlayer(objVal.ID())
+		if cm := hostOf(ctx).ConnManager; cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
+			_ = cm.BootPlayer(objVal.ID())
 		}
 	}
 

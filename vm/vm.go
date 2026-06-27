@@ -657,7 +657,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_TRY_EXCEPT:
 		return vm.executeTryExcept()
 	case bytecode.OP_END_EXCEPT:
-		vm.executeEndExcept()
+		return vm.executeEndExcept()
 	case bytecode.OP_TRY_FINALLY:
 		return vm.executeTryFinally()
 	case bytecode.OP_END_FINALLY:

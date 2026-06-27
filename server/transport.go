@@ -44,6 +44,10 @@ type BinaryTransport interface {
 	ReadChunk() (string, error)
 }
 
+type InputTransport interface {
+	ReadInput() (string, bool, error)
+}
+
 // TCPTransport wraps a net.Conn for TCP socket communication
 type TCPTransport struct {
 	conn      net.Conn
@@ -51,6 +55,8 @@ type TCPTransport struct {
 	writer    *bufio.Writer
 	mu        sync.Mutex
 	tState    telnetState
+	tCommand  []byte
+	lineBuf   strings.Builder
 	lastWasCR bool
 }
 
@@ -64,20 +70,32 @@ func NewTCPTransport(conn net.Conn) *TCPTransport {
 	}
 }
 
-// ReadLine reads a line from the connection, stripping telnet IAC sequences.
-// Blocks until a complete line (terminated by CR or LF) is available, or EOF.
-// This implements the same telnet state machine as ToastStunt's process_telnet_byte.
 func (t *TCPTransport) ReadLine() (string, error) {
-	var line strings.Builder
+	for {
+		line, isOOB, err := t.ReadInput()
+		if err != nil {
+			return line, err
+		}
+		if !isOOB {
+			return line, nil
+		}
+	}
+}
 
+// ReadInput reads either a complete line or a complete telnet IAC command.
+// Telnet commands are returned as out-of-band input immediately, without
+// waiting for a CR/LF terminator.
+func (t *TCPTransport) ReadInput() (string, bool, error) {
 	for {
 		b, err := t.reader.ReadByte()
 		if err != nil {
 			// If we have partial data and hit EOF, return what we have
-			if err == io.EOF && line.Len() > 0 {
-				return line.String(), nil
+			if err == io.EOF && t.lineBuf.Len() > 0 {
+				line := t.lineBuf.String()
+				t.lineBuf.Reset()
+				return line, false, nil
 			}
-			return "", err
+			return "", false, err
 		}
 
 		switch t.tState {
@@ -85,10 +103,13 @@ func (t *TCPTransport) ReadLine() (string, error) {
 			if b == tnIAC {
 				// Start of a telnet command - enter IAC state
 				t.tState = telnetStateIAC
+				t.tCommand = append(t.tCommand[:0], b)
 			} else if b == '\r' {
 				// CR terminates a line
 				t.lastWasCR = true
-				return line.String(), nil
+				line := t.lineBuf.String()
+				t.lineBuf.Reset()
+				return line, false, nil
 			} else if b == '\n' {
 				if t.lastWasCR {
 					// LF after CR - ignore (CR already delivered the line)
@@ -96,21 +117,25 @@ func (t *TCPTransport) ReadLine() (string, error) {
 					continue
 				}
 				// Bare LF also terminates a line
-				return line.String(), nil
+				line := t.lineBuf.String()
+				t.lineBuf.Reset()
+				return line, false, nil
 			} else {
 				t.lastWasCR = false
 				// Normal printable character or high byte - add to line
 				// Accept printable ASCII, space, tab, and high bytes (128-254)
 				if (b >= 32 && b <= 126) || b == '\t' || (b >= 128 && b <= 254) {
-					line.WriteByte(b)
+					t.lineBuf.WriteByte(b)
 				}
 				// Control characters other than CR/LF/TAB are silently dropped
 			}
 
 		case telnetStateIAC:
+			t.tCommand = append(t.tCommand, b)
 			if b == tnIAC {
 				// Escaped IAC (0xFF 0xFF) -> literal 0xFF in input
 				t.tState = telnetStateNormal
+				t.tCommand = t.tCommand[:0]
 				// Don't add to line - literal 0xFF in text is unusual
 			} else if b == tnSB {
 				// Start of subnegotiation
@@ -120,15 +145,23 @@ func (t *TCPTransport) ReadLine() (string, error) {
 				t.tState = telnetStateCommand
 			} else {
 				// Unknown command byte - consume and return to normal
+				oob := formatTelnetCommand(t.tCommand)
+				t.tCommand = t.tCommand[:0]
 				t.tState = telnetStateNormal
+				return oob, true, nil
 			}
 
 		case telnetStateCommand:
 			// This is the option byte after WILL/WONT/DO/DONT - consume it
 			// and return to normal state
+			t.tCommand = append(t.tCommand, b)
+			oob := formatTelnetCommand(t.tCommand)
+			t.tCommand = t.tCommand[:0]
 			t.tState = telnetStateNormal
+			return oob, true, nil
 
 		case telnetStateSubneg:
+			t.tCommand = append(t.tCommand, b)
 			// Inside subnegotiation - consume bytes until IAC SE
 			if b == tnIAC {
 				t.tState = telnetStateSubnegIAC
@@ -136,9 +169,13 @@ func (t *TCPTransport) ReadLine() (string, error) {
 			// All other bytes in subnegotiation are silently consumed
 
 		case telnetStateSubnegIAC:
+			t.tCommand = append(t.tCommand, b)
 			if b == tnSE {
 				// End of subnegotiation
+				oob := formatTelnetCommand(t.tCommand)
+				t.tCommand = t.tCommand[:0]
 				t.tState = telnetStateNormal
+				return oob, true, nil
 			} else if b == tnIAC {
 				// Escaped IAC within subnegotiation - stay in subneg
 				t.tState = telnetStateSubneg
@@ -148,6 +185,10 @@ func (t *TCPTransport) ReadLine() (string, error) {
 			}
 		}
 	}
+}
+
+func formatTelnetCommand(command []byte) string {
+	return string(command)
 }
 
 func (t *TCPTransport) ReadChunk() (string, error) {

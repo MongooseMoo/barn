@@ -23,6 +23,39 @@ func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{})
 	}
 }
 
+// lookupAnonymousLocked returns the live anonymous object with the given
+// identity id, regardless of which backing map holds it. Runtime-created and
+// database-loaded anonymous objects live in s.anonObjects; some test fixtures
+// (and any object added via Add with the anonymous flag) live in s.objects.
+// Anon scanning subsystems must consider both so the planner, GC candidate scan,
+// and serializer all operate over one consistent set of anonymous objects.
+// Caller holds s.mu.
+func (s *Store) lookupAnonymousLocked(id types.ObjID) *Object {
+	if obj := s.anonObjects[id]; validLiveObject(obj) && obj.anonymous {
+		return obj
+	}
+	if obj := s.load(id); validLiveObject(obj) && obj.anonymous {
+		return obj
+	}
+	return nil
+}
+
+// rangeAnonymousLocked invokes fn for every live anonymous object across both
+// backing maps. Caller holds s.mu.
+func (s *Store) rangeAnonymousLocked(fn func(*Object)) {
+	for _, obj := range s.anonObjects {
+		if validLiveObject(obj) && obj.anonymous {
+			fn(obj)
+		}
+	}
+	for _, slot := range s.objects {
+		obj := slot.ptr.Load()
+		if validLiveObject(obj) && obj.anonymous {
+			fn(obj)
+		}
+	}
+}
+
 func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -78,8 +111,8 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 			continue
 		}
 
-		obj := s.load(id)
-		if !validLiveObject(obj) || !obj.anonymous {
+		obj := s.lookupAnonymousLocked(id)
+		if obj == nil {
 			continue
 		}
 
@@ -107,8 +140,7 @@ func (s *Store) UnreachableAnonymousValues(reachable map[types.ObjID]struct{}, r
 
 	ids := make([]types.ObjID, 0, len(refs))
 	for id := range refs {
-		obj := s.load(id)
-		if !validLiveObject(obj) || !obj.anonymous {
+		if s.lookupAnonymousLocked(id) == nil {
 			continue
 		}
 		if _, keep := reachable[id]; keep {
@@ -133,25 +165,18 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	defer s.mu.RUnlock()
 
 	candidates := make([]types.ObjID, 0)
-	for _, slot := range s.objects {
-		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !validLiveObject(obj) || !obj.anonymous {
-			continue
-		}
+	s.rangeAnonymousLocked(func(obj *Object) {
 		if obj.id < minID {
-			continue
+			return
 		}
 		if obj.flags.Has(FlagUser) {
-			continue
+			return
 		}
 		if _, keep := reachable[obj.id]; keep {
-			continue
+			return
 		}
 		candidates = append(candidates, obj.id)
-	}
+	})
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	return candidates
 }

@@ -200,7 +200,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.Registry = s.registry
-	ctx.PromoteNumbers = s.promoteNumbers
+	ctx.RuntimeOptions = s.options
 
 	// Push activation frame for traceback support
 	t.PushFrame(task.ActivationFrame{

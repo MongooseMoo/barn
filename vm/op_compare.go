@@ -161,7 +161,15 @@ func (vm *VM) executeIn() error {
 		return fmt.Errorf("E_TYPE: invalid element type for 'in' with string")
 
 	case types.MapValue:
-		// For maps, `in` checks if element is a VALUE and returns the position
+		// For maps, `in` searches the map's VALUES (not keys) and returns the
+		// 1-based position of the first matching pair in key-sorted order, or 0.
+		// This matches ToastStunt exactly: OP_IN (execute.cc:1403) calls
+		// ismember(lhs, rhs, 0); the map branch (collection.cc:46-69) walks the
+		// key-sorted rbtree via mapforeach (map.cc:809) and compares the iterated
+		// *value* against lhs (do_map_iteration, collection.cc:36). case_matters=0
+		// → case-insensitive, hence .Equal here. Do NOT change this to search
+		// keys: conformance map.yaml is_member("FOO",["FOO"->"BAR"]) == 0 proves
+		// keys are not searched. (Review finding F27 mis-claimed key search.)
 		pairs := coll.Pairs()
 		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {

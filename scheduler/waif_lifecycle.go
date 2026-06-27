@@ -76,7 +76,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Wa
 	recycleCtx.TaskID = parentCtx.TaskID
 	recycleCtx.Store = s.store
 	recycleCtx.Registry = s.registry
-	recycleCtx.PromoteNumbers = s.promoteNumbers
+	recycleCtx.RuntimeOptions = s.options
 
 	recycleVM := vm.NewVM(s.store, s.registry)
 	recycleVM.Context = recycleCtx

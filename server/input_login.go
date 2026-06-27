@@ -43,8 +43,14 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	}
 
 	if !s.store.HasLocalVerb(handler, "do_login_command") {
-		conn.Send("Welcome! (No login handler defined)")
-		return types.ObjID(2), nil
+		// Match ToastStunt: when #0:do_login_command (the listener handler) does
+		// not exist, do_login_task initializes result to TYPE_INT 0 and the verb
+		// call leaves it unchanged (toaststunt/src/tasks.cc:884). The login
+		// predicate then fails because result is not a user object
+		// (tasks.cc:921 `result.type == TYPE_OBJ && is_user(result.v.obj)`), so
+		// the connection is NOT logged in — no player is assigned and Toast does
+		// NOT substitute a default wizard. Return a negative ObjID (login refused).
+		return types.ObjID(-1), nil
 	}
 
 	connID := types.ObjID(-conn.ID)
@@ -190,91 +196,14 @@ func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, 
 	return result.Val.Truthy(), nil
 }
 
-// callUserConnected calls #0:user_connected(player)
-func (s *InputProcessor) callUserConnected(handler types.ObjID, player types.ObjID) {
+func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.runtime.CallVerb(handler, "user_connected", args, player)
+	result := s.runtime.CallVerb(handler, verbName, args, player)
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return
 		}
-		log.Printf("user_connected error: %v", result.Error)
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
-	}
-}
-
-// callUserCreated calls handler:user_created(player)
-func (s *InputProcessor) callUserCreated(handler types.ObjID, player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := s.runtime.CallVerb(handler, "user_created", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_created error: %v", result.Error)
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
-	}
-}
-
-// callUserReconnected calls #0:user_reconnected(player)
-func (s *InputProcessor) callUserReconnected(handler types.ObjID, player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := s.runtime.CallVerb(handler, "user_reconnected", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_reconnected error: %v", result.Error)
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
-	}
-}
-
-// callUserDisconnected calls #0:user_disconnected(player)
-func (s *InputProcessor) callUserDisconnected(handler types.ObjID, player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := s.runtime.CallVerb(handler, "user_disconnected", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_disconnected error: %v", result.Error)
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
-	}
-}
-
-// callUserClientDisconnected calls handler:user_client_disconnected(player)
-func (s *InputProcessor) callUserClientDisconnected(handler types.ObjID, player types.ObjID) {
-	args := []types.Value{types.NewObj(player)}
-	result := s.runtime.CallVerb(handler, "user_client_disconnected", args, player)
-	if result.Flow == types.FlowException {
-		if result.Error == types.E_VERBNF {
-			return
-		}
-		log.Printf("user_client_disconnected error: %v", result.Error)
+		log.Printf("%s error: %v", verbName, result.Error)
 		var stack []task.ActivationFrame
 		if result.CallStack != nil {
 			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
@@ -348,27 +277,27 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 			_ = conn.Send(s.connectMessage())
 		}
 		if newlyCreated {
-			s.callUserCreated(conn.ListenerObject(), player)
+			s.callUserHook(conn.ListenerObject(), "user_created", player)
 		}
-		s.callUserConnected(conn.ListenerObject(), player)
+		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		return
 	}
 
 	if reconnection {
 		existingConn.Send("*** Redirecting connection to new port ***")
-		s.callUserClientDisconnected(existingConn.ListenerObject(), player)
+		s.callUserHook(existingConn.ListenerObject(), "user_client_disconnected", player)
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}
-		s.callUserConnected(conn.ListenerObject(), player)
+		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	} else {
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}
 		if newlyCreated {
-			s.callUserCreated(conn.ListenerObject(), player)
+			s.callUserHook(conn.ListenerObject(), "user_created", player)
 		}
-		s.callUserConnected(conn.ListenerObject(), player)
+		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	}
 
 	log.Printf("Connection %d logged in as player %d", conn.ID, player)

@@ -2,8 +2,6 @@ package server
 
 import (
 	"barn/builtins"
-	"barn/command"
-	"barn/trace"
 	"barn/types"
 	"crypto/tls"
 	"errors"
@@ -33,6 +31,8 @@ type listenerRecord struct {
 	tlsConfig     *tls.Config
 	httpServer    *http.Server
 	primary       bool
+	accepting     bool
+	done          chan struct{}
 }
 
 type listenerKey struct {
@@ -48,26 +48,36 @@ type ConnectionManager struct {
 	playerConnHistory map[types.ObjID][]*Connection
 	nextConnID        int64
 	mu                sync.Mutex
-	server            *Server
+	connectionWG      sync.WaitGroup
+	connectionSetupWG sync.WaitGroup
+	connectionHandler func(*Connection)
 	listeners         map[listenerKey]*listenerRecord
+	setupConns        map[net.Conn]struct{}
 	outboundClients   map[int64]net.Conn
+	closing           bool
 	listenPort        int
 	connectTimeout    time.Duration
 }
 
 // NewConnectionManager creates a new connection manager
-func NewConnectionManager(server *Server, port int) *ConnectionManager {
+func NewConnectionManager(port int) *ConnectionManager {
 	return &ConnectionManager{
 		connections:       make(map[int64]*Connection),
 		playerConns:       make(map[types.ObjID]*Connection),
 		playerConnHistory: make(map[types.ObjID][]*Connection),
 		listeners:         make(map[listenerKey]*listenerRecord),
+		setupConns:        make(map[net.Conn]struct{}),
 		outboundClients:   make(map[int64]net.Conn),
 		nextConnID:        2, // Start at 2 so first connection is -2 (not -1 which is NOTHING)
-		server:            server,
 		listenPort:        port,
 		connectTimeout:    5 * time.Minute,
 	}
+}
+
+func (cm *ConnectionManager) setConnectionHandler(handler func(*Connection)) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.connectionHandler = handler
 }
 
 // GetListenPort returns the port the server is listening on
@@ -75,21 +85,134 @@ func (cm *ConnectionManager) GetListenPort() int {
 	return cm.listenPort
 }
 
-// StartListeners starts startup-owned listeners.
-func (cm *ConnectionManager) StartListeners(specs []builtins.ListenerSpec) error {
+// BindListeners creates startup-owned listener sockets without accepting
+// connections yet.
+func (cm *ConnectionManager) BindListeners(specs []builtins.ListenerSpec) error {
 	if len(specs) == 0 {
 		return fmt.Errorf("no listeners configured")
 	}
+
+	originalPort := cm.listenPort
+	bound := make([]builtins.ListenerDescriptor, 0, len(specs))
 	for i, spec := range specs {
 		desc, err := cm.addListener(spec, true)
 		if err != nil {
+			for _, boundDesc := range bound {
+				key := listenerKeyFromDescriptor(boundDesc)
+				cm.mu.Lock()
+				record := cm.listeners[key]
+				if record != nil {
+					delete(cm.listeners, key)
+				}
+				cm.mu.Unlock()
+				if record != nil {
+					if record.httpServer != nil {
+						_ = record.httpServer.Close()
+					} else {
+						_ = record.listener.Close()
+					}
+				}
+			}
+			cm.listenPort = originalPort
 			return err
 		}
+		bound = append(bound, desc)
 		if i == 0 {
 			cm.listenPort = int(desc.Port)
 		}
 	}
 	return nil
+}
+
+// StartAccepting begins accept loops for all bound listeners that are not
+// already accepting.
+func (cm *ConnectionManager) StartAccepting() {
+	cm.mu.Lock()
+	records := make([]*listenerRecord, 0, len(cm.listeners))
+	for _, record := range cm.listeners {
+		if record.accepting {
+			continue
+		}
+		record.accepting = true
+		records = append(records, record)
+	}
+	cm.mu.Unlock()
+
+	for _, record := range records {
+		go func(record *listenerRecord) {
+			defer close(record.done)
+			if record.httpServer != nil {
+				cm.serveWebSocketListener(record)
+				return
+			}
+			cm.acceptConnections(record)
+		}(record)
+	}
+}
+
+// CloseListeners closes every bound listener, including startup-owned primary
+// listeners. It is the shutdown counterpart to RemoveListener, which preserves
+// the MOO-level rule that primary listeners cannot be removed at runtime.
+func (cm *ConnectionManager) CloseListeners() {
+	cm.mu.Lock()
+	type listenerToClose struct {
+		record *listenerRecord
+		wait   bool
+	}
+	records := make([]listenerToClose, 0, len(cm.listeners))
+	for key, record := range cm.listeners {
+		records = append(records, listenerToClose{
+			record: record,
+			wait:   record.accepting,
+		})
+		delete(cm.listeners, key)
+	}
+	cm.mu.Unlock()
+
+	for _, item := range records {
+		if item.record.httpServer != nil {
+			_ = item.record.httpServer.Close()
+			continue
+		}
+		_ = item.record.listener.Close()
+	}
+	for _, item := range records {
+		if item.wait {
+			<-item.record.done
+		}
+	}
+}
+
+// CloseConnections sends the shutdown banner to every active connection and
+// closes its transport. Normal disconnect processing remains responsible for
+// removing connections from the manager maps.
+func (cm *ConnectionManager) CloseConnections(message string) {
+	cm.mu.Lock()
+	cm.closing = true
+	setupConns := make([]net.Conn, 0, len(cm.setupConns))
+	for conn := range cm.setupConns {
+		setupConns = append(setupConns, conn)
+	}
+	cm.mu.Unlock()
+
+	for _, conn := range setupConns {
+		_ = conn.Close()
+	}
+	cm.connectionSetupWG.Wait()
+
+	cm.mu.Lock()
+	connections := make([]*Connection, 0, len(cm.connections))
+	for _, conn := range cm.connections {
+		connections = append(connections, conn)
+	}
+	cm.mu.Unlock()
+
+	line := fmt.Sprintf("*** Shutting down: %s ***", message)
+	for _, conn := range connections {
+		_ = conn.Send(line)
+		_ = conn.Close()
+	}
+	cm.connectionWG.Wait()
 }
 
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
@@ -115,11 +238,12 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		printMessages: spec.PrintMessages,
 		ipv6:          ipv6,
 		iface:         spec.Interface,
-		tls:           spec.Protocol == "tls" || spec.Protocol == "wss",
+		tls:           spec.Protocol == builtins.ListenerProtocolTLS || spec.Protocol == builtins.ListenerProtocolSecureWebSocket,
 		tlsConfig:     tlsConfig,
 		primary:       primary,
+		done:          make(chan struct{}),
 	}
-	if desc.Protocol == "ws" || desc.Protocol == "wss" {
+	if desc.Protocol == builtins.ListenerProtocolWebSocket || desc.Protocol == builtins.ListenerProtocolSecureWebSocket {
 		record.httpServer = &http.Server{
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				cm.handleWebSocketRequest(record, w, r)
@@ -142,11 +266,6 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		log.Printf("Added %s listener on port %d for #%d", spec.Protocol, port, spec.Object)
 	}
 
-	if record.httpServer != nil {
-		go cm.serveWebSocketListener(record)
-	} else {
-		go cm.acceptConnections(record)
-	}
 	return desc, nil
 }
 
@@ -162,7 +281,25 @@ func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
 			continue
 		}
 
-		go cm.handleNewConnection(record, socket)
+		cm.mu.Lock()
+		if cm.closing {
+			cm.mu.Unlock()
+			_ = socket.Close()
+			continue
+		}
+		cm.connectionSetupWG.Add(1)
+		cm.setupConns[socket] = struct{}{}
+		cm.mu.Unlock()
+
+		go func() {
+			defer cm.connectionSetupWG.Done()
+			defer func() {
+				cm.mu.Lock()
+				delete(cm.setupConns, socket)
+				cm.mu.Unlock()
+			}()
+			cm.handleNewConnection(record, socket)
+		}()
 	}
 }
 
@@ -186,8 +323,8 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 
 	log.Printf("New connection from %s (ID: %d)", conn.RemoteAddr(), conn.ID)
 
-	// Handle connection in goroutine
-	go cm.HandleConnection(conn)
+	cm.connectionWG.Add(1)
+	go cm.handleConnection(conn)
 }
 
 func (cm *ConnectionManager) serveWebSocketListener(record *listenerRecord) {
@@ -208,6 +345,16 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 		return
 	}
 
+	cm.mu.Lock()
+	if cm.closing {
+		cm.mu.Unlock()
+		http.Error(w, "server shutting down", http.StatusServiceUnavailable)
+		return
+	}
+	cm.connectionSetupWG.Add(1)
+	cm.mu.Unlock()
+	defer cm.connectionSetupWG.Done()
+
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		log.Printf("WebSocket upgrade error from %s: %v", r.RemoteAddr, err)
@@ -221,7 +368,21 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 
 	log.Printf("New %s connection from %s (ID: %d)", record.protocol, conn.RemoteAddr(), conn.ID)
 
-	go cm.HandleConnection(conn)
+	cm.connectionWG.Add(1)
+	go cm.handleConnection(conn)
+}
+
+func (cm *ConnectionManager) handleConnection(conn *Connection) {
+	defer cm.connectionWG.Done()
+
+	cm.mu.Lock()
+	handler := cm.connectionHandler
+	cm.mu.Unlock()
+	if handler == nil {
+		_ = conn.Close()
+		return
+	}
+	handler(conn)
 }
 
 // NewConnectionFromTransport creates a connection from any transport (for testing)
@@ -237,105 +398,6 @@ func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Co
 	cm.mu.Unlock()
 
 	return conn
-}
-
-// HandleConnection processes a connection (exported for testing).
-// This is now an I/O-only loop: it reads lines and enqueues InputEvents
-// for the scheduler to process. All MOO verb execution happens on the
-// scheduler goroutine.
-func (cm *ConnectionManager) HandleConnection(conn *Connection) {
-	// Trace new connection
-	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
-
-	defer func() {
-		// Enqueue disconnect event and wait for it to be processed
-		done := make(chan struct{})
-		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID:       conn.ID,
-			IsDisconnect: true,
-			Done:         done,
-		})
-		<-done
-		conn.Close()
-	}()
-
-	// Set up timeout for unlogged connections
-	connectTimeout := cm.connectTimeout
-	if cm.server != nil && cm.server.input != nil {
-		if value, ok := cm.server.input.getServerOption(0, "connect_timeout"); ok {
-			if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
-				connectTimeout = time.Duration(seconds.Val) * time.Second
-			}
-		}
-	}
-
-	// Send initial welcome banner by enqueuing empty string to scheduler
-	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0)
-	{
-		done := make(chan struct{})
-		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID: conn.ID,
-			Player: types.ObjID(-conn.ID),
-			Line:   "",
-			Done:   done,
-		})
-		<-done
-	}
-
-	// I/O loop: read lines, enqueue events, wait for processing
-	for {
-		select {
-		case <-conn.ctx.Done():
-			return
-		default:
-		}
-
-		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
-			if conn.IsLoggedIn() {
-				_ = deadlineTransport.SetReadDeadline(time.Time{})
-			} else {
-				_ = deadlineTransport.SetReadDeadline(time.Now().Add(connectTimeout))
-			}
-		}
-
-		player := conn.GetPlayer()
-		if !conn.IsLoggedIn() {
-			player = types.ObjID(-conn.ID)
-		}
-
-		var line string
-		var err error
-		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
-			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
-				line, err = binaryTransport.ReadChunk()
-			} else {
-				line, err = conn.ReadLine()
-			}
-		} else {
-			line, err = conn.ReadLine()
-		}
-		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
-				continue
-			}
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
-				conn.Send("*** Timed-out waiting for login. ***")
-				cm.server.input.callUserDisconnected(conn.ListenerObject(), types.ObjID(-conn.ID))
-				return
-			}
-			log.Printf("Connection %d read error: %v", conn.ID, err)
-			return
-		}
-
-		done := make(chan struct{})
-		cm.server.input.EnqueueInput(command.InputEvent{
-			ConnID: conn.ID,
-			Player: player,
-			Line:   line,
-			Done:   done,
-		})
-		<-done
-	}
 }
 
 // listContainsString checks if a MOO list contains a string value.
@@ -534,15 +596,20 @@ func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
 }
 
 func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
-	return cm.addListener(spec, false)
+	desc, err := cm.addListener(spec, false)
+	if err != nil {
+		return builtins.ListenerDescriptor{}, err
+	}
+	cm.StartAccepting()
+	return desc, nil
 }
 
 func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != "tls" && spec.Protocol != "ws" {
+	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != builtins.ListenerProtocolTLS && spec.Protocol != builtins.ListenerProtocolWebSocket {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
 	}
-	if spec.Protocol == "ws" {
+	if spec.Protocol == builtins.ListenerProtocolWebSocket {
 		if spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
 			return builtins.ListenerDescriptor{}, fmt.Errorf("ws listener does not accept TLS options")
 		}
@@ -557,7 +624,7 @@ func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary boo
 	if spec.Path != "" {
 		return builtins.ListenerDescriptor{}, fmt.Errorf("%s listener does not accept path", spec.Protocol)
 	}
-	if spec.Protocol == "tls" {
+	if spec.Protocol == builtins.ListenerProtocolTLS {
 		if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
 			return builtins.ListenerDescriptor{}, fmt.Errorf("tls listener requires certificate and key")
 		}
@@ -594,12 +661,19 @@ func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) er
 		return fmt.Errorf("cannot remove primary listener")
 	}
 	delete(cm.listeners, key)
+	wait := record.accepting
 	cm.mu.Unlock()
 
+	var err error
 	if record.httpServer != nil {
-		return record.httpServer.Close()
+		err = record.httpServer.Close()
+	} else {
+		err = record.listener.Close()
 	}
-	return record.listener.Close()
+	if wait {
+		<-record.done
+	}
+	return err
 }
 
 func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {
@@ -647,19 +721,34 @@ func (cm *ConnectionManager) ConnectionNameLookup(player types.ObjID, rewrite bo
 		return "", fmt.Errorf("connection not found")
 	}
 
-	host, _, err := net.SplitHostPort(conn.RemoteAddr())
+	// SplitHostPort fails when RemoteAddr() carries no parseable host:port; that
+	// failure is signalled by the empty host, in which case we fall back to the
+	// raw address (the deterministic numeric value, matching Toast's behavior).
+	host, _, _ := net.SplitHostPort(conn.RemoteAddr())
 	host = strings.Trim(host, "[]")
 	if host == "" {
 		host = conn.RemoteAddr()
 	}
 
-	names, err := net.LookupAddr(host)
+	// Reverse-DNS lookup. On failure, deterministically fall back to the numeric
+	// host. Toast does the same (network.cc:985 get_nameinfo -> get_ntop numeric
+	// fallback; network.cc:1593 keeps the existing name on getaddrinfo failure)
+	// and never surfaces a lookup error to MOO — so we keep the (string, error)
+	// error channel reserved for "connection not found" above.
 	resolved := host
-	if err == nil && len(names) > 0 {
+	names, lookupErr := net.LookupAddr(host)
+	lookupOK := lookupErr == nil && len(names) > 0
+	if lookupOK {
 		resolved = strings.TrimSuffix(names[0], ".")
 	}
 
-	if rewrite {
+	// Only overwrite the cached connection name when the lookup actually
+	// succeeded. Toast gates the rewrite on the lookup status (server.cc:2980,
+	// `rewrite_connect_name && status == 0`); previously Barn ignored lookupErr
+	// and rewrote the name to the numeric fallback on every failure, corrupting
+	// the value returned by connection_name(). The lookup error now drives that
+	// decision instead of being silently discarded.
+	if rewrite && lookupOK {
 		conn.SetResolvedName(resolved)
 	}
 	return resolved, nil
@@ -701,7 +790,7 @@ func normalizeListenerProtocol(protocol string) string {
 
 func canonicalListenerPath(protocol, path string) string {
 	switch protocol {
-	case "ws", "wss":
+	case builtins.ListenerProtocolWebSocket, builtins.ListenerProtocolSecureWebSocket:
 		if path == "" {
 			return "/"
 		}

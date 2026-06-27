@@ -23,7 +23,7 @@ func TestParseListenSpecWebSocketDefaultsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse ws spec: %v", err)
 	}
-	if spec.Protocol != "ws" ||
+	if spec.Protocol != builtins.ListenerProtocolWebSocket ||
 		spec.Interface != "" ||
 		spec.Port != 7779 ||
 		spec.Path != "/" {
@@ -43,7 +43,7 @@ func TestParseListenSpecWSS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse wss spec: %v", err)
 	}
-	if spec.Protocol != "wss" ||
+	if spec.Protocol != builtins.ListenerProtocolSecureWebSocket ||
 		spec.Port != 7780 ||
 		spec.Path != "/moo" ||
 		spec.TLSCertificatePath != "server.crt" ||

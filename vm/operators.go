@@ -435,9 +435,13 @@ func inOp(left, right types.Value) types.Result {
 		return types.Ok(types.IntValue{Val: 0})
 
 	case types.MapValue:
-		// For maps, `in` checks if left is a VALUE and returns the position
-		// of its key in the sorted key list (1-based), or 0 if not found
-		// This is case-insensitive for string values (uses Equal)
+		// NOTE: inOp is DEAD (no callers; the VM dispatches executeIn in
+		// op_compare.go). Kept identical to executeIn to avoid drift.
+		// For maps, `in` searches the map's VALUES (not keys), returning the
+		// 1-based key-sorted position of the first match, or 0. Matches Toast
+		// ismember (collection.cc:46-69, value compare at :36); case-insensitive
+		// (ismember case_matters=0). See executeIn for full citations. Do NOT
+		// change to key search — review finding F27 mis-claimed key semantics.
 		pairs := container.Pairs()
 		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {

@@ -21,6 +21,9 @@ func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
+	if !ctx.RuntimeOptions.OutboundNetwork {
+		return types.Err(types.E_PERM)
+	}
 	method := "GET"
 	body := ""
 	if len(args) >= 2 {

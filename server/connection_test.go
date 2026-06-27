@@ -15,7 +15,7 @@ func (stubTransport) Close() error              { return nil }
 func (stubTransport) RemoteAddr() string        { return "127.0.0.1:7777" }
 
 func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
-	cm := NewConnectionManager(nil, 7777)
+	cm := NewConnectionManager(7777)
 	player := types.ObjID(8)
 
 	mainConn := cm.NewConnectionFromTransport(stubTransport{})

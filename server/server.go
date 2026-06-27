@@ -2,16 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"log"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"barn/builtins"
+	"barn/config"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -30,25 +28,31 @@ type Server struct {
 	dbPath             string
 	listenerSpecs      []builtins.ListenerSpec
 	checkpointInterval time.Duration
-	promoteNumbers     bool
+	options            config.Options
 	running            bool
 	mu                 sync.Mutex
-	shutdownChan       chan struct{}
+	shutdownMessage    string
+	terminalErr        error
+	backgroundWG       sync.WaitGroup
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
 }
 
-// NewServer creates a new MOO server with strict (default) numeric semantics.
+var ErrPanicShutdown = errors.New("panic shutdown")
+
+// NewServer creates a new MOO server with default runtime options.
 func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
-	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, false)
+	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, config.DefaultOptions())
 }
 
-// NewServerWithOptions creates a new MOO server. When promoteNumbers is true,
-// the scheduler runs with ToastStunt mongoose PROMOTE_NUMBERS semantics.
-func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, promoteNumbers bool) (*Server, error) {
+// NewServerWithOptions creates a new MOO server with the supplied runtime options.
+func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, options config.Options) (*Server, error) {
 	if len(listenerSpecs) == 0 {
 		return nil, fmt.Errorf("no listeners configured")
+	}
+	if err := options.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid runtime options: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -56,9 +60,8 @@ func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, 
 		dbPath:             dbPath,
 		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
-		promoteNumbers:     promoteNumbers,
-		shutdownChan:       make(chan struct{}),
-		checkpointChan:     make(chan struct{}),
+		options:            options,
+		checkpointChan:     make(chan struct{}, 1),
 		ctx:                ctx,
 		cancel:             cancel,
 	}, nil
@@ -72,9 +75,9 @@ func (s *Server) LoadDatabase() error {
 	}
 
 	s.store = database.NewStoreFromDatabase()
-	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.promoteNumbers)
+	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.options)
 	s.input = NewInputProcessor(s.store, s.scheduler)
-	s.connManager = NewConnectionManager(s, int(s.listenerSpecs[0].Port))
+	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 
 	s.input.SetConnectionManager(s.connManager)
 	s.scheduler.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
@@ -106,22 +109,43 @@ func (s *Server) LoadDatabase() error {
 		}
 	})
 
+	// Wire the host capabilities the server provides onto the scheduler's
+	// builtin registry (the registry owns them; there is no global state).
+	reg := s.scheduler.Registry()
+
 	// Wire notify() builtin to connection manager
-	builtins.SetConnectionManager(s.connManager)
+	reg.SetConnectionManager(s.connManager)
 
 	// Wire force_input() builtin to scheduler
-	builtins.SetInputForcer(s.input)
-	builtins.SetTaskYielder(s.scheduler)
+	reg.SetInputForcer(s.input)
+	reg.SetTaskYielder(s.scheduler)
 
-	// Wire dump_database() builtin to server checkpoint
-	builtins.SetDumpFunc(func() error { return s.checkpoint() })
-	builtins.SetShutdownFunc(func(ctx *kernel.TaskContext) error {
+	// Wire dump_database() builtin to request a server-loop checkpoint.
+	reg.SetDumpFunc(func() error { return s.requestCheckpoint() })
+	reg.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
 				s.store.AppendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
 			}
 		}
-		s.Shutdown()
+		shutdownMessage := "Server shutdown"
+		if ctx != nil {
+			caller := fmt.Sprintf("#%d", ctx.Programmer)
+			if name, errCode := s.store.ObjectName(ctx.Programmer); errCode == types.E_NONE && name != "" {
+				caller = name
+			}
+			shutdownMessage = "shutdown() called by " + caller
+			if message != "" {
+				shutdownMessage += ": " + message
+			}
+		} else if message != "" {
+			shutdownMessage = message
+		}
+		if unclean {
+			s.Panic(shutdownMessage)
+			return nil
+		}
+		s.Shutdown(shutdownMessage)
 		return nil
 	})
 
@@ -156,21 +180,33 @@ func (s *Server) Start() error {
 	// Start scheduler
 	s.input.Start()
 
+	// Bind listener sockets before server_started so MOO code can inspect
+	// listeners(), but do not accept connections until the hook returns.
+	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+		s.cancel()
+		s.connManager.CloseListeners()
+		s.input.Stop()
+		s.scheduler.Stop()
+		s.backgroundWG.Wait()
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		return fmt.Errorf("listen failed: %w", err)
+	}
+
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
 		log.Printf("Warning: #0:server_started() failed: %v", err)
 	}
 
 	// Start listening for connections
-	if err := s.connManager.StartListeners(s.listenerSpecs); err != nil {
-		return fmt.Errorf("listen failed: %w", err)
-	}
+	s.connManager.StartAccepting()
 
-	// Set up signal handling
-	go s.handleSignals()
-
-	// Set up periodic checkpoints
-	go s.checkpointLoop()
+	s.backgroundWG.Add(1)
+	go func() {
+		defer s.backgroundWG.Done()
+		s.checkpointLoop()
+	}()
 
 	// Main loop
 	return s.mainLoop()
@@ -181,26 +217,18 @@ func (s *Server) mainLoop() error {
 	for {
 		select {
 		case <-s.ctx.Done():
+			s.mu.Lock()
+			terminalErr := s.terminalErr
+			s.mu.Unlock()
+			if terminalErr != nil {
+				return terminalErr
+			}
 			return s.shutdown()
 		case <-s.checkpointChan:
 			if err := s.checkpoint(); err != nil {
 				log.Printf("Checkpoint failed: %v", err)
 			}
 		}
-	}
-}
-
-// handleSignals handles OS signals
-func (s *Server) handleSignals() {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	select {
-	case <-sigChan:
-		log.Println("Received shutdown signal")
-		s.Shutdown()
-	case <-s.ctx.Done():
-		return
 	}
 }
 
@@ -215,11 +243,27 @@ func (s *Server) checkpointLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			s.checkpointChan <- struct{}{}
+			if err := s.requestCheckpoint(); err != nil {
+				return
+			}
 		case <-s.ctx.Done():
 			return
 		}
 	}
+}
+
+func (s *Server) requestCheckpoint() error {
+	select {
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	default:
+	}
+
+	select {
+	case s.checkpointChan <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // checkpoint saves the database to disk
@@ -233,43 +277,10 @@ func (s *Server) checkpoint() error {
 
 	start := time.Now()
 
-	// Write to temp file
-	tempPath := s.dbPath + ".tmp"
-	tempFile, err := os.Create(tempPath)
-	if err != nil {
-		s.callCheckpointFinished(false)
-		return fmt.Errorf("create temp file: %w", err)
-	}
-
-	writer := dbformat.NewWriter(tempFile, s.store.Snapshot())
 	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
-	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
-	if err := writer.WriteDatabase(); err != nil {
-		tempFile.Close()
-		os.Remove(tempPath)
+	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.Snapshot(), queuedTasks, suspendedTasks); err != nil {
 		s.callCheckpointFinished(false)
-		return fmt.Errorf("write database: %w", err)
-	}
-
-	if err := tempFile.Close(); err != nil {
-		os.Remove(tempPath)
-		s.callCheckpointFinished(false)
-		return fmt.Errorf("close temp file: %w", err)
-	}
-
-	// Atomic rename temp -> main database
-	if err := os.Rename(tempPath, s.dbPath); err != nil {
-		// On Windows, need to remove dest first
-		os.Remove(s.dbPath)
-		if err := os.Rename(tempPath, s.dbPath); err != nil {
-			s.callCheckpointFinished(false)
-			return fmt.Errorf("rename temp to main: %w", err)
-		}
-	}
-
-	if err := copyFile(s.dbPath, s.dbPath+".new"); err != nil {
-		s.callCheckpointFinished(false)
-		return fmt.Errorf("write sibling checkpoint: %w", err)
+		return err
 	}
 
 	// Call #0:checkpoint_finished(success)
@@ -281,13 +292,14 @@ func (s *Server) checkpoint() error {
 	return nil
 }
 
-// Shutdown initiates graceful shutdown
-func (s *Server) Shutdown() {
+// Shutdown initiates graceful shutdown.
+func (s *Server) Shutdown(message string) {
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
 		return
 	}
+	s.shutdownMessage = message
 	s.mu.Unlock()
 
 	log.Println("Initiating shutdown...")
@@ -298,14 +310,22 @@ func (s *Server) Shutdown() {
 func (s *Server) shutdown() error {
 	log.Println("Shutting down server...")
 
+	s.mu.Lock()
+	message := s.shutdownMessage
+	s.mu.Unlock()
+	if message == "" {
+		message = "Server shutdown"
+	}
+
 	// Call #0:shutdown_started()
-	if err := s.callShutdownStarted("Server shutdown"); err != nil {
+	if err := s.callShutdownStarted(message); err != nil {
 		log.Printf("Warning: #0:shutdown_started() failed: %v", err)
 	}
 
-	// Stop scheduler
+	s.connManager.CloseListeners()
+	s.connManager.CloseConnections(message)
+
 	s.input.Stop()
-	s.scheduler.Stop()
 
 	// Final checkpoint (unless checkpointing was explicitly disabled)
 	if s.checkpointInterval > 0 {
@@ -317,6 +337,9 @@ func (s *Server) shutdown() error {
 		log.Println("Final checkpoint skipped (checkpointing disabled)")
 	}
 
+	s.scheduler.Stop()
+	s.backgroundWG.Wait()
+
 	s.mu.Lock()
 	s.running = false
 	s.mu.Unlock()
@@ -326,7 +349,7 @@ func (s *Server) shutdown() error {
 }
 
 // Panic performs emergency shutdown
-func (s *Server) Panic(message string) {
+func (s *Server) Panic(message string) error {
 	log.Printf("PANIC: %s", message)
 
 	// Attempt emergency database dump
@@ -335,7 +358,12 @@ func (s *Server) Panic(message string) {
 		log.Printf("Emergency dump failed: %v", err)
 	}
 
-	os.Exit(1)
+	err := fmt.Errorf("%w: %s", ErrPanicShutdown, message)
+	s.mu.Lock()
+	s.terminalErr = err
+	s.mu.Unlock()
+	s.cancel()
+	return err
 }
 
 // callServerStarted calls #0:server_started()
@@ -343,7 +371,7 @@ func (s *Server) callServerStarted() error {
 	if !s.store.HasLocalVerb(0, "server_started") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "server_started", nil, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "server_started", nil, 0)
 	return err
 }
 
@@ -352,7 +380,7 @@ func (s *Server) callCheckpointStarted() error {
 	if !s.store.HasLocalVerb(0, "checkpoint_started") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_started", nil, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
@@ -361,7 +389,7 @@ func (s *Server) callCheckpointFinished(success bool) error {
 	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 
@@ -370,32 +398,8 @@ func (s *Server) callShutdownStarted(message string) error {
 	if !s.store.HasLocalVerb(0, "shutdown_started") {
 		return nil
 	}
-	_, err := s.scheduler.CreateServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
+	_, err := s.scheduler.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
 	return err
-}
-
-// DumpDatabase triggers an immediate checkpoint
-func (s *Server) DumpDatabase() error {
-	return s.checkpoint()
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
 }
 
 func boolToInt(v bool) int64 {

@@ -94,10 +94,16 @@ func unparseStmt(stmt Stmt, indent int) string {
 		if s.Label != "" {
 			sb.WriteString(s.Label + " ")
 		}
-		if s.Index != "" {
-			sb.WriteString(s.Value + " in [" + s.Index + ".." + strconv.Itoa(len(s.Body)) + "]\n")
-		} else if s.Container != nil {
-			sb.WriteString(s.Value + " in (" + unparseExpr(s.Container, precedenceLowest) + ")\n")
+		if s.Container != nil {
+			// List/map iteration. With an index/key variable this is the
+			// `for value, index in (expr)` form (ToastStunt parser.y:160-174);
+			// without one it is the plain `for value in (expr)` form
+			// (parser.y:147-159).
+			if s.Index != "" {
+				sb.WriteString(s.Value + ", " + s.Index + " in (" + unparseExpr(s.Container, precedenceLowest) + ")\n")
+			} else {
+				sb.WriteString(s.Value + " in (" + unparseExpr(s.Container, precedenceLowest) + ")\n")
+			}
 		} else {
 			// Range loop
 			sb.WriteString(s.Value + " in [" + unparseExpr(s.RangeStart, precedenceLowest) + ".." + unparseExpr(s.RangeEnd, precedenceLowest) + "]\n")
@@ -109,9 +115,6 @@ func unparseStmt(stmt Stmt, indent int) string {
 		return strings.TrimSuffix(sb.String(), "\n")
 
 	case *BreakStmt:
-		if s.Value != nil {
-			return indentStr + "break " + unparseExpr(s.Value, precedenceLowest) + ";"
-		}
 		if s.Label != "" {
 			return indentStr + "break " + s.Label + ";"
 		}

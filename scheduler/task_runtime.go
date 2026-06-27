@@ -28,6 +28,7 @@ import (
 // peer's writes. The bound exists only to prevent livelock under a pathological store.
 const maxConflictRetryAttempts = 64
 
+var ErrCommandVerbNoCode = errors.New("command verb has no code")
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
@@ -73,14 +74,14 @@ retryAttempt:
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.LiveStoreMutated = false
 	ctx.Registry = s.registry
-	ctx.PromoteNumbers = s.promoteNumbers
+	ctx.RuntimeOptions = s.options
 
 	// A task resuming after suspend runs under background limits: Toast treats
 	// resumed tasks as background tasks, and time spent suspended does not count
 	// against the execution budget. Reset both the tick and second budgets (and
 	// the start time used for the deadline below) so ticks_left()/seconds_left()
 	// and the hard deadline reflect a fresh background slice.
-	if savedVM, ok := t.BytecodeVM.(*vm.VM); ok && savedVM.IsYielded() {
+	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); ok && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits()
 		t.TicksLimit = bgTicks
 		t.TicksUsed = 0
@@ -91,8 +92,20 @@ retryAttempt:
 		savedVM.Ticks = 0
 	}
 
-	// Set up cancellation with deadline
-	deadline := t.StartTime.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
+	// Set up cancellation with deadline. The budget deadline must be anchored
+	// to when the task actually starts running, not its (possibly long-past)
+	// scheduled start time — otherwise a fork-delayed or checkpoint-restored
+	// task whose StartTime has already elapsed (e.g. the server was down for
+	// a while between checkpoint and restart) gets an already-expired
+	// deadline and is killed instantly with context.DeadlineExceeded.
+	// t.StartTime itself is left untouched since it's spec-visible via
+	// queued_tasks() and used for scheduling order
+	// (scheduler/task_queue.go's readyTime()).
+	budgetAnchor := t.StartTime
+	if now := time.Now(); budgetAnchor.Before(now) {
+		budgetAnchor = now
+	}
+	deadline := budgetAnchor.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
 	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
 	t.CancelFunc = cancel
 	defer cancel()
@@ -105,10 +118,10 @@ retryAttempt:
 	// was created since the floor and the orphan-anon GC sweep can be skipped.
 	anonFloor := s.store.AnonCreationCount()
 
-	if t.BytecodeVM != nil {
+	if savedVM := t.BytecodeVMValue(); savedVM != nil {
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
 		var ok bool
-		bcVM, ok = t.BytecodeVM.(*vm.VM)
+		bcVM, ok = savedVM.(*vm.VM)
 		if !ok {
 			t.SetState(task.TaskKilled)
 			return errors.New("invalid saved VM state")
@@ -283,13 +296,13 @@ retryAttempt:
 			}
 		}
 		t.SetState(task.TaskKilled)
-		t.BytecodeVM = nil
+		t.SetBytecodeVM(nil)
 		return taskCtx.Err()
 	default:
 	}
 
 	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
-		t.BytecodeVM = bcVM
+		t.SetBytecodeVM(bcVM)
 		if t.WakeValue != nil {
 			bcVM.SetResumeValue(t.WakeValue)
 			t.WakeValue = nil
@@ -346,7 +359,7 @@ retryAttempt:
 				result = types.Err(errCode)
 				t.Result = result
 				t.SetState(task.TaskKilled)
-				t.BytecodeVM = nil
+				t.SetBytecodeVM(nil)
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingNotifications(ctx)
 				builtins.DiscardPendingConnectionSwitches(ctx)
@@ -374,13 +387,13 @@ retryAttempt:
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 
-		// Save VM state for later Resume(). Publish it under s.mu — the same lock
-		// liveTaskVMs holds when it scans sibling tasks' saved VMs for orphan GC —
-		// so a concurrently running sibling never reads t.BytecodeVM while we write
-		// it. The heap re-queue, when this is a suspend(0)-style yield, rides the
-		// same critical section.
+		// Save VM state for later Resume() via the thread-safe setter, so a
+		// concurrently running sibling scanning saved VMs for orphan GC never races
+		// the write. The s.mu critical section additionally guards the suspend(0)-
+		// style heap re-queue below; lock order is s.mu then the task lock taken
+		// inside SetBytecodeVM, matching collectSiblingGCRefs's read path.
 		s.mu.Lock()
-		t.BytecodeVM = bcVM
+		t.SetBytecodeVM(bcVM)
 		if t.GetState() == task.TaskQueued {
 			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
 			// Stamp it with the suspend moment so the task's ready time reflects
@@ -498,7 +511,7 @@ retryAttempt:
 		}
 	}
 
-	t.BytecodeVM = nil // Release VM after completion
+	t.SetBytecodeVM(nil) // Release VM after completion
 
 	// Fire the terminal-completion callback (if any) exactly once. This branch
 	// is only reached on terminal completion — a suspend returns earlier (the
@@ -530,7 +543,7 @@ type taskRetryState struct {
 // optimistically with other tasks: if two such tasks happen to conflict at commit,
 // the loser simply retries against the winner's committed writes.
 func taskIsConflictRetryable(t *task.Task) bool {
-	return t != nil && t.BytecodeVM == nil && !t.IsForked && t.ForkInfo == nil && t.Code != nil
+	return t != nil && t.BytecodeVMValue() == nil && !t.IsForked && t.ForkInfo == nil && t.Code != nil
 }
 
 func captureTaskRetryState(t *task.Task) taskRetryState {
@@ -555,7 +568,7 @@ func (state taskRetryState) restore(t *task.Task) {
 		return
 	}
 	t.Code = state.code
-	t.BytecodeVM = nil
+	t.SetBytecodeVM(nil)
 	t.Result = types.Result{}
 	t.CallStack = cloneActivationFramesForRetry(state.callStack)
 	t.TaskLocal = state.taskLocal
@@ -675,11 +688,19 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 	return result
 }
 
-// ExecuteVerbTaskSync creates and immediately runs a verb task on the scheduler goroutine.
-func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) {
+// ExecuteVerbTaskSync creates and immediately runs a command verb task on the scheduler goroutine.
+func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
+	program, compileErrors := bytecode.CompileVerb(match.Verb.Code)
+	if len(compileErrors) > 0 {
+		return fmt.Errorf("Verb compile error: %s", compileErrors[0])
+	}
+	if len(program.Statements) == 0 {
+		return ErrCommandVerbNoCode
+	}
+
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner
@@ -718,4 +739,5 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 	}
+	return nil
 }

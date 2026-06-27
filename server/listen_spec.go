@@ -23,7 +23,7 @@ func ParseListenSpec(raw string) (builtins.ListenerSpec, error) {
 	}
 	protocol := strings.ToLower(parsed.Scheme)
 	switch protocol {
-	case builtins.ListenerProtocolTCP, "tls", "ws", "wss":
+	case builtins.ListenerProtocolTCP, builtins.ListenerProtocolTLS, builtins.ListenerProtocolWebSocket, builtins.ListenerProtocolSecureWebSocket:
 	default:
 		return builtins.ListenerSpec{}, fmt.Errorf("unsupported listener protocol %q", protocol)
 	}
@@ -51,16 +51,16 @@ func ParseListenSpec(raw string) (builtins.ListenerSpec, error) {
 	spec.TLSCertificatePath = query.Get("cert")
 	spec.TLSKeyPath = query.Get("key")
 
-	if spec.Path == "" && (protocol == "ws" || protocol == "wss") {
+	if spec.Path == "" && (protocol == builtins.ListenerProtocolWebSocket || protocol == builtins.ListenerProtocolSecureWebSocket) {
 		spec.Path = "/"
 	}
-	if spec.Path != "" && protocol != "ws" && protocol != "wss" {
+	if spec.Path != "" && protocol != builtins.ListenerProtocolWebSocket && protocol != builtins.ListenerProtocolSecureWebSocket {
 		return builtins.ListenerSpec{}, fmt.Errorf("listener spec %q path is only valid for ws/wss", raw)
 	}
-	if (protocol == "tls" || protocol == "wss") && (spec.TLSCertificatePath == "" || spec.TLSKeyPath == "") {
+	if (protocol == builtins.ListenerProtocolTLS || protocol == builtins.ListenerProtocolSecureWebSocket) && (spec.TLSCertificatePath == "" || spec.TLSKeyPath == "") {
 		return builtins.ListenerSpec{}, fmt.Errorf("listener spec %q requires cert and key", raw)
 	}
-	if (protocol == builtins.ListenerProtocolTCP || protocol == "ws") && (spec.TLSCertificatePath != "" || spec.TLSKeyPath != "") {
+	if (protocol == builtins.ListenerProtocolTCP || protocol == builtins.ListenerProtocolWebSocket) && (spec.TLSCertificatePath != "" || spec.TLSKeyPath != "") {
 		return builtins.ListenerSpec{}, fmt.Errorf("listener spec %q includes TLS options for non-TLS protocol", raw)
 	}
 

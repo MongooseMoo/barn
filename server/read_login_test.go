@@ -3,7 +3,6 @@ package server
 import (
 	"testing"
 
-	"barn/builtins"
 	"barn/command"
 	dbstore "barn/db/store"
 	runtime "barn/scheduler"
@@ -37,10 +36,9 @@ func loginTestSetup(t *testing.T, loginVerb []string) (*InputProcessor, *Connect
 
 	rt := runtime.NewScheduler(store)
 	s := NewInputProcessor(store, rt)
-	cm := NewConnectionManager(nil, 7777)
+	cm := NewConnectionManager(7777)
 	s.SetConnectionManager(cm)
-	builtins.SetConnectionManager(cm)
-	t.Cleanup(func() { builtins.SetConnectionManager(nil) })
+	rt.Registry().SetConnectionManager(cm)
 
 	conn := cm.NewConnectionFromTransport(stubTransport{})
 	conn.SetListener(10, 7789, true)

@@ -133,6 +133,18 @@ func findVerbForRead(ctx *kernel.TaskContext, objID types.ObjID, name string) (d
 	return ctx.Store.FindVerb(objID, name)
 }
 
+// findCallableVerbForRead resolves the verb that would actually answer
+// obj:verb() — a same-named verb without execute permission does not shadow an
+// executable one defined further up the ancestry chain. It mirrors
+// findVerbForRead but uses the call-dispatch walk, reading through the task's
+// snapshot transaction when one is present.
+func findCallableVerbForRead(ctx *kernel.TaskContext, objID types.ObjID, name string) (dbstore.VerbView, types.ObjID, error) {
+	if tx := readTxn(ctx); tx != nil {
+		return tx.FindCallableVerb(objID, name)
+	}
+	return ctx.Store.FindCallableVerb(objID, name)
+}
+
 func findVerbOnObjectForRead(ctx *kernel.TaskContext, objID types.ObjID, name string) (dbstore.VerbView, error) {
 	if tx := readTxn(ctx); tx != nil {
 		return tx.FindVerbOnObject(objID, name)

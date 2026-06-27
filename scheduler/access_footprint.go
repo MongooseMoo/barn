@@ -34,7 +34,7 @@ func analyzeAccessFootprint(stmts []parser.Stmt, knownObjects map[string]types.O
 }
 
 func analyzeTaskAccessFootprint(t *task.Task) accessFootprint {
-	if t == nil || t.BytecodeVM != nil {
+	if t == nil || t.BytecodeVMValue() != nil {
 		return unknownAccessFootprint()
 	}
 	stmts, ok := t.Code.([]parser.Stmt)
@@ -137,7 +137,7 @@ func (a *footprintAnalyzer) stmt(stmt parser.Stmt) {
 			a.stmt(stmt)
 		}
 	case *parser.BreakStmt:
-		a.expr(n.Value)
+		// break carries only an optional loop label (no expression) — nothing to analyze.
 	case *parser.ReturnStmt:
 		a.expr(n.Value)
 	case *parser.TryExceptStmt:

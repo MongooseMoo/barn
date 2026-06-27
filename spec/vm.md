@@ -136,8 +136,8 @@ Operand sizes:
 
 | Opcode | Operands | Description |
 |--------|----------|-------------|
-| OP_TRY_EXCEPT | handler_offset | Push exception handler |
-| OP_END_EXCEPT | - | Pop exception handler |
+| OP_TRY_EXCEPT | num_clauses, clause metadata | Push exception handlers |
+| OP_END_EXCEPT | num_clauses | Pop exception handlers |
 | OP_TRY_FINALLY | finally_offset | Push finally handler |
 | OP_END_FINALLY | - | Execute finally |
 | OP_CATCH | offset, codes | Inline catch expression |

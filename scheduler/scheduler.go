@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"barn/builtins"
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
@@ -29,7 +30,7 @@ type Scheduler struct {
 	taskLineSender          func(types.ObjID, string)
 	tracebackSender         func(types.ObjID, types.ErrorCode, []task.ActivationFrame)
 	taskOutputFlusher       func(types.ObjID, string)
-	promoteNumbers          bool
+	options                 config.Options
 	taskWork                chan taskWorkItem
 	workersWG               sync.WaitGroup
 	workerCount             int
@@ -48,35 +49,33 @@ type taskRunResult struct {
 	err  error
 }
 
-// NewScheduler creates a task scheduler with strict (default) numeric semantics.
+// NewScheduler creates a task scheduler with default runtime options.
 func NewScheduler(store *dbstore.Store) *Scheduler {
-	return NewSchedulerWithOptions(store, false)
+	return NewSchedulerWithOptions(store, config.DefaultOptions())
 }
 
-// NewSchedulerWithOptions creates a task scheduler. When promoteNumbers is true,
-// mixed int/float arithmetic and comparison auto-promote (ToastStunt mongoose
-// PROMOTE_NUMBERS); when false, strict E_TYPE behavior is used.
-func NewSchedulerWithOptions(store *dbstore.Store, promoteNumbers bool) *Scheduler {
-	return newSchedulerWithWorkerCount(store, promoteNumbers, runtime.GOMAXPROCS(0))
+// NewSchedulerWithOptions creates a task scheduler with the supplied runtime options.
+func NewSchedulerWithOptions(store *dbstore.Store, options config.Options) *Scheduler {
+	return newSchedulerWithWorkerCount(store, options, runtime.GOMAXPROCS(0))
 }
 
-func newSchedulerWithWorkerCount(store *dbstore.Store, promoteNumbers bool, workerCount int) *Scheduler {
+func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, workerCount int) *Scheduler {
 	if workerCount < 1 {
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
-		tasks:          make(map[int64]*task.Task),
-		waiting:        NewTaskQueue(),
-		nextTaskID:     1,
-		registry:       vm.BuildVMRegistry(),
-		store:          store,
-		promoteNumbers: promoteNumbers,
-		taskWork:       make(chan taskWorkItem),
-		workerCount:    workerCount,
-		ctx:            ctx,
-		cancel:         cancel,
+		tasks:       make(map[int64]*task.Task),
+		waiting:     NewTaskQueue(),
+		nextTaskID:  1,
+		registry:    vm.BuildVMRegistry(),
+		store:       store,
+		options:     options,
+		taskWork:    make(chan taskWorkItem),
+		workerCount: workerCount,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
@@ -92,7 +91,7 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, promoteNumbers bool, work
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
-	builtins.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
+	s.registry.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
 		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
 		return nil
 	})
@@ -123,13 +122,17 @@ func (s *Scheduler) workerLoop() {
 	}
 }
 
+// Registry returns the scheduler's builtin registry so the owning server can
+// wire host capabilities (connection manager, lifecycle hooks) onto it.
+func (s *Scheduler) Registry() *builtins.Registry { return s.registry }
+
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	if ctx == nil {
 		return
 	}
 	ctx.Store = s.store
 	ctx.Registry = s.registry
-	ctx.PromoteNumbers = s.promoteNumbers
+	ctx.RuntimeOptions = s.options
 }
 
 // Stop cancels scheduler-owned task contexts.
@@ -190,7 +193,7 @@ func (s *Scheduler) ProcessReadyTasks() int {
 			continue
 		}
 
-		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVM != nil) {
+		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) {
 			if (t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
 				readyTasks = append(readyTasks, t)
 			}
@@ -327,8 +330,12 @@ func (s *Scheduler) runTaskBatch(readyTasks []*task.Task) {
 			s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 		}
 
-		if t.Done != nil {
-			close(t.Done)
+		// runTask returns nil for both suspend/yield and terminal completion.
+		// Only signal Done when the task has actually terminated (Completed or
+		// Killed); a merely suspended task is still alive and will be closed
+		// later when it truly finishes. CloseDone guards against double-close.
+		if state := t.GetState(); state == task.TaskCompleted || state == task.TaskKilled {
+			t.CloseDone()
 		}
 	}
 }
@@ -363,7 +370,7 @@ func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types
 		if state == task.TaskCompleted || state == task.TaskKilled || state == task.TaskRunning {
 			continue
 		}
-		if exec, ok := queued.BytecodeVM.(*vm.VM); ok && exec != nil {
+		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 			vm.CollectWaifsFromVM(exec, &waifRefs)
 		}

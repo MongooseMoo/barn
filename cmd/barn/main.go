@@ -1,21 +1,27 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"os/signal"
 	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/config"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
+	"barn/profile"
 	"barn/server"
 	"barn/trace"
 	"barn/types"
@@ -42,6 +48,11 @@ func (f *stringListFlag) Set(value string) error {
 func main() {
 	dbPath := flag.String("db", "Test.db", "Database file path")
 	port := flag.Int("port", 7777, "Listen port")
+	configPath := flag.String("config", "", "Server config file path")
+	profileID := flag.String("profile-id", "", "Managed profile identifier")
+	profileManifest := flag.String("profile-manifest", "", "Path to write managed profile metadata")
+	profileRegistry := flag.String("profile-registry", "profiles/barn/profiles.json", "Managed profile registry path")
+	listProfiles := flag.Bool("list-profiles", false, "List known managed profiles and exit")
 	var listenFlags stringListFlag
 	flag.Var(&listenFlags, "listen", "Listener URL; repeatable, e.g. tcp://:7777")
 
@@ -64,6 +75,10 @@ func main() {
 
 	// Numeric semantics
 	promoteNumbers := flag.Bool("promote-numbers", false, "Enable ToastStunt mongoose PROMOTE_NUMBERS: auto-promote int to float in mixed int/float arithmetic and comparison (default off = strict E_TYPE)")
+	outbound := flag.Bool("outbound", false, "Enable outbound network connections, overriding --config")
+	outboundShort := flag.Bool("o", false, "Alias for --outbound")
+	noOutbound := flag.Bool("no-outbound", false, "Disable outbound network connections, overriding --config")
+	noOutboundShort := flag.Bool("O", false, "Alias for --no-outbound")
 
 	// Runtime GC tuning (0/-1 leave Go's GOMEMLIMIT/GOGC env honoring intact)
 	gomemlimitMiB := flag.Int("gomemlimit-mib", 0, "Soft memory limit in MiB (0=unset, honor GOMEMLIMIT env)")
@@ -89,6 +104,47 @@ func main() {
 		// Barn's on-by-default tuned budget.
 		debug.SetGCPercent(defaultGOGCPercent)
 		log.Printf("GC target: %d%% (default)", defaultGOGCPercent)
+	}
+
+	if *listProfiles {
+		registry, err := profile.LoadRegistry(*profileRegistry)
+		if err != nil {
+			log.Fatalf("Failed to load profile registry: %v", err)
+		}
+		printProfiles(registry)
+		return
+	}
+
+	options := config.DefaultOptions()
+	if *configPath != "" {
+		loaded, err := config.LoadFile(*configPath)
+		if err != nil {
+			log.Fatalf("Failed to load config: %v", err)
+		}
+		options = loaded
+	}
+	outboundProvided := flagWasProvided("outbound") || flagWasProvided("o")
+	noOutboundProvided := flagWasProvided("no-outbound") || flagWasProvided("O")
+	if outboundProvided && noOutboundProvided {
+		log.Fatal("cannot combine --outbound and --no-outbound")
+	}
+	if outboundProvided && (*outbound || *outboundShort) {
+		options.OutboundNetwork = true
+	}
+	if noOutboundProvided && (*noOutbound || *noOutboundShort) {
+		options.OutboundNetwork = false
+	}
+	if *promoteNumbers {
+		options.PromoteNumbers = true
+	}
+	if err := options.Validate(); err != nil {
+		log.Fatalf("Invalid config: %v", err)
+	}
+	if *profileManifest != "" && *profileID == "" {
+		log.Fatal("--profile-id is required with --profile-manifest")
+	}
+	if *profileID != "" && *configPath == "" {
+		log.Fatal("--config is required with --profile-id")
 	}
 
 	// Handle -dump flag: dump database and exit
@@ -137,7 +193,7 @@ func main() {
 			dumpObjInfo(store, *objInfo)
 		}
 		if *evalExpr != "" {
-			evalExpression(store, *evalExpr)
+			evalExpression(store, *evalExpr, options)
 		}
 		if *dumpObjRaw != "" {
 			dumpObjRawCommand(store, *dumpObjRaw)
@@ -154,6 +210,9 @@ func main() {
 	// Normal server startup
 	log.Printf("Barn MOO Server")
 	log.Printf("Database: %s", *dbPath)
+	if *configPath != "" {
+		log.Printf("Config: %s", *configPath)
+	}
 	listenerSpecs, err := buildListenerSpecs(*port, listenFlags, flagWasProvided("port"))
 	if err != nil {
 		log.Fatal(err)
@@ -175,17 +234,53 @@ func main() {
 		trace.Init(false, nil, nil)
 	}
 
-	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, *promoteNumbers)
+	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, options)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
+	}
+
+	if *profileManifest != "" {
+		manifest, err := profile.BuildManifest(profile.BuildInput{
+			ProfileID:         *profileID,
+			ImplementationRef: gitImplementationRef(),
+			DatabasePath:      *dbPath,
+			ConfigPath:        *configPath,
+			Options:           options,
+		})
+		if err != nil {
+			log.Fatalf("Failed to build profile manifest: %v", err)
+		}
+		if err := profile.WriteManifest(*profileManifest, manifest); err != nil {
+			log.Fatalf("Failed to write profile manifest: %v", err)
+		}
+		log.Printf("Profile manifest: %s", *profileManifest)
 	}
 
 	if err := srv.LoadDatabase(); err != nil {
 		log.Fatalf("Failed to load database: %v", err)
 	}
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signalDone := make(chan struct{})
+	go func() {
+		select {
+		case <-sigChan:
+			log.Println("Received shutdown signal")
+			srv.Shutdown("Server shutdown")
+		case <-signalDone:
+		}
+	}()
+
 	log.Printf("Starting server...")
-	if err := srv.Start(); err != nil {
+	err = srv.Start()
+	close(signalDone)
+	signal.Stop(sigChan)
+	if err != nil {
+		if errors.Is(err, server.ErrPanicShutdown) {
+			log.Printf("Server panic shutdown: %v", err)
+			os.Exit(1)
+		}
 		log.Fatalf("Server error: %v", err)
 	}
 }
@@ -230,6 +325,37 @@ func formatListenerSpecs(specs []builtins.ListenerSpec) string {
 		parts = append(parts, fmt.Sprintf("%s://%s:%d", spec.Protocol, spec.Interface, spec.Port))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func gitImplementationRef() string {
+	commit, err := gitOutput("rev-parse", "HEAD")
+	if err != nil {
+		return "unknown tracked_dirty=unknown"
+	}
+	dirty := "false"
+	if err := exec.Command("git", "diff", "--quiet", "--").Run(); err != nil {
+		dirty = "true"
+	}
+	return fmt.Sprintf("%s tracked_dirty=%s", commit, dirty)
+}
+
+func gitOutput(args ...string) (string, error) {
+	out, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func printProfiles(registry profile.Registry) {
+	for _, entry := range registry.SortedProfiles() {
+		fmt.Printf("%s\t%s\t%s\t%s\t%s\n",
+			entry.ProfileID,
+			entry.Implementation,
+			entry.RuntimeOS,
+			entry.DatabaseFixture,
+			entry.SupportStatus)
+	}
 }
 
 // parseObjID parses "#N" or "N" to types.ObjID
@@ -411,7 +537,7 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 }
 
 // evalExpression parses and evaluates a MOO expression
-func evalExpression(store *dbstore.Store, expr string) {
+func evalExpression(store *dbstore.Store, expr string, options config.Options) {
 	p := parser.NewParser(expr)
 	node, err := p.ParseExpression(0)
 	if err != nil {
@@ -430,6 +556,7 @@ func evalExpression(store *dbstore.Store, expr string) {
 	ctx := kernel.NewTaskContext()
 	ctx.Store = store
 	ctx.Registry = registry
+	ctx.RuntimeOptions = options
 
 	machine := vm.NewVM(store, registry)
 	machine.Context = ctx

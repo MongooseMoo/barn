@@ -120,7 +120,7 @@ func (s StrValue) Type() TypeCode {
 // Truthy returns whether the value is truthy
 // Empty strings are falsy, non-empty strings are truthy
 func (s StrValue) Truthy() bool {
-	return len(s.val) > 0
+	return s.byteLen() > 0
 }
 
 // Equal compares two values for equality

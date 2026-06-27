@@ -22,6 +22,12 @@ type Registry struct {
 	lineSyncByID map[int]bool
 	nextID       int
 	verbCaller   VerbCallerFunc // Callback for calling verbs
+
+	// host holds the server-provided capabilities the builtins package cannot
+	// implement itself (networking, scheduling, lifecycle). The registry's owner
+	// wires it after construction via the Set* methods; builtins read it via
+	// hostOf(ctx). See host.go.
+	host Host
 }
 
 // NewRegistry creates a new builtin function registry

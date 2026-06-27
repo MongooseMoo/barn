@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/types"
 )
@@ -92,10 +93,8 @@ type TaskContext struct {
 	// Default matches ToastStunt's DEFAULT_MAX_STRING_CONCAT
 	MaxStringConcat int
 
-	// PromoteNumbers, when true, enables ToastStunt-mongoose PROMOTE_NUMBERS behavior:
-	// mixed int/float arithmetic and comparison auto-promote the int operand to float
-	// instead of raising E_TYPE. Defaults to false (strict, conformant behavior).
-	PromoteNumbers bool
+	// RuntimeOptions holds server/runtime feature flags visible to builtins and VM execution.
+	RuntimeOptions config.Options
 }
 
 type PendingNotification struct {
@@ -134,6 +133,7 @@ func NewTaskContext() *TaskContext {
 		Verb:            "",
 		IndexContext:    -1,      // -1 means not in an indexing context
 		MaxStringConcat: 1000000, // Default 1MB string limit (matches test default)
+		RuntimeOptions:  config.DefaultOptions(),
 	}
 }
 

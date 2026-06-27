@@ -233,6 +233,30 @@ func stampObjectAll(obj *Object, ts uint64) {
 	stampObjectVerbs(obj, ts)
 }
 
+// liveObjectLocked resolves the live object with identity id, whether it lives in
+// the numbered s.objects map or out-of-band in s.anonObjects. It is the single
+// source of truth for "where does a live object with this id live", and every
+// per-id resolver routes through it so that a valid object value resolves
+// identically regardless of which map backs it — a numbered object, a
+// database-loaded anonymous object, or a runtime-created anonymous object
+// (create(...,1) routes to s.anonObjects; see CreateObject). Unlike
+// lookupAnonymousLocked it does NOT require obj.anonymous: it resolves ANY live
+// object. Recycled/invalid objects resolve to nil (validLiveObject filter).
+// Caller holds s.mu. This completes F2 (commit 7318d24), which taught the
+// snapshot/GC scans about s.anonObjects but left the per-id resolvers numbered-only.
+//
+// MVCC note: the numbered lookup goes through s.load (slot.ptr.Load) so the
+// resolved image is the currently-published immutable snapshot, not a raw slot.
+func (s *Store) liveObjectLocked(id types.ObjID) *Object {
+	if obj := s.load(id); validLiveObject(obj) {
+		return obj
+	}
+	if obj := s.anonObjects[id]; validLiveObject(obj) {
+		return obj
+	}
+	return nil
+}
+
 // Get returns a flat, read-only ObjectView for a live object, plus ok=false if
 // the object does not exist or is recycled/invalid. The store never hands out a
 // live *Object to external callers.
@@ -240,8 +264,8 @@ func (s *Store) Get(id types.ObjID) (ObjectView, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(id)
-	if obj == nil || obj.recycled || obj.flags.Has(FlagInvalid) {
+	obj := s.liveObjectLocked(id)
+	if obj == nil {
 		return ObjectView{}, false
 	}
 	return obj.view(), true
@@ -324,8 +348,8 @@ func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	s.rememberObjectLocked(obj)
@@ -339,8 +363,8 @@ func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	s.rememberObjectLocked(obj)
@@ -354,8 +378,8 @@ func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	s.rememberObjectLocked(obj)
@@ -369,8 +393,8 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.E_INVIND
 	}
 	s.rememberObjectLocked(obj)
@@ -388,8 +412,8 @@ func (s *Store) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return "", types.E_INVIND
 	}
 	return obj.name, types.E_NONE
@@ -399,8 +423,8 @@ func (s *Store) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return types.ObjNothing, types.E_INVIND
 	}
 	return obj.owner, types.E_NONE
@@ -410,8 +434,8 @@ func (s *Store) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return 0, types.E_INVIND
 	}
 	return obj.flags, types.E_NONE
@@ -421,8 +445,8 @@ func (s *Store) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return false, types.E_INVIND
 	}
 	return obj.flags.Has(flag), types.E_NONE
@@ -432,8 +456,8 @@ func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return false, types.E_INVIND
 	}
 	return obj.anonymous, types.E_NONE
@@ -443,11 +467,13 @@ func (s *Store) ObjectExists(objID types.ObjID) types.ErrorCode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if validLiveObject(obj) {
+	if s.liveObjectLocked(objID) != nil {
 		return types.E_NONE
 	}
-	if obj != nil && obj.recycled {
+	if obj := s.load(objID); obj != nil && obj.recycled {
+		return types.E_INVARG
+	}
+	if obj := s.anonObjects[objID]; obj != nil && obj.recycled {
 		return types.E_INVARG
 	}
 	return types.E_INVIND
@@ -503,8 +529,8 @@ func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	obj := s.load(objID)
-	if !validLiveObject(obj) {
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
 		return nil, types.E_INVIND
 	}
 	prop := obj.properties["aliases"]

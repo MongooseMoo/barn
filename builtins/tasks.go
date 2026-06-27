@@ -13,12 +13,6 @@ type TaskYielder interface {
 	YieldReadyTasks() int
 }
 
-var globalTaskYielder TaskYielder
-
-func SetTaskYielder(yielder TaskYielder) {
-	globalTaskYielder = yielder
-}
-
 // Task management builtins - full implementation
 
 // builtinQueuedTasks: queued_tasks() → LIST
@@ -49,8 +43,12 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	mgr := task.GetManager()
 	tasks := mgr.GetQueuedTasks()
+	// Toast returns waiting tasks in ascending start-time order (earliest
+	// first). It never sorts in bf_queued_tasks (tasks.cc:2571-2581); the
+	// ordering comes from waiting_tasks, which enqueue_waiting keeps sorted
+	// ascending by start_tv (tasks.cc:1193-1204). Match that here.
 	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].StartTime.After(tasks[j].StartTime)
+		return tasks[i].StartTime.Before(tasks[j].StartTime)
 	})
 
 	result := make([]types.Value, 0, len(tasks))
@@ -517,7 +515,7 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if len(args) >= 2 && globalTaskYielder != nil {
+	if yielder := hostOf(ctx).TaskYielder; len(args) >= 2 && yielder != nil {
 		tickThreshold := args[1].(types.IntValue).Val
 		if ctx.TicksRemaining <= tickThreshold {
 			if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
@@ -540,7 +538,7 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 					return types.Err(errCode)
 				}
 			}
-			globalTaskYielder.YieldReadyTasks()
+			yielder.YieldReadyTasks()
 			if ctx.Store != nil {
 				ctx.StoreTxn = ctx.Store.BeginReadOnly(0)
 			}

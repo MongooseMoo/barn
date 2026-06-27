@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
@@ -60,7 +61,7 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, cores)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, cores)
 	defer s.Stop()
 	defer removeTasksForOwner(s, 0)
 
@@ -117,7 +118,7 @@ func TestOptimisticConcurrentSuspendsNoRace(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, cores)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, cores)
 	defer s.Stop()
 	defer removeTasksForOwner(s, 0)
 
@@ -175,7 +176,7 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 		ids[k] = id
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, cores)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, cores)
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 

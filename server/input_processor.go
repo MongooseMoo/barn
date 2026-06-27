@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -59,10 +61,111 @@ func (p *InputProcessor) Stop() {
 
 func (p *InputProcessor) SetConnectionManager(cm *ConnectionManager) {
 	p.connManager = cm
+	if cm != nil {
+		cm.setConnectionHandler(p.HandleConnection)
+	}
 }
 
 func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 	p.inputQueue <- evt
+}
+
+// HandleConnection reads transport input and serializes it onto the input queue.
+// All MOO verb execution remains on the scheduler/input goroutine.
+func (p *InputProcessor) HandleConnection(conn *Connection) {
+	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
+
+	defer func() {
+		done := make(chan struct{})
+		p.EnqueueInput(command.InputEvent{
+			ConnID:       conn.ID,
+			IsDisconnect: true,
+			Done:         done,
+		})
+		<-done
+		conn.Close()
+	}()
+
+	connectTimeout := 5 * time.Minute
+	if p.connManager != nil {
+		connectTimeout = p.connManager.connectTimeout
+	}
+	if value, ok := p.getServerOption(0, "connect_timeout"); ok {
+		if seconds, ok := value.(types.IntValue); ok && seconds.Val > 0 {
+			connectTimeout = time.Duration(seconds.Val) * time.Second
+		}
+	}
+
+	// Send initial welcome banner by enqueuing empty string to scheduler.
+	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0).
+	{
+		done := make(chan struct{})
+		p.EnqueueInput(command.InputEvent{
+			ConnID: conn.ID,
+			Player: types.ObjID(-conn.ID),
+			Line:   "",
+			Done:   done,
+		})
+		<-done
+	}
+
+	for {
+		select {
+		case <-conn.ctx.Done():
+			return
+		default:
+		}
+
+		if deadlineTransport, ok := conn.transport.(interface{ SetReadDeadline(time.Time) error }); ok {
+			if conn.IsLoggedIn() {
+				_ = deadlineTransport.SetReadDeadline(time.Time{})
+			} else {
+				_ = deadlineTransport.SetReadDeadline(time.Now().Add(connectTimeout))
+			}
+		}
+
+		player := conn.GetPlayer()
+		if !conn.IsLoggedIn() {
+			player = types.ObjID(-conn.ID)
+		}
+
+		var line string
+		var isOutOfBand bool
+		var err error
+		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
+			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
+				line, err = binaryTransport.ReadChunk()
+			} else {
+				line, err = conn.ReadLine()
+			}
+		} else if inputTransport, ok := conn.transport.(InputTransport); ok {
+			line, isOutOfBand, err = inputTransport.ReadInput()
+		} else {
+			line, err = conn.ReadLine()
+		}
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && conn.IsLoggedIn() {
+				continue
+			}
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
+				conn.Send("*** Timed-out waiting for login. ***")
+				p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
+				return
+			}
+			log.Printf("Connection %d read error: %v", conn.ID, err)
+			return
+		}
+
+		done := make(chan struct{})
+		p.EnqueueInput(command.InputEvent{
+			ConnID:      conn.ID,
+			Player:      player,
+			Line:        line,
+			IsOutOfBand: isOutOfBand,
+			Done:        done,
+		})
+		<-done
+	}
 }
 
 func (p *InputProcessor) run() {
@@ -147,6 +250,12 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 
 	oob := strings.HasPrefix(input.Line, "#$#")
 	disableOOB := builtins.ConnectionOptionTruthy(input.Player, "disable-oob")
+	if input.IsOutOfBand || (oob && !disableOOB) {
+		if !disableOOB {
+			p.processOutOfBand(input)
+		}
+		return
+	}
 	if !(oob && !disableOOB) && builtins.HandleHeldInput(input.Player, input.Line, false) {
 		return
 	}
@@ -161,6 +270,34 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	p.processCommand(input)
+}
+
+func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
+	cm := p.connManager
+	if cm == nil {
+		return
+	}
+
+	conn := cm.getConnectionByConnID(input.ConnID)
+	if conn == nil {
+		return
+	}
+
+	words := command.CommandWordList(input.Line)
+	args := make([]types.Value, len(words))
+	for i, word := range words {
+		args[i] = types.NewStr(word)
+	}
+	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
+	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+		var stack []task.ActivationFrame
+		if result.CallStack != nil {
+			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
+				stack = st
+			}
+		}
+		p.runtime.SendTracebackToPlayer(input.Player, result.Error, stack)
+	}
 }
 
 func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) bool {
@@ -265,7 +402,7 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	}
 
 	if wasLoggedIn {
-		p.callUserClientDisconnected(handler, player)
+		p.callUserHook(handler, "user_client_disconnected", player)
 	}
 
 	log.Printf("Connection %d closed", conn.ID)
@@ -389,44 +526,12 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	if strings.HasPrefix(input.Line, "#$#") && !builtins.ConnectionOptionTruthy(player, "disable-oob") {
-		words := command.CommandWordList(input.Line)
-		args := make([]types.Value, len(words))
-		for i, word := range words {
-			args[i] = types.NewStr(word)
-		}
-		result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, player, input.Line)
-		if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-			var stack []task.ActivationFrame
-			if result.CallStack != nil {
-				if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-					stack = st
-				}
-			}
-			p.runtime.SendTracebackToPlayer(player, result.Error, stack)
-		}
-		return
-	}
-
-	cmd := command.ParseCommand(input.Line)
+	cmd := command.ParsePlayerCommand(p.store, player, location, input.Line)
 	if cmd.Verb == "" {
 		return
 	}
 
-	verbUpper := strings.ToUpper(cmd.Verb)
-	switch verbUpper {
-	case "PREFIX", "OUTPUTPREFIX":
-		conn.mu.Lock()
-		conn.outputPrefix = cmd.Argstr
-		conn.mu.Unlock()
-		return
-	case "SUFFIX", "OUTPUTSUFFIX":
-		conn.mu.Lock()
-		conn.outputSuffix = cmd.Argstr
-		conn.mu.Unlock()
-		return
-	case ".PROGRAM":
-		p.startProgrammingMode(conn, player, location, cmd.Argstr)
+	if p.executeBeforeDoCommandIntrinsic(conn, player, location, cmd) {
 		return
 	}
 
@@ -448,25 +553,9 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	if cmd.Dobjstr != "" {
-		cmd.Dobj = command.MatchObject(p.store, player, location, cmd.Dobjstr)
-	}
-	if cmd.Iobjstr != "" {
-		cmd.Iobj = command.MatchObject(p.store, player, location, cmd.Iobjstr)
-	}
-
 	match := command.FindVerb(p.store, player, location, cmd)
 	if match == nil {
-		if verbUpper == "EVAL" {
-			code := strings.TrimSpace(cmd.Argstr)
-			if code != "" {
-				for _, line := range p.runtime.EvalCommandOutput(player, code, conn.GetOutputPrefix(), conn.GetOutputSuffix()) {
-					_ = conn.Send(line)
-				}
-			}
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
+		if p.executeAfterVerbMissIntrinsic(conn, player, cmd, outputSuffix) {
 			return
 		}
 
@@ -475,39 +564,8 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 			usePlayerHuh = option.Truthy()
 		}
 
-		huhTarget := location
-		if usePlayerHuh {
-			huhTarget = player
-		}
-
-		if huhVerb, huhVerbLoc, err := p.store.FindVerb(huhTarget, "huh"); err == nil {
-			huhMatch := &command.VerbMatch{
-				Verb:    huhVerb,
-				This:    huhTarget,
-				VerbLoc: huhVerbLoc,
-			}
-
-			if huhMatch.Statements == nil && len(huhMatch.Verb.Code) > 0 {
-				program, errors := bytecode.CompileVerb(huhMatch.Verb.Code)
-				if len(errors) > 0 {
-					conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-					if outputSuffix != "" {
-						_ = conn.Send(outputSuffix)
-					}
-					return
-				}
-				huhMatch.Statements = program.Statements
-			}
-
-			if len(huhMatch.Statements) == 0 {
-				conn.Send("I couldn't understand that.")
-				if outputSuffix != "" {
-					_ = conn.Send(outputSuffix)
-				}
-				return
-			}
-
-			p.runtime.ExecuteVerbTaskSync(player, huhMatch, cmd, outputSuffix)
+		if huhMatch := command.FindHuhVerb(p.store, player, location, usePlayerHuh); huhMatch != nil {
+			p.executeCommandMatch(conn, player, cmd, huhMatch, outputSuffix, "I couldn't understand that.")
 			return
 		}
 		conn.Send("I couldn't understand that.")
@@ -517,27 +575,62 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 		return
 	}
 
-	if match.Statements == nil && len(match.Verb.Code) > 0 {
-		program, errors := bytecode.CompileVerb(match.Verb.Code)
-		if len(errors) > 0 {
-			conn.Send(fmt.Sprintf("Verb compile error: %s", errors[0]))
-			if outputSuffix != "" {
-				_ = conn.Send(outputSuffix)
-			}
-			return
-		}
-		match.Statements = program.Statements
-	}
+	p.executeCommandMatch(conn, player, cmd, match, outputSuffix, fmt.Sprintf("[%s has no code]", match.Verb.Name))
+}
 
-	if len(match.Statements) == 0 {
-		conn.Send(fmt.Sprintf("[%s has no code]", match.Verb.Name))
+func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
+	err := p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+	if errors.Is(err, runtime.ErrCommandVerbNoCode) {
+		conn.Send(emptyMessage)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
 		}
 		return
 	}
+	if err != nil {
+		conn.Send(err.Error())
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+	}
+}
 
-	p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+func (p *InputProcessor) executeBeforeDoCommandIntrinsic(conn *Connection, player, location types.ObjID, cmd *command.ParsedCommand) bool {
+	switch command.LookupIntrinsic(cmd.Verb, command.IntrinsicBeforeDoCommand) {
+	case command.IntrinsicProgram:
+		p.startProgrammingMode(conn, player, location, cmd.Argstr)
+		return true
+	case command.IntrinsicPrefix:
+		conn.mu.Lock()
+		conn.outputPrefix = cmd.Argstr
+		conn.mu.Unlock()
+		return true
+	case command.IntrinsicSuffix:
+		conn.mu.Lock()
+		conn.outputSuffix = cmd.Argstr
+		conn.mu.Unlock()
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, outputSuffix string) bool {
+	switch command.LookupIntrinsic(cmd.Verb, command.IntrinsicAfterVerbMiss) {
+	case command.IntrinsicEval:
+		code := strings.TrimSpace(cmd.Argstr)
+		if code != "" {
+			for _, line := range p.runtime.EvalCommandOutput(player, code, conn.GetOutputPrefix(), conn.GetOutputSuffix()) {
+				_ = conn.Send(line)
+			}
+		}
+		if outputSuffix != "" {
+			_ = conn.Send(outputSuffix)
+		}
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) bool {

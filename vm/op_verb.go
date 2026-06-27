@@ -118,15 +118,12 @@ func (vm *VM) executeCallVerb() error {
 	if isWaif && !strings.HasPrefix(lookupVerbName, ":") {
 		lookupVerbName = ":" + lookupVerbName
 	}
-	verb, defObjID, err := findVerbForRead(vm.Store, txn, objID, lookupVerbName)
+	// A verb without the execute flag does not shadow a same-named, executable
+	// verb defined further up the ancestry chain — ToastStunt's call dispatch
+	// (obj:verb() syntax) skips past it and keeps searching. Only when no
+	// ancestor defines an executable match does dispatch fail, as E_VERBNF.
+	verb, defObjID, err := findCallableVerbForRead(vm.Store, txn, objID, lookupVerbName)
 	if err != nil {
-		vm.Store.NoteVerbCacheMiss()
-		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
-	}
-
-	// A verb without the execute flag is not callable: ToastStunt treats it as
-	// nonexistent for call dispatch (E_VERBNF), not a permission error.
-	if !verb.Perms.Has(dbstore.VerbExecute) {
 		vm.Store.NoteVerbCacheMiss()
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
@@ -342,6 +339,10 @@ func (vm *VM) executePass() error {
 		return fmt.Errorf("E_INVIND: pass() has no parent object")
 	}
 
+	// FindParentVerb walks ancestors the same way obj:verb() dispatch does
+	// (FindCallableVerb): a non-executable same-named verb on an intermediate
+	// ancestor is skipped, not treated as a match, so it never shadows an
+	// executable verb defined further up the chain.
 	verb, defObjID, err := findParentVerbForRead(vm.Store, txn, verbLoc, verbName)
 	if err != nil {
 		// Distinguish two cases the way ToastStunt does: if the defining object
@@ -352,11 +353,6 @@ func (vm *VM) executePass() error {
 			return fmt.Errorf("E_INVIND: pass() has no parent object")
 		}
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
-	}
-
-	// Check execute permission
-	if !verb.Perms.Has(dbstore.VerbExecute) {
-		return fmt.Errorf("E_PERM: parent verb %s is not executable", verbName)
 	}
 
 	// Compile the parent verb to bytecode
@@ -518,6 +514,17 @@ func findVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.Ob
 		return txn.FindVerb(objID, verbName)
 	}
 	return store.FindVerb(objID, verbName)
+}
+
+// findCallableVerbForRead resolves a verb for call dispatch (obj:verb()): a
+// same-named verb without execute permission does not shadow an executable one
+// defined further up the ancestry chain. It reads through the task's snapshot
+// transaction when present, mirroring findVerbForRead's MVCC behavior.
+func findCallableVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
+	if txn != nil {
+		return txn.FindCallableVerb(objID, verbName)
+	}
+	return store.FindCallableVerb(objID, verbName)
 }
 
 func findParentVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, verbLoc types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {

@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/types"
 )
 
@@ -13,11 +12,6 @@ type VerbMatch struct {
 	Verb    dbstore.VerbView
 	This    types.ObjID // Object the verb is called on ('this' in MOO)
 	VerbLoc types.ObjID // Object where verb is defined (for traceback)
-
-	// Statements carries the lazily-compiled AST for this match. The AST no
-	// longer lives on dbstore.Verb (moved to barn/bytecode); the scheduler
-	// compiles it on demand and the task factory reads it from here.
-	Statements []parser.Stmt
 }
 
 // verbNameMatches checks if a verb name matches a search string
@@ -196,4 +190,20 @@ func FindVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, cm
 	}
 
 	return nil
+}
+
+func FindHuhVerb(store *dbstore.Store, player types.ObjID, location types.ObjID, usePlayerHuh bool) *VerbMatch {
+	target := location
+	if usePlayerHuh {
+		target = player
+	}
+	verb, verbLoc, err := store.FindVerb(target, "huh")
+	if err != nil {
+		return nil
+	}
+	return &VerbMatch{
+		Verb:    verb,
+		This:    target,
+		VerbLoc: verbLoc,
+	}
 }

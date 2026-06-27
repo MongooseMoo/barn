@@ -28,10 +28,33 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	obj.properties = s.copyInheritedPropertiesLocked(obj.parents)
 	stampObjectAll(obj, ts)
 
+	// Snapshot the numbered parents before attachChildToParentsLocked mutates
+	// their children lists, so an in-flight read transaction keeps the pre-create
+	// parent image (COW history).
 	for _, parentID := range obj.parents {
 		s.rememberObjectLocked(s.load(parentID))
 	}
-	s.insertObjectLocked(obj)
+	if anonymous {
+		// Anonymous objects live out-of-band in s.anonObjects, never in the
+		// numbered s.objects map (see the field comment in store_core.go and
+		// AddAnonymous). This mirrors ToastStunt, where a live anonymous object
+		// has id == NOTHING and is removed from the numbered objects[] array
+		// (db_make_anonymous, db_objects.cc:449); it is only assigned an
+		// above-max serialization id at dump time (dbpriv_assign_anonymous_object,
+		// db_objects.cc:415). Routing runtime creation here keeps the planner, GC
+		// scan, and serializer over a single set of anonymous objects, so a
+		// runtime-created anon survives a checkpoint just like a loaded one.
+		//
+		// We still bump highWaterID so the identity id (newID) is never handed
+		// out again to a future allocation, but we do NOT touch maxObjID:
+		// anonymous objects must not affect max_object().
+		s.anonObjects[newID] = obj
+		if newID > s.highWaterID {
+			s.highWaterID = newID
+		}
+	} else {
+		s.insertObjectLocked(obj)
+	}
 	s.attachChildToParentsLocked(newID, obj.parents, anonymous, false)
 	for _, parentID := range obj.parents {
 		stampObjectRelationship(s.load(parentID), ts)
@@ -72,17 +95,11 @@ func (s *Store) Valid(id types.ObjID) bool {
 		return false
 	}
 
-	obj := s.load(id)
-	if obj == nil {
-		return false
-	}
-
-	// Check if recycled or explicitly invalidated
-	if obj.recycled || obj.flags.Has(FlagInvalid) {
-		return false
-	}
-
-	return true
+	// Resolve through liveObjectLocked so a valid anonymous value (loaded or
+	// runtime-created via create(...,1), which now lives only in s.anonObjects)
+	// is reported valid, not just numbered objects. liveObjectLocked already
+	// excludes recycled/invalidated objects.
+	return s.liveObjectLocked(id) != nil
 }
 
 // IsRecycled checks if an object ID was recycled (vs never existed)
@@ -150,13 +167,19 @@ func (s *Store) Recycle(id types.ObjID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	obj := s.load(id)
+	// Resolve through both maps so recycle() of a valid anonymous value (which
+	// lives in s.anonObjects) finds it. The relationship cleanup below operates
+	// over numbered relatives (an anon's parents are numbered; it has no
+	// children/contents), so it is left numbered-structural.
+	obj := s.liveObjectLocked(id)
 	if obj == nil {
+		if r := s.load(id); r != nil && r.recycled {
+			return fmt.Errorf("object #%d already recycled", id)
+		}
+		if r := s.anonObjects[id]; r != nil && r.recycled {
+			return fmt.Errorf("object #%d already recycled", id)
+		}
 		return fmt.Errorf("object #%d does not exist", id)
-	}
-
-	if obj.recycled {
-		return fmt.Errorf("object #%d already recycled", id)
 	}
 
 	// Note: recycling an object does NOT invalidate anonymous descendants in
@@ -422,6 +445,21 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	newRecycled = append(newRecycled, oldID)
 	s.recycledID = newRecycled
 
+	// rewriteOwner mirrors ToastStunt's owner-fix rule in db_renumber_object
+	// (src/db_objects.cc:666-669, applied identically to verbdef owners at
+	// 671-675 and propval owners at 679-683): an owner equal to the freed new id
+	// is cleared to NOTHING, and an owner equal to the old id becomes the new id.
+	rewriteOwner := func(o types.ObjID) types.ObjID {
+		switch o {
+		case newID:
+			return types.ObjNothing
+		case oldID:
+			return newID
+		default:
+			return o
+		}
+	}
+
 	// Update all references in ALL objects
 	for _, slot := range s.objects {
 		other := slot.ptr.Load()
@@ -473,11 +511,83 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			}
 		}
 
-		// Update Owner
-		if other.owner == oldID {
+		// Fix owners of the object, its verbdefs and its propvals, matching
+		// ToastStunt db_renumber_object (db_objects.cc:653-684). Snapshot and
+		// re-stamp other under COW only when an owner reference actually changes.
+		ownerTouched := other.owner == oldID || other.owner == newID
+		if !ownerTouched {
+			for _, v := range other.verbs {
+				if v.owner == oldID || v.owner == newID {
+					ownerTouched = true
+					break
+				}
+			}
+		}
+		if !ownerTouched {
+			for _, p := range other.properties {
+				if p.owner == oldID || p.owner == newID {
+					ownerTouched = true
+					break
+				}
+			}
+		}
+		if ownerTouched {
 			s.rememberObjectLocked(other)
-			other.owner = newID
-			stampObjectScalar(other, ts)
+			other.owner = rewriteOwner(other.owner)
+			for _, v := range other.verbs {
+				v.owner = rewriteOwner(v.owner)
+			}
+			for _, p := range other.properties {
+				p.owner = rewriteOwner(p.owner)
+			}
+			stampObjectAll(other, ts)
+		}
+	}
+
+	// Fix references in anonymous objects as well. Before F2 (commit 7318d24)
+	// runtime anonymous objects lived in the numbered s.objects map, so the
+	// structural walk above rewrote their parent/location/etc. references to a
+	// renumbered object. F2 moved them out-of-band into s.anonObjects, so they
+	// must be walked here to preserve that behavior — otherwise an anonymous
+	// child of a renumbered object keeps a stale parent id and property access
+	// through it fails (E_PROPNF). Toast walks anonymous_objects in
+	// db_renumber_object for the same reason (db_objects.cc:686-705); anonymous
+	// objects carry no verbdefs, so only object/propval owners are rewritten for
+	// ownership, alongside the structural parent/child/location/contents refs.
+	for _, anon := range s.anonObjects {
+		if anon == nil {
+			continue
+		}
+		for i, pid := range anon.parents {
+			if pid == oldID {
+				anon.parents[i] = newID
+			}
+		}
+		for i, cid := range anon.children {
+			if cid == oldID {
+				anon.children[i] = newID
+			}
+		}
+		for i, cid := range anon.anonymousChildren {
+			if cid == oldID {
+				anon.anonymousChildren[i] = newID
+			}
+		}
+		if anon.chparentChildren != nil && anon.chparentChildren[oldID] {
+			delete(anon.chparentChildren, oldID)
+			anon.chparentChildren[newID] = true
+		}
+		if anon.location == oldID {
+			anon.location = newID
+		}
+		for i, cid := range anon.contents {
+			if cid == oldID {
+				anon.contents[i] = newID
+			}
+		}
+		anon.owner = rewriteOwner(anon.owner)
+		for _, p := range anon.properties {
+			p.owner = rewriteOwner(p.owner)
 		}
 	}
 

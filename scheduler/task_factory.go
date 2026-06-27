@@ -9,7 +9,6 @@ import (
 
 	"barn/builtins"
 	"barn/bytecode"
-	"barn/command"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -60,54 +59,20 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt)
 	return s.QueueTask(t)
 }
 
-// CreateVerbTask creates a task to execute a verb
-func (s *Scheduler) CreateVerbTask(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) <-chan struct{} {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
-	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, match.Statements, ticks, seconds)
-	s.populateTaskContextDependencies(t.Context)
-	t.StartTime = time.Now()
-	// Task runs with verb owner permissions (MOO programmer semantics).
-	t.Programmer = match.Verb.Owner
-	t.Context.Programmer = match.Verb.Owner
-	t.Context.IsWizard = s.isWizard(match.Verb.Owner)
-
-	// Set up verb context
-	t.VerbName = cmd.Verb
-	t.VerbLoc = match.VerbLoc
-	t.This = match.This
-	t.Caller = player
-	t.Argstr = cmd.Argstr
-	t.Args = cmd.Args
-	t.Dobjstr = cmd.Dobjstr
-	t.Dobj = cmd.Dobj
-	t.Prepstr = cmd.Prepstr
-	t.Iobjstr = cmd.Iobjstr
-	t.Iobj = cmd.Iobj
-	t.CommandOutputSuffix = outputSuffix
-	t.ForkCreator = s // Give task access to scheduler for forks
-
-	// Create done channel so callers can wait for task completion
-	t.Done = make(chan struct{})
-
-	s.QueueTask(t)
-	return t.Done
-}
-
-// CreateServerVerbTask queues a server-initiated hook verb so it runs through
-// the normal scheduler/task machinery and can suspend, fork, and shut down.
-func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (int64, error) {
+// RunServerVerbTask runs a server-initiated hook verb through the normal
+// scheduler/task machinery until it completes or reaches its first suspend.
+func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)
 	if err != nil {
-		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
+		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
 	program, errors := bytecode.CompileVerb(verb.Code)
 	if len(errors) > 0 {
-		return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+		return types.Result{}, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
 	}
 	if len(program.Statements) == 0 && len(verb.Code) == 0 {
-		return 0, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
+		return types.Result{}, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
@@ -126,7 +91,19 @@ func (s *Scheduler) CreateServerVerbTask(objID types.ObjID, verbName string, arg
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 
-	return s.QueueTask(t), nil
+	t.SetState(task.TaskQueued)
+	s.mu.Lock()
+	s.tasks[t.ID] = t
+	s.mu.Unlock()
+	task.GetManager().RegisterTask(t)
+
+	if err := s.runTask(t); err != nil {
+		return t.Result, err
+	}
+	if s.taskOutputFlusher != nil {
+		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
+	}
+	return t.Result, nil
 }
 
 // CreateLoginHookTask runs a login-hook verb (do_login_command and friends) as
@@ -262,7 +239,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 			vm.SetLocalByName(frame, forkProg, varName, varVal)
 		}
 
-		t.BytecodeVM = childVM
+		t.SetBytecodeVM(childVM)
 	} else {
 		return 0 // Unknown fork body type
 	}

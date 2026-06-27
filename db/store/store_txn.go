@@ -181,6 +181,16 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 			return cloneObjectForReadTxn(history[i].obj)
 		}
 	}
+
+	// Anonymous objects live out-of-band in s.anonObjects: they are not in the
+	// numbered slot map and carry no per-id history slice, so the load + history
+	// walk above never finds them. Resolve them here so a read transaction sees a
+	// runtime-created or database-loaded anonymous object the same way the non-tx
+	// path does via liveObjectLocked. They are stamped with a commit version, so
+	// honor the read snapshot exactly as the numbered live image does.
+	if anon := tx.store.anonObjects[objID]; anon != nil && objectVersion(anon) <= tx.readTS {
+		return cloneObjectForReadTxn(anon)
+	}
 	return nil
 }
 
@@ -287,8 +297,12 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 		if objID == types.ObjNothing {
 			continue
 		}
-		live := tx.store.load(objID)
-		if !validLiveObject(live) {
+		// Resolve through liveObjectLocked so an anonymous relative (which lives
+		// out-of-band in s.anonObjects, not the numbered slot map) is adopted, not
+		// just numbered objects. This mirrors objectLocked's anonymous resolution
+		// and the non-tx liveObjectLocked path.
+		live := tx.store.liveObjectLocked(objID)
+		if live == nil {
 			tx.objects[objID] = nil
 			return types.E_INVIND
 		}
@@ -1709,7 +1723,7 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 }
 
 func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
-	verb, definer, err := tx.findVerb(objID, name)
+	verb, definer, err := tx.findVerb(objID, name, false)
 	if err != nil || verb == nil {
 		return types.E_VERBNF
 	}
@@ -1741,14 +1755,26 @@ func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string)
 }
 
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
-	verb, definer, err := tx.findVerb(objID, verbName)
+	verb, definer, err := tx.findVerb(objID, verbName, false)
 	if err != nil {
 		return VerbView{}, definer, err
 	}
 	return verb.View(), definer, nil
 }
 
-func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string) (*Verb, types.ObjID, error) {
+// FindCallableVerb is the transactional counterpart of Store.FindCallableVerb:
+// it resolves a verb for call dispatch (obj:verb(...)), so a same-named verb
+// without execute permission does not shadow an executable verb further up the
+// ancestry chain — the walk treats it as a non-match and keeps searching.
+func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+	verb, definer, err := tx.findVerb(objID, verbName, true)
+	if err != nil {
+		return VerbView{}, definer, err
+	}
+	return verb.View(), definer, nil
+}
+
+func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
 
@@ -1768,17 +1794,19 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string) (*Verb, types.O
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if matchVerbName(alias, verbName) {
-					tx.markVerbRead(current, verb)
-					return verb, current, nil
+					if !requireExecute || verb.perms.Has(VerbExecute) {
+						tx.markVerbRead(current, verb)
+						return verb, current, nil
+					}
 				}
 			}
 		}
 		if !strings.Contains(verbName, "*") {
-			if verb, ok := obj.verbs[verbName]; ok {
+			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
 				tx.markVerbRead(current, verb)
 				return verb, current, nil
 			}
-			if verb, ok := obj.verbs[":"+verbName]; ok {
+			if verb, ok := obj.verbs[":"+verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
 				tx.markVerbRead(current, verb)
 				return verb, current, nil
 			}
@@ -1872,13 +1900,16 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 			continue
 		}
 		tx.markVerbScan(current, obj)
-		if verb, ok := obj.verbs[verbName]; ok {
+		// Call dispatch (pass()) skips a same-named verb that lacks execute
+		// permission so it never shadows an executable verb further up the chain,
+		// matching Store.FindParentVerb's callable walk.
+		if verb, ok := obj.verbs[verbName]; ok && verb.perms.Has(VerbExecute) {
 			tx.markVerbRead(current, verb)
 			return verb.View(), current, nil
 		}
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
-				if alias == verbName {
+				if alias == verbName && verb.perms.Has(VerbExecute) {
 					tx.markVerbRead(current, verb)
 					return verb.View(), current, nil
 				}

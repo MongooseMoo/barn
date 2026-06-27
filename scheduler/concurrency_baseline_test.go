@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
@@ -92,7 +93,7 @@ func measureConcurrency(t *testing.T, n, loop int, useVerb, pool bool) time.Dura
 func measureConcurrencyWorkers(t *testing.T, n, loop int, useVerb, pool bool, workers int) time.Duration {
 	t.Helper()
 	store, ids := buildConcurrencyStore(t, n, loop)
-	s := newSchedulerWithWorkerCount(store, false, workers)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, workers)
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 

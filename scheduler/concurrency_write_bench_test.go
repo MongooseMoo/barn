@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
@@ -84,7 +85,7 @@ func TestConcurrencyCommitDominatedDisjoint(t *testing.T) {
 func measureWriteWorkers(t *testing.T, n, loop int, contended, pool bool, workers int) time.Duration {
 	t.Helper()
 	store, ids, shared := buildWriteStore(t, n)
-	s := newSchedulerWithWorkerCount(store, false, workers)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, workers)
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 

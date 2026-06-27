@@ -70,7 +70,7 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 
 	rt := runtime.NewScheduler(store)
 	s := NewInputProcessor(store, rt)
-	cm := NewConnectionManager(nil, 7777)
+	cm := NewConnectionManager(7777)
 	s.SetConnectionManager(cm)
 	conn := cm.NewConnectionFromTransport(stubTransport{})
 	conn.SetListener(10, 7789, true)

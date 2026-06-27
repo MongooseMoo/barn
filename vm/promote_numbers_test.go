@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"barn/config"
 	"barn/kernel"
 	"barn/types"
 )
@@ -31,7 +32,7 @@ func strictCtx() *kernel.TaskContext {
 // promoteCtx returns a task context with PromoteNumbers enabled.
 func promoteCtx() *kernel.TaskContext {
 	ctx := kernel.NewTaskContext()
-	ctx.PromoteNumbers = true
+	ctx.RuntimeOptions = config.Options{OutboundNetwork: true, PromoteNumbers: true}
 	return ctx
 }
 

@@ -322,6 +322,33 @@ func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	}
 }
 
+// TestBytecodeNestedCatchInsideTryDoesNotPopOuterHandler covers a case where
+// a backtick catch-expression (its own single-clause try/except) evaluates
+// inside the body of an outer try/except, on an early loop iteration that
+// never reaches the exception-raising call. OP_END_EXCEPT used to pop every
+// trailing Except-type handler instead of exactly the count its matching
+// OP_TRY_EXCEPT pushed, so closing the inner catch-expression's handler also
+// discarded the outer loop's still-live handler — leaving a later iteration's
+// real exception uncaught.
+func TestBytecodeNestedCatchInsideTryDoesNotPopOuterHandler(t *testing.T) {
+	store := newBytecodeVerbStore()
+	program := "" +
+		"results = {};\n" +
+		"for i in ({1, 2})\n" +
+		"try\n" +
+		"x = `1 + 1 ! ANY => 0';\n" +
+		"if (i == 1)\n" +
+		"continue;\n" +
+		"endif\n" +
+		"#0:test_no_exec();\n" +
+		"except (E_VERBNF)\n" +
+		"results = {@results, \"caught\"};\n" +
+		"continue i;\n" +
+		"endtry\n" +
+		"endfor\n" +
+		"return results;"
+	requireList(t, runBytecodeProgram(t, program, store, nil), types.NewStr("caught"))
+}
 func TestBytecodeFinallyDuringVerbUnwind(t *testing.T) {
 	store := newBytecodeVerbStore()
 	program := `

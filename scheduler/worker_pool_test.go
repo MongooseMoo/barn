@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"barn/builtins"
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/parser"
@@ -33,7 +33,7 @@ func newReadyTestTask(t *testing.T, id int64, owner types.ObjID) *task.Task {
 }
 
 func TestSchedulerWorkerPoolStopsCleanly(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 
 	done := make(chan struct{})
 	go func() {
@@ -49,7 +49,7 @@ func TestSchedulerWorkerPoolStopsCleanly(t *testing.T) {
 }
 
 func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	var entered atomic.Int32
@@ -104,7 +104,7 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 }
 
 func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
@@ -122,7 +122,7 @@ func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 }
 
 func TestReadyTaskBatchesKeepConflictingPropertyWritesOrdered(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
@@ -149,7 +149,7 @@ func TestReadyTaskBatchesKeepConflictingPropertyWritesOrdered(t *testing.T) {
 // tasks (conflict-retryable), they are co-scheduled optimistically and any real
 // conflict is caught and retried at commit time.
 func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
@@ -170,7 +170,7 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 // the original statements) must stay solo when its footprint is unknown, because an
 // optimistic conflict could not be recovered by retry.
 func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
@@ -189,7 +189,7 @@ func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
 }
 
 func TestProcessReadyTasksRunsTaskOnceAndClosesDoneOnce(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	var completes atomic.Int32
@@ -221,7 +221,7 @@ func TestProcessReadyTasksRunsTaskOnceAndClosesDoneOnce(t *testing.T) {
 }
 
 func TestProcessReadyTasksFlushesInReadyOrder(t *testing.T) {
-	s := newSchedulerWithWorkerCount(dbstore.NewStore(), false, 2)
+	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	var flushed []string
@@ -261,7 +261,7 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
@@ -323,7 +323,7 @@ func TestRunTaskKeepsForksAfterSuccessfulCommit(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 
 	owner := types.ObjID(7702)
@@ -370,10 +370,9 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	builtins.SetTaskYielder(s)
-	t.Cleanup(func() { builtins.SetTaskYielder(nil) })
+	s.Registry().SetTaskYielder(s)
 
 	owner := types.ObjID(7710)
 	ticks, seconds := foregroundTaskLimits()
@@ -419,10 +418,9 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	builtins.SetTaskYielder(s)
-	t.Cleanup(func() { builtins.SetTaskYielder(nil) })
+	s.Registry().SetTaskYielder(s)
 	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -484,7 +482,7 @@ func TestForkedSuspendZeroRefreshesAfterPreResumeCommit(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 
 	owner := types.ObjID(7711)
@@ -524,7 +522,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
@@ -584,7 +582,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 		t.Fatalf("store.Add failed: %v", err)
 	}
 
-	s := newSchedulerWithWorkerCount(store, false, 1)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	mutateCalls := 0
 	s.registry.Register("mutate_snapshot_value_once", func(ctx *kernel.TaskContext, args []types.Value) types.Result {

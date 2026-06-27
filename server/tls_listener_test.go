@@ -24,10 +24,10 @@ import (
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	certPath, keyPath := writeSelfSignedCertificate(t)
-	cm := NewConnectionManager(nil, 0)
+	cm := NewConnectionManager(0)
 
 	desc, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:           "tls",
+		Protocol:           builtins.ListenerProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,
@@ -38,7 +38,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	defer func() { _ = cm.RemoveListener(desc) }()
 
-	if desc.Protocol != "tls" || desc.Port <= 0 {
+	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port <= 0 {
 		t.Fatalf("unexpected descriptor: %+v", desc)
 	}
 
@@ -47,7 +47,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 		t.Fatalf("got %d listener infos, want 1", len(infos))
 	}
 	info := infos[0]
-	if info.Protocol != "tls" ||
+	if info.Protocol != builtins.ListenerProtocolTLS ||
 		info.Port != desc.Port ||
 		!info.TLS ||
 		info.Interface != "127.0.0.1" {
@@ -56,9 +56,9 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 }
 
 func TestAddTLSListenerRequiresCertificateAndKey(t *testing.T) {
-	cm := NewConnectionManager(nil, 0)
+	cm := NewConnectionManager(0)
 	_, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:  "tls",
+		Protocol:  builtins.ListenerProtocolTLS,
 		Port:      0,
 		Interface: "127.0.0.1",
 	})
@@ -124,24 +124,24 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 
 	scheduler := runtime.NewScheduler(store)
 	input := NewInputProcessor(store, scheduler)
-	srv := &Server{scheduler: scheduler, input: input}
-	cm := NewConnectionManager(srv, 0)
+	cm := NewConnectionManager(0)
 	input.SetConnectionManager(cm)
 	input.Start()
 	defer input.Stop()
 	defer scheduler.Stop()
 
-	err := cm.StartListeners([]builtins.ListenerSpec{{
-		Protocol:           "tls",
+	err := cm.BindListeners([]builtins.ListenerSpec{{
+		Protocol:           builtins.ListenerProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,
 		TLSKeyPath:         keyPath,
 	}})
 	if err != nil {
-		t.Fatalf("start tls listener: %v", err)
+		t.Fatalf("bind tls listener: %v", err)
 	}
-	defer closeAllListeners(cm)
+	defer cm.CloseListeners()
+	cm.StartAccepting()
 
 	port := cm.ListenerInfos()[0].Port
 	client, err := tls.Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", port)), &tls.Config{InsecureSkipVerify: true})

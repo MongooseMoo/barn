@@ -59,11 +59,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 }
 
 func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
-	prev := globalConnManager
-	defer func() { globalConnManager = prev }()
-
 	manager := &stubConnManager{conn: &stubConn{}}
-	globalConnManager = manager
 
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
@@ -77,7 +73,7 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 		t.Fatalf("SetObjectFlag failed: %v", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := ctxWithConnManager(manager)
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
 	ctx.IsWizard = true
