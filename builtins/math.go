@@ -22,14 +22,14 @@ func builtinAbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	switch v := args[0].(type) {
-	case types.IntValue:
-		if v.Val < 0 {
-			return types.Ok(types.IntValue{Val: -v.Val})
+	switch args[0].Type() {
+	case types.TYPE_INT:
+		if args[0].Int() < 0 {
+			return types.Ok(types.NewInt(-args[0].Int()))
 		}
-		return types.Ok(v)
-	case types.FloatValue:
-		return types.Ok(types.FloatValue{Val: math.Abs(v.Val)})
+		return types.Ok(args[0])
+	case types.TYPE_FLOAT:
+		return types.Ok(types.NewFloat(math.Abs(args[0].Float())))
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -42,28 +42,26 @@ func builtinMin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	switch first := args[0].(type) {
-	case types.IntValue:
-		minVal := first
+	switch args[0].Type() {
+	case types.TYPE_INT:
+		minVal := args[0]
 		for i := 1; i < len(args); i++ {
-			v, ok := args[i].(types.IntValue)
-			if !ok {
+			if args[i].Type() != types.TYPE_INT {
 				return types.Err(types.E_TYPE)
 			}
-			if v.Val < minVal.Val {
-				minVal = v
+			if args[i].Int() < minVal.Int() {
+				minVal = args[i]
 			}
 		}
 		return types.Ok(minVal)
-	case types.FloatValue:
-		minVal := first
+	case types.TYPE_FLOAT:
+		minVal := args[0]
 		for i := 1; i < len(args); i++ {
-			v, ok := args[i].(types.FloatValue)
-			if !ok {
+			if args[i].Type() != types.TYPE_FLOAT {
 				return types.Err(types.E_TYPE)
 			}
-			if v.Val < minVal.Val {
-				minVal = v
+			if args[i].Float() < minVal.Float() {
+				minVal = args[i]
 			}
 		}
 		return types.Ok(minVal)
@@ -79,28 +77,26 @@ func builtinMax(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	switch first := args[0].(type) {
-	case types.IntValue:
-		maxVal := first
+	switch args[0].Type() {
+	case types.TYPE_INT:
+		maxVal := args[0]
 		for i := 1; i < len(args); i++ {
-			v, ok := args[i].(types.IntValue)
-			if !ok {
+			if args[i].Type() != types.TYPE_INT {
 				return types.Err(types.E_TYPE)
 			}
-			if v.Val > maxVal.Val {
-				maxVal = v
+			if args[i].Int() > maxVal.Int() {
+				maxVal = args[i]
 			}
 		}
 		return types.Ok(maxVal)
-	case types.FloatValue:
-		maxVal := first
+	case types.TYPE_FLOAT:
+		maxVal := args[0]
 		for i := 1; i < len(args); i++ {
-			v, ok := args[i].(types.FloatValue)
-			if !ok {
+			if args[i].Type() != types.TYPE_FLOAT {
 				return types.Err(types.E_TYPE)
 			}
-			if v.Val > maxVal.Val {
-				maxVal = v
+			if args[i].Float() > maxVal.Float() {
+				maxVal = args[i]
 			}
 		}
 		return types.Ok(maxVal)
@@ -119,30 +115,30 @@ func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		// Random positive integer in full 64-bit range [1, MaxInt64]
 		// Use rand.Int63n(MaxInt64) which gives [0, MaxInt64-1], then add 1
 		const maxInt64 = 9223372036854775807
-		return types.Ok(types.IntValue{Val: rand.Int63n(maxInt64) + 1})
+		return types.Ok(types.NewInt(rand.Int63n(maxInt64) + 1))
 
 	case 1:
 		// Random in [1, max]
-		maxV, ok := args[0].(types.IntValue)
-		if !ok {
+		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		if maxV.Val <= 0 {
+		maxV := args[0].Int()
+		if maxV <= 0 {
 			return types.Err(types.E_INVARG) // Must be positive
 		}
-		return types.Ok(types.IntValue{Val: rand.Int63n(maxV.Val) + 1})
+		return types.Ok(types.NewInt(rand.Int63n(maxV) + 1))
 
 	case 2:
 		// Random in [min, max]
-		minV, ok1 := args[0].(types.IntValue)
-		maxV, ok2 := args[1].(types.IntValue)
-		if !ok1 || !ok2 {
+		if args[0].Type() != types.TYPE_INT || args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		if minV.Val > maxV.Val {
+		minV := args[0].Int()
+		maxV := args[1].Int()
+		if minV > maxV {
 			return types.Err(types.E_INVARG)
 		}
-		return types.Ok(types.IntValue{Val: minV.Val + rand.Int63n(maxV.Val-minV.Val+1)})
+		return types.Ok(types.NewInt(minV + rand.Int63n(maxV-minV+1)))
 
 	default:
 		return types.Err(types.E_ARGS)
@@ -156,16 +152,15 @@ func builtinSqrt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f < 0 {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Sqrt(f)})
+	return types.Ok(types.NewFloat(math.Sqrt(f)))
 }
 
 // builtinSin returns sine of angle (radians)
@@ -175,13 +170,12 @@ func builtinSin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Sin(f)})
+	return types.Ok(types.NewFloat(math.Sin(f)))
 }
 
 // builtinCos returns cosine of angle (radians)
@@ -191,13 +185,12 @@ func builtinCos(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Cos(f)})
+	return types.Ok(types.NewFloat(math.Cos(f)))
 }
 
 // builtinTan returns tangent of angle (radians)
@@ -207,18 +200,17 @@ func builtinTan(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
 	result := math.Tan(f)
 	if math.IsInf(result, 0) {
 		return types.Err(types.E_FLOAT)
 	}
 
-	return types.Ok(types.FloatValue{Val: result})
+	return types.Ok(types.NewFloat(result))
 }
 
 // builtinAsin returns arc sine
@@ -228,16 +220,15 @@ func builtinAsin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f < -1 || f > 1 {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Asin(f)})
+	return types.Ok(types.NewFloat(math.Asin(f)))
 }
 
 // builtinAcos returns arc cosine
@@ -247,16 +238,15 @@ func builtinAcos(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f < -1 || f > 1 {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Acos(f)})
+	return types.Ok(types.NewFloat(math.Acos(f)))
 }
 
 // builtinAtan returns arc tangent
@@ -268,24 +258,21 @@ func builtinAtan(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	if len(args) == 1 {
-		fv, ok := args[0].(types.FloatValue)
-		if !ok {
+		if args[0].Type() != types.TYPE_FLOAT {
 			return types.Err(types.E_TYPE)
 		}
-		return types.Ok(types.FloatValue{Val: math.Atan(fv.Val)})
+		return types.Ok(types.NewFloat(math.Atan(args[0].Float())))
 	}
 
 	// Two-argument form
-	yv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	xv, ok := args[1].(types.FloatValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Atan2(yv.Val, xv.Val)})
+	return types.Ok(types.NewFloat(math.Atan2(args[0].Float(), args[1].Float())))
 }
 
 // builtinSinh returns hyperbolic sine
@@ -295,13 +282,12 @@ func builtinSinh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Sinh(f)})
+	return types.Ok(types.NewFloat(math.Sinh(f)))
 }
 
 // builtinCosh returns hyperbolic cosine
@@ -311,13 +297,12 @@ func builtinCosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Cosh(f)})
+	return types.Ok(types.NewFloat(math.Cosh(f)))
 }
 
 // builtinTanh returns hyperbolic tangent
@@ -327,13 +312,12 @@ func builtinTanh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Tanh(f)})
+	return types.Ok(types.NewFloat(math.Tanh(f)))
 }
 
 // builtinExp returns e raised to power
@@ -343,18 +327,17 @@ func builtinExp(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
 	result := math.Exp(f)
 	if math.IsInf(result, 0) {
 		return types.Err(types.E_FLOAT)
 	}
 
-	return types.Ok(types.FloatValue{Val: result})
+	return types.Ok(types.NewFloat(result))
 }
 
 // builtinLog returns natural logarithm
@@ -364,11 +347,10 @@ func builtinLog(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f <= 0 {
 		if f == 0 {
 			return types.Err(types.E_FLOAT)
@@ -376,7 +358,7 @@ func builtinLog(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Log(f)})
+	return types.Ok(types.NewFloat(math.Log(f)))
 }
 
 // builtinLog10 returns base-10 logarithm
@@ -386,11 +368,10 @@ func builtinLog10(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f <= 0 {
 		if f == 0 {
 			return types.Err(types.E_FLOAT)
@@ -398,7 +379,7 @@ func builtinLog10(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	return types.Ok(types.FloatValue{Val: math.Log10(f)})
+	return types.Ok(types.NewFloat(math.Log10(f)))
 }
 
 // builtinCeil rounds up to nearest integer
@@ -408,13 +389,12 @@ func builtinCeil(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Ceil(f)})
+	return types.Ok(types.NewFloat(math.Ceil(f)))
 }
 
 // builtinFloor rounds down to nearest integer
@@ -424,13 +404,12 @@ func builtinFloor(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Floor(f)})
+	return types.Ok(types.NewFloat(math.Floor(f)))
 }
 
 // builtinTrunc truncates towards zero
@@ -440,13 +419,12 @@ func builtinTrunc(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	return types.Ok(types.FloatValue{Val: math.Trunc(f)})
+	return types.Ok(types.NewFloat(math.Trunc(f)))
 }
 
 // builtinFloatstr formats a float as a string
@@ -456,17 +434,15 @@ func builtinFloatstr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 
-	precV, ok := args[1].(types.IntValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
-	precision := int(precV.Val)
+	precision := int(args[1].Int())
 	if precision < 0 || precision > 19 {
 		return types.Err(types.E_INVARG)
 	}
@@ -493,11 +469,11 @@ func builtinFloatstr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // toNumericFloat converts a value to float64 for math operations
 // Returns NaN if not numeric
 func toNumericFloat(v types.Value) float64 {
-	switch val := v.(type) {
-	case types.IntValue:
-		return float64(val.Val)
-	case types.FloatValue:
-		return val.Val
+	switch v.Type() {
+	case types.TYPE_INT:
+		return float64(v.Int())
+	case types.TYPE_FLOAT:
+		return v.Float()
 	default:
 		return math.NaN()
 	}
@@ -507,11 +483,10 @@ func builtinAcosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f < 1 {
 		return types.Err(types.E_INVARG)
 	}
@@ -522,11 +497,10 @@ func builtinAsinh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	return types.Ok(types.NewFloat(math.Asinh(f)))
 }
 
@@ -534,11 +508,10 @@ func builtinAtanh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	f := fv.Val
+	f := args[0].Float()
 	if f == -1 || f == 1 {
 		return types.Err(types.E_FLOAT)
 	}
@@ -552,37 +525,33 @@ func builtinAtan2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	yv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	xv, ok := args[1].(types.FloatValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewFloat(math.Atan2(yv.Val, xv.Val)))
+	return types.Ok(types.NewFloat(math.Atan2(args[0].Float(), args[1].Float())))
 }
 
 func builtinCbrt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewFloat(math.Cbrt(fv.Val)))
+	return types.Ok(types.NewFloat(math.Cbrt(args[0].Float())))
 }
 
 func builtinRound(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	fv, ok := args[0].(types.FloatValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewFloat(math.Round(fv.Val)))
+	return types.Ok(types.NewFloat(math.Round(args[0].Float())))
 }
 
 func builtinFrandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -592,23 +561,20 @@ func builtinFrandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	var min float64
 	var max float64
 	if len(args) == 1 {
-		maxArg, ok := args[0].(types.FloatValue)
-		if !ok {
+		if args[0].Type() != types.TYPE_FLOAT {
 			return types.Err(types.E_TYPE)
 		}
 		min = 0.0
-		max = maxArg.Val
+		max = args[0].Float()
 	} else {
-		minArg, ok := args[0].(types.FloatValue)
-		if !ok {
+		if args[0].Type() != types.TYPE_FLOAT {
 			return types.Err(types.E_TYPE)
 		}
-		maxArg, ok := args[1].(types.FloatValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_FLOAT {
 			return types.Err(types.E_TYPE)
 		}
-		min = minArg.Val
-		max = maxArg.Val
+		min = args[0].Float()
+		max = args[1].Float()
 	}
 	f := rand.Float64()
 	return types.Ok(types.NewFloat(min + f*(max-min)))
@@ -630,9 +596,9 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	var appendValue func(v types.Value) types.ErrorCode
 	appendValue = func(v types.Value) types.ErrorCode {
-		switch val := v.(type) {
-		case types.IntValue:
-			n := val.Val
+		switch v.Type() {
+		case types.TYPE_INT:
+			n := v.Int()
 			if n < 0 || n > 255 {
 				return types.E_INVARG
 			}
@@ -645,13 +611,13 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			if n != 0 {
 				out.WriteByte(byte(n))
 			}
-		case types.StrValue:
-			for _, b := range []byte(val.Value()) {
+		case types.TYPE_STR:
+			for _, b := range []byte(v.Str()) {
 				encodeByte(&out, b)
 			}
-		case types.ListValue:
-			for i := 1; i <= val.Len(); i++ {
-				if err := appendValue(val.Get(i)); err != types.E_NONE {
+		case types.TYPE_LIST:
+			for i := 1; i <= v.Len(); i++ {
+				if err := appendValue(v.Get(i)); err != types.E_NONE {
 					return err
 				}
 			}
@@ -674,10 +640,10 @@ func builtinAllMembers(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	list, ok := args[1].(types.ListValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[1]
 	caseMatters := true
 	if len(args) == 3 {
 		caseMatters = args[2].Truthy()
@@ -688,10 +654,8 @@ func builtinAllMembers(ctx *kernel.TaskContext, args []types.Value) types.Result
 		item := list.Get(i)
 		matched := false
 		if !caseMatters {
-			ns, nok := needle.(types.StrValue)
-			is, iok := item.(types.StrValue)
-			if nok && iok {
-				matched = strings.EqualFold(ns.Value(), is.Value())
+			if needle.Type() == types.TYPE_STR && item.Type() == types.TYPE_STR {
+				matched = strings.EqualFold(needle.Str(), item.Str())
 			}
 		} else {
 			matched = needle.Equal(item)
@@ -707,34 +671,34 @@ func builtinDistance(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	a, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
-	b, ok := args[1].(types.ListValue)
-	if !ok {
+	a := args[0]
+	if args[1].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	b := args[1]
 	if a.Len() != b.Len() || a.Len() == 0 {
 		return types.Err(types.E_TYPE)
 	}
 	total := 0.0
 	for i := 1; i <= a.Len(); i++ {
 		var av float64
-		switch v := a.Get(i).(type) {
-		case types.IntValue:
-			av = float64(v.Val)
-		case types.FloatValue:
-			av = v.Val
+		switch a.Get(i).Type() {
+		case types.TYPE_INT:
+			av = float64(a.Get(i).Int())
+		case types.TYPE_FLOAT:
+			av = a.Get(i).Float()
 		default:
 			return types.Err(types.E_TYPE)
 		}
 		var bv float64
-		switch v := b.Get(i).(type) {
-		case types.IntValue:
-			bv = float64(v.Val)
-		case types.FloatValue:
-			bv = v.Val
+		switch b.Get(i).Type() {
+		case types.TYPE_INT:
+			bv = float64(b.Get(i).Int())
+		case types.TYPE_FLOAT:
+			bv = b.Get(i).Float()
 		default:
 			return types.Err(types.E_TYPE)
 		}
@@ -748,45 +712,45 @@ func builtinRelativeHeading(ctx *kernel.TaskContext, args []types.Value) types.R
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	a, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
-	b, ok := args[1].(types.ListValue)
-	if !ok {
+	a := args[0]
+	if args[1].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	b := args[1]
 	if a.Len() != 3 || b.Len() != 3 {
 		return types.Err(types.E_INVARG)
 	}
-	ax, ok := a.Get(1).(types.FloatValue)
-	if !ok {
+	if a.Get(1).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	ay, ok := a.Get(2).(types.FloatValue)
-	if !ok {
+	ax := a.Get(1).Float()
+	if a.Get(2).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	az, ok := a.Get(3).(types.FloatValue)
-	if !ok {
+	ay := a.Get(2).Float()
+	if a.Get(3).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	bx, ok := b.Get(1).(types.FloatValue)
-	if !ok {
+	az := a.Get(3).Float()
+	if b.Get(1).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	by, ok := b.Get(2).(types.FloatValue)
-	if !ok {
+	bx := b.Get(1).Float()
+	if b.Get(2).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
-	bz, ok := b.Get(3).(types.FloatValue)
-	if !ok {
+	by := b.Get(2).Float()
+	if b.Get(3).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
 	}
+	bz := b.Get(3).Float()
 
-	dx := bx.Val - ax.Val
-	dy := by.Val - ay.Val
-	dz := bz.Val - az.Val
+	dx := bx - ax
+	dy := by - ay
+	dz := bz - az
 
 	xy := math.Atan2(dy, dx) * 57.2957795130823
 	if xy < 0.0 {
