@@ -9,3 +9,10 @@ const (
 	ObjAmbiguous   ObjID = -2
 	ObjFailedMatch ObjID = -3
 )
+
+// Special object constants (aliases kept for call sites that use these names).
+const (
+	NOTHING      = ObjID(-1)
+	AMBIGUOUS    = ObjID(-2)
+	FAILED_MATCH = ObjID(-3)
+)

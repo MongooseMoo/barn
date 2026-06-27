@@ -13,16 +13,18 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
-	subject, ok1 := args[0].(types.StrValue)
-	pattern, ok2 := args[1].(types.StrValue)
+	subject := args[0]
+	pattern := args[1]
+	ok1 := subject.Type() == types.TYPE_STR
+	ok2 := pattern.Type() == types.TYPE_STR
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
 	// An empty subject simply yields no matches (Toast returns {}).
-	if subject.Value() == "" {
+	if subject.Str() == "" {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
-	if pattern.Value() == "" {
+	if pattern.Str() == "" {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -35,7 +37,7 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		findAll = args[3].Truthy()
 	}
 
-	pat := pattern.Value()
+	pat := pattern.Str()
 	if !caseMatters {
 		pat = "(?i)" + pat
 	}
@@ -48,7 +50,7 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if !findAll {
 		maxMatches = 1
 	}
-	matches := re.FindAllStringSubmatchIndex(subject.Value(), maxMatches)
+	matches := re.FindAllStringSubmatchIndex(subject.Str(), maxMatches)
 	if len(matches) == 0 {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
@@ -59,7 +61,7 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		entryPairs := make([][2]types.Value, 0, len(names)+1)
 		entryPairs = append(entryPairs, [2]types.Value{
 			types.NewStr("0"),
-			buildPcreCapture(subject.Value(), loc[0], loc[1]),
+			buildPcreCapture(subject.Str(), loc[0], loc[1]),
 		})
 
 		for i := 1; i < len(names); i++ {
@@ -76,7 +78,7 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			}
 			entryPairs = append(entryPairs, [2]types.Value{
 				types.NewStr(key),
-				buildPcreCapture(subject.Value(), gStart, gEnd),
+				buildPcreCapture(subject.Str(), gStart, gEnd),
 			})
 		}
 		out = append(out, types.NewMap(entryPairs))
@@ -103,13 +105,15 @@ func builtinPcreReplace(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	subject, ok1 := args[0].(types.StrValue)
-	spec, ok2 := args[1].(types.StrValue)
+	subject := args[0]
+	spec := args[1]
+	ok1 := subject.Type() == types.TYPE_STR
+	ok2 := spec.Type() == types.TYPE_STR
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
 
-	pattern, replacement, flags, ok := parseSedReplaceSpec(spec.Value())
+	pattern, replacement, flags, ok := parseSedReplaceSpec(spec.Str())
 	if !ok || pattern == "" {
 		return types.Err(types.E_INVARG)
 	}
@@ -139,14 +143,14 @@ func builtinPcreReplace(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	var out string
 	if global {
-		out = re.ReplaceAllString(subject.Value(), replacement)
+		out = re.ReplaceAllString(subject.Str(), replacement)
 	} else {
-		idx := re.FindStringIndex(subject.Value())
+		idx := re.FindStringIndex(subject.Str())
 		if idx == nil {
-			out = subject.Value()
+			out = subject.Str()
 		} else {
-			replaced := re.ReplaceAllString(subject.Value()[idx[0]:idx[1]], replacement)
-			out = subject.Value()[:idx[0]] + replaced + subject.Value()[idx[1]:]
+			replaced := re.ReplaceAllString(subject.Str()[idx[0]:idx[1]], replacement)
+			out = subject.Str()[:idx[0]] + replaced + subject.Str()[idx[1]:]
 		}
 	}
 	if errCode := CheckStringLimit(out); errCode != types.E_NONE {

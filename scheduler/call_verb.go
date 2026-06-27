@@ -48,6 +48,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		result := types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,
+			Val:   types.None,
 		}
 		// Don't log E_VERBNF for optional hooks
 		return result
@@ -60,14 +61,15 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		return types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,
+			Val:   types.None,
 		}
 	}
 
 	// Update programmer to verb owner now that we found the verb
 	t.Programmer = verb.Owner
 
-	thisVal := types.Value(types.NewObj(objID))
-	var frameThisValue types.Value
+	thisVal := types.NewObj(objID)
+	frameThisValue := types.None
 	if isAnonymous, errCode := s.store.ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon

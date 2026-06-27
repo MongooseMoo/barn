@@ -30,7 +30,7 @@ type Database struct {
 // waifLoadData holds a WAIF and its raw indexed properties during loading.
 // After all objects are loaded, property names are resolved from the class ancestry.
 type waifLoadData struct {
-	waif         types.WaifValue
+	waif         types.Value
 	propsByIndex map[int]types.Value
 }
 

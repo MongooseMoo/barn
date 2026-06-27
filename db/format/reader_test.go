@@ -368,11 +368,11 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 		t.Fatalf("Round trip changed owner/perms for #101.index_cache: before owner=%d perms=%d, after owner=%d perms=%d",
 			beforeProp.Owner, beforeProp.Perms, afterProp.Owner, afterProp.Perms)
 	}
-	if (beforeProp.Value == nil) != (afterProp.Value == nil) {
+	if beforeProp.Value.IsNone() != afterProp.Value.IsNone() {
 		t.Fatalf("Round trip changed nil-ness of #101.index_cache value: before nil=%v after nil=%v",
-			beforeProp.Value == nil, afterProp.Value == nil)
+			beforeProp.Value.IsNone(), afterProp.Value.IsNone())
 	}
-	if beforeProp.Value != nil && !beforeProp.Value.Equal(afterProp.Value) {
+	if !beforeProp.Value.IsNone() && !beforeProp.Value.Equal(afterProp.Value) {
 		t.Fatalf("Round trip changed #101.index_cache value: before=%v after=%v",
 			beforeProp.Value, afterProp.Value)
 	}

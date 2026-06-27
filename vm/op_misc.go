@@ -15,13 +15,12 @@ func (vm *VM) executeCallBuiltin() error {
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
-		list, ok := listVal.(types.ListValue)
-		if !ok {
+		if listVal.Type() != types.TYPE_LIST {
 			return fmt.Errorf("E_TYPE: expected list for spliced builtin args")
 		}
-		args = make([]types.Value, list.Len())
-		for i := 1; i <= list.Len(); i++ {
-			args[i-1] = list.Get(i)
+		args = make([]types.Value, listVal.Len())
+		for i := 1; i <= listVal.Len(); i++ {
+			args[i-1] = listVal.Get(i)
 		}
 	} else {
 		n := int(argc)
@@ -85,20 +84,20 @@ func (vm *VM) executeCallBuiltin() error {
 // Primitive prototypes are configured through #0's *_proto properties.
 func getPrimitivePrototypeFromStore(store *dbstore.Store, val types.Value) types.ObjID {
 	var propName string
-	switch val.(type) {
-	case types.IntValue:
+	switch val.Type() {
+	case types.TYPE_INT:
 		propName = "int_proto"
-	case types.FloatValue:
+	case types.TYPE_FLOAT:
 		propName = "float_proto"
-	case types.StrValue:
+	case types.TYPE_STR:
 		propName = "str_proto"
-	case types.ListValue:
+	case types.TYPE_LIST:
 		propName = "list_proto"
-	case types.MapValue:
+	case types.TYPE_MAP:
 		propName = "map_proto"
-	case types.ErrValue:
+	case types.TYPE_ERR:
 		propName = "err_proto"
-	case types.BoolValue:
+	case types.TYPE_BOOL:
 		propName = "bool_proto"
 	default:
 		return types.ObjNothing
@@ -109,8 +108,8 @@ func getPrimitivePrototypeFromStore(store *dbstore.Store, val types.Value) types
 		return types.ObjNothing
 	}
 
-	if objVal, ok := propValue.(types.ObjValue); ok {
-		protoID := objVal.ID()
+	if isObjLike(propValue) {
+		protoID := propValue.ID()
 		if store.Valid(protoID) {
 			return protoID
 		}

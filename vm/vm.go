@@ -24,7 +24,7 @@ type VM struct {
 	TickLimit     int64               // Maximum ticks before E_MAXREC
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
-	PendingWaifs  []types.WaifValue
+	PendingWaifs  []types.Value
 
 	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
@@ -123,7 +123,7 @@ func (vm *VM) Run(prog *bytecode.Program) types.Result {
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.UnboundValue{}
+		frame.Locals[i] = types.Unbound
 	}
 
 	vm.pushFrame(frame)
@@ -193,7 +193,7 @@ func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, play
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.UnboundValue{}
+		frame.Locals[i] = types.Unbound
 	}
 
 	vm.pushFrame(frame)
@@ -255,7 +255,7 @@ func (vm *VM) executeLoop() types.Result {
 		var err error
 		if cur.IP >= len(cur.Program.Code) {
 			// End of program - implicit return 0
-			vm.Return(types.IntValue{Val: 0})
+			vm.Return(types.NewInt(0))
 		} else {
 			op := bytecode.OpCode(cur.Program.Code[cur.IP])
 			cur.IP++
@@ -348,7 +348,7 @@ func (vm *VM) executeLoop() types.Result {
 		return types.Result{Flow: types.FlowReturn, Val: vm.Pop()}
 	}
 
-	return types.Result{Flow: types.FlowReturn, Val: types.IntValue{Val: 0}}
+	return types.Result{Flow: types.FlowReturn, Val: types.NewInt(0)}
 }
 
 // syncTaskLineNumbers updates the task's CallStack line numbers from the VM's
@@ -392,7 +392,7 @@ func (vm *VM) Step() error {
 
 	if frame.IP >= len(frame.Program.Code) {
 		// End of program - implicit return 0
-		vm.Return(types.IntValue{Val: 0})
+		vm.Return(types.NewInt(0))
 		return nil
 	}
 
@@ -413,7 +413,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Check for immediate integer
 	if bytecode.IsImmediateInt(op) {
 		val := bytecode.GetImmediateValue(op)
-		vm.Push(types.IntValue{Val: int64(val)})
+		vm.Push(types.NewInt(int64(val)))
 		return nil
 	}
 
@@ -433,7 +433,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_GET_VAR:
 		idx := vm.ReadByte()
 		val := vm.CurrentFrame().Locals[idx]
-		if _, unbound := val.(types.UnboundValue); unbound {
+		if val.IsUnbound() {
 			return MooError{Code: types.E_VARNF}
 		}
 		vm.Push(val)
@@ -551,11 +551,11 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		valueIdx := vm.ReadByte()
 		offset := vm.ReadShort()
 		frame := vm.CurrentFrame()
-		cur, ok := frame.Locals[valueIdx].(types.IntValue)
-		if !ok {
+		cur := frame.Locals[valueIdx]
+		if cur.Type() != types.TYPE_INT {
 			return fmt.Errorf("E_TYPE: invalid operands for +")
 		}
-		frame.Locals[valueIdx] = types.IntValue{Val: cur.Val + 1}
+		frame.Locals[valueIdx] = types.NewInt(cur.Int() + 1)
 		frame.IP -= int(offset)
 
 	case bytecode.OP_FOR_LIST_LOAD:
@@ -567,17 +567,16 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		valueIdx := vm.ReadByte()
 		isPairsIdx := vm.ReadByte()
 		frame := vm.CurrentFrame()
-		list, ok := frame.Locals[listIdx].(types.ListValue)
-		if !ok {
+		list := frame.Locals[listIdx]
+		if list.Type() != types.TYPE_LIST {
 			return fmt.Errorf("E_TYPE: for loop iterator is not a list")
 		}
-		elem := list.Get(int(frame.Locals[elemIdx].(types.IntValue).Val))
+		elem := list.Get(int(frame.Locals[elemIdx].Int()))
 		if frame.Locals[isPairsIdx].Truthy() {
-			pair, ok := elem.(types.ListValue)
-			if !ok {
+			if elem.Type() != types.TYPE_LIST {
 				return MooError{Code: types.E_TYPE}
 			}
-			elem = pair.Get(1)
+			elem = elem.Get(1)
 		}
 		frame.Locals[valueIdx] = elem
 
@@ -589,19 +588,19 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		valueIdx := vm.ReadByte()
 		indexIdx := vm.ReadByte()
 		frame := vm.CurrentFrame()
-		list, ok := frame.Locals[listIdx].(types.ListValue)
-		if !ok {
+		list := frame.Locals[listIdx]
+		if list.Type() != types.TYPE_LIST {
 			return fmt.Errorf("E_TYPE: for loop iterator is not a list")
 		}
-		pair, ok := list.Get(int(frame.Locals[elemIdx].(types.IntValue).Val)).(types.ListValue)
-		if !ok {
+		pair := list.Get(int(frame.Locals[elemIdx].Int()))
+		if pair.Type() != types.TYPE_LIST {
 			return MooError{Code: types.E_TYPE}
 		}
 		frame.Locals[valueIdx] = pair.Get(1)
 		frame.Locals[indexIdx] = pair.Get(2)
 
 	case bytecode.OP_RETURN_NONE:
-		vm.Return(types.IntValue{Val: 0})
+		vm.Return(types.NewInt(0))
 
 	// Collection operations
 	case bytecode.OP_INDEX:
@@ -698,7 +697,7 @@ func (vm *VM) CurrentLine() int {
 func (vm *VM) HandleError(err error) bool {
 	// Extract error code
 	errCode := types.E_NONE
-	var exceptionValue types.Value
+	exceptionValue := types.None
 	if vmErr, ok := err.(VMException); ok {
 		errCode = vmErr.Code
 		exceptionValue = vmErr.Value
@@ -718,18 +717,18 @@ func (vm *VM) HandleError(err error) bool {
 	traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
 
 	// Build or augment the 4-element exception value: {code, message, value, traceback}
-	if exceptionValue == nil {
+	if exceptionValue.IsNone() {
 		exceptionValue = types.NewList([]types.Value{
 			types.NewErr(errCode),
 			types.NewStr(errCode.Message()),
 			types.NewInt(0),
 			traceback,
 		})
-	} else if listVal, ok := exceptionValue.(types.ListValue); ok {
+	} else if exceptionValue.Type() == types.TYPE_LIST {
 		// raise() produces a 3-element list; append traceback as 4th element.
 		elems := make([]types.Value, 0, 4)
-		for i := 1; i <= listVal.Len() && i <= 3; i++ {
-			elems = append(elems, listVal.Get(i))
+		for i := 1; i <= exceptionValue.Len() && i <= 3; i++ {
+			elems = append(elems, exceptionValue.Get(i))
 		}
 		for len(elems) < 3 {
 			elems = append(elems, types.NewInt(0))

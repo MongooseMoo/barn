@@ -87,6 +87,7 @@ func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 
 	t.PushFrame(task.ActivationFrame{
 		This:       saved.This,
+		ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
 		Player:     saved.Player,
 		Programmer: saved.Programmer,
 		Caller:     saved.Player,

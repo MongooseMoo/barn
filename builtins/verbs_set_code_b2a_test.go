@@ -68,7 +68,7 @@ func TestSetVerbCodeRejectsUnknownBuiltin_B2a(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("known builtin: unexpected error result %v", res.Error)
 	}
-	if list, ok := res.Val.(types.ListValue); !ok || list.Len() != 0 {
+	if res.Val.Type() != types.TYPE_LIST || res.Val.Len() != 0 {
 		t.Fatalf("known builtin: expected empty list (success), got %v", res.Val)
 	}
 
@@ -86,14 +86,14 @@ func TestSetVerbCodeRejectsUnknownBuiltin_B2a(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unknown builtin: unexpected error result %v", res.Error)
 	}
-	list, ok := res.Val.(types.ListValue)
-	if !ok {
+	list := res.Val
+	if list.Type() != types.TYPE_LIST {
 		t.Fatalf("unknown builtin: expected list result, got %T", res.Val)
 	}
 	if list.Len() != 1 {
 		t.Fatalf("unknown builtin: expected 1 error string, got %d: %v", list.Len(), res.Val)
 	}
-	got := list.Get(1).(types.StrValue).Value()
+	got := list.Get(1).Str()
 	const want = "Line 1:  Unknown built-in function: foo"
 	if got != want {
 		t.Fatalf("unknown builtin error mismatch:\n got: %q\nwant: %q", got, want)
@@ -118,11 +118,11 @@ func TestSetVerbCodeUnknownBuiltinReportsLine_B2a(t *testing.T) {
 			types.NewStr("y = nosuchbuiltin(x);"),
 		}),
 	})
-	list, ok := res.Val.(types.ListValue)
-	if !ok || list.Len() != 1 {
+	list := res.Val
+	if list.Type() != types.TYPE_LIST || list.Len() != 1 {
 		t.Fatalf("expected 1 error string, got %v", res.Val)
 	}
-	got := list.Get(1).(types.StrValue).Value()
+	got := list.Get(1).Str()
 	const want = "Line 2:  Unknown built-in function: nosuchbuiltin"
 	if got != want {
 		t.Fatalf("error mismatch:\n got: %q\nwant: %q", got, want)

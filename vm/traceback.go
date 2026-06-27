@@ -87,7 +87,7 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 
 		stack = append(stack, task.ActivationFrame{
 			This:        frame.This,
-			ThisValue:   nil,
+			ThisValue:   types.None,
 			Player:      frame.Player,
 			Programmer:  types.ObjNothing,
 			Caller:      frame.Caller,
