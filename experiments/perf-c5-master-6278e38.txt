@@ -1,0 +1,46 @@
+goos: windows
+goarch: amd64
+pkg: barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M-32         	      32	  36207912 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      33	  35281191 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      36	  36114603 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      34	  34640100 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      33	  35671073 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      34	  34478765 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      33	  33632164 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      34	  34269906 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      33	  34799858 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M-32         	      30	  35746427 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  35347842 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  34833133 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      34	  35057250 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  35608894 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  35351812 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  35201827 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  35125815 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  34953942 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      32	  34998194 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M-32       	      33	  34947412 ns/op	    8816 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      36	  31999364 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      37	  34979124 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      34	  33242247 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      36	  40399797 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      32	  33625519 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      37	  33008084 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      37	  34169592 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      36	  32613044 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      36	  32541944 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/nested_1k-32            	      36	  32224439 ns/op	    8896 B/op	      11 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  55742857 ns/op	24013464 B/op	      15 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  56272933 ns/op	24011526 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      20	  57955885 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      20	  55576315 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  54483429 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  55250200 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  56881452 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  62188562 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      20	  54708105 ns/op	24011520 B/op	      13 allocs/op
+BenchmarkVM/list_iter_1M-32         	      21	  55240805 ns/op	24011520 B/op	      13 allocs/op
+PASS
+ok  	barn/vm	51.557s
