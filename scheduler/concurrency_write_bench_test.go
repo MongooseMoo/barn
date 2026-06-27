@@ -82,28 +82,91 @@ func TestConcurrencyCommitDominatedDisjoint(t *testing.T) {
 // worker pool with `workers` workers. Each task body does a short arithmetic
 // loop and then assigns a property, so the task has staged writes and hits
 // StoreTxn.Commit.
+//
+// It is now a thin wrapper over measureWriteWorkersDistinct: the disjoint regime
+// (contended==false) maps to distinct==n (each task its own object); the fully
+// contended regime (contended==true) maps to distinct==1 (all tasks share one
+// object). The signature is preserved byte-for-byte so existing callers
+// (TestConcurrencyCommitDominatedDisjoint, TestConcurrencyWriteScalingSweep)
+// compile and behave unchanged.
 func measureWriteWorkers(t *testing.T, n, loop int, contended, pool bool, workers int) time.Duration {
 	t.Helper()
-	store, ids, shared := buildWriteStore(t, n)
+	distinct := n
+	if contended {
+		distinct = 1
+	}
+	return measureWriteWorkersDistinct(t, n, distinct, loop, pool, workers)
+}
+
+// measureWriteWorkersDistinct generalizes measureWriteWorkers to K-way
+// contention via a STATIC property write (#target.counter = v). distinct>=n is
+// fully disjoint (each task its own object); distinct==1 is all-share-one;
+// distinct==K is K-way. A static property target gives the scheduler a KNOWN
+// access footprint, so non-commuting same-object tasks are placed in SEPARATE
+// batches (the conflict-free fast path, scheduler.candidateCanJoinBatch) and never
+// actually race — exactly the behavior the existing write benches
+// (TestConcurrencyCommitDominatedDisjoint, TestConcurrencyWriteScalingSweep) have
+// always measured. Returns the elapsed run time only.
+func measureWriteWorkersDistinct(t *testing.T, n, distinct, loop int, pool bool, workers int) time.Duration {
+	t.Helper()
+	elapsed, _ := runWriteWorkers(t, n, distinct, loop, pool, workers, false /*dynamicProp*/)
+	return elapsed
+}
+
+// measureWriteWorkersDistinctCounted is the contention-matrix measurement: like
+// measureWriteWorkersDistinct but using a DYNAMIC property target (#target.(pn)),
+// which the footprint analyzer cannot resolve and so marks UNKNOWN. Unknown
+// footprints make the scheduler co-schedule conflict-retryable tasks
+// OPTIMISTICALLY in one batch (scheduler.candidateCanJoinBatch), so same-object
+// tasks really run concurrently and a losing committer's read-set validation fails
+// — producing the MVCC conflicts/retries this matrix exists to observe. It samples
+// the store's commit counters immediately before and after the timed run and
+// returns both the elapsed time and the counter deltas. A fresh store per call
+// makes each delta the exact commit activity of that run (no reset method, no
+// reset races).
+func measureWriteWorkersDistinctCounted(t *testing.T, n, distinct, loop int, pool bool, workers int) (time.Duration, commitCounterDelta) {
+	t.Helper()
+	return runWriteWorkers(t, n, distinct, loop, pool, workers, true /*dynamicProp*/)
+}
+
+// runWriteWorkers builds a fresh store + scheduler + n property-writing tasks
+// (each targeting ids[k%distinct]) and times running them serially or through the
+// pool, sampling the MVCC commit counters around the timed run. When dynamicProp
+// is false the property is addressed statically (#t.counter = v) — a known
+// footprint, conflict-free fast-path batching, the existing-bench behavior. When
+// true it is addressed dynamically: the value is READ EARLY into c (recording the
+// read-set version), a CPU loop widens the read->commit window, then the value is
+// written back through a DYNAMIC property name (#t.(pn)). That combination —
+// recorded read + unknown footprint — is what makes contended commits actually
+// conflict and retry; with loop==0 the window collapses and co-scheduled tasks may
+// serialize before conflicting, so conflict-seeking callers pass loop>0.
+func runWriteWorkers(t *testing.T, n, distinct, loop int, pool bool, workers int, dynamicProp bool) (time.Duration, commitCounterDelta) {
+	t.Helper()
+	if distinct < 1 {
+		distinct = 1
+	}
+	store, ids, _ := buildWriteStore(t, n)
 	s := newSchedulerWithWorkerCount(store, config.Options{}, workers)
 	defer s.Stop()
 	defer removeTasksForOwner(s, 3)
 
 	tasks := make([]*task.Task, n)
 	for k := 0; k < n; k++ {
-		target := ids[k]
-		if contended {
-			target = shared
+		target := ids[k%distinct]
+		var code string
+		if dynamicProp {
+			code = fmt.Sprintf(
+				"pn = \"counter\"; c = #%d.(pn); x = 0; for i in [1..%d]; x = x + i; endfor; #%d.(pn) = c + %d; return x;",
+				target, loop, target, 1+k)
+		} else {
+			code = fmt.Sprintf(
+				"x = 0; for i in [1..%d]; x = x + i; endfor; #%d.counter = %d; return x;",
+				loop, target, 1000+k)
 		}
-		// Short CPU loop, then a property write so the task stages txn writes and
-		// must Commit. The write value differs per task so contended commits are
-		// genuinely different writes (still a real conflict on the same prop).
-		code := fmt.Sprintf(
-			"x = 0; for i in [1..%d]; x = x + i; endfor; #%d.counter = %d; return x;",
-			loop, target, 1000+k)
 		tasks[k] = s.buildBenchTask(t, int64(7000+k), code)
 	}
 
+	before := sampleCommitCounters(store)
 	start := time.Now()
 	if pool {
 		for _, tk := range tasks {
@@ -121,13 +184,14 @@ func measureWriteWorkers(t *testing.T, n, loop int, contended, pool bool, worker
 		}
 	}
 	elapsed := time.Since(start)
+	delta := sampleCommitCounters(store).sub(before)
 
 	for _, tk := range tasks {
 		if tk.Result.Flow != types.FlowReturn {
 			t.Fatalf("task %d flow = %v err=%v, want return", tk.ID, tk.Result.Flow, tk.Result.Error)
 		}
 	}
-	return elapsed
+	return elapsed, delta
 }
 
 // buildWriteStore creates the wizard, n disjoint objects each carrying a

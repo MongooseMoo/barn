@@ -1415,7 +1415,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 	}
 }
 
-func (tx *StoreTxn) Commit() types.ErrorCode {
+func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0) {
 		return types.E_NONE
 	}
@@ -1423,6 +1423,22 @@ func (tx *StoreTxn) Commit() types.ErrorCode {
 		return types.E_INVARG
 	}
 	tx.validationFail = false
+
+	// Phase A observability: count exactly one attempt per real commit (writes
+	// staged, store present), and account the outcome once via a deferred closure
+	// over the named return value — regardless of which of the many return sites
+	// (coarse path here, or commitDecentralized) fires. A non-E_NONE return is a
+	// conflict ONLY when tx.validationFail is set (a read-set validation failure);
+	// non-conflict apply failures (E_INVIND/E_VERBNF/E_PROPNF) leave it false and
+	// are not counted as conflicts. Observation-only: no control flow changes.
+	tx.store.commitAttempts.Add(1)
+	defer func() {
+		if commitErr == types.E_NONE {
+			tx.store.commitSuccesses.Add(1)
+		} else if tx.validationFail {
+			tx.store.commitConflicts.Add(1)
+		}
+	}()
 
 	// COW decentralized fast path: a commit whose ENTIRE write footprint is within the
 	// decentralized write kinds — scalar (name/owner/flags), relationship (location),

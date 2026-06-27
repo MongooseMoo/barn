@@ -60,6 +60,16 @@ type Store struct {
 	// Toast's loader.
 	anonObjects map[types.ObjID]*Object
 
+	// MVCC commit observability counters (Phase A instrumentation). Bumped
+	// lock-free, mirroring the anonCreations pattern. commitAttempts/Successes/
+	// Conflicts are bumped inside StoreTxn.Commit; commitRetries is bumped by the
+	// scheduler each time it loops back after a retryable conflict. These are
+	// observation-only and never affect control flow.
+	commitAttempts  atomic.Uint64
+	commitSuccesses atomic.Uint64
+	commitConflicts atomic.Uint64
+	commitRetries   atomic.Uint64
+
 	waifRegistry    map[types.ObjID]map[*types.WaifValue]struct{} // Track live waifs by class
 	verbCacheClears int64
 	verbCacheMisses int64
@@ -127,6 +137,17 @@ func (s *Store) bumpClock() uint64 {
 func (s *Store) AnonCreationCount() uint64 {
 	return s.anonCreations.Load()
 }
+
+// MVCC commit observability accessors (Phase A). All lock-free.
+func (s *Store) CommitAttempts() uint64  { return s.commitAttempts.Load() }
+func (s *Store) CommitSuccesses() uint64 { return s.commitSuccesses.Load() }
+func (s *Store) CommitConflicts() uint64 { return s.commitConflicts.Load() }
+func (s *Store) CommitRetries() uint64   { return s.commitRetries.Load() }
+
+// NoteCommitRetry records one scheduler-side conflict retry (loop-back). It is
+// the only exported mutator; the scheduler lives in another package and cannot
+// touch the unexported counter fields directly.
+func (s *Store) NoteCommitRetry() { s.commitRetries.Add(1) }
 
 func (s *Store) ReadTimestamp() uint64 {
 	return s.clock.Load()

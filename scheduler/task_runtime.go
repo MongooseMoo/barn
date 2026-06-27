@@ -247,6 +247,7 @@ retryAttempt:
 				builtins.DiscardPendingConnectionSwitches(ctx)
 				builtins.DiscardPendingBootPlayers(ctx)
 				builtins.DiscardPendingServerOptions(ctx)
+				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
 				attempt++
 				goto retryAttempt
 			}
