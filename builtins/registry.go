@@ -13,15 +13,30 @@ type BuiltinFunc func(ctx *kernel.TaskContext, args []types.Value) types.Result
 // Returns the result of calling the verb, or E_VERBNF if verb not found
 type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result
 
+// builtinEntry is the per-builtin dispatch record. It is stored once in the
+// id-indexed entries slice so CallByID resolves a builtin with a single bounds
+// check + slice index instead of two map lookups. It carries the raw
+// (un-wrapped) function plus its argument signature so the dispatch path can
+// validate args inline, without routing through a per-call validation closure.
+type builtinEntry struct {
+	name     string
+	fn       BuiltinFunc       // raw builtin; NOT the validation-wrapping closure
+	sig      functionSignature // valid only when hasSig is true
+	hasSig   bool
+	lineSync bool
+}
+
 // Registry holds all registered builtin functions
 type Registry struct {
-	funcs        map[string]BuiltinFunc
-	byID         map[int]BuiltinFunc
-	nameToID     map[string]int
-	idToName     map[int]string
-	lineSyncByID map[int]bool
-	nextID       int
-	verbCaller   VerbCallerFunc // Callback for calling verbs
+	// entries is indexed by builtin ID; CallByID/CallByName/NeedsLineSyncByID
+	// resolve through it with one slice index, no hashing.
+	entries []*builtinEntry
+	// funcs maps name -> the validation-wrapping closure. Kept for Get/Has and
+	// call_function(), which call the returned fn directly and so must retain
+	// the same arg-validation behavior the closure provided.
+	funcs      map[string]BuiltinFunc
+	nameToID   map[string]int
+	verbCaller VerbCallerFunc // Callback for calling verbs
 
 	// host holds the server-provided capabilities the builtins package cannot
 	// implement itself (networking, scheduling, lifecycle). The registry's owner
@@ -33,12 +48,8 @@ type Registry struct {
 // NewRegistry creates a new builtin function registry
 func NewRegistry() *Registry {
 	r := &Registry{
-		funcs:        make(map[string]BuiltinFunc),
-		byID:         make(map[int]BuiltinFunc),
-		nameToID:     make(map[string]int),
-		idToName:     make(map[int]string),
-		lineSyncByID: make(map[int]bool),
-		nextID:       0,
+		funcs:    make(map[string]BuiltinFunc),
+		nameToID: make(map[string]int),
 	}
 
 	// Register type conversion builtins
@@ -337,22 +348,33 @@ func NewRegistry() *Registry {
 
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
+	entry := &builtinEntry{
+		name:     name,
+		fn:       fn, // raw; the id-indexed dispatch path validates inline
+		lineSync: needsCallStackLineSync(name),
+	}
+
+	// The validation-wrapping closure is preserved ONLY in the funcs map, for
+	// Get()/Has()/call_function(), which invoke the returned fn directly. The
+	// hot CallByID/CallByName path uses entry.fn + inline validation instead, so
+	// it never pays for the closure indirection.
+	stored := fn
 	if sig, ok := lookupFunctionSignature(name); ok {
+		entry.sig = sig
+		entry.hasSig = true
 		inner := fn
-		fn = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		stored = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			if err := validateKnownFunctionArgs(name, sig, args); err != types.E_NONE {
 				return types.Err(err)
 			}
 			return inner(ctx, args)
 		}
 	}
-	r.funcs[name] = fn
-	id := r.nextID
-	r.byID[id] = fn
+
+	id := len(r.entries)
+	r.entries = append(r.entries, entry)
+	r.funcs[name] = stored
 	r.nameToID[name] = id
-	r.idToName[id] = name
-	r.lineSyncByID[id] = needsCallStackLineSync(name)
-	r.nextID++
 }
 
 func needsCallStackLineSync(name string) bool {
@@ -362,7 +384,10 @@ func needsCallStackLineSync(name string) bool {
 // NeedsLineSyncByID reports whether a builtin must see VM frame line numbers
 // flushed into the task activation stack before it runs.
 func (r *Registry) NeedsLineSyncByID(id int) bool {
-	return r.lineSyncByID[id]
+	if id < 0 || id >= len(r.entries) {
+		return false
+	}
+	return r.entries[id].lineSync
 }
 
 // GetID returns the ID for a builtin function name
@@ -372,32 +397,42 @@ func (r *Registry) GetID(name string) (int, bool) {
 }
 
 // CallByID calls a builtin function by its ID, applying protected-builtin
-// redirection first.
+// redirection first. Resolution is a single bounds check + slice index.
 func (r *Registry) CallByID(id int, ctx *kernel.TaskContext, args []types.Value) types.Result {
-	fn, ok := r.byID[id]
-	if !ok {
+	if id < 0 || id >= len(r.entries) {
 		return types.Err(types.E_VERBNF)
 	}
-	return r.dispatch(r.idToName[id], fn, ctx, args)
+	return r.dispatch(r.entries[id], ctx, args)
 }
 
 // CallByName calls a builtin function by name, applying protected-builtin
 // redirection first.
 func (r *Registry) CallByName(name string, ctx *kernel.TaskContext, args []types.Value) (types.Result, bool) {
-	fn, ok := r.funcs[name]
+	id, ok := r.nameToID[name]
 	if !ok {
 		return types.Result{}, false
 	}
-	return r.dispatch(name, fn, ctx, args), true
+	return r.dispatch(r.entries[id], ctx, args), true
 }
 
 // dispatch runs a builtin, first giving ToastStunt's protected-builtin
-// redirection a chance to intercept the call.
-func (r *Registry) dispatch(name string, fn BuiltinFunc, ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if redirect, ok := r.maybeProtectedRedirect(name, ctx, args); ok {
+// redirection a chance to intercept the call, then validating arguments inline.
+//
+// Order is load-bearing and matches the pre-refactor behavior: the protected
+// redirect is evaluated BEFORE argument validation, so a redirected call passes
+// the raw args to #0:bf_<name> unvalidated. Only when the call falls through to
+// the real builtin do we run the same arg-count/type checks the registration
+// closure used to perform (identical E_ARGS/E_TYPE codes).
+func (r *Registry) dispatch(e *builtinEntry, ctx *kernel.TaskContext, args []types.Value) types.Result {
+	if redirect, ok := r.maybeProtectedRedirect(e.name, ctx, args); ok {
 		return redirect
 	}
-	return fn(ctx, args)
+	if e.hasSig {
+		if err := validateKnownFunctionArgs(e.name, e.sig, args); err != types.E_NONE {
+			return types.Err(err)
+		}
+	}
+	return e.fn(ctx, args)
 }
 
 // maybeProtectedRedirect implements ToastStunt's protected-builtin dispatch.
