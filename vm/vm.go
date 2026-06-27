@@ -247,24 +247,36 @@ func (vm *VM) SetForkResult(childTaskID int64) {
 
 // executeLoop is the core execution loop shared by Run() and Resume().
 func (vm *VM) executeLoop() types.Result {
-	for len(vm.Frames) > 0 {
-		// Inlined Step(): fetch the cached current frame once and dispatch the
-		// next opcode directly, avoiding a call layer and repeated CurrentFrame
-		// lookups on the hottest path in the interpreter.
+	// Hot path. Two invariants let this loop skip per-opcode bookkeeping that
+	// earlier revisions paid for on every single instruction:
+	//
+	//  1. vm.frame is nil exactly when vm.Frames is empty (maintained by
+	//     pushFrame/popFrame), so the loop condition is the cheap pointer test
+	//     `vm.frame != nil` instead of reloading len(vm.Frames) each iteration.
+	//
+	//  2. TERMINATOR INVARIANT: every compiled program ends in a frame-popping
+	//     terminal opcode (OP_RETURN or OP_RETURN_NONE). The compiler emits one
+	//     at the end of every program / verb / eval body (see
+	//     bytecode/compiler.go Compile + CompileStatements) and
+	//     Program.ExtractForkBody appends OP_RETURN_NONE to fork sub-programs.
+	//     Execution therefore can never "fall off the end" of Code: it always
+	//     reaches the terminator, which pops the frame and (for OP_RETURN_NONE)
+	//     yields the MOO default of 0. This lets the loop fetch Code[IP]
+	//     directly and drop the per-opcode `IP >= len(Code)` bounds check that
+	//     used to be the single hottest line in the interpreter (~13% of CPU).
+	//     Guarded by TestFallOffEndReturnsZero, TestEmptyProgramReturnsZero, and
+	//     TestEveryCompiledProgramEndsWithTerminator.
+	for vm.frame != nil {
+		// Fetch the cached current frame once and dispatch the next opcode
+		// directly, avoiding repeated CurrentFrame lookups on the hottest path.
 		cur := vm.frame
-		var err error
-		if cur.IP >= len(cur.Program.Code) {
-			// End of program - implicit return 0
-			vm.Return(types.NewInt(0))
-		} else {
-			op := bytecode.OpCode(cur.Program.Code[cur.IP])
-			cur.IP++
-			if bytecode.CountsTick(op) {
-				vm.Ticks++
-				vm.syncContextTicks()
-			}
-			err = vm.Execute(op)
+		op := bytecode.OpCode(cur.Program.Code[cur.IP])
+		cur.IP++
+		if bytecode.CountsTick(op) {
+			vm.Ticks++
+			vm.syncContextTicks()
 		}
+		err := vm.Execute(op)
 		if err != nil {
 			// Verb debug flag check: when the current frame's VerbDebug is false,
 			// push the error as a value instead of propagating it as an exception.
