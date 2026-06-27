@@ -127,7 +127,7 @@ func BuildVMRegistry() *builtins.Registry {
 		SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
 
 		ctx.ThisObj = types.ObjNothing
-		ctx.ThisValue = nil
+		ctx.ThisValue = types.None
 		ctx.Verb = ""
 
 		if ctx.Task != nil {

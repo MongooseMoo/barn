@@ -76,7 +76,7 @@ func (e *Environment) Get(name string) (types.Value, bool) {
 	}
 
 	// Not found
-	return nil, false
+	return types.None, false
 }
 
 // Set assigns a value to a variable in the current scope
