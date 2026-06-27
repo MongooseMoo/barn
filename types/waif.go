@@ -1,81 +1,64 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"unsafe"
+)
 
-// WaifValue represents a MOO waif (lightweight object)
-// WAIFs are prototype-based lightweight objects with properties
-type WaifValue struct {
-	class      ObjID            // The waif's class object
-	owner      ObjID            // The waif's owner (programmer who created it)
-	properties map[string]Value // Property values
+// waifRep is the heap payload behind a TYPE_WAIF Value. WAIFs are prototype-based
+// lightweight objects with mutable properties; reference semantics are assumed
+// (SetProperty mutates the shared property map).
+type waifRep struct {
+	class      ObjID            // the waif's class object
+	owner      ObjID            // the waif's owner (the programmer who created it)
+	properties map[string]Value // property values
 }
 
-// NewWaif creates a new waif with the given class and owner
-func NewWaif(class ObjID, owner ObjID) WaifValue {
-	return WaifValue{
+// NewWaif creates a waif value with the given class and owner.
+func NewWaif(class ObjID, owner ObjID) Value {
+	return Value{tag: TYPE_WAIF, ref: unsafe.Pointer(&waifRep{
 		class:      class,
 		owner:      owner,
 		properties: make(map[string]Value),
-	}
+	})}
 }
 
-// Type returns TYPE_WAIF
-func (w WaifValue) Type() TypeCode {
-	return TYPE_WAIF
-}
-
-// String returns the MOO literal representation of the waif
-func (w WaifValue) String() string {
-	// WAIFs don't have a simple literal representation
+func (w *waifRep) literal() string {
 	return fmt.Sprintf("<waif #%d>", w.class)
 }
 
-// Equal checks if two waifs are equal
-// WAIFs are equal only if they're the same instance (reference equality)
-func (w WaifValue) Equal(other Value) bool {
-	// For now, use simple struct comparison
-	// In a full implementation, this would use reference identity
-	otherWaif, ok := other.(WaifValue)
-	if !ok {
-		return false
-	}
-	return w.class == otherWaif.class && equalMaps(w.properties, otherWaif.properties)
+func (w *waifRep) equal(other *waifRep) bool {
+	return w.class == other.class && equalMaps(w.properties, other.properties)
 }
 
-// Truthy returns whether the waif is truthy
-// In MOO, waifs are never truthy (only non-zero ints and non-empty strings)
-func (w WaifValue) Truthy() bool {
-	return false
-}
+// ---- Value-level waif API ----------------------------------------------
 
-// Class returns the waif's class object ID
-func (w WaifValue) Class() ObjID {
-	return w.class
-}
+// Class returns the waif's class object id.
+func (v Value) Class() ObjID { return v.waifRep().class }
 
-// Owner returns the waif's owner object ID
-func (w WaifValue) Owner() ObjID {
-	return w.owner
-}
+// Owner returns the waif's owner object id.
+func (v Value) Owner() ObjID { return v.waifRep().owner }
 
-// GetProperty returns a property value by name
-func (w WaifValue) GetProperty(name string) (Value, bool) {
-	val, ok := w.properties[name]
+// GetProperty returns a property value by name.
+func (v Value) GetProperty(name string) (Value, bool) {
+	val, ok := v.waifRep().properties[name]
 	return val, ok
 }
 
-// SetProperty sets a property value
-func (w WaifValue) SetProperty(name string, value Value) WaifValue {
-	// Waifs behave like mutable lightweight objects for property updates.
+// SetProperty sets a property value, mutating the shared waif payload, and
+// returns the same waif value (reference semantics, matching the old WaifValue).
+func (v Value) SetProperty(name string, value Value) Value {
+	w := v.waifRep()
 	if w.properties == nil {
 		w.properties = make(map[string]Value)
 	}
 	w.properties[name] = value
-	return w
+	return v
 }
 
-// PropertyNames returns the names of all properties set on this WAIF.
-func (w WaifValue) PropertyNames() []string {
+// PropertyNames returns the names of all properties set on this waif.
+func (v Value) PropertyNames() []string {
+	w := v.waifRep()
 	names := make([]string, 0, len(w.properties))
 	for name := range w.properties {
 		names = append(names, name)
@@ -83,7 +66,7 @@ func (w WaifValue) PropertyNames() []string {
 	return names
 }
 
-// equalMaps checks if two property maps are equal
+// equalMaps reports whether two property maps are equal.
 func equalMaps(a, b map[string]Value) bool {
 	if len(a) != len(b) {
 		return false

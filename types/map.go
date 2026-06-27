@@ -4,55 +4,48 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unsafe"
 )
 
-// MooMap abstracts map storage - allows swapping implementation later
-type MooMap interface {
-	Len() int
-	Get(key Value) (Value, bool)
-	Set(key, val Value) MooMap // Returns new map (COW)
-	Delete(key Value) MooMap
-	Keys() []Value
-	Pairs() [][2]Value // For iteration
-}
-
-// mapEntry stores a key-value pair
+// mapEntry stores a key-value pair.
 type mapEntry struct {
 	key Value
 	val Value
 }
 
-// goMap is the concrete implementation using Go's map (private)
-// Key is stringified Value (since Go maps need comparable keys)
-// Maintains insertion order via the 'order' slice
+// goMap is the heap payload behind a TYPE_MAP Value. Keys are stringified via
+// keyHash (Go maps need comparable keys); insertion order is tracked in 'order'.
 type goMap struct {
-	order []string            // Key hashes in insertion order
+	order []string            // key hashes in insertion order
 	pairs map[string]mapEntry // key hash -> entry
 }
 
-// keyHash converts a value to a string key for Go map lookup
+// keyHash converts a value to a string key for the Go map.
+//
+// LANDMINE: the old representation namespaced keys with %T (the Go dynamic
+// type), which kept int 1, float 1.0 and str "1" distinct. With a single struct
+// type %T is constant for every value, so it must namespace by v.Type() (the
+// numeric tag) instead. MOO strings hash case-insensitively.
 func keyHash(v Value) string {
-	// Use String() representation for hashing
-	// This ensures that equal values hash to the same key
-	// MOO strings are case-insensitive, so normalize to lowercase
-	if str, ok := v.(StrValue); ok {
-		return fmt.Sprintf("%T:%s", v, strings.ToLower(str.Value()))
+	if v.Type() == TYPE_STR {
+		return fmt.Sprintf("%d:%s", int(v.Type()), strings.ToLower(v.Str()))
 	}
-	return fmt.Sprintf("%T:%s", v, v.String())
+	return fmt.Sprintf("%d:%s", int(v.Type()), v.String())
 }
 
 func (m *goMap) Len() int {
 	return len(m.pairs)
 }
 
-func (m *goMap) Get(k Value) (Value, bool) {
+// get returns the value for a key, or (None, false) if absent.
+func (m *goMap) get(k Value) (Value, bool) {
 	if e, ok := m.pairs[keyHash(k)]; ok {
 		return e.val, true
 	}
-	return nil, false
+	return None, false
 }
 
-func (m *goMap) Set(k, v Value) MooMap {
+func (m *goMap) set(k, v Value) *goMap {
 	hash := keyHash(k)
 	newPairs := make(map[string]mapEntry, len(m.pairs)+1)
 	for h, e := range m.pairs {
@@ -60,15 +53,11 @@ func (m *goMap) Set(k, v Value) MooMap {
 	}
 	newPairs[hash] = mapEntry{key: k, val: v}
 
-	// Copy order, adding new key if needed
 	var newOrder []string
-	_, exists := m.pairs[hash]
-	if exists {
-		// Key already exists, keep same order
+	if _, exists := m.pairs[hash]; exists {
 		newOrder = make([]string, len(m.order))
 		copy(newOrder, m.order)
 	} else {
-		// New key, append to order
 		newOrder = make([]string, len(m.order)+1)
 		copy(newOrder, m.order)
 		newOrder[len(m.order)] = hash
@@ -77,10 +66,10 @@ func (m *goMap) Set(k, v Value) MooMap {
 	return &goMap{order: newOrder, pairs: newPairs}
 }
 
-func (m *goMap) Delete(k Value) MooMap {
+func (m *goMap) delete(k Value) *goMap {
 	hash := keyHash(k)
 	if _, exists := m.pairs[hash]; !exists {
-		return m // Key doesn't exist, return unchanged
+		return m
 	}
 
 	newPairs := make(map[string]mapEntry, len(m.pairs)-1)
@@ -90,7 +79,6 @@ func (m *goMap) Delete(k Value) MooMap {
 		}
 	}
 
-	// Remove from order
 	newOrder := make([]string, 0, len(m.order)-1)
 	for _, h := range m.order {
 		if h != hash {
@@ -101,7 +89,7 @@ func (m *goMap) Delete(k Value) MooMap {
 	return &goMap{order: newOrder, pairs: newPairs}
 }
 
-func (m *goMap) Keys() []Value {
+func (m *goMap) keys() []Value {
 	keys := make([]Value, 0, len(m.order))
 	for _, h := range m.order {
 		keys = append(keys, m.pairs[h].key)
@@ -109,7 +97,7 @@ func (m *goMap) Keys() []Value {
 	return keys
 }
 
-func (m *goMap) Pairs() [][2]Value {
+func (m *goMap) pairsList() [][2]Value {
 	pairs := make([][2]Value, 0, len(m.order))
 	for _, h := range m.order {
 		e := m.pairs[h]
@@ -118,13 +106,41 @@ func (m *goMap) Pairs() [][2]Value {
 	return pairs
 }
 
-// MapValue represents a MOO map
-type MapValue struct {
-	data MooMap
+func (m *goMap) equal(other *goMap) bool {
+	if len(m.pairs) != len(other.pairs) {
+		return false
+	}
+	for _, p := range m.pairsList() {
+		val, exists := other.get(p[0])
+		if !exists || !p[1].Equal(val) {
+			return false
+		}
+	}
+	return true
 }
 
-// NewMap creates a new map value
-func NewMap(pairs [][2]Value) MapValue {
+// literal returns the MOO literal representation. Keys are sorted in MOO
+// canonical order: INT < OBJ < FLOAT < ERR < STR.
+func (m *goMap) literal() string {
+	pairs := m.pairsList()
+	if len(pairs) == 0 {
+		return "[]"
+	}
+	sortMapPairsForOutput(pairs)
+	parts := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		parts = append(parts, fmt.Sprintf("%s -> %s", p[0].String(), p[1].String()))
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+// mapValue boxes a goMap into a Value.
+func mapValue(m *goMap) Value {
+	return Value{tag: TYPE_MAP, ref: unsafe.Pointer(m)}
+}
+
+// NewMap creates a map value from key-value pairs (later duplicates win).
+func NewMap(pairs [][2]Value) Value {
 	m := &goMap{
 		order: make([]string, 0, len(pairs)),
 		pairs: make(map[string]mapEntry),
@@ -136,33 +152,15 @@ func NewMap(pairs [][2]Value) MapValue {
 		}
 		m.pairs[hash] = mapEntry{key: p[0], val: p[1]}
 	}
-	return MapValue{data: m}
+	return mapValue(m)
 }
 
-// NewEmptyMap creates an empty map
-func NewEmptyMap() MapValue {
-	return MapValue{data: &goMap{order: nil, pairs: make(map[string]mapEntry)}}
+// NewEmptyMap creates an empty map value.
+func NewEmptyMap() Value {
+	return mapValue(&goMap{order: nil, pairs: make(map[string]mapEntry)})
 }
 
-// String returns the MOO string representation
-// Keys are sorted in MOO canonical order: INT < OBJ < FLOAT < ERR < STR
-func (m MapValue) String() string {
-	pairs := m.data.Pairs()
-	if len(pairs) == 0 {
-		return "[]"
-	}
-
-	// Sort pairs by key in MOO order
-	sortMapPairsForOutput(pairs)
-
-	var parts []string
-	for _, p := range pairs {
-		parts = append(parts, fmt.Sprintf("%s -> %s", p[0].String(), p[1].String()))
-	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}
-
-// sortMapPairsForOutput sorts pairs by key in MOO order
+// sortMapPairsForOutput sorts pairs by key in MOO order.
 func sortMapPairsForOutput(pairs [][2]Value) {
 	sort.Slice(pairs, func(i, j int) bool {
 		return CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
@@ -173,16 +171,16 @@ func sortMapPairsForOutput(pairs [][2]Value) {
 // Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4).
 func CompareMapKeys(a, b Value) int {
 	typeOrder := func(v Value) int {
-		switch v.(type) {
-		case IntValue:
+		switch v.Type() {
+		case TYPE_INT:
 			return 0
-		case ObjValue:
+		case TYPE_OBJ, TYPE_ANON:
 			return 1
-		case FloatValue:
+		case TYPE_FLOAT:
 			return 2
-		case ErrValue:
+		case TYPE_ERR:
 			return 3
-		case StrValue:
+		case TYPE_STR:
 			return 4
 		default:
 			return 5
@@ -195,154 +193,90 @@ func CompareMapKeys(a, b Value) int {
 		return aOrder - bOrder
 	}
 
-	// Same type, compare values
-	switch av := a.(type) {
-	case IntValue:
-		bv := b.(IntValue)
-		if av.Val < bv.Val {
+	switch a.Type() {
+	case TYPE_INT:
+		return cmpInt64(a.Int(), b.Int())
+	case TYPE_OBJ, TYPE_ANON:
+		return cmpInt64(int64(a.Obj()), int64(b.Obj()))
+	case TYPE_FLOAT:
+		af, bf := a.Float(), b.Float()
+		if af < bf {
 			return -1
-		} else if av.Val > bv.Val {
+		} else if af > bf {
 			return 1
 		}
 		return 0
-	case ObjValue:
-		bv := b.(ObjValue)
-		if av.id < bv.id {
-			return -1
-		} else if av.id > bv.id {
-			return 1
-		}
-		return 0
-	case FloatValue:
-		bv := b.(FloatValue)
-		if av.Val < bv.Val {
-			return -1
-		} else if av.Val > bv.Val {
-			return 1
-		}
-		return 0
-	case ErrValue:
-		bv := b.(ErrValue)
-		if av.code < bv.code {
-			return -1
-		} else if av.code > bv.code {
-			return 1
-		}
-		return 0
-	case StrValue:
-		bv := b.(StrValue)
-		// Case-insensitive comparison for strings
-		return strings.Compare(strings.ToLower(av.val), strings.ToLower(bv.val))
+	case TYPE_ERR:
+		return cmpInt64(int64(a.ErrCode()), int64(b.ErrCode()))
+	case TYPE_STR:
+		return strings.Compare(strings.ToLower(a.Str()), strings.ToLower(b.Str()))
 	}
 	return 0
 }
 
-// Type returns the MOO type
-func (m MapValue) Type() TypeCode {
-	return TYPE_MAP
-}
-
-// Truthy returns whether the value is truthy
-// In MOO, non-empty maps are truthy
-func (m MapValue) Truthy() bool {
-	return m.data.Len() > 0
-}
-
-// Equal compares two values for equality (deep comparison)
-func (m MapValue) Equal(other Value) bool {
-	if otherMap, ok := other.(MapValue); ok {
-		if m.data.Len() != otherMap.data.Len() {
-			return false
-		}
-
-		// Check that all keys and values match
-		pairs1 := m.data.Pairs()
-		for _, p := range pairs1 {
-			val, exists := otherMap.data.Get(p[0])
-			if !exists {
-				return false
-			}
-			if !p[1].Equal(val) {
-				return false
-			}
-		}
-		return true
+func cmpInt64(a, b int64) int {
+	if a < b {
+		return -1
+	} else if a > b {
+		return 1
 	}
-	return false
+	return 0
 }
 
-// Len returns the number of entries in the map
-func (m MapValue) Len() int {
-	return m.data.Len()
-}
+// ---- Value-level map API (map-typed accessors are Map-prefixed to avoid
+// colliding with the list Get/Set/Delete of the same Value type) ----------
 
-// Get returns the value for a key
-func (m MapValue) Get(key Value) (Value, bool) {
-	return m.data.Get(key)
-}
+// MapGet returns the value for key, or (None, false) if absent.
+func (v Value) MapGet(key Value) (Value, bool) { return v.goMap().get(key) }
+
+// MapSet returns a new map with key set to val (COW).
+func (v Value) MapSet(key, val Value) Value { return mapValue(v.goMap().set(key, val)) }
+
+// MapDelete returns a new map with key removed (COW).
+func (v Value) MapDelete(key Value) Value { return mapValue(v.goMap().delete(key)) }
+
+// Keys returns all keys in insertion order.
+func (v Value) Keys() []Value { return v.goMap().keys() }
+
+// Pairs returns all key-value pairs in insertion order.
+func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
 
 // GetWithCase returns a map value with configurable string-key case handling.
 // Non-string keys always use exact typed lookup semantics.
-func (m MapValue) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
-	keyStr, isStringKey := key.(StrValue)
-	if !isStringKey || !caseSensitive {
-		return m.Get(key)
+func (v Value) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
+	if key.Type() != TYPE_STR || !caseSensitive {
+		return v.MapGet(key)
 	}
-
-	// Case-sensitive lookup uses stored key spellings.
-	for _, existing := range m.Keys() {
-		existingStr, ok := existing.(StrValue)
-		if !ok {
+	want := key.Str()
+	for _, existing := range v.Keys() {
+		if existing.Type() != TYPE_STR {
 			continue
 		}
-		if existingStr.Value() == keyStr.Value() {
-			return m.Get(existing)
+		if existing.Str() == want {
+			return v.MapGet(existing)
 		}
 	}
-
-	return nil, false
+	return None, false
 }
 
-// Set returns a new map with the key-value pair set (COW)
-func (m MapValue) Set(key, val Value) MapValue {
-	return MapValue{data: m.data.Set(key, val)}
-}
-
-// Delete returns a new map with the key removed (COW)
-func (m MapValue) Delete(key Value) MapValue {
-	return MapValue{data: m.data.Delete(key)}
-}
-
-// Keys returns all keys in the map
-func (m MapValue) Keys() []Value {
-	return m.data.Keys()
-}
-
-// Pairs returns all key-value pairs in the map
-func (m MapValue) Pairs() [][2]Value {
-	return m.data.Pairs()
-}
-
-// KeyPosition returns the 1-based position of a key in the map
-// Returns 0 if the key is not found
-func (m MapValue) KeyPosition(key Value) int64 {
-	pairs := m.data.Pairs()
-	for i, p := range pairs {
+// KeyPosition returns the 1-based position of key, or 0 if not found.
+func (v Value) KeyPosition(key Value) int64 {
+	for i, p := range v.goMap().pairsList() {
 		if p[0].Equal(key) {
-			return int64(i + 1) // 1-based index
+			return int64(i + 1)
 		}
 	}
-	return 0 // Not found
+	return 0
 }
 
-// IsValidMapKey checks if a value type is valid as a map key
+// IsValidMapKey reports whether a value type is valid as a map key.
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
 	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR
 }
 
-// IsValidBuiltinMapKey checks if a value is valid as a key argument to map builtins.
-// Anonymous object keys are rejected by key-accepting map builtins (E_TYPE).
+// IsValidBuiltinMapKey reports whether a value is valid as a key argument to map
+// builtins. Anonymous object keys are rejected (E_TYPE).
 func IsValidBuiltinMapKey(v Value) bool {
 	return IsValidMapKey(v) && v.Type() != TYPE_ANON
 }
