@@ -8,11 +8,11 @@ import (
 	"barn/vm"
 )
 
-func sameWaif(a, b types.WaifValue) bool {
+func sameWaif(a, b types.Value) bool {
 	return a.Equal(b)
 }
 
-func waifInList(needle types.WaifValue, haystack []types.WaifValue) bool {
+func waifInList(needle types.Value, haystack []types.Value) bool {
 	for _, candidate := range haystack {
 		if sameWaif(needle, candidate) {
 			return true
@@ -21,7 +21,7 @@ func waifInList(needle types.WaifValue, haystack []types.WaifValue) bool {
 	return false
 }
 
-func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
+func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.Value {
 	roots := s.store.PersistentWaifRoots()
 	for _, exec := range rootVMs {
 		vm.CollectWaifsFromVM(exec, &roots)
@@ -29,7 +29,7 @@ func (s *Scheduler) liveWaifs(rootVMs ...*vm.VM) []types.WaifValue {
 	return roots
 }
 
-func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.WaifValue, rootVMs ...*vm.VM) {
+func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.Value, rootVMs ...*vm.VM) {
 	if len(pending) == 0 || ctx == nil {
 		return
 	}
@@ -43,7 +43,7 @@ func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []type
 	}
 }
 
-func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.WaifValue) {
+func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Value) {
 	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
 	if err != nil {
 		return

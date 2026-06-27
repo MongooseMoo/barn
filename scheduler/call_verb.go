@@ -66,8 +66,8 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	// Update programmer to verb owner now that we found the verb
 	t.Programmer = verb.Owner
 
-	thisVal := types.Value(types.NewObj(objID))
-	var frameThisValue types.Value
+	thisVal := types.NewObj(objID)
+	frameThisValue := types.None
 	if isAnonymous, errCode := s.store.ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon
