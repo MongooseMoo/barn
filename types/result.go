@@ -56,9 +56,15 @@ func Return(v Value) Result {
 	return Result{Val: v, Flow: FlowReturn}
 }
 
-// Err creates a Result for an error/exception
+// Err creates a Result for an error/exception.
+//
+// Val is set to the explicit None sentinel. Post-de-box the zero Value{} is
+// integer 0 (tag TYPE_INT), not nil/None, so leaving Val unset would make a
+// builtin-raised error surface as bare int 0: vm.HandleError gates on
+// Val.IsNone() to build the standard {code, message, value, traceback} list,
+// and that branch only fires for the explicit None.
 func Err(e ErrorCode) Result {
-	return Result{Flow: FlowException, Error: e}
+	return Result{Flow: FlowException, Error: e, Val: None}
 }
 
 // Break creates a Result for a break statement

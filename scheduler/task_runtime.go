@@ -139,6 +139,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			// Push initial activation frame for traceback support
 			t.PushFrame(task.ActivationFrame{
 				This:       t.This,
+				ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
 				Player:     t.Owner,
 				Programmer: t.Programmer,
 				Caller:     t.Caller,

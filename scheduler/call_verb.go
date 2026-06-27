@@ -48,6 +48,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		result := types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,
+			Val:   types.None,
 		}
 		// Don't log E_VERBNF for optional hooks
 		return result
@@ -60,6 +61,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		return types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,
+			Val:   types.None,
 		}
 	}
 

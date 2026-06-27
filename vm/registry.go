@@ -134,6 +134,7 @@ func BuildVMRegistry() *builtins.Registry {
 			if t, ok := ctx.Task.(*task.Task); ok {
 				t.PushFrame(task.ActivationFrame{
 					This:        types.ObjNothing,
+					ThisValue:   types.None, // explicit None: post-de-box zero Value{} is int 0, which ToList would render as this==0 instead of #-1
 					Player:      ctx.Player,
 					Programmer:  ctx.Programmer,
 					Verb:        "",

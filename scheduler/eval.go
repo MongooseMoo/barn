@@ -147,7 +147,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 				time.Sleep(10 * time.Millisecond)
 			}
 			if t.GetState() != task.TaskQueued {
-				result = types.Result{Flow: types.FlowException, Error: types.E_INVARG}
+				result = types.Result{Flow: types.FlowException, Error: types.E_INVARG, Val: types.None}
 				break
 			}
 		case seconds == 0:
