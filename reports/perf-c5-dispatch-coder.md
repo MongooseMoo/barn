@@ -149,4 +149,6 @@ Artifacts: `experiments/perf-c5-dispatch-after.txt` (full suite), `experiments/p
 ---
 
 ## 4. Commit
-`<filled in after commit below>`
+Branch `perf/c5-dispatch` off master `6278e38`. Single commit:
+`perf(c5): collapse VM dispatch loop hot path` — authoritative hash via
+`git -C C:/Users/Q/code/barn log --oneline -1 perf/c5-dispatch`.
