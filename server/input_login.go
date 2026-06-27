@@ -71,8 +71,8 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 		return types.ObjID(-1), nil
 	}
 
-	if objVal, ok := result.Val.(types.ObjValue); ok {
-		playerID := objVal.ID()
+	if result.Val.Type() == types.TYPE_OBJ || result.Val.Type() == types.TYPE_ANON {
+		playerID := result.Val.Obj()
 		if playerID > 0 {
 			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
@@ -109,8 +109,8 @@ func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Res
 		return types.ObjID(-1)
 	}
 
-	if objVal, ok := result.Val.(types.ObjValue); ok {
-		playerID := objVal.ID()
+	if result.Val.Type() == types.TYPE_OBJ || result.Val.Type() == types.TYPE_ANON {
+		playerID := result.Val.Obj()
 		if playerID > 0 {
 			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
@@ -155,7 +155,7 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 		return false, nil
 	}
 
-	if result.Val == nil {
+	if result.Val.IsNone() {
 		return false, nil
 	}
 	return result.Val.Truthy(), nil
@@ -184,7 +184,7 @@ func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, 
 		return true, nil
 	}
 
-	if result.Val == nil {
+	if result.Val.IsNone() {
 		return false, nil
 	}
 	return result.Val.Truthy(), nil
@@ -212,8 +212,8 @@ func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, play
 // falling back to "*** Connected ***" if not set.
 func (s *InputProcessor) connectMessage() string {
 	if val, ok := s.getServerOption(0, "connect_msg"); ok {
-		if strVal, ok := val.(types.StrValue); ok && strVal.Value() != "" {
-			return strVal.Value()
+		if val.Type() == types.TYPE_STR && val.Str() != "" {
+			return val.Str()
 		}
 	}
 	return "*** Connected ***"
@@ -324,17 +324,16 @@ func (s *InputProcessor) getServerOption(listener types.ObjID, name string) (typ
 		serverOptions, err = s.store.FindProperty(0, "server_options")
 	}
 	if err != types.E_NONE {
-		return nil, false
+		return types.None, false
 	}
 
-	serverOptionsObj, ok := serverOptions.Value.(types.ObjValue)
-	if !ok {
-		return nil, false
+	if serverOptions.Value.Type() != types.TYPE_OBJ && serverOptions.Value.Type() != types.TYPE_ANON {
+		return types.None, false
 	}
 
-	prop, err := s.store.FindProperty(serverOptionsObj.ID(), name)
+	prop, err := s.store.FindProperty(serverOptions.Value.Obj(), name)
 	if err != types.E_NONE {
-		return nil, false
+		return types.None, false
 	}
 	return prop.Value, true
 }
