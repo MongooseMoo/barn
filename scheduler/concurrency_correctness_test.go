@@ -89,12 +89,11 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
 	}
-	got, ok := final.(types.IntValue)
-	if !ok {
+	if final.Type() != types.TYPE_INT {
 		t.Fatalf("counter = %T, want int", final)
 	}
-	if got.Val != int64(n) {
-		t.Fatalf("counter = %d, want %d (lost updates under optimistic concurrency)", got.Val, n)
+	if final.Int() != int64(n) {
+		t.Fatalf("counter = %d, want %d (lost updates under optimistic concurrency)", final.Int(), n)
 	}
 }
 

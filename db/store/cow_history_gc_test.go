@@ -51,7 +51,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("reader initial FindProperty failed: %v", errCode)
 	}
-	if got := prop.Value.(types.IntValue).Val; got != 1 {
+	if got := prop.Value.Int(); got != 1 {
 		t.Fatalf("reader initial value = %d, want 1", got)
 	}
 
@@ -74,7 +74,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 		if errCode != types.E_NONE {
 			t.Fatalf("reader FindProperty after commit %d failed: %v", i, errCode)
 		}
-		if got := prop.Value.(types.IntValue).Val; got != 1 {
+		if got := prop.Value.Int(); got != 1 {
 			t.Fatalf("reader value after commit %d = %d, want stable 1 (pruned out from under live reader!)", i, got)
 		}
 	}
@@ -103,7 +103,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("reader final FindProperty failed: %v", errCode)
 	}
-	if got := prop.Value.(types.IntValue).Val; got != 1 {
+	if got := prop.Value.Int(); got != 1 {
 		t.Fatalf("reader final value = %d, want 1", got)
 	}
 
@@ -139,7 +139,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
-	if got := live.(types.IntValue).Val; got != 9999 {
+	if got := live.Int(); got != 9999 {
 		t.Fatalf("live value = %d, want 9999", got)
 	}
 

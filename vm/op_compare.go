@@ -13,24 +13,24 @@ func (vm *VM) executeEq() error {
 	a := vm.Pop()
 	if eq, ok := boolIntEqual(a, b); ok {
 		if eq {
-			vm.Push(types.IntValue{Val: 1})
+			vm.Push(types.NewInt(1))
 		} else {
-			vm.Push(types.IntValue{Val: 0})
+			vm.Push(types.NewInt(0))
 		}
 		return nil
 	}
 	if eq, ok := vm.promoteNumericEqual(a, b); ok {
 		if eq {
-			vm.Push(types.IntValue{Val: 1})
+			vm.Push(types.NewInt(1))
 		} else {
-			vm.Push(types.IntValue{Val: 0})
+			vm.Push(types.NewInt(0))
 		}
 		return nil
 	}
 	if a.Equal(b) {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }
@@ -40,24 +40,24 @@ func (vm *VM) executeNe() error {
 	a := vm.Pop()
 	if eq, ok := boolIntEqual(a, b); ok {
 		if eq {
-			vm.Push(types.IntValue{Val: 0})
+			vm.Push(types.NewInt(0))
 		} else {
-			vm.Push(types.IntValue{Val: 1})
+			vm.Push(types.NewInt(1))
 		}
 		return nil
 	}
 	if eq, ok := vm.promoteNumericEqual(a, b); ok {
 		if eq {
-			vm.Push(types.IntValue{Val: 0})
+			vm.Push(types.NewInt(0))
 		} else {
-			vm.Push(types.IntValue{Val: 1})
+			vm.Push(types.NewInt(1))
 		}
 		return nil
 	}
 	if !a.Equal(b) {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }
@@ -73,9 +73,9 @@ func (vm *VM) executeLt() error {
 	}
 
 	if result < 0 {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }
@@ -90,9 +90,9 @@ func (vm *VM) executeLe() error {
 	}
 
 	if result <= 0 {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }
@@ -107,9 +107,9 @@ func (vm *VM) executeGt() error {
 	}
 
 	if result > 0 {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }
@@ -124,9 +124,9 @@ func (vm *VM) executeGe() error {
 	}
 
 	if result >= 0 {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }
@@ -136,31 +136,31 @@ func (vm *VM) executeIn() error {
 	element := vm.Pop()
 
 	// Check if element is in collection
-	switch coll := collection.(type) {
-	case types.ListValue:
-		for i := 1; i <= coll.Len(); i++ {
-			if element.Equal(coll.Get(i)) {
-				vm.Push(types.IntValue{Val: int64(i)})
+	switch collection.Type() {
+	case types.TYPE_LIST:
+		for i := 1; i <= collection.Len(); i++ {
+			if element.Equal(collection.Get(i)) {
+				vm.Push(types.NewInt(int64(i)))
 				return nil
 			}
 		}
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 		return nil
 
-	case types.StrValue:
-		if elem, ok := element.(types.StrValue); ok {
-			haystack := strings.ToLower(coll.Value())
-			needle := strings.ToLower(elem.Value())
+	case types.TYPE_STR:
+		if element.Type() == types.TYPE_STR {
+			haystack := strings.ToLower(collection.Str())
+			needle := strings.ToLower(element.Str())
 			if pos := strings.Index(haystack, needle); pos >= 0 {
-				vm.Push(types.IntValue{Val: int64(pos + 1)})
+				vm.Push(types.NewInt(int64(pos + 1)))
 			} else {
-				vm.Push(types.IntValue{Val: 0})
+				vm.Push(types.NewInt(0))
 			}
 			return nil
 		}
 		return fmt.Errorf("E_TYPE: invalid element type for 'in' with string")
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		// For maps, `in` searches the map's VALUES (not keys) and returns the
 		// 1-based position of the first matching pair in key-sorted order, or 0.
 		// This matches ToastStunt exactly: OP_IN (execute.cc:1403) calls
@@ -170,15 +170,15 @@ func (vm *VM) executeIn() error {
 		// → case-insensitive, hence .Equal here. Do NOT change this to search
 		// keys: conformance map.yaml is_member("FOO",["FOO"->"BAR"]) == 0 proves
 		// keys are not searched. (Review finding F27 mis-claimed key search.)
-		pairs := coll.Pairs()
+		pairs := collection.Pairs()
 		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {
 			if pair[1].Equal(element) {
-				vm.Push(types.IntValue{Val: int64(i + 1)})
+				vm.Push(types.NewInt(int64(i + 1)))
 				return nil
 			}
 		}
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 		return nil
 
 	default:
@@ -194,10 +194,10 @@ func (vm *VM) promoteNumericEqual(a, b types.Value) (equal bool, handled bool) {
 	if !vm.promoting() {
 		return false, false
 	}
-	_, aIsInt := a.(types.IntValue)
-	_, bIsInt := b.(types.IntValue)
-	_, aIsFloat := a.(types.FloatValue)
-	_, bIsFloat := b.(types.FloatValue)
+	aIsInt := a.Type() == types.TYPE_INT
+	bIsInt := b.Type() == types.TYPE_INT
+	aIsFloat := a.Type() == types.TYPE_FLOAT
+	bIsFloat := b.Type() == types.TYPE_FLOAT
 	mixed := (aIsInt && bIsFloat) || (aIsFloat && bIsInt)
 	if !mixed {
 		return false, false
@@ -211,26 +211,26 @@ func (vm *VM) promoteNumericEqual(a, b types.Value) (equal bool, handled bool) {
 // mixed int/float operands are compared as doubles instead of raising E_TYPE.
 func compareValues(a, b types.Value, promote bool) (int, error) {
 	// Integer comparison
-	aInt, aIsInt := a.(types.IntValue)
-	bInt, bIsInt := b.(types.IntValue)
+	aIsInt := a.Type() == types.TYPE_INT
+	bIsInt := b.Type() == types.TYPE_INT
 
 	if aIsInt && bIsInt {
-		if aInt.Val < bInt.Val {
+		if a.Int() < b.Int() {
 			return -1, nil
-		} else if aInt.Val > bInt.Val {
+		} else if a.Int() > b.Int() {
 			return 1, nil
 		}
 		return 0, nil
 	}
 
 	// Float comparison
-	aFloat, aIsFloat := a.(types.FloatValue)
-	bFloat, bIsFloat := b.(types.FloatValue)
+	aIsFloat := a.Type() == types.TYPE_FLOAT
+	bIsFloat := b.Type() == types.TYPE_FLOAT
 
 	if aIsFloat && bIsFloat {
-		if aFloat.Val < bFloat.Val {
+		if a.Float() < b.Float() {
 			return -1, nil
-		} else if aFloat.Val > bFloat.Val {
+		} else if a.Float() > b.Float() {
 			return 1, nil
 		}
 		return 0, nil
@@ -252,8 +252,8 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 	}
 
 	// String comparison
-	aStr, aIsStr := a.(types.StrValue)
-	bStr, bIsStr := b.(types.StrValue)
+	aIsStr := a.Type() == types.TYPE_STR
+	bIsStr := b.Type() == types.TYPE_STR
 
 	if aIsStr && bIsStr {
 		// MOO's relational operators (<, <=, >, >=) compare strings
@@ -261,8 +261,8 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 		// mystrcasecmp. Strings that differ only in case compare as equal here.
 		// (== / != have their own case-insensitive path; equal()/strcmp() stay
 		// case-sensitive.)
-		al := strings.ToLower(aStr.Value())
-		bl := strings.ToLower(bStr.Value())
+		al := strings.ToLower(a.Str())
+		bl := strings.ToLower(b.Str())
 		if al < bl {
 			return -1, nil
 		} else if al > bl {
@@ -272,13 +272,13 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 	}
 
 	// Object comparison (by ID)
-	aObj, aIsObj := a.(types.ObjValue)
-	bObj, bIsObj := b.(types.ObjValue)
+	aIsObj := a.Type() == types.TYPE_OBJ
+	bIsObj := b.Type() == types.TYPE_OBJ
 
 	if aIsObj && bIsObj {
-		if aObj.ID() < bObj.ID() {
+		if a.ID() < b.ID() {
 			return -1, nil
-		} else if aObj.ID() > bObj.ID() {
+		} else if a.ID() > b.ID() {
 			return 1, nil
 		}
 		return 0, nil
@@ -286,13 +286,13 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 
 	// Error comparison (by integer code). MOO's relational operators order error
 	// values by their numeric code (E_NONE=0, E_TYPE=1, ...), matching ToastStunt.
-	aErr, aIsErr := a.(types.ErrValue)
-	bErr, bIsErr := b.(types.ErrValue)
+	aIsErr := a.Type() == types.TYPE_ERR
+	bIsErr := b.Type() == types.TYPE_ERR
 
 	if aIsErr && bIsErr {
-		if aErr.Code() < bErr.Code() {
+		if a.Code() < b.Code() {
 			return -1, nil
-		} else if aErr.Code() > bErr.Code() {
+		} else if a.Code() > b.Code() {
 			return 1, nil
 		}
 		return 0, nil

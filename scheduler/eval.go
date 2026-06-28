@@ -134,11 +134,11 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 		// suspend(0): scheduler-yield then resume quickly.
 		// suspend() (encoded as -1): wait for explicit resume(task_id, ...).
 		seconds := 0.0
-		switch v := result.Val.(type) {
-		case types.FloatValue:
-			seconds = v.Val
-		case types.IntValue:
-			seconds = float64(v.Val)
+		switch result.Val.Type() {
+		case types.TYPE_FLOAT:
+			seconds = result.Val.Float()
+		case types.TYPE_INT:
+			seconds = float64(result.Val.Int())
 		}
 
 		switch {
@@ -153,7 +153,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 				time.Sleep(10 * time.Millisecond)
 			}
 			if t.GetState() != task.TaskQueued {
-				result = types.Result{Flow: types.FlowException, Error: types.E_INVARG}
+				result = types.Result{Flow: types.FlowException, Error: types.E_INVARG, Val: types.None}
 				break
 			}
 		case seconds == 0:
@@ -186,9 +186,9 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 
 		// Inject wake value before resuming (read() sets WakeValue to
 		// the input string; default suspend uses 0).
-		if t.WakeValue != nil {
+		if !t.WakeValue.IsNone() {
 			bcVM.SetResumeValue(t.WakeValue)
-			t.WakeValue = nil // Consume — don't leak into future suspends
+			t.WakeValue = types.None // Consume — don't leak into future suspends
 		}
 		result = bcVM.Resume()
 	}
@@ -222,7 +222,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 		errCode := types.NewErr(result.Error).String()
 		errMsg := result.Error.Message()
 		resultStr = fmt.Sprintf("{2, {%s, \"%s\", 0}}", errCode, errMsg)
-	} else if result.Val != nil {
+	} else if !result.Val.IsNone() {
 		// Success: {1, value}
 		resultStr = fmt.Sprintf("{1, %s}", result.Val.String())
 	} else {

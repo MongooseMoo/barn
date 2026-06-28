@@ -357,7 +357,7 @@ func (s *Scheduler) YieldReadyTasks() int {
 //     s.mu, no sibling can begin executing — and thus begin mutating its VM — while we
 //     read it. Walking the pointers after releasing s.mu would race exactly that
 //     transition.
-func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.WaifValue) {
+func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

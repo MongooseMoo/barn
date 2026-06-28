@@ -23,14 +23,14 @@ func builtinLength(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	switch v := args[0].(type) {
-	case types.StrValue:
+	switch args[0].Type() {
+	case types.TYPE_STR:
 		// Return raw string length (like C strlen) - do NOT decode ~XX escapes
-		return types.Ok(types.IntValue{Val: int64(len(v.Value()))})
-	case types.ListValue:
-		return types.Ok(types.IntValue{Val: int64(v.Len())})
-	case types.MapValue:
-		return types.Ok(types.IntValue{Val: int64(v.Len())})
+		return types.Ok(types.NewInt(int64(len(args[0].Str()))))
+	case types.TYPE_LIST:
+		return types.Ok(types.NewInt(int64(args[0].Len())))
+	case types.TYPE_MAP:
+		return types.Ok(types.NewInt(int64(args[0].Len())))
 	default:
 		return types.Err(types.E_TYPE)
 	}
@@ -71,21 +71,22 @@ func builtinStrsub(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	subject, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	old, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	new, ok := args[2].(types.StrValue)
-	if !ok {
+	if args[2].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
+	subj := args[0].Str()
+	oldStr := args[1].Str()
+	newStr := args[2].Str()
+
 	// Empty old string is invalid
-	if old.Value() == "" {
+	if oldStr == "" {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -93,10 +94,6 @@ func builtinStrsub(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) == 4 {
 		caseSensitive = args[3].Truthy()
 	}
-
-	subj := subject.Value()
-	oldStr := old.Value()
-	newStr := new.Value()
 
 	var result string
 	if caseSensitive {
@@ -122,12 +119,10 @@ func builtinIndex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	haystack, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	needle, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -141,19 +136,18 @@ func builtinIndex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// 2. Adjusts the returned position (result - offset)
 	offset := 0
 	if len(args) == 4 {
-		offsetVal, ok := args[3].(types.IntValue)
-		if !ok {
+		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		offset = int(offsetVal.Val)
+		offset = int(args[3].Int())
 		// Negative offset is invalid
 		if offset < 0 {
 			return types.Err(types.E_INVARG)
 		}
 	}
 
-	h := haystack.Value()
-	n := needle.Value()
+	h := args[0].Str()
+	n := args[1].Str()
 
 	// Convert to runes for proper indexing
 	hRunes := []rune(h)
@@ -164,7 +158,7 @@ func builtinIndex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	startIdx := offset
 
 	if startIdx >= len(hRunes) {
-		return types.Ok(types.IntValue{Val: 0})
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Search
@@ -191,13 +185,13 @@ func builtinIndex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			// Result is (i+1) - offset
 			result := int64(i + 1 - offset)
 			if result <= 0 {
-				return types.Ok(types.IntValue{Val: 0})
+				return types.Ok(types.NewInt(0))
 			}
-			return types.Ok(types.IntValue{Val: result})
+			return types.Ok(types.NewInt(result))
 		}
 	}
 
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // builtinRindex finds the last occurrence of needle in haystack
@@ -208,12 +202,10 @@ func builtinRindex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	haystack, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	needle, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -222,8 +214,8 @@ func builtinRindex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		caseSensitive = args[2].Truthy()
 	}
 
-	h := haystack.Value()
-	n := needle.Value()
+	h := args[0].Str()
+	n := args[1].Str()
 
 	// Convert to runes
 	hRunes := []rune(h)
@@ -234,18 +226,17 @@ func builtinRindex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// offset > 0: invalid
 	endPos := len(hRunes) // Default: search whole string
 	if len(args) == 4 {
-		offsetVal, ok := args[3].(types.IntValue)
-		if !ok {
+		if args[3].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		offset := int(offsetVal.Val)
+		offset := int(args[3].Int())
 		if offset > 0 {
 			return types.Err(types.E_INVARG)
 		}
 		// offset is 0 or negative
 		endPos = len(hRunes) + offset
 		if endPos < 0 {
-			return types.Ok(types.IntValue{Val: 0})
+			return types.Ok(types.NewInt(0))
 		}
 	}
 
@@ -276,11 +267,11 @@ func builtinRindex(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			}
 		}
 		if match {
-			return types.Ok(types.IntValue{Val: int64(i + 1)}) // 1-based
+			return types.Ok(types.NewInt(int64(i + 1))) // 1-based
 		}
 	}
 
-	return types.Ok(types.IntValue{Val: 0})
+	return types.Ok(types.NewInt(0))
 }
 
 // builtinStrcmp compares two strings lexicographically (case-sensitive)
@@ -290,17 +281,15 @@ func builtinStrcmp(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str1, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	str2, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	cmp := strings.Compare(str1.Value(), str2.Value())
-	return types.Ok(types.IntValue{Val: int64(cmp)})
+	cmp := strings.Compare(args[0].Str(), args[1].Str())
+	return types.Ok(types.NewInt(int64(cmp)))
 }
 
 // builtinUpcase converts string to uppercase
@@ -310,12 +299,11 @@ func builtinUpcase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	return types.Ok(types.NewStr(strings.ToUpper(str.Value())))
+	return types.Ok(types.NewStr(strings.ToUpper(args[0].Str())))
 }
 
 // builtinDowncase converts string to lowercase
@@ -325,12 +313,11 @@ func builtinDowncase(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	return types.Ok(types.NewStr(strings.ToLower(str.Value())))
+	return types.Ok(types.NewStr(strings.ToLower(args[0].Str())))
 }
 
 // builtinCapitalize uppercases only the first character of the string,
@@ -343,12 +330,11 @@ func builtinCapitalize(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	s := str.Value()
+	s := args[0].Str()
 	if s == "" {
 		return types.Ok(types.NewStr(""))
 	}
@@ -364,21 +350,19 @@ func builtinExplode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	s := str.Value()
+	s := args[0].Str()
 
 	delim := " "
 	if len(args) >= 2 {
-		delimVal, ok := args[1].(types.StrValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		if delimVal.Value() != "" {
-			delim = string([]byte{delimVal.Value()[0]})
+		if args[1].Str() != "" {
+			delim = string([]byte{args[1].Str()[0]})
 		}
 	}
 
@@ -414,29 +398,27 @@ func builtinImplode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	list, ok := args[0].(types.ListValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	list := args[0]
 
 	delimiter := ""
 	if len(args) == 2 {
-		delim, ok := args[1].(types.StrValue)
-		if !ok {
+		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		delimiter = delim.Value()
+		delimiter = args[1].Str()
 	}
 
 	// Convert list elements to strings
 	parts := make([]string, list.Len())
 	for i := 1; i <= list.Len(); i++ {
 		elem := list.Get(i)
-		str, ok := elem.(types.StrValue)
-		if !ok {
+		if elem.Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
-		parts[i-1] = str.Value()
+		parts[i-1] = elem.Str()
 	}
 
 	result := strings.Join(parts, delimiter)
@@ -456,23 +438,21 @@ func builtinTrim(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	s := str.Value()
+	s := args[0].Str()
 	if len(args) == 1 {
 		// Trim whitespace
 		return types.Ok(types.NewStr(strings.TrimSpace(s)))
 	}
 
 	// Trim specific characters
-	chars, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewStr(strings.Trim(s, chars.Value())))
+	return types.Ok(types.NewStr(strings.Trim(s, args[1].Str())))
 }
 
 // builtinLtrim removes leading characters
@@ -482,23 +462,21 @@ func builtinLtrim(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	s := str.Value()
+	s := args[0].Str()
 	if len(args) == 1 {
 		// Trim whitespace
 		return types.Ok(types.NewStr(strings.TrimLeftFunc(s, unicode.IsSpace)))
 	}
 
 	// Trim specific characters
-	chars, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewStr(strings.TrimLeft(s, chars.Value())))
+	return types.Ok(types.NewStr(strings.TrimLeft(s, args[1].Str())))
 }
 
 // builtinRtrim removes trailing characters
@@ -508,23 +486,21 @@ func builtinRtrim(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
-	s := str.Value()
+	s := args[0].Str()
 	if len(args) == 1 {
 		// Trim whitespace
 		return types.Ok(types.NewStr(strings.TrimRightFunc(s, unicode.IsSpace)))
 	}
 
 	// Trim specific characters
-	chars, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewStr(strings.TrimRight(s, chars.Value())))
+	return types.Ok(types.NewStr(strings.TrimRight(s, args[1].Str())))
 }
 
 // ============================================================================
@@ -538,16 +514,13 @@ func builtinStrtr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	str, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	from, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	to, ok := args[2].(types.StrValue)
-	if !ok {
+	if args[2].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -556,13 +529,13 @@ func builtinStrtr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		caseSensitive = args[3].Truthy()
 	}
 
-	s := str.Value()
-	fromRunes := []rune(from.Value())
-	toRunes := []rune(to.Value())
+	s := args[0].Str()
+	fromRunes := []rune(args[1].Str())
+	toRunes := []rune(args[2].Str())
 
 	// Empty from string - return unchanged
 	if len(fromRunes) == 0 {
-		return types.Ok(str)
+		return types.Ok(args[0])
 	}
 
 	// Build translation map
@@ -659,17 +632,15 @@ func builtinMatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	subjectVal, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	subject := subjectVal.Value()
+	subject := args[0].Str()
 
-	patternVal, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	pattern := patternVal.Value()
+	pattern := args[1].Str()
 
 	// Case-insensitive by default; truthy third argument enables case-sensitive matching.
 	caseSensitive := false
@@ -708,17 +679,15 @@ func builtinRmatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	subjectVal, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	subject := subjectVal.Value()
+	subject := args[0].Str()
 
-	patternVal, ok := args[1].(types.StrValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	pattern := patternVal.Value()
+	pattern := args[1].Str()
 
 	// Case-insensitive by default; truthy third argument enables case-sensitive matching.
 	caseSensitive := false
@@ -771,16 +740,15 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	templateVal, ok := args[0].(types.StrValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	template := templateVal.Value()
+	template := args[0].Str()
 
-	matchResult, ok := args[1].(types.ListValue)
-	if !ok {
+	if args[1].Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
+	matchResult := args[1]
 
 	// subs must be a well-formed match() result: exactly {start, end, groups, subject}
 	// where groups is a list of exactly nine {start, end} marker pairs and EVERY index
@@ -791,26 +759,24 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	startVal, ok := matchResult.Get(1).(types.IntValue)
-	if !ok {
+	if matchResult.Get(1).Type() != types.TYPE_INT {
 		return types.Err(types.E_INVARG)
 	}
-	endVal, ok := matchResult.Get(2).(types.IntValue)
-	if !ok {
+	startVal := matchResult.Get(1).Int()
+	if matchResult.Get(2).Type() != types.TYPE_INT {
+		return types.Err(types.E_INVARG)
+	}
+	endVal := matchResult.Get(2).Int()
+
+	subs := matchResult.Get(3)
+	if subs.Type() != types.TYPE_LIST || subs.Len() != 9 {
 		return types.Err(types.E_INVARG)
 	}
 
-	subs, ok := matchResult.Get(3).(types.ListValue)
-	if !ok {
+	if matchResult.Get(4).Type() != types.TYPE_STR {
 		return types.Err(types.E_INVARG)
 	}
-
-	subject, ok := matchResult.Get(4).(types.StrValue)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
-
-	subjectText := subject.Value()
+	subjectText := matchResult.Get(4).Str()
 	subjectLen := len(subjectText)
 	validRange := func(start, end int, allowUnused bool) bool {
 		if allowUnused && start == 0 && end == -1 {
@@ -819,7 +785,7 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return start >= 1 && start <= subjectLen+1 && end >= 0 && end <= subjectLen && start-1 <= end
 	}
 
-	if !validRange(int(startVal.Val), int(endVal.Val), false) {
+	if !validRange(int(startVal), int(endVal), false) {
 		return types.Err(types.E_INVARG)
 	}
 	if subs.Len() != 9 {
@@ -828,20 +794,18 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 	groupRanges := make([][2]int, 9)
 	for i := 1; i <= 9; i++ {
-		groupRange, ok := subs.Get(i).(types.ListValue)
-		if !ok || groupRange.Len() != 2 {
+		groupRange := subs.Get(i)
+		if groupRange.Type() != types.TYPE_LIST || groupRange.Len() != 2 {
 			return types.Err(types.E_INVARG)
 		}
-		gStart, ok := groupRange.Get(1).(types.IntValue)
-		if !ok {
+		if groupRange.Get(1).Type() != types.TYPE_INT {
 			return types.Err(types.E_INVARG)
 		}
-		gEnd, ok := groupRange.Get(2).(types.IntValue)
-		if !ok {
+		if groupRange.Get(2).Type() != types.TYPE_INT {
 			return types.Err(types.E_INVARG)
 		}
-		start := int(gStart.Val)
-		end := int(gEnd.Val)
+		start := int(groupRange.Get(1).Int())
+		end := int(groupRange.Get(2).Int())
 		if !validRange(start, end, true) {
 			return types.Err(types.E_INVARG)
 		}
@@ -868,7 +832,7 @@ func builtinSubstitute(ctx *kernel.TaskContext, args []types.Value) types.Result
 				// %N -> captured group N
 				groupNum := int(template[i+1] - '0')
 				if groupNum == 0 {
-					result.WriteString(extract(int(startVal.Val), int(endVal.Val)))
+					result.WriteString(extract(int(startVal), int(endVal)))
 				} else {
 					groupRange := groupRanges[groupNum-1]
 					result.WriteString(extract(groupRange[0], groupRange[1]))

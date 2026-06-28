@@ -57,25 +57,25 @@ func calculateObjectBytes(obj *Object) int {
 func calculateValueBytes(v types.Value) int {
 	size := 16
 
-	switch val := v.(type) {
-	case types.StrValue:
-		size += len(val.Value()) + 1
-	case types.FloatValue:
+	switch v.Type() {
+	case types.TYPE_STR:
+		size += len(v.Str()) + 1
+	case types.TYPE_FLOAT:
 		size += 8
-	case types.ListValue:
-		elements := val.Elements()
+	case types.TYPE_LIST:
+		elements := v.Elements()
 		size += len(elements) * 16
 		for _, elem := range elements {
 			size += calculateValueBytes(elem)
 		}
-	case types.MapValue:
-		pairs := val.Pairs()
+	case types.TYPE_MAP:
+		pairs := v.Pairs()
 		size += len(pairs) * 32
 		for _, pair := range pairs {
 			size += calculateValueBytes(pair[0])
 			size += calculateValueBytes(pair[1])
 		}
-	case types.WaifValue:
+	case types.TYPE_WAIF:
 		size += 64
 	}
 

@@ -2,21 +2,21 @@ package vm
 
 import "barn/types"
 
-func collectWaifsForGC(v types.Value, out *[]types.WaifValue) {
-	switch val := v.(type) {
-	case types.WaifValue:
+func collectWaifsForGC(v types.Value, out *[]types.Value) {
+	switch v.Type() {
+	case types.TYPE_WAIF:
 		for _, existing := range *out {
-			if existing.Equal(val) {
+			if existing.Equal(v) {
 				return
 			}
 		}
-		*out = append(*out, val)
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+		*out = append(*out, v)
+	case types.TYPE_LIST:
+		for _, elem := range v.Elements() {
 			collectWaifsForGC(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.TYPE_MAP:
+		for _, pair := range v.Pairs() {
 			collectWaifsForGC(pair[0], out)
 			collectWaifsForGC(pair[1], out)
 		}
@@ -24,7 +24,7 @@ func collectWaifsForGC(v types.Value, out *[]types.WaifValue) {
 }
 
 // CollectWaifsFromValue adds all waifs referenced by a value tree.
-func CollectWaifsFromValue(v types.Value, out *[]types.WaifValue) {
+func CollectWaifsFromValue(v types.Value, out *[]types.Value) {
 	collectWaifsForGC(v, out)
 }
 
@@ -38,17 +38,17 @@ func (vm *VM) collectPendingWaifsFromFrame(frame *StackFrame) {
 }
 
 // TakePendingWaifs returns waifs whose frame references have gone out of scope.
-func (vm *VM) TakePendingWaifs() []types.WaifValue {
+func (vm *VM) TakePendingWaifs() []types.Value {
 	if len(vm.PendingWaifs) == 0 {
 		return nil
 	}
-	pending := append([]types.WaifValue(nil), vm.PendingWaifs...)
+	pending := append([]types.Value(nil), vm.PendingWaifs...)
 	vm.PendingWaifs = nil
 	return pending
 }
 
 // CollectWaifsFromVM adds all waifs currently referenced by VM frames or stack.
-func CollectWaifsFromVM(exec *VM, out *[]types.WaifValue) {
+func CollectWaifsFromVM(exec *VM, out *[]types.Value) {
 	if exec == nil {
 		return
 	}

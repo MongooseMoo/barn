@@ -40,7 +40,7 @@ func TestReview_Data_AbsMinInt64Overflow(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("abs(MinInt64) returned error %v, want value MinInt64 (Toast returns it unchanged)", result.Error)
 	}
-	got := result.Val.(types.IntValue).Val
+	got := result.Val.Int()
 	if got != math.MinInt64 {
 		t.Errorf("abs(MinInt64) = %d, want %d (two's-complement overflow; matches Toast bf_abs)", got, int64(math.MinInt64))
 	}
@@ -58,25 +58,37 @@ func TestReview_Data_UniqueStrCaseInsensitive(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("unique returned error: %v", result.Error)
 	}
-	got := result.Val.(types.ListValue)
+	got := result.Val
 	if got.Len() != 1 {
 		t.Errorf("unique({\"hello\",\"HELLO\"}) = %d elements, want 1 (MOO strings are case-insensitive)", got.Len())
 	}
 }
 
-// HIGH: is_member() uses strictEqual (case-SENSITIVE) for list search, but
-// setadd/setremove use Equal (case-INSENSITIVE). In MOO "hello" == "HELLO",
-// so is_member("HELLO", {"hello"}) should return 1.
-func TestReview_Data_IsMemberStrCaseSensitiveBug(t *testing.T) {
+// is_member() is case-SENSITIVE by default, matching ToastStunt: bf_is_member
+// (collection.cc:84) sets case_matters = (argcount < 3) || is_true(arg3), so the
+// 2-arg form is_member(value, list) compares with case_matters=true. Hence
+// is_member("HELLO", {"hello"}) returns 0. (NOTE: setadd/setremove DO fold case —
+// list.cc:151,163 call ismember(...,0) — but is_member itself does not.)
+func TestReview_Data_IsMemberStrCaseSensitive(t *testing.T) {
 	ctx := reviewDataCtx()
 	list := types.NewList([]types.Value{types.NewStr("hello")})
-	result := builtinIsMember(ctx, []types.Value{types.NewStr("HELLO"), list})
-	if !result.IsNormal() {
-		t.Fatalf("is_member returned error: %v", result.Error)
+
+	// Case mismatch -> not found (case-sensitive).
+	miss := builtinIsMember(ctx, []types.Value{types.NewStr("HELLO"), list})
+	if !miss.IsNormal() {
+		t.Fatalf("is_member returned error: %v", miss.Error)
 	}
-	got := result.Val.(types.IntValue).Val
-	if got != 1 {
-		t.Errorf("is_member(\"HELLO\", {\"hello\"}) = %d, want 1 (MOO string equality is case-insensitive)", got)
+	if got := miss.Val.Int(); got != 0 {
+		t.Errorf("is_member(\"HELLO\", {\"hello\"}) = %d, want 0 (Toast is_member is case-sensitive, collection.cc:84)", got)
+	}
+
+	// Exact case -> found at position 1.
+	hit := builtinIsMember(ctx, []types.Value{types.NewStr("hello"), list})
+	if !hit.IsNormal() {
+		t.Fatalf("is_member returned error: %v", hit.Error)
+	}
+	if got := hit.Val.Int(); got != 1 {
+		t.Errorf("is_member(\"hello\", {\"hello\"}) = %d, want 1", got)
 	}
 }
 
@@ -93,7 +105,7 @@ func TestReview_Data_SetaddUniqueConsistency(t *testing.T) {
 	if !saResult.IsNormal() {
 		t.Fatalf("setadd returned error: %v", saResult.Error)
 	}
-	saList := saResult.Val.(types.ListValue)
+	saList := saResult.Val
 	if saList.Len() != 1 {
 		t.Fatalf("setadd({\"hello\"}, \"HELLO\") has %d elements, want 1", saList.Len())
 	}
@@ -104,7 +116,7 @@ func TestReview_Data_SetaddUniqueConsistency(t *testing.T) {
 	if !uqResult.IsNormal() {
 		t.Fatalf("unique returned error: %v", uqResult.Error)
 	}
-	uqList := uqResult.Val.(types.ListValue)
+	uqList := uqResult.Val
 	if uqList.Len() != 1 {
 		t.Errorf("setadd sees them as equal (len=1) but unique keeps both (len=%d) — inconsistent", uqList.Len())
 	}
@@ -124,8 +136,8 @@ func TestReview_Data_SortReverseIgnored(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("sort returned error: %v", result.Error)
 	}
-	got := result.Val.(types.ListValue)
-	first := got.Get(1).(types.IntValue).Val
+	got := result.Val
+	first := got.Get(1).Int()
 	if first != 3 {
 		t.Errorf("sort({1,2,3}, {}, 0, 1) first element = %d, want 3 (reverse flag ignored)", first)
 	}
@@ -154,7 +166,7 @@ func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("pcre_match(\"\", \".*\") returned error: %v", result.Error)
 	}
-	got := result.Val.(types.ListValue)
+	got := result.Val
 	if got.Len() != 0 {
 		t.Errorf("pcre_match(\"\", \".*\") = %d entries, want 0 ({}) — Toast's loop "+
 			"`while (offset < subject_length)` never iterates for an empty subject "+
@@ -171,7 +183,7 @@ func TestReview_Data_PcreMatchEmptySubject(t *testing.T) {
 	if !nm.IsNormal() {
 		t.Fatalf("pcre_match(\"foobar\", \"baz\") returned error: %v", nm.Error)
 	}
-	if n := nm.Val.(types.ListValue).Len(); n != 0 {
+	if n := nm.Val.Len(); n != 0 {
 		t.Errorf("pcre_match(\"foobar\", \"baz\") = %d entries, want 0 ({})", n)
 	}
 }
@@ -200,7 +212,7 @@ func TestReview_Data_CapitalizeDeprecatedTitle(t *testing.T) {
 		if !result.IsNormal() {
 			t.Fatalf("capitalize(%q) returned error: %v", c.in, result.Error)
 		}
-		got := result.Val.(types.StrValue).Value()
+		got := result.Val.Str()
 		if got != c.want {
 			t.Errorf("capitalize(%q) = %q, want %q", c.in, got, c.want)
 		}
@@ -224,17 +236,17 @@ func TestReview_Data_MapkeysActualOrder(t *testing.T) {
 	if !result.IsNormal() {
 		t.Fatalf("mapkeys returned error: %v", result.Error)
 	}
-	keys := result.Val.(types.ListValue)
+	keys := result.Val
 	if keys.Len() != 5 {
 		t.Fatalf("mapkeys returned %d keys, want 5", keys.Len())
 	}
 	// Actual code order: INT(0) < OBJ(1) < FLOAT(2) < ERR(3) < STR(4)
 	// Comment claims: INT < FLOAT < OBJ < ERR < STR — if comment is right, test fails
-	_, isInt := keys.Get(1).(types.IntValue)
-	_, isObj := keys.Get(2).(types.ObjValue)
-	_, isFloat := keys.Get(3).(types.FloatValue)
-	_, isErr := keys.Get(4).(types.ErrValue)
-	_, isStr := keys.Get(5).(types.StrValue)
+	isInt := keys.Get(1).Type() == types.TYPE_INT
+	isObj := keys.Get(2).Type() == types.TYPE_OBJ
+	isFloat := keys.Get(3).Type() == types.TYPE_FLOAT
+	isErr := keys.Get(4).Type() == types.TYPE_ERR
+	isStr := keys.Get(5).Type() == types.TYPE_STR
 	if !(isInt && isObj && isFloat && isErr && isStr) {
 		// Document the discrepancy: the mapkeys comment says INT<FLOAT<OBJ<ERR<STR
 		// but the code (CompareMapKeys) does INT<OBJ<FLOAT<ERR<STR.

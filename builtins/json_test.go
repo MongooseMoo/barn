@@ -14,24 +14,22 @@ func TestParseJsonNullMapsToENone(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("parse_json(null) failed: %v", res.Error)
 	}
-	errVal, ok := res.Val.(types.ErrValue)
-	if !ok {
+	if res.Val.Type() != types.TYPE_ERR {
 		t.Fatalf("parse_json(null) = %T, want ErrValue", res.Val)
 	}
-	if errVal.Code() != types.E_NONE {
-		t.Fatalf("parse_json(null) = %v, want E_NONE", errVal.Code())
+	if res.Val.Code() != types.E_NONE {
+		t.Fatalf("parse_json(null) = %v, want E_NONE", res.Val.Code())
 	}
 
 	res = builtinParseJson(ctx, []types.Value{types.NewStr(`[null]`)})
 	if res.IsError() {
 		t.Fatalf("parse_json([null]) failed: %v", res.Error)
 	}
-	list, ok := res.Val.(types.ListValue)
-	if !ok {
+	if res.Val.Type() != types.TYPE_LIST {
 		t.Fatalf("parse_json([null]) = %T, want ListValue", res.Val)
 	}
-	elem, ok := list.Get(1).(types.ErrValue)
-	if !ok || elem.Code() != types.E_NONE {
-		t.Fatalf("parse_json([null])[1] = %#v, want E_NONE", list.Get(1))
+	elem := res.Val.Get(1)
+	if elem.Type() != types.TYPE_ERR || elem.Code() != types.E_NONE {
+		t.Fatalf("parse_json([null])[1] = %#v, want E_NONE", res.Val.Get(1))
 	}
 }

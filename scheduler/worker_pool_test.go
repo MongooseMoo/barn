@@ -287,20 +287,19 @@ return {first, #0.snapshot_value};
 	if queued.Result.Flow != types.FlowReturn {
 		t.Fatalf("result flow = %v, want return", queued.Result.Flow)
 	}
-	values, ok := queued.Result.Val.(types.ListValue)
-	if !ok {
+	values := queued.Result.Val
+	if values.Type() != types.TYPE_LIST {
 		t.Fatalf("result value = %T, want list", queued.Result.Val)
 	}
 	if values.Len() != 2 {
 		t.Fatalf("result len = %d, want 2", values.Len())
 	}
 	for i := 1; i <= values.Len(); i++ {
-		str, ok := values.Get(i).(types.StrValue)
-		if !ok {
+		if values.Get(i).Type() != types.TYPE_STR {
 			t.Fatalf("result[%d] = %T, want string", i, values.Get(i))
 		}
-		if str.Value() != "old" {
-			t.Fatalf("result[%d] = %q, want old", i, str.Value())
+		if values.Get(i).Str() != "old" {
+			t.Fatalf("result[%d] = %q, want old", i, values.Get(i).Str())
 		}
 	}
 
@@ -308,7 +307,7 @@ return {first, #0.snapshot_value};
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
-	if got := liveValue.(types.StrValue).Value(); got != "new" {
+	if got := liveValue.Str(); got != "new" {
 		t.Fatalf("live store value = %q, want new", got)
 	}
 }
@@ -343,16 +342,16 @@ return child;
 	if queued.Result.Flow != types.FlowReturn {
 		t.Fatalf("result flow = %v, want return", queued.Result.Flow)
 	}
-	childID, ok := queued.Result.Val.(types.IntValue)
-	if !ok {
+	childID := queued.Result.Val
+	if childID.Type() != types.TYPE_INT {
 		t.Fatalf("result value = %T, want child task id", queued.Result.Val)
 	}
 	if len(queued.CreatedForks) != 0 {
 		t.Fatalf("created forks after successful commit = %#v, want none", queued.CreatedForks)
 	}
-	child := task.GetManager().GetTask(childID.Val)
+	child := task.GetManager().GetTask(childID.Int())
 	if child == nil {
-		t.Fatalf("child task %d was not registered", childID.Val)
+		t.Fatalf("child task %d was not registered", childID.Int())
 	}
 	if child.Owner != owner || child.GetState() != task.TaskQueued {
 		t.Fatalf("child owner/state = #%d/%s, want #%d/queued", child.Owner, child.GetState(), owner)
@@ -391,8 +390,8 @@ return #0.yield_order;
 	if err := s.runTask(queued); err != nil {
 		t.Fatalf("runTask failed: %v", err)
 	}
-	got, ok := queued.Result.Val.(types.ListValue)
-	if !ok {
+	got := queued.Result.Val
+	if got.Type() != types.TYPE_LIST {
 		t.Fatalf("result value = %T, want list", queued.Result.Val)
 	}
 	want := []string{"main-before", "fork", "main-after"}
@@ -400,8 +399,8 @@ return #0.yield_order;
 		t.Fatalf("result len = %d, want %d: %s", got.Len(), len(want), got.String())
 	}
 	for i, wantValue := range want {
-		value, ok := got.Get(i + 1).(types.StrValue)
-		if !ok || value.Value() != wantValue {
+		value := got.Get(i + 1)
+		if value.Type() != types.TYPE_STR || value.Str() != wantValue {
 			t.Fatalf("result[%d] = %v, want %q in %s", i+1, got.Get(i+1), wantValue, got.String())
 		}
 	}
@@ -505,8 +504,7 @@ return 0;
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
 	}
-	got, ok := value.(types.StrValue)
-	if !ok || got.Value() != "after-yield" {
+	if value.Type() != types.TYPE_STR || value.Str() != "after-yield" {
 		t.Fatalf("yield_progress = %v, want after-yield", value)
 	}
 }
@@ -625,7 +623,7 @@ return before;
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
-	if got := liveValue.(types.StrValue).Value(); got != "live" {
+	if got := liveValue.Str(); got != "live" {
 		t.Fatalf("live store value = %q, want live", got)
 	}
 }

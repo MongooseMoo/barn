@@ -118,8 +118,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 						t.Errorf("subtree %d descendant #%d PropertyValue(%s) after define = %v, want value", i, dID, propName, errCode)
 						return
 					}
-					iv, ok := pv.(types.IntValue)
-					if !ok || iv.Val != want {
+					if pv.Type() != types.TYPE_INT || pv.Int() != want {
 						t.Errorf("subtree %d descendant #%d inherited %v after define, want %d", i, dID, pv, want)
 						return
 					}
@@ -182,7 +181,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 				for _, dID := range descendants[s] {
 					pv, errCode := store.PropertyValue(dID, propName)
 					if errCode == types.E_NONE {
-						if iv, ok := pv.(types.IntValue); !ok || iv.Val != want {
+						if pv.Type() != types.TYPE_INT || pv.Int() != want {
 							t.Errorf("reader saw torn inherited value on #%d: %v want absent-or-%d", dID, pv, want)
 							return
 						}

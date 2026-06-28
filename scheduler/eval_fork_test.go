@@ -321,7 +321,7 @@ return #0.fork_value;
 		if errCode != types.E_NONE {
 			t.Fatalf("PropertyValue failed: %v", errCode)
 		}
-		if _, ok := value.(types.MapValue); ok {
+		if value.Type() == types.TYPE_MAP {
 			return
 		}
 	}

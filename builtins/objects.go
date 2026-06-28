@@ -35,30 +35,30 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Positive integers are NOT valid as parent references (E_TYPE)
 	var parents []types.ObjID
 	parentsFromList := false
-	switch p := args[0].(type) {
-	case types.ObjValue:
-		parents = []types.ObjID{p.ID()}
-	case types.IntValue:
+	switch args[0].Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		parents = []types.ObjID{args[0].ID()}
+	case types.TYPE_INT:
 		// Only negative integers are valid as object references
-		if p.Val >= 0 {
+		if args[0].Int() >= 0 {
 			return types.Err(types.E_TYPE)
 		}
-		parents = []types.ObjID{types.ObjID(p.Val)}
-	case types.ListValue:
+		parents = []types.ObjID{types.ObjID(args[0].Int())}
+	case types.TYPE_LIST:
 		// Multiple parents
 		parentsFromList = true
-		elements := p.Elements()
+		elements := args[0].Elements()
 		parents = make([]types.ObjID, len(elements))
 		for i, elem := range elements {
-			switch e := elem.(type) {
-			case types.ObjValue:
-				parents[i] = e.ID()
-			case types.IntValue:
+			switch elem.Type() {
+			case types.TYPE_OBJ, types.TYPE_ANON:
+				parents[i] = elem.ID()
+			case types.TYPE_INT:
 				// Only negative integers are valid as object references
-				if e.Val >= 0 {
+				if elem.Int() >= 0 {
 					return types.Err(types.E_TYPE)
 				}
-				parents[i] = types.ObjID(e.Val)
+				parents[i] = types.ObjID(elem.Int())
 			default:
 				return types.Err(types.E_TYPE)
 			}
@@ -129,8 +129,8 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	initArgsSeen := false
 	for i := 1; i < len(args); i++ {
-		switch v := args[i].(type) {
-		case types.ObjValue:
+		switch args[i].Type() {
+		case types.TYPE_OBJ, types.TYPE_ANON:
 			// ObjNum is owner - only valid before anonymous flag and initArgs
 			if anonymousSeen {
 				return types.Err(types.E_TYPE)
@@ -141,10 +141,10 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			if initArgsSeen {
 				return types.Err(types.E_TYPE)
 			}
-			owner = v.ID()
+			owner = args[i].ID()
 			ownerSpecified = true
-		case types.IntValue:
-			if v.Val < 0 {
+		case types.TYPE_INT:
+			if args[i].Int() < 0 {
 				// Negative int is owner (object reference)
 				if anonymousSeen {
 					return types.Err(types.E_TYPE)
@@ -155,27 +155,27 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				if initArgsSeen {
 					return types.Err(types.E_TYPE)
 				}
-				owner = types.ObjID(v.Val)
+				owner = types.ObjID(args[i].Int())
 				ownerSpecified = true
 			} else {
 				// Non-negative int is anonymous flag (0 or 1)
 				if anonymousSeen {
 					return types.Err(types.E_TYPE)
 				}
-				anonymous = v.Val != 0
+				anonymous = args[i].Int() != 0
 				anonymousSeen = true
 			}
-		case types.ListValue:
+		case types.TYPE_LIST:
 			// LIST is initialization arguments (only once)
 			if initArgsSeen {
 				return types.Err(types.E_TYPE)
 			}
-			initArgs = v.Elements()
+			initArgs = args[i].Elements()
 			initArgsSeen = true
-		case types.FloatValue:
+		case types.TYPE_FLOAT:
 			// Float is always an error
 			return types.Err(types.E_TYPE)
-		case types.MapValue:
+		case types.TYPE_MAP:
 			// Map is always an error
 			return types.Err(types.E_TYPE)
 		default:
@@ -299,18 +299,18 @@ func endRecycle(id types.ObjID) {
 	delete(recycleState.ids, id)
 }
 
-func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.ObjValue) {
-	switch val := v.(type) {
-	case types.ObjValue:
-		if val.IsAnonymous() {
-			out[val.ID()] = val
+func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
+	switch v.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if v.IsAnonymous() {
+			out[v.ID()] = v
 		}
-	case types.ListValue:
-		for _, elem := range val.Elements() {
+	case types.TYPE_LIST:
+		for _, elem := range v.Elements() {
 			collectAnonymousRefs(elem, out)
 		}
-	case types.MapValue:
-		for _, pair := range val.Pairs() {
+	case types.TYPE_MAP:
+		for _, pair := range v.Pairs() {
 			collectAnonymousRefs(pair[0], out)
 			collectAnonymousRefs(pair[1], out)
 		}
@@ -330,12 +330,11 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	if !isObjectRef(args[0]) {
 		return types.Err(types.E_TYPE)
 	}
 
-	objID := objVal.ID()
+	objID := args[0].ID()
 	if !beginRecycle(objID) {
 		// Recursive recycle(this) on the same target fails.
 		return types.Err(types.E_INVARG)
@@ -381,7 +380,7 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
-	anonRefs := make(map[types.ObjID]types.ObjValue)
+	anonRefs := make(map[types.ObjID]types.Value)
 	var propValues []types.Value
 	var errCode types.ErrorCode
 	if tx := readTxn(ctx); tx != nil {
@@ -450,16 +449,16 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Waifs are never valid
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Ok(types.NewInt(0))
 	}
 
 	var objID types.ObjID
-	switch v := args[0].(type) {
-	case types.ObjValue:
-		objID = v.ID()
-	case types.IntValue:
-		objID = types.ObjID(v.Val)
+	switch args[0].Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		objID = args[0].ID()
+	case types.TYPE_INT:
+		objID = types.ObjID(args[0].Int())
 	default:
 		return types.Err(types.E_TYPE)
 	}

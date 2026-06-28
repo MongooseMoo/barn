@@ -15,12 +15,11 @@ func requirePromoteFloat(t *testing.T, result types.Result, want float64) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want float %v (error %s, val %v)", result.Flow, want, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.FloatValue)
-	if !ok {
-		t.Fatalf("value = %T %v, want float %v", result.Val, result.Val, want)
+	if result.Val.Type() != types.TYPE_FLOAT {
+		t.Fatalf("value = %v, want float %v", result.Val, want)
 	}
-	if got.Val != want {
-		t.Fatalf("value = %v, want %v", got.Val, want)
+	if result.Val.Float() != want {
+		t.Fatalf("value = %v, want %v", result.Val.Float(), want)
 	}
 }
 
@@ -162,9 +161,8 @@ func TestPromoteNumbers_PromotePowNegativeIntExponent(t *testing.T) {
 	if res.Flow != types.FlowReturn && res.Flow != types.FlowNormal {
 		t.Fatalf("0 ^ -1 promote: flow = %v (err %s), want +Inf float", res.Flow, res.Error)
 	}
-	f, ok := res.Val.(types.FloatValue)
-	if !ok || !math.IsInf(f.Val, 1) {
-		t.Fatalf("0 ^ -1 promote: val = %T %v, want +Inf float", res.Val, res.Val)
+	if res.Val.Type() != types.TYPE_FLOAT || !math.IsInf(res.Val.Float(), 1) {
+		t.Fatalf("0 ^ -1 promote: val = %v, want +Inf float", res.Val)
 	}
 	// Non-negative exponent stays int.
 	requireInt(t, runBytecodeProgram(t, "return 2 ^ 3;", nil, promoteCtx()), 8)

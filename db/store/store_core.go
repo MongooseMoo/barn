@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 )
 
 // objectSlot is the per-id storage cell in Store.objects. The published image
@@ -70,7 +71,7 @@ type Store struct {
 	commitConflicts atomic.Uint64
 	commitRetries   atomic.Uint64
 
-	waifRegistry    map[types.ObjID]map[*types.WaifValue]struct{} // Track live waifs by class
+	waifRegistry    map[types.ObjID]map[unsafe.Pointer]struct{} // Track live waifs by class (keyed on waif identity)
 	verbCacheClears int64
 	verbCacheMisses int64
 
@@ -558,14 +559,14 @@ func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
 	if prop == nil {
 		return nil, types.E_NONE
 	}
-	listVal, ok := prop.value.(types.ListValue)
-	if !ok {
+	listVal := prop.value
+	if listVal.Type() != types.TYPE_LIST {
 		return nil, types.E_NONE
 	}
 	aliases := make([]string, 0, listVal.Len())
 	for i := 1; i <= listVal.Len(); i++ {
-		if strVal, ok := listVal.Get(i).(types.StrValue); ok {
-			aliases = append(aliases, strVal.Value())
+		if elem := listVal.Get(i); elem.Type() == types.TYPE_STR {
+			aliases = append(aliases, elem.Str())
 		}
 	}
 	return aliases, types.E_NONE

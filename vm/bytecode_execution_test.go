@@ -61,12 +61,11 @@ func requireInt(t *testing.T, result types.Result, want int64) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want value %d (error %s, val %v)", result.Flow, want, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.IntValue)
-	if !ok {
-		t.Fatalf("value = %T %v, want int %d", result.Val, result.Val, want)
+	if result.Val.Type() != types.TYPE_INT {
+		t.Fatalf("value = %v, want int %d", result.Val, want)
 	}
-	if got.Val != want {
-		t.Fatalf("value = %d, want %d", got.Val, want)
+	if result.Val.Int() != want {
+		t.Fatalf("value = %d, want %d", result.Val.Int(), want)
 	}
 }
 
@@ -75,12 +74,11 @@ func requireString(t *testing.T, result types.Result, want string) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want string %q (error %s, val %v)", result.Flow, want, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.StrValue)
-	if !ok {
-		t.Fatalf("value = %T %v, want string %q", result.Val, result.Val, want)
+	if result.Val.Type() != types.TYPE_STR {
+		t.Fatalf("value = %v, want string %q", result.Val, want)
 	}
-	if got.Value() != want {
-		t.Fatalf("value = %q, want %q", got.Value(), want)
+	if result.Val.Str() != want {
+		t.Fatalf("value = %q, want %q", result.Val.Str(), want)
 	}
 }
 
@@ -99,10 +97,10 @@ func requireList(t *testing.T, result types.Result, want ...types.Value) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v, want list (error %s, val %v)", result.Flow, result.Error, result.Val)
 	}
-	got, ok := result.Val.(types.ListValue)
-	if !ok {
-		t.Fatalf("value = %T %v, want list", result.Val, result.Val)
+	if result.Val.Type() != types.TYPE_LIST {
+		t.Fatalf("value = %v, want list", result.Val)
 	}
+	got := result.Val
 	if got.Len() != len(want) {
 		t.Fatalf("list length = %d, want %d: %v", got.Len(), len(want), got)
 	}
@@ -313,12 +311,11 @@ func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
 		t.Fatalf("flow = %v error = %v val = %v, want caught error value", result.Flow, result.Error, result.Val)
 	}
-	errVal, ok := result.Val.(types.ErrValue)
-	if !ok {
+	if result.Val.Type() != types.TYPE_ERR {
 		t.Fatalf("value = %T %v, want ErrValue", result.Val, result.Val)
 	}
-	if errVal.Code() != types.E_INVIND {
-		t.Fatalf("caught error = %v, want E_INVIND", errVal.Code())
+	if result.Val.Code() != types.E_INVIND {
+		t.Fatalf("caught error = %v, want E_INVIND", result.Val.Code())
 	}
 }
 

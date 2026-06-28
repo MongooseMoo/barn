@@ -21,15 +21,15 @@ func builtinArgon2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 5 {
 		return types.Err(types.E_ARGS)
 	}
-	password, ok := args[0].(types.StrValue)
-	if !ok {
+	password := args[0]
+	if password.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	s, ok := args[1].(types.StrValue)
-	if !ok {
+	s := args[1]
+	if s.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	salt := []byte(s.Value())
+	salt := []byte(s.Str())
 	if len(salt) < 8 {
 		return types.Err(types.E_INVARG)
 	}
@@ -38,38 +38,38 @@ func builtinArgon2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	m := uint32(64 * 1024)
 	p := uint8(2)
 	if len(args) >= 3 {
-		iterVal, ok := args[2].(types.IntValue)
-		if !ok {
+		iterVal := args[2]
+		if iterVal.Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		if iterVal.Val <= 0 {
+		if iterVal.Int() <= 0 {
 			return types.Err(types.E_INVARG)
 		}
-		t = uint32(iterVal.Val)
+		t = uint32(iterVal.Int())
 	}
 	if len(args) >= 4 {
-		memVal, ok := args[3].(types.IntValue)
-		if !ok {
+		memVal := args[3]
+		if memVal.Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		if memVal.Val <= 0 {
+		if memVal.Int() <= 0 {
 			return types.Err(types.E_INVARG)
 		}
-		m = uint32(memVal.Val)
+		m = uint32(memVal.Int())
 	}
 	if len(args) == 5 {
-		parallelVal, ok := args[4].(types.IntValue)
-		if !ok {
+		parallelVal := args[4]
+		if parallelVal.Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		if parallelVal.Val <= 0 || parallelVal.Val > math.MaxUint8 {
+		if parallelVal.Int() <= 0 || parallelVal.Int() > math.MaxUint8 {
 			return types.Err(types.E_INVARG)
 		}
-		p = uint8(parallelVal.Val)
+		p = uint8(parallelVal.Int())
 	}
 
 	const keyLen = uint32(32)
-	h := argon2.IDKey([]byte(password.Value()), salt, t, m, p, keyLen)
+	h := argon2.IDKey([]byte(password.Str()), salt, t, m, p, keyLen)
 	encoded := fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", m, t, p,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(h),
@@ -116,13 +116,15 @@ func builtinArgon2Verify(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	a, ok1 := args[0].(types.StrValue)
-	b, ok2 := args[1].(types.StrValue)
+	a := args[0]
+	b := args[1]
+	ok1 := a.Type() == types.TYPE_STR
+	ok2 := b.Type() == types.TYPE_STR
 	if !ok1 || !ok2 {
 		return types.Err(types.E_TYPE)
 	}
-	hashStr := a.Value()
-	password := b.Value()
+	hashStr := a.Str()
+	password := b.Str()
 	if !strings.HasPrefix(hashStr, "$argon2") && strings.HasPrefix(password, "$argon2") {
 		hashStr, password = password, hashStr
 	}

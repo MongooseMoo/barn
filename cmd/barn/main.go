@@ -563,7 +563,7 @@ func evalExpression(store *dbstore.Store, expr string, options config.Options) {
 	result := machine.Run(prog)
 
 	if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
-		if result.Val == nil {
+		if result.Val.IsNone() {
 			result.Val = types.NewInt(0)
 		}
 		fmt.Printf("=> %s\n", result.Val.String())

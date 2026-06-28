@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"sync"
+	"sync/atomic"
 
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -23,17 +23,32 @@ import (
 // with protectedBuiltins below.
 const protectPrefix = "protect_"
 
-var protectedBuiltins = struct {
-	sync.RWMutex
-	set map[string]bool
-}{set: map[string]bool{}}
+// protectedBuiltins holds an IMMUTABLE snapshot of the protected-builtin set
+// behind an atomic.Pointer. The set is read on every builtin call but written
+// only when the database refreshes it (boot + load_server_options()), so the
+// classic single-writer/many-reader pattern applies.
+//
+// Memory-model contract (see go-perf-atomics-vs-locks): the map a pointer
+// references is NEVER mutated after Store; a refresh builds a brand-new map and
+// atomically swaps the pointer. atomic.Pointer.Load establishes a
+// happens-before edge with the Store that published the map, so a reader sees a
+// fully-initialized map and never a half-built one. Readers therefore need no
+// lock — they Load the pointer and index a read-only map. This preserves the
+// exact observable semantics of the old RWMutex version (which builtins are
+// protected, and that a refresh takes effect atomically) while removing the
+// per-call RLock atomics from the hot path.
+var protectedBuiltins atomic.Pointer[map[string]bool]
+
+func init() {
+	empty := map[string]bool{}
+	protectedBuiltins.Store(&empty)
+}
 
 // IsProtectedBuiltin reports whether the named builtin is currently protected
-// per the loaded $server_options.
+// per the loaded $server_options. Lock-free: a single atomic load + read-only
+// map index.
 func IsProtectedBuiltin(name string) bool {
-	protectedBuiltins.RLock()
-	defer protectedBuiltins.RUnlock()
-	return protectedBuiltins.set[name]
+	return (*protectedBuiltins.Load())[name]
 }
 
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
@@ -117,7 +132,7 @@ func collectProtectedBuiltins(findProperty propertyReader, findFlags protectedFl
 	}
 
 	if serverOptsProp, ok := findProperty(0, "server_options"); ok {
-		if ref, ok := serverOptsProp.Value.(types.ObjValue); ok {
+		if ref := serverOptsProp.Value; isObjectRef(ref) {
 			if flags, ok := findFlags(ref.ID(), protectPrefix); ok {
 				next = flags
 			}
@@ -131,7 +146,7 @@ func applyProtectedBuiltins(next map[string]bool) {
 	if next == nil {
 		next = map[string]bool{}
 	}
-	protectedBuiltins.Lock()
-	protectedBuiltins.set = next
-	protectedBuiltins.Unlock()
+	// Publish the freshly-built (and henceforth immutable) map with a single
+	// atomic swap; readers loading after this see the new set in full.
+	protectedBuiltins.Store(&next)
 }

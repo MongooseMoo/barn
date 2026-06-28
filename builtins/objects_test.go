@@ -21,12 +21,11 @@ func TestMaxObjectReturnsObjectValue(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("max_object failed: %v", res.Error)
 	}
-	obj, ok := res.Val.(types.ObjValue)
-	if !ok {
+	if res.Val.Type() != types.TYPE_OBJ {
 		t.Fatalf("max_object = %T, want ObjValue", res.Val)
 	}
-	if obj.ID() != 0 {
-		t.Fatalf("max_object id = %d, want 0", obj.ID())
+	if res.Val.ID() != 0 {
+		t.Fatalf("max_object id = %d, want 0", res.Val.ID())
 	}
 }
 
@@ -81,7 +80,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	if before.IsError() {
 		t.Fatalf("object_bytes before failed: %v", before.Error)
 	}
-	beforeVal := before.Val.(types.IntValue).Val
+	beforeVal := before.Val.Int()
 
 	if errCode := ctx.StoreTxn.DefineProperty(obj, dbstore.NewProperty("test1", types.NewStr("hello world"), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
@@ -90,7 +89,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	if after.IsError() {
 		t.Fatalf("object_bytes after failed: %v", after.Error)
 	}
-	afterVal := after.Val.(types.IntValue).Val
+	afterVal := after.Val.Int()
 	if afterVal <= beforeVal {
 		t.Fatalf("object_bytes after staged property = %d, before = %d", afterVal, beforeVal)
 	}

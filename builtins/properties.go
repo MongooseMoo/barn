@@ -14,12 +14,12 @@ func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_ARGS)
 	}
 
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -48,17 +48,17 @@ func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_ARGS)
 	}
 
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -68,7 +68,7 @@ func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Find property (with inheritance)
-	prop, err := findPropertyForRead(ctx, objID, nameVal.Value())
+	prop, err := findPropertyForRead(ctx, objID, nameVal.Str())
 	if err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -102,17 +102,17 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 		return types.Err(types.E_ARGS)
 	}
 
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -121,7 +121,7 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 		return types.Err(errCode)
 	}
 
-	propName := nameVal.Value()
+	propName := nameVal.Str()
 	prop, ok, err := localPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
 		return types.Err(err)
@@ -137,10 +137,10 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 	}
 
 	// Parse info argument
-	switch info := args[2].(type) {
-	case types.StrValue:
+	switch args[2].Type() {
+	case types.TYPE_STR:
 		// Just permissions string
-		perms, err := parsePerms(info.Value())
+		perms, err := parsePerms(args[2].Str())
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
@@ -154,9 +154,9 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 			return types.Err(errCode)
 		}
 
-	case types.ObjValue:
+	case types.TYPE_OBJ, types.TYPE_ANON:
 		// Just owner (leave perms unchanged)
-		owner := info.ID()
+		owner := args[2].ID()
 		var errCode types.ErrorCode
 		if tx := readTxn(ctx); tx != nil {
 			errCode = tx.SetPropertyInfo(objID, propName, &owner, nil)
@@ -167,24 +167,24 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 			return types.Err(errCode)
 		}
 
-	case types.ListValue:
+	case types.TYPE_LIST:
 		// {owner, perms}
-		elements := info.Elements()
+		elements := args[2].Elements()
 		if len(elements) != 2 {
 			return types.Err(types.E_INVARG)
 		}
 
-		ownerVal, ok := elements[0].(types.ObjValue)
-		if !ok {
+		ownerVal := elements[0]
+		if !isObjectRef(ownerVal) {
 			return types.Err(types.E_TYPE)
 		}
 
-		permsVal, ok := elements[1].(types.StrValue)
-		if !ok {
+		permsVal := elements[1]
+		if permsVal.Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
 
-		perms, err := parsePerms(permsVal.Value())
+		perms, err := parsePerms(permsVal.Str())
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
@@ -215,13 +215,13 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -243,7 +243,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_TYPE)
 	}
 
-	propName := nameVal.Value()
+	propName := nameVal.Str()
 
 	// Check if property name is built-in
 	if IsBuiltinProperty(propName) {
@@ -279,36 +279,36 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	var owner types.ObjID
 	var perms dbstore.PropertyPerms
 
-	switch info := args[3].(type) {
-	case types.StrValue:
+	switch args[3].Type() {
+	case types.TYPE_STR:
 		// Just permissions string
 		owner = ctx.Programmer // Default to caller
 		var errCode types.ErrorCode
-		perms, errCode = parsePerms(info.Value())
+		perms, errCode = parsePerms(args[3].Str())
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 
-	case types.ListValue:
+	case types.TYPE_LIST:
 		// {owner, perms}
-		elements := info.Elements()
+		elements := args[3].Elements()
 		if len(elements) != 2 {
 			return types.Err(types.E_INVARG)
 		}
 
-		ownerVal, ok := elements[0].(types.ObjValue)
-		if !ok {
+		ownerVal := elements[0]
+		if !isObjectRef(ownerVal) {
 			return types.Err(types.E_TYPE)
 		}
 
-		permsVal, ok := elements[1].(types.StrValue)
-		if !ok {
+		permsVal := elements[1]
+		if permsVal.Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
 
 		owner = ownerVal.ID()
 		var errCode2 types.ErrorCode
-		perms, errCode2 = parsePerms(permsVal.Value())
+		perms, errCode2 = parsePerms(permsVal.Str())
 		if errCode2 != types.E_NONE {
 			return types.Err(errCode2)
 		}
@@ -355,13 +355,13 @@ func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -370,7 +370,7 @@ func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(errCode)
 	}
 
-	propName := nameVal.Value()
+	propName := nameVal.Str()
 
 	prop, ok, err := localPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
@@ -407,13 +407,13 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Err(types.E_ARGS)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -422,7 +422,7 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 		return types.Err(errCode)
 	}
 
-	propName := nameVal.Value()
+	propName := nameVal.Str()
 
 	// Check if it's a built-in property - return E_PERM
 	if IsBuiltinProperty(propName) {
@@ -473,17 +473,17 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 		return types.Err(types.E_ARGS)
 	}
 
-	if _, ok := args[0].(types.WaifValue); ok {
+	if args[0].Type() == types.TYPE_WAIF {
 		return types.Err(types.E_INVARG)
 	}
 
-	objVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	objVal := args[0]
+	if !isObjectRef(objVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal, ok := args[1].(types.StrValue)
-	if !ok {
+	nameVal := args[1]
+	if nameVal.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
 
@@ -492,7 +492,7 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 		return types.Err(errCode)
 	}
 
-	propName := nameVal.Value()
+	propName := nameVal.Str()
 
 	// Check if it's a built-in property - return 0
 	if IsBuiltinProperty(propName) {

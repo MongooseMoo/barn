@@ -23,7 +23,7 @@ func TestTofloatRejectsNonFiniteStringValues(t *testing.T) {
 	if res.Flow != types.FlowNormal {
 		t.Fatalf("tofloat finite flow = %v error = %v, want normal", res.Flow, res.Error)
 	}
-	got := res.Val.(types.FloatValue).Val
+	got := res.Val.Float()
 	if got != 3.5 {
 		t.Fatalf("tofloat finite = %v, want 3.5", got)
 	}
@@ -49,7 +49,7 @@ func TestTointStringOverflowClamps(t *testing.T) {
 			if res.Flow != types.FlowNormal {
 				t.Fatalf("toint(%q) flow = %v error = %v, want normal", tc.input, res.Flow, res.Error)
 			}
-			got := res.Val.(types.IntValue).Val
+			got := res.Val.Int()
 			if got != tc.want {
 				t.Fatalf("toint(%q) = %d, want %d", tc.input, got, tc.want)
 			}

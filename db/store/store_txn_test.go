@@ -51,7 +51,7 @@ func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("txn FindProperty failed: %v", errCode)
 	}
-	if got := prop.Value.(types.IntValue).Val; got != 1 {
+	if got := prop.Value.Int(); got != 1 {
 		t.Fatalf("txn property value = %d, want 1", got)
 	}
 	verb, _, err := tx.FindVerb(0, "look")
@@ -180,7 +180,7 @@ func TestTransactionRelationshipReadInvalidatesCommit(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 1 {
+	if got := value.Int(); got != 1 {
 		t.Fatalf("property a = %d, want unchanged value 1", got)
 	}
 }
@@ -392,7 +392,7 @@ func TestTransactionAdoptLiveRelationshipsRefreshesAnonymousChildAfterRenumber(t
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue anonymous after renumber failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 1 {
+	if got := value.Int(); got != 1 {
 		t.Fatalf("PropertyValue anonymous after renumber = %d, want 1", got)
 	}
 }
@@ -486,14 +486,14 @@ func TestTransactionDisjointPropertyWritesBothCommit(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue a failed: %v", errCode)
 	}
-	if got := a.(types.IntValue).Val; got != 2 {
+	if got := a.Int(); got != 2 {
 		t.Fatalf("a = %d, want 2", got)
 	}
 	b, errCode := store.PropertyValue(0, "b")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue b failed: %v", errCode)
 	}
-	if got := b.(types.IntValue).Val; got != 20 {
+	if got := b.Int(); got != 20 {
 		t.Fatalf("b = %d, want 20", got)
 	}
 }
@@ -530,7 +530,7 @@ func TestTransactionSamePropertyWriteConflicts(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := a.(types.IntValue).Val; got != 2 {
+	if got := a.Int(); got != 2 {
 		t.Fatalf("a = %d, want first writer value 2", got)
 	}
 }
@@ -611,7 +611,7 @@ func TestTransactionPropertyInfoConflictsWithValueWrite(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 1 {
+	if got := value.Int(); got != 1 {
 		t.Fatalf("property a = %d, want unchanged value 1", got)
 	}
 	prop, ok, errCode := store.LocalProperty(0, "a")
@@ -647,14 +647,14 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("tx PropertyValue failed: %v", errCode)
 	}
-	if got := txValue.(types.IntValue).Val; got != 1 {
+	if got := txValue.Int(); got != 1 {
 		t.Fatalf("tx property value = %d, want inherited value 1", got)
 	}
 	liveValue, errCode := store.PropertyValue(child, "a")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
-	if got := liveValue.(types.IntValue).Val; got != 2 {
+	if got := liveValue.Int(); got != 2 {
 		t.Fatalf("live property value before commit = %d, want local override 2", got)
 	}
 
@@ -665,7 +665,7 @@ func TestTransactionClearPropertyOverrideStagesUntilCommit(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue after commit failed: %v", errCode)
 	}
-	if got := liveValue.(types.IntValue).Val; got != 1 {
+	if got := liveValue.Int(); got != 1 {
 		t.Fatalf("live property value after commit = %d, want inherited value 1", got)
 	}
 }
@@ -708,7 +708,7 @@ func TestTransactionClearPropertyOverrideConflictsWithValueWrite(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
-	if got := liveValue.(types.IntValue).Val; got != 1 {
+	if got := liveValue.Int(); got != 1 {
 		t.Fatalf("live property value = %d, want inherited value 1", got)
 	}
 }
@@ -951,7 +951,7 @@ func TestTransactionReseedInheritedPropertiesUsesStagedParents(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("FindProperty child failed: %v", errCode)
 	}
-	if got := prop.Value.(types.StrValue).Value(); got != "right" {
+	if got := prop.Value.Str(); got != "right" {
 		t.Fatalf("child foo = %q, want right", got)
 	}
 	if prop.Owner != right || prop.Perms != PropRead {
@@ -983,7 +983,7 @@ func TestTransactionDefinePropertyConflictsWithConcurrentDefinition(t *testing.T
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 2 {
+	if got := value.Int(); got != 2 {
 		t.Fatalf("property a = %d, want concurrent value 2", got)
 	}
 }
@@ -1078,7 +1078,7 @@ func TestTransactionDeleteDefinedPropertyConflictsWithConcurrentPropertyWrite(t 
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 2 {
+	if got := value.Int(); got != 2 {
 		t.Fatalf("property a = %d, want concurrent value 2", got)
 	}
 }
@@ -1105,7 +1105,7 @@ func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("reader FindProperty failed: %v", errCode)
 	}
-	if got := prop.Value.(types.IntValue).Val; got != 1 {
+	if got := prop.Value.Int(); got != 1 {
 		t.Fatalf("reader property value after commit = %d, want historical value 1", got)
 	}
 
@@ -1113,7 +1113,7 @@ func TestTransactionCommitPreservesHistoricalReads(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %v", errCode)
 	}
-	if got := live.(types.IntValue).Val; got != 2 {
+	if got := live.Int(); got != 2 {
 		t.Fatalf("live property value after commit = %d, want 2", got)
 	}
 }
@@ -1351,7 +1351,7 @@ func TestTransactionScalarAndPropertyWritesSameObjectBothCommit(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 2 {
+	if got := value.Int(); got != 2 {
 		t.Fatalf("property a = %d, want 2", got)
 	}
 }
@@ -1437,7 +1437,7 @@ func TestTransactionVerbReadInvalidatesCommit(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 1 {
+	if got := value.Int(); got != 1 {
 		t.Fatalf("property a = %d, want unchanged value 1", got)
 	}
 }
@@ -1669,7 +1669,7 @@ func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
 	if len(values) != 1 {
 		t.Fatalf("len(PropertyValues) = %d, want 1", len(values))
 	}
-	if got := values[0].(types.IntValue).Val; got != 2 {
+	if got := values[0].Int(); got != 2 {
 		t.Fatalf("PropertyValues[0] = %d, want 2", got)
 	}
 }
@@ -1733,7 +1733,7 @@ func TestTransactionAdoptAndCommitAnonymousObject(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue(anon, a) after commit = %v, want E_NONE", errCode)
 	}
-	if got := value.(types.IntValue).Val; got != 2 {
+	if got := value.Int(); got != 2 {
 		t.Fatalf("PropertyValue(anon, a) after commit = %d, want 2", got)
 	}
 }

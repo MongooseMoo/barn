@@ -85,7 +85,7 @@ func (t *Tracer) VerbReturn(objID types.ObjID, verbName string, result types.Val
 	defer t.mu.Unlock()
 
 	resultStr := "0"
-	if result != nil {
+	if !result.IsNone() {
 		resultStr = result.String()
 	}
 

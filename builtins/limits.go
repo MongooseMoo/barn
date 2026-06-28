@@ -138,47 +138,47 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 	}
 
 	// The property value should be an object reference
-	serverOptsRef, ok := serverOptsProp.Value.(types.ObjValue)
-	if !ok {
+	serverOptsRef := serverOptsProp.Value
+	if serverOptsRef.Type() != types.TYPE_OBJ {
 		return snapshot // server_options is not an object
 	}
 
 	// Get the actual server_options object ID
-	serverOptsID := serverOptsRef.ID()
+	serverOptsID := serverOptsRef.Obj()
 
 	// Read max_string_concat (searching inheritance chain)
 	if prop, ok := findDefined(serverOptsID, "max_string_concat"); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok {
-			snapshot.MaxStringConcat = canonicalizeLimit(int(intVal.Val), minStringConcatLimit, maxStringConcatLimit)
+		if prop.Value.Type() == types.TYPE_INT {
+			snapshot.MaxStringConcat = canonicalizeLimit(int(prop.Value.Int()), minStringConcatLimit, maxStringConcatLimit)
 			snapshot.Loaded++
 		}
 	}
 
 	// Read max_list_value_bytes
 	if prop, ok := findDefined(serverOptsID, "max_list_value_bytes"); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok {
-			snapshot.MaxListValueBytes = canonicalizeLimit(int(intVal.Val), minListValueBytesLimit, maxListValueBytesLimit)
+		if prop.Value.Type() == types.TYPE_INT {
+			snapshot.MaxListValueBytes = canonicalizeLimit(int(prop.Value.Int()), minListValueBytesLimit, maxListValueBytesLimit)
 			snapshot.Loaded++
 		}
 	}
 
 	// Read max_map_value_bytes
 	if prop, ok := findDefined(serverOptsID, "max_map_value_bytes"); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok {
-			snapshot.MaxMapValueBytes = canonicalizeLimit(int(intVal.Val), minMapValueBytesLimit, maxMapValueBytesLimit)
+		if prop.Value.Type() == types.TYPE_INT {
+			snapshot.MaxMapValueBytes = canonicalizeLimit(int(prop.Value.Int()), minMapValueBytesLimit, maxMapValueBytesLimit)
 			snapshot.Loaded++
 		}
 	}
 
 	if prop, ok := findDefined(serverOptsID, "fg_ticks"); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
-			snapshot.FgTicks = intVal.Val
+		if prop.Value.Type() == types.TYPE_INT && prop.Value.Int() > 0 {
+			snapshot.FgTicks = prop.Value.Int()
 			snapshot.Loaded++
 		}
 	}
 	if prop, ok := findDefined(serverOptsID, "bg_ticks"); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
-			snapshot.BgTicks = intVal.Val
+		if prop.Value.Type() == types.TYPE_INT && prop.Value.Int() > 0 {
+			snapshot.BgTicks = prop.Value.Int()
 			snapshot.Loaded++
 		}
 	}
@@ -195,8 +195,8 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 		}
 	}
 	if prop, ok := findDefined(serverOptsID, "max_stack_depth"); ok {
-		if intVal, ok := prop.Value.(types.IntValue); ok && intVal.Val > 0 {
-			snapshot.MaxStackDepth = int(intVal.Val)
+		if prop.Value.Type() == types.TYPE_INT && prop.Value.Int() > 0 {
+			snapshot.MaxStackDepth = int(prop.Value.Int())
 			snapshot.Loaded++
 		}
 	}
@@ -282,11 +282,11 @@ func DiscardPendingServerOptions(ctx *kernel.TaskContext) {
 }
 
 func numericSeconds(value types.Value) (float64, bool) {
-	switch v := value.(type) {
-	case types.IntValue:
-		return float64(v.Val), true
-	case types.FloatValue:
-		return v.Val, true
+	switch value.Type() {
+	case types.TYPE_INT:
+		return float64(value.Int()), true
+	case types.TYPE_FLOAT:
+		return value.Float(), true
 	default:
 		return 0, false
 	}
@@ -355,7 +355,7 @@ func GetMaxMapValueBytes() int {
 // CheckListLimit checks if a list exceeds the max_list_value_bytes limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 // The limit is exclusive - a list with exactly limit bytes is not allowed.
-func CheckListLimit(list types.ListValue) types.ErrorCode {
+func CheckListLimit(list types.Value) types.ErrorCode {
 	limit := GetMaxListValueBytes()
 	if limit > 0 && ValueBytes(list) >= limit {
 		return types.E_QUOTA
@@ -365,7 +365,7 @@ func CheckListLimit(list types.ListValue) types.ErrorCode {
 
 // CheckMapLimit checks if a map exceeds the max_map_value_bytes limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-func CheckMapLimit(m types.MapValue) types.ErrorCode {
+func CheckMapLimit(m types.Value) types.ErrorCode {
 	limit := GetMaxMapValueBytes()
 	if limit > 0 && ValueBytes(m) > limit {
 		return types.E_QUOTA

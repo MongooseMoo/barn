@@ -19,23 +19,22 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	whatVal, ok := args[0].(types.ObjValue)
-	if !ok {
+	whatVal := args[0]
+	if !isObjectRef(whatVal) {
 		return types.Err(types.E_TYPE)
 	}
 
-	whereVal, ok := args[1].(types.ObjValue)
-	if !ok {
+	whereVal := args[1]
+	if !isObjectRef(whereVal) {
 		return types.Err(types.E_TYPE)
 	}
 
 	position := int64(0)
 	if len(args) == 3 {
-		positionVal, ok := args[2].(types.IntValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		position = positionVal.Val
+		position = args[2].Int()
 		if position < 0 {
 			return types.Err(types.E_INVARG)
 		}
@@ -103,19 +102,18 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	// First arg must be a list of objects
-	objectList, ok := args[0].(types.ListValue)
-	if !ok {
+	objectList := args[0]
+	if objectList.Type() != types.TYPE_LIST {
 		return types.Err(types.E_TYPE)
 	}
 
 	// Validate all items are valid objects.
 	for i := 1; i <= objectList.Len(); i++ {
 		item := objectList.Get(i)
-		objVal, ok := item.(types.ObjValue)
-		if !ok {
+		if !isObjectRef(item) {
 			return types.Err(types.E_INVARG)
 		}
-		if !validForRead(ctx, objVal.ID()) {
+		if !validForRead(ctx, item.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -125,17 +123,16 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	var parents []types.ObjID
 	if checkParent {
 		// Second arg can be OBJ or LIST of OBJs
-		switch v := args[1].(type) {
-		case types.ObjValue:
-			parents = []types.ObjID{v.ID()}
-		case types.ListValue:
-			for i := 1; i <= v.Len(); i++ {
-				item := v.Get(i)
-				objVal, ok := item.(types.ObjValue)
-				if !ok {
+		switch args[1].Type() {
+		case types.TYPE_OBJ, types.TYPE_ANON:
+			parents = []types.ObjID{args[1].ID()}
+		case types.TYPE_LIST:
+			for i := 1; i <= args[1].Len(); i++ {
+				item := args[1].Get(i)
+				if !isObjectRef(item) {
 					return types.Err(types.E_TYPE)
 				}
-				parents = append(parents, objVal.ID())
+				parents = append(parents, item.ID())
 			}
 		default:
 			return types.Err(types.E_TYPE)
@@ -166,8 +163,7 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	var result []types.Value
 	for i := 1; i <= objectList.Len(); i++ {
 		item := objectList.Get(i)
-		objVal := item.(types.ObjValue) // Already validated
-		objID := objVal.ID()
+		objID := item.ID() // Already validated
 
 		if !validForRead(ctx, objID) {
 			continue

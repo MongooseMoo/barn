@@ -35,19 +35,17 @@ func (vm *VM) executeCallVerb() error {
 	if verbNameIdx == 0xFF {
 		// Dynamic verb name: pop from stack (above args)
 		nameVal := vm.Pop()
-		strVal, ok := nameVal.(types.StrValue)
-		if !ok {
+		if nameVal.Type() != types.TYPE_STR {
 			return fmt.Errorf("E_TYPE: dynamic verb name must be a string")
 		}
-		verbName = strVal.Value()
+		verbName = nameVal.Str()
 	} else {
 		// Static verb name: from constant pool
 		nameVal := vm.CurrentFrame().Program.Constants[verbNameIdx]
-		strVal, ok := nameVal.(types.StrValue)
-		if !ok {
+		if nameVal.Type() != types.TYPE_STR {
 			return fmt.Errorf("internal error: verb name constant is not a string")
 		}
-		verbName = strVal.Value()
+		verbName = nameVal.Str()
 	}
 
 	// Pop arguments
@@ -55,13 +53,12 @@ func (vm *VM) executeCallVerb() error {
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
-		list, ok := listVal.(types.ListValue)
-		if !ok {
+		if listVal.Type() != types.TYPE_LIST {
 			return fmt.Errorf("E_TYPE: expected list for spliced verb args")
 		}
-		args = make([]types.Value, list.Len())
-		for i := 1; i <= list.Len(); i++ {
-			args[i-1] = list.Get(i)
+		args = make([]types.Value, listVal.Len())
+		for i := 1; i <= listVal.Len(); i++ {
+			args[i-1] = listVal.Get(i)
 		}
 	} else {
 		args = vm.PopN(argc)
@@ -73,18 +70,18 @@ func (vm *VM) executeCallVerb() error {
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID
-	var thisValue types.Value // Non-nil for waif, primitive, and anonymous targets
+	thisValue := types.None // Non-None for waif, primitive, and anonymous targets
 	isWaif := false
 
-	switch target := objVal.(type) {
-	case types.ObjValue:
-		objID = target.ID()
-		if target.IsAnonymous() {
-			thisValue = target // "this" = the anonymous ObjValue itself
+	switch objVal.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		objID = objVal.ID()
+		if objVal.IsAnonymous() {
+			thisValue = objVal // "this" = the anonymous ObjValue itself
 		}
-	case types.WaifValue:
-		objID = target.Class() // Verb lookup goes to the waif's class
-		thisValue = target     // "this" = the waif itself
+	case types.TYPE_WAIF:
+		objID = objVal.Class() // Verb lookup goes to the waif's class
+		thisValue = objVal     // "this" = the waif itself
 		isWaif = true
 	default:
 		// Check for primitive prototype dispatch (str, int, float, list, map, err, bool)
@@ -149,7 +146,7 @@ func (vm *VM) executeCallVerb() error {
 
 	// Save current context fields for restore on return/unwind
 	var savedThisObj types.ObjID
-	var savedThisValue types.Value
+	savedThisValue := types.None
 	var savedVerb string
 	var savedProgrammer types.ObjID
 	var savedIsWizard bool
@@ -187,12 +184,12 @@ func (vm *VM) executeCallVerb() error {
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range frame.Locals {
-		frame.Locals[i] = types.UnboundValue{}
+		frame.Locals[i] = types.Unbound
 	}
 
 	// Pre-populate built-in variables using VarNames.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
-	if thisValue != nil {
+	if !thisValue.IsNone() {
 		SetLocalByName(frame, prog, "this", thisValue)
 	} else {
 		SetLocalByName(frame, prog, "this", types.NewObj(objID))
@@ -304,13 +301,12 @@ func (vm *VM) executePass() error {
 	if argc == 0xFF {
 		// Splice mode: args list is on top of stack
 		listVal := vm.Pop()
-		list, ok := listVal.(types.ListValue)
-		if !ok {
+		if listVal.Type() != types.TYPE_LIST {
 			return fmt.Errorf("E_TYPE: expected list for spliced pass() args")
 		}
-		passArgs = make([]types.Value, list.Len())
-		for i := 1; i <= list.Len(); i++ {
-			passArgs[i-1] = list.Get(i)
+		passArgs = make([]types.Value, listVal.Len())
+		for i := 1; i <= listVal.Len(); i++ {
+			passArgs[i-1] = listVal.Get(i)
 		}
 	} else if argc > 0 {
 		passArgs = vm.PopN(argc)
@@ -365,7 +361,7 @@ func (vm *VM) executePass() error {
 
 	// Save current context fields for restore on return/unwind
 	var savedThisObj types.ObjID
-	var savedThisValue types.Value
+	savedThisValue := types.None
 	var savedVerb string
 	var savedProgrammer types.ObjID
 	var savedIsWizard bool
@@ -378,9 +374,9 @@ func (vm *VM) executePass() error {
 	}
 
 	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
-	passThis := types.Value(types.NewObj(frame.This))
-	var passThisValue types.Value
-	if vm.Context != nil && vm.Context.ThisValue != nil {
+	passThis := types.NewObj(frame.This)
+	passThisValue := types.None
+	if vm.Context != nil && !vm.Context.ThisValue.IsNone() {
 		passThis = vm.Context.ThisValue
 		passThisValue = vm.Context.ThisValue
 	}
@@ -413,7 +409,7 @@ func (vm *VM) executePass() error {
 
 	// Initialize locals to unbound (reading before assignment raises E_VARNF)
 	for i := range newFrame.Locals {
-		newFrame.Locals[i] = types.UnboundValue{}
+		newFrame.Locals[i] = types.Unbound
 	}
 
 	// Pre-populate built-in variables

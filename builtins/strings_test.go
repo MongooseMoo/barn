@@ -131,7 +131,7 @@ func TestSubstituteUnusedCaptureSubstitutesEmptyString(t *testing.T) {
 	if res.Flow != types.FlowNormal {
 		t.Fatalf("builtinSubstitute flow = %v error = %v, want normal", res.Flow, res.Error)
 	}
-	got := res.Val.(types.StrValue).Value()
+	got := res.Val.Str()
 	if got != "group=[]" {
 		t.Fatalf("substitute result = %q, want group=[]", got)
 	}

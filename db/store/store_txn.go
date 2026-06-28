@@ -889,7 +889,7 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, typ
 func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
 	prop, errCode := tx.FindProperty(objID, name)
 	if errCode != types.E_NONE {
-		return nil, errCode
+		return types.None, errCode
 	}
 	return prop.Value, types.E_NONE
 }
@@ -977,7 +977,7 @@ func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, pref
 				continue
 			}
 			decidedNames[name] = true
-			if prop.value != nil && prop.value.Truthy() {
+			if !prop.value.IsNone() && prop.value.Truthy() {
 				result[name] = true
 			}
 		}

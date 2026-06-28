@@ -101,12 +101,11 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 					t.Errorf("tx.PropertyValue(anon, counter) = %v, unexpected", errCode)
 					return
 				}
-				iv, ok := cur.(types.IntValue)
-				if !ok {
+				if cur.Type() != types.TYPE_INT {
 					t.Errorf("counter value type = %T, want IntValue", cur)
 					return
 				}
-				if errCode := tx.SetPropertyValue(anon, "counter", types.NewInt(iv.Val+1)); errCode != types.E_NONE {
+				if errCode := tx.SetPropertyValue(anon, "counter", types.NewInt(cur.Int()+1)); errCode != types.E_NONE {
 					if visibilitySkip(errCode) {
 						visSkips.Add(1)
 						continue
@@ -186,7 +185,7 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("post-run PropertyValue(anon, counter) = %v, want E_NONE", errCode)
 	}
-	got := final.(types.IntValue).Val
+	got := final.Int()
 	want := successes.Load()
 	if got != want {
 		t.Fatalf("LOST UPDATE: final counter = %d, want %d (successful commits); coarse anon serialization is broken", got, want)

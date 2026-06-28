@@ -11,36 +11,36 @@ func (vm *VM) executeIndex() error {
 	index := vm.Pop()
 	collection := vm.Pop()
 
-	switch coll := collection.(type) {
-	case types.ListValue:
-		indexInt, indexOk := index.(types.IntValue)
-		if !indexOk {
+	switch collection.Type() {
+	case types.TYPE_LIST:
+		if index.Type() != types.TYPE_INT {
 			return fmt.Errorf("E_TYPE: list index must be integer")
 		}
-		if indexInt.Val < 1 || indexInt.Val > int64(coll.Len()) {
+		indexVal := index.Int()
+		if indexVal < 1 || indexVal > int64(collection.Len()) {
 			return fmt.Errorf("E_RANGE: list index out of range")
 		}
-		vm.Push(coll.Get(int(indexInt.Val)))
+		vm.Push(collection.Get(int(indexVal)))
 		return nil
 
-	case types.StrValue:
-		indexInt, indexOk := index.(types.IntValue)
-		if !indexOk {
+	case types.TYPE_STR:
+		if index.Type() != types.TYPE_INT {
 			return fmt.Errorf("E_TYPE: string index must be integer")
 		}
-		if indexInt.Val < 1 || indexInt.Val > int64(len(coll.Value())) {
+		indexVal := index.Int()
+		if indexVal < 1 || indexVal > int64(len(collection.Str())) {
 			return fmt.Errorf("E_RANGE: string index out of range")
 		}
-		vm.Push(types.NewStr(string(coll.Value()[indexInt.Val-1])))
+		vm.Push(types.NewStr(string(collection.Str()[indexVal-1])))
 		return nil
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		// Map keys must be scalar types (not list or map)
-		switch index.(type) {
-		case types.ListValue, types.MapValue:
+		switch index.Type() {
+		case types.TYPE_LIST, types.TYPE_MAP:
 			return fmt.Errorf("E_TYPE: invalid map key type")
 		}
-		val, ok := coll.Get(index)
+		val, ok := collection.MapGet(index)
 		if !ok {
 			return fmt.Errorf("E_RANGE: map key not found")
 		}
@@ -101,23 +101,21 @@ func (vm *VM) executeRangeSet() error {
 
 	// Perform range assignment based on collection type
 	var newColl types.Value
-	switch c := coll.(type) {
-	case types.ListValue:
-		startInt, startOk := start.(types.IntValue)
-		endInt, endOk := end.(types.IntValue)
-		if !startOk || !endOk {
+	switch coll.Type() {
+	case types.TYPE_LIST:
+		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
 			return fmt.Errorf("E_TYPE: range indices must be integers")
 		}
-		startIdx := startInt.Val
-		endIdx := endInt.Val
+		startIdx := start.Int()
+		endIdx := end.Int()
 
 		// Value must be a list
-		newVals, ok := value.(types.ListValue)
-		if !ok {
+		if value.Type() != types.TYPE_LIST {
 			return fmt.Errorf("E_TYPE: list range assignment requires a list value")
 		}
+		newVals := value
 
-		length := c.Len()
+		length := coll.Len()
 		isInverted := startIdx > endIdx+1
 
 		// Bounds check
@@ -140,32 +138,30 @@ func (vm *VM) executeRangeSet() error {
 		// Build new list: [1..start-1] + newVals + [end+1..$]
 		result := make([]types.Value, 0)
 		for i := 1; i < int(startIdx); i++ {
-			result = append(result, c.Get(i))
+			result = append(result, coll.Get(i))
 		}
 		for i := 1; i <= newVals.Len(); i++ {
 			result = append(result, newVals.Get(i))
 		}
 		for i := int(endIdx) + 1; i <= length; i++ {
-			result = append(result, c.Get(i))
+			result = append(result, coll.Get(i))
 		}
 		newColl = types.NewList(result)
 
-	case types.StrValue:
-		startInt, startOk := start.(types.IntValue)
-		endInt, endOk := end.(types.IntValue)
-		if !startOk || !endOk {
+	case types.TYPE_STR:
+		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
 			return fmt.Errorf("E_TYPE: range indices must be integers")
 		}
-		startIdx := startInt.Val
-		endIdx := endInt.Val
+		startIdx := start.Int()
+		endIdx := end.Int()
 
 		// Value must be a string
-		newStr, ok := value.(types.StrValue)
-		if !ok {
+		if value.Type() != types.TYPE_STR {
 			return fmt.Errorf("E_TYPE: string range assignment requires a string value")
 		}
+		newStr := value
 
-		s := c.Value()
+		s := coll.Str()
 		strLen := int64(len(s))
 		isInverted := startIdx > endIdx+1
 
@@ -193,46 +189,44 @@ func (vm *VM) executeRangeSet() error {
 		}
 
 		// Build new string: s[1..start-1] + newStr + s[end+1..$]
-		newColl = types.NewStr(s[:startIdx-1] + newStr.Value() + s[effectiveEnd:])
+		newColl = types.NewStr(s[:startIdx-1] + newStr.Str() + s[effectiveEnd:])
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		var startIdx int64
-		startInt, startIsInt := start.(types.IntValue)
-		if startIsInt {
-			startIdx = startInt.Val
+		if start.Type() == types.TYPE_INT {
+			startIdx = start.Int()
 		} else {
-			switch start.(type) {
-			case types.ListValue, types.MapValue:
+			switch start.Type() {
+			case types.TYPE_LIST, types.TYPE_MAP:
 				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
 			}
-			startIdx = c.KeyPosition(start)
+			startIdx = coll.KeyPosition(start)
 			if startIdx == 0 {
 				return fmt.Errorf("E_RANGE: map range start key not found")
 			}
 		}
 
 		var endIdx int64
-		endInt, endIsInt := end.(types.IntValue)
-		if endIsInt {
-			endIdx = endInt.Val
+		if end.Type() == types.TYPE_INT {
+			endIdx = end.Int()
 		} else {
-			switch end.(type) {
-			case types.ListValue, types.MapValue:
+			switch end.Type() {
+			case types.TYPE_LIST, types.TYPE_MAP:
 				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
 			}
-			endIdx = c.KeyPosition(end)
+			endIdx = coll.KeyPosition(end)
 			if endIdx == 0 {
 				return fmt.Errorf("E_RANGE: map range end key not found")
 			}
 		}
 
 		// Value must be a map
-		newMap, ok := value.(types.MapValue)
-		if !ok {
+		if value.Type() != types.TYPE_MAP {
 			return fmt.Errorf("E_TYPE: map range assignment requires a map value")
 		}
+		newMap := value
 
-		length := c.Len()
+		length := coll.Len()
 		isInverted := startIdx > endIdx
 
 		// Bounds check
@@ -249,7 +243,7 @@ func (vm *VM) executeRangeSet() error {
 		}
 
 		// Build new map: pairs[1..start-1] + newMap + pairs[end+1..$]
-		pairs := c.Pairs()
+		pairs := coll.Pairs()
 		result := make([][2]types.Value, 0)
 		for i := 0; i < int(startIdx)-1; i++ {
 			result = append(result, pairs[i])
@@ -267,17 +261,17 @@ func (vm *VM) executeRangeSet() error {
 	}
 
 	// Check size limits on the result
-	switch result := newColl.(type) {
-	case types.ListValue:
-		if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
+	switch newColl.Type() {
+	case types.TYPE_LIST:
+		if errCode := builtins.CheckListLimit(newColl); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: list too large")
 		}
-	case types.StrValue:
-		if errCode := builtins.CheckStringLimit(result.Value()); errCode != types.E_NONE {
+	case types.TYPE_STR:
+		if errCode := builtins.CheckStringLimit(newColl.Str()); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: string too long")
 		}
-	case types.MapValue:
-		if errCode := builtins.CheckMapLimit(result); errCode != types.E_NONE {
+	case types.TYPE_MAP:
+		if errCode := builtins.CheckMapLimit(newColl); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: map too large")
 		}
 	}
@@ -293,18 +287,15 @@ func (vm *VM) executeRange() error {
 	start := vm.Pop()
 	collection := vm.Pop()
 
-	startInt, startOk := start.(types.IntValue)
-	endInt, endOk := end.(types.IntValue)
-
-	if !startOk || !endOk {
+	if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
 		return fmt.Errorf("E_TYPE: range indices must be integers")
 	}
 
-	switch coll := collection.(type) {
-	case types.ListValue:
-		startIdx := startInt.Val
-		endIdx := endInt.Val
-		length := int64(coll.Len())
+	switch collection.Type() {
+	case types.TYPE_LIST:
+		startIdx := start.Int()
+		endIdx := end.Int()
+		length := int64(collection.Len())
 
 		if startIdx > endIdx {
 			vm.Push(types.NewList([]types.Value{}))
@@ -319,15 +310,15 @@ func (vm *VM) executeRange() error {
 
 		result := make([]types.Value, 0, endIdx-startIdx+1)
 		for i := startIdx; i <= endIdx; i++ {
-			result = append(result, coll.Get(int(i)))
+			result = append(result, collection.Get(int(i)))
 		}
 		vm.Push(types.NewList(result))
 		return nil
 
-	case types.StrValue:
-		startIdx := startInt.Val
-		endIdx := endInt.Val
-		s := coll.Value()
+	case types.TYPE_STR:
+		startIdx := start.Int()
+		endIdx := end.Int()
+		s := collection.Str()
 		length := int64(len(s))
 
 		if startIdx > endIdx {
@@ -344,10 +335,10 @@ func (vm *VM) executeRange() error {
 		vm.Push(types.NewStr(s[startIdx-1 : endIdx]))
 		return nil
 
-	case types.MapValue:
-		startIdx := startInt.Val
-		endIdx := endInt.Val
-		length := int64(coll.Len())
+	case types.TYPE_MAP:
+		startIdx := start.Int()
+		endIdx := end.Int()
+		length := int64(collection.Len())
 
 		if startIdx > endIdx {
 			vm.Push(types.NewEmptyMap())
@@ -360,7 +351,7 @@ func (vm *VM) executeRange() error {
 			return fmt.Errorf("E_RANGE: map range end out of range")
 		}
 
-		pairs := coll.Pairs()
+		pairs := collection.Pairs()
 		result := make([][2]types.Value, 0, endIdx-startIdx+1)
 		for i := startIdx; i <= endIdx; i++ {
 			result = append(result, pairs[i-1])
@@ -379,29 +370,29 @@ func (vm *VM) executeIndexMarker() error {
 	marker := vm.ReadByte()
 	coll := vm.Pop()
 
-	switch c := coll.(type) {
-	case types.ListValue:
+	switch coll.Type() {
+	case types.TYPE_LIST:
 		if marker == 0 {
 			vm.Push(types.NewInt(1))
 		} else if marker == 1 {
-			vm.Push(types.NewInt(int64(c.Len())))
+			vm.Push(types.NewInt(int64(coll.Len())))
 		} else {
 			return fmt.Errorf("E_INVARG: invalid index marker")
 		}
 		return nil
 
-	case types.StrValue:
+	case types.TYPE_STR:
 		if marker == 0 {
 			vm.Push(types.NewInt(1))
 		} else if marker == 1 {
-			vm.Push(types.NewInt(int64(len(c.Value()))))
+			vm.Push(types.NewInt(int64(len(coll.Str()))))
 		} else {
 			return fmt.Errorf("E_INVARG: invalid index marker")
 		}
 		return nil
 
-	case types.MapValue:
-		keys := c.Keys()
+	case types.TYPE_MAP:
+		keys := coll.Keys()
 		if len(keys) == 0 {
 			// Preserve empty-collection marker shape; downstream index ops return E_RANGE.
 			if marker == 0 {
@@ -442,20 +433,20 @@ func (vm *VM) executeListRange() error {
 	// Extract integer values; object IDs are accepted as integer-like indices.
 	var start, end int64
 
-	switch v := startVal.(type) {
-	case types.IntValue:
-		start = v.Val
-	case types.ObjValue:
-		start = int64(v.ID())
+	switch startVal.Type() {
+	case types.TYPE_INT:
+		start = startVal.Int()
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		start = int64(startVal.ID())
 	default:
 		return fmt.Errorf("E_TYPE: list range requires integer start")
 	}
 
-	switch v := endVal.(type) {
-	case types.IntValue:
-		end = v.Val
-	case types.ObjValue:
-		end = int64(v.ID())
+	switch endVal.Type() {
+	case types.TYPE_INT:
+		end = endVal.Int()
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		end = int64(endVal.ID())
 	default:
 		return fmt.Errorf("E_TYPE: list range requires integer end")
 	}

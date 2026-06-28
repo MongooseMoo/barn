@@ -24,26 +24,26 @@ func (vm *VM) executeIterPrep() error {
 	hasIndex := vm.ReadByte() != 0
 	container := vm.Pop()
 
-	switch c := container.(type) {
-	case types.ListValue:
+	switch container.Type() {
+	case types.TYPE_LIST:
 		if hasIndex {
 			// Wrap each element in {element, 1-based-index}
-			elements := make([]types.Value, c.Len())
-			for i := 1; i <= c.Len(); i++ {
-				pair := types.NewList([]types.Value{c.Get(i), types.IntValue{Val: int64(i)}})
+			elements := make([]types.Value, container.Len())
+			for i := 1; i <= container.Len(); i++ {
+				pair := types.NewList([]types.Value{container.Get(i), types.NewInt(int64(i))})
 				elements[i-1] = pair
 			}
 			vm.Push(types.NewList(elements))
-			vm.Push(types.IntValue{Val: 1})
+			vm.Push(types.NewInt(1))
 		} else {
 			// Pass through as-is
-			vm.Push(c)
-			vm.Push(types.IntValue{Val: 0})
+			vm.Push(container)
+			vm.Push(types.NewInt(0))
 		}
 
-	case types.MapValue:
+	case types.TYPE_MAP:
 		// Sort pairs by key in MOO canonical order, produce {value, key} pairs
-		pairs := c.Pairs()
+		pairs := container.Pairs()
 		sortMapPairsForIn(pairs)
 		elements := make([]types.Value, len(pairs))
 		for i, pair := range pairs {
@@ -51,20 +51,20 @@ func (vm *VM) executeIterPrep() error {
 			elements[i] = types.NewList([]types.Value{pair[1], pair[0]})
 		}
 		vm.Push(types.NewList(elements))
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 
-	case types.StrValue:
-		s := c.Value()
+	case types.TYPE_STR:
+		s := container.Str()
 		runes := []rune(s)
 		if hasIndex {
 			// Produce {char, 1-based-index} pairs
 			elements := make([]types.Value, len(runes))
 			for i, r := range runes {
-				pair := types.NewList([]types.Value{types.NewStr(string(r)), types.IntValue{Val: int64(i + 1)}})
+				pair := types.NewList([]types.Value{types.NewStr(string(r)), types.NewInt(int64(i + 1))})
 				elements[i] = pair
 			}
 			vm.Push(types.NewList(elements))
-			vm.Push(types.IntValue{Val: 1})
+			vm.Push(types.NewInt(1))
 		} else {
 			// Convert to list of single-char strings
 			elements := make([]types.Value, len(runes))
@@ -72,7 +72,7 @@ func (vm *VM) executeIterPrep() error {
 				elements[i] = types.NewStr(string(r))
 			}
 			vm.Push(types.NewList(elements))
-			vm.Push(types.IntValue{Val: 0})
+			vm.Push(types.NewInt(0))
 		}
 
 	default:
@@ -98,12 +98,11 @@ func (vm *VM) executeScatter() error {
 	hasRest := vm.ReadByte() != 0
 
 	val := vm.Pop()
-	listVal, ok := val.(types.ListValue)
-	if !ok {
+	if val.Type() != types.TYPE_LIST {
 		return fmt.Errorf("E_TYPE: scatter assignment requires a list")
 	}
 
-	length := listVal.Len()
+	length := val.Len()
 	if length < numRequired {
 		return fmt.Errorf("E_ARGS: too few elements for scatter assignment")
 	}

@@ -402,14 +402,13 @@ func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Co
 
 // listContainsString checks if a MOO list contains a string value.
 func listContainsString(value types.Value, target string) bool {
-	list, ok := value.(types.ListValue)
-	if !ok {
+	if value.Type() != types.TYPE_LIST {
 		return false
 	}
 
-	for i := 1; i <= list.Len(); i++ {
-		s, ok := list.Get(i).(types.StrValue)
-		if ok && s.Value() == target {
+	for i := 1; i <= value.Len(); i++ {
+		elem := value.Get(i)
+		if elem.Type() == types.TYPE_STR && elem.Str() == target {
 			return true
 		}
 	}

@@ -59,13 +59,13 @@ func builtinGCStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// In the future, if we implement anonymous object cycle detection,
 	// these could report actual statistics
 	result := types.NewEmptyMap()
-	result = result.Set(types.NewStr("green"), types.NewInt(0))
-	result = result.Set(types.NewStr("yellow"), types.NewInt(0))
-	result = result.Set(types.NewStr("black"), types.NewInt(0))
-	result = result.Set(types.NewStr("gray"), types.NewInt(0))
-	result = result.Set(types.NewStr("white"), types.NewInt(0))
-	result = result.Set(types.NewStr("purple"), types.NewInt(0))
-	result = result.Set(types.NewStr("pink"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("green"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("yellow"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("black"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("gray"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("white"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("purple"), types.NewInt(0))
+	result = result.MapSet(types.NewStr("pink"), types.NewInt(0))
 
 	return types.Ok(result)
 }

@@ -33,7 +33,7 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 	if !ok {
 		t.Fatalf("getBuiltinProperty(last_move) ok = false, want true")
 	}
-	if _, ok := value.(types.MapValue); !ok {
+	if value.Type() != types.TYPE_MAP {
 		t.Fatalf("last_move = %T, want MapValue", value)
 	}
 	handled, errCode := setBuiltinProperty(store, nil, 0, "last_move", types.NewList(nil), nil)

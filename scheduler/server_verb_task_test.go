@@ -52,8 +52,7 @@ func TestRunServerVerbTaskRunsBeforeReturning(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("read property: %v", errCode)
 	}
-	started, ok := value.(types.IntValue)
-	if !ok || started.Val != 1 {
+	if value.Type() != types.TYPE_INT || value.Int() != 1 {
 		t.Fatalf("started = %v, want 1 before RunServerVerbTask returns", value)
 	}
 }

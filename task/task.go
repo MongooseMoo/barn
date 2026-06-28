@@ -76,8 +76,8 @@ type ActivationFrame struct {
 // Format: {this, verb_name, programmer, verb_loc, player, line_number}
 // For primitive/anonymous targets, ThisValue carries the real "this" value.
 func (a *ActivationFrame) ToList() types.Value {
-	thisVal := types.Value(types.NewObj(a.This))
-	if a.ThisValue != nil {
+	thisVal := types.NewObj(a.This)
+	if !a.ThisValue.IsNone() {
 		thisVal = a.ThisValue
 	}
 
@@ -479,7 +479,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 	var verbLoc types.ObjID
 	var lineNumber int
 	var thisObj types.ObjID
-	var thisVal types.Value
+	thisVal := types.None // explicit absence; zero Value{} is integer 0, not None
 	var programmer types.ObjID
 
 	if len(t.CallStack) > 0 {
@@ -498,7 +498,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		programmer = t.Owner
 		thisObj = t.This
 	}
-	if thisVal == nil {
+	if thisVal.IsNone() {
 		thisVal = types.NewObj(thisObj)
 	}
 

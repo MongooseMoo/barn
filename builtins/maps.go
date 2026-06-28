@@ -20,10 +20,10 @@ func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
+	m := args[0]
 
 	keys := m.Keys()
 	sortMapKeys(keys)
@@ -53,10 +53,10 @@ func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
+	m := args[0]
 
 	// mapvalues(map, key1, key2, ...) -> list of selected values in arg order.
 	// Lookup is case-sensitive for string keys in this multi-key form.
@@ -83,7 +83,7 @@ func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Extract values in sorted key order
 	values := make([]types.Value, len(keys))
 	for i, key := range keys {
-		val, _ := m.Get(key)
+		val, _ := m.MapGet(key)
 		values[i] = val
 	}
 
@@ -97,24 +97,25 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
+	m := args[0]
 
 	keyOrList := args[1]
 
 	// mapdelete(map, {k1, k2, ...}) deletes multiple keys.
-	if keyList, ok := keyOrList.(types.ListValue); ok {
+	if keyOrList.Type() == types.TYPE_LIST {
+		keyList := keyOrList
 		result := m
 		for _, key := range keyList.Elements() {
 			if !types.IsValidBuiltinMapKey(key) {
 				return types.Err(types.E_TYPE)
 			}
-			if _, found := result.Get(key); !found {
+			if _, found := result.MapGet(key); !found {
 				return types.Err(types.E_RANGE)
 			}
-			result = result.Delete(key)
+			result = result.MapDelete(key)
 		}
 		if err := CheckMapLimit(result); err != types.E_NONE {
 			return types.Err(err)
@@ -127,12 +128,12 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_TYPE)
 	}
 
-	_, found := m.Get(key)
+	_, found := m.MapGet(key)
 	if !found {
 		return types.Err(types.E_RANGE)
 	}
 
-	result := m.Delete(key)
+	result := m.MapDelete(key)
 
 	// Check size limit
 	if err := CheckMapLimit(result); err != types.E_NONE {
@@ -149,10 +150,10 @@ func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	m, ok := args[0].(types.MapValue)
-	if !ok {
+	if args[0].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
+	m := args[0]
 
 	key := args[1]
 
@@ -163,11 +164,10 @@ func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	caseSensitive := false
 	if len(args) == 3 {
-		caseVal, ok := args[2].(types.IntValue)
-		if !ok {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		caseSensitive = caseVal.Val != 0
+		caseSensitive = args[2].Int() != 0
 	}
 
 	_, found := m.GetWithCase(key, caseSensitive)
@@ -184,18 +184,18 @@ func builtinMapmerge(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	m1, ok1 := args[0].(types.MapValue)
-	m2, ok2 := args[1].(types.MapValue)
-	if !ok1 || !ok2 {
+	if args[0].Type() != types.TYPE_MAP || args[1].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
+	m1 := args[0]
+	m2 := args[1]
 
 	// Start with a copy of map1
 	result := m1
 
 	// Add all entries from map2 (overriding any duplicates)
 	for _, pair := range m2.Pairs() {
-		result = result.Set(pair[0], pair[1])
+		result = result.MapSet(pair[0], pair[1])
 	}
 
 	// Check size limit

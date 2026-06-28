@@ -288,7 +288,7 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 	if prop.Name != "CaseProbe" {
 		t.Fatalf("FindProperty() name = %q, want CaseProbe", prop.Name)
 	}
-	if got := prop.Value.(types.IntValue).Val; got != 42 {
+	if got := prop.Value.Int(); prop.Value.Type() != types.TYPE_INT || got != 42 {
 		t.Fatalf("FindProperty() value = %d, want 42", got)
 	}
 
@@ -303,7 +303,7 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("FindProperty() after set failed: %v", errCode)
 	}
-	if got := prop.Value.(types.IntValue).Val; got != 99 {
+	if got := prop.Value.Int(); prop.Value.Type() != types.TYPE_INT || got != 99 {
 		t.Fatalf("SetPropertyValue() value = %d, want 99", got)
 	}
 

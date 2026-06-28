@@ -9,9 +9,9 @@ import (
 func (vm *VM) executeNot() error {
 	a := vm.Pop()
 	if !a.Truthy() {
-		vm.Push(types.IntValue{Val: 1})
+		vm.Push(types.NewInt(1))
 	} else {
-		vm.Push(types.IntValue{Val: 0})
+		vm.Push(types.NewInt(0))
 	}
 	return nil
 }

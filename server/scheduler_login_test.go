@@ -78,13 +78,11 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	s.loginPlayer(conn, 2, true)
 
 	createdVal, _ := store.PropertyValue(system, "created")
-	created, ok := createdVal.(types.ObjValue)
-	if !ok || created.ID() != 2 {
+	if (createdVal.Type() != types.TYPE_OBJ && createdVal.Type() != types.TYPE_ANON) || createdVal.Obj() != 2 {
 		t.Fatalf("created hook value = %v, want #2", createdVal)
 	}
 	connectedVal, _ := store.PropertyValue(system, "connected")
-	connected, ok := connectedVal.(types.ObjValue)
-	if !ok || connected.ID() != 2 {
+	if (connectedVal.Type() != types.TYPE_OBJ && connectedVal.Type() != types.TYPE_ANON) || connectedVal.Obj() != 2 {
 		t.Fatalf("connected hook value = %v, want #2", connectedVal)
 	}
 }

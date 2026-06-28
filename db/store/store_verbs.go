@@ -11,10 +11,25 @@ func matchVerbName(verbPattern, searchName string) bool {
 	pattern := strings.ToLower(verbPattern)
 	search := strings.ToLower(searchName)
 
-	// Strip leading colon from pattern if present
-	// Verbs like ":initialize" should match "initialize" when called as obj:initialize()
+	// Strip leading colon from the pattern when present.
+	// Waif verb names are stored with a ":" prefix (e.g. ":abbrev*iation").
+	// Waif call dispatch in executeCallVerb also prepends ":" to the lookup name
+	// so the exact-map fallback can find non-wildcard waif verbs by key. This
+	// means both the stored pattern and the lookup name carry ":" and both must
+	// be stripped before comparison — otherwise HasPrefix(":abbrev", "abbrev")
+	// is false and ":abbrev*iation" never matches the lookup ":abbrev".
+	//
+	// The search colon is stripped only when the pattern also has one, preserving
+	// Toast's rule that non-colon verb names (e.g. "*test") do NOT match
+	// colon-prefixed waif lookups.
 	if strings.HasPrefix(pattern, ":") {
 		pattern = pattern[1:]
+		if strings.HasPrefix(search, ":") {
+			search = search[1:]
+		} else {
+			// Waif-only verb (":xxx") must not respond to regular object calls.
+			return false
+		}
 	}
 
 	// Find the wildcard position
@@ -236,9 +251,6 @@ func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string
 		// legitimate match.
 		if !strings.Contains(verbName, "*") {
 			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
-				return verb, current, nil
-			}
-			if verb, ok := obj.verbs[":"+verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
 				return verb, current, nil
 			}
 		}

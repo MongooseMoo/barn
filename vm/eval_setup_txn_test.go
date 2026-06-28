@@ -197,10 +197,10 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	if result.Flow == types.FlowException {
 		t.Fatalf("waif callers flow exception: %v val=%v stack=%#v", result.Error, result.Val, result.CallStack)
 	}
-	got, ok := result.Val.(types.ListValue)
-	if !ok {
+	if result.Val.Type() != types.TYPE_LIST {
 		t.Fatalf("result = %T %v, want list", result.Val, result.Val)
 	}
+	got := result.Val
 	want := types.NewList([]types.Value{
 		types.NewList([]types.Value{types.NewStr(":audit_b"), types.NewInt(1), types.NewInt(1)}),
 		types.NewList([]types.Value{types.NewStr(":audit_c"), types.NewInt(1), types.NewInt(1)}),
