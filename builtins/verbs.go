@@ -274,8 +274,9 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}))
 }
 
-// builtinVerbCode: verb_code(object, name [, fully_paren [, indent]]) → LIST
-// Returns verb source code as list of lines
+// builtinVerbCode: verb_code(object, name-or-index [, fully_paren [, indent]]) → LIST
+// Returns verb source code as list of lines.
+// name-or-index can be a string (verb name) or integer (1-based verb index).
 func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
@@ -286,19 +287,33 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal := args[1]
-	if nameVal.Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
-	verb, err := findVerbOnObjectForRead(ctx, objID, nameVal.Str())
-	if err != nil {
-		return types.Err(types.E_VERBNF)
+	var verb dbstore.VerbView
+
+	// Accept string (verb name) or integer (verb index)
+	switch args[1].Type() {
+	case types.TYPE_STR:
+		var err error
+		verb, err = findVerbOnObjectForRead(ctx, objID, args[1].Str())
+		if err != nil {
+			return types.Err(types.E_VERBNF)
+		}
+	case types.TYPE_INT:
+		index := int(args[1].Int()) - 1 // Convert to 0-based
+		found, errCode := verbByIndexForRead(ctx, objID, index)
+		if errCode == types.E_RANGE {
+			return types.Err(types.E_RANGE)
+		}
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		verb = found
+	default:
+		return types.Err(types.E_TYPE)
 	}
 
 	// Check read permission: wizards and the verb's owner can always read its
