@@ -396,12 +396,14 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
+	// Toast bf_valid (objects.cc) accepts only object-flavored values
+	// (is_object(): OBJ/ANON/WAIF); anything else — including plain ints —
+	// is E_TYPE. Mongoose room titles depend on valid(<int>) raising: the
+	// debug-off title verb treats the E_TYPE value as false.
 	var objID types.ObjID
 	switch args[0].Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		objID = args[0].ID()
-	case types.TYPE_INT:
-		objID = types.ObjID(args[0].Int())
 	default:
 		return types.Err(types.E_TYPE)
 	}
