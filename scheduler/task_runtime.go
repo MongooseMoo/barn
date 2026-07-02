@@ -232,9 +232,10 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
-		// is a GC boundary for newly-created orphan anonymous objects.
-		liveVMs := append([]*vm.VM{bcVM}, s.liveTaskVMs(t)...)
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+		// is a GC boundary for newly-created orphan anonymous objects. Deferred:
+		// the suspended task's VM is registered below (SetBytecodeVM), so the
+		// flush-time liveness check still sees its locals as roots.
+		s.deferAnonGC(ctx, anonGCFloor)
 
 		// Save VM state for later Resume()
 		t.SetBytecodeVM(bcVM)
@@ -305,11 +306,15 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			}
 		}
 	} else {
-		liveVMs := s.liveTaskVMs(t)
+		// Deferred: a per-task waif/anon sweep is prohibitive on large
+		// databases. Flush immediately while sweeps are cheap so :recycle
+		// stays observable by the very next command (the flush self-throttles
+		// to an interval once sweeps get expensive).
 		if bcVM != nil {
-			s.finalizePendingWaifs(ctx, bcVM.TakePendingWaifs(), liveVMs...)
+			s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs())
 		}
-		vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, liveVMs...)
+		s.deferAnonGC(ctx, anonGCFloor)
+		s.flushDeferredGC()
 	}
 
 	t.SetBytecodeVM(nil) // Release VM after completion

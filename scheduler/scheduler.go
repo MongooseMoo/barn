@@ -33,6 +33,15 @@ type Scheduler struct {
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
+
+	// Deferred GC: task completion/suspend enqueue their pending waifs and
+	// orphan-anonymous collection requests here instead of paying a full-db
+	// sweep per task; flushDeferredGC settles both batches on an interval.
+	pendingWaifMu    sync.Mutex
+	pendingWaifBatch []pendingWaifEntry
+	pendingAnonGC    []vm.AnonGCRequest
+	lastGCSweep      time.Time
+	lastGCCost       time.Duration
 }
 
 // NewScheduler creates a task scheduler with default runtime options.
@@ -170,6 +179,7 @@ func (s *Scheduler) ProcessReadyTasks() int {
 			t.CloseDone()
 		}
 	}
+	s.flushDeferredGC()
 	return len(readyTasks)
 }
 

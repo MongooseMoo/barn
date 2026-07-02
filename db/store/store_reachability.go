@@ -82,6 +82,23 @@ func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 	return reachable
 }
 
+// HasAnonymousAtOrAbove reports whether any live anonymous object has an
+// identity id >= minID. Orphan-anonymous collection restricts its recycle
+// candidates to ids >= minID, so when this returns false the full
+// persistent-reachability sweep is a guaranteed no-op and can be skipped —
+// on large databases that sweep is far too expensive to pay after every task.
+func (s *Store) HasAnonymousAtOrAbove(minID types.ObjID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	found := false
+	s.rangeAnonymousLocked(func(obj *Object) {
+		if obj.id >= minID {
+			found = true
+		}
+	})
+	return found
+}
+
 func (s *Store) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if len(refs) == 0 {
 		return

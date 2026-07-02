@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"time"
+
 	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -41,6 +43,94 @@ func (s *Scheduler) finalizePendingWaifs(ctx *kernel.TaskContext, pending []type
 		}
 		s.callWaifRecycle(ctx, waif)
 	}
+}
+
+// pendingWaifEntry is one waif awaiting a deferred liveness check, together
+// with the task context it was pending under (used for :recycle perms).
+type pendingWaifEntry struct {
+	waif types.Value
+	ctx  *kernel.TaskContext
+}
+
+const (
+	gcSweepInterval = 2 * time.Second
+	// While sweeps stay cheaper than this, the deferred batches are flushed on
+	// every scheduler pass (matching the old per-task promptness on small
+	// databases); once a sweep costs more, flushes throttle to gcSweepInterval.
+	cheapGCSweep = 50 * time.Millisecond
+)
+
+// deferPendingWaifs queues waifs for batched finalization. The per-task
+// finalizePendingWaifs pays a full-database waif-roots sweep on every call,
+// which is prohibitive on large databases where busy worlds surface pending
+// waifs after nearly every task. Deferral only delays when an orphaned
+// waif's :recycle runs (by up to waifSweepInterval); a waif that is still
+// referenced anywhere is skipped at flush time exactly as before.
+func (s *Scheduler) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Value) {
+	if len(pending) == 0 || ctx == nil {
+		return
+	}
+	s.pendingWaifMu.Lock()
+	for _, waif := range pending {
+		s.pendingWaifBatch = append(s.pendingWaifBatch, pendingWaifEntry{waif: waif, ctx: ctx})
+	}
+	s.pendingWaifMu.Unlock()
+}
+
+// deferAnonGC queues an orphan-anonymous collection request for the next
+// deferred-GC flush, for the same reason as deferPendingWaifs: the per-task
+// sweep walks every persistent property tree and is prohibitive on large
+// databases whose worlds create anonymous objects on nearly every task.
+func (s *Scheduler) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID) {
+	if ctx == nil {
+		return
+	}
+	s.pendingWaifMu.Lock()
+	s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{Ctx: ctx, MinID: minID})
+	s.pendingWaifMu.Unlock()
+}
+
+// flushDeferredGC settles the deferred waif and anonymous-object batches.
+// Called from the scheduler loop after every task pass. Liveness is judged at
+// flush time against persistent state plus all live task VMs, so deferral
+// only changes WHEN an orphan's :recycle runs: immediately after the pass
+// while sweeps stay cheap, on gcSweepInterval once they become expensive.
+func (s *Scheduler) flushDeferredGC() {
+	s.pendingWaifMu.Lock()
+	if len(s.pendingWaifBatch) == 0 && len(s.pendingAnonGC) == 0 {
+		s.pendingWaifMu.Unlock()
+		return
+	}
+	due := time.Since(s.lastGCSweep) >= gcSweepInterval
+	if !due && s.lastGCCost >= cheapGCSweep {
+		s.pendingWaifMu.Unlock()
+		return
+	}
+	waifBatch := s.pendingWaifBatch
+	anonBatch := s.pendingAnonGC
+	s.pendingWaifBatch = nil
+	s.pendingAnonGC = nil
+	s.lastGCSweep = time.Now()
+	s.pendingWaifMu.Unlock()
+
+	sweepStart := time.Now()
+	liveVMs := s.liveTaskVMs(nil)
+
+	if len(waifBatch) > 0 {
+		live := s.liveWaifs(liveVMs...)
+		for _, entry := range waifBatch {
+			if waifInList(entry.waif, live) {
+				continue
+			}
+			s.callWaifRecycle(entry.ctx, entry.waif)
+		}
+	}
+
+	vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, liveVMs...)
+
+	s.pendingWaifMu.Lock()
+	s.lastGCCost = time.Since(sweepStart)
+	s.pendingWaifMu.Unlock()
 }
 
 func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Value) {
