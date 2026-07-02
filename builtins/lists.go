@@ -222,6 +222,30 @@ func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinIsMember tests if value is in list
 // is_member(value, list) -> int (1-based index or 0)
+// promoteMemberEqual implements PROMOTE_NUMBERS membership equality for
+// is_member: when promotion is on and the pair is mixed int/float, compare as
+// doubles (mongoose utils.cc coercion). handled is false when the fallback
+// (strictEqual) should decide instead.
+func promoteMemberEqual(ctx *kernel.TaskContext, a, b types.Value) (equal bool, handled bool) {
+	if ctx == nil || !ctx.RuntimeOptions.PromoteNumbers {
+		return false, false
+	}
+	aIsInt := a.Type() == types.TYPE_INT
+	bIsInt := b.Type() == types.TYPE_INT
+	aIsFloat := a.Type() == types.TYPE_FLOAT
+	bIsFloat := b.Type() == types.TYPE_FLOAT
+	if !((aIsInt && bIsFloat) || (aIsFloat && bIsInt)) {
+		return false, false
+	}
+	toF := func(v types.Value) float64 {
+		if v.Type() == types.TYPE_INT {
+			return float64(v.Int())
+		}
+		return v.Float()
+	}
+	return toF(a) == toF(b), true
+}
+
 func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
@@ -234,7 +258,14 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		collection := args[1]
 		// Find value in list (case-sensitive for strings)
 		for i := 1; i <= collection.Len(); i++ {
-			if strictEqual(collection.Get(i), value) {
+			item := collection.Get(i)
+			if eq, handled := promoteMemberEqual(ctx, value, item); handled {
+				if eq {
+					return types.Ok(types.NewInt(int64(i)))
+				}
+				continue
+			}
+			if strictEqual(item, value) {
 				return types.Ok(types.NewInt(int64(i)))
 			}
 		}
@@ -248,6 +279,12 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		pairs := collection.Pairs()
 		sortMapPairs(pairs)
 		for i, pair := range pairs {
+			if eq, handled := promoteMemberEqual(ctx, value, pair[1]); handled {
+				if eq {
+					return types.Ok(types.NewInt(int64(i + 1)))
+				}
+				continue
+			}
 			if strictEqual(pair[1], value) {
 				return types.Ok(types.NewInt(int64(i + 1)))
 			}

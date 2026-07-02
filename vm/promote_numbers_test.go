@@ -249,3 +249,28 @@ func TestPromoteNumbers_ClusterByProximityReduction(t *testing.T) {
 	promoteResult := runBytecodeProgram(t, code, nil, promoteCtx())
 	requireInt(t, promoteResult, 1)
 }
+
+// --- membership (`in`, map values) under promote ---
+// Oracle: Toast mongoose branch (PROMOTE_NUMBERS on), verified live 2026-07-01:
+// {1 in {1.0}, 1.0 in {1}, 2 in {1.0, 2.0}, 1 in ["a" -> 1.0]} => {1, 1, 2, 1}
+// Strict Toast master: 1 in {1.0} => 0.
+
+func TestPromoteNumbers_StrictInMixedIsZero(t *testing.T) {
+	requireInt(t, runBytecodeProgram(t, "return 1 in {1.0};", nil, strictCtx()), 0)
+	requireInt(t, runBytecodeProgram(t, "return 1.0 in {1};", nil, strictCtx()), 0)
+}
+
+func TestPromoteNumbers_PromoteInList(t *testing.T) {
+	requireInt(t, runBytecodeProgram(t, "return 1 in {1.0};", nil, promoteCtx()), 1)
+	requireInt(t, runBytecodeProgram(t, "return 1.0 in {1};", nil, promoteCtx()), 1)
+	requireInt(t, runBytecodeProgram(t, "return 2 in {1.0, 2.0};", nil, promoteCtx()), 2)
+	// Non-numeric elements still match by normal equality.
+	requireInt(t, runBytecodeProgram(t, `return "x" in {1.0, "x"};`, nil, promoteCtx()), 2)
+	// A mixed pair that is numerically unequal does not match.
+	requireInt(t, runBytecodeProgram(t, "return 2 in {1.0, 3.0};", nil, promoteCtx()), 0)
+}
+
+func TestPromoteNumbers_PromoteInMapValues(t *testing.T) {
+	requireInt(t, runBytecodeProgram(t, `return 1 in ["a" -> 1.0];`, nil, promoteCtx()), 1)
+	requireInt(t, runBytecodeProgram(t, `return 1 in ["a" -> 2.0];`, nil, promoteCtx()), 0)
+}
