@@ -990,12 +990,14 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_TYPE)
 	}
 
+	hasMethod := false
 	method := int64(0)
 	if len(args) == 2 {
 		if args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
 		method = args[1].Int()
+		hasMethod = true
 	}
 
 	conn := resolveConnection(ctx, player)
@@ -1003,31 +1005,29 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_INVARG)
 	}
 
-	if method == 0 {
-		if resolved := conn.GetResolvedName(); resolved != "" {
-			return types.Ok(types.NewStr(resolved))
-		}
+	host, port := parseRemoteAddress(conn.RemoteAddr())
+	name := host
+	if resolved := conn.GetResolvedName(); resolved != "" {
+		name = resolved
 	}
 
-	host, port := parseRemoteAddress(conn.RemoteAddr())
-	switch method {
-	case 0:
-		// Legacy LambdaMOO/Mongoose format consumed by
-		// $string_utils:connection_hostname_bsd():
-		//   "port <listen-port> from <host>, port <remote-port>"
+	// Toast bf_connection_name (server.cc): with no method argument, the bare
+	// resolved connection name; with method 1, the numeric IP; with ANY other
+	// method value, the full legacy string
+	// "port <listen-port> from <hostname> [<ip>], port <remote-port>".
+	switch {
+	case !hasMethod:
+		return types.Ok(types.NewStr(name))
+	case method == 1:
+		return types.Ok(types.NewStr(host))
+	default:
 		listenPort := 0
 		if conn.ListenerPort() > 0 {
 			listenPort = int(conn.ListenerPort())
 		} else if cm := hostOf(ctx).ConnManager; cm != nil {
 			listenPort = cm.GetListenPort()
 		}
-		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s, port %s", listenPort, host, port)))
-	case 1:
-		return types.Ok(types.NewStr(host))
-	case 2:
-		return types.Ok(types.NewStr(fmt.Sprintf("%s, port %s", host, port)))
-	default:
-		return types.Err(types.E_INVARG)
+		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s [%s], port %s", listenPort, name, host, port)))
 	}
 }
 

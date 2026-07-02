@@ -114,25 +114,39 @@ func TestConnectionNameFormats(t *testing.T) {
 	})
 	ctx.Player = 7
 
+	// Contract per Toast bf_connection_name (server.cc), verified live
+	// 2026-07-01 and captured in conformance connection_name_semantics.yaml:
+	// no method → bare resolved name; method 1 → numeric IP; any other
+	// method → "port <listen-port> from <host> [<ip>], port <remote-port>".
 	cases := []struct {
 		name string
 		args []types.Value
 		want string
 	}{
 		{
-			name: "method_0_legacy",
+			name: "no_method_bare_name",
 			args: []types.Value{types.NewObj(7)},
-			want: "port 7777 from ::1, port 4567",
+			want: "::1",
 		},
 		{
-			name: "method_1_host_only",
+			name: "method_1_numeric_ip",
 			args: []types.Value{types.NewObj(7), types.NewInt(1)},
 			want: "::1",
 		},
 		{
-			name: "method_2_host_port",
+			name: "method_0_full_legacy",
+			args: []types.Value{types.NewObj(7), types.NewInt(0)},
+			want: "port 7777 from ::1 [::1], port 4567",
+		},
+		{
+			name: "method_2_full_legacy",
 			args: []types.Value{types.NewObj(7), types.NewInt(2)},
-			want: "::1, port 4567",
+			want: "port 7777 from ::1 [::1], port 4567",
+		},
+		{
+			name: "method_negative_full_legacy",
+			args: []types.Value{types.NewObj(7), types.NewInt(-1)},
+			want: "port 7777 from ::1 [::1], port 4567",
 		},
 	}
 
