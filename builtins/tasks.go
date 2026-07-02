@@ -495,25 +495,63 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewList(result))
 }
 
-// builtinYin: yin([threshold [, ticks [, seconds]]]) → none
-// Yields execution if requested resource thresholds have been crossed.
+// builtinYin: yin([seconds [, min_ticks [, min_seconds]]]) → 0
+// "Yield if needed": suspends for `seconds` (default 0) when the task is
+// running low on ticks (ticks_left() < min_ticks, default 2000) or on time
+// (seconds_left() < min_seconds, default 2); otherwise returns 0 immediately.
+// Mirrors ToastStunt bf_yield_if_needed (execute.cc), including validating
+// min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
+// least one argument is supplied.
 func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
-	for _, arg := range args {
-		if arg.Type() != types.TYPE_INT {
+	seconds := 0.0
+	if len(args) >= 1 {
+		switch args[0].Type() {
+		case types.TYPE_INT:
+			seconds = float64(args[0].Int())
+		case types.TYPE_FLOAT:
+			seconds = args[0].Float()
+		default:
 			return types.Err(types.E_TYPE)
 		}
 	}
 
-	if yielder := hostOf(ctx).TaskYielder; len(args) >= 2 && yielder != nil {
-		tickThreshold := args[1].Int()
-		if ctx.TicksRemaining <= tickThreshold {
-			yielder.YieldReadyTasks()
+	minTicks := int64(2000)
+	if len(args) >= 2 {
+		if args[1].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		minTicks = args[1].Int()
+	}
+
+	minSeconds := int64(2)
+	if len(args) >= 3 {
+		if args[2].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		minSeconds = args[2].Int()
+	}
+
+	if len(args) >= 1 {
+		fgTicks, fgSeconds := GetTaskLimits(false)
+		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
+			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
+			return types.Err(types.E_INVARG)
 		}
 	}
 
-	return types.Ok(types.NewInt(0))
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Ok(types.NewInt(0))
+	}
+
+	if ctx.TicksRemaining >= minTicks && int64(t.SecondsLeft()) >= minSeconds {
+		return types.Ok(types.NewInt(0))
+	}
+
+	task.GetManager().SuspendTask(t, seconds)
+	return types.Suspend(seconds)
 }
