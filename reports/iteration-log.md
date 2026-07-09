@@ -196,3 +196,15 @@
 - Result: 7 failures fixed
 - Commits: this commit
 - Remaining: one 7-failure cluster, then 6-failure and smaller clusters.
+
+---
+
+## 015 - 2026-07-09
+- Start: 62 failures
+- Target: `disassemble_call_shapes` (7 failures)
+- Status: complete
+- Targeted: `disassemble_call_shapes` passed (49 passed)
+- Full after: 55 failures, 11280 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: three 6-failure clusters, then 5-failure and smaller clusters.

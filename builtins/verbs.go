@@ -857,8 +857,13 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
+	switch args[1].Type() {
+	case types.TYPE_STR, types.TYPE_INT:
+	default:
+		return types.Err(types.E_TYPE)
+	}
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.
