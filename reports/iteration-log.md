@@ -232,3 +232,15 @@
 - Result: 6 failures fixed
 - Commits: this commit
 - Remaining: one 6-failure cluster, then 5-failure and smaller clusters.
+
+---
+
+## 018 - 2026-07-09
+- Start: 43 failures
+- Target: `callers_call_shapes` (6 failures)
+- Status: complete
+- Targeted: `callers_call_shapes` passed (6 passed)
+- Full after: 37 failures, 11298 passed, 126 skipped
+- Result: 6 failures fixed
+- Commits: this commit
+- Remaining: three 5-failure clusters, then 4-failure and smaller clusters.

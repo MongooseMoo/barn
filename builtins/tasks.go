@@ -271,10 +271,7 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Pass true/1 to include line numbers (6-element frames)
 	includeLineNumbers := false
 	if len(args) == 1 {
-		if args[0].Type() != types.TYPE_INT {
-			return types.Err(types.E_TYPE)
-		}
-		includeLineNumbers = args[0].Int() != 0
+		includeLineNumbers = args[0].Truthy()
 	}
 
 	// Get the task from context
