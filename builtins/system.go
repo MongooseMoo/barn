@@ -547,7 +547,7 @@ func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
+		return types.Ok(types.NewList(versionInfo))
 	}
 
 	switch args[0].Str() {

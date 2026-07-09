@@ -208,3 +208,15 @@
 - Result: 7 failures fixed
 - Commits: this commit
 - Remaining: three 6-failure clusters, then 5-failure and smaller clusters.
+
+---
+
+## 016 - 2026-07-09
+- Start: 55 failures
+- Target: `server_version_call_shapes` (6 failures)
+- Status: complete
+- Targeted: `server_version_call_shapes` passed (7 passed)
+- Full after: 49 failures, 11286 passed, 126 skipped
+- Result: 6 failures fixed
+- Commits: this commit
+- Remaining: two 6-failure clusters, then 5-failure and smaller clusters.
