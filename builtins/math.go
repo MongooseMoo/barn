@@ -622,7 +622,7 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				}
 			}
 		default:
-			return types.E_TYPE
+			return types.E_INVARG
 		}
 		return types.E_NONE
 	}
