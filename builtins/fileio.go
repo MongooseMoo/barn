@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -918,19 +917,17 @@ func builtinFileCountLines(ctx *kernel.TaskContext, args []types.Value) types.Re
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
+	h, code := getFileHandle(args[0])
+	if code != types.E_NONE {
+		return types.Err(code)
 	}
-	path, err := sanitizeFilePath(args[0].Str())
-	if err != nil {
+	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
-	f, err := os.Open(resolveFilePath(path))
-	if err != nil {
+	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(h.file)
 	count := int64(0)
 	for scanner.Scan() {
 		count++
@@ -945,31 +942,41 @@ func builtinFileGrep(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	if args[0].Type() != types.TYPE_STR || args[1].Type() != types.TYPE_STR {
+	h, code := getFileHandle(args[0])
+	if code != types.E_NONE {
+		return types.Err(code)
+	}
+	if args[1].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	path, err := sanitizeFilePath(args[0].Str())
-	if err != nil {
+	if len(args) == 3 && args[2].Type() != types.TYPE_INT {
+		return types.Err(types.E_TYPE)
+	}
+	if !h.canRead() {
 		return types.Err(types.E_INVARG)
 	}
-	re, err := regexp.Compile(args[1].Str())
-	if err != nil {
-		return types.Err(types.E_INVARG)
-	}
-	f, err := os.Open(resolveFilePath(path))
-	if err != nil {
+	if _, err := h.file.Seek(0, io.SeekStart); err != nil {
 		return types.Err(types.E_FILE)
 	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
+	matchAll := len(args) == 3 && args[2].Truthy()
+	needle := args[1].Str()
+	scanner := bufio.NewScanner(h.file)
 	out := make([]types.Value, 0)
+	lineNum := int64(0)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if re.MatchString(line) {
-			out = append(out, types.NewStr(line))
+		lineNum++
+		if strings.Contains(line, needle) {
+			out = append(out, types.NewList([]types.Value{
+				types.NewStr(line),
+				types.NewInt(lineNum),
+			}))
+			if !matchAll {
+				break
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {

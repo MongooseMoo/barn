@@ -316,3 +316,15 @@
 - Result: 4 failures fixed
 - Commits: this commit
 - Remaining: one 3-failure cluster, then 2-failure and smaller clusters.
+
+---
+
+## 025 - 2026-07-09
+- Start: 11 failures
+- Target: `file_handle_call_shapes` (3 failures)
+- Status: complete
+- Targeted: `file_handle_call_shapes` passed (4 passed)
+- Full after: 8 failures, 11327 passed, 126 skipped
+- Result: 3 failures fixed
+- Commits: this commit
+- Remaining: three 2-failure clusters, then singletons.
