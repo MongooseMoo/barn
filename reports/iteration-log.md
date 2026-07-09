@@ -376,3 +376,15 @@
 - Result: 1 failure fixed
 - Commits: this commit
 - Remaining: one singleton.
+
+---
+
+## 030 - 2026-07-09
+- Start: 1 failure
+- Target: `clear_property_call_shapes` (1 failure)
+- Status: complete
+- Targeted: `clear_property_call_shapes` passed (12 passed)
+- Full after: 0 failures, 11335 passed, 126 skipped
+- Result: 1 failure fixed
+- Commits: this commit
+- Remaining: none.

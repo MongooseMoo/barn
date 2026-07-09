@@ -402,7 +402,22 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	// Find property in chain
 	foundProp, err := store.FindProperty(objID, propName)
 	if err != types.E_NONE {
+		hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
+		isWizard := errCode == types.E_NONE && hasWizard
+		objectOwner, ownerErr := store.ObjectOwner(objID)
+		isObjectOwner := ownerErr == types.E_NONE && ctx.Programmer == objectOwner
+		if !isWizard && !isObjectOwner {
+			return types.Err(types.E_PERM)
+		}
 		return types.Err(err)
+	}
+
+	// Check write permission (unless wizard or owner)
+	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
+	isOwner := ctx.Programmer == foundProp.Owner
+	if !isWizard && !isOwner && !foundProp.Perms.Has(dbstore.PropWrite) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Check if property is defined on this object - E_INVARG if so
@@ -412,14 +427,6 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 	if defined {
 		return types.Err(types.E_INVARG)
-	}
-
-	// Check write permission (unless wizard or owner)
-	hasWizard, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagWizard)
-	isWizard := errCode == types.E_NONE && hasWizard
-	isOwner := ctx.Programmer == foundProp.Owner
-	if !isWizard && !isOwner && !foundProp.Perms.Has(dbstore.PropWrite) {
-		return types.Err(types.E_PERM)
 	}
 
 	if err := store.ClearPropertyOverride(objID, propName); err != types.E_NONE {
