@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/latest-conformance-barn-after-toast-green.xml",
+  "total": 11461,
+  "pass": 10192,
+  "fail": 1143,
+  "skip": 126,
+  "target": "create_call_shapes",
+  "target_failures": 780,
+  "toast_oracle": {
+    "junit": "../moo-conformance-tests/.tmp/latest-conformance-toast-green.xml",
+    "pass": 11314,
+    "fail": 0,
+    "skip": 147
+  }
+}

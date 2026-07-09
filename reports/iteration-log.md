@@ -69,3 +69,15 @@
 - Result: 1 failure (1 fixed, 0 regressions)
 - Remaining: math::ctime_with_int_arg_is_invarg (test bug: Toast source shows ctime accepts optional INT arg, test incorrectly expects E_INVARG for ctime(0))
 - Final: 2572 passed, 1 failed, 183 skipped
+
+---
+
+## 004 - 2026-07-09
+- Start: 1143 failures
+- Toast oracle: 11314 passed, 147 skipped
+- Target: `create_call_shapes` (780 failures)
+- Root cause: `create()` validated parent existence before malformed optional argument types, returning `E_INVARG` before Toast's `E_TYPE`.
+- Fix: Parse optional argument shapes before parent existence/duplicate validation.
+- Result: 363 failures (780 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `is_member_call_shapes` (84), `task_stack_call_shapes` (55), `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
