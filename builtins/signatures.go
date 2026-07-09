@@ -525,7 +525,7 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFlushInput(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	if !isObjectRef(args[0]) {

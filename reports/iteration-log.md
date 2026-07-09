@@ -148,3 +148,15 @@
 - Result: 12 failures fixed (9 `background_threads`, 3 `exec`)
 - Commits: this commit
 - Remaining: five 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 011 - 2026-07-09
+- Start: 90 failures
+- Target: `connection_input_call_shapes` (7 failures)
+- Status: complete
+- Targeted: `connection_input_call_shapes` passed (14 passed)
+- Full after: 83 failures, 11252 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: four 7-failure clusters, then 6-failure and smaller clusters.
