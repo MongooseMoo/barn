@@ -268,3 +268,15 @@
 - Result: 5 failures fixed
 - Commits: this commit
 - Remaining: one 5-failure cluster, then 4-failure and smaller clusters.
+
+---
+
+## 021 - 2026-07-09
+- Start: 27 failures
+- Target: `read_call_shapes` (5 failures)
+- Status: complete
+- Targeted: `read_call_shapes` passed (7 passed)
+- Full after: 22 failures, 11313 passed, 126 skipped
+- Result: 5 failures fixed
+- Commits: this commit
+- Remaining: one 4-failure cluster, then 3-failure and smaller clusters.

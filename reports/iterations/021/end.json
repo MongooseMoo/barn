@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-021-full-after-read.xml",
+  "total": 11461,
+  "pass": 11313,
+  "fail": 22,
+  "skip": 126,
+  "target": "read_call_shapes",
+  "target_result": "7 passed, 11454 deselected",
+  "fixed_failures": 5,
+  "remaining_largest_clusters": [
+    "chr_call_shapes"
+  ]
+}

@@ -495,18 +495,18 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Non-blocking mode: second arg truthy returns immediately when no input
-	// is queued. Permission checks still happen first.
-	if len(args) == 2 && args[1].Truthy() {
-		return types.Ok(types.NewInt(0))
-	}
-
 	// Check player is connected
 	if cm := hostOf(ctx).ConnManager; cm == nil || cm.GetConnection(player) == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
 		return types.Err(types.E_INVARG)
+	}
+
+	// Non-blocking mode: second arg truthy returns immediately when no input
+	// is queued. Permission and connection checks still happen first.
+	if len(args) == 2 && args[1].Truthy() {
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Suspend the task to wait for input
