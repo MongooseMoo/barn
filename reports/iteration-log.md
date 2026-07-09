@@ -114,3 +114,14 @@
 - Result: 170 failures (54 fixed, 0 observed regressions)
 - Commits: this commit
 - Remaining: `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 008 - 2026-07-09
+- Start: 170 failures
+- Target: `file_stat_call_shapes` (36 failures)
+- Root cause: File stat helpers surfaced `E_TYPE` for non-handle/non-path values, and `file_stat()`/`file_type()` manually required strings despite Toast `TYPE_ANY` signatures.
+- Fix: Normalize unsupported stat values to `E_INVARG`, and route `file_stat()`/`file_type()` through the shared stat parser while preserving `file_type()` missing-path `0`.
+- Result: 134 failures (36 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `slice_call_shapes` (32), smaller clusters.

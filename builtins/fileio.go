@@ -613,7 +613,7 @@ func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
 		}
 		return st, types.E_NONE
 	default:
-		return nil, types.E_TYPE
+		return nil, types.E_INVARG
 	}
 }
 
@@ -680,16 +680,9 @@ func builtinFileStat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	path, err := sanitizeFilePath(args[0].Str())
-	if err != nil {
-		return types.Err(types.E_INVARG)
-	}
-	st, err := os.Stat(resolveFilePath(path))
-	if err != nil {
-		return types.Err(types.E_FILE)
+	st, code := fileStatFromValue(args[0])
+	if code != types.E_NONE {
+		return types.Err(code)
 	}
 	kind := "reg"
 	if st.IsDir() {
@@ -711,16 +704,12 @@ func builtinFileType(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
-	}
-	path, err := sanitizeFilePath(args[0].Str())
-	if err != nil {
-		return types.Err(types.E_INVARG)
-	}
-	st, err := os.Stat(resolveFilePath(path))
-	if err != nil {
+	st, code := fileStatFromValue(args[0])
+	if code == types.E_FILE {
 		return types.Ok(types.NewInt(0))
+	}
+	if code != types.E_NONE {
+		return types.Err(code)
 	}
 	if st.IsDir() {
 		return types.Ok(types.NewStr("directory"))
