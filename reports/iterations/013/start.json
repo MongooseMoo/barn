@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-012-full-after-add-property.xml",
+  "total": 11461,
+  "pass": 11259,
+  "fail": 76,
+  "skip": 126,
+  "target": "url_curl",
+  "target_failures": 7
+}

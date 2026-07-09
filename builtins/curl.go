@@ -3,7 +3,7 @@ package builtins
 import (
 	"io"
 	"net/http"
-	"strings"
+	neturl "net/url"
 	"time"
 
 	"barn/kernel"
@@ -23,40 +23,54 @@ func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.RuntimeOptions.OutboundNetwork {
 		return types.Err(types.E_PERM)
 	}
-	method := "GET"
-	body := ""
+	includeHeaders := false
 	if len(args) >= 2 {
-		if args[1].Type() != types.TYPE_STR {
-			return types.Err(types.E_TYPE)
-		}
-		method = strings.ToUpper(strings.TrimSpace(args[1].Str()))
-		if method == "" {
-			method = "GET"
-		}
+		includeHeaders = args[1].Truthy()
 	}
+	timeout := 5 * time.Second
 	if len(args) == 3 {
-		if args[2].Type() != types.TYPE_STR {
+		if args[2].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		body = args[2].Str()
+		if seconds := args[2].Int(); seconds > 0 {
+			timeout = time.Duration(seconds) * time.Second
+		}
 	}
-	req, err := http.NewRequest(method, args[0].Str(), strings.NewReader(body))
+	rawURL := args[0].Str()
+	parsed, err := neturl.Parse(rawURL)
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		return curlErrorMap(err.Error())
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return curlErrorMap("unsupported protocol")
+	}
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return curlErrorMap(err.Error())
+	}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return types.Err(types.E_INVARG)
+		return curlErrorMap(err.Error())
 	}
 	defer resp.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return types.Err(types.E_EXEC)
+		return curlErrorMap(err.Error())
 	}
-	result := types.NewMap([][2]types.Value{
+	entries := [][2]types.Value{
 		{types.NewStr("status"), types.NewInt(int64(resp.StatusCode))},
 		{types.NewStr("body"), types.NewStr(string(payload))},
-	})
+	}
+	if includeHeaders {
+		entries = append(entries, [2]types.Value{types.NewStr("headers"), types.NewStr(resp.Header.Get("Content-Type"))})
+	}
+	result := types.NewMap(entries)
 	return types.Ok(result)
+}
+
+func curlErrorMap(message string) types.Result {
+	return types.Ok(types.NewMap([][2]types.Value{
+		{types.NewStr("error"), types.NewStr(message)},
+	}))
 }

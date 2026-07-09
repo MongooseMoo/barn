@@ -172,3 +172,15 @@
 - Result: 7 failures fixed
 - Commits: this commit
 - Remaining: three 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 013 - 2026-07-09
+- Start: 76 failures
+- Target: `url_curl` (7 failures)
+- Status: complete
+- Targeted: `url_curl` passed (22 passed)
+- Full after: 69 failures, 11266 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: two 7-failure clusters, then 6-failure and smaller clusters.
