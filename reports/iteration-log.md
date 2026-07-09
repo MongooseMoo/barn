@@ -81,3 +81,14 @@
 - Result: 363 failures (780 fixed, 0 observed regressions)
 - Commits: this commit
 - Remaining: `is_member_call_shapes` (84), `task_stack_call_shapes` (55), `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 005 - 2026-07-09
+- Start: 363 failures
+- Target: `is_member_call_shapes` (84 failures)
+- Root cause: `is_member()` accepted only two args and returned `E_TYPE` for non-collection second arguments; Toast accepts optional `case_matters` and raises `E_INVARG`.
+- Fix: Accept optional third int arg, preserve default case-sensitive comparison, and return `E_INVARG` for non-list/map collections.
+- Result: 279 failures (84 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `task_stack_call_shapes` (55), `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.

@@ -247,8 +247,15 @@ func promoteMemberEqual(ctx *kernel.TaskContext, a, b types.Value) (equal bool, 
 }
 
 func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
+	}
+	caseMatters := true
+	if len(args) == 3 {
+		if args[2].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		caseMatters = args[2].Int() != 0
 	}
 
 	value := args[0]
@@ -265,7 +272,7 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				}
 				continue
 			}
-			if strictEqual(item, value) {
+			if memberEqual(item, value, caseMatters) {
 				return types.Ok(types.NewInt(int64(i)))
 			}
 		}
@@ -285,29 +292,36 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				}
 				continue
 			}
-			if strictEqual(pair[1], value) {
+			if memberEqual(pair[1], value, caseMatters) {
 				return types.Ok(types.NewInt(int64(i + 1)))
 			}
 		}
 		return types.Ok(types.NewInt(0))
 
 	default:
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
+}
+
+func memberEqual(a, b types.Value, caseMatters bool) bool {
+	if caseMatters {
+		return strictEqual(a, b)
+	}
+	return a.Equal(b)
 }
 
 // builtinSort sorts a list, matching ToastStunt's bf_sort / sort_callback.
 //
 // Signature (toaststunt src/list.cc:1779, sort_callback 947-1020):
 //
-//	sort(list [, keys] [, natural] [, reverse]) -> list
-//	register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
+//		sort(list [, keys] [, natural] [, reverse]) -> list
+//		register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
 //
-//   - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
-//     list itself". When non-empty it must have the same length as list, else
-//     E_INVARG, and the returned elements come from list (not keys).
-//   - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
-//   - reverse (INT):  when true, the sorted order is reversed.
+//	  - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
+//	    list itself". When non-empty it must have the same length as list, else
+//	    E_INVARG, and the returned elements come from list (not keys).
+//	  - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
+//	  - reverse (INT):  when true, the sorted order is reversed.
 //
 // Errors: bad arity -> E_ARGS; wrong arg types -> E_TYPE (Toast enforces these via
 // register_function's type tokens); the sort-key list must be homogeneous and made
