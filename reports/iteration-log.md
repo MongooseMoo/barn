@@ -220,3 +220,15 @@
 - Result: 6 failures fixed
 - Commits: this commit
 - Remaining: two 6-failure clusters, then 5-failure and smaller clusters.
+
+---
+
+## 017 - 2026-07-09
+- Start: 49 failures
+- Target: `listappend_call_shapes` (6 failures)
+- Status: complete
+- Targeted: `listappend_call_shapes` passed (11 passed)
+- Full after: 43 failures, 11292 passed, 126 skipped
+- Result: 6 failures fixed
+- Commits: this commit
+- Remaining: one 6-failure cluster, then 5-failure and smaller clusters.
