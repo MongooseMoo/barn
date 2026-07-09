@@ -340,3 +340,15 @@
 - Result: 2 failures fixed
 - Commits: this commit
 - Remaining: two 2-failure clusters, then singletons.
+
+---
+
+## 027 - 2026-07-09
+- Start: 6 failures
+- Target: `mapvalues_call_shapes` (2 failures)
+- Status: complete
+- Targeted: `mapvalues_call_shapes` passed (6 passed)
+- Full after: 4 failures, 11331 passed, 126 skipped
+- Result: 2 failures fixed
+- Commits: this commit
+- Remaining: one 2-failure cluster, then singletons.

@@ -64,9 +64,6 @@ func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		values := make([]types.Value, 0, len(args)-1)
 		for i := 1; i < len(args); i++ {
 			key := args[i]
-			if !types.IsValidBuiltinMapKey(key) {
-				return types.Err(types.E_TYPE)
-			}
 			val, found := m.GetWithCase(key, true)
 			if !found {
 				return types.Err(types.E_RANGE)
