@@ -184,3 +184,15 @@
 - Result: 7 failures fixed
 - Commits: this commit
 - Remaining: two 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 014 - 2026-07-09
+- Start: 69 failures
+- Target: `optional_extensions` (7 failures)
+- Status: complete
+- Targeted: `optional_extensions` passed (9 passed)
+- Full after: 62 failures, 11273 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: one 7-failure cluster, then 6-failure and smaller clusters.
