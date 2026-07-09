@@ -47,7 +47,13 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	// ordering comes from waiting_tasks, which enqueue_waiting keeps sorted
 	// ascending by start_tv (tasks.cc:1193-1204). Match that here.
 	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].StartTime.Before(tasks[j].StartTime)
+		if !tasks[i].StartTime.Equal(tasks[j].StartTime) {
+			return tasks[i].StartTime.Before(tasks[j].StartTime)
+		}
+		if tasks[i].QueueSeq != tasks[j].QueueSeq {
+			return tasks[i].QueueSeq < tasks[j].QueueSeq
+		}
+		return tasks[i].ID < tasks[j].ID
 	})
 
 	result := make([]types.Value, 0, len(tasks))

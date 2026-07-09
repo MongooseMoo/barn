@@ -304,3 +304,15 @@
 - Result: 3 failures fixed
 - Commits: this commit
 - Remaining: two 3-failure clusters, then 2-failure and smaller clusters.
+
+---
+
+## 024 - 2026-07-09
+- Start: 15 failures
+- Target: `exec` and `exec_call_shapes` (4 failures)
+- Status: complete
+- Targeted: `exec` family passed (36 passed, 5 skipped)
+- Full after: 11 failures, 11324 passed, 126 skipped
+- Result: 4 failures fixed
+- Commits: this commit
+- Remaining: one 3-failure cluster, then 2-failure and smaller clusters.

@@ -125,6 +125,7 @@ type Task struct {
 	QueueSeq        int64       // Monotonic enqueue order for deterministic same-time scheduling
 	WakeValue       types.Value // Value to return when resumed
 	IsExecSuspended bool        // True if suspended by exec() (can't resume, only kill)
+	ExecCommandName string      // Toast-style executable label while suspended by exec()
 	ReadingPlayer   types.ObjID // Player this task is read()ing from (ObjNothing = not reading)
 
 	// For forked tasks
@@ -441,6 +442,7 @@ func (t *Task) CompleteExec(value types.Value) bool {
 	}
 	t.IsExecSuspended = false
 	t.ExecCancelFunc = nil
+	t.ExecCommandName = ""
 	t.State = TaskQueued
 	t.WakeValue = value
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
@@ -467,6 +469,7 @@ func (t *Task) Kill() {
 		t.ExecCancelFunc = nil
 	}
 	t.IsExecSuspended = false
+	t.ExecCommandName = ""
 }
 
 // ToQueuedTaskInfo returns task info for queued_tasks()
@@ -507,16 +510,21 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 	// Estimate bytes (0 for now, can be calculated later if needed)
 	bytes := int64(0)
 
+	startValue := types.NewInt(t.StartTime.Unix())
+	if t.IsExecSuspended && t.ExecCommandName != "" {
+		startValue = types.NewStr(t.ExecCommandName)
+	}
+
 	return types.NewList([]types.Value{
-		types.NewInt(t.ID),               // [1] task_id
-		types.NewInt(t.StartTime.Unix()), // [2] start_time
-		types.NewInt(0),                  // [3] obsolete clock ID
-		types.NewInt(30000),              // [4] DEFAULT_BG_TICKS (obsolete)
-		types.NewObj(programmer),         // [5] programmer
-		types.NewObj(verbLoc),            // [6] verb_loc
-		types.NewStr(verbName),           // [7] verb_name
-		types.NewInt(int64(lineNumber)),  // [8] line_number
-		thisVal,                          // [9] this
-		types.NewInt(bytes),              // [10] bytes
+		types.NewInt(t.ID),              // [1] task_id
+		startValue,                      // [2] start_time or exec executable label
+		types.NewInt(0),                 // [3] obsolete clock ID
+		types.NewInt(30000),             // [4] DEFAULT_BG_TICKS (obsolete)
+		types.NewObj(programmer),        // [5] programmer
+		types.NewObj(verbLoc),           // [6] verb_loc
+		types.NewStr(verbName),          // [7] verb_name
+		types.NewInt(int64(lineNumber)), // [8] line_number
+		thisVal,                         // [9] this
+		types.NewInt(bytes),             // [10] bytes
 	})
 }
