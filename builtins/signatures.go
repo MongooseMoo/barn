@@ -711,12 +711,12 @@ func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	desc, errCode := parseListenerDescriptorValue(args[0])
 	if errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 	if err := cm.RemoveListener(desc); err != nil {
 		return types.Err(types.E_INVARG)

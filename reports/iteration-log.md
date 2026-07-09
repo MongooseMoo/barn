@@ -103,3 +103,14 @@
 - Result: 224 failures (55 fixed, 0 observed regressions)
 - Commits: this commit
 - Remaining: `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 007 - 2026-07-09
+- Start: 224 failures
+- Target: `unlisten_call_shapes` (54 failures)
+- Root cause: `unlisten()` accepted only one arg and surfaced descriptor parser `E_TYPE`; Toast accepts 1-2 `TYPE_ANY` args and reports missing/malformed listeners as `E_INVARG`.
+- Fix: Accept the optional second arg and normalize descriptor parse failures to `E_INVARG`.
+- Result: 170 failures (54 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.

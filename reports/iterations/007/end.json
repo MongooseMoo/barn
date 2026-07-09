@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-007-full-after-unlisten.xml",
+  "total": 11461,
+  "pass": 11165,
+  "fail": 170,
+  "skip": 126,
+  "target": "unlisten_call_shapes",
+  "target_failures_after": 0,
+  "failures_fixed": 54,
+  "regressions_observed": 0
+}
