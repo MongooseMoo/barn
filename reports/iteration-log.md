@@ -244,3 +244,15 @@
 - Result: 6 failures fixed
 - Commits: this commit
 - Remaining: three 5-failure clusters, then 4-failure and smaller clusters.
+
+---
+
+## 019 - 2026-07-09
+- Start: 37 failures
+- Target: `is_clear_property_call_shapes` (5 failures)
+- Status: complete
+- Targeted: `is_clear_property_call_shapes` passed (6 passed)
+- Full after: 32 failures, 11303 passed, 126 skipped
+- Result: 5 failures fixed
+- Commits: this commit
+- Remaining: two 5-failure clusters, then 4-failure and smaller clusters.

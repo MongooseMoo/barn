@@ -445,7 +445,7 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 
 	objVal := args[0]
 	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
 
 	nameVal := args[1]
