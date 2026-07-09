@@ -364,3 +364,15 @@
 - Result: 2 failures fixed
 - Commits: this commit
 - Remaining: two singletons.
+
+---
+
+## 029 - 2026-07-09
+- Start: 2 failures
+- Target: `respond_to_call_shapes` (1 failure)
+- Status: complete
+- Targeted: `respond_to_call_shapes` passed (7 passed)
+- Full after: 1 failure, 11334 passed, 126 skipped
+- Result: 1 failure fixed
+- Commits: this commit
+- Remaining: one singleton.

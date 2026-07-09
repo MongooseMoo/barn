@@ -99,7 +99,7 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Try to find the verb that would actually answer obj:verb() — a
