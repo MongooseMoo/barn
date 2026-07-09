@@ -215,7 +215,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects are instances, not classes: their property structure

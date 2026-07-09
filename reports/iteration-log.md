@@ -160,3 +160,15 @@
 - Result: 7 failures fixed
 - Commits: this commit
 - Remaining: four 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 012 - 2026-07-09
+- Start: 83 failures
+- Target: `add_property_call_shapes` (7 failures)
+- Status: complete
+- Targeted: `add_property_call_shapes` passed (49 passed)
+- Full after: 76 failures, 11259 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: three 7-failure clusters, then 6-failure and smaller clusters.
