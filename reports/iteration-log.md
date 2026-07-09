@@ -92,3 +92,14 @@
 - Result: 279 failures (84 fixed, 0 observed regressions)
 - Commits: this commit
 - Remaining: `task_stack_call_shapes` (55), `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 006 - 2026-07-09
+- Start: 279 failures
+- Target: `task_stack_call_shapes` (55 failures)
+- Root cause: `task_stack()` accepted only 1-2 args and validated optional flag types before missing-task `E_INVARG`; Toast accepts 1-3 args with optional `TYPE_ANY` flags.
+- Fix: Accept the third optional arg, check task existence before optional flag handling, and use truthiness for the line-number flag.
+- Result: 224 failures (55 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.

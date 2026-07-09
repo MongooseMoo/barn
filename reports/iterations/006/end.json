@@ -1,0 +1,13 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-006-full-after-task-stack.xml",
+  "total": 11461,
+  "pass": 11111,
+  "fail": 224,
+  "skip": 126,
+  "target": "task_stack_call_shapes",
+  "target_failures_after": 0,
+  "failures_fixed": 55,
+  "regressions_observed": 0
+}

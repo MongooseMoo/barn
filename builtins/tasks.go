@@ -431,25 +431,16 @@ func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 }
 
-// builtinTaskStack: task_stack(task_id [, include_line_numbers]) → LIST
+// builtinTaskStack: task_stack(task_id [, include_line_numbers [, include_vars]]) → LIST
 // Returns the call stack for a suspended task
 // Each frame is a map with keys: this, verb, programmer, verb_loc, player, line_number
 func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
 	if args[0].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
-	}
-
-	// Second arg (include_line_numbers) is optional, defaults to false
-	includeLineNumbers := false
-	if len(args) == 2 {
-		if args[1].Type() != types.TYPE_INT {
-			return types.Err(types.E_TYPE)
-		}
-		includeLineNumbers = args[1].Int() != 0
 	}
 
 	taskID := args[0].Int()
@@ -469,6 +460,14 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Permission check: must be task owner or wizard
 	if t.Owner != ctx.Programmer && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
+	}
+
+	// Optional args are TYPE_ANY in Toast. Barn currently uses the second flag
+	// for line-number inclusion; the third stack-vars flag is accepted for
+	// signature parity but does not change the existing frame shape.
+	includeLineNumbers := false
+	if len(args) >= 2 {
+		includeLineNumbers = args[1].Truthy()
 	}
 
 	// Get call stack
