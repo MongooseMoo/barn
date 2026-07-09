@@ -136,3 +136,15 @@
 - Result: 102 failures (32 fixed, 0 observed regressions)
 - Commits: this commit
 - Remaining: `background_threads` (9), multiple 7-failure clusters, smaller clusters.
+
+---
+
+## 010 - 2026-07-09
+- Start: 102 failures
+- Target: `background_threads` (9 failures)
+- Status: complete
+- Targeted: `background_threads or set_thread_mode_call_shapes` passed (13 passed)
+- Full after: 90 failures, 11245 passed, 126 skipped
+- Result: 12 failures fixed (9 `background_threads`, 3 `exec`)
+- Commits: this commit
+- Remaining: five 7-failure clusters, then 6-failure and smaller clusters.

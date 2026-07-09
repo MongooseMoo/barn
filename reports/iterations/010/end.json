@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-010-full-after-background-threads.xml",
+  "total": 11461,
+  "pass": 11245,
+  "fail": 90,
+  "skip": 126,
+  "target": "background_threads",
+  "target_result": "13 passed, 11448 deselected for background/thread-mode targeted groups",
+  "fixed_failures": 12,
+  "remaining_largest_clusters": [
+    "connection_input_call_shapes",
+    "url_curl",
+    "optional_extensions",
+    "add_property_call_shapes",
+    "disassemble_call_shapes"
+  ]
+}

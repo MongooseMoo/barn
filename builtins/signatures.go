@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"sort"
+	"time"
 
 	kernel "barn/kernel"
 
@@ -274,14 +275,15 @@ func builtinThreads(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	all := task.GetManager().GetAllTasks()
 	result := make([]types.Value, 0, len(all))
 	for _, t := range all {
-		result = append(result, types.NewMap([][2]types.Value{
-			{types.NewStr("id"), types.NewInt(t.ID)},
-			{types.NewStr("owner"), types.NewObj(t.Owner)},
-			{types.NewStr("state"), types.NewStr(t.GetState().String())},
-		}))
+		if t.GetState() == task.TaskRunning || t.GetState() == task.TaskSuspended || t.GetState() == task.TaskQueued {
+			result = append(result, types.NewInt(t.ID))
+		}
 	}
 	return types.Ok(types.NewList(result))
 }
@@ -301,7 +303,16 @@ func builtinThreadPool(ctx *kernel.TaskContext, args []types.Value) types.Result
 			return types.Err(types.E_TYPE)
 		}
 	}
-	return types.Err(types.E_INVARG)
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	if args[0].Str() != "INIT" || args[1].Str() != "MAIN" {
+		return types.Err(types.E_INVARG)
+	}
+	if len(args) == 3 && args[2].Int() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Ok(types.NewInt(1))
 }
 
 func builtinSetThreadMode(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -312,6 +323,11 @@ func builtinSetThreadMode(ctx *kernel.TaskContext, args []types.Value) types.Res
 		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
+		ctx.ThreadMode = args[0].Truthy()
+		return types.Ok(types.NewInt(0))
+	}
+	if ctx.ThreadMode {
+		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
 }
@@ -418,10 +434,34 @@ func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Resu
 }
 
 func builtinBackgroundTest(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) != 0 {
+	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Ok(types.NewInt(0))
+	if args[0].Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	if args[1].Type() != types.TYPE_INT {
+		return types.Err(types.E_TYPE)
+	}
+	delay := args[1].Int()
+	if delay < 0 {
+		return types.Err(types.E_INVARG)
+	}
+	if delay == 0 || !ctx.ThreadMode {
+		return types.Ok(args[0])
+	}
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Ok(args[0])
+	}
+	result := args[0]
+	t.IsExecSuspended = true
+	task.GetManager().SuspendTask(t, -1)
+	go func() {
+		time.Sleep(time.Duration(delay) * time.Second)
+		t.CompleteExec(result)
+	}()
+	return types.Suspend(-1)
 }
 
 func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {

@@ -443,6 +443,9 @@ func (t *Task) CompleteExec(value types.Value) bool {
 	t.ExecCancelFunc = nil
 	t.State = TaskQueued
 	t.WakeValue = value
+	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
+		t.StartTime = time.Now()
+	}
 	return true
 }
 
