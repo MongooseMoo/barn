@@ -885,7 +885,8 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		case types.TYPE_MAP:
 			desc, errCode := parseListenerDescriptorValue(args[0])
 			if errCode != types.E_NONE {
-				return types.Err(errCode)
+				infos = nil
+				break
 			}
 			filtered := infos[:0]
 			for _, info := range infos {
@@ -895,7 +896,7 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			}
 			infos = filtered
 		default:
-			return types.Err(types.E_TYPE)
+			infos = nil
 		}
 	}
 

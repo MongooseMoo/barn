@@ -256,3 +256,15 @@
 - Result: 5 failures fixed
 - Commits: this commit
 - Remaining: two 5-failure clusters, then 4-failure and smaller clusters.
+
+---
+
+## 020 - 2026-07-09
+- Start: 32 failures
+- Target: `listeners_call_shapes` (5 failures)
+- Status: complete
+- Targeted: `listeners_call_shapes` passed (6 passed)
+- Full after: 27 failures, 11308 passed, 126 skipped
+- Result: 5 failures fixed
+- Commits: this commit
+- Remaining: one 5-failure cluster, then 4-failure and smaller clusters.

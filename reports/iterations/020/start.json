@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-019-full-after-is-clear-property.xml",
+  "total": 11461,
+  "pass": 11303,
+  "fail": 32,
+  "skip": 126,
+  "target": "listeners_call_shapes",
+  "target_failures": 5
+}
