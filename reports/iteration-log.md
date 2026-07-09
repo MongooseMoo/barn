@@ -328,3 +328,15 @@
 - Result: 3 failures fixed
 - Commits: this commit
 - Remaining: three 2-failure clusters, then singletons.
+
+---
+
+## 026 - 2026-07-09
+- Start: 8 failures
+- Target: `delete_verb_call_shapes` (2 failures)
+- Status: complete
+- Targeted: `delete_verb_call_shapes` passed (49 passed)
+- Full after: 6 failures, 11329 passed, 126 skipped
+- Result: 2 failures fixed
+- Commits: this commit
+- Remaining: two 2-failure clusters, then singletons.

@@ -510,19 +510,31 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal := args[1]
-	if nameVal.Type() != types.TYPE_STR {
+	descVal := args[1]
+	if descVal.Type() != types.TYPE_STR && descVal.Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
 
 	objID := objVal.ID()
 	if errCode := store.ObjectExists(objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	if errCode := store.DeleteVerb(objID, nameVal.Str()); errCode != types.E_NONE {
+	var name string
+	switch descVal.Type() {
+	case types.TYPE_STR:
+		name = descVal.Str()
+	case types.TYPE_INT:
+		verb, errCode := store.VerbByIndex(objID, int(descVal.Int())-1)
+		if errCode != types.E_NONE {
+			return types.Err(types.E_VERBNF)
+		}
+		name = verb.Name
+	}
+
+	if errCode := store.DeleteVerb(objID, name); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 

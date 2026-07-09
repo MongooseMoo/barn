@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-025-full-after-file-handles.xml",
+  "total": 11461,
+  "pass": 11327,
+  "fail": 8,
+  "skip": 126,
+  "target": "delete_verb_call_shapes",
+  "target_failures": 2
+}
