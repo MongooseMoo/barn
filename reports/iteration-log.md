@@ -352,3 +352,15 @@
 - Result: 2 failures fixed
 - Commits: this commit
 - Remaining: one 2-failure cluster, then singletons.
+
+---
+
+## 028 - 2026-07-09
+- Start: 4 failures
+- Target: `network_matrix` (2 failures)
+- Status: complete
+- Targeted: `network_matrix` passed (3 passed, 2 skipped)
+- Full after: 2 failures, 11333 passed, 126 skipped
+- Result: 2 failures fixed
+- Commits: this commit
+- Remaining: two singletons.

@@ -27,6 +27,7 @@ type ListenerSpec struct {
 	Object             types.ObjID
 	Port               int64
 	Interface          string
+	IPv6               bool
 	Path               string
 	PrintMessages      bool
 	TLSCertificatePath string
@@ -36,6 +37,7 @@ type ListenerSpec struct {
 type ListenerDescriptor struct {
 	Protocol string
 	Port     int64
+	IPv6     bool
 	Path     string
 }
 
@@ -78,6 +80,12 @@ type Connection interface {
 	IdleSeconds() int64
 	GetResolvedName() string
 	ListenerPort() int64
+}
+
+type outboundConnectionInfo interface {
+	IsOutbound() bool
+	OutboundSourceAddr() string
+	OutboundDestinationAddr() string
 }
 
 type inputWakeConnection interface {
@@ -743,13 +751,18 @@ func listenerProtocolSupported(protocol string) bool {
 
 func listenerDescriptorValue(desc ListenerDescriptor) types.Value {
 	protocol := normalizeListenerProtocol(desc.Protocol)
-	if protocol == ListenerProtocolTCP && desc.Path == "" {
+	if protocol == ListenerProtocolTCP && desc.Path == "" && !desc.IPv6 {
 		return types.NewInt(desc.Port)
 	}
 
+	ipv6 := int64(0)
+	if desc.IPv6 {
+		ipv6 = 1
+	}
 	pairs := [][2]types.Value{
 		{types.NewStr("protocol"), types.NewStr(protocol)},
 		{types.NewStr("port"), types.NewInt(desc.Port)},
+		{types.NewStr("ipv6"), types.NewInt(ipv6)},
 	}
 	if desc.Path != "" {
 		pairs = append(pairs, [2]types.Value{types.NewStr("path"), types.NewStr(desc.Path)})
@@ -761,6 +774,7 @@ func listenerInfoDescriptor(info ListenerInfo) ListenerDescriptor {
 	return ListenerDescriptor{
 		Protocol: normalizeListenerProtocol(info.Protocol),
 		Port:     info.Port,
+		IPv6:     info.IPv6,
 		Path:     info.Path,
 	}
 }
@@ -800,6 +814,9 @@ func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.
 			}
 			desc.Path = pathValue.Str()
 		}
+		if ipv6Value, ok := value.MapGet(types.NewStr("ipv6")); ok {
+			desc.IPv6 = ipv6Value.Truthy()
+		}
 		return desc, types.E_NONE
 	default:
 		return ListenerDescriptor{}, types.E_TYPE
@@ -809,6 +826,7 @@ func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.
 func listenerDescriptorEqual(left, right ListenerDescriptor) bool {
 	return normalizeListenerProtocol(left.Protocol) == normalizeListenerProtocol(right.Protocol) &&
 		left.Port == right.Port &&
+		left.IPv6 == right.IPv6 &&
 		left.Path == right.Path
 }
 
@@ -1159,28 +1177,46 @@ func builtinConnectionInfo(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_INVARG)
 	}
 
-	host, portText := parseRemoteAddress(conn.RemoteAddr())
+	outbound := false
+	remoteAddr := conn.RemoteAddr()
+	sourceAddr := ""
+	if info, ok := conn.(outboundConnectionInfo); ok && info.IsOutbound() {
+		outbound = true
+		sourceAddr = info.OutboundSourceAddr()
+		remoteAddr = info.OutboundDestinationAddr()
+	}
+
+	host, portText := parseRemoteAddress(remoteAddr)
 	destPort := int64(0)
 	_, _ = fmt.Sscanf(portText, "%d", &destPort)
 	sourcePort := conn.ListenerPort()
+	sourceHost := "127.0.0.1"
 	if sourcePort <= 0 {
 		sourcePort = int64(cm.GetListenPort())
+	}
+	if sourceAddr != "" {
+		sourceHost, portText = parseRemoteAddress(sourceAddr)
+		_, _ = fmt.Sscanf(portText, "%d", &sourcePort)
 	}
 
 	protocol := "IPv4"
 	if strings.Contains(host, ":") {
 		protocol = "IPv6"
 	}
+	outboundInt := int64(0)
+	if outbound {
+		outboundInt = 1
+	}
 
 	result := types.NewMap([][2]types.Value{
-		{types.NewStr("source_address"), types.NewStr("localhost")},
-		{types.NewStr("source_ip"), types.NewStr("127.0.0.1")},
+		{types.NewStr("source_address"), types.NewStr(sourceHost)},
+		{types.NewStr("source_ip"), types.NewStr(sourceHost)},
 		{types.NewStr("source_port"), types.NewInt(sourcePort)},
 		{types.NewStr("destination_address"), types.NewStr(host)},
 		{types.NewStr("destination_ip"), types.NewStr(host)},
 		{types.NewStr("destination_port"), types.NewInt(destPort)},
 		{types.NewStr("protocol"), types.NewStr(protocol)},
-		{types.NewStr("outbound"), types.NewInt(0)},
+		{types.NewStr("outbound"), types.NewInt(outboundInt)},
 	})
 	return types.Ok(result)
 }

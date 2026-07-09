@@ -593,7 +593,7 @@ func builtinBufferedOutputLength(ctx *kernel.TaskContext, args []types.Value) ty
 
 	length := conn.BufferedOutputLength()
 	// Conformance transport keeps at least one frame/prompt token queued.
-	if length < 1 {
+	if len(args) == 0 && length < 1 {
 		length = 1
 	}
 	return types.Ok(types.NewInt(int64(length)))
@@ -709,6 +709,8 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			switch pair[0].Str() {
 			case "print-messages":
 				spec.PrintMessages = pair[1].Truthy()
+			case "ipv6":
+				spec.IPv6 = pair[1].Truthy()
 			case "protocol":
 				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
@@ -762,6 +764,9 @@ func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	desc, errCode := parseListenerDescriptorValue(args[0])
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
+	}
+	if len(args) == 2 {
+		desc.IPv6 = args[1].Truthy()
 	}
 	if err := cm.RemoveListener(desc); err != nil {
 		return types.Err(types.E_INVARG)

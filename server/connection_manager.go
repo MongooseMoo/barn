@@ -38,6 +38,7 @@ type listenerRecord struct {
 type listenerKey struct {
 	protocol string
 	port     int64
+	ipv6     bool
 	path     string
 }
 
@@ -226,6 +227,7 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 	desc := builtins.ListenerDescriptor{
 		Protocol: spec.Protocol,
 		Port:     port,
+		IPv6:     ipv6,
 		Path:     canonicalListenerPath(spec.Protocol, spec.Path),
 	}
 	key := listenerKeyFromDescriptor(desc)
@@ -639,8 +641,18 @@ func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary boo
 }
 
 func (cm *ConnectionManager) listenAndRegister(spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
+	if spec.Interface == "" && spec.IPv6 {
+		spec.Interface = "::"
+	}
+	if spec.Interface == "" && !spec.IPv6 {
+		spec.Interface = "0.0.0.0"
+	}
 	addr := net.JoinHostPort(spec.Interface, fmt.Sprintf("%d", spec.Port))
-	listener, err := net.Listen("tcp", addr)
+	network := "tcp4"
+	if spec.IPv6 {
+		network = "tcp6"
+	}
+	listener, err := net.Listen(network, addr)
 	if err != nil {
 		return builtins.ListenerDescriptor{}, err
 	}
@@ -701,6 +713,9 @@ func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (typ
 		slices.Sort(ids)
 		if len(ids) > 0 {
 			connID := ids[0]
+			if conn := cm.connections[connID]; conn != nil {
+				conn.SetOutboundEndpoints(client.LocalAddr().String(), client.RemoteAddr().String())
+			}
 			cm.outboundClients[connID] = client
 			cm.mu.Unlock()
 			return types.ObjID(-connID), nil
@@ -804,6 +819,7 @@ func listenerKeyFromDescriptor(desc builtins.ListenerDescriptor) listenerKey {
 	return listenerKey{
 		protocol: protocol,
 		port:     desc.Port,
+		ipv6:     desc.IPv6,
 		path:     canonicalListenerPath(protocol, desc.Path),
 	}
 }
