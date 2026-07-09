@@ -781,7 +781,7 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 
 	default:
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.NewList(result))

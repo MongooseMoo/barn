@@ -125,3 +125,14 @@
 - Result: 134 failures (36 fixed, 0 observed regressions)
 - Commits: this commit
 - Remaining: `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 009 - 2026-07-09
+- Start: 134 failures
+- Target: `slice_call_shapes` (32 failures)
+- Root cause: `slice()` returned `E_TYPE` for unsupported start specifier shapes; Toast returns `E_INVARG`.
+- Fix: Return `E_INVARG` for unsupported start specifier types while leaving default values as `TYPE_ANY`.
+- Result: 102 failures (32 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `background_threads` (9), multiple 7-failure clusters, smaller clusters.
