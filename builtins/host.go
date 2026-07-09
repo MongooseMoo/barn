@@ -20,12 +20,13 @@ type (
 // error. This mirrors the verbCaller / SetVerbCaller pattern the Registry uses;
 // ownership lives on the instance, not in package-global state.
 type Host struct {
-	ConnManager ConnectionManager
-	InputForcer InputForcer
-	TaskYielder TaskYielder
-	RunGC       GCHook
-	Checkpoint  CheckpointHook
-	Shutdown    ShutdownHook
+	ConnManager  ConnectionManager
+	InputForcer  InputForcer
+	TaskYielder  TaskYielder
+	ProcessStdin *ProcessStdin
+	RunGC        GCHook
+	Checkpoint   CheckpointHook
+	Shutdown     ShutdownHook
 }
 
 // hostOf returns the Host wired onto the task's registry, or the zero Host when
@@ -46,6 +47,9 @@ func (r *Registry) SetInputForcer(f InputForcer) { r.host.InputForcer = f }
 
 // SetTaskYielder wires the scheduler hook used by resume() to run ready tasks.
 func (r *Registry) SetTaskYielder(y TaskYielder) { r.host.TaskYielder = y }
+
+// SetProcessStdin wires process stdin for the read_stdin() extension builtin.
+func (r *Registry) SetProcessStdin(stdin *ProcessStdin) { r.host.ProcessStdin = stdin }
 
 // SetRunGCFunc wires the anonymous-object GC entry point used by run_gc().
 func (r *Registry) SetRunGCFunc(f GCHook) { r.host.RunGC = f }

@@ -36,6 +36,7 @@ var knownFunctionSignatures = map[string]functionSignature{
 	"sqlite_interrupt":          {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
 	"server_version":            {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"connected_players":         {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
+	"read_stdin":                {minArg: 0, maxArg: 0, argTypes: []int64{}},
 }
 
 func functionInfoEntry(name string, sig functionSignature) types.Value {
@@ -831,7 +832,19 @@ func builtinReadStdin(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Ok(types.NewStr(""))
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Err(types.E_INVARG)
+	}
+	stdin := hostOf(ctx).ProcessStdin
+	if stdin == nil {
+		return types.Err(types.E_INVARG)
+	}
+	task.GetManager().SuspendTask(t, -1)
+	if !stdin.ReadLineAsync(t) {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Suspend(-1)
 }
 
 func builtinSpellcheck(ctx *kernel.TaskContext, args []types.Value) types.Result {
