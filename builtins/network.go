@@ -27,6 +27,7 @@ type ListenerSpec struct {
 	Object             types.ObjID
 	Port               int64
 	Interface          string
+	IPv6               bool
 	Path               string
 	PrintMessages      bool
 	TLSCertificatePath string
@@ -36,6 +37,7 @@ type ListenerSpec struct {
 type ListenerDescriptor struct {
 	Protocol string
 	Port     int64
+	IPv6     bool
 	Path     string
 }
 
@@ -78,6 +80,12 @@ type Connection interface {
 	IdleSeconds() int64
 	GetResolvedName() string
 	ListenerPort() int64
+}
+
+type outboundConnectionInfo interface {
+	IsOutbound() bool
+	OutboundSourceAddr() string
+	OutboundDestinationAddr() string
 }
 
 type inputWakeConnection interface {
@@ -745,13 +753,18 @@ func listenerProtocolSupported(protocol string) bool {
 
 func listenerDescriptorValue(desc ListenerDescriptor) types.Value {
 	protocol := normalizeListenerProtocol(desc.Protocol)
-	if protocol == ListenerProtocolTCP && desc.Path == "" {
+	if protocol == ListenerProtocolTCP && desc.Path == "" && !desc.IPv6 {
 		return types.NewInt(desc.Port)
 	}
 
+	ipv6 := int64(0)
+	if desc.IPv6 {
+		ipv6 = 1
+	}
 	pairs := [][2]types.Value{
 		{types.NewStr("protocol"), types.NewStr(protocol)},
 		{types.NewStr("port"), types.NewInt(desc.Port)},
+		{types.NewStr("ipv6"), types.NewInt(ipv6)},
 	}
 	if desc.Path != "" {
 		pairs = append(pairs, [2]types.Value{types.NewStr("path"), types.NewStr(desc.Path)})
@@ -763,6 +776,7 @@ func listenerInfoDescriptor(info ListenerInfo) ListenerDescriptor {
 	return ListenerDescriptor{
 		Protocol: normalizeListenerProtocol(info.Protocol),
 		Port:     info.Port,
+		IPv6:     info.IPv6,
 		Path:     info.Path,
 	}
 }
@@ -802,6 +816,9 @@ func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.
 			}
 			desc.Path = pathValue.Str()
 		}
+		if ipv6Value, ok := value.MapGet(types.NewStr("ipv6")); ok {
+			desc.IPv6 = ipv6Value.Truthy()
+		}
 		return desc, types.E_NONE
 	default:
 		return ListenerDescriptor{}, types.E_TYPE
@@ -811,6 +828,7 @@ func parseListenerDescriptorValue(value types.Value) (ListenerDescriptor, types.
 func listenerDescriptorEqual(left, right ListenerDescriptor) bool {
 	return normalizeListenerProtocol(left.Protocol) == normalizeListenerProtocol(right.Protocol) &&
 		left.Port == right.Port &&
+		left.IPv6 == right.IPv6 &&
 		left.Path == right.Path
 }
 
@@ -925,7 +943,8 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		case types.TYPE_MAP:
 			desc, errCode := parseListenerDescriptorValue(args[0])
 			if errCode != types.E_NONE {
-				return types.Err(errCode)
+				infos = nil
+				break
 			}
 			filtered := infos[:0]
 			for _, info := range infos {
@@ -935,7 +954,7 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			}
 			infos = filtered
 		default:
-			return types.Err(types.E_TYPE)
+			infos = nil
 		}
 	}
 
@@ -1030,12 +1049,14 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_TYPE)
 	}
 
+	hasMethod := false
 	method := int64(0)
 	if len(args) == 2 {
 		if args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
 		method = args[1].Int()
+		hasMethod = true
 	}
 
 	conn := resolveConnection(ctx, player)
@@ -1043,31 +1064,29 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_INVARG)
 	}
 
-	if method == 0 {
-		if resolved := conn.GetResolvedName(); resolved != "" {
-			return types.Ok(types.NewStr(resolved))
-		}
+	host, port := parseRemoteAddress(conn.RemoteAddr())
+	name := host
+	if resolved := conn.GetResolvedName(); resolved != "" {
+		name = resolved
 	}
 
-	host, port := parseRemoteAddress(conn.RemoteAddr())
-	switch method {
-	case 0:
-		// Legacy LambdaMOO/Mongoose format consumed by
-		// $string_utils:connection_hostname_bsd():
-		//   "port <listen-port> from <host>, port <remote-port>"
+	// Toast bf_connection_name (server.cc): with no method argument, the bare
+	// resolved connection name; with method 1, the numeric IP; with ANY other
+	// method value, the full legacy string
+	// "port <listen-port> from <hostname> [<ip>], port <remote-port>".
+	switch {
+	case !hasMethod:
+		return types.Ok(types.NewStr(name))
+	case method == 1:
+		return types.Ok(types.NewStr(host))
+	default:
 		listenPort := 0
 		if conn.ListenerPort() > 0 {
 			listenPort = int(conn.ListenerPort())
 		} else if cm := hostOf(ctx).ConnManager; cm != nil {
 			listenPort = cm.GetListenPort()
 		}
-		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s, port %s", listenPort, host, port)))
-	case 1:
-		return types.Ok(types.NewStr(host))
-	case 2:
-		return types.Ok(types.NewStr(fmt.Sprintf("%s, port %s", host, port)))
-	default:
-		return types.Err(types.E_INVARG)
+		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s [%s], port %s", listenPort, name, host, port)))
 	}
 }
 
@@ -1263,28 +1282,46 @@ func builtinConnectionInfo(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Err(types.E_INVARG)
 	}
 
-	host, portText := parseRemoteAddress(conn.RemoteAddr())
+	outbound := false
+	remoteAddr := conn.RemoteAddr()
+	sourceAddr := ""
+	if info, ok := conn.(outboundConnectionInfo); ok && info.IsOutbound() {
+		outbound = true
+		sourceAddr = info.OutboundSourceAddr()
+		remoteAddr = info.OutboundDestinationAddr()
+	}
+
+	host, portText := parseRemoteAddress(remoteAddr)
 	destPort := int64(0)
 	_, _ = fmt.Sscanf(portText, "%d", &destPort)
 	sourcePort := conn.ListenerPort()
+	sourceHost := "127.0.0.1"
 	if sourcePort <= 0 {
 		sourcePort = int64(cm.GetListenPort())
+	}
+	if sourceAddr != "" {
+		sourceHost, portText = parseRemoteAddress(sourceAddr)
+		_, _ = fmt.Sscanf(portText, "%d", &sourcePort)
 	}
 
 	protocol := "IPv4"
 	if strings.Contains(host, ":") {
 		protocol = "IPv6"
 	}
+	outboundInt := int64(0)
+	if outbound {
+		outboundInt = 1
+	}
 
 	result := types.NewMap([][2]types.Value{
-		{types.NewStr("source_address"), types.NewStr("localhost")},
-		{types.NewStr("source_ip"), types.NewStr("127.0.0.1")},
+		{types.NewStr("source_address"), types.NewStr(sourceHost)},
+		{types.NewStr("source_ip"), types.NewStr(sourceHost)},
 		{types.NewStr("source_port"), types.NewInt(sourcePort)},
 		{types.NewStr("destination_address"), types.NewStr(host)},
 		{types.NewStr("destination_ip"), types.NewStr(host)},
 		{types.NewStr("destination_port"), types.NewInt(destPort)},
 		{types.NewStr("protocol"), types.NewStr(protocol)},
-		{types.NewStr("outbound"), types.NewInt(0)},
+		{types.NewStr("outbound"), types.NewInt(outboundInt)},
 	})
 	return types.Ok(result)
 }

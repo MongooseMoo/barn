@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-013-full-after-url-curl.xml",
+  "total": 11461,
+  "pass": 11266,
+  "fail": 69,
+  "skip": 126,
+  "target": "optional_extensions",
+  "target_failures": 7
+}

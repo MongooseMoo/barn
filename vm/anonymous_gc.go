@@ -111,6 +111,78 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Reg
 	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0, nil)
 }
 
+// AnonGCRequest is one deferred orphan-anonymous collection request: recycle
+// anonymous objects with ids >= MinID that are unreachable, using Ctx for the
+// recycle() calls. OwnRefs holds the anonymous ids the requesting task's own VM
+// referenced, snapshotted at defer time by the goroutine that owned that VM. A
+// completed task's VM is released before the flush runs, so its locals cannot be
+// walked then; capturing the ids up front keeps them as roots without retaining
+// the *VM (which a concurrent flush must never touch).
+type AnonGCRequest struct {
+	Ctx     *kernel.TaskContext
+	MinID   types.ObjID
+	OwnRefs map[types.ObjID]struct{}
+}
+
+// RecycleOrphanAnonymousBatch settles several deferred collection requests
+// with a single persistent-reachability build. Per-task collection pays a
+// full-database property sweep per finished task, which is prohibitive on
+// large databases; batching preserves the liveness check (reachability plus
+// every live task's VM references at flush time) and only delays when an orphan
+// is recycled.
+//
+// siblingRefs holds the anonymous ids snapshotted from every live task's VM under
+// the scheduler lock. Together with each request's OwnRefs it covers the same root
+// set the inline per-task sweep saw, without walking a *VM here — so a task running
+// concurrently on another goroutine is never read.
+func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Registry, requests []AnonGCRequest, siblingRefs map[types.ObjID]struct{}) {
+	if store == nil || registry == nil || len(requests) == 0 {
+		return
+	}
+
+	minFloor := requests[0].MinID
+	for _, req := range requests[1:] {
+		if req.MinID < minFloor {
+			minFloor = req.MinID
+		}
+	}
+	if !store.HasAnonymousAtOrAbove(minFloor) {
+		return
+	}
+
+	reachable := buildPersistentAnonymousReachability(store)
+	liveRefs := make(map[types.ObjID]struct{}, len(siblingRefs))
+	for id := range siblingRefs {
+		liveRefs[id] = struct{}{}
+	}
+	for _, req := range requests {
+		for id := range req.OwnRefs {
+			liveRefs[id] = struct{}{}
+		}
+	}
+	expandAnonymousReachability(store, reachable, liveRefs)
+
+	recycleFn, ok := registry.Get("recycle")
+	if !ok {
+		return
+	}
+
+	recycled := make(map[types.ObjID]struct{})
+	for _, req := range requests {
+		if req.Ctx == nil {
+			continue
+		}
+		for _, id := range store.AnonymousRecycleCandidates(reachable, req.MinID) {
+			if _, done := recycled[id]; done {
+				continue
+			}
+			recycled[id] = struct{}{}
+			// Best-effort cleanup: recycle() handles missing/already-invalid objects.
+			_ = recycleFn(req.Ctx, []types.Value{types.NewAnon(id)})
+		}
+	}
+}
+
 // AutoRecycleOrphanAnonymousSince performs orphan-anonymous collection but only
 // recycles anonymous objects with IDs >= minID. This lets task/eval callers
 // collect objects created during the current execution without sweeping
@@ -120,6 +192,15 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Reg
 // VMs owned by the calling goroutine (this task's own VM), safe to walk here.
 func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
 	if ctx == nil || store == nil || registry == nil {
+		return
+	}
+
+	// Fast path: recycle candidates are restricted to anonymous objects with
+	// ids >= minID, so when the finished task created none the reachability
+	// sweep below is a guaranteed no-op. Skipping it matters: the sweep walks
+	// every persistent object's property tree, which is prohibitive to pay
+	// after every task on a large database.
+	if !store.HasAnonymousAtOrAbove(minID) {
 		return
 	}
 

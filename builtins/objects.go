@@ -67,54 +67,6 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 
-	// Validate parents
-	// -1 ($nothing) is valid as a solo parent (means no parent)
-	// -1 ($nothing) in a list is E_INVARG
-	// -2, -3, -4 (special invalid object numbers) are E_TYPE (not valid object types)
-	// Other negative IDs and non-existent objects are E_INVARG
-	validParents := []types.ObjID{}
-	seenParents := make(map[types.ObjID]bool)
-	for _, parentID := range parents {
-		if parentID < -1 {
-			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
-			// These are type errors because they're not valid object references
-			return types.Err(types.E_TYPE)
-		}
-		if parentID == types.ObjNothing {
-			if parentsFromList {
-				// $nothing in a parent list is invalid
-				return types.Err(types.E_INVARG)
-			}
-			// $nothing as solo parent means "no parent" - skip it
-			continue
-		}
-		// Check for duplicate parents
-		if seenParents[parentID] {
-			return types.Err(types.E_INVARG)
-		}
-		seenParents[parentID] = true
-		if !validForRead(ctx, parentID) {
-			return types.Err(types.E_INVARG)
-		}
-		// Permission check deferred until after anonymous flag is parsed
-		validParents = append(validParents, parentID)
-	}
-	parents = validParents
-
-	var duplicateProps bool
-	var errCode types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		duplicateProps, errCode = tx.HasDuplicateDefinedPropertyAmong(parents)
-	} else {
-		duplicateProps, errCode = store.HasDuplicateDefinedPropertyAmong(parents)
-	}
-	if errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	if duplicateProps {
-		return types.Err(types.E_INVARG)
-	}
-
 	// Parse optional arguments
 	// Per cow_py semantics:
 	// - OBJ or negative INT → owner (must come before anonymous flag, only once)
@@ -181,6 +133,55 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		default:
 			return types.Err(types.E_TYPE)
 		}
+	}
+
+	// Validate parents after optional argument types are checked. Toast reports
+	// malformed optional argument shapes before invalid parent existence.
+	// -1 ($nothing) is valid as a solo parent (means no parent)
+	// -1 ($nothing) in a list is E_INVARG
+	// -2, -3, -4 (special invalid object numbers) are E_TYPE (not valid object types)
+	// Other negative IDs and non-existent objects are E_INVARG
+	validParents := []types.ObjID{}
+	seenParents := make(map[types.ObjID]bool)
+	for _, parentID := range parents {
+		if parentID < -1 {
+			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
+			// These are type errors because they're not valid object references
+			return types.Err(types.E_TYPE)
+		}
+		if parentID == types.ObjNothing {
+			if parentsFromList {
+				// $nothing in a parent list is invalid
+				return types.Err(types.E_INVARG)
+			}
+			// $nothing as solo parent means "no parent" - skip it
+			continue
+		}
+		// Check for duplicate parents
+		if seenParents[parentID] {
+			return types.Err(types.E_INVARG)
+		}
+		seenParents[parentID] = true
+		if !validForRead(ctx, parentID) {
+			return types.Err(types.E_INVARG)
+		}
+		// Permission check deferred until after anonymous flag is parsed
+		validParents = append(validParents, parentID)
+	}
+	parents = validParents
+
+	var duplicateProps bool
+	var errCode types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		duplicateProps, errCode = tx.HasDuplicateDefinedPropertyAmong(parents)
+	} else {
+		duplicateProps, errCode = store.HasDuplicateDefinedPropertyAmong(parents)
+	}
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if duplicateProps {
+		return types.Err(types.E_INVARG)
 	}
 
 	// Validate owner if explicitly specified
@@ -453,12 +454,14 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
+	// Toast bf_valid (objects.cc) accepts only object-flavored values
+	// (is_object(): OBJ/ANON/WAIF); anything else — including plain ints —
+	// is E_TYPE. Mongoose room titles depend on valid(<int>) raising: the
+	// debug-off title verb treats the E_TYPE value as false.
 	var objID types.ObjID
 	switch args[0].Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		objID = args[0].ID()
-	case types.TYPE_INT:
-		objID = types.ObjID(args[0].Int())
 	default:
 		return types.Err(types.E_TYPE)
 	}

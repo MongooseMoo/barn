@@ -347,14 +347,14 @@ retryAttempt:
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
-		// is a GC boundary for newly-created orphan anonymous objects.
-		// Fast-path: if no anonymous object was created since this task's floor,
-		// the orphan recycle candidate set (anon with id >= floor) is provably
-		// empty, so the O(N) reachability sweep — and the s.mu sibling-ref scan
-		// it needs — would do nothing. Skip both.
+		// is a GC boundary for newly-created orphan anonymous objects. The sweep is
+		// deferred to the next quiescent flush; the suspended task's VM is registered
+		// below (SetBytecodeVM), so the flush-time root scan still sees its locals.
+		// Fast path retained: if no anonymous object was created since this task's
+		// floor, the candidate set (anon ids >= floor) is provably empty and there is
+		// nothing to enqueue.
 		if s.store.AnonCreationCount() != anonFloor {
-			siblingAnon, _ := s.collectSiblingGCRefs(t)
-			vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+			s.deferAnonGC(ctx, anonGCFloor, nil)
 		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
@@ -369,6 +369,10 @@ retryAttempt:
 				builtins.DiscardPendingServerOptions(ctx)
 				return nil
 			}
+			// The commit published this slice's forks; they are the scheduler's now.
+			// Leaving them on the task would let a later conflict-retry discard forks
+			// that are already durable (yin() suspends mid-verb, so a retry can follow).
+			t.CreatedForks = nil
 			if errCode := builtins.FlushPendingServerOptions(ctx); errCode != types.E_NONE {
 				result = types.Err(errCode)
 				t.Result = result
@@ -462,25 +466,19 @@ retryAttempt:
 			}
 		}
 	} else {
-		// Take pending waifs first to preserve that side effect and its ordering
-		// exactly as before. Then take the s.mu sibling-ref scan and the O(N) anon
-		// reachability sweep only when there is actually something to GC: an
-		// anonymous object was created since the floor, or there are pending waifs.
-		// In the overwhelmingly common case (no anon created, no pending waifs)
-		// both the sibling scan and the sweep are provably empty and are skipped.
-		var pending []types.Value
+		// A per-task waif/anon sweep is prohibitive on large databases, so both are
+		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
+		// get expensive, and stays prompt while they are cheap). The cheap guards
+		// still apply: with no anonymous object created since the floor and no
+		// pending waifs there is provably nothing to collect, so nothing is enqueued.
+		//
+		// This task's VM is released below, so its references are snapshotted now,
+		// on the goroutine that owns it, rather than walked at flush time.
 		if bcVM != nil {
-			pending = bcVM.TakePendingWaifs()
+			s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), bcVM)
 		}
-		anonCreated := s.store.AnonCreationCount() != anonFloor
-		if anonCreated || len(pending) > 0 {
-			siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
-			if len(pending) > 0 {
-				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
-			}
-			if anonCreated {
-				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
-			}
+		if s.store.AnonCreationCount() != anonFloor {
+			s.deferAnonGC(ctx, anonGCFloor, bcVM)
 		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
@@ -511,6 +509,11 @@ retryAttempt:
 				}
 			}
 		}
+
+		// Settle the batches now so an orphan's :recycle stays observable by the very
+		// next command, as it was when collection ran inline. If a sibling is still
+		// running, the flush declines and the end-of-pass flush picks these up.
+		s.flushDeferredGC()
 	}
 
 	t.SetBytecodeVM(nil) // Release VM after completion

@@ -178,11 +178,11 @@ func builtinSecondsLeft(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	return types.Ok(types.NewInt(1000))
 }
 
-// builtinExec implements exec(command [, input]) → LIST
+// builtinExec implements exec(command [, input [, env]]) -> LIST
 // Executes external command and returns {exit_code, stdout, stderr}
 // Requires wizard permissions
 func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
@@ -239,6 +239,9 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 	}
+	if len(args) == 3 && args[2].Type() != types.TYPE_LIST {
+		return types.Err(types.E_TYPE)
+	}
 
 	// Get the task so we can suspend it
 	t, ok := ctx.Task.(*task.Task)
@@ -252,6 +255,7 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// Mark task as exec-suspended and store cancel func
 	t.IsExecSuspended = true
+	t.ExecCommandName = filepath.ToSlash(filepath.Join("executables", program))
 	t.ExecCancelFunc = execCancel
 
 	// Suspend the task indefinitely (will be resumed by goroutine)
@@ -547,7 +551,7 @@ func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 
 	if args[0].Type() != types.TYPE_STR {
-		return types.Err(types.E_TYPE)
+		return types.Ok(types.NewList(versionInfo))
 	}
 
 	switch args[0].Str() {

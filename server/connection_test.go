@@ -45,3 +45,17 @@ func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
 		t.Fatalf("active connection after restore = %v, want main connection", got)
 	}
 }
+
+// TestProxiedIPRewritesRemoteAddr: after a PROXY prelude is accepted,
+// RemoteAddr reports the announced client IP with the real remote port
+// (Toast proxy_rewrite semantics; the resolved name is set separately).
+func TestProxiedIPRewritesRemoteAddr(t *testing.T) {
+	conn := NewConnection(1, stubTransport{})
+	if got := conn.RemoteAddr(); got != "127.0.0.1:7777" {
+		t.Fatalf("pre-proxy RemoteAddr = %q, want 127.0.0.1:7777", got)
+	}
+	conn.SetProxiedIP("203.0.113.5")
+	if got := conn.RemoteAddr(); got != "203.0.113.5:7777" {
+		t.Fatalf("post-proxy RemoteAddr = %q, want 203.0.113.5:7777", got)
+	}
+}

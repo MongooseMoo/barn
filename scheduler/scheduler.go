@@ -37,6 +37,15 @@ type Scheduler struct {
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
+
+	// Deferred GC: task completion/suspend enqueue their pending waifs and
+	// orphan-anonymous collection requests here instead of paying a full-db
+	// sweep per task; flushDeferredGC settles both batches on an interval.
+	pendingWaifMu    sync.Mutex
+	pendingWaifBatch []pendingWaifEntry
+	pendingAnonGC    []vm.AnonGCRequest
+	lastGCSweep      time.Time
+	lastGCCost       time.Duration
 }
 
 type taskWorkItem struct {
@@ -203,6 +212,10 @@ func (s *Scheduler) ProcessReadyTasks() int {
 	s.mu.Unlock()
 
 	s.runReadyTasks(readyTasks)
+	// Every task in the pass has joined by now (runTaskBatch waits on all of them),
+	// so no task VM is being mutated. This is the point where the deferred-GC
+	// batches are guaranteed to see complete roots.
+	s.flushDeferredGC()
 	return len(readyTasks)
 }
 
@@ -342,6 +355,41 @@ func (s *Scheduler) runTaskBatch(readyTasks []*task.Task) {
 
 func (s *Scheduler) YieldReadyTasks() int {
 	return s.ProcessReadyTasks()
+}
+
+// collectAllGCRefs snapshots the anonymous-object and waif references held by every
+// live task's saved VM, for the deferred-GC flush. It is the flush-time analogue of
+// collectSiblingGCRefs, with one stricter requirement: the flush must see EVERY live
+// task's locals as roots, not merely the ones it happens to be able to read.
+//
+// A running task is therefore fatal rather than skippable. Its VM is being mutated on
+// another goroutine, so it can neither be walked here (the data race collectSiblingGCRefs
+// exists to avoid) nor ignored (its locals are roots). The per-task inline sweep could
+// skip running siblings because a task's own uncommitted creations are not yet visible
+// to them; a deferred batch has no such argument, because the tasks that enqueued it
+// have since committed. So when any task is running we report ok=false and the caller
+// leaves the batches queued for the next quiescent pass.
+func (s *Scheduler) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	anonRefs = make(map[types.ObjID]struct{})
+	for _, t := range s.tasks {
+		if t == nil {
+			continue
+		}
+		switch t.GetState() {
+		case task.TaskCompleted, task.TaskKilled:
+			continue
+		case task.TaskRunning:
+			return nil, nil, false
+		}
+		if exec, isVM := t.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
+			vm.CollectWaifsFromVM(exec, &waifRefs)
+		}
+	}
+	return anonRefs, waifRefs, true
 }
 
 // collectSiblingGCRefs snapshots the anonymous-object and waif references held by

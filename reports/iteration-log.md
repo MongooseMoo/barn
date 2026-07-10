@@ -69,3 +69,322 @@
 - Result: 1 failure (1 fixed, 0 regressions)
 - Remaining: math::ctime_with_int_arg_is_invarg (test bug: Toast source shows ctime accepts optional INT arg, test incorrectly expects E_INVARG for ctime(0))
 - Final: 2572 passed, 1 failed, 183 skipped
+
+---
+
+## 004 - 2026-07-09
+- Start: 1143 failures
+- Toast oracle: 11314 passed, 147 skipped
+- Target: `create_call_shapes` (780 failures)
+- Root cause: `create()` validated parent existence before malformed optional argument types, returning `E_INVARG` before Toast's `E_TYPE`.
+- Fix: Parse optional argument shapes before parent existence/duplicate validation.
+- Result: 363 failures (780 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `is_member_call_shapes` (84), `task_stack_call_shapes` (55), `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 005 - 2026-07-09
+- Start: 363 failures
+- Target: `is_member_call_shapes` (84 failures)
+- Root cause: `is_member()` accepted only two args and returned `E_TYPE` for non-collection second arguments; Toast accepts optional `case_matters` and raises `E_INVARG`.
+- Fix: Accept optional third int arg, preserve default case-sensitive comparison, and return `E_INVARG` for non-list/map collections.
+- Result: 279 failures (84 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `task_stack_call_shapes` (55), `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 006 - 2026-07-09
+- Start: 279 failures
+- Target: `task_stack_call_shapes` (55 failures)
+- Root cause: `task_stack()` accepted only 1-2 args and validated optional flag types before missing-task `E_INVARG`; Toast accepts 1-3 args with optional `TYPE_ANY` flags.
+- Fix: Accept the third optional arg, check task existence before optional flag handling, and use truthiness for the line-number flag.
+- Result: 224 failures (55 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `unlisten_call_shapes` (54), `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 007 - 2026-07-09
+- Start: 224 failures
+- Target: `unlisten_call_shapes` (54 failures)
+- Root cause: `unlisten()` accepted only one arg and surfaced descriptor parser `E_TYPE`; Toast accepts 1-2 `TYPE_ANY` args and reports missing/malformed listeners as `E_INVARG`.
+- Fix: Accept the optional second arg and normalize descriptor parse failures to `E_INVARG`.
+- Result: 170 failures (54 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `file_stat_call_shapes` (36), `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 008 - 2026-07-09
+- Start: 170 failures
+- Target: `file_stat_call_shapes` (36 failures)
+- Root cause: File stat helpers surfaced `E_TYPE` for non-handle/non-path values, and `file_stat()`/`file_type()` manually required strings despite Toast `TYPE_ANY` signatures.
+- Fix: Normalize unsupported stat values to `E_INVARG`, and route `file_stat()`/`file_type()` through the shared stat parser while preserving `file_type()` missing-path `0`.
+- Result: 134 failures (36 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `slice_call_shapes` (32), smaller clusters.
+
+---
+
+## 009 - 2026-07-09
+- Start: 134 failures
+- Target: `slice_call_shapes` (32 failures)
+- Root cause: `slice()` returned `E_TYPE` for unsupported start specifier shapes; Toast returns `E_INVARG`.
+- Fix: Return `E_INVARG` for unsupported start specifier types while leaving default values as `TYPE_ANY`.
+- Result: 102 failures (32 fixed, 0 observed regressions)
+- Commits: this commit
+- Remaining: `background_threads` (9), multiple 7-failure clusters, smaller clusters.
+
+---
+
+## 010 - 2026-07-09
+- Start: 102 failures
+- Target: `background_threads` (9 failures)
+- Status: complete
+- Targeted: `background_threads or set_thread_mode_call_shapes` passed (13 passed)
+- Full after: 90 failures, 11245 passed, 126 skipped
+- Result: 12 failures fixed (9 `background_threads`, 3 `exec`)
+- Commits: this commit
+- Remaining: five 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 011 - 2026-07-09
+- Start: 90 failures
+- Target: `connection_input_call_shapes` (7 failures)
+- Status: complete
+- Targeted: `connection_input_call_shapes` passed (14 passed)
+- Full after: 83 failures, 11252 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: four 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 012 - 2026-07-09
+- Start: 83 failures
+- Target: `add_property_call_shapes` (7 failures)
+- Status: complete
+- Targeted: `add_property_call_shapes` passed (49 passed)
+- Full after: 76 failures, 11259 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: three 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 013 - 2026-07-09
+- Start: 76 failures
+- Target: `url_curl` (7 failures)
+- Status: complete
+- Targeted: `url_curl` passed (22 passed)
+- Full after: 69 failures, 11266 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: two 7-failure clusters, then 6-failure and smaller clusters.
+
+---
+
+## 014 - 2026-07-09
+- Start: 69 failures
+- Target: `optional_extensions` (7 failures)
+- Status: complete
+- Targeted: `optional_extensions` passed (9 passed)
+- Full after: 62 failures, 11273 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: one 7-failure cluster, then 6-failure and smaller clusters.
+
+---
+
+## 015 - 2026-07-09
+- Start: 62 failures
+- Target: `disassemble_call_shapes` (7 failures)
+- Status: complete
+- Targeted: `disassemble_call_shapes` passed (49 passed)
+- Full after: 55 failures, 11280 passed, 126 skipped
+- Result: 7 failures fixed
+- Commits: this commit
+- Remaining: three 6-failure clusters, then 5-failure and smaller clusters.
+
+---
+
+## 016 - 2026-07-09
+- Start: 55 failures
+- Target: `server_version_call_shapes` (6 failures)
+- Status: complete
+- Targeted: `server_version_call_shapes` passed (7 passed)
+- Full after: 49 failures, 11286 passed, 126 skipped
+- Result: 6 failures fixed
+- Commits: this commit
+- Remaining: two 6-failure clusters, then 5-failure and smaller clusters.
+
+---
+
+## 017 - 2026-07-09
+- Start: 49 failures
+- Target: `listappend_call_shapes` (6 failures)
+- Status: complete
+- Targeted: `listappend_call_shapes` passed (11 passed)
+- Full after: 43 failures, 11292 passed, 126 skipped
+- Result: 6 failures fixed
+- Commits: this commit
+- Remaining: one 6-failure cluster, then 5-failure and smaller clusters.
+
+---
+
+## 018 - 2026-07-09
+- Start: 43 failures
+- Target: `callers_call_shapes` (6 failures)
+- Status: complete
+- Targeted: `callers_call_shapes` passed (6 passed)
+- Full after: 37 failures, 11298 passed, 126 skipped
+- Result: 6 failures fixed
+- Commits: this commit
+- Remaining: three 5-failure clusters, then 4-failure and smaller clusters.
+
+---
+
+## 019 - 2026-07-09
+- Start: 37 failures
+- Target: `is_clear_property_call_shapes` (5 failures)
+- Status: complete
+- Targeted: `is_clear_property_call_shapes` passed (6 passed)
+- Full after: 32 failures, 11303 passed, 126 skipped
+- Result: 5 failures fixed
+- Commits: this commit
+- Remaining: two 5-failure clusters, then 4-failure and smaller clusters.
+
+---
+
+## 020 - 2026-07-09
+- Start: 32 failures
+- Target: `listeners_call_shapes` (5 failures)
+- Status: complete
+- Targeted: `listeners_call_shapes` passed (6 passed)
+- Full after: 27 failures, 11308 passed, 126 skipped
+- Result: 5 failures fixed
+- Commits: this commit
+- Remaining: one 5-failure cluster, then 4-failure and smaller clusters.
+
+---
+
+## 021 - 2026-07-09
+- Start: 27 failures
+- Target: `read_call_shapes` (5 failures)
+- Status: complete
+- Targeted: `read_call_shapes` passed (7 passed)
+- Full after: 22 failures, 11313 passed, 126 skipped
+- Result: 5 failures fixed
+- Commits: this commit
+- Remaining: one 4-failure cluster, then 3-failure and smaller clusters.
+
+---
+
+## 022 - 2026-07-09
+- Start: 22 failures
+- Target: `chr_call_shapes` (4 failures)
+- Status: complete
+- Targeted: `chr_call_shapes` passed (4 passed)
+- Full after: 18 failures, 11317 passed, 126 skipped
+- Result: 4 failures fixed
+- Commits: this commit
+- Remaining: three 3-failure clusters, then 2-failure and smaller clusters.
+
+---
+
+## 023 - 2026-07-09
+- Start: 18 failures
+- Target: `read_stdin` (3 failures)
+- Status: complete
+- Targeted: `read_stdin` passed (5 passed)
+- Full after: 15 failures, 11320 passed, 126 skipped
+- Result: 3 failures fixed
+- Commits: this commit
+- Remaining: two 3-failure clusters, then 2-failure and smaller clusters.
+
+---
+
+## 024 - 2026-07-09
+- Start: 15 failures
+- Target: `exec` and `exec_call_shapes` (4 failures)
+- Status: complete
+- Targeted: `exec` family passed (36 passed, 5 skipped)
+- Full after: 11 failures, 11324 passed, 126 skipped
+- Result: 4 failures fixed
+- Commits: this commit
+- Remaining: one 3-failure cluster, then 2-failure and smaller clusters.
+
+---
+
+## 025 - 2026-07-09
+- Start: 11 failures
+- Target: `file_handle_call_shapes` (3 failures)
+- Status: complete
+- Targeted: `file_handle_call_shapes` passed (4 passed)
+- Full after: 8 failures, 11327 passed, 126 skipped
+- Result: 3 failures fixed
+- Commits: this commit
+- Remaining: three 2-failure clusters, then singletons.
+
+---
+
+## 026 - 2026-07-09
+- Start: 8 failures
+- Target: `delete_verb_call_shapes` (2 failures)
+- Status: complete
+- Targeted: `delete_verb_call_shapes` passed (49 passed)
+- Full after: 6 failures, 11329 passed, 126 skipped
+- Result: 2 failures fixed
+- Commits: this commit
+- Remaining: two 2-failure clusters, then singletons.
+
+---
+
+## 027 - 2026-07-09
+- Start: 6 failures
+- Target: `mapvalues_call_shapes` (2 failures)
+- Status: complete
+- Targeted: `mapvalues_call_shapes` passed (6 passed)
+- Full after: 4 failures, 11331 passed, 126 skipped
+- Result: 2 failures fixed
+- Commits: this commit
+- Remaining: one 2-failure cluster, then singletons.
+
+---
+
+## 028 - 2026-07-09
+- Start: 4 failures
+- Target: `network_matrix` (2 failures)
+- Status: complete
+- Targeted: `network_matrix` passed (3 passed, 2 skipped)
+- Full after: 2 failures, 11333 passed, 126 skipped
+- Result: 2 failures fixed
+- Commits: this commit
+- Remaining: two singletons.
+
+---
+
+## 029 - 2026-07-09
+- Start: 2 failures
+- Target: `respond_to_call_shapes` (1 failure)
+- Status: complete
+- Targeted: `respond_to_call_shapes` passed (7 passed)
+- Full after: 1 failure, 11334 passed, 126 skipped
+- Result: 1 failure fixed
+- Commits: this commit
+- Remaining: one singleton.
+
+---
+
+## 030 - 2026-07-09
+- Start: 1 failure
+- Target: `clear_property_call_shapes` (1 failure)
+- Status: complete
+- Targeted: `clear_property_call_shapes` passed (12 passed)
+- Full after: 0 failures, 11335 passed, 126 skipped
+- Result: 1 failure fixed
+- Commits: this commit
+- Remaining: none.

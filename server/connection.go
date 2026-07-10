@@ -3,6 +3,7 @@ package server
 import (
 	"barn/types"
 	"context"
+	"net"
 	"sync"
 	"time"
 )
@@ -15,14 +16,20 @@ type programmingMode struct {
 
 // Connection represents a player connection
 type Connection struct {
-	ID             int64
-	transport      Transport
-	player         types.ObjID
-	loggedIn       bool
-	outputBuffer   []string
-	outputPrefix   string // PREFIX/OUTPUTPREFIX command sets this
-	outputSuffix   string // SUFFIX/OUTPUTSUFFIX command sets this
-	resolvedName   string
+	ID           int64
+	transport    Transport
+	player       types.ObjID
+	loggedIn     bool
+	outputBuffer []string
+	outputPrefix string // PREFIX/OUTPUTPREFIX command sets this
+	outputSuffix string // SUFFIX/OUTPUTSUFFIX command sets this
+	resolvedName string
+	// proxiedIP is the client IP announced by an accepted PROXY protocol
+	// prelude from a trusted proxy. When set, RemoteAddr() reports it as the
+	// connection's host (real remote port preserved), matching ToastStunt's
+	// proxy_rewrite: connection_name and the trusted-proxy check both see the
+	// announced client address from then on.
+	proxiedIP      string
 	connectedAt    time.Time
 	ConnectionTime time.Time // Set when login completes (zero means not yet logged in)
 	lastInput      time.Time
@@ -31,6 +38,9 @@ type Connection struct {
 	listenerObject types.ObjID
 	listenerPort   int64
 	printMessages  bool
+	outbound       bool
+	outboundSource string
+	outboundDest   string
 	// loginTaskID is the scheduler task ID of an in-flight login-hook task for
 	// this (not-yet-logged-in) connection, or 0 if none. Used to (a) avoid
 	// spawning a parallel do_login_command while one is already running/reading
@@ -109,9 +119,28 @@ func (c *Connection) Close() error {
 	return c.transport.Close()
 }
 
-// RemoteAddr returns the remote address of the connection
+// RemoteAddr returns the remote address of the connection. After an accepted
+// PROXY prelude it reports the announced client IP with the real remote port.
 func (c *Connection) RemoteAddr() string {
-	return c.transport.RemoteAddr()
+	c.mu.Lock()
+	proxied := c.proxiedIP
+	c.mu.Unlock()
+
+	real := c.transport.RemoteAddr()
+	if proxied == "" {
+		return real
+	}
+	if _, port, err := net.SplitHostPort(real); err == nil {
+		return net.JoinHostPort(proxied, port)
+	}
+	return proxied
+}
+
+// SetProxiedIP records the client IP announced by a PROXY protocol prelude.
+func (c *Connection) SetProxiedIP(ip string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.proxiedIP = ip
 }
 
 func (c *Connection) WakeInputReader() {
@@ -239,4 +268,30 @@ func (c *Connection) PrintMessages() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.printMessages
+}
+
+func (c *Connection) SetOutboundEndpoints(source, destination string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.outbound = true
+	c.outboundSource = source
+	c.outboundDest = destination
+}
+
+func (c *Connection) IsOutbound() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.outbound
+}
+
+func (c *Connection) OutboundSourceAddr() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.outboundSource
+}
+
+func (c *Connection) OutboundDestinationAddr() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.outboundDest
 }

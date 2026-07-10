@@ -321,6 +321,38 @@ func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
 	}
 }
 
+func TestListenerDescriptorsUseIPv6Key(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	tcp := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
+
+	desc, err := cm.registerListener(tcp, builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   5,
+	}, false, nil)
+	if err != nil {
+		t.Fatalf("register tcp listener: %v", err)
+	}
+
+	err = cm.RemoveListener(builtins.ListenerDescriptor{
+		Protocol: builtins.ListenerProtocolTCP,
+		Port:     8888,
+		IPv6:     true,
+	})
+	if err == nil {
+		t.Fatalf("removed ipv4 listener with ipv6 descriptor")
+	}
+	if tcp.closed {
+		t.Fatalf("wrong descriptor closed tcp listener")
+	}
+
+	if err := cm.RemoveListener(desc); err != nil {
+		t.Fatalf("remove tcp listener: %v", err)
+	}
+	if !tcp.closed {
+		t.Fatalf("tcp listener was not closed")
+	}
+}
+
 func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	first := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}

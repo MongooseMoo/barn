@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-010-full-after-background-threads.xml",
+  "total": 11461,
+  "pass": 11245,
+  "fail": 90,
+  "skip": 126,
+  "target": "connection_input_call_shapes",
+  "target_failures": 7
+}

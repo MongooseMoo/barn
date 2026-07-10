@@ -375,11 +375,16 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 
 	owner := types.ObjID(7710)
 	ticks, seconds := foregroundTaskLimits()
+	// yin() yields when FEWER than min_ticks remain (Toast bf_yield_if_needed), and
+	// min_ticks must stay under the foreground limit, so burn a few ticks first to
+	// put the budget below the threshold.
 	queued := task.NewTaskFull(3010, owner, parseTestStatements(t, `
 #0.yield_order = {"main-before"};
 fork (0)
   #0.yield_order = listappend(#0.yield_order, "fork");
 endfork
+for i in [1..50]
+endfor
 yin(0, 59999, 4);
 #0.yield_order = listappend(#0.yield_order, "main-after");
 return #0.yield_order;
@@ -387,9 +392,23 @@ return #0.yield_order;
 	queued.Context.IsWizard = true
 	defer removeTasksForOwner(s, owner)
 
+	// yin() suspends (Toast bf_yield_if_needed), so the first slice ends at the
+	// yield. Its commit must have published both the pre-yin write and the fork,
+	// letting the fork run before the main task resumes on a later pass.
 	if err := s.runTask(queued); err != nil {
 		t.Fatalf("runTask failed: %v", err)
 	}
+	if len(queued.CreatedForks) != 0 {
+		t.Fatalf("forks still owned by task after yin commit = %#v, want handed off", queued.CreatedForks)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for queued.GetState() != task.TaskCompleted && time.Now().Before(deadline) {
+		s.ProcessReadyTasks()
+	}
+	if state := queued.GetState(); state != task.TaskCompleted {
+		t.Fatalf("task state after yin resume = %v, want completed", state)
+	}
+
 	got := queued.Result.Val
 	if got.Type() != types.TYPE_LIST {
 		t.Fatalf("result value = %T, want list", queued.Result.Val)
@@ -439,11 +458,16 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 
 	owner := types.ObjID(7712)
 	ticks, seconds := foregroundTaskLimits()
+	// The `for` loop drops the tick budget below min_ticks so yin() actually
+	// yields: Toast's yin yields when FEWER than min_ticks remain, and min_ticks
+	// must stay under the foreground limit.
 	queued := task.NewTaskFull(3012, owner, parseTestStatements(t, `
 #0.snapshot_value = "before-yin";
 fork child (30)
   suspend(5);
 endfork
+for i in [1..50]
+endfor
 yin(0, 59999, 4);
 before = #0.snapshot_value;
 mutate_snapshot_value();
@@ -453,14 +477,26 @@ return child;
 	queued.Context.IsWizard = true
 	defer removeTasksForOwner(s, owner)
 
+	// First slice ends at the yin suspend, whose commit publishes the fork.
 	if err := s.runTask(queued); err != nil {
 		t.Fatalf("runTask failed: %v", err)
+	}
+	if len(queued.CreatedForks) != 0 {
+		t.Fatalf("created forks after yin commit = %#v, want none", queued.CreatedForks)
+	}
+
+	// Resuming runs the rest, which mutates the live store and then stages a
+	// conflicting write: that commit fails with E_INVARG. The fork committed by
+	// yin must survive it.
+	deadline := time.Now().Add(2 * time.Second)
+	for queued.GetState() != task.TaskKilled && queued.GetState() != task.TaskCompleted && time.Now().Before(deadline) {
+		s.ProcessReadyTasks()
 	}
 	if queued.Result.Flow != types.FlowException || queued.Result.Error != types.E_INVARG {
 		t.Fatalf("result = flow %v err %v, want E_INVARG exception", queued.Result.Flow, queued.Result.Error)
 	}
 	if len(queued.CreatedForks) != 0 {
-		t.Fatalf("created forks after yin commit = %#v, want none", queued.CreatedForks)
+		t.Fatalf("created forks after failed post-yin commit = %#v, want none", queued.CreatedForks)
 	}
 	for _, child := range task.GetManager().GetQueuedTasks() {
 		if child.Owner == owner {

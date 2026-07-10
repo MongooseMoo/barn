@@ -139,7 +139,17 @@ func (vm *VM) executeIn() error {
 	switch collection.Type() {
 	case types.TYPE_LIST:
 		for i := 1; i <= collection.Len(); i++ {
-			if element.Equal(collection.Get(i)) {
+			item := collection.Get(i)
+			// PROMOTE_NUMBERS: mixed int/float membership compares as doubles
+			// (mongoose utils.cc coercion; `1 in {1.0}` is 1 under promote).
+			if eq, handled := vm.promoteNumericEqual(element, item); handled {
+				if eq {
+					vm.Push(types.NewInt(int64(i)))
+					return nil
+				}
+				continue
+			}
+			if element.Equal(item) {
 				vm.Push(types.NewInt(int64(i)))
 				return nil
 			}
@@ -173,6 +183,14 @@ func (vm *VM) executeIn() error {
 		pairs := collection.Pairs()
 		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {
+			// PROMOTE_NUMBERS: mixed int/float values also match (see LIST case).
+			if eq, handled := vm.promoteNumericEqual(element, pair[1]); handled {
+				if eq {
+					vm.Push(types.NewInt(int64(i + 1)))
+					return nil
+				}
+				continue
+			}
 			if pair[1].Equal(element) {
 				vm.Push(types.NewInt(int64(i + 1)))
 				return nil

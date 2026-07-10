@@ -97,7 +97,7 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Try to find the verb that would actually answer obj:verb() — a
@@ -507,19 +507,31 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_TYPE)
 	}
 
-	nameVal := args[1]
-	if nameVal.Type() != types.TYPE_STR {
+	descVal := args[1]
+	if descVal.Type() != types.TYPE_STR && descVal.Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
 	}
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// TODO: Check permissions (must be owner or wizard)
 
-	if errCode := store.DeleteVerb(objID, nameVal.Str()); errCode != types.E_NONE {
+	var name string
+	switch descVal.Type() {
+	case types.TYPE_STR:
+		name = descVal.Str()
+	case types.TYPE_INT:
+		verb, errCode := store.VerbByIndex(objID, int(descVal.Int())-1)
+		if errCode != types.E_NONE {
+			return types.Err(types.E_VERBNF)
+		}
+		name = verb.Name
+	}
+
+	if errCode := store.DeleteVerb(objID, name); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
@@ -877,8 +889,13 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	objID := objVal.ID()
+	switch args[1].Type() {
+	case types.TYPE_STR, types.TYPE_INT:
+	default:
+		return types.Err(types.E_TYPE)
+	}
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// The verb specifier may be a string name/alias or a 1-based integer index.

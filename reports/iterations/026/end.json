@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-026-full-after-delete-verb.xml",
+  "total": 11461,
+  "pass": 11329,
+  "fail": 6,
+  "skip": 126,
+  "target": "delete_verb_call_shapes",
+  "target_failures_fixed": 2
+}

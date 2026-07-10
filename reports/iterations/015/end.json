@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-015-full-after-disassemble.xml",
+  "total": 11461,
+  "pass": 11280,
+  "fail": 55,
+  "skip": 126,
+  "target": "disassemble_call_shapes",
+  "target_result": "49 passed, 11412 deselected",
+  "fixed_failures": 7,
+  "remaining_largest_clusters": [
+    "server_version_call_shapes",
+    "callers_call_shapes",
+    "listappend_call_shapes"
+  ]
+}

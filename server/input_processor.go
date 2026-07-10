@@ -422,6 +422,17 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 	line := input.Line
 	proxyLine := p.isTrustedProxyConnection(conn) && strings.HasPrefix(line, "PROXY ")
 	if proxyLine {
+		// PROXY protocol v1: "PROXY TCP4 <src-ip> <dst-ip> <src-port> <dst-port>".
+		// Match ToastStunt proxy_rewrite: adopt the announced client IP as the
+		// connection's name and address (real remote port preserved), so
+		// connection_name() and the trusted-proxy check see the client from
+		// here on. The prelude itself is consumed as the connect-time blank.
+		if fields := strings.Fields(line); len(fields) >= 3 && net.ParseIP(fields[2]) != nil {
+			srcIP := fields[2]
+			conn.SetProxiedIP(srcIP)
+			conn.SetResolvedName(srcIP)
+			log.Printf("PROXY: connection %d name rewritten to %s", conn.ID, srcIP)
+		}
 		line = ""
 	}
 

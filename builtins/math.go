@@ -622,7 +622,7 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				}
 			}
 		default:
-			return types.E_TYPE
+			return types.E_INVARG
 		}
 		return types.E_NONE
 	}
@@ -765,16 +765,22 @@ func builtinRelativeHeading(ctx *kernel.TaskContext, args []types.Value) types.R
 }
 
 func builtinSimplexNoise(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 3 {
+	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
+	if args[0].Type() != types.TYPE_LIST {
+		return types.Err(types.E_TYPE)
+	}
+	coords := args[0].Elements()
+	if len(coords) == 0 || len(coords) > 4 {
+		return types.Ok(types.NewErr(types.E_TYPE))
+	}
 	seed := 0.0
-	for i, arg := range args {
-		v := toNumericFloat(arg)
-		if math.IsNaN(v) {
+	for i, coord := range coords {
+		if coord.Type() != types.TYPE_FLOAT {
 			return types.Err(types.E_TYPE)
 		}
-		seed += v * float64(i+1) * 12.9898
+		seed += coord.Float() * float64(i+1) * 12.9898
 	}
 	noise := math.Sin(seed) * 43758.5453
 	noise = noise - math.Floor(noise)

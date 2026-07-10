@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-028-full-after-network.xml",
+  "total": 11461,
+  "pass": 11333,
+  "fail": 2,
+  "skip": 126,
+  "target": "network_matrix",
+  "target_failures_fixed": 2
+}

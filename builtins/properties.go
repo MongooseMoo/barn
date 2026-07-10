@@ -229,7 +229,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Anonymous objects are instances, not classes: their property structure
@@ -432,7 +432,22 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	// Find property in chain
 	foundProp, err := findPropertyForRead(ctx, objID, propName)
 	if err != types.E_NONE {
+		hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
+		isWizard := errCode == types.E_NONE && hasWizard
+		objectOwner, ownerErr := objectOwnerForRead(ctx, objID)
+		isObjectOwner := ownerErr == types.E_NONE && ctx.Programmer == objectOwner
+		if !isWizard && !isObjectOwner {
+			return types.Err(types.E_PERM)
+		}
 		return types.Err(err)
+	}
+
+	// Check write permission (unless wizard or owner)
+	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
+	isWizard := errCode == types.E_NONE && hasWizard
+	isOwner := ctx.Programmer == foundProp.Owner
+	if !isWizard && !isOwner && !foundProp.Perms.Has(dbstore.PropWrite) {
+		return types.Err(types.E_PERM)
 	}
 
 	// Check if property is defined on this object - E_INVARG if so
@@ -442,14 +457,6 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 	}
 	if defined && prop.Defined {
 		return types.Err(types.E_INVARG)
-	}
-
-	// Check write permission (unless wizard or owner)
-	hasWizard, errCode := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
-	isWizard := errCode == types.E_NONE && hasWizard
-	isOwner := ctx.Programmer == foundProp.Owner
-	if !isWizard && !isOwner && !foundProp.Perms.Has(dbstore.PropWrite) {
-		return types.Err(types.E_PERM)
 	}
 
 	var clearErr types.ErrorCode
@@ -479,7 +486,7 @@ func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.R
 
 	objVal := args[0]
 	if !isObjectRef(objVal) {
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
 
 	nameVal := args[1]

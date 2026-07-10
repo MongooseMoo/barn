@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-023-full-after-read-stdin.xml",
+  "total": 11461,
+  "pass": 11320,
+  "fail": 15,
+  "skip": 126,
+  "target": "read_stdin",
+  "target_failures_fixed": 3
+}

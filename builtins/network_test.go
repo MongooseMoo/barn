@@ -23,6 +23,9 @@ type stubConn struct {
 	listenerPort int64
 	sent         []string
 	buffered     []string
+	outbound     bool
+	source       string
+	destination  string
 }
 
 func (c *stubConn) Send(message string) error {
@@ -41,6 +44,13 @@ func (c *stubConn) ConnectedSeconds() int64   { return 0 }
 func (c *stubConn) IdleSeconds() int64        { return 0 }
 func (c *stubConn) GetResolvedName() string   { return "" }
 func (c *stubConn) ListenerPort() int64       { return c.listenerPort }
+func (c *stubConn) IsOutbound() bool          { return c.outbound }
+func (c *stubConn) OutboundSourceAddr() string {
+	return c.source
+}
+func (c *stubConn) OutboundDestinationAddr() string {
+	return c.destination
+}
 
 type stubConnManager struct {
 	conn        Connection
@@ -91,6 +101,7 @@ func (m *stubConnManager) AddListener(spec ListenerSpec) (ListenerDescriptor, er
 	return ListenerDescriptor{
 		Protocol: normalizeListenerProtocol(spec.Protocol),
 		Port:     spec.Port,
+		IPv6:     spec.IPv6,
 		Path:     spec.Path,
 	}, nil
 }
@@ -340,25 +351,39 @@ func TestConnectionNameFormats(t *testing.T) {
 	})
 	ctx.Player = 7
 
+	// Contract per Toast bf_connection_name (server.cc), verified live
+	// 2026-07-01 and captured in conformance connection_name_semantics.yaml:
+	// no method → bare resolved name; method 1 → numeric IP; any other
+	// method → "port <listen-port> from <host> [<ip>], port <remote-port>".
 	cases := []struct {
 		name string
 		args []types.Value
 		want string
 	}{
 		{
-			name: "method_0_legacy",
+			name: "no_method_bare_name",
 			args: []types.Value{types.NewObj(7)},
-			want: "port 7777 from ::1, port 4567",
+			want: "::1",
 		},
 		{
-			name: "method_1_host_only",
+			name: "method_1_numeric_ip",
 			args: []types.Value{types.NewObj(7), types.NewInt(1)},
 			want: "::1",
 		},
 		{
-			name: "method_2_host_port",
+			name: "method_0_full_legacy",
+			args: []types.Value{types.NewObj(7), types.NewInt(0)},
+			want: "port 7777 from ::1 [::1], port 4567",
+		},
+		{
+			name: "method_2_full_legacy",
 			args: []types.Value{types.NewObj(7), types.NewInt(2)},
-			want: "::1, port 4567",
+			want: "port 7777 from ::1 [::1], port 4567",
+		},
+		{
+			name: "method_negative_full_legacy",
+			args: []types.Value{types.NewObj(7), types.NewInt(-1)},
+			want: "port 7777 from ::1 [::1], port 4567",
 		},
 	}
 
@@ -390,6 +415,7 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 		types.NewMap([][2]types.Value{
 			{types.NewStr("protocol"), types.NewStr("tcp")},
 			{types.NewStr("interface"), types.NewStr("127.0.0.1")},
+			{types.NewStr("ipv6"), types.NewInt(0)},
 			{types.NewStr("print-messages"), types.NewInt(1)},
 		}),
 	})
@@ -403,8 +429,34 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 		manager.added.Port != 8888 ||
 		manager.added.Protocol != ListenerProtocolTCP ||
 		manager.added.Interface != "127.0.0.1" ||
+		manager.added.IPv6 ||
 		!manager.added.PrintMessages {
 		t.Fatalf("unexpected spec: %+v", manager.added)
+	}
+}
+
+func TestListenBuildsIPv6ListenerSpec(t *testing.T) {
+	manager := &stubConnManager{}
+
+	ctx := ctxWithConnManager(manager)
+	ctx.IsWizard = true
+
+	res := builtinListen(ctx, []types.Value{
+		types.NewObj(42),
+		types.NewInt(8888),
+		types.NewMap([][2]types.Value{
+			{types.NewStr("ipv6"), types.NewInt(1)},
+		}),
+	})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	if res.Val.Type() != types.TYPE_MAP {
+		t.Fatalf("got %T, want descriptor map", res.Val)
+	}
+	ipv6, _ := res.Val.MapGet(types.NewStr("ipv6"))
+	if ipv6.Int() != 1 || !manager.added.IPv6 {
+		t.Fatalf("unexpected ipv6 descriptor/spec: %s %+v", res.Val.String(), manager.added)
 	}
 }
 
@@ -495,6 +547,46 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	want := ListenerDescriptor{Protocol: ListenerProtocolWebSocket, Port: 8888, Path: "/moo"}
 	if !listenerDescriptorEqual(manager.removed, want) {
 		t.Fatalf("removed %+v, want %+v", manager.removed, want)
+	}
+}
+
+func TestUnlistenSecondArgumentSelectsIPv6Descriptor(t *testing.T) {
+	manager := &stubConnManager{}
+
+	ctx := ctxWithConnManager(manager)
+	ctx.IsWizard = true
+
+	res := builtinUnlisten(ctx, []types.Value{types.NewInt(8888), types.NewInt(1)})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	want := ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: 8888, IPv6: true}
+	if !listenerDescriptorEqual(manager.removed, want) {
+		t.Fatalf("removed %+v, want %+v", manager.removed, want)
+	}
+}
+
+func TestConnectionInfoUsesOutboundEndpointMetadata(t *testing.T) {
+	ctx := ctxWithConnManager(&stubConnManager{
+		conn: &stubConn{
+			remote:      "127.0.0.1:60000",
+			outbound:    true,
+			source:      "127.0.0.1:60000",
+			destination: "127.0.0.1:8888",
+		},
+		listen: 7777,
+	})
+
+	res := builtinConnectionInfo(ctx, []types.Value{types.NewObj(-1)})
+	if res.IsError() {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	info := res.Val
+	outbound, _ := info.MapGet(types.NewStr("outbound"))
+	destinationPort, _ := info.MapGet(types.NewStr("destination_port"))
+	sourcePort, _ := info.MapGet(types.NewStr("source_port"))
+	if outbound.Int() != 1 || destinationPort.Int() != 8888 || sourcePort.Int() != 60000 {
+		t.Fatalf("unexpected outbound info: %s", info.String())
 	}
 }
 

@@ -47,7 +47,13 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	// ordering comes from waiting_tasks, which enqueue_waiting keeps sorted
 	// ascending by start_tv (tasks.cc:1193-1204). Match that here.
 	sort.SliceStable(tasks, func(i, j int) bool {
-		return tasks[i].StartTime.Before(tasks[j].StartTime)
+		if !tasks[i].StartTime.Equal(tasks[j].StartTime) {
+			return tasks[i].StartTime.Before(tasks[j].StartTime)
+		}
+		if tasks[i].QueueSeq != tasks[j].QueueSeq {
+			return tasks[i].QueueSeq < tasks[j].QueueSeq
+		}
+		return tasks[i].ID < tasks[j].ID
 	})
 
 	result := make([]types.Value, 0, len(tasks))
@@ -269,10 +275,7 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Pass true/1 to include line numbers (6-element frames)
 	includeLineNumbers := false
 	if len(args) == 1 {
-		if args[0].Type() != types.TYPE_INT {
-			return types.Err(types.E_TYPE)
-		}
-		includeLineNumbers = args[0].Int() != 0
+		includeLineNumbers = args[0].Truthy()
 	}
 
 	// Get the task from context
@@ -429,25 +432,16 @@ func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 }
 
-// builtinTaskStack: task_stack(task_id [, include_line_numbers]) → LIST
+// builtinTaskStack: task_stack(task_id [, include_line_numbers [, include_vars]]) → LIST
 // Returns the call stack for a suspended task
 // Each frame is a map with keys: this, verb, programmer, verb_loc, player, line_number
 func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) < 1 || len(args) > 2 {
+	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
 	if args[0].Type() != types.TYPE_INT {
 		return types.Err(types.E_TYPE)
-	}
-
-	// Second arg (include_line_numbers) is optional, defaults to false
-	includeLineNumbers := false
-	if len(args) == 2 {
-		if args[1].Type() != types.TYPE_INT {
-			return types.Err(types.E_TYPE)
-		}
-		includeLineNumbers = args[1].Int() != 0
 	}
 
 	taskID := args[0].Int()
@@ -467,6 +461,14 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	// Permission check: must be task owner or wizard
 	if t.Owner != ctx.Programmer && !ctx.IsWizard {
 		return types.Err(types.E_PERM)
+	}
+
+	// Optional args are TYPE_ANY in Toast. Barn currently uses the second flag
+	// for line-number inclusion; the third stack-vars flag is accepted for
+	// signature parity but does not change the existing frame shape.
+	includeLineNumbers := false
+	if len(args) >= 2 {
+		includeLineNumbers = args[1].Truthy()
 	}
 
 	// Get call stack
@@ -493,48 +495,63 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewList(result))
 }
 
-// builtinYin: yin([threshold [, ticks [, seconds]]]) → none
-// Yields execution if requested resource thresholds have been crossed.
+// builtinYin: yin([seconds [, min_ticks [, min_seconds]]]) → 0
+// "Yield if needed": suspends for `seconds` (default 0) when the task is
+// running low on ticks (ticks_left() < min_ticks, default 2000) or on time
+// (seconds_left() < min_seconds, default 2); otherwise returns 0 immediately.
+// Mirrors ToastStunt bf_yield_if_needed (execute.cc), including validating
+// min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
+// least one argument is supplied.
 func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
 
-	for _, arg := range args {
-		if arg.Type() != types.TYPE_INT {
+	seconds := 0.0
+	if len(args) >= 1 {
+		switch args[0].Type() {
+		case types.TYPE_INT:
+			seconds = float64(args[0].Int())
+		case types.TYPE_FLOAT:
+			seconds = args[0].Float()
+		default:
 			return types.Err(types.E_TYPE)
 		}
 	}
 
-	if yielder := hostOf(ctx).TaskYielder; len(args) >= 2 && yielder != nil {
-		tickThreshold := args[1].Int()
-		if ctx.TicksRemaining <= tickThreshold {
-			if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
-				if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-					return types.Err(errCode)
-				}
-				if t, ok := ctx.Task.(*task.Task); ok {
-					t.CreatedForks = nil
-				}
-				if errCode := FlushPendingServerOptions(ctx); errCode != types.E_NONE {
-					return types.Err(errCode)
-				}
-				if errCode := FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
-					return types.Err(errCode)
-				}
-				if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
-					return types.Err(errCode)
-				}
-				if errCode := FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
-					return types.Err(errCode)
-				}
-			}
-			yielder.YieldReadyTasks()
-			if ctx.Store != nil {
-				ctx.StoreTxn = ctx.Store.BeginReadOnly(0)
-			}
+	minTicks := int64(2000)
+	if len(args) >= 2 {
+		if args[1].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		minTicks = args[1].Int()
+	}
+
+	minSeconds := int64(2)
+	if len(args) >= 3 {
+		if args[2].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		minSeconds = args[2].Int()
+	}
+
+	if len(args) >= 1 {
+		fgTicks, fgSeconds := GetTaskLimits(false)
+		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
+			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
+			return types.Err(types.E_INVARG)
 		}
 	}
 
-	return types.Ok(types.NewInt(0))
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Ok(types.NewInt(0))
+	}
+
+	if ctx.TicksRemaining >= minTicks && int64(t.SecondsLeft()) >= minSeconds {
+		return types.Ok(types.NewInt(0))
+	}
+
+	task.GetManager().SuspendTask(t, seconds)
+	return types.Suspend(seconds)
 }

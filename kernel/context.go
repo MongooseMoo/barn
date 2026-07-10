@@ -38,6 +38,11 @@ type TaskContext struct {
 	// IsWizard indicates if the current programmer has wizard permissions
 	IsWizard bool
 
+	// ThreadMode is the current activation's Toast-compatible background mode.
+	// Toast defaults this to enabled and set_thread_mode() changes it only for
+	// the current task activation.
+	ThreadMode bool
+
 	// ServerInitiated indicates if this is a server-initiated call (do_login_command, etc.)
 	// Server-initiated frames are excluded from callers() results
 	ServerInitiated bool
@@ -132,6 +137,7 @@ func NewTaskContext() *TaskContext {
 		ThisObj:         types.ObjNothing,
 		Verb:            "",
 		IndexContext:    -1,      // -1 means not in an indexing context
+		ThreadMode:      true,    // Toast default: background-capable mode enabled
 		MaxStringConcat: 1000000, // Default 1MB string limit (matches test default)
 		RuntimeOptions:  config.DefaultOptions(),
 	}

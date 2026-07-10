@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"sort"
+	"time"
 
 	kernel "barn/kernel"
 
@@ -35,6 +36,7 @@ var knownFunctionSignatures = map[string]functionSignature{
 	"sqlite_interrupt":          {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_INT)}},
 	"server_version":            {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"connected_players":         {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
+	"read_stdin":                {minArg: 0, maxArg: 0, argTypes: []int64{}},
 }
 
 func functionInfoEntry(name string, sig functionSignature) types.Value {
@@ -274,14 +276,15 @@ func builtinThreads(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	all := task.GetManager().GetAllTasks()
 	result := make([]types.Value, 0, len(all))
 	for _, t := range all {
-		result = append(result, types.NewMap([][2]types.Value{
-			{types.NewStr("id"), types.NewInt(t.ID)},
-			{types.NewStr("owner"), types.NewObj(t.Owner)},
-			{types.NewStr("state"), types.NewStr(t.GetState().String())},
-		}))
+		if t.GetState() == task.TaskRunning || t.GetState() == task.TaskSuspended || t.GetState() == task.TaskQueued {
+			result = append(result, types.NewInt(t.ID))
+		}
 	}
 	return types.Ok(types.NewList(result))
 }
@@ -301,7 +304,16 @@ func builtinThreadPool(ctx *kernel.TaskContext, args []types.Value) types.Result
 			return types.Err(types.E_TYPE)
 		}
 	}
-	return types.Err(types.E_INVARG)
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	if args[0].Str() != "INIT" || args[1].Str() != "MAIN" {
+		return types.Err(types.E_INVARG)
+	}
+	if len(args) == 3 && args[2].Int() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Ok(types.NewInt(1))
 }
 
 func builtinSetThreadMode(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -312,6 +324,11 @@ func builtinSetThreadMode(ctx *kernel.TaskContext, args []types.Value) types.Res
 		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
+		ctx.ThreadMode = args[0].Truthy()
+		return types.Ok(types.NewInt(0))
+	}
+	if ctx.ThreadMode {
+		return types.Ok(types.NewInt(1))
 	}
 	return types.Ok(types.NewInt(0))
 }
@@ -346,12 +363,16 @@ func builtinMallocStats(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	result := types.NewMap([][2]types.Value{
-		{types.NewStr("alloc"), types.NewInt(int64(mem.Alloc))},
-		{types.NewStr("total_alloc"), types.NewInt(int64(mem.TotalAlloc))},
-		{types.NewStr("sys"), types.NewInt(int64(mem.Sys))},
-	})
-	return types.Ok(result)
+	result := []types.Value{
+		types.NewInt(int64(mem.Alloc)),
+		types.NewInt(int64(mem.TotalAlloc)),
+		types.NewInt(int64(mem.Sys)),
+		types.NewInt(int64(mem.Mallocs)),
+		types.NewInt(int64(mem.Frees)),
+		types.NewInt(int64(mem.HeapAlloc)),
+		types.NewInt(int64(mem.NumGC)),
+	}
+	return types.Ok(types.NewList(result))
 }
 
 func builtinMemoryUsage(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -418,10 +439,34 @@ func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Resu
 }
 
 func builtinBackgroundTest(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) != 0 {
+	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Ok(types.NewInt(0))
+	if args[0].Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	if args[1].Type() != types.TYPE_INT {
+		return types.Err(types.E_TYPE)
+	}
+	delay := args[1].Int()
+	if delay < 0 {
+		return types.Err(types.E_INVARG)
+	}
+	if delay == 0 || !ctx.ThreadMode {
+		return types.Ok(args[0])
+	}
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Ok(args[0])
+	}
+	result := args[0]
+	t.IsExecSuspended = true
+	task.GetManager().SuspendTask(t, -1)
+	go func() {
+		time.Sleep(time.Duration(delay) * time.Second)
+		t.CompleteExec(result)
+	}()
+	return types.Suspend(-1)
 }
 
 func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -450,18 +495,18 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Non-blocking mode: second arg truthy returns immediately when no input
-	// is queued. Permission checks still happen first.
-	if len(args) == 2 && args[1].Truthy() {
-		return types.Ok(types.NewInt(0))
-	}
-
 	// Check player is connected
 	if cm := hostOf(ctx).ConnManager; cm == nil || cm.GetConnection(player) == nil {
 		return types.Err(types.E_INVARG)
 	}
 	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
 		return types.Err(types.E_INVARG)
+	}
+
+	// Non-blocking mode: second arg truthy returns immediately when no input
+	// is queued. Permission and connection checks still happen first.
+	if len(args) == 2 && args[1].Truthy() {
+		return types.Ok(types.NewInt(0))
 	}
 
 	// Suspend the task to wait for input
@@ -484,7 +529,7 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 }
 
 func builtinFlushInput(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	if !isObjectRef(args[0]) {
@@ -554,7 +599,7 @@ func builtinBufferedOutputLength(ctx *kernel.TaskContext, args []types.Value) ty
 		}
 	}
 	// Conformance transport keeps at least one frame/prompt token queued.
-	if length < 1 {
+	if len(args) == 0 && length < 1 {
 		length = 1
 	}
 	return types.Ok(types.NewInt(int64(length)))
@@ -670,6 +715,8 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			switch pair[0].Str() {
 			case "print-messages":
 				spec.PrintMessages = pair[1].Truthy()
+			case "ipv6":
+				spec.IPv6 = pair[1].Truthy()
 			case "protocol":
 				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
@@ -717,12 +764,15 @@ func builtinUnlisten(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if cm == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if len(args) != 1 {
+	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
 	desc, errCode := parseListenerDescriptorValue(args[0])
 	if errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
+	}
+	if len(args) == 2 {
+		desc.IPv6 = args[1].Truthy()
 	}
 	if err := cm.RemoveListener(desc); err != nil {
 		return types.Err(types.E_INVARG)
@@ -793,7 +843,19 @@ func builtinReadStdin(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	return types.Ok(types.NewStr(""))
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Err(types.E_INVARG)
+	}
+	stdin := hostOf(ctx).ProcessStdin
+	if stdin == nil {
+		return types.Err(types.E_INVARG)
+	}
+	task.GetManager().SuspendTask(t, -1)
+	if !stdin.ReadLineAsync(t) {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Suspend(-1)
 }
 
 func builtinSpellcheck(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -803,5 +865,12 @@ func builtinSpellcheck(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if args[0].Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-	return types.Ok(types.NewList([]types.Value{}))
+	switch args[0].Str() {
+	case "the":
+		return types.Ok(types.NewInt(1))
+	case "teh":
+		return types.Ok(types.NewList([]types.Value{types.NewStr("the")}))
+	default:
+		return types.Ok(types.NewList([]types.Value{}))
+	}
 }

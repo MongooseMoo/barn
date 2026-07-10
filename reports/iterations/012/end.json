@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-07-09T00:00:00-06:00",
+  "suite": "managed Barn conformance",
+  "junit": ".tmp/iteration-012-full-after-add-property.xml",
+  "total": 11461,
+  "pass": 11259,
+  "fail": 76,
+  "skip": 126,
+  "target": "add_property_call_shapes",
+  "target_result": "49 passed, 11412 deselected",
+  "fixed_failures": 7,
+  "remaining_largest_clusters": [
+    "url_curl",
+    "optional_extensions",
+    "disassemble_call_shapes"
+  ]
+}

@@ -34,7 +34,7 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 			return types.Err(types.E_TYPE)
 		}
 		index = int(args[2].Int())
-		if index < 0 || index > list.Len() {
+		if index < 0 || index > list.Len()+1 {
 			return types.Err(types.E_RANGE)
 		}
 	}
@@ -222,9 +222,40 @@ func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinIsMember tests if value is in list
 // is_member(value, list) -> int (1-based index or 0)
+// promoteMemberEqual implements PROMOTE_NUMBERS membership equality for
+// is_member: when promotion is on and the pair is mixed int/float, compare as
+// doubles (mongoose utils.cc coercion). handled is false when the fallback
+// (strictEqual) should decide instead.
+func promoteMemberEqual(ctx *kernel.TaskContext, a, b types.Value) (equal bool, handled bool) {
+	if ctx == nil || !ctx.RuntimeOptions.PromoteNumbers {
+		return false, false
+	}
+	aIsInt := a.Type() == types.TYPE_INT
+	bIsInt := b.Type() == types.TYPE_INT
+	aIsFloat := a.Type() == types.TYPE_FLOAT
+	bIsFloat := b.Type() == types.TYPE_FLOAT
+	if !((aIsInt && bIsFloat) || (aIsFloat && bIsInt)) {
+		return false, false
+	}
+	toF := func(v types.Value) float64 {
+		if v.Type() == types.TYPE_INT {
+			return float64(v.Int())
+		}
+		return v.Float()
+	}
+	return toF(a) == toF(b), true
+}
+
 func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	if len(args) != 2 {
+	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
+	}
+	caseMatters := true
+	if len(args) == 3 {
+		if args[2].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		caseMatters = args[2].Int() != 0
 	}
 
 	value := args[0]
@@ -234,7 +265,14 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		collection := args[1]
 		// Find value in list (case-sensitive for strings)
 		for i := 1; i <= collection.Len(); i++ {
-			if strictEqual(collection.Get(i), value) {
+			item := collection.Get(i)
+			if eq, handled := promoteMemberEqual(ctx, value, item); handled {
+				if eq {
+					return types.Ok(types.NewInt(int64(i)))
+				}
+				continue
+			}
+			if memberEqual(item, value, caseMatters) {
 				return types.Ok(types.NewInt(int64(i)))
 			}
 		}
@@ -248,29 +286,42 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		pairs := collection.Pairs()
 		sortMapPairs(pairs)
 		for i, pair := range pairs {
-			if strictEqual(pair[1], value) {
+			if eq, handled := promoteMemberEqual(ctx, value, pair[1]); handled {
+				if eq {
+					return types.Ok(types.NewInt(int64(i + 1)))
+				}
+				continue
+			}
+			if memberEqual(pair[1], value, caseMatters) {
 				return types.Ok(types.NewInt(int64(i + 1)))
 			}
 		}
 		return types.Ok(types.NewInt(0))
 
 	default:
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
+}
+
+func memberEqual(a, b types.Value, caseMatters bool) bool {
+	if caseMatters {
+		return strictEqual(a, b)
+	}
+	return a.Equal(b)
 }
 
 // builtinSort sorts a list, matching ToastStunt's bf_sort / sort_callback.
 //
 // Signature (toaststunt src/list.cc:1779, sort_callback 947-1020):
 //
-//	sort(list [, keys] [, natural] [, reverse]) -> list
-//	register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
+//		sort(list [, keys] [, natural] [, reverse]) -> list
+//		register_function("sort", 1, 4, ..., TYPE_LIST, TYPE_LIST, TYPE_INT, TYPE_INT)
 //
-//   - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
-//     list itself". When non-empty it must have the same length as list, else
-//     E_INVARG, and the returned elements come from list (not keys).
-//   - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
-//   - reverse (INT):  when true, the sorted order is reversed.
+//	  - keys (LIST):    parallel list to sort BY; an empty list means "sort by the
+//	    list itself". When non-empty it must have the same length as list, else
+//	    E_INVARG, and the returned elements come from list (not keys).
+//	  - natural (INT):  when true, strings compare with natural order (strnatcasecmp).
+//	  - reverse (INT):  when true, the sorted order is reversed.
 //
 // Errors: bad arity -> E_ARGS; wrong arg types -> E_TYPE (Toast enforces these via
 // register_function's type tokens); the sort-key list must be homogeneous and made
@@ -730,7 +781,7 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 
 	default:
-		return types.Err(types.E_TYPE)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.NewList(result))

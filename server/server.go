@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -119,6 +120,7 @@ func (s *Server) LoadDatabase() error {
 	// Wire force_input() builtin to scheduler
 	reg.SetInputForcer(s.input)
 	reg.SetTaskYielder(s.scheduler)
+	reg.SetProcessStdin(builtins.NewProcessStdin(os.Stdin))
 
 	// Wire dump_database() builtin to request a server-loop checkpoint.
 	reg.SetDumpFunc(func() error { return s.requestCheckpoint() })
