@@ -969,7 +969,7 @@ Gate results:
 
 Commit:
 
-- Pending for this iteration.
+- `0f933d2 fix: preserve disassemblable index boundaries`
 
 Next slice:
 
