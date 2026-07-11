@@ -194,3 +194,17 @@ func TestDestructuringRejectsMultipleRestBindingsLikeToast(t *testing.T) {
 		t.Fatal("ParseProgram() succeeded, want multiple rest binding error")
 	}
 }
+
+func TestIndexMarkersLowerToSemanticBoundaries(t *testing.T) {
+	program, err := NewParser("return items[^..$];").ParseProgram()
+	if err != nil {
+		t.Fatalf("ParseProgram() error = %v", err)
+	}
+	returnStmt := program.Statements[0].(*verb.ReturnStmt)
+	rangeExpr := returnStmt.Value.(*verb.RangeExpr)
+	first := rangeExpr.Start.(*verb.IndexBoundaryExpr)
+	last := rangeExpr.End.(*verb.IndexBoundaryExpr)
+	if first.Boundary != verb.IndexFirst || last.Boundary != verb.IndexLast {
+		t.Fatalf("boundaries = (%v, %v), want (%v, %v)", first.Boundary, last.Boundary, verb.IndexFirst, verb.IndexLast)
+	}
+}

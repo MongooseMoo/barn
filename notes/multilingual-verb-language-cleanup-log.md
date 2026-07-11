@@ -561,8 +561,62 @@ Gate results:
 
 Commit:
 
+- `20e27e0 refactor: seal semantic assignment targets`
+
+Next slice:
+
+- Verify the already-normalized index-boundary family.
+
+## Iteration 9 - Phase 3.5 index-boundary normalization
+
+Slice read:
+
+- `de8072a refactor: move verb semantics out of parser`
+- `verb/ir.go` index-boundary semantics
+- `parser/parser.go` `^` and `$` lowering
+- `bytecode/compiler.go` index-boundary lowering and context resolution
+- parser and VM boundary tests
+
+Surfaces:
+
+- `IndexMarkerExpr` and parser-token boundary payloads
+  - Disposition: already deleted in Phase 2
+  - Owner after cleanup: none
+  - Action: commit `de8072a` moved the boundary representation to
+    `verb.IndexBoundaryExpr` with semantic `IndexFirst` and `IndexLast` values.
+- MOO `^` and `$` spelling
+  - Disposition: keep in frontend only
+  - Owner after cleanup: `parser`
+  - Action: the parser directly lowers concrete markers to semantic boundary
+    expressions; lexer tokens do not cross into `verb` or `bytecode`.
+- One-based and inclusive boundary behavior
+  - Disposition: keep
+  - Owner after cleanup: `bytecode` and VM collection operations
+  - Action: bytecode resolves first to one and last against the active
+    collection context, with the existing inclusive range behavior unchanged.
+- Structural proof
+  - Disposition: keep
+  - Owner after cleanup: parser frontend tests
+  - Action: added an assertion that `items[^..$]` contains semantic first and
+    last boundary nodes, not parser token values.
+
+Gate results:
+
+- Pass: zero `IndexMarkerExpr` hits and zero parser token references in `verb`
+  or `bytecode`.
+- Pass: `go test ./parser ./verb ./bytecode ./vm`.
+- Pass: `go test ./builtins ./server ./cmd/...`.
+- Pass: `git diff --check`.
+
+Implementation commit:
+
+- `de8072a refactor: move verb semantics out of parser`
+
+Record commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit assignment-target normalization, then normalize index boundaries.
+- Commit the Phase 3.5 verification record, then begin Phase 4 source compiler
+  ownership.
