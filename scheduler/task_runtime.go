@@ -10,12 +10,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"barn/bytecode"
 	"barn/command"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
-	"barn/verb"
 	"barn/vm"
 )
 
@@ -108,24 +107,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			result = bcVM.ExecuteLoop()
 		}
 	} else {
-		// First run - compile and execute
-		code, ok := t.Code.([]verb.Stmt)
-		if !ok || code == nil {
+		// First run - execute the program compiled at the source boundary.
+		prog := t.Program
+		if prog == nil {
 			t.SetState(task.TaskKilled)
-			return errors.New("task has no code")
-		}
-
-		// Compile semantic verb code to bytecode.
-		compiler := bytecode.NewCompilerWithRegistry(s.registry)
-		prog, compileErr := compiler.CompileProgram(&verb.Program{Statements: code})
-		if compileErr != nil {
-			t.SetState(task.TaskKilled)
-			return fmt.Errorf("compile error: %w", compileErr)
-		}
-		if t.VerbName != "" {
-			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && len(taskVerb.Code) > 0 {
-				prog.Source = append([]string(nil), taskVerb.Code...)
-			}
+			return errors.New("task has no compiled program")
 		}
 
 		// Update TaskContext for permissions and builtins
@@ -383,17 +369,17 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 
 // ExecuteVerbTaskSync creates and immediately runs a command verb task on the scheduler goroutine.
 func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
-	program, compileErrors := bytecode.CompileVerb(match.Verb.Code)
-	if len(compileErrors) > 0 {
-		return fmt.Errorf("Verb compile error: %s", compileErrors[0])
+	program, diagnostics := compiler.CompileMOO(match.Verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("Verb compile error: %s", diagnostics[0].Error())
 	}
-	if len(program.Statements) == 0 {
+	if len(match.Verb.Code) == 0 {
 		return ErrCommandVerbNoCode
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner

@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"barn/builtins"
-	"barn/bytecode"
 	"barn/command"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	runtime "barn/scheduler"
 	"barn/task"
@@ -615,10 +615,10 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 		conn.Send("Verb not found")
 		return true
 	}
-	_, errors := bytecode.CompileVerb(lines)
-	if len(errors) > 0 {
-		for _, errText := range errors {
-			conn.Send(errText)
+	_, diagnostics := compiler.CompileMOO(lines, p.runtime.Registry())
+	if len(diagnostics) > 0 {
+		for _, diagnostic := range diagnostics {
+			conn.Send(diagnostic.Error())
 		}
 		return true
 	}

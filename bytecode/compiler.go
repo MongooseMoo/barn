@@ -179,48 +179,6 @@ func (c *Compiler) CompileProgram(program *verb.Program) (*Program, error) {
 	return c.program, nil
 }
 
-// CompileVerbBytecode compiles verb source (code lines) to bytecode, backed by a
-// content-addressed cache.
-//
-// In the relocated topology the bytecode package owns the cache and the parser
-// bridge. The caller passes only persistent state (the source lines) plus the
-// registry; bytecode no longer reaches into a db/store.Verb struct, so it does
-// NOT import db/store.
-//
-// The cache is keyed by a hash of the RAW stored source (the code lines). On a
-// hit the cached *Program is returned directly (a cheap map lookup, no parse, no
-// compile). On a miss the source is parsed + compiled, the result is stored, and
-// returned. Correctness is automatic: changed source hashes to a new key and
-// recompiles; eviction (LRU) is memory-management only and at worst forces a
-// recompile. The cached *Program is immutable (all per-execution state lives on
-// the VM StackFrame), so sharing it across executions is safe.
-//
-// Returns the compiled *Program or an error.
-func CompileVerbBytecode(code []string, registry Registry) (*Program, error) {
-	key := hashCode(code)
-	if prog, ok := verbProgramCache.get(key); ok {
-		return prog, nil
-	}
-
-	vp, errs := CompileVerb(code)
-	if errs != nil {
-		// errs[0] is already Toast-formatted ("Line N:  syntax error").
-		return nil, fmt.Errorf("%s", errs[0])
-	}
-
-	c := NewCompilerWithRegistry(registry)
-	prog, err := c.CompileProgram(&verb.Program{Statements: vp.Statements})
-	if err != nil {
-		return nil, fmt.Errorf("bytecode compile error: %w", err)
-	}
-	if len(code) > 0 {
-		prog.Source = append([]string(nil), code...)
-	}
-
-	verbProgramCache.put(key, prog)
-	return prog, nil
-}
-
 // emit adds an opcode to the bytecode
 func (c *Compiler) emit(op OpCode) int {
 	pos := len(c.program.Code)

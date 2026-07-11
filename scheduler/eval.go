@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"barn/bytecode"
+	"barn/compiler"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -30,16 +29,16 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 		}
 	}()
 
-	// Parse the code
-	p := parser.NewParser(code)
-	program, err := p.ParseProgram()
-
-	if err != nil {
-		// Send parse error in ToastStunt eval format: {0, {"error message"}}
+	prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), s.registry)
+	if len(diagnostics) > 0 {
 		if prefix != "" {
 			lines = append(lines, prefix)
 		}
-		errMsg := fmt.Sprintf("{0, {\"Parse error: %s\"}}", err)
+		kind := "Compile error"
+		if diagnostics[0].Stage == compiler.SyntaxStage {
+			kind = "Parse error"
+		}
+		errMsg := fmt.Sprintf("{0, {\"%s: %s\"}}", kind, diagnostics[0].Message)
 		lines = append(lines, errMsg)
 		if suffix != "" {
 			lines = append(lines, suffix)
@@ -66,23 +65,6 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.Task = t
 	ctx.TaskID = t.ID
-
-	// Compile semantic verb code to bytecode.
-	compiler := bytecode.NewCompilerWithRegistry(s.registry)
-	prog, compileErr := compiler.CompileProgram(program)
-	if compileErr != nil {
-		// Compilation failed - send error
-		if prefix != "" {
-			lines = append(lines, prefix)
-		}
-		errMsg := fmt.Sprintf("{0, {\"Compile error: %s\"}}", compileErr)
-		lines = append(lines, errMsg)
-		if suffix != "" {
-			lines = append(lines, suffix)
-		}
-		return lines
-	}
-	prog.Source = strings.Split(code, "\n")
 
 	// Create bytecode VM and execute
 	bcVM := vm.NewVM(s.store, s.registry)

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"barn/compiler"
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
@@ -23,13 +23,12 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
 
-	p := parser.NewParser("return 1;")
-	program, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse failed: %v", err)
+	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	taskID := s.CreateBackgroundTask(types.ObjNothing, program.Statements, 0)
+	taskID := s.CreateBackgroundTask(types.ObjNothing, program, 0)
 
 	s.mu.Lock()
 	bgTask := s.tasks[taskID]
@@ -61,13 +60,12 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	}
 
 	ticks, seconds := foregroundTaskLimits()
-	p := parser.NewParser("suspend(); return 42;")
-	program, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+	program, diagnostics := compiler.CompileMOO([]string{"suspend(); return 42;"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile: %v", diagnostics)
 	}
 	id := atomic.AddInt64(&s.nextTaskID, 1)
-	tk := task.NewTaskFull(id, types.ObjNothing, program.Statements, ticks, seconds)
+	tk := task.NewTaskFull(id, types.ObjNothing, program, ticks, seconds)
 	s.populateTaskContextDependencies(tk.Context)
 	tk.StartTime = time.Now()
 	tk.ForkCreator = s

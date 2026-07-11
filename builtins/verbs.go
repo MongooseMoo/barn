@@ -1,13 +1,13 @@
 package builtins
 
 import (
-	stderrors "errors"
 	"fmt"
 	"strings"
 
-	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/parser"
 	"barn/types"
 	verbir "barn/verb"
 )
@@ -737,35 +737,21 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	// Compile the code. Toast verb_code() returns source without semicolons for
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
 	compileLines := lines
-	_, errors := bytecode.CompileVerb(compileLines)
-	if len(errors) > 0 {
+	registry, _ := ctx.Registry.(*Registry)
+	_, diagnostics := compiler.CompileMOO(compileLines, registry)
+	if len(diagnostics) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
 			compileLines = normalized
-			_, errors = bytecode.CompileVerb(compileLines)
+			_, diagnostics = compiler.CompileMOO(compileLines, registry)
 		}
 	}
-	if len(errors) > 0 {
+	if len(diagnostics) > 0 {
 		// Return compile errors
-		errVals := make([]types.Value, len(errors))
-		for i, errStr := range errors {
-			errVals[i] = types.NewStr(errStr)
+		errVals := make([]types.Value, len(diagnostics))
+		for i, diagnostic := range diagnostics {
+			errVals[i] = types.NewStr(diagnostic.Error())
 		}
 		return types.Ok(types.NewList(errVals))
-	}
-
-	// Parsing succeeded; now validate that every builtin function referenced
-	// actually exists. Toast rejects unknown builtins at compile time with
-	// "Line N:  Unknown built-in function: NAME" and leaves the verb unchanged.
-	// We run the full bytecode compile (which walks the whole semantic IR and resolves
-	// every builtin name against the registry) to find the first unknown one.
-	if registry, ok := ctx.Registry.(*Registry); ok {
-		if _, err := bytecode.CompileVerbBytecode(compileLines, registry); err != nil {
-			var unknown *bytecode.UnknownBuiltinError
-			if stderrors.As(err, &unknown) {
-				msg := fmt.Sprintf("Line %d:  Unknown built-in function: %s", unknown.Line, unknown.Name)
-				return types.Ok(types.NewList([]types.Value{types.NewStr(msg)}))
-			}
-		}
 	}
 
 	switch args[1].Type() {
@@ -911,16 +897,13 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	// Semantic IR is not retained on stored verbs; parse source on demand.
-	vp, _ := bytecode.CompileVerb(verb.Code)
-	if vp == nil || len(vp.Statements) == 0 {
+	program, _ := parser.NewParser(strings.Join(verb.Code, "\n")).ParseProgram()
+	if program == nil || len(program.Statements) == 0 {
 		return types.Ok(types.NewList([]types.Value{types.NewStr("Main code vector:")}))
 	}
 
-	// Walk semantic IR to produce pseudo-disassembly with opcode names.
-	// ToastStunt includes this header in disassembly output.
 	lines := []string{"Main code vector:"}
-	for _, stmt := range vp.Statements {
+	for _, stmt := range program.Statements {
 		lines = append(lines, disassembleStmt(stmt)...)
 	}
 
@@ -933,7 +916,6 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	return types.Ok(types.NewList(result))
 }
 
-// disassembleStmt walks a semantic statement and emits pseudo-opcodes.
 func disassembleStmt(stmt verbir.Stmt) []string {
 	switch s := stmt.(type) {
 	case *verbir.ExprStmt:
@@ -941,8 +923,7 @@ func disassembleStmt(stmt verbir.Stmt) []string {
 	case *verbir.ReturnStmt:
 		if s.Value != nil {
 			lines := disassembleExpr(s.Value)
-			lines = append(lines, "RETURN")
-			return lines
+			return append(lines, "RETURN")
 		}
 		return []string{"RETURN"}
 	default:
@@ -950,37 +931,27 @@ func disassembleStmt(stmt verbir.Stmt) []string {
 	}
 }
 
-// disassembleExpr walks a semantic expression and emits pseudo-opcodes.
 func disassembleExpr(expr verbir.Expr) []string {
 	switch e := expr.(type) {
 	case *verbir.BinaryExpr:
-		// Emit operands then operator
 		lines := disassembleExpr(e.Left)
 		lines = append(lines, disassembleExpr(e.Right)...)
-		lines = append(lines, opToOpcode(e.Operator))
-		return lines
+		return append(lines, opToOpcode(e.Operator))
 	case *verbir.UnaryExpr:
-		// Emit operand then operator
 		lines := disassembleExpr(e.Operand)
-		lines = append(lines, unaryOpToOpcode(e.Operator))
-		return lines
+		return append(lines, unaryOpToOpcode(e.Operator))
 	case *verbir.LiteralExpr:
 		return []string{fmt.Sprintf("PUSH %s", disassembleLiteral(e))}
 	case *verbir.IndexExpr:
-		// Emit collection, index, then INDEX opcode
 		lines := disassembleExpr(e.Expr)
 		lines = append(lines, disassembleExpr(e.Index)...)
-		lines = append(lines, "INDEX")
-		return lines
+		return append(lines, "INDEX")
 	case *verbir.RangeExpr:
-		// Emit collection, start, end, then RANGE opcode
 		lines := disassembleExpr(e.Expr)
 		lines = append(lines, disassembleExpr(e.Start)...)
 		lines = append(lines, disassembleExpr(e.End)...)
-		lines = append(lines, "RANGE")
-		return lines
+		return append(lines, "RANGE")
 	case *verbir.IndexBoundaryExpr:
-		// ^ = FIRST, $ = LAST
 		if e.Boundary == verbir.IndexFirst {
 			return []string{"FIRST"}
 		}
@@ -1012,7 +983,6 @@ func disassembleLiteral(e *verbir.LiteralExpr) string {
 	}
 }
 
-// opToOpcode converts a semantic binary operator to an opcode name.
 func opToOpcode(op verbir.BinaryOperator) string {
 	switch op {
 	case verbir.BinaryBitAnd:
@@ -1040,7 +1010,6 @@ func opToOpcode(op verbir.BinaryOperator) string {
 	}
 }
 
-// unaryOpToOpcode converts a semantic unary operator to an opcode name.
 func unaryOpToOpcode(op verbir.UnaryOperator) string {
 	switch op {
 	case verbir.UnaryBitwiseNot:

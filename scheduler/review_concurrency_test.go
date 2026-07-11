@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"barn/compiler"
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
@@ -44,13 +44,12 @@ func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
 
-	p := parser.NewParser("suspend(100);")
-	program, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+	program, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile: %v", diagnostics)
 	}
 
-	taskID := s.CreateForegroundTask(types.ObjNothing, program.Statements)
+	taskID := s.CreateForegroundTask(types.ObjNothing, program)
 	bgTask := s.GetTask(taskID)
 	if bgTask == nil {
 		t.Fatal("task not found in scheduler")
@@ -112,12 +111,11 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 	}
 
 	// Now create a scheduler task — it gets the same ID from s.nextTaskID.
-	p := parser.NewParser("return 1;")
-	program, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile: %v", diagnostics)
 	}
-	schedulerTaskID := s.CreateForegroundTask(types.ObjNothing, program.Statements)
+	schedulerTaskID := s.CreateForegroundTask(types.ObjNothing, program)
 	if schedulerTaskID != nextManagerID {
 		t.Fatalf("scheduler ID probe misfire: got %d, want %d", schedulerTaskID, nextManagerID)
 	}
@@ -168,13 +166,12 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	ticks, seconds := foregroundTaskLimits()
 
 	// taskA: suspend(100) — its runTask will write taskA.BytecodeVM = bcVM at line 239.
-	pA := parser.NewParser("suspend(100);")
-	programA, err := pA.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse taskA: %v", err)
+	programA, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile taskA: %v", diagnostics)
 	}
 	taskAID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskA := task.NewTaskFull(taskAID, types.ObjNothing, programA.Statements, ticks, seconds)
+	taskA := task.NewTaskFull(taskAID, types.ObjNothing, programA, ticks, seconds)
 	s.populateTaskContextDependencies(taskA.Context)
 	taskA.StartTime = time.Now()
 	taskA.ForkCreator = s
@@ -186,13 +183,12 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 
 	// taskB: return 1 — completes quickly; its runTask calls liveTaskVMs at the
 	// GC boundary (task_runtime.go:307), which reads taskA.BytecodeVM.
-	pB := parser.NewParser("return 1;")
-	programB, err := pB.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse taskB: %v", err)
+	programB, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile taskB: %v", diagnostics)
 	}
 	taskBID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskB := task.NewTaskFull(taskBID, types.ObjNothing, programB.Statements, ticks, seconds)
+	taskB := task.NewTaskFull(taskBID, types.ObjNothing, programB, ticks, seconds)
 	s.populateTaskContextDependencies(taskB.Context)
 	taskB.StartTime = time.Now()
 	taskB.ForkCreator = s

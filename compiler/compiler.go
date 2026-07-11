@@ -13,10 +13,18 @@ import (
 
 // Diagnostic is a source-located syntax or bytecode compilation failure.
 type Diagnostic struct {
+	Stage    DiagnosticStage
 	Position verb.Position
 	Message  string
 	Detail   error
 }
+
+type DiagnosticStage uint8
+
+const (
+	SyntaxStage DiagnosticStage = iota
+	BytecodeStage
+)
 
 func (d Diagnostic) Error() string {
 	line := d.Position.Line
@@ -51,22 +59,24 @@ func syntaxDiagnostic(err error) Diagnostic {
 	var parseError *parser.ParseError
 	if errors.As(err, &parseError) {
 		return Diagnostic{
+			Stage:    SyntaxStage,
 			Position: verb.Position{Line: parseError.Line},
 			Message:  parseError.Msg,
 			Detail:   parseError.Detail,
 		}
 	}
-	return Diagnostic{Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
+	return Diagnostic{Stage: SyntaxStage, Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
 }
 
 func compileDiagnostic(err error) Diagnostic {
 	var unknownBuiltin *bytecode.UnknownBuiltinError
 	if errors.As(err, &unknownBuiltin) {
 		return Diagnostic{
+			Stage:    BytecodeStage,
 			Position: verb.Position{Line: unknownBuiltin.Line},
 			Message:  "Unknown built-in function: " + unknownBuiltin.Name,
 			Detail:   err,
 		}
 	}
-	return Diagnostic{Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
+	return Diagnostic{Stage: BytecodeStage, Position: verb.Position{Line: 1}, Message: err.Error(), Detail: err}
 }

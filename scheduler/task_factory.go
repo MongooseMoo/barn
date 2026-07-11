@@ -9,11 +9,11 @@ import (
 
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
 	"barn/types"
-	"barn/verb"
 	"barn/vm"
 )
 
@@ -47,10 +47,10 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 }
 
 // CreateForegroundTask creates a foreground task (user command)
-func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []verb.Stmt) int64 {
+func (s *Scheduler) CreateForegroundTask(player types.ObjID, program *bytecode.Program) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give task access to scheduler for forks
@@ -67,17 +67,17 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, errors := bytecode.CompileVerb(verb.Code)
-	if len(errors) > 0 {
-		return types.Result{}, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+	program, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return types.Result{}, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
-	if len(program.Statements) == 0 && len(verb.Code) == 0 {
+	if len(verb.Code) == 0 {
 		return types.Result{}, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
@@ -128,14 +128,14 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, errors := bytecode.CompileVerb(verb.Code)
-	if len(errors) > 0 {
-		return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+	program, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return 0, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
 
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Login task runs with verb-owner permissions, matching the throwaway
@@ -178,10 +178,10 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 }
 
 // CreateBackgroundTask creates a background task (fork)
-func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []verb.Stmt, delay time.Duration) int64 {
+func (s *Scheduler) CreateBackgroundTask(player types.ObjID, program *bytecode.Program, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := backgroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give task access to scheduler for forks
@@ -191,8 +191,8 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []verb.Stmt, d
 }
 
 // Fork creates a forked task with a delay
-func (s *Scheduler) Fork(ctx *kernel.TaskContext, code []verb.Stmt, delay time.Duration) int64 {
-	return s.CreateBackgroundTask(ctx.Player, code, delay)
+func (s *Scheduler) Fork(ctx *kernel.TaskContext, program *bytecode.Program, delay time.Duration) int64 {
+	return s.CreateBackgroundTask(ctx.Player, program, delay)
 }
 
 // CreateForkedTask creates a forked child task from a bytecode VM fork yield.

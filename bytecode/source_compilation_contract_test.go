@@ -1,9 +1,12 @@
-package bytecode
+package bytecode_test
 
 import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"barn/bytecode"
+	"barn/compiler"
 )
 
 // TestMOOCompilationContractCharacterizesEveryNodeFamily fixes the current
@@ -63,18 +66,9 @@ func TestMOOCompilationContractCharacterizesEveryNodeFamily(t *testing.T) {
 		"return {integer, floating, string, boolean, object, err};",
 	}
 
-	parsed, parseErrors := CompileVerb(source)
-	if len(parseErrors) != 0 {
-		t.Fatalf("CompileVerb returned parse errors: %v", parseErrors)
-	}
-	if parsed == nil || len(parsed.Statements) == 0 {
-		t.Fatal("CompileVerb returned no statements")
-	}
-
-	verbProgramCache = newProgramCache(verbCacheCapacity)
-	compiled, err := CompileVerbBytecode(source, stubRegistry{})
-	if err != nil {
-		t.Fatalf("CompileVerbBytecode failed: %v", err)
+	compiled, diagnostics := compiler.CompileMOO(source, stubRegistry{})
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO failed: %v", diagnostics)
 	}
 	if !reflect.DeepEqual(compiled.Source, source) {
 		t.Fatalf("compiled source changed:\n got: %#v\nwant: %#v", compiled.Source, source)
@@ -91,29 +85,27 @@ func TestMOOCompilationContractCharacterizesEveryNodeFamily(t *testing.T) {
 }
 
 func TestMOOCompilationContractPreservesEmptyProgram(t *testing.T) {
-	verbProgramCache = newProgramCache(verbCacheCapacity)
-
-	compiled, err := CompileVerbBytecode([]string{}, stubRegistry{})
-	if err != nil {
-		t.Fatalf("CompileVerbBytecode(empty) failed: %v", err)
+	compiled, diagnostics := compiler.CompileMOO([]string{}, stubRegistry{})
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO(empty) failed: %v", diagnostics)
 	}
 	if len(compiled.Source) != 0 {
 		t.Fatalf("empty program source = %#v, want empty", compiled.Source)
 	}
-	if len(compiled.Code) != 1 || OpCode(compiled.Code[0]) != OP_RETURN_NONE {
+	if len(compiled.Code) != 1 || bytecode.OpCode(compiled.Code[0]) != bytecode.OP_RETURN_NONE {
 		t.Fatalf("empty program bytecode = %v, want only OP_RETURN_NONE", compiled.Code)
 	}
 }
 
 func TestMOOCompilationContractReportsParseLine(t *testing.T) {
-	_, parseErrors := CompileVerb([]string{
+	_, diagnostics := compiler.CompileMOO([]string{
 		"value = 1;",
 		"value = ;",
-	})
-	if len(parseErrors) != 1 {
-		t.Fatalf("parse errors = %v, want exactly one", parseErrors)
+	}, stubRegistry{})
+	if len(diagnostics) != 1 {
+		t.Fatalf("diagnostics = %v, want exactly one", diagnostics)
 	}
-	if !strings.HasPrefix(parseErrors[0], "Line 2:  ") {
-		t.Fatalf("parse error = %q, want Line 2 prefix", parseErrors[0])
+	if !strings.HasPrefix(diagnostics[0].Error(), "Line 2:  ") {
+		t.Fatalf("diagnostic = %q, want Line 2 prefix", diagnostics[0].Error())
 	}
 }

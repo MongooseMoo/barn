@@ -665,9 +665,77 @@ Gate results:
 
 Commit:
 
+- `a108800 feat: establish MOO source compiler owner`
+
+Next slice:
+
+- Delete `VerbProgram`, `CompileVerb`, and `CompileVerbBytecode` and migrate
+  every resulting caller to `CompileMOO`.
+
+## Iteration 11 - Phase 5 runtime source/IR removal
+
+Slice read:
+
+- compiler failures after deleting bytecode source compilation APIs
+- task and scheduler creation/execution paths
+- command, hook, eval, programming, restoration, VM-call, and diagnostic paths
+
+Surfaces:
+
+- `VerbProgram`, `CompileVerb`, and `CompileVerbBytecode`
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: deleted first and used the resulting compiler failures as the
+    literal caller inventory; no wrapper or compatibility alias was added.
+- Bytecode raw-source cache
+  - Disposition: delete
+  - Owner after cleanup: `compiler`
+  - Action: removed `bytecode/cache.go`, its old-owner tests, and all source
+    hashing/caching from the bytecode package.
+- Runtime source boundaries
+  - Disposition: migrate
+  - Owner after cleanup: `compiler.CompileMOO`
+  - Action: migrated command verbs, server/login/waif hooks, eval, interactive
+    programming, `set_verb_code`, queued restoration, VM calls and `pass()`,
+    command-line evaluation, and dump commands.
+- `Task.Code interface{}` and scheduler first-run compilation
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: tasks now carry typed `*bytecode.Program`; task factories accept
+    compiled programs, source boundaries compile before task creation, and
+    scheduler execution never sees or compiles verb IR.
+- Queued and forked tasks
+  - Disposition: keep compiled
+  - Owner after cleanup: scheduler/VM runtime
+  - Action: queued source compiles once during restoration; fork children keep
+    using bytecode extracted from their parent program without reparsing.
+- `Task.BytecodeVM interface{}` and `ForkInfo.Body interface{}`
+  - Disposition: explicitly defer
+  - Owner after cleanup: runtime package-cycle work outside this language
+    boundary plan
+  - Action: unchanged, as required by the plan.
+- AST pseudo-disassembly
+  - Disposition: retain only until the immediately following Phase 6 commit
+  - Owner after cleanup: none
+  - Action: this is the sole temporary parser/verb-IR import in runtime-facing
+    packages and is removed by the independently committed disassembly slice.
+
+Gate results:
+
+- Pass: zero production hits for `VerbProgram`, `CompileVerb`,
+  `CompileVerbBytecode`, and `Task.Code`.
+- Pass: bytecode has no parser import or source-compilation/cache owner.
+- Pass: `go test ./bytecode ./compiler ./builtins ./vm ./server ./task ./cmd/...`.
+- Pass: substantial scheduler task/runtime tests.
+- Expected unrelated full-suite failure only:
+  `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit the source owner, then delete `VerbProgram`, `CompileVerb`, and
-  `CompileVerbBytecode` and migrate every resulting caller to `CompileMOO`.
+- Commit runtime convergence, then replace AST pseudo-disassembly using the
+  verified Toast output shape.

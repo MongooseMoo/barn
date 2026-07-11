@@ -6,11 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"barn/bytecode"
+	"barn/compiler"
 	dbformat "barn/db/format"
 	"barn/task"
 	"barn/types"
-	"barn/verb"
 	"barn/vm"
 )
 
@@ -29,20 +28,13 @@ func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 }
 
 func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
-	program, errors := bytecode.CompileVerb(saved.Code)
-	if len(errors) > 0 {
-		return fmt.Errorf("%s", errors[0])
+	prog, diagnostics := compiler.CompileMOO(saved.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("%s", diagnostics[0].Error())
 	}
-
-	compiler := bytecode.NewCompilerWithRegistry(s.registry)
-	prog, err := compiler.CompileProgram(&verb.Program{Statements: program.Statements})
-	if err != nil {
-		return err
-	}
-	prog.Source = append([]string(nil), saved.Code...)
 
 	ticks, seconds := backgroundTaskLimits()
-	t := task.NewTaskFull(saved.ID, saved.Player, nil, ticks, seconds)
+	t := task.NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 
 	start := time.Unix(saved.StartTime, 0)

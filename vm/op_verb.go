@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
@@ -124,9 +125,9 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Try to compile verb to bytecode
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
-	if compileErr != nil {
-		return fmt.Errorf("E_VERBNF: compile error in %s: %v", verbName, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, vm.Builtins)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("E_VERBNF: compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
 
 	// --- Native frame push ---
@@ -338,9 +339,9 @@ func (vm *VM) executePass() error {
 	}
 
 	// Compile the parent verb to bytecode
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
-	if compileErr != nil {
-		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %v", verbName, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, vm.Builtins)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}
 
 	// --- Native frame push ---

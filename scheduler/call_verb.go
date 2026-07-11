@@ -3,7 +3,7 @@ package scheduler
 import (
 	"log"
 
-	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
@@ -55,9 +55,9 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	}
 
 	// Compile verb to bytecode
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
-	if compileErr != nil {
-		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %v", verbName, defObjID, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 		return types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,

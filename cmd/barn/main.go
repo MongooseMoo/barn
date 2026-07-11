@@ -14,17 +14,15 @@ import (
 	"syscall"
 
 	"barn/builtins"
-	"barn/bytecode"
+	"barn/compiler"
 	"barn/config"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/profile"
 	"barn/server"
 	"barn/trace"
 	"barn/types"
-	"barn/verb"
 	"barn/vm"
 )
 
@@ -508,18 +506,10 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 
 // evalExpression parses and evaluates a MOO expression
 func evalExpression(store *dbstore.Store, expr string, options config.Options) {
-	p := parser.NewParser(expr)
-	node, err := p.ParseExpression(0)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
-		os.Exit(1)
-	}
-
 	registry := vm.BuildVMRegistry()
-	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.Compile(&verb.ReturnStmt{Value: node})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Compile error: %v\n", err)
+	prog, diagnostics := compiler.CompileMOO([]string{"return " + expr + ";"}, registry)
+	if len(diagnostics) > 0 {
+		fmt.Fprintf(os.Stderr, "Compile error: %s\n", diagnostics[0].Error())
 		os.Exit(1)
 	}
 
