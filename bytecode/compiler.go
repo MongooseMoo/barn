@@ -34,26 +34,24 @@ type Registry interface {
 
 // Compiler lowers semantic verb nodes to bytecode.
 type Compiler struct {
-	program           *Program
-	constants         map[string]int    // Constant deduplication (Value.String() -> index)
-	variables         map[string]int    // Variable name -> index mapping
-	loops             []LoopContext     // Loop context stack for break/continue
-	scopes            []Scope           // Variable scope stack
-	tempCount         int               // Counter for unique temporary variable names
-	registry          Registry          // Builtin function registry for name->ID resolution
-	indexContextVar   int               // Variable slot used by index-boundary compilation (-1 = none)
-	indexBoundaryMode indexBoundaryMode // Controls ^/$ compilation semantics in current context
-	lastLine          int               // Last emitted line number for LineInfo deduplication
-	err               error             // First overflow/limit error; checked at Compile boundaries
+	program              *Program
+	constants            map[string]int       // Constant deduplication (Value.String() -> index)
+	variables            map[string]int       // Variable name -> index mapping
+	loops                []LoopContext        // Loop context stack for break/continue
+	scopes               []Scope              // Variable scope stack
+	tempCount            int                  // Counter for unique temporary variable names
+	registry             Registry             // Builtin function registry for name->ID resolution
+	indexContextVar      int                  // Variable slot used by index-boundary compilation (-1 = none)
+	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions
+	lastLine             int                  // Last emitted line number for LineInfo deduplication
+	err                  error                // First overflow/limit error; checked at Compile boundaries
 }
 
-type indexBoundaryMode int
+type indexBoundaryContext byte
 
 const (
-	// ^ => 1, $ => collection length from indexContextVar.
-	indexBoundaryModeLength indexBoundaryMode = iota
-	// ^/$ => first/last for maps, 1/length for list/string using collection in indexContextVar.
-	indexBoundaryModeCollection
+	indexBoundaryIndex indexBoundaryContext = iota
+	indexBoundaryRange
 )
 
 // LoopContext tracks loop compilation state
@@ -83,12 +81,11 @@ func NewCompiler() *Compiler {
 			VarNames:  make([]string, 0, 16),
 			LineInfo:  make([]LineEntry, 0, 32),
 		},
-		constants:         make(map[string]int),
-		variables:         make(map[string]int),
-		loops:             make([]LoopContext, 0, 8),
-		scopes:            make([]Scope, 0, 8),
-		indexContextVar:   -1,
-		indexBoundaryMode: indexBoundaryModeLength,
+		constants:       make(map[string]int),
+		variables:       make(map[string]int),
+		loops:           make([]LoopContext, 0, 8),
+		scopes:          make([]Scope, 0, 8),
+		indexContextVar: -1,
 	}
 }
 
@@ -820,7 +817,7 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			// Stack currently: [value, value_copy]
 			// Compile the index expression -> [value, value_copy, index]
 			oldContextVar := c.indexContextVar
-			oldMarkerMode := c.indexBoundaryMode
+			oldBoundaryContext := c.indexBoundaryContext
 			if containsIndexBoundary(indices[0]) {
 				tempIdx := c.declareVariable(c.tempVar("idxsetctx"))
 				c.emit(OP_GET_VAR)
@@ -828,13 +825,13 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 				c.emit(OP_SET_VAR)
 				c.emitByte(byte(tempIdx))
 				c.indexContextVar = tempIdx
-				c.indexBoundaryMode = indexBoundaryModeCollection
+				c.indexBoundaryContext = indexBoundaryIndex
 			}
 			if err := c.compileNode(indices[0]); err != nil {
 				return err
 			}
 			c.indexContextVar = oldContextVar
-			c.indexBoundaryMode = oldMarkerMode
+			c.indexBoundaryContext = oldBoundaryContext
 			// VM will: pop index, pop value_copy, read coll from locals[baseVarIdx],
 			// set coll[index] = value_copy, store modified coll back
 			c.emit(OP_INDEX_SET)
@@ -855,7 +852,7 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			tmpIndices := make([]int, depth)
 			for k := 0; k < depth; k++ {
 				oldContextVar := c.indexContextVar
-				oldMarkerMode := c.indexBoundaryMode
+				oldBoundaryContext := c.indexBoundaryContext
 				if containsIndexBoundary(indices[k]) {
 					tempIdx := c.declareVariable(c.tempVar("nestedidxctx"))
 					c.emit(OP_GET_VAR)
@@ -863,13 +860,13 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 					c.emit(OP_SET_VAR)
 					c.emitByte(byte(tempIdx))
 					c.indexContextVar = tempIdx
-					c.indexBoundaryMode = indexBoundaryModeCollection
+					c.indexBoundaryContext = indexBoundaryIndex
 				}
 				if err := c.compileNode(indices[k]); err != nil {
 					return err
 				}
 				c.indexContextVar = oldContextVar
-				c.indexBoundaryMode = oldMarkerMode
+				c.indexBoundaryContext = oldBoundaryContext
 				tmpIndices[k] = c.declareVariable(fmt.Sprintf("__nested_idx_%d", k))
 				c.emit(OP_SET_VAR)
 				c.emitByte(byte(tmpIndices[k]))
@@ -1094,30 +1091,30 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 	return nil
 }
 
-// compileRangeIndex compiles a range index expression with numeric boundary semantics.
-// In range context, ^ means 1 and $ means collection length.
+// compileRangeIndex compiles a range index expression against its collection.
+// OP_INDEX_MARKER resolves ^ and $ while preserving those semantic operations
+// in the compiled program.
 func (c *Compiler) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	if !containsIndexBoundary(expr) {
 		return c.compileNode(expr)
 	}
 
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexBoundaryMode
+	oldBoundaryContext := c.indexBoundaryContext
 
 	tempIdx := c.declareVariable(c.tempVar("rngsetctx"))
 	c.emit(OP_GET_VAR)
 	c.emitByte(byte(varIdx))
-	c.emit(OP_LENGTH)
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(tempIdx))
 
 	c.indexContextVar = tempIdx
-	c.indexBoundaryMode = indexBoundaryModeLength
+	c.indexBoundaryContext = indexBoundaryRange
 
 	err := c.compileNode(expr)
 
 	c.indexContextVar = oldContextVar
-	c.indexBoundaryMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	return err
 }
@@ -1186,7 +1183,7 @@ func (c *Compiler) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start
 
 	// Resolve outer index once and store it.
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexBoundaryMode
+	oldBoundaryContext := c.indexBoundaryContext
 	if containsIndexBoundary(indexTarget.Index) {
 		tempIdx := c.declareVariable(c.tempVar("nestedrangectx"))
 		c.emit(OP_GET_VAR)
@@ -1194,13 +1191,13 @@ func (c *Compiler) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
-		c.indexBoundaryMode = indexBoundaryModeCollection
+		c.indexBoundaryContext = indexBoundaryIndex
 	}
 	if err := c.compileNode(indexTarget.Index); err != nil {
 		return err
 	}
 	c.indexContextVar = oldContextVar
-	c.indexBoundaryMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	tmpOuterIndex := c.declareVariable("__nested_range_index")
 	c.emit(OP_SET_VAR)
@@ -1378,14 +1375,14 @@ func (c *Compiler) compileIndex(n *verb.IndexExpr) error {
 	// Stack: [coll] -> DUP -> [coll, coll] -> SET_VAR -> [coll]
 	hasIndexBoundary := containsIndexBoundary(n.Index)
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexBoundaryMode
+	oldBoundaryContext := c.indexBoundaryContext
 	if hasIndexBoundary {
 		tempIdx := c.declareVariable(c.tempVar("idxctx"))
 		c.emit(OP_DUP)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
-		c.indexBoundaryMode = indexBoundaryModeCollection
+		c.indexBoundaryContext = indexBoundaryIndex
 	}
 
 	// Compile index
@@ -1395,7 +1392,7 @@ func (c *Compiler) compileIndex(n *verb.IndexExpr) error {
 
 	// Restore previous context
 	c.indexContextVar = oldContextVar
-	c.indexBoundaryMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	// Emit index operation
 	c.emit(OP_INDEX)
@@ -1408,19 +1405,20 @@ func (c *Compiler) compileRange(n *verb.RangeExpr) error {
 		return err
 	}
 
-	// If start or end contains ^ or $, set up an index context variable with collection length.
-	// Stack: [coll] -> DUP -> [coll, coll] -> LENGTH -> [coll, len] -> SET_VAR -> [coll]
+	// If start or end contains ^ or $, retain the collection as the index
+	// context. OP_INDEX_MARKER then preserves the semantic FIRST/LAST operation
+	// in bytecode while resolving it against the collection at runtime.
+	// Stack: [coll] -> DUP -> [coll, coll] -> SET_VAR -> [coll]
 	hasIndexBoundary := containsIndexBoundary(n.Start) || containsIndexBoundary(n.End)
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexBoundaryMode
+	oldBoundaryContext := c.indexBoundaryContext
 	if hasIndexBoundary {
 		tempIdx := c.declareVariable(c.tempVar("rngctx"))
 		c.emit(OP_DUP)
-		c.emit(OP_LENGTH)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
-		c.indexBoundaryMode = indexBoundaryModeLength
+		c.indexBoundaryContext = indexBoundaryRange
 	}
 
 	// Compile start
@@ -1435,7 +1433,7 @@ func (c *Compiler) compileRange(n *verb.RangeExpr) error {
 
 	// Restore previous context
 	c.indexContextVar = oldContextVar
-	c.indexBoundaryMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	// Emit range operation
 	c.emit(OP_RANGE)
@@ -1443,14 +1441,20 @@ func (c *Compiler) compileRange(n *verb.RangeExpr) error {
 }
 
 func (c *Compiler) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
-	if c.indexContextVar >= 0 && c.indexBoundaryMode == indexBoundaryModeCollection {
+	if c.indexContextVar >= 0 {
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(c.indexContextVar))
 		c.emit(OP_INDEX_MARKER)
-		if n.Boundary == verb.IndexFirst {
-			c.emitByte(0)
+		if c.indexBoundaryContext == indexBoundaryRange {
+			if n.Boundary == verb.IndexFirst {
+				c.emitByte(RangeMarkerFirst)
+			} else {
+				c.emitByte(RangeMarkerLast)
+			}
+		} else if n.Boundary == verb.IndexFirst {
+			c.emitByte(IndexMarkerFirst)
 		} else {
-			c.emitByte(1)
+			c.emitByte(IndexMarkerLast)
 		}
 		return nil
 	}
@@ -1460,15 +1464,9 @@ func (c *Compiler) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
 		return nil
 	}
 
-	// $ resolves to collection length in length mode.
-	if c.indexContextVar >= 0 {
-		c.emit(OP_GET_VAR)
-		c.emitByte(byte(c.indexContextVar))
-	} else {
-		// No index context (shouldn't happen for well-formed index/range expressions).
-		// Fall back to literal -1 (will produce E_RANGE at runtime).
-		c.emitConstant(types.NewInt(-1))
-	}
+	// No index context (shouldn't happen for well-formed index/range
+	// expressions). Fall back to -1, which produces E_RANGE at runtime.
+	c.emitConstant(types.NewInt(-1))
 
 	return nil
 }

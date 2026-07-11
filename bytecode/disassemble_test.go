@@ -28,3 +28,22 @@ func TestDisassembleDecodesCompiledProgram(t *testing.T) {
 		}
 	}
 }
+
+func TestDisassembleUsesToastOperatorMnemonics(t *testing.T) {
+	program, diagnostics := compiler.CompileMOO([]string{
+		`"foobar"[^..$];`,
+		`~123;`,
+		`1 << 2;`,
+		`1 >> 2;`,
+	}, stubRegistry{})
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
+	}
+
+	joined := strings.Join(bytecode.Disassemble(program), "\n")
+	for _, want := range []string{"FIRST", "LAST", "COMPLEMENT", "BITSHL", "BITSHR"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("disassembly missing %q:\n%s", want, joined)
+		}
+	}
+}

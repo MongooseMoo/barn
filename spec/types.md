@@ -413,15 +413,18 @@ For range indexing `list[start..end]`:
 
 | Marker | Meaning | Context |
 |--------|---------|---------|
-| `^` | 1 (first) | Index only |
-| `$` | length (last) | Index and range end |
+| `^` | first boundary | Index or range |
+| `$` | last boundary | Index or range |
 
 **Evaluation order:** MOO `^` and `$` syntax is lowered before bytecode
 compilation to semantic first and last boundary expressions. During collection
-evaluation, first resolves to index 1 and last resolves to the collection length
-at that moment. The resolved values then participate in the normal one-based,
-inclusive range and strict bounds rules. If a resolved range has `start > end`,
-an empty list or string is returned as specified above.
+evaluation, list and string index boundaries resolve to `1` and collection
+length. Map index boundaries resolve to the first and last key in map key order.
+For ranges over any collection, boundaries are positional: first is `1` and
+last is collection length, including maps whose keys are non-integers or
+integers outside that positional range. The resolved values then participate in
+the normal one-based, inclusive range and strict bounds rules. If a resolved
+range has `start > end`, an empty collection of the sliced type is returned.
 
 Example:
 ```moo

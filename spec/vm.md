@@ -611,6 +611,15 @@ The compiler exhaustively handles every expression and target variant. An
 arbitrary expression cannot stand in for an assignment target, and MOO token
 types or `^`/`$` spelling cannot stand in for semantic operators or boundaries.
 
+Compiled index and range expressions retain semantic first/last boundaries as
+the bytecode index-marker operation. The VM resolves that operation against the
+evaluated collection. Its operand distinguishes index context, where map
+boundaries resolve to the first or last key, from range context, where all
+collection boundaries resolve to positional `1` or collection length. A
+boundary must not be folded to an indistinguishable integer or length load,
+because bytecode disassembly is required to decode `FIRST` and `LAST` from the
+compiled program without consulting source or frontend IR.
+
 ### 12.4 Statement Compilation
 
 Statement compilation exhaustively dispatches on the sealed semantic statement

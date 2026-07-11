@@ -3,6 +3,15 @@ package bytecode
 // OpCode represents a bytecode instruction
 type OpCode byte
 
+// Index-marker operands preserve whether a semantic boundary belongs to an
+// index (map boundaries resolve to keys) or a range (boundaries are positional).
+const (
+	IndexMarkerFirst byte = iota
+	IndexMarkerLast
+	RangeMarkerFirst
+	RangeMarkerLast
+)
+
 // Stack Operations
 const (
 	OP_PUSH     OpCode = iota // Push constant from pool [index]

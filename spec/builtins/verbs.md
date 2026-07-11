@@ -394,7 +394,11 @@ eval("syntax error")         => {0, "compile error..."}
 **Parameters:**
 - `name_or_index`: Either a verb name (STR) or 1-based integer index (INT)
 
-**Format:** Returns simplified pseudo-opcodes like "PUSH", "ADD", "RETURN" generated from an AST walk, not actual VM bytecode.
+**Format:** Returns Toast-shaped metadata and instruction rows decoded from the
+actual compiled bytecode program. Operator mnemonics use Toast's public names;
+in particular, semantic index boundaries are `FIRST` and `LAST`, bitwise
+complement is `COMPLEMENT`, and shifts are `BITSHL` and `BITSHR`. The builtin
+must not reparse source or walk parser syntax or verb IR to synthesize output.
 
 **Wizard only.**
 
@@ -431,15 +435,18 @@ eval("syntax error")         => {0, "compile error..."}
 
 ## Go Implementation Notes
 
+Compiled programs are runtime-derived values owned and cached by `compiler`;
+they are not fields of the persistent verb model.
+
 ```go
 type Verb struct {
-    Name     string
-    Names    []string        // All names (aliases)
-    Owner    int64
-    Perms    VerbPerms
-    ArgSpec  VerbArgs
-    Code     []string        // Source lines
-    Program  *Program        // Compiled bytecode (cached)
+    Name       string
+    Names      []string      // All names (aliases)
+    Owner      int64
+    Perms      VerbPerms
+    ArgSpec    VerbArgs
+    Code       []string      // Original persistent source lines
+    HasProgram bool          // Empty code is distinct from never programmed
 }
 
 type VerbPerms uint8

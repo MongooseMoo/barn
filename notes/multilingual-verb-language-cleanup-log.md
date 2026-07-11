@@ -894,9 +894,84 @@ Gate results:
 
 Commit:
 
-- Pending for this iteration.
+- `3303a13 refactor: finish compiler boundary convergence`
 
 Next slice:
 
 - Verify the four failing disassembly cases against the WSL Toast oracle, then
   correct that exact bytecode-disassembly family.
+
+## Iteration 15 - Phase 8 bytecode-disassembly fixed point
+
+Slice read:
+
+- the four failing managed disassembly cases
+- actual Barn bytecode encoding and decoding
+- WSL Toast results for operator mnemonics and list/string/map boundaries
+- list, string, and map range read and assignment execution
+- `agy`'s initial rejection and adversarial follow-up
+
+Surfaces:
+
+- Toast operator mnemonics
+  - Disposition: implement at bytecode presentation boundary
+  - Owner after cleanup: `bytecode.Disassemble`
+  - Action: decoded `OP_BITNOT`, `OP_SHL`, and `OP_SHR` render as
+    `COMPLEMENT`, `BITSHL`, and `BITSHR` without changing VM opcode names.
+- First/last bytecode semantics
+  - Disposition: preserve
+  - Owner after cleanup: bytecode index-marker instruction and VM
+  - Action: first/last remain actual bytecode operations rather than being
+    folded to indistinguishable constants or length loads; disassembly decodes
+    both as `FIRST` and `LAST`.
+- Map boundary context
+  - Disposition: distinguish in the index-marker operand
+  - Owner after cleanup: bytecode format
+  - Action: map indexing resolves first/last to sorted keys, while map ranges
+    resolve them positionally to `1` and map length. New VM coverage uses
+    string keys and integer keys outside the positional range.
+- Dead boundary fallback
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: removed the duplicated unreachable context check while retaining
+    deterministic context-free first/last fallbacks.
+- Disassembly and boundary specifications
+  - Disposition: correct
+  - Owner after cleanup: `spec/builtins/verbs.md`, `spec/vm.md`, and
+    `spec/types.md`
+  - Action: replaced the stale AST-pseudo-disassembly and stored-program claims
+    and specified index-versus-range map semantics.
+
+Oracle and review results:
+
+- Pass: the four mnemonic cases on the managed WSL Toast oracle.
+- Pass: direct WSL Toast queries proving map index key semantics and positional
+  map range semantics, recorded in `reports/toast-disassemble-oracle.md`.
+- Initial `agy` verdict: `REJECT`; it found uncovered map range read and
+  assignment regressions. The rejected implementation was not committed.
+- Final `agy` verdict: `APPROVE` after the operand-context correction and new
+  regressions, recorded in `reports/agy-spec-review-bytecode-disassembly.md`.
+
+Gate results:
+
+- Pass: all five forbidden-surface searches produce zero hits.
+- Pass: `go test ./parser ./verb ./compiler ./bytecode`.
+- Pass: `go test ./vm ./task`; expected unrelated scheduler ID-collision
+  failure only in the combined scheduler gate.
+- Pass: `go test ./builtins ./server ./cmd/...`.
+- Pass: all modified-package and focused map/disassembly regression gates.
+- Expected unrelated failure only in `go test ./...`:
+  `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+- Pass: `git diff --check`.
+- Pass: final post-review managed conformance, `11,335 passed`, `126 skipped`
+  in `181.90s`. Artifact:
+  `.tmp/multilingual-cleanup-final-verified.xml`.
+
+Commit:
+
+- Pending for this iteration.
+
+Next slice:
+
+- None. All cleanup plan phases and completion criteria are satisfied; runtime
+  package-cycle fields explicitly deferred by the plan remain unchanged.

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"barn/builtins"
+	"barn/bytecode"
 	"barn/types"
 	"fmt"
 	"sort"
@@ -364,17 +365,28 @@ func (vm *VM) executeRange() error {
 	}
 }
 
-// executeIndexMarker resolves ^/$ markers against a collection.
-// Bytecode: OP_INDEX_MARKER <marker:byte> where 0 = ^ and 1 = $.
+// executeIndexMarker resolves ^/$ markers against a collection. Index markers
+// resolve map boundaries to keys; range markers remain positional.
 func (vm *VM) executeIndexMarker() error {
 	marker := vm.ReadByte()
 	coll := vm.Pop()
+	if marker == bytecode.RangeMarkerFirst || marker == bytecode.RangeMarkerLast {
+		if coll.Type() != types.TYPE_LIST && coll.Type() != types.TYPE_STR && coll.Type() != types.TYPE_MAP {
+			return fmt.Errorf("E_TYPE: invalid range marker context")
+		}
+		if marker == bytecode.RangeMarkerFirst {
+			vm.Push(types.NewInt(1))
+		} else {
+			vm.Push(types.NewInt(int64(coll.Len())))
+		}
+		return nil
+	}
 
 	switch coll.Type() {
 	case types.TYPE_LIST:
-		if marker == 0 {
+		if marker == bytecode.IndexMarkerFirst {
 			vm.Push(types.NewInt(1))
-		} else if marker == 1 {
+		} else if marker == bytecode.IndexMarkerLast {
 			vm.Push(types.NewInt(int64(coll.Len())))
 		} else {
 			return fmt.Errorf("E_INVARG: invalid index marker")
@@ -382,9 +394,9 @@ func (vm *VM) executeIndexMarker() error {
 		return nil
 
 	case types.TYPE_STR:
-		if marker == 0 {
+		if marker == bytecode.IndexMarkerFirst {
 			vm.Push(types.NewInt(1))
-		} else if marker == 1 {
+		} else if marker == bytecode.IndexMarkerLast {
 			vm.Push(types.NewInt(int64(len(coll.Str()))))
 		} else {
 			return fmt.Errorf("E_INVARG: invalid index marker")
@@ -395,9 +407,9 @@ func (vm *VM) executeIndexMarker() error {
 		keys := coll.Keys()
 		if len(keys) == 0 {
 			// Preserve empty-collection marker shape; downstream index ops return E_RANGE.
-			if marker == 0 {
+			if marker == bytecode.IndexMarkerFirst {
 				vm.Push(types.NewInt(1))
-			} else if marker == 1 {
+			} else if marker == bytecode.IndexMarkerLast {
 				vm.Push(types.NewInt(0))
 			} else {
 				return fmt.Errorf("E_INVARG: invalid index marker")
@@ -409,9 +421,9 @@ func (vm *VM) executeIndexMarker() error {
 			return types.CompareMapKeys(keys[i], keys[j]) < 0
 		})
 
-		if marker == 0 {
+		if marker == bytecode.IndexMarkerFirst {
 			vm.Push(keys[0])
-		} else if marker == 1 {
+		} else if marker == bytecode.IndexMarkerLast {
 			vm.Push(keys[len(keys)-1])
 		} else {
 			return fmt.Errorf("E_INVARG: invalid index marker")

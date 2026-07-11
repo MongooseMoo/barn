@@ -36,13 +36,34 @@ func Disassemble(program *Program) []string {
 		for _, operand := range operands {
 			encoded = append(encoded, fmt.Sprintf("%03d", operand))
 		}
-		mnemonic := op.String()
+		mnemonic := disassemblyMnemonic(op, operands)
 		if IsImmediateInt(op) {
 			mnemonic = fmt.Sprintf("IMM %d", GetImmediateValue(op))
 		}
 		lines = append(lines, fmt.Sprintf("%3d: %-19s %s", start, strings.Join(encoded, " "), mnemonic))
 	}
 	return lines
+}
+
+func disassemblyMnemonic(op OpCode, operands []byte) string {
+	switch op {
+	case OP_BITNOT:
+		return "COMPLEMENT"
+	case OP_SHL:
+		return "BITSHL"
+	case OP_SHR:
+		return "BITSHR"
+	case OP_INDEX_MARKER:
+		if len(operands) == 1 {
+			switch operands[0] {
+			case IndexMarkerFirst, RangeMarkerFirst:
+				return "FIRST"
+			case IndexMarkerLast, RangeMarkerLast:
+				return "LAST"
+			}
+		}
+	}
+	return op.String()
 }
 
 func instructionOperandCount(op OpCode, remaining []byte) int {

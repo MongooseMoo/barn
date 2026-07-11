@@ -242,3 +242,26 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 	requireInt(t, runBytecodeProgram(t, `fork (0) x = 1; endfork return 7;`, nil, nil), 7)
 	requireInt(t, runBytecodeProgram(t, `suspend(0); return 9;`, nil, nil), 9)
 }
+
+func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
+	read := runBytecodeExpr(t, `["b" -> 2, "a" -> 1][^..$]`)
+	wantRead := types.NewMap([][2]types.Value{
+		{types.NewStr("a"), types.NewInt(1)},
+		{types.NewStr("b"), types.NewInt(2)},
+	})
+	if read.Flow != types.FlowReturn || !read.Val.Equal(wantRead) {
+		t.Fatalf("map range read = %#v, want %v", read, wantRead)
+	}
+
+	assigned := runBytecodeProgram(t,
+		`m = [10 -> "a", 20 -> "b"]; m[^..$] = [30 -> "c"]; return m;`,
+		nil,
+		nil,
+	)
+	wantAssigned := types.NewMap([][2]types.Value{
+		{types.NewInt(30), types.NewStr("c")},
+	})
+	if assigned.Flow != types.FlowReturn || !assigned.Val.Equal(wantAssigned) {
+		t.Fatalf("map range assignment = %#v, want %v", assigned, wantAssigned)
+	}
+}

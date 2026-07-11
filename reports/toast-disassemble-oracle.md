@@ -32,3 +32,21 @@ Barn uses a different bytecode instruction set, so conformance means returning
 this metadata-and-decoded-row shape over Barn's actual compiled
 `bytecode.Program`. It does not mean relabeling Barn instructions as Toast
 opcodes or walking semantic IR to synthesize pseudo-instructions.
+
+## Boundary-context follow-up
+
+After the final managed suite exposed missing operator mnemonics, the same WSL
+oracle was queried for map boundary behavior using the repository's disposable
+`cmd/toast_oracle` flow. Toast returned:
+
+```text
+["b" -> 2, "a" -> 1][^..$]  => ["a" -> 1, "b" -> 2]
+["b" -> 2, "a" -> 1][^]     => 1
+["b" -> 2, "a" -> 1][$]     => 2
+[10 -> "a", 20 -> "b"][^..$] => [10 -> "a", 20 -> "b"]
+```
+
+This distinguishes two bytecode contexts: map indexing resolves first/last to
+map keys, while map ranges resolve first/last to positional `1` and map length.
+Barn therefore retains the context in the operand of its actual index-marker
+instruction; disassembly renders both operand forms as `FIRST` or `LAST`.
