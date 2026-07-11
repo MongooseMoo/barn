@@ -83,26 +83,30 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		sb.WriteString(indentStr + "endwhile")
 		return strings.TrimSuffix(sb.String(), "\n")
 
-	case *verb.ForStmt:
+	case *verb.CollectionLoopStmt:
 		var sb strings.Builder
 		sb.WriteString(indentStr + "for ")
 		if s.Label != "" {
 			sb.WriteString(s.Label + " ")
 		}
-		if s.Container != nil {
-			// List/map iteration. With an index/key variable this is the
-			// `for value, index in (expr)` form (ToastStunt parser.y:160-174);
-			// without one it is the plain `for value in (expr)` form
-			// (parser.y:147-159).
-			if s.Index != "" {
-				sb.WriteString(s.Value + ", " + s.Index + " in (" + unparseExpr(s.Container, precedenceLowest) + ")\n")
-			} else {
-				sb.WriteString(s.Value + " in (" + unparseExpr(s.Container, precedenceLowest) + ")\n")
-			}
+		if s.Index != "" {
+			sb.WriteString(s.Value + ", " + s.Index + " in (" + unparseExpr(s.Collection, precedenceLowest) + ")\n")
 		} else {
-			// Range loop
-			sb.WriteString(s.Value + " in [" + unparseExpr(s.RangeStart, precedenceLowest) + ".." + unparseExpr(s.RangeEnd, precedenceLowest) + "]\n")
+			sb.WriteString(s.Value + " in (" + unparseExpr(s.Collection, precedenceLowest) + ")\n")
 		}
+		for _, bodyStmt := range s.Body {
+			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+		}
+		sb.WriteString(indentStr + "endfor")
+		return strings.TrimSuffix(sb.String(), "\n")
+
+	case *verb.RangeLoopStmt:
+		var sb strings.Builder
+		sb.WriteString(indentStr + "for ")
+		if s.Label != "" {
+			sb.WriteString(s.Label + " ")
+		}
+		sb.WriteString(s.Value + " in [" + unparseExpr(s.Start, precedenceLowest) + ".." + unparseExpr(s.End, precedenceLowest) + "]\n")
 		for _, bodyStmt := range s.Body {
 			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
 		}

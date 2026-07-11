@@ -339,19 +339,29 @@ type WhileStmt struct {
 func (s *WhileStmt) Position() Position { return s.Pos }
 func (s *WhileStmt) stmtNode()          {}
 
-type ForStmt struct {
+type CollectionLoopStmt struct {
 	Pos        Position
 	Label      string
 	Value      string
 	Index      string
-	Container  Expr
-	RangeStart Expr
-	RangeEnd   Expr
+	Collection Expr
 	Body       []Stmt
 }
 
-func (s *ForStmt) Position() Position { return s.Pos }
-func (s *ForStmt) stmtNode()          {}
+func (s *CollectionLoopStmt) Position() Position { return s.Pos }
+func (s *CollectionLoopStmt) stmtNode()          {}
+
+type RangeLoopStmt struct {
+	Pos   Position
+	Label string
+	Value string
+	Start Expr
+	End   Expr
+	Body  []Stmt
+}
+
+func (s *RangeLoopStmt) Position() Position { return s.Pos }
+func (s *RangeLoopStmt) stmtNode()          {}
 
 type BreakStmt struct {
 	Pos   Position

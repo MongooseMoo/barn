@@ -437,8 +437,70 @@ Gate results:
 
 Commit:
 
+- `4413472 refactor: unify semantic try statements`
+
+Next slice:
+
+- Normalize the loop family.
+
+## Iteration 7 - Phase 3.3 loop normalization
+
+Slice read:
+
+- `verb/ir.go` loop statement types
+- `parser/parser_stmt.go` for-loop parsing
+- `parser/unparse.go` loop formatting
+- `bytecode/compiler.go` loop dispatch and lowering
+- `spec/grammar.md` and the approved semantic loop contracts
+
+Surfaces:
+
+- Nullable multi-form `ForStmt`
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: replaced it with sealed `CollectionLoopStmt` and `RangeLoopStmt`
+    variants whose required fields are valid by construction.
+- MOO for-loop parsing
+  - Disposition: rewrite
+  - Owner after cleanup: `parser`
+  - Action: directly constructs the matching semantic variant and preserves
+    labels, value bindings, collection index/key bindings, expressions, and
+    bodies without an adapter or compatibility type.
+- Range index/key binding
+  - Disposition: reject
+  - Owner after cleanup: MOO grammar and parser
+  - Action: corrected the grammar and parser to reject
+    `for value, index in [start..end]`. The documented ToastStunt 2.7.3_5 WSL
+    oracle returned `{0, {"Line 1:  syntax error"}}`, and Toast's `parser.y`
+    has no two-binding range production.
+- Loop bytecode lowering
+  - Disposition: split by valid semantic variant
+  - Owner after cleanup: `bytecode`
+  - Action: deleted nullable-field dispatch, renamed the lowering functions
+    with `gopls rename`, and retained the shared loop bookkeeping used for
+    labels, break values, and continue jumps.
+- Specification correction and review artifacts
+  - Disposition: keep
+  - Owner after cleanup: `spec/`, `prompts/`, and `reports/`
+  - Action: restricted the optional second grammar identifier to collection
+    iteration; Codex and `agy` approved, and independent verification passed.
+
+Gate results:
+
+- Pass: zero Go hits for `ForStmt`, its nullable range fields, and retired
+  compiler names.
+- Pass: `go test ./parser ./verb ./bytecode ./vm`.
+- Pass: `go test ./builtins ./server ./cmd/...`.
+- Pass: managed conformance in the `agy` review, 11,335 passed and 126 skipped.
+- Pass: Codex spec review verdict `APPROVE`.
+- Pass: user-approved `agy` spec review verdict `APPROVE`.
+- Pass: independent spec integration verdict `PASS`.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit exception normalization, then normalize the loop family.
+- Commit loop normalization, then normalize assignment targets.

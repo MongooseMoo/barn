@@ -37,14 +37,11 @@ func TestReview_ListExprAsStatementMistakenForScatter(t *testing.T) {
 	}
 }
 
-// TestReview_UnparseForWithIndexVar confirms that UnparseProgram produces
-// incorrect output for a labeled for-in-list loop that also carries an
-// index/key variable. The unparser's ForStmt branch for s.Index != "" emits
-// `value in [index..len(body)]` using the body statement count as the range
-// end — completely wrong for `for label var, key in (container)`.
+// TestReview_UnparseForWithIndexVar confirms that UnparseProgram preserves a
+// labeled collection loop with an index/key variable.
 func TestReview_UnparseForWithIndexVar(t *testing.T) {
 	// `for L x, k in (mylist) ... endfor`
-	// The label heuristic consumes "L" as label, so ForStmt: Label="L", Value="x", Index="k", Container=mylist.
+	// The label heuristic consumes "L" as the collection loop label.
 	src := "for L x, k in (mylist)\nreturn x;\nendfor"
 	p := NewParser(src)
 	stmts, err := p.ParseProgram()

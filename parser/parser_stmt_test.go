@@ -90,3 +90,36 @@ func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
 		})
 	}
 }
+
+func TestForFormsLowerToDistinctSemanticStatements(t *testing.T) {
+	collectionProgram, err := NewParser("for items value, key in (source)\nreturn value;\nendfor").ParseProgram()
+	if err != nil {
+		t.Fatalf("collection ParseProgram() error = %v", err)
+	}
+	collection, ok := collectionProgram.Statements[0].(*verb.CollectionLoopStmt)
+	if !ok {
+		t.Fatalf("collection statement = %T, want *verb.CollectionLoopStmt", collectionProgram.Statements[0])
+	}
+	if collection.Label != "items" || collection.Value != "value" || collection.Index != "key" {
+		t.Fatalf("collection bindings = (%q, %q, %q), want (items, value, key)", collection.Label, collection.Value, collection.Index)
+	}
+
+	rangeProgram, err := NewParser("for numbers value in [start..finish]\nreturn value;\nendfor").ParseProgram()
+	if err != nil {
+		t.Fatalf("range ParseProgram() error = %v", err)
+	}
+	rangeLoop, ok := rangeProgram.Statements[0].(*verb.RangeLoopStmt)
+	if !ok {
+		t.Fatalf("range statement = %T, want *verb.RangeLoopStmt", rangeProgram.Statements[0])
+	}
+	if rangeLoop.Label != "numbers" || rangeLoop.Value != "value" {
+		t.Fatalf("range bindings = (%q, %q), want (numbers, value)", rangeLoop.Label, rangeLoop.Value)
+	}
+}
+
+func TestRangeLoopRejectsIndexBindingLikeToast(t *testing.T) {
+	_, err := NewParser("for value, index in [1..2]\nreturn value;\nendfor").ParseProgram()
+	if err == nil {
+		t.Fatal("ParseProgram() succeeded, want syntax error for range index binding")
+	}
+}

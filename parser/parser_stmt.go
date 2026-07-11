@@ -259,6 +259,9 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 
 	if p.current.Type == TOKEN_LBRACKET {
 		// Range iteration: for x in [start..end]
+		if index != "" {
+			return nil, fmt.Errorf("range loop cannot bind an index variable")
+		}
 		p.nextToken() // consume '['
 
 		rangeStart, err = p.ParseExpression(PREC_LOWEST)
@@ -317,15 +320,24 @@ func (p *Parser) parseForStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume 'endfor'
 
-	return &verb.ForStmt{
-		Pos:        startPos,
-		Label:      label,
-		Value:      value,
-		Index:      index,
-		Container:  container,
-		RangeStart: rangeStart,
-		RangeEnd:   rangeEnd,
-		Body:       body,
+	if container != nil {
+		return &verb.CollectionLoopStmt{
+			Pos:        startPos,
+			Label:      label,
+			Value:      value,
+			Index:      index,
+			Collection: container,
+			Body:       body,
+		}, nil
+	}
+
+	return &verb.RangeLoopStmt{
+		Pos:   startPos,
+		Label: label,
+		Value: value,
+		Start: rangeStart,
+		End:   rangeEnd,
+		Body:  body,
 	}, nil
 }
 

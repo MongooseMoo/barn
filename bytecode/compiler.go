@@ -493,8 +493,10 @@ func (c *Compiler) compileNode(node verb.Node) error {
 		return c.compileIf(n)
 	case *verb.WhileStmt:
 		return c.compileWhile(n)
-	case *verb.ForStmt:
-		return c.compileFor(n)
+	case *verb.CollectionLoopStmt:
+		return c.compileCollectionLoop(n)
+	case *verb.RangeLoopStmt:
+		return c.compileRangeLoop(n)
 	case *verb.BreakStmt:
 		return c.compileBreak(n)
 	case *verb.ContinueStmt:
@@ -1914,13 +1916,6 @@ func (c *Compiler) compileWhile(n *verb.WhileStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileFor(n *verb.ForStmt) error {
-	if n.RangeStart != nil {
-		return c.compileForRange(n)
-	}
-	return c.compileForList(n)
-}
-
 // tempVar generates a unique temporary variable name
 func (c *Compiler) tempVar(prefix string) string {
 	c.tempCount++
@@ -2012,9 +2007,9 @@ func containsIndexBoundary(expr verb.Expr) bool {
 	}
 }
 
-// compileForRange compiles: for x in [start..end] ... endfor
+// compileRangeLoop compiles: for x in [start..end] ... endfor
 // Compiles to equivalent while loop pattern.
-func (c *Compiler) compileForRange(n *verb.ForStmt) error {
+func (c *Compiler) compileRangeLoop(n *verb.RangeLoopStmt) error {
 	// Hidden variable for end bound
 	endVar := c.declareVariable(c.tempVar("end"))
 	valueVar := c.declareVariable(n.Value)
@@ -2028,14 +2023,14 @@ func (c *Compiler) compileForRange(n *verb.ForStmt) error {
 	c.emitByte(byte(resultVar))
 
 	// Evaluate end and store
-	if err := c.compileNode(n.RangeEnd); err != nil {
+	if err := c.compileNode(n.End); err != nil {
 		return err
 	}
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(endVar))
 
 	// Evaluate start and store as loop variable
-	if err := c.compileNode(n.RangeStart); err != nil {
+	if err := c.compileNode(n.Start); err != nil {
 		return err
 	}
 	c.emit(OP_SET_VAR)
@@ -2080,11 +2075,11 @@ func (c *Compiler) compileForRange(n *verb.ForStmt) error {
 	return nil
 }
 
-// compileForList compiles: for x in (expr) ... endfor
+// compileCollectionLoop compiles: for x in (expr) ... endfor
 // Handles lists, maps, and strings via OP_ITER_PREP runtime type dispatch.
 // When an index/key variable is present (for v, k in ...), OP_ITER_PREP wraps
 // elements as {value, key/index} pairs and the loop extracts both components.
-func (c *Compiler) compileForList(n *verb.ForStmt) error {
+func (c *Compiler) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	hasIndex := n.Index != ""
 
 	// Hidden variables (unique per loop to support nesting)
@@ -2107,7 +2102,7 @@ func (c *Compiler) compileForList(n *verb.ForStmt) error {
 	c.emitByte(byte(resultVar))
 
 	// Evaluate container, then OP_ITER_PREP normalizes it
-	if err := c.compileNode(n.Container); err != nil {
+	if err := c.compileNode(n.Collection); err != nil {
 		return err
 	}
 	c.emit(OP_ITER_PREP)
@@ -2617,7 +2612,7 @@ func (c *Compiler) compileFork(n *verb.ForkStmt) error {
 // isLoopStmt returns true if a statement node is a loop (pushes a result value).
 func isLoopStmt(stmt verb.Stmt) bool {
 	switch stmt.(type) {
-	case *verb.WhileStmt, *verb.ForStmt:
+	case *verb.WhileStmt, *verb.CollectionLoopStmt, *verb.RangeLoopStmt:
 		return true
 	default:
 		return false

@@ -64,7 +64,7 @@ does not create an `elseif` semantic type.
 for_statement   ::= for_clause body "endfor"
 
 for_clause      ::= "for" identifier [ "," identifier ] "in" "(" expression ")"
-                  | "for" identifier [ "," identifier ] "in" "[" expression ".." range_end "]"
+                  | "for" identifier "in" "[" expression ".." range_end "]"
 
 range_end       ::= expression | "$"
 ```
@@ -72,7 +72,8 @@ range_end       ::= expression | "$"
 **Semantics:**
 - First form: iterate over list elements
 - Second form: iterate over numeric range (inclusive)
-- Optional second identifier captures index (lists) or key (maps)
+- The optional second identifier belongs only to collection iteration and
+  captures a list index or map key
 
 **Semantic lowering:** The collection and range productions lower to distinct
 semantic loop variants. No semantic loop selects its form through nullable
