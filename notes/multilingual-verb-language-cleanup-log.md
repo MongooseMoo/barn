@@ -284,9 +284,66 @@ Gate results:
 
 Commit:
 
-- Pending for this iteration.
+- `de8072a refactor: move verb semantics out of parser`
 
 Next slice:
 
 - Commit the atomic Phase 2 ownership move, reread the plan, then normalize the
   conditional semantic family in Phase 3.
+
+## Iteration 4 - Phase 3 normalized-family specifications
+
+Slice read:
+
+- `spec/statements.md`
+- `spec/operators.md`
+- `spec/vm.md`
+- `spec/grammar.md`
+- `spec/types.md`
+- `parser/AGENTS.md`
+- Phase 3 of the cleanup plan
+
+Surfaces:
+
+- Semantic normalization discovery and draft
+  - Disposition: keep as review evidence
+  - Owner after cleanup: `reports/` and `prompts/`
+  - Action: identified and drafted the exact normalized conditional,
+    exception, loop, assignment-target, and index-boundary contracts before
+    implementation.
+  - Evidence: `reports/spec-discovery-semantic-normalization.md` and
+    `prompts/spec-draft-semantic-normalization.md`.
+- Review corrections
+  - Disposition: keep as review evidence
+  - Owner after cleanup: `reports/`
+  - Action: Codex initially rejected an exception grammar that admitted bare
+    try, narrowed existing exception-code forms, was disconnected from the
+    program grammar, and underspecified destructuring bindings. The draft was
+    corrected to preserve all source forms and seal binding payloads; Codex and
+    the user-approved `agy` reviewer then approved it.
+  - Evidence: `reports/codex-spec-review-semantic-normalization.md` and
+    `reports/agy-spec-review-semantic-normalization.md`.
+- Integrated normalization contract
+  - Disposition: keep
+  - Owner after cleanup: `spec/` and `parser/AGENTS.md`
+  - Action: specified nested semantic conditionals, one semantic try, distinct
+    loop variants, sealed assignment targets/bindings, and semantic first/last
+    boundaries while retaining concrete MOO grammar and runtime behavior.
+  - Evidence: modified specifications plus
+    `reports/spec-verification-semantic-normalization.md`.
+
+Gate results:
+
+- Pass: Codex review verdict `APPROVE` after corrections.
+- Pass: user-approved `agy` second-review verdict `APPROVE`.
+- Pass: independent integration verification verdict `PASS`.
+- Pass: `git diff --check`.
+
+Commit:
+
+- Pending for this iteration.
+
+Next slice:
+
+- Commit the Phase 3 specification slice, then execute conditional
+  normalization as the first bounded implementation family.

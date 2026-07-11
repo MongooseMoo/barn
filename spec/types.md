@@ -416,7 +416,12 @@ For range indexing `list[start..end]`:
 | `^` | 1 (first) | Index only |
 | `$` | length (last) | Index and range end |
 
-**Evaluation order:** Special markers `^` and `$` are substituted before range bounds checking. `$` always evaluates to `length(list)` at the time of range evaluation. If substitution results in `start > end`, an empty list is returned.
+**Evaluation order:** MOO `^` and `$` syntax is lowered before bytecode
+compilation to semantic first and last boundary expressions. During collection
+evaluation, first resolves to index 1 and last resolves to the collection length
+at that moment. The resolved values then participate in the normal one-based,
+inclusive range and strict bounds rules. If a resolved range has `start > end`,
+an empty list or string is returned as specified above.
 
 Example:
 ```moo

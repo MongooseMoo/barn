@@ -17,6 +17,11 @@ Hard boundaries:
   `verb.Program`.
 - Parse MOO literal spelling directly into semantic literal kinds and payloads
   owned by `verb`. Runtime conversion remains outside both `parser` and `verb`.
+- Lower MOO `elseif` clauses, concrete try clauses, collection/range loop
+  spellings, assignment syntax, and `^`/`$` directly into their normalized
+  sealed semantic families. Do not emit `ElseIfClause`, multiple semantic try
+  statement types, nullable multi-form loop nodes, arbitrary-expression
+  assignment targets, parser-token boundary values, or any old/new bridge.
 - Canonical formatting consumes `verb.Program` and emits deterministic MOO
   source. It does not promise exact whitespace, comments, spelling, or redundant
   parenthesis preservation and never replaces stored original source.

@@ -681,27 +681,48 @@ Statements execute top-to-bottom unless control flow changes.
 
 ## 13. Implementation Boundary
 
-### 13.1 Semantic Statements
+### 13.1 Sealed Semantic Statements
 
-Language-level statement meaning is represented by statement variants owned by
-the `verb` package. These nodes are compiler input: they do not contain VM
-methods and do not execute themselves.
+Language-level statement meaning is represented by the sealed `verb.Stmt`
+family. The MOO parser constructs only the normalized variants in this family:
 
-The MOO parser constructs these semantic statements directly. There is no
-parser-owned executable AST, parser-to-IR adapter, or parallel old/new statement
-path.
+- A **semantic conditional** contains a condition, a then-body, and an optional
+  else-body. Each MOO `elseif` clause is another semantic conditional nested as
+  the sole statement in the preceding else-body. There is no semantic
+  `ElseIfClause`.
+- A **semantic try** contains its body, ordered zero-or-more handlers, and an
+  optional finalizer. It must contain at least one handler or a finalizer. The
+  concrete try/except, try/finally, and try/except/finally spellings do not
+  create separate semantic statement types.
+- A **collection loop** contains its label, value variable, optional index/key
+  variable, collection expression, and body.
+- A **range loop** contains its label, value variable, start expression,
+  inclusive end expression, and body.
+
+Range and collection loops are distinct variants. No semantic loop uses nil
+fields or a discriminator to select between both forms.
+
+Semantic statement nodes are compiler input: they do not contain VM methods and
+do not execute themselves. The MOO parser constructs them directly, with no
+parser-owned executable AST, parser-to-IR adapter, old/new alias, or parallel
+statement path.
 
 ### 13.2 Compiler Control Flow
 
-Loop labels, break and continue targets, exception handlers, and finally
-regions are resolved by the bytecode compiler while lowering semantic
-statements to bytecode. Compiler control-flow bookkeeping is not parser syntax
-and is not retained as a semantic statement object in runtime task state.
+The bytecode compiler exhaustively lowers the sealed statement family. Loop
+labels, break and continue targets, exception handlers, and finalizer regions
+are compiler bookkeeping rather than parser syntax or runtime semantic nodes.
 
-### 13.3 Try/Finally Guarantee
+Lowering preserves the source-language behavior specified above: conditional
+branches remain ordered, handlers use first-match order, collection iteration
+preserves value/index/key behavior, range iteration is upward and inclusive,
+and finalizers retain their control-flow precedence. Normalization does not
+require one semantic node to map to one opcode.
 
-The bytecode emitted for a try/finally statement must run the finally body on
-normal completion, return, loop control transfer, or exception propagation, as
-specified in Section 10. The VM enforces this guarantee through compiled
-handler metadata and control flow; statement nodes do not recursively execute
-try or finally bodies.
+### 13.3 Finalizer Guarantee
+
+The bytecode emitted for a semantic try with a finalizer must run the finalizer
+on normal completion, return, loop control transfer, or exception propagation,
+as specified in Section 10. The VM enforces this through compiled handler
+metadata and control flow; semantic statement nodes do not recursively execute
+try bodies, handlers, or finalizers.

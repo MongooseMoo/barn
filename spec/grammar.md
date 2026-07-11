@@ -33,8 +33,7 @@ statement       ::= single_statement
                   | for_statement
                   | while_statement
                   | fork_statement
-                  | try_except_statement
-                  | try_finally_statement
+                  | try_statement
 
 single_statement ::= [ expression | return_statement | break_statement | continue_statement ] ";"
 
@@ -55,6 +54,10 @@ elseif_clause   ::= "elseif" "(" expression ")" body
 else_clause     ::= "else" body
 ```
 
+**Semantic lowering:** `elseif` is concrete MOO syntax. Each clause lowers to a
+semantic conditional nested in the else-body of the preceding conditional; it
+does not create an `elseif` semantic type.
+
 ### 2.2 For Loop
 
 ```ebnf
@@ -70,6 +73,10 @@ range_end       ::= expression | "$"
 - First form: iterate over list elements
 - Second form: iterate over numeric range (inclusive)
 - Optional second identifier captures index (lists) or key (maps)
+
+**Semantic lowering:** The collection and range productions lower to distinct
+semantic loop variants. No semantic loop selects its form through nullable
+fields.
 
 ### 2.3 While Loop
 
@@ -110,12 +117,17 @@ continue_statement ::= "continue" [ identifier ]
 
 ## 3. Exception Handling
 
-### 3.1 Try/Except
+### 3.1 Try Statement
 
 ```ebnf
-try_except_statement ::= "try" { statement } { except_clause } "endtry"
+try_statement   ::= "try" { statement }
+                    ( except_clause { except_clause } [ finally_clause ]
+                    | finally_clause )
+                    "endtry"
 
-except_clause   ::= "except" [ identifier ] "(" exception_codes ")" { statement }
+except_clause   ::= "except" [ identifier ] "(" exception_codes ")"
+                    { statement }
+finally_clause  ::= "finally" { statement }
 
 exception_codes ::= "any"
                   | "@" expression
@@ -128,19 +140,13 @@ exception_code  ::= identifier          /* E_TYPE, E_RANGE, etc. */
 
 **Semantics:**
 - `any` catches all errors
-- `@expr` evaluates to list of error codes
-- Optional identifier binds the caught error
+- `@expr` evaluates to a list of error codes
+- An optional identifier binds the caught error
+- A finally block always executes on normal exit, error, or return
 
-### 3.2 Try/Finally
-
-```ebnf
-try_finally_statement ::= "try" { statement } finally_clause "endtry"
-
-finally_clause  ::= "finally" { statement }
-```
-
-**Semantics:**
-- Finally block always executes (normal exit, error, or return)
+**Semantic lowering:** All three concrete combinations lower to one semantic
+try statement containing an ordered handler list and an optional finalizer. At
+least one handler or finalizer is required.
 
 ---
 
@@ -199,6 +205,10 @@ scattering_target ::= scatter_item { "," scatter_item }
 scatter_item    ::= identifier
                   | "?" identifier [ "=" expression ]
                   | "@" identifier
+
+/* Semantic lowering: every assignment form constructs one sealed target.
+   Scatter constructs the destructuring target rather than a second statement
+   or target family. */
 
 /* Level 6: Logical OR (left-associative, short-circuit) */
 logical_or      ::= logical_and { "||" logical_and }
@@ -297,6 +307,9 @@ range_end       ::= "$"                               /* last element */
 - `$` represents `length(collection)` (last element)
 - Ranges are inclusive on both ends
 - 1-based indexing throughout
+
+**Semantic lowering:** `^` and `$` lower to language-neutral first and last
+boundary expressions. The concrete token spelling remains parser-owned.
 
 ---
 

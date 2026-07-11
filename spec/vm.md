@@ -604,20 +604,27 @@ Expression compilation dispatches on semantic expression variants. Operators
 are `verb` semantic operators rather than MOO token kinds. Literal payloads are
 converted to Barn runtime values only at the bytecode boundary.
 
-The implementation must exhaustively handle every sealed `verb.Expr` variant.
-Representative cases include semantic literals, binary expressions, and
-variable references; omitted cases in this specification are not invalid
-expressions.
+The sealed expression family includes semantic literals and operators,
+collection/property/call expressions, semantic first/last boundary
+expressions, and assignments whose target is a sealed non-expression family.
+The compiler exhaustively handles every expression and target variant. An
+arbitrary expression cannot stand in for an assignment target, and MOO token
+types or `^`/`$` spelling cannot stand in for semantic operators or boundaries.
 
 ### 12.4 Statement Compilation
 
-Statement compilation dispatches on semantic statement variants and emits
-bytecode control flow. Statement nodes do not execute themselves.
+Statement compilation exhaustively dispatches on the sealed semantic statement
+family and emits bytecode control flow. The normalized family contains nested
+semantic conditionals, one semantic try variant with ordered handlers and an
+optional finalizer, distinct range and collection loop variants, and the other
+language-neutral statement variants defined by `verb`.
 
-The implementation must exhaustively handle every sealed `verb.Stmt` variant.
-Representative cases include conditionals and the distinct semantic range-loop
-and collection-loop forms; omitted cases in this specification are not invalid
-statements.
+The old and normalized variants must not coexist: there is no semantic
+`ElseIfClause`, no separate try/except/finally statement types, and no nullable
+multi-form `ForStmt`. Statement nodes do not execute themselves. Normalization
+does not prescribe new opcodes or require a one-to-one semantic-node-to-opcode
+mapping; VM looping, exception, finalizer, and collection behavior remains as
+specified in Sections 3 and 7.
 
 ---
 

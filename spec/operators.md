@@ -126,6 +126,39 @@ list[2..2] = 5;             // E_TYPE (not a list)
 - `E_TYPE`: Replacement is not a LIST
 - `E_RANGE`: Invalid range bounds (see Range Indexing in types.md)
 
+### 2.4 Semantic Assignment Targets
+
+Every semantic assignment contains a right-hand-side expression and one target
+from the sealed `verb.Target` family:
+
+| Target variant | Meaning |
+|----------------|---------|
+| Variable | Assign a local variable |
+| Property | Assign a static or dynamic property of an object expression |
+| Index | Assign one element of a collection expression |
+| Range | Assign an inclusive range of a collection expression |
+| Destructuring | Assign an ordered sealed family of variable bindings |
+
+Targets are not expressions. Every constructed target is valid by shape, and
+bytecode compilation exhaustively lowers target variants rather than accepting
+an arbitrary expression and rejecting invalid lvalue types later.
+
+The target family does not change source-language evaluation order, errors, or
+the rule that assignment evaluates to the assigned value.
+
+A destructuring target contains only members from the sealed `verb.Binding`
+family:
+
+| Binding variant | Payload |
+|-----------------|---------|
+| Required | Variable name |
+| Optional | Variable name and optional default expression; no default means the MOO zero value |
+| Rest | Variable name |
+
+Bindings cannot contain property, index, range, destructuring, or other general
+assignment targets. At most one rest binding is permitted, and binding order is
+the source order.
+
 ---
 
 ## 3. Ternary Operator (`? |`)
@@ -232,6 +265,10 @@ func(@list1, @list2)      // Concatenates both lists as args
 - Required: `var` - Must have value
 - Optional: `?var` or `?var = default` - Uses default if missing
 - Rest: `@var` - Collects remaining elements
+
+Scatter syntax lowers to the destructuring member of the same sealed semantic
+assignment-target family. It does not create a second statement-only target
+model or a parallel assignment path.
 
 **Semantics:**
 1. Evaluate right side (must be list)
@@ -820,6 +857,16 @@ collection[start..end]
 - `^` = 1 (first)
 - `$` = length (last)
 
+MOO `^` and `$` are frontend spellings. In index or range position, the parser
+lowers them directly to language-neutral **first** and **last** semantic
+boundary expressions. Parser tokens and source marker spelling do not cross
+into verb IR or bytecode compilation.
+
+First resolves to one. Last resolves to the current collection length at the
+point the index or range is evaluated. Single indexing remains one-based,
+ranges remain inclusive, and all bounds and error behavior remain as specified
+here and in `types.md`.
+
 **Errors:**
 - `E_RANGE`: Index out of bounds
 - `E_TYPE`: Invalid index type
@@ -862,6 +909,9 @@ list[^]     // First element (same as list[1])
 list[$]     // Last element (same as list[length(list)])
 list[^..$]  // Entire list
 ```
+
+These are MOO spellings for the semantic first and last boundary operations
+defined in Section 14.3, not bytecode or VM token values.
 
 ---
 
