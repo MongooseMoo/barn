@@ -1849,7 +1849,7 @@ func (c *Compiler) compileIf(n *verb.IfStmt) error {
 		return err
 	}
 
-	// Jump to next clause if false
+	// Jump to the semantic else branch if false.
 	elseJump := c.emitJump(OP_JUMP_IF_FALSE)
 
 	// Compile then branch
@@ -1857,41 +1857,17 @@ func (c *Compiler) compileIf(n *verb.IfStmt) error {
 		return err
 	}
 
-	// Jump over else branches
-	endJumps := []int{c.emitJump(OP_JUMP)}
+	if len(n.Else) == 0 {
+		c.patchJump(elseJump)
+		return nil
+	}
 
-	// Compile elseif chains
+	endJump := c.emitJump(OP_JUMP)
 	c.patchJump(elseJump)
-	for _, elseif := range n.ElseIfs {
-		// Compile elseif condition
-		if err := c.compileNode(elseif.Condition); err != nil {
-			return err
-		}
-
-		// Jump to next clause if false
-		nextJump := c.emitJump(OP_JUMP_IF_FALSE)
-
-		// Compile elseif body
-		if err := c.compileBlock(elseif.Body); err != nil {
-			return err
-		}
-
-		// Jump to end
-		endJumps = append(endJumps, c.emitJump(OP_JUMP))
-		c.patchJump(nextJump)
+	if err := c.compileBlock(n.Else); err != nil {
+		return err
 	}
-
-	// Compile else branch
-	if n.Else != nil {
-		if err := c.compileBlock(n.Else); err != nil {
-			return err
-		}
-	}
-
-	// Patch all end jumps
-	for _, jump := range endJumps {
-		c.patchJump(jump)
-	}
+	c.patchJump(endJump)
 
 	return nil
 }

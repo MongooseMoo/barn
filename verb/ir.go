@@ -323,14 +323,7 @@ type IfStmt struct {
 	Pos       Position
 	Condition Expr
 	Body      []Stmt
-	ElseIfs   []*ElseIfClause
 	Else      []Stmt
-}
-
-type ElseIfClause struct {
-	Pos       Position
-	Condition Expr
-	Body      []Stmt
 }
 
 func (s *IfStmt) Position() Position { return s.Pos }

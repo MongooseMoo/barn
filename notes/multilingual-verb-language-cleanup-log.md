@@ -341,9 +341,56 @@ Gate results:
 
 Commit:
 
-- Pending for this iteration.
+- `6ecf9a6 docs: specify normalized verb semantics`
 
 Next slice:
 
 - Commit the Phase 3 specification slice, then execute conditional
   normalization as the first bounded implementation family.
+
+## Iteration 5 - Phase 3.1 conditional normalization
+
+Slice read:
+
+- `verb/ir.go` conditional types
+- `parser/parser_stmt.go` conditional parsing
+- `bytecode/compiler.go` conditional lowering
+- `parser/unparse.go` conditional formatting
+
+Surfaces:
+
+- `ElseIfClause` and `IfStmt.ElseIfs`
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: removed the MOO-spelling-shaped semantic clause type and field.
+- MOO `elseif` parsing
+  - Disposition: rewrite
+  - Owner after cleanup: `parser`
+  - Action: concrete clauses are parsed and lowered directly into nested
+    semantic `IfStmt` values in the preceding else-body, preserving clause
+    positions and evaluation order.
+- Conditional bytecode lowering
+  - Disposition: consolidate
+  - Owner after cleanup: `bytecode`
+  - Action: deleted dedicated elseif compiler logic; recursive lowering of the
+    sealed conditional variant handles nested else conditionals.
+- Conditional semantic assertions
+  - Disposition: keep
+  - Owner after cleanup: parser frontend tests
+  - Action: added a structural test proving two elseif clauses become nested
+    conditionals with source lines 1, 3, and 5.
+
+Gate results:
+
+- Pass: zero Go hits for `ElseIfClause|ElseIfs`.
+- Pass: `go test ./parser ./verb ./bytecode ./vm`.
+- Pass: `go test ./builtins ./server ./cmd/...`.
+- Pass: `git diff --check`.
+
+Commit:
+
+- Pending for this iteration.
+
+Next slice:
+
+- Commit conditional normalization, then normalize the exception family.

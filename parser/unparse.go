@@ -61,12 +61,6 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		for _, bodyStmt := range s.Body {
 			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
 		}
-		for _, elseif := range s.ElseIfs {
-			sb.WriteString(indentStr + "elseif (" + unparseExpr(elseif.Condition, precedenceLowest) + ")\n")
-			for _, bodyStmt := range elseif.Body {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
-			}
-		}
 		if len(s.Else) > 0 {
 			sb.WriteString(indentStr + "else\n")
 			for _, bodyStmt := range s.Else {

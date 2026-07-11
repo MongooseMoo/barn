@@ -105,8 +105,11 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 		return nil, err
 	}
 
-	// Parse elseif clauses
-	var elseIfs []*verb.ElseIfClause
+	conditions := []verb.Expr{condition}
+	bodies := [][]verb.Stmt{body}
+	positions := []verb.Position{pos}
+
+	// Parse concrete elseif clauses for direct lowering to nested conditionals.
 	for p.current.Type == TOKEN_ELSEIF {
 		elseIfPos := p.current.Position
 		p.nextToken() // consume 'elseif'
@@ -131,11 +134,9 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 			return nil, err
 		}
 
-		elseIfs = append(elseIfs, &verb.ElseIfClause{
-			Pos:       elseIfPos,
-			Condition: elseIfCond,
-			Body:      elseIfBody,
-		})
+		conditions = append(conditions, elseIfCond)
+		bodies = append(bodies, elseIfBody)
+		positions = append(positions, elseIfPos)
 	}
 
 	// Parse else clause (optional)
@@ -154,13 +155,16 @@ func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume 'endif'
 
-	return &verb.IfStmt{
-		Pos:       pos,
-		Condition: condition,
-		Body:      body,
-		ElseIfs:   elseIfs,
-		Else:      elseBody,
-	}, nil
+	for i := len(conditions) - 1; i > 0; i-- {
+		elseBody = []verb.Stmt{&verb.IfStmt{
+			Pos:       positions[i],
+			Condition: conditions[i],
+			Body:      bodies[i],
+			Else:      elseBody,
+		}}
+	}
+
+	return &verb.IfStmt{Pos: pos, Condition: condition, Body: body, Else: elseBody}, nil
 }
 
 // parseWhileStatement parses while loops
