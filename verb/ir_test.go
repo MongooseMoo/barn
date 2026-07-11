@@ -22,6 +22,18 @@ func TestExpressionFamilyIsSealed(t *testing.T) {
 	var _ Expr = &MapExpr{}
 }
 
+func TestAssignmentTargetFamiliesAreSealed(t *testing.T) {
+	var _ Target = &VariableTarget{}
+	var _ Target = &PropertyTarget{}
+	var _ Target = &IndexTarget{}
+	var _ Target = &RangeTarget{}
+	var _ Target = &DestructuringTarget{}
+
+	var _ Binding = &RequiredBinding{}
+	var _ Binding = &OptionalBinding{}
+	var _ Binding = &RestBinding{}
+}
+
 func TestNodePosition(t *testing.T) {
 	pos := Position{Line: 2, Column: 10, Offset: 20}
 	expr := &BinaryExpr{

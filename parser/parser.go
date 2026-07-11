@@ -597,6 +597,10 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			// Assignment: target = value
 			// Assignment is right-associative with lowest precedence
 			pos := p.current.Position
+			target, err := lowerAssignmentTarget(left)
+			if err != nil {
+				return nil, err
+			}
 			p.nextToken()
 			value, err := p.ParseExpression(PREC_ASSIGNMENT) // Right-associative
 			if err != nil {
@@ -604,7 +608,7 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 			}
 			left = &verb.AssignExpr{
 				Pos:    pos,
-				Target: left,
+				Target: target,
 				Value:  value,
 			}
 
@@ -614,6 +618,56 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 	}
 
 	return left, err
+}
+
+func lowerAssignmentTarget(expr verb.Expr) (verb.Target, error) {
+	switch target := expr.(type) {
+	case *verb.IdentifierExpr:
+		return &verb.VariableTarget{Pos: target.Pos, Name: target.Name}, nil
+	case *verb.PropertyExpr:
+		return &verb.PropertyTarget{
+			Pos:      target.Pos,
+			Object:   target.Expr,
+			Name:     target.Property,
+			NameExpr: target.PropertyExpr,
+		}, nil
+	case *verb.IndexExpr:
+		collection, err := lowerCollectionAssignmentTarget(target.Expr)
+		if err != nil {
+			return nil, err
+		}
+		return &verb.IndexTarget{Pos: target.Pos, Collection: collection, Index: target.Index}, nil
+	case *verb.RangeExpr:
+		collection, err := lowerCollectionAssignmentTarget(target.Expr)
+		if err != nil {
+			return nil, err
+		}
+		return &verb.RangeTarget{Pos: target.Pos, Collection: collection, Start: target.Start, End: target.End}, nil
+	case *verb.ListExpr:
+		bindings := make([]verb.Binding, len(target.Elements))
+		for i, element := range target.Elements {
+			identifier, ok := element.(*verb.IdentifierExpr)
+			if !ok {
+				return nil, fmt.Errorf("invalid assignment target: %T", element)
+			}
+			bindings[i] = &verb.RequiredBinding{Pos: identifier.Pos, Name: identifier.Name}
+		}
+		return &verb.DestructuringTarget{Pos: target.Pos, Bindings: bindings}, nil
+	default:
+		return nil, fmt.Errorf("invalid assignment target: %T", expr)
+	}
+}
+
+func lowerCollectionAssignmentTarget(expr verb.Expr) (verb.CollectionTarget, error) {
+	target, err := lowerAssignmentTarget(expr)
+	if err != nil {
+		return nil, err
+	}
+	collection, ok := target.(verb.CollectionTarget)
+	if !ok {
+		return nil, fmt.Errorf("invalid collection assignment target: %T", expr)
+	}
+	return collection, nil
 }
 
 func systemObjectLiteral(pos verb.Position) *verb.LiteralExpr {

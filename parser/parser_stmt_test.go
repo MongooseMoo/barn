@@ -123,3 +123,74 @@ func TestRangeLoopRejectsIndexBindingLikeToast(t *testing.T) {
 		t.Fatal("ParseProgram() succeeded, want syntax error for range index binding")
 	}
 }
+
+func TestAssignmentsLowerToSealedSemanticTargets(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		check  func(*testing.T, verb.Target)
+	}{
+		{"variable", "x = 1;", func(t *testing.T, target verb.Target) {
+			if _, ok := target.(*verb.VariableTarget); !ok {
+				t.Fatalf("target = %T, want *verb.VariableTarget", target)
+			}
+		}},
+		{"property", "object.name = 1;", func(t *testing.T, target verb.Target) {
+			if _, ok := target.(*verb.PropertyTarget); !ok {
+				t.Fatalf("target = %T, want *verb.PropertyTarget", target)
+			}
+		}},
+		{"index", "items[1] = 1;", func(t *testing.T, target verb.Target) {
+			if _, ok := target.(*verb.IndexTarget); !ok {
+				t.Fatalf("target = %T, want *verb.IndexTarget", target)
+			}
+		}},
+		{"range", "items[1..2] = {};", func(t *testing.T, target verb.Target) {
+			if _, ok := target.(*verb.RangeTarget); !ok {
+				t.Fatalf("target = %T, want *verb.RangeTarget", target)
+			}
+		}},
+		{"destructuring", "{a, ?b = 2, @rest} = {1};", func(t *testing.T, target verb.Target) {
+			destructuring, ok := target.(*verb.DestructuringTarget)
+			if !ok {
+				t.Fatalf("target = %T, want *verb.DestructuringTarget", target)
+			}
+			if len(destructuring.Bindings) != 3 {
+				t.Fatalf("binding count = %d, want 3", len(destructuring.Bindings))
+			}
+			if _, ok := destructuring.Bindings[0].(*verb.RequiredBinding); !ok {
+				t.Fatalf("binding 0 = %T, want *verb.RequiredBinding", destructuring.Bindings[0])
+			}
+			if _, ok := destructuring.Bindings[1].(*verb.OptionalBinding); !ok {
+				t.Fatalf("binding 1 = %T, want *verb.OptionalBinding", destructuring.Bindings[1])
+			}
+			if _, ok := destructuring.Bindings[2].(*verb.RestBinding); !ok {
+				t.Fatalf("binding 2 = %T, want *verb.RestBinding", destructuring.Bindings[2])
+			}
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			program, err := NewParser(test.source).ParseProgram()
+			if err != nil {
+				t.Fatalf("ParseProgram() error = %v", err)
+			}
+			statement := program.Statements[0].(*verb.ExprStmt)
+			assignment := statement.Expr.(*verb.AssignExpr)
+			test.check(t, assignment.Target)
+		})
+	}
+}
+
+func TestAssignmentRejectsNonTargetExpressionDuringParsing(t *testing.T) {
+	if _, err := NewParser("1 = 2;").ParseProgram(); err == nil {
+		t.Fatal("ParseProgram() succeeded, want invalid assignment target error")
+	}
+}
+
+func TestDestructuringRejectsMultipleRestBindingsLikeToast(t *testing.T) {
+	if _, err := NewParser("{@first, @second} = {1, 2};").ParseProgram(); err == nil {
+		t.Fatal("ParseProgram() succeeded, want multiple rest binding error")
+	}
+}

@@ -274,12 +274,100 @@ func (e *CatchExpr) exprNode()          {}
 
 type AssignExpr struct {
 	Pos    Position
-	Target Expr
+	Target Target
 	Value  Expr
 }
 
 func (e *AssignExpr) Position() Position { return e.Pos }
 func (e *AssignExpr) exprNode()          {}
+
+type Target interface {
+	Node
+	targetNode()
+}
+
+type CollectionTarget interface {
+	Target
+	collectionTargetNode()
+}
+
+type VariableTarget struct {
+	Pos  Position
+	Name string
+}
+
+func (t *VariableTarget) Position() Position    { return t.Pos }
+func (t *VariableTarget) targetNode()           {}
+func (t *VariableTarget) collectionTargetNode() {}
+
+type PropertyTarget struct {
+	Pos      Position
+	Object   Expr
+	Name     string
+	NameExpr Expr
+}
+
+func (t *PropertyTarget) Position() Position    { return t.Pos }
+func (t *PropertyTarget) targetNode()           {}
+func (t *PropertyTarget) collectionTargetNode() {}
+
+type IndexTarget struct {
+	Pos        Position
+	Collection CollectionTarget
+	Index      Expr
+}
+
+func (t *IndexTarget) Position() Position    { return t.Pos }
+func (t *IndexTarget) targetNode()           {}
+func (t *IndexTarget) collectionTargetNode() {}
+
+type RangeTarget struct {
+	Pos        Position
+	Collection CollectionTarget
+	Start      Expr
+	End        Expr
+}
+
+func (t *RangeTarget) Position() Position { return t.Pos }
+func (t *RangeTarget) targetNode()        {}
+
+type DestructuringTarget struct {
+	Pos      Position
+	Bindings []Binding
+}
+
+func (t *DestructuringTarget) Position() Position { return t.Pos }
+func (t *DestructuringTarget) targetNode()        {}
+
+type Binding interface {
+	Node
+	bindingNode()
+}
+
+type RequiredBinding struct {
+	Pos  Position
+	Name string
+}
+
+func (b *RequiredBinding) Position() Position { return b.Pos }
+func (b *RequiredBinding) bindingNode()       {}
+
+type OptionalBinding struct {
+	Pos     Position
+	Name    string
+	Default Expr
+}
+
+func (b *OptionalBinding) Position() Position { return b.Pos }
+func (b *OptionalBinding) bindingNode()       {}
+
+type RestBinding struct {
+	Pos  Position
+	Name string
+}
+
+func (b *RestBinding) Position() Position { return b.Pos }
+func (b *RestBinding) bindingNode()       {}
 
 type ListExpr struct {
 	Pos      Position
@@ -409,23 +497,6 @@ type Finalizer struct {
 
 func (s *TryStmt) Position() Position { return s.Pos }
 func (s *TryStmt) stmtNode()          {}
-
-type ScatterStmt struct {
-	Pos     Position
-	Targets []ScatterTarget
-	Value   Expr
-}
-
-type ScatterTarget struct {
-	Pos      Position
-	Name     string
-	Optional bool
-	Rest     bool
-	Default  Expr
-}
-
-func (s *ScatterStmt) Position() Position { return s.Pos }
-func (s *ScatterStmt) stmtNode()          {}
 
 type ForkStmt struct {
 	Pos     Position

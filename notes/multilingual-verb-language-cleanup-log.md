@@ -499,8 +499,70 @@ Gate results:
 
 Commit:
 
+- `9bb5e4d refactor: split semantic loop variants`
+
+Next slice:
+
+- Normalize assignment targets.
+
+## Iteration 8 - Phase 3.4 assignment-target normalization
+
+Slice read:
+
+- `verb/ir.go` assignment, statement, and expression families
+- `parser/parser.go` assignment parsing
+- `parser/parser_stmt.go` destructuring parsing
+- `parser/unparse.go` assignment formatting
+- `bytecode/compiler.go` assignment and scatter lowering
+
+Surfaces:
+
+- `AssignExpr.Target Expr`
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: replaced arbitrary expression targets with the sealed `verb.Target`
+    family: variable, property, index, range, and destructuring.
+- Collection assignment bases
+  - Disposition: seal
+  - Owner after cleanup: `verb.CollectionTarget`
+  - Action: restricted index and range targets to variable, property, or nested
+    index bases instead of accepting every target or expression shape.
+- `ScatterStmt` and `ScatterTarget`
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: lowered both simple and extended scattering syntax into the same
+    `AssignExpr` plus `DestructuringTarget` path using required, optional, and
+    rest binding variants.
+- Assignment validation
+  - Disposition: move to frontend construction
+  - Owner after cleanup: `parser`
+  - Action: invalid lvalue expressions now fail while constructing a semantic
+    target, before bytecode compilation.
+- Multiple rest bindings
+  - Disposition: reject
+  - Owner after cleanup: `parser`
+  - Action: the ToastStunt 2.7.3_5 WSL oracle returned
+    `More than one '@' target in scattering assignment.`; the MOO parser now
+    enforces the same invariant before constructing the destructuring target.
+- Assignment bytecode lowering
+  - Disposition: consolidate
+  - Owner after cleanup: `bytecode.compileAssign`
+  - Action: removed the statement-only scatter dispatch and retained assignment
+    result, property/index/range writeback, optional/default binding, rest
+    binding, and expression-statement behavior through one compiler entry.
+
+Gate results:
+
+- Pass: zero Go hits for `ScatterStmt`, `ScatterTarget`, `compileScatter`, and
+  `Target Expr`.
+- Pass: `go test ./parser ./verb ./bytecode ./vm`.
+- Pass: `go test ./builtins ./server ./cmd/...`.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit loop normalization, then normalize assignment targets.
+- Commit assignment-target normalization, then normalize index boundaries.

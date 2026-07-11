@@ -683,15 +683,21 @@ func (p *Parser) parseScatterStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume '{'
 
-	// Parse scatter targets
-	var targets []verb.ScatterTarget
+	var bindings []verb.Binding
+	hasRest := false
 
 	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
-		target, err := p.parseScatterTarget()
+		binding, err := p.parseScatterBinding()
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, target)
+		if _, rest := binding.(*verb.RestBinding); rest {
+			if hasRest {
+				return nil, fmt.Errorf("more than one '@' target in scattering assignment")
+			}
+			hasRest = true
+		}
+		bindings = append(bindings, binding)
 
 		if p.current.Type == TOKEN_COMMA {
 			p.nextToken() // consume ','
@@ -723,44 +729,52 @@ func (p *Parser) parseScatterStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &verb.ScatterStmt{
-		Pos:     pos,
-		Targets: targets,
-		Value:   value,
+	return &verb.ExprStmt{
+		Pos: pos,
+		Expr: &verb.AssignExpr{
+			Pos:    pos,
+			Target: &verb.DestructuringTarget{Pos: pos, Bindings: bindings},
+			Value:  value,
+		},
 	}, nil
 }
 
-// parseScatterTarget parses a single scatter target: var, ?var, ?var = default, @var
-func (p *Parser) parseScatterTarget() (verb.ScatterTarget, error) {
-	target := verb.ScatterTarget{
-		Pos: p.current.Position,
-	}
+// parseScatterBinding parses a single binding: var, ?var, ?var = default, @var.
+func (p *Parser) parseScatterBinding() (verb.Binding, error) {
+	pos := p.current.Position
 
-	// Check for optional (?) or rest (@)
+	optional := false
+	rest := false
 	if p.current.Type == TOKEN_QUESTION {
-		target.Optional = true
+		optional = true
 		p.nextToken() // consume '?'
 	} else if p.current.Type == TOKEN_AT {
-		target.Rest = true
+		rest = true
 		p.nextToken() // consume '@'
 	}
 
 	// Parse identifier
 	if p.current.Type != TOKEN_IDENTIFIER {
-		return target, fmt.Errorf("expected identifier in scatter target")
+		return nil, fmt.Errorf("expected identifier in scatter target")
 	}
-	target.Name = p.current.Value
+	name := p.current.Value
 	p.nextToken()
 
-	// Check for default value (only for optional)
-	if target.Optional && p.current.Type == TOKEN_ASSIGN {
-		p.nextToken() // consume '='
-		defaultExpr, err := p.ParseExpression(PREC_LOWEST)
-		if err != nil {
-			return target, err
+	if optional {
+		var defaultExpr verb.Expr
+		if p.current.Type == TOKEN_ASSIGN {
+			p.nextToken() // consume '='
+			var err error
+			defaultExpr, err = p.ParseExpression(PREC_LOWEST)
+			if err != nil {
+				return nil, err
+			}
 		}
-		target.Default = defaultExpr
+		return &verb.OptionalBinding{Pos: pos, Name: name, Default: defaultExpr}, nil
+	}
+	if rest {
+		return &verb.RestBinding{Pos: pos, Name: name}, nil
 	}
 
-	return target, nil
+	return &verb.RequiredBinding{Pos: pos, Name: name}, nil
 }

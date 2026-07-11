@@ -505,8 +505,6 @@ func (c *Compiler) compileNode(node verb.Node) error {
 		return c.compileReturn(n)
 	case *verb.TryStmt:
 		return c.compileTry(n)
-	case *verb.ScatterStmt:
-		return c.compileScatter(n)
 	case *verb.ForkStmt:
 		return c.compileFork(n)
 
@@ -777,73 +775,39 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 
 	// Handle different target types
 	switch target := n.Target.(type) {
-	case *verb.IdentifierExpr:
+	case *verb.VariableTarget:
 		// Simple variable assignment
 		idx := c.declareVariable(target.Name)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(idx))
-	case *verb.ListExpr:
-		// Scatter-style assignment expression:
-		//   {a, b, c} = value
-		// Assignment expression result remains on stack (the RHS value).
-		names := make([]string, len(target.Elements))
-		for i, elem := range target.Elements {
-			id, ok := elem.(*verb.IdentifierExpr)
-			if !ok {
-				return fmt.Errorf("invalid assignment target: %T", target)
-			}
-			names[i] = id.Name
-		}
-
-		listVar := c.declareVariable(c.tempVar("scatter_assign_list"))
-		// Stack: [value, value_copy] -> store value_copy.
-		c.emit(OP_SET_VAR)
-		c.emitByte(byte(listVar))
-		// Stack: [value]
-
-		// Validate shape exactly matches required count.
-		c.emit(OP_GET_VAR)
-		c.emitByte(byte(listVar))
-		c.emit(OP_SCATTER)
-		c.emitByte(byte(len(names))) // required
-		c.emitByte(0)                // optional
-		c.emitByte(0)                // hasRest
-
-		for i, name := range names {
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emitConstant(types.NewInt(int64(i + 1)))
-			c.emit(OP_INDEX)
-			idx := c.declareVariable(name)
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(idx))
-		}
-	case *verb.IndexExpr:
+	case *verb.DestructuringTarget:
+		return c.compileDestructuringTarget(target)
+	case *verb.IndexTarget:
 		// Index assignment: coll[idx] = value  OR  nested: coll[i][j]... = value
 		// Walk the IndexExpr chain to find the base variable and collect indices
 		var indices []verb.Expr
-		var baseExpr verb.Expr = target
+		var baseTarget verb.CollectionTarget = target
 		for {
-			ie, ok := baseExpr.(*verb.IndexExpr)
+			ie, ok := baseTarget.(*verb.IndexTarget)
 			if !ok {
 				break
 			}
 			indices = append(indices, ie.Index)
-			baseExpr = ie.Expr
+			baseTarget = ie.Collection
 		}
 
 		// Determine base type: variable or property
 		var baseVarIdx int
-		var basePropExpr *verb.PropertyExpr
+		var basePropTarget *verb.PropertyTarget
 
-		if baseIdent, ok := baseExpr.(*verb.IdentifierExpr); ok {
+		if baseIdent, ok := baseTarget.(*verb.VariableTarget); ok {
 			// Variable-based: x[i] = val
 			baseVarIdx = c.declareVariable(baseIdent.Name)
-		} else if propExpr, ok := baseExpr.(*verb.PropertyExpr); ok {
+		} else if property, ok := baseTarget.(*verb.PropertyTarget); ok {
 			// Property-based: obj.prop[i] = val
 			// Read the property value into a temp variable, use it as the base,
 			// then write the modified temp back to the property after index ops.
-			basePropExpr = propExpr
+			basePropTarget = property
 
 			// Stack currently: [value, value_copy]
 			// Store value_copy into temp so we can use the stack for GET_PROP
@@ -853,15 +817,15 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			// Stack: [value]
 
 			// Compile obj expression, emit GET_PROP to read current property value
-			if err := c.compileNode(propExpr.Expr); err != nil {
+			if err := c.compileNode(property.Object); err != nil {
 				return err
 			}
-			if propExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(propExpr.Property))
+			if property.Name != "" {
+				propIdx := c.addConstant(types.NewStr(property.Name))
 				c.emit(OP_GET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if propExpr.PropertyExpr != nil {
-				if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+			} else if property.NameExpr != nil {
+				if err := c.compileNode(property.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_GET_PROP)
@@ -1010,7 +974,7 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 		}
 
 		// If the base was a property, write the modified temp back to the property
-		if basePropExpr != nil {
+		if basePropTarget != nil {
 			// Stack: [value]
 			// Load the modified base temp (now has the updated collection)
 			c.emit(OP_GET_VAR)
@@ -1018,18 +982,18 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			// Stack: [value, modified_collection]
 
 			// Compile the object expression again
-			if err := c.compileNode(basePropExpr.Expr); err != nil {
+			if err := c.compileNode(basePropTarget.Object); err != nil {
 				return err
 			}
 			// Stack: [value, modified_collection, obj]
 
 			// Emit SET_PROP: pops obj, pops modified_collection, writes property
-			if basePropExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+			if basePropTarget.Name != "" {
+				propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
 				c.emit(OP_SET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if basePropExpr.PropertyExpr != nil {
-				if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+			} else if basePropTarget.NameExpr != nil {
+				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_SET_PROP)
@@ -1037,22 +1001,22 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			}
 			// Stack: [value] (original assigned value remains as expression result)
 		}
-	case *verb.PropertyExpr:
+	case *verb.PropertyTarget:
 		// Property assignment: obj.prop = value
 		// Stack currently: [value, value_copy]
 		// Compile the object expression -> [value, value_copy, obj]
-		if err := c.compileNode(target.Expr); err != nil {
+		if err := c.compileNode(target.Object); err != nil {
 			return err
 		}
 
-		if target.Property != "" {
+		if target.Name != "" {
 			// Static property: obj.prop = value
-			propIdx := c.addConstant(types.NewStr(target.Property))
+			propIdx := c.addConstant(types.NewStr(target.Name))
 			c.emit(OP_SET_PROP)
 			c.emitByte(byte(propIdx))
-		} else if target.PropertyExpr != nil {
+		} else if target.NameExpr != nil {
 			// Dynamic property: obj.(expr) = value
-			if err := c.compileNode(target.PropertyExpr); err != nil {
+			if err := c.compileNode(target.NameExpr); err != nil {
 				return err
 			}
 			c.emit(OP_SET_PROP)
@@ -1060,22 +1024,22 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 		} else {
 			return fmt.Errorf("property expression has neither static name nor dynamic expression")
 		}
-	case *verb.RangeExpr:
+	case *verb.RangeTarget:
 		// Range assignment: coll[start..end] = value
-		if nestedIndex, ok := target.Expr.(*verb.IndexExpr); ok {
+		if nestedIndex, ok := target.Collection.(*verb.IndexTarget); ok {
 			return c.compileNestedRangeAssign(nestedIndex, target.Start, target.End)
 		}
 
 		var varIdx int
-		var basePropExpr *verb.PropertyExpr
+		var basePropTarget *verb.PropertyTarget
 
-		if baseIdent, ok := target.Expr.(*verb.IdentifierExpr); ok {
+		if baseIdent, ok := target.Collection.(*verb.VariableTarget); ok {
 			// Variable-based: x[2..3] = val
 			varIdx = c.declareVariable(baseIdent.Name)
-		} else if propExpr, ok := target.Expr.(*verb.PropertyExpr); ok {
+		} else if property, ok := target.Collection.(*verb.PropertyTarget); ok {
 			// Property-based: obj.prop[2..3] = val
 			// Read the property into a temp, do range-set on temp, write back.
-			basePropExpr = propExpr
+			basePropTarget = property
 
 			// Stack currently: [value, value_copy]
 			// Store value_copy into temp so we can use the stack for GET_PROP
@@ -1085,15 +1049,15 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			// Stack: [value]
 
 			// Compile obj expression, emit GET_PROP to read current property value
-			if err := c.compileNode(propExpr.Expr); err != nil {
+			if err := c.compileNode(property.Object); err != nil {
 				return err
 			}
-			if propExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(propExpr.Property))
+			if property.Name != "" {
+				propIdx := c.addConstant(types.NewStr(property.Name))
 				c.emit(OP_GET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if propExpr.PropertyExpr != nil {
-				if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+			} else if property.NameExpr != nil {
+				if err := c.compileNode(property.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_GET_PROP)
@@ -1138,7 +1102,7 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 		c.emitByte(byte(varIdx))
 
 		// If the base was a property, write the modified temp back to the property
-		if basePropExpr != nil {
+		if basePropTarget != nil {
 			// Stack: [value]
 			// Load the modified base temp (now has the updated collection)
 			c.emit(OP_GET_VAR)
@@ -1146,18 +1110,18 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			// Stack: [value, modified_collection]
 
 			// Compile the object expression again
-			if err := c.compileNode(basePropExpr.Expr); err != nil {
+			if err := c.compileNode(basePropTarget.Object); err != nil {
 				return err
 			}
 			// Stack: [value, modified_collection, obj]
 
 			// Emit SET_PROP: pops obj, pops modified_collection, writes property
-			if basePropExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+			if basePropTarget.Name != "" {
+				propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
 				c.emit(OP_SET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if basePropExpr.PropertyExpr != nil {
-				if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+			} else if basePropTarget.NameExpr != nil {
+				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_SET_PROP)
@@ -1205,20 +1169,20 @@ func (c *Compiler) compileRangeIndex(expr verb.Expr, varIdx int) error {
 //	outer[idx][start..end] = value
 //
 // by desugaring through temporary variables and existing INDEX/RANGE_SET opcodes.
-func (c *Compiler) compileNestedRangeAssign(indexExpr *verb.IndexExpr, start, end verb.Expr) error {
+func (c *Compiler) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end verb.Expr) error {
 	// For now, support one nested index level (x[i][a..b]); deeper forms can be added later.
-	if _, deeper := indexExpr.Expr.(*verb.IndexExpr); deeper {
+	if _, deeper := indexTarget.Collection.(*verb.IndexTarget); deeper {
 		return fmt.Errorf("range assignment target nesting depth > 1 is not supported")
 	}
 
 	var baseVarIdx int
-	var basePropExpr *verb.PropertyExpr
+	var basePropTarget *verb.PropertyTarget
 
 	// If the base is a property, load it into a temp base variable.
-	if baseIdent, ok := indexExpr.Expr.(*verb.IdentifierExpr); ok {
+	if baseIdent, ok := indexTarget.Collection.(*verb.VariableTarget); ok {
 		baseVarIdx = c.declareVariable(baseIdent.Name)
-	} else if propExpr, ok := indexExpr.Expr.(*verb.PropertyExpr); ok {
-		basePropExpr = propExpr
+	} else if property, ok := indexTarget.Collection.(*verb.PropertyTarget); ok {
+		basePropTarget = property
 
 		// Stack currently: [value, value_copy]
 		tmpValHold := c.declareVariable("__prop_nested_range_val")
@@ -1226,15 +1190,15 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *verb.IndexExpr, start, en
 		c.emitByte(byte(tmpValHold))
 		// Stack: [value]
 
-		if err := c.compileNode(propExpr.Expr); err != nil {
+		if err := c.compileNode(property.Object); err != nil {
 			return err
 		}
-		if propExpr.Property != "" {
-			propIdx := c.addConstant(types.NewStr(propExpr.Property))
+		if property.Name != "" {
+			propIdx := c.addConstant(types.NewStr(property.Name))
 			c.emit(OP_GET_PROP)
 			c.emitByte(byte(propIdx))
-		} else if propExpr.PropertyExpr != nil {
-			if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+		} else if property.NameExpr != nil {
+			if err := c.compileNode(property.NameExpr); err != nil {
 				return err
 			}
 			c.emit(OP_GET_PROP)
@@ -1265,7 +1229,7 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *verb.IndexExpr, start, en
 	// Resolve outer index once and store it.
 	oldContextVar := c.indexContextVar
 	oldMarkerMode := c.indexBoundaryMode
-	if containsIndexBoundary(indexExpr.Index) {
+	if containsIndexBoundary(indexTarget.Index) {
 		tempIdx := c.declareVariable(c.tempVar("nestedrangectx"))
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(baseVarIdx))
@@ -1274,7 +1238,7 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *verb.IndexExpr, start, en
 		c.indexContextVar = tempIdx
 		c.indexBoundaryMode = indexBoundaryModeCollection
 	}
-	if err := c.compileNode(indexExpr.Index); err != nil {
+	if err := c.compileNode(indexTarget.Index); err != nil {
 		return err
 	}
 	c.indexContextVar = oldContextVar
@@ -1319,18 +1283,18 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *verb.IndexExpr, start, en
 	// Stack: [value]
 
 	// If base was a property, persist modified base temp back onto the object property.
-	if basePropExpr != nil {
+	if basePropTarget != nil {
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(baseVarIdx))
-		if err := c.compileNode(basePropExpr.Expr); err != nil {
+		if err := c.compileNode(basePropTarget.Object); err != nil {
 			return err
 		}
-		if basePropExpr.Property != "" {
-			propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+		if basePropTarget.Name != "" {
+			propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
 			c.emit(OP_SET_PROP)
 			c.emitByte(byte(propIdx))
-		} else if basePropExpr.PropertyExpr != nil {
-			if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+		} else if basePropTarget.NameExpr != nil {
+			if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 				return err
 			}
 			c.emit(OP_SET_PROP)
@@ -1770,7 +1734,7 @@ func (c *Compiler) compileExprStmt(n *verb.ExprStmt) error {
 	// otherwise dominates assignment-heavy loops). Complex targets (scatter /
 	// index / property) keep the general value-producing path below.
 	if assign, ok := n.Expr.(*verb.AssignExpr); ok {
-		if ident, ok := assign.Target.(*verb.IdentifierExpr); ok {
+		if ident, ok := assign.Target.(*verb.VariableTarget); ok {
 			// Self-concat idiom: s = s + expr. This statement does not need the
 			// assignment's result value, so emit a string-append opcode directly.
 			// Runtime type checks preserve normal `+` errors if either operand is
@@ -1985,7 +1949,7 @@ func containsIndexBoundary(expr verb.Expr) bool {
 	case *verb.CatchExpr:
 		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.Default)
 	case *verb.AssignExpr:
-		return containsIndexBoundary(n.Target) || containsIndexBoundary(n.Value)
+		return containsTargetIndexBoundary(n.Target) || containsIndexBoundary(n.Value)
 	case *verb.ListExpr:
 		for _, el := range n.Elements {
 			if containsIndexBoundary(el) {
@@ -1998,6 +1962,28 @@ func containsIndexBoundary(expr verb.Expr) bool {
 	case *verb.MapExpr:
 		for _, pair := range n.Pairs {
 			if containsIndexBoundary(pair.Key) || containsIndexBoundary(pair.Value) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func containsTargetIndexBoundary(target verb.Target) bool {
+	switch target := target.(type) {
+	case *verb.VariableTarget:
+		return false
+	case *verb.PropertyTarget:
+		return containsIndexBoundary(target.Object) || containsIndexBoundary(target.NameExpr)
+	case *verb.IndexTarget:
+		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Index)
+	case *verb.RangeTarget:
+		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Start) || containsIndexBoundary(target.End)
+	case *verb.DestructuringTarget:
+		for _, binding := range target.Bindings {
+			if optional, ok := binding.(*verb.OptionalBinding); ok && containsIndexBoundary(optional.Default) {
 				return true
 			}
 		}
@@ -2331,7 +2317,7 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
+func (c *Compiler) compileDestructuringTarget(target *verb.DestructuringTarget) error {
 	// Scatter assignment: {a, ?b, @rest} = list
 	//
 	// Runtime strategy:
@@ -2343,12 +2329,27 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 	numRequired := 0
 	numOptional := 0
 	restIndex := -1
-	for i, target := range n.Targets {
-		if target.Rest {
+	type compiledBinding struct {
+		name     string
+		optional bool
+		rest     bool
+		default_ verb.Expr
+	}
+	bindings := make([]compiledBinding, len(target.Bindings))
+	for i, binding := range target.Bindings {
+		switch binding := binding.(type) {
+		case *verb.RequiredBinding:
+			bindings[i].name = binding.Name
+		case *verb.OptionalBinding:
+			bindings[i] = compiledBinding{name: binding.Name, optional: true, default_: binding.Default}
+		case *verb.RestBinding:
+			bindings[i] = compiledBinding{name: binding.Name, rest: true}
+		}
+		if bindings[i].rest {
 			restIndex = i
 			continue
 		}
-		if target.Optional {
+		if bindings[i].optional {
 			numOptional++
 		} else {
 			numRequired++
@@ -2361,13 +2362,12 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 	leftVar := c.declareVariable(c.tempVar("scatter_left"))
 	rightVar := c.declareVariable(c.tempVar("scatter_right"))
 
-	if err := c.compileNode(n.Value); err != nil {
-		return err
-	}
-	c.emit(OP_DUP)
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(listVar))
 
+	// Preserve the original assignment value while validating the stored copy.
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(listVar))
 	c.emit(OP_SCATTER)
 	c.emitByte(byte(numRequired))
 	c.emitByte(byte(numOptional))
@@ -2400,12 +2400,12 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 	// countRequired returns number of required non-rest targets in [start, end].
 	countRequired := func(start, end int) int {
 		count := 0
-		for i := start; i <= end && i < len(n.Targets); i++ {
+		for i := start; i <= end && i < len(bindings); i++ {
 			if i < 0 {
 				continue
 			}
-			target := n.Targets[i]
-			if !target.Rest && !target.Optional {
+			binding := bindings[i]
+			if !binding.rest && !binding.optional {
 				count++
 			}
 		}
@@ -2459,9 +2459,9 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 		c.emit(OP_GT)
 	}
 
-	emitOptionalMissingValue := func(target verb.ScatterTarget, targetVar int) error {
-		if target.Default != nil {
-			if err := c.compileNode(target.Default); err != nil {
+	emitOptionalMissingValue := func(binding compiledBinding, targetVar int) error {
+		if binding.default_ != nil {
+			if err := c.compileNode(binding.default_); err != nil {
 				return err
 			}
 			c.emit(OP_SET_VAR)
@@ -2473,13 +2473,13 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 
 	// Bind suffix targets from the right when @rest is present.
 	if hasRest {
-		for i := len(n.Targets) - 1; i > restIndex; i-- {
-			target := n.Targets[i]
-			if target.Rest {
+		for i := len(bindings) - 1; i > restIndex; i-- {
+			binding := bindings[i]
+			if binding.rest {
 				continue
 			}
-			targetVar := c.declareVariable(target.Name)
-			if target.Optional {
+			targetVar := c.declareVariable(binding.name)
+			if binding.optional {
 				requiredBefore := countRequired(0, i-1)
 				emitOptionalCondition(requiredBefore)
 				elseJump := c.emitJump(OP_JUMP_IF_FALSE)
@@ -2489,7 +2489,7 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 				endJump := c.emitJump(OP_JUMP)
 
 				c.patchJump(elseJump)
-				if err := emitOptionalMissingValue(target, targetVar); err != nil {
+				if err := emitOptionalMissingValue(binding, targetVar); err != nil {
 					return err
 				}
 				c.patchJump(endJump)
@@ -2501,18 +2501,18 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 	}
 
 	// Bind prefix targets from the left.
-	prefixEnd := len(n.Targets) - 1
+	prefixEnd := len(bindings) - 1
 	if hasRest {
 		prefixEnd = restIndex - 1
 	}
 	for i := 0; i <= prefixEnd; i++ {
-		target := n.Targets[i]
-		if target.Rest {
+		binding := bindings[i]
+		if binding.rest {
 			continue
 		}
 
-		targetVar := c.declareVariable(target.Name)
-		if target.Optional {
+		targetVar := c.declareVariable(binding.name)
+		if binding.optional {
 			requiredAfter := countRequired(i+1, prefixEnd)
 			emitOptionalCondition(requiredAfter)
 			elseJump := c.emitJump(OP_JUMP_IF_FALSE)
@@ -2522,7 +2522,7 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 			endJump := c.emitJump(OP_JUMP)
 
 			c.patchJump(elseJump)
-			if err := emitOptionalMissingValue(target, targetVar); err != nil {
+			if err := emitOptionalMissingValue(binding, targetVar); err != nil {
 				return err
 			}
 			c.patchJump(endJump)
@@ -2534,8 +2534,8 @@ func (c *Compiler) compileScatter(n *verb.ScatterStmt) error {
 
 	// Bind @rest to the remaining middle slice.
 	if hasRest {
-		restTarget := n.Targets[restIndex]
-		restVar := c.declareVariable(restTarget.Name)
+		restBinding := bindings[restIndex]
+		restVar := c.declareVariable(restBinding.name)
 
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(leftVar))

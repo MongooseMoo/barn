@@ -161,27 +161,6 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		sb.WriteString(indentStr + "endtry")
 		return strings.TrimSuffix(sb.String(), "\n")
 
-	case *verb.ScatterStmt:
-		var sb strings.Builder
-		sb.WriteString(indentStr + "{")
-		for i, target := range s.Targets {
-			if i > 0 {
-				sb.WriteString(", ")
-			}
-			if target.Optional {
-				sb.WriteString("?")
-			}
-			if target.Rest {
-				sb.WriteString("@")
-			}
-			sb.WriteString(target.Name)
-			if target.Default != nil {
-				sb.WriteString(" = " + unparseExpr(target.Default, precedenceLowest))
-			}
-		}
-		sb.WriteString("} = " + unparseExpr(s.Value, precedenceLowest) + ";")
-		return sb.String()
-
 	case *verb.ForkStmt:
 		var sb strings.Builder
 		sb.WriteString(indentStr + "fork ")
@@ -287,7 +266,7 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 
 	case *verb.AssignExpr:
 		prec := precedenceAssign
-		target := unparseExpr(e.Target, prec)
+		target := unparseTarget(e.Target)
 		value := unparseExpr(e.Value, prec)
 		result := target + " = " + value
 		if prec < parentPrecedence {
@@ -448,6 +427,41 @@ func unparseUnaryOp(op verb.UnaryOperator) string {
 }
 
 // unparseLiteral converts a literal syntax node to source representation.
+func unparseTarget(target verb.Target) string {
+	switch target := target.(type) {
+	case *verb.VariableTarget:
+		return target.Name
+	case *verb.PropertyTarget:
+		object := unparseExpr(target.Object, precedenceProperty)
+		if target.Name != "" {
+			return object + "." + target.Name
+		}
+		return object + ".(" + unparseExpr(target.NameExpr, precedenceLowest) + ")"
+	case *verb.IndexTarget:
+		return unparseTarget(target.Collection) + "[" + unparseExpr(target.Index, precedenceLowest) + "]"
+	case *verb.RangeTarget:
+		return unparseTarget(target.Collection) + "[" + unparseExpr(target.Start, precedenceLowest) + ".." + unparseExpr(target.End, precedenceLowest) + "]"
+	case *verb.DestructuringTarget:
+		bindings := make([]string, len(target.Bindings))
+		for i, binding := range target.Bindings {
+			switch binding := binding.(type) {
+			case *verb.RequiredBinding:
+				bindings[i] = binding.Name
+			case *verb.OptionalBinding:
+				bindings[i] = "?" + binding.Name
+				if binding.Default != nil {
+					bindings[i] += " = " + unparseExpr(binding.Default, precedenceLowest)
+				}
+			case *verb.RestBinding:
+				bindings[i] = "@" + binding.Name
+			}
+		}
+		return "{" + strings.Join(bindings, ", ") + "}"
+	default:
+		return "<unknown target>"
+	}
+}
+
 func unparseLiteral(v *verb.LiteralExpr) string {
 	switch v.Kind {
 	case verb.LiteralInt:
