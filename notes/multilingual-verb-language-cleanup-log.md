@@ -733,9 +733,58 @@ Gate results:
 
 Commit:
 
+- `2055546 refactor: compile source before task creation`
+
+Next slice:
+
+- Replace AST pseudo-disassembly using the verified Toast output shape.
+
+## Iteration 12 - Phase 6 bytecode disassembly
+
+Slice read:
+
+- documented WSL Toast oracle and canonical toastcore database
+- Toast `disassemble(#0, 1)` and `disassemble(#0, "do_login_command")`
+- Barn bytecode opcode definitions and compiled program layout
+- `builtins.builtinDisassemble` and its AST pseudo-disassembly helpers
+
+Surfaces:
+
+- Toast output shape
+  - Disposition: record and implement
+  - Owner after cleanup: `reports/toast-disassemble-oracle.md` and bytecode
+  - Action: verified identical name/index output containing language/line
+    metadata, a blank separator, main-vector header/divider, bytecode metadata,
+    and decoded offset/encoding/mnemonic rows.
+- Actual Barn bytecode decoding
+  - Disposition: add
+  - Owner after cleanup: `bytecode.Disassemble`
+  - Action: decodes fixed and dynamic operand widths from the compiled program
+    and emits Toast-shaped rows using Barn's real opcode names and bytes.
+- AST pseudo-disassembly
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: deleted `disassembleStmt`, `disassembleExpr`,
+    `disassembleLiteral`, `opToOpcode`, and `unaryOpToOpcode`.
+- Builtin language dependencies
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: `disassemble()` compiles through `compiler.CompileMOO` and consumes
+    `bytecode.Program`; builtins no longer imports parser or verb IR.
+
+Gate results:
+
+- Pass: zero forbidden disassembly helper hits.
+- Pass: zero parser/verb-IR imports in VM, task, scheduler, builtins, server,
+  and commands.
+- Pass: `go test ./bytecode ./compiler ./builtins ./vm ./server ./task ./cmd/...`.
+- Pass: substantial scheduler task/runtime tests.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit runtime convergence, then replace AST pseudo-disassembly using the
-  verified Toast output shape.
+- Commit bytecode disassembly, then rebuild canonical MOO formatting.

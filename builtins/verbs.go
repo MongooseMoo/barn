@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"barn/bytecode"
 	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/types"
-	verbir "barn/verb"
 )
 
 // Preposition list matching ToastStunt's prep_list
@@ -897,15 +896,12 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	program, _ := parser.NewParser(strings.Join(verb.Code, "\n")).ParseProgram()
-	if program == nil || len(program.Statements) == 0 {
-		return types.Ok(types.NewList([]types.Value{types.NewStr("Main code vector:")}))
+	registry, _ := ctx.Registry.(*Registry)
+	program, diagnostics := compiler.CompileMOO(verb.Code, registry)
+	if len(diagnostics) > 0 {
+		return types.Err(types.E_INVARG)
 	}
-
-	lines := []string{"Main code vector:"}
-	for _, stmt := range program.Statements {
-		lines = append(lines, disassembleStmt(stmt)...)
-	}
+	lines := bytecode.Disassemble(program)
 
 	// Convert to Value list
 	result := make([]types.Value, len(lines))
@@ -914,111 +910,4 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	return types.Ok(types.NewList(result))
-}
-
-func disassembleStmt(stmt verbir.Stmt) []string {
-	switch s := stmt.(type) {
-	case *verbir.ExprStmt:
-		return disassembleExpr(s.Expr)
-	case *verbir.ReturnStmt:
-		if s.Value != nil {
-			lines := disassembleExpr(s.Value)
-			return append(lines, "RETURN")
-		}
-		return []string{"RETURN"}
-	default:
-		return []string{"STMT"}
-	}
-}
-
-func disassembleExpr(expr verbir.Expr) []string {
-	switch e := expr.(type) {
-	case *verbir.BinaryExpr:
-		lines := disassembleExpr(e.Left)
-		lines = append(lines, disassembleExpr(e.Right)...)
-		return append(lines, opToOpcode(e.Operator))
-	case *verbir.UnaryExpr:
-		lines := disassembleExpr(e.Operand)
-		return append(lines, unaryOpToOpcode(e.Operator))
-	case *verbir.LiteralExpr:
-		return []string{fmt.Sprintf("PUSH %s", disassembleLiteral(e))}
-	case *verbir.IndexExpr:
-		lines := disassembleExpr(e.Expr)
-		lines = append(lines, disassembleExpr(e.Index)...)
-		return append(lines, "INDEX")
-	case *verbir.RangeExpr:
-		lines := disassembleExpr(e.Expr)
-		lines = append(lines, disassembleExpr(e.Start)...)
-		lines = append(lines, disassembleExpr(e.End)...)
-		return append(lines, "RANGE")
-	case *verbir.IndexBoundaryExpr:
-		if e.Boundary == verbir.IndexFirst {
-			return []string{"FIRST"}
-		}
-		return []string{"LAST"}
-	default:
-		return []string{"EXPR"}
-	}
-}
-
-func disassembleLiteral(e *verbir.LiteralExpr) string {
-	switch e.Kind {
-	case verbir.LiteralInt:
-		return fmt.Sprintf("%d", e.IntValue)
-	case verbir.LiteralFloat:
-		return fmt.Sprintf("%g", e.FloatValue)
-	case verbir.LiteralString:
-		return fmt.Sprintf("%q", e.StringValue)
-	case verbir.LiteralBool:
-		if e.BoolValue {
-			return "true"
-		}
-		return "false"
-	case verbir.LiteralObj:
-		return fmt.Sprintf("#%d", e.ObjID)
-	case verbir.LiteralErr:
-		return e.ErrorName
-	default:
-		return "<literal>"
-	}
-}
-
-func opToOpcode(op verbir.BinaryOperator) string {
-	switch op {
-	case verbir.BinaryBitAnd:
-		return "BITAND"
-	case verbir.BinaryBitOr:
-		return "BITOR"
-	case verbir.BinaryBitXor:
-		return "BITXOR"
-	case verbir.BinaryShiftLeft:
-		return "BITSHL"
-	case verbir.BinaryShiftRight:
-		return "BITSHR"
-	case verbir.BinaryAdd:
-		return "ADD"
-	case verbir.BinarySubtract:
-		return "SUB"
-	case verbir.BinaryMultiply:
-		return "MUL"
-	case verbir.BinaryDivide:
-		return "DIV"
-	case verbir.BinaryModulo:
-		return "MOD"
-	default:
-		return "OP"
-	}
-}
-
-func unaryOpToOpcode(op verbir.UnaryOperator) string {
-	switch op {
-	case verbir.UnaryBitwiseNot:
-		return "COMPLEMENT"
-	case verbir.UnaryNegate:
-		return "NEG"
-	case verbir.UnaryNot:
-		return "NOT"
-	default:
-		return "UNARY_OP"
-	}
 }
