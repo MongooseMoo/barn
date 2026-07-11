@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestParseObjectLiteral(t *testing.T) {
 	tests := []struct {
@@ -19,7 +22,7 @@ func TestParseObjectLiteral(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != LiteralObj {
+			if lit.Kind != verb.LiteralObj {
 				t.Fatalf("literal kind = %v, want LiteralObj", lit.Kind)
 			}
 			if lit.ObjID != tt.expected {

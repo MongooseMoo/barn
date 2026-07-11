@@ -202,9 +202,91 @@ Gate results:
 
 Commit:
 
+- `83c7099 docs: define verb language ownership boundary`
+
+Next slice:
+
+- Begin Phase 2 verb IR extraction.
+
+## Iteration 3 - Phase 2 language-neutral verb IR
+
+Slice read:
+
+- `parser/ast.go`
+- `parser/parser.go`
+- `parser/parser_stmt.go`
+- `parser/unparse.go`
+- parser semantic assertion tests
+- `bytecode/compiler.go`
+- `bytecode/parser_literals.go`
+- `bytecode/verbcache.go`
+- direct parser and bytecode callers in `builtins`, `cmd`, `scheduler`, `task`,
+  and `vm`
+
+Surfaces:
+
+- Parser-owned semantic AST
+  - Disposition: move
+  - Owner after cleanup: `verb`
+  - Action: deleted `parser/ast.go` first and created `verb.Program` plus sealed
+    semantic statement/expression families, language-neutral positions,
+    semantic literal payloads, semantic operators, and index boundaries.
+  - Evidence: `verb/ir.go`; `parser/ast.go` absent.
+- MOO parser construction
+  - Disposition: rewrite
+  - Owner after cleanup: `parser`
+  - Action: `ParseProgram` now constructs `*verb.Program` directly and
+    `ParseExpression` constructs `verb.Expr` variants directly. Token-to-
+    semantic operator mapping occurs only while parsing; there is no parser AST
+    or AST-to-IR adapter.
+  - Evidence: `parser/parser.go`, `parser/parser_stmt.go`.
+- Parenthesized expressions
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: deleted `ParenExpr`; parentheses now control parsing precedence and
+    return the contained semantic expression with its own source position.
+  - Evidence: `parser/parser_expr_test.go`, `parser/parser_ternary_test.go`.
+- Parser semantic tests
+  - Disposition: move and rewrite
+  - Owner after cleanup: `verb` for family contracts, `parser` for frontend
+    output assertions
+  - Action: moved family sealing/position tests to `verb/ir_test.go` and changed
+    parser tests to assert explicit `verb` variants and semantic operators.
+  - Evidence: `verb/ir_test.go` and parser test files.
+- Bytecode semantic input
+  - Disposition: rewrite
+  - Owner after cleanup: `bytecode`
+  - Action: the compiler now accepts only `verb` nodes and programs, switches on
+    semantic operators/boundaries, and contains no MOO token cases. Literal-to-
+    runtime-value conversion moved from `parser_literals.go` to
+    `literal_values.go`.
+  - Evidence: `bytecode/compiler.go`, `bytecode/literal_values.go`.
+- Direct runtime and diagnostic callers
+  - Disposition: rewrite pending later deletion phases
+  - Owner after cleanup: `verb` for semantic code carried temporarily;
+    compiled-only runtime ownership remains Phase 5
+  - Action: changed remaining parser-node type references in builtins,
+    scheduler, task, VM, and command code to the semantic owner. This does not
+    preserve a parser alias or second node family.
+  - Evidence: zero-hit parser-node search below.
+
+Gate results:
+
+- Pass: `go test ./parser ./verb ./bytecode`.
+- Pass: `go test ./vm ./task ./builtins ./server ./db/format ./cmd/...`.
+- Pass: focused scheduler execution, suspend/resume, and concurrent VM tests.
+- Expected baseline failure: broad `go test ./scheduler` still fails only
+  `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+- Pass, zero hits: `rg 'parser\.(Node|Expr|Stmt|TokenType)' --glob '*.go'`.
+- Pass, zero hits: `rg 'ParenExpr|IndexMarkerExpr' --glob '*.go'`.
+- Pass, zero hits: `rg 'TOKEN_' bytecode --glob '*.go'`.
+- Pass, zero hits: runtime/parser imports from `verb`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Complete independent spec integration verification, commit Phase 1, reread
-  the plan, then begin Phase 2 verb IR extraction.
+- Commit the atomic Phase 2 ownership move, reread the plan, then normalize the
+  conditional semantic family in Phase 3.

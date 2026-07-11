@@ -1,24 +1,25 @@
 package bytecode
 
 import (
-	"barn/parser"
-	"barn/types"
 	"fmt"
+
+	"barn/types"
+	"barn/verb"
 )
 
-func valueFromLiteral(lit *parser.LiteralExpr) (types.Value, error) {
+func valueFromLiteral(lit *verb.LiteralExpr) (types.Value, error) {
 	switch lit.Kind {
-	case parser.LiteralInt:
+	case verb.LiteralInt:
 		return types.NewInt(lit.IntValue), nil
-	case parser.LiteralFloat:
+	case verb.LiteralFloat:
 		return types.NewFloat(lit.FloatValue), nil
-	case parser.LiteralString:
+	case verb.LiteralString:
 		return types.NewStr(lit.StringValue), nil
-	case parser.LiteralBool:
+	case verb.LiteralBool:
 		return types.NewBool(lit.BoolValue), nil
-	case parser.LiteralObj:
+	case verb.LiteralObj:
 		return types.NewObj(types.ObjID(lit.ObjID)), nil
-	case parser.LiteralErr:
+	case verb.LiteralErr:
 		code, ok := errorNameToCode(lit.ErrorName)
 		if !ok {
 			return types.None, fmt.Errorf("unknown error code: %s", lit.ErrorName)

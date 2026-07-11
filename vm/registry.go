@@ -41,7 +41,7 @@ func BuildVMRegistry() *builtins.Registry {
 
 		code := fmt.Sprintf("%s", joinLines(lines))
 		p := parser.NewParser(code)
-		stmts, err := p.ParseProgram()
+		program, err := p.ParseProgram()
 		if err != nil {
 			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", err.Error())
 			return types.Ok(types.NewList([]types.Value{
@@ -51,7 +51,7 @@ func BuildVMRegistry() *builtins.Registry {
 		}
 
 		c := bytecode.NewCompilerWithRegistry(registry)
-		prog, compileErr := c.CompileStatements(stmts)
+		prog, compileErr := c.CompileProgram(program)
 		if compileErr != nil {
 			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", compileErr.Error())
 			return types.Ok(types.NewList([]types.Value{

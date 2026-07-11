@@ -7,7 +7,7 @@ import (
 )
 
 // TestMOOCompilationContractCharacterizesEveryNodeFamily fixes the current
-// source -> parser AST -> bytecode behavior before the parser AST is moved to
+// source -> semantic verb IR -> bytecode behavior while compilation ownership moves to
 // its semantic owner. It intentionally compiles through both current entry
 // points: Phase 5 will delete CompileVerb, and this test must then move to the
 // single source-compilation owner rather than preserving the old API.

@@ -28,13 +28,13 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	ctx.Registry = registry
 
 	p := parser.NewParser(code)
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
 
 	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.CompileStatements(stmts)
+	prog, err := compiler.CompileProgram(program)
 	if err != nil {
 		t.Fatalf("compile failed: %v", err)
 	}

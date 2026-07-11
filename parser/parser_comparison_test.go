@@ -1,19 +1,22 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestComparisonOperators(t *testing.T) {
 	tests := []struct {
 		input    string
-		operator TokenType
+		operator verb.BinaryOperator
 	}{
-		{"1 == 2", TOKEN_EQ},
-		{"x != y", TOKEN_NE},
-		{"a < b", TOKEN_LT},
-		{"c > d", TOKEN_GT},
-		{"e <= f", TOKEN_LE},
-		{"g >= h", TOKEN_GE},
-		{"x in {1, 2, 3}", TOKEN_IN},
+		{"1 == 2", verb.BinaryEqual},
+		{"x != y", verb.BinaryNotEqual},
+		{"a < b", verb.BinaryLess},
+		{"c > d", verb.BinaryGreater},
+		{"e <= f", verb.BinaryLessEqual},
+		{"g >= h", verb.BinaryGreaterEqual},
+		{"x in {1, 2, 3}", verb.BinaryIn},
 	}
 
 	for _, tt := range tests {
@@ -24,7 +27,7 @@ func TestComparisonOperators(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
@@ -39,8 +42,8 @@ func TestComparisonOperators(t *testing.T) {
 func TestComparisonPrecedence(t *testing.T) {
 	// Comparison has lower precedence than arithmetic
 	tests := []string{
-		"1 + 1 == 2",   // should parse as (1 + 1) == 2
-		"x * 2 < 10",   // should parse as (x * 2) < 10
+		"1 + 1 == 2",     // should parse as (1 + 1) == 2
+		"x * 2 < 10",     // should parse as (x * 2) < 10
 		"a - b >= c + d", // should parse as (a - b) >= (c + d)
 	}
 
@@ -52,22 +55,23 @@ func TestComparisonPrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr at root, got %T", expr)
 			}
 
 			// Root should be comparison operator
 			switch binary.Operator {
-			case TOKEN_EQ, TOKEN_NE, TOKEN_LT, TOKEN_LE, TOKEN_GT, TOKEN_GE, TOKEN_IN:
+			case verb.BinaryEqual, verb.BinaryNotEqual, verb.BinaryLess, verb.BinaryLessEqual,
+				verb.BinaryGreater, verb.BinaryGreaterEqual, verb.BinaryIn:
 				// Good
 			default:
 				t.Errorf("expected comparison operator at root, got %s", binary.Operator)
 			}
 
 			// At least one side should have arithmetic
-			_, leftIsBinary := binary.Left.(*BinaryExpr)
-			_, rightIsBinary := binary.Right.(*BinaryExpr)
+			_, leftIsBinary := binary.Left.(*verb.BinaryExpr)
+			_, rightIsBinary := binary.Right.(*verb.BinaryExpr)
 			if !leftIsBinary && !rightIsBinary {
 				// This is OK for simple cases like "1 == 2"
 			}

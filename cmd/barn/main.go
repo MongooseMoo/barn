@@ -24,6 +24,7 @@ import (
 	"barn/server"
 	"barn/trace"
 	"barn/types"
+	"barn/verb"
 	"barn/vm"
 )
 
@@ -516,7 +517,7 @@ func evalExpression(store *dbstore.Store, expr string, options config.Options) {
 
 	registry := vm.BuildVMRegistry()
 	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.Compile(&parser.ReturnStmt{Value: node})
+	prog, err := compiler.Compile(&verb.ReturnStmt{Value: node})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Compile error: %v\n", err)
 		os.Exit(1)

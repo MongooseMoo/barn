@@ -6,32 +6,33 @@ import (
 	"strings"
 
 	"barn/parser"
+	"barn/verb"
 )
 
-// VerbProgram holds a verb's compiled AST. Relocated out of db/store so the
+// VerbProgram holds a parsed semantic verb body. Relocated out of db/store so the
 // world model (db/store) no longer imports barn/parser.
 type VerbProgram struct {
-	Statements []parser.Stmt // Compiled AST statements
+	Statements []verb.Stmt
 }
 
-// CompileVerb parses verb source lines into an AST (VerbProgram).
+// CompileVerb parses verb source lines into semantic statements (VerbProgram).
 // Returns the program or a list of parse-error strings. This is the parser
 // bridge that used to live in db/store; relocating it here is what lets
 // db/store drop its barn/parser dependency.
 func CompileVerb(code []string) (*VerbProgram, []string) {
 	if len(code) == 0 {
-		return &VerbProgram{Statements: []parser.Stmt{}}, nil
+		return &VerbProgram{Statements: []verb.Stmt{}}, nil
 	}
 
 	source := strings.Join(code, "\n")
 
 	p := parser.NewParser(source)
-	statements, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		return nil, []string{formatParseError(err)}
 	}
 
-	return &VerbProgram{Statements: statements}, nil
+	return &VerbProgram{Statements: program.Statements}, nil
 }
 
 // formatParseError renders a parser error in ToastStunt's "Line N:  <msg>" form

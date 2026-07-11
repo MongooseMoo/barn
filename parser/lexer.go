@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"barn/verb"
 	"unicode"
 )
 
@@ -87,7 +88,7 @@ func (l *Lexer) NextToken() Token {
 		l.skipWhitespace()
 	}
 
-	tok.Position = Position{
+	tok.Position = verb.Position{
 		Line:   l.line,
 		Column: l.column,
 		Offset: l.position,
@@ -337,7 +338,7 @@ func (l *Lexer) NextToken() Token {
 // readNumber reads an integer or float literal
 func (l *Lexer) readNumber() Token {
 	tok := Token{
-		Position: Position{
+		Position: verb.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,
@@ -392,7 +393,7 @@ func (l *Lexer) readNumber() Token {
 func (l *Lexer) readObjectLiteral() Token {
 	tok := Token{
 		Type: TOKEN_OBJECT,
-		Position: Position{
+		Position: verb.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,
@@ -419,7 +420,7 @@ func (l *Lexer) readObjectLiteral() Token {
 // readIdentifier reads an identifier or keyword
 func (l *Lexer) readIdentifier() Token {
 	tok := Token{
-		Position: Position{
+		Position: verb.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,
@@ -453,4 +454,3 @@ func isLetter(ch byte) bool {
 func isDigit(ch byte) bool {
 	return '0' <= ch && ch <= '9'
 }
-

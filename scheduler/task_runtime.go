@@ -13,9 +13,9 @@ import (
 	"barn/bytecode"
 	"barn/command"
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
+	"barn/verb"
 	"barn/vm"
 )
 
@@ -109,15 +109,15 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 	} else {
 		// First run - compile and execute
-		code, ok := t.Code.([]parser.Stmt)
+		code, ok := t.Code.([]verb.Stmt)
 		if !ok || code == nil {
 			t.SetState(task.TaskKilled)
 			return errors.New("task has no code")
 		}
 
-		// Compile AST to bytecode
+		// Compile semantic verb code to bytecode.
 		compiler := bytecode.NewCompilerWithRegistry(s.registry)
-		prog, compileErr := compiler.CompileStatements(code)
+		prog, compileErr := compiler.CompileProgram(&verb.Program{Statements: code})
 		if compileErr != nil {
 			t.SetState(task.TaskKilled)
 			return fmt.Errorf("compile error: %w", compileErr)

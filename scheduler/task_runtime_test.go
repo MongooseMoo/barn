@@ -24,12 +24,12 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	s := NewScheduler(store)
 
 	p := parser.NewParser("return 1;")
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	taskID := s.CreateBackgroundTask(types.ObjNothing, stmts, 0)
+	taskID := s.CreateBackgroundTask(types.ObjNothing, program.Statements, 0)
 
 	s.mu.Lock()
 	bgTask := s.tasks[taskID]
@@ -62,12 +62,12 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 
 	ticks, seconds := foregroundTaskLimits()
 	p := parser.NewParser("suspend(); return 42;")
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	id := atomic.AddInt64(&s.nextTaskID, 1)
-	tk := task.NewTaskFull(id, types.ObjNothing, stmts, ticks, seconds)
+	tk := task.NewTaskFull(id, types.ObjNothing, program.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(tk.Context)
 	tk.StartTime = time.Now()
 	tk.ForkCreator = s

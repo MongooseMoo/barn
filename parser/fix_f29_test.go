@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"barn/types"
+	"barn/verb"
 )
 
 // TestFixF29_EIntrptParsesToCode18 asserts the full E_INTRPT round-trip: the
@@ -21,19 +22,19 @@ func TestFixF29_EIntrptParsesToCode18(t *testing.T) {
 		t.Fatalf("BUG: parser rejected E_INTRPT literal: %v", err)
 	}
 
-	assign, ok := stmts[0].(*ExprStmt)
+	assign, ok := stmts.Statements[0].(*verb.ExprStmt)
 	if !ok {
-		t.Fatalf("expected *ExprStmt, got %T", stmts[0])
+		t.Fatalf("expected *verb.ExprStmt, got %T", stmts.Statements[0])
 	}
-	bin, ok := assign.Expr.(*AssignExpr)
+	bin, ok := assign.Expr.(*verb.AssignExpr)
 	if !ok {
 		t.Fatalf("expected *AssignExpr, got %T", assign.Expr)
 	}
-	lit, ok := bin.Value.(*LiteralExpr)
+	lit, ok := bin.Value.(*verb.LiteralExpr)
 	if !ok {
 		t.Fatalf("expected *LiteralExpr RHS, got %T", bin.Value)
 	}
-	if lit.Kind != LiteralErr {
+	if lit.Kind != verb.LiteralErr {
 		t.Fatalf("expected LiteralErr, got kind %d", lit.Kind)
 	}
 	if lit.ErrorName != "E_INTRPT" {

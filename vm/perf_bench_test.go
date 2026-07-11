@@ -38,12 +38,12 @@ func compileBench(b *testing.B, code string) (*bytecode.Program, *builtins.Regis
 	b.Helper()
 	registry := BuildVMRegistry()
 	p := parser.NewParser(code)
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		b.Fatalf("parse failed: %v", err)
 	}
 	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.CompileStatements(stmts)
+	prog, err := compiler.CompileProgram(program)
 	if err != nil {
 		b.Fatalf("compile failed: %v", err)
 	}

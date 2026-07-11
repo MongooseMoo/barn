@@ -32,7 +32,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 
 	// Parse the code
 	p := parser.NewParser(code)
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 
 	if err != nil {
 		// Send parse error in ToastStunt eval format: {0, {"error message"}}
@@ -67,9 +67,9 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	ctx.Task = t
 	ctx.TaskID = t.ID
 
-	// Compile AST to bytecode
+	// Compile semantic verb code to bytecode.
 	compiler := bytecode.NewCompilerWithRegistry(s.registry)
-	prog, compileErr := compiler.CompileStatements(stmts)
+	prog, compileErr := compiler.CompileProgram(program)
 	if compileErr != nil {
 		// Compilation failed - send error
 		if prefix != "" {

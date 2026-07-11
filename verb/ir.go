@@ -1,23 +1,36 @@
-package parser
+// Package verb defines the language-neutral semantic representation of a verb.
+package verb
 
-// Node is the base interface for all AST nodes
+// Position identifies a location in verb source.
+type Position struct {
+	Line   int
+	Column int
+	Offset int
+}
+
+// Node is the base interface for semantic verb nodes.
 type Node interface {
 	Position() Position
 }
 
-// Expr represents an expression node
+// Expr is the sealed family of semantic expressions.
 type Expr interface {
 	Node
 	exprNode()
 }
 
-// Stmt represents a statement node
+// Stmt is the sealed family of semantic statements.
 type Stmt interface {
 	Node
 	stmtNode()
 }
 
-// LiteralKind identifies the syntax kind of a literal expression.
+// Program is the semantic representation of one verb body.
+type Program struct {
+	Statements []Stmt
+}
+
+// LiteralKind identifies a semantic literal payload.
 type LiteralKind int
 
 const (
@@ -29,8 +42,109 @@ const (
 	LiteralErr
 )
 
-// LiteralExpr represents a literal as parsed syntax. Runtime packages lower it
-// into runtime values.
+// UnaryOperator identifies a semantic unary operation.
+type UnaryOperator int
+
+const (
+	UnaryNegate UnaryOperator = iota
+	UnaryNot
+	UnaryBitwiseNot
+)
+
+func (op UnaryOperator) String() string {
+	switch op {
+	case UnaryNegate:
+		return "negate"
+	case UnaryNot:
+		return "not"
+	case UnaryBitwiseNot:
+		return "bitwise-not"
+	default:
+		return "unknown-unary-operator"
+	}
+}
+
+// BinaryOperator identifies a semantic binary operation.
+type BinaryOperator int
+
+const (
+	BinaryAdd BinaryOperator = iota
+	BinarySubtract
+	BinaryMultiply
+	BinaryDivide
+	BinaryModulo
+	BinaryPower
+	BinaryEqual
+	BinaryNotEqual
+	BinaryLess
+	BinaryLessEqual
+	BinaryGreater
+	BinaryGreaterEqual
+	BinaryIn
+	BinaryAnd
+	BinaryOr
+	BinaryBitAnd
+	BinaryBitOr
+	BinaryBitXor
+	BinaryShiftLeft
+	BinaryShiftRight
+)
+
+func (op BinaryOperator) String() string {
+	switch op {
+	case BinaryAdd:
+		return "add"
+	case BinarySubtract:
+		return "subtract"
+	case BinaryMultiply:
+		return "multiply"
+	case BinaryDivide:
+		return "divide"
+	case BinaryModulo:
+		return "modulo"
+	case BinaryPower:
+		return "power"
+	case BinaryEqual:
+		return "equal"
+	case BinaryNotEqual:
+		return "not-equal"
+	case BinaryLess:
+		return "less"
+	case BinaryLessEqual:
+		return "less-equal"
+	case BinaryGreater:
+		return "greater"
+	case BinaryGreaterEqual:
+		return "greater-equal"
+	case BinaryIn:
+		return "in"
+	case BinaryAnd:
+		return "and"
+	case BinaryOr:
+		return "or"
+	case BinaryBitAnd:
+		return "bitwise-and"
+	case BinaryBitOr:
+		return "bitwise-or"
+	case BinaryBitXor:
+		return "bitwise-xor"
+	case BinaryShiftLeft:
+		return "shift-left"
+	case BinaryShiftRight:
+		return "shift-right"
+	default:
+		return "unknown-binary-operator"
+	}
+}
+
+// IndexBoundary identifies a semantic first- or last-index operation.
+type IndexBoundary int
+
+const (
+	IndexFirst IndexBoundary = iota
+	IndexLast
+)
+
 type LiteralExpr struct {
 	Pos         Position
 	Kind        LiteralKind
@@ -45,7 +159,6 @@ type LiteralExpr struct {
 func (e *LiteralExpr) Position() Position { return e.Pos }
 func (e *LiteralExpr) exprNode()          {}
 
-// IdentifierExpr represents a variable reference
 type IdentifierExpr struct {
 	Pos  Position
 	Name string
@@ -54,28 +167,25 @@ type IdentifierExpr struct {
 func (e *IdentifierExpr) Position() Position { return e.Pos }
 func (e *IdentifierExpr) exprNode()          {}
 
-// UnaryExpr represents a unary operation
 type UnaryExpr struct {
 	Pos      Position
-	Operator TokenType // TOKEN_MINUS, TOKEN_NOT, TOKEN_BITNOT
+	Operator UnaryOperator
 	Operand  Expr
 }
 
 func (e *UnaryExpr) Position() Position { return e.Pos }
 func (e *UnaryExpr) exprNode()          {}
 
-// BinaryExpr represents a binary operation
 type BinaryExpr struct {
 	Pos      Position
 	Left     Expr
-	Operator TokenType
+	Operator BinaryOperator
 	Right    Expr
 }
 
 func (e *BinaryExpr) Position() Position { return e.Pos }
 func (e *BinaryExpr) exprNode()          {}
 
-// TernaryExpr represents conditional expression: cond ? then | else
 type TernaryExpr struct {
 	Pos       Position
 	Condition Expr
@@ -86,25 +196,14 @@ type TernaryExpr struct {
 func (e *TernaryExpr) Position() Position { return e.Pos }
 func (e *TernaryExpr) exprNode()          {}
 
-// ParenExpr represents a parenthesized expression
-type ParenExpr struct {
-	Pos  Position
-	Expr Expr
+type IndexBoundaryExpr struct {
+	Pos      Position
+	Boundary IndexBoundary
 }
 
-func (e *ParenExpr) Position() Position { return e.Pos }
-func (e *ParenExpr) exprNode()          {}
+func (e *IndexBoundaryExpr) Position() Position { return e.Pos }
+func (e *IndexBoundaryExpr) exprNode()          {}
 
-// IndexMarkerExpr represents special index markers: ^ (first) or $ (last)
-type IndexMarkerExpr struct {
-	Pos    Position
-	Marker TokenType // TOKEN_CARET or TOKEN_DOLLAR
-}
-
-func (e *IndexMarkerExpr) Position() Position { return e.Pos }
-func (e *IndexMarkerExpr) exprNode()          {}
-
-// IndexExpr represents indexing: expr[index]
 type IndexExpr struct {
 	Pos   Position
 	Expr  Expr
@@ -114,7 +213,6 @@ type IndexExpr struct {
 func (e *IndexExpr) Position() Position { return e.Pos }
 func (e *IndexExpr) exprNode()          {}
 
-// RangeExpr represents range indexing: expr[start..end]
 type RangeExpr struct {
 	Pos   Position
 	Expr  Expr
@@ -125,32 +223,27 @@ type RangeExpr struct {
 func (e *RangeExpr) Position() Position { return e.Pos }
 func (e *RangeExpr) exprNode()          {}
 
-// PropertyExpr represents property access: expr.property or expr.(expr)
-// If Property is empty, PropertyExpr is the dynamic property name expression
 type PropertyExpr struct {
 	Pos          Position
 	Expr         Expr
-	Property     string // Static property name (empty if dynamic)
-	PropertyExpr Expr   // Dynamic property name expression (nil if static)
+	Property     string
+	PropertyExpr Expr
 }
 
 func (e *PropertyExpr) Position() Position { return e.Pos }
 func (e *PropertyExpr) exprNode()          {}
 
-// VerbCallExpr represents verb call: expr:verb(args) or expr:(expr)(args)
-// If Verb is empty, VerbExpr is the dynamic verb name expression
 type VerbCallExpr struct {
 	Pos      Position
 	Expr     Expr
-	Verb     string // Static verb name (empty if dynamic)
-	VerbExpr Expr   // Dynamic verb name expression (nil if static)
+	Verb     string
+	VerbExpr Expr
 	Args     []Expr
 }
 
 func (e *VerbCallExpr) Position() Position { return e.Pos }
 func (e *VerbCallExpr) exprNode()          {}
 
-// BuiltinCallExpr represents builtin function call: func(args)
 type BuiltinCallExpr struct {
 	Pos  Position
 	Name string
@@ -160,7 +253,6 @@ type BuiltinCallExpr struct {
 func (e *BuiltinCallExpr) Position() Position { return e.Pos }
 func (e *BuiltinCallExpr) exprNode()          {}
 
-// SpliceExpr represents splice operator: @expr
 type SpliceExpr struct {
 	Pos  Position
 	Expr Expr
@@ -169,7 +261,6 @@ type SpliceExpr struct {
 func (e *SpliceExpr) Position() Position { return e.Pos }
 func (e *SpliceExpr) exprNode()          {}
 
-// CatchExpr represents catch expression: expr `! codes => default
 type CatchExpr struct {
 	Pos     Position
 	Expr    Expr
@@ -181,19 +272,15 @@ type CatchExpr struct {
 func (e *CatchExpr) Position() Position { return e.Pos }
 func (e *CatchExpr) exprNode()          {}
 
-// AssignExpr represents assignment: lvalue = expr
 type AssignExpr struct {
 	Pos    Position
-	Target Expr // IdentifierExpr, IndexExpr, PropertyExpr, or RangeExpr
+	Target Expr
 	Value  Expr
 }
 
 func (e *AssignExpr) Position() Position { return e.Pos }
 func (e *AssignExpr) exprNode()          {}
 
-// ListExpr represents a list expression: {expr, expr, ...}
-// Unlike LiteralExpr with a list value, ListExpr can contain
-// sub-expressions including splice (@expr) that must be evaluated.
 type ListExpr struct {
 	Pos      Position
 	Elements []Expr
@@ -202,8 +289,6 @@ type ListExpr struct {
 func (e *ListExpr) Position() Position { return e.Pos }
 func (e *ListExpr) exprNode()          {}
 
-// ListRangeExpr represents a range list expression: {start..end}
-// This generates a list of integers from start to end (inclusive)
 type ListRangeExpr struct {
 	Pos   Position
 	Start Expr
@@ -213,9 +298,6 @@ type ListRangeExpr struct {
 func (e *ListRangeExpr) Position() Position { return e.Pos }
 func (e *ListRangeExpr) exprNode()          {}
 
-// MapExpr represents a map expression: [key -> value, ...]
-// Unlike LiteralExpr with a map value, MapExpr can contain
-// sub-expressions that must be evaluated.
 type MapExpr struct {
 	Pos   Position
 	Pairs []MapPair
@@ -229,9 +311,6 @@ type MapPair struct {
 func (e *MapExpr) Position() Position { return e.Pos }
 func (e *MapExpr) exprNode()          {}
 
-// Statement AST nodes
-
-// ExprStmt represents an expression used as a statement
 type ExprStmt struct {
 	Pos  Position
 	Expr Expr
@@ -240,13 +319,12 @@ type ExprStmt struct {
 func (s *ExprStmt) Position() Position { return s.Pos }
 func (s *ExprStmt) stmtNode()          {}
 
-// IfStmt represents if/elseif/else/endif
 type IfStmt struct {
 	Pos       Position
 	Condition Expr
 	Body      []Stmt
 	ElseIfs   []*ElseIfClause
-	Else      []Stmt // Can be nil
+	Else      []Stmt
 }
 
 type ElseIfClause struct {
@@ -258,10 +336,9 @@ type ElseIfClause struct {
 func (s *IfStmt) Position() Position { return s.Pos }
 func (s *IfStmt) stmtNode()          {}
 
-// WhileStmt represents while loops
 type WhileStmt struct {
 	Pos       Position
-	Label     string // Optional loop label for break/continue
+	Label     string
 	Condition Expr
 	Body      []Stmt
 }
@@ -269,51 +346,44 @@ type WhileStmt struct {
 func (s *WhileStmt) Position() Position { return s.Pos }
 func (s *WhileStmt) stmtNode()          {}
 
-// ForStmt represents for loops (list, range, or map iteration)
 type ForStmt struct {
 	Pos        Position
-	Label      string // Optional loop label
-	Value      string // Variable name for value
-	Index      string // Variable name for index/key (optional)
-	Container  Expr   // List/map expression or nil for range
-	RangeStart Expr   // For range loops: start expression
-	RangeEnd   Expr   // For range loops: end expression
+	Label      string
+	Value      string
+	Index      string
+	Container  Expr
+	RangeStart Expr
+	RangeEnd   Expr
 	Body       []Stmt
 }
 
 func (s *ForStmt) Position() Position { return s.Pos }
 func (s *ForStmt) stmtNode()          {}
 
-// BreakStmt represents break statement.
-// In MOO, break optionally takes a loop name: break ID; (ToastStunt parser.y:241-252).
-// An unknown loop name is a compile error ("Invalid loop name"), mirroring continue.
 type BreakStmt struct {
 	Pos   Position
-	Label string // Optional enclosing-loop name to break out of
+	Label string
 }
 
 func (s *BreakStmt) Position() Position { return s.Pos }
 func (s *BreakStmt) stmtNode()          {}
 
-// ContinueStmt represents continue statement
 type ContinueStmt struct {
 	Pos   Position
-	Label string // Optional loop label to continue
+	Label string
 }
 
 func (s *ContinueStmt) Position() Position { return s.Pos }
 func (s *ContinueStmt) stmtNode()          {}
 
-// ReturnStmt represents return statement
 type ReturnStmt struct {
 	Pos   Position
-	Value Expr // Can be nil (returns 0)
+	Value Expr
 }
 
 func (s *ReturnStmt) Position() Position { return s.Pos }
 func (s *ReturnStmt) stmtNode()          {}
 
-// TryExceptStmt represents try/except/endtry
 type TryExceptStmt struct {
 	Pos     Position
 	Body    []Stmt
@@ -322,16 +392,15 @@ type TryExceptStmt struct {
 
 type ExceptClause struct {
 	Pos      Position
-	Variable string   // Optional: binds the caught error
-	Codes    []string // Error names to catch (empty when IsAny is true)
-	IsAny    bool     // True if catching ANY
+	Variable string
+	Codes    []string
+	IsAny    bool
 	Body     []Stmt
 }
 
 func (s *TryExceptStmt) Position() Position { return s.Pos }
 func (s *TryExceptStmt) stmtNode()          {}
 
-// TryFinallyStmt represents try/finally/endtry
 type TryFinallyStmt struct {
 	Pos     Position
 	Body    []Stmt
@@ -341,7 +410,6 @@ type TryFinallyStmt struct {
 func (s *TryFinallyStmt) Position() Position { return s.Pos }
 func (s *TryFinallyStmt) stmtNode()          {}
 
-// TryExceptFinallyStmt represents try/except/finally/endtry
 type TryExceptFinallyStmt struct {
 	Pos     Position
 	Body    []Stmt
@@ -352,7 +420,6 @@ type TryExceptFinallyStmt struct {
 func (s *TryExceptFinallyStmt) Position() Position { return s.Pos }
 func (s *TryExceptFinallyStmt) stmtNode()          {}
 
-// ScatterStmt represents scatter assignment: {a, ?b, @rest} = list
 type ScatterStmt struct {
 	Pos     Position
 	Targets []ScatterTarget
@@ -362,20 +429,19 @@ type ScatterStmt struct {
 type ScatterTarget struct {
 	Pos      Position
 	Name     string
-	Optional bool // ?var
-	Rest     bool // @var
-	Default  Expr // ?var = expr (can be nil)
+	Optional bool
+	Rest     bool
+	Default  Expr
 }
 
 func (s *ScatterStmt) Position() Position { return s.Pos }
 func (s *ScatterStmt) stmtNode()          {}
 
-// ForkStmt represents fork [varname] (delay) body endfork
 type ForkStmt struct {
 	Pos     Position
-	Delay   Expr   // Delay expression (seconds)
-	VarName string // Variable name for task ID (empty = anonymous)
-	Body    []Stmt // Fork body statements
+	Delay   Expr
+	VarName string
+	Body    []Stmt
 }
 
 func (s *ForkStmt) Position() Position { return s.Pos }

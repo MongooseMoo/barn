@@ -4,6 +4,7 @@ package parser
 // These are RED tests — they expose confirmed bugs.
 
 import (
+	"barn/verb"
 	"strings"
 	"testing"
 )
@@ -92,20 +93,20 @@ func TestReview_BreakLabelAsIdentExpr(t *testing.T) {
 		t.Fatalf("parse error for continue src: %v", err)
 	}
 
-	bWhile, ok := bStmts[0].(*WhileStmt)
+	bWhile, ok := bStmts.Statements[0].(*verb.WhileStmt)
 	if !ok {
-		t.Fatalf("expected WhileStmt, got %T", bStmts[0])
+		t.Fatalf("expected WhileStmt, got %T", bStmts.Statements[0])
 	}
-	bk, ok := bWhile.Body[0].(*BreakStmt)
+	bk, ok := bWhile.Body[0].(*verb.BreakStmt)
 	if !ok {
 		t.Fatalf("expected BreakStmt, got %T", bWhile.Body[0])
 	}
 
-	cWhile, ok := cStmts[0].(*WhileStmt)
+	cWhile, ok := cStmts.Statements[0].(*verb.WhileStmt)
 	if !ok {
-		t.Fatalf("expected WhileStmt, got %T", cStmts[0])
+		t.Fatalf("expected WhileStmt, got %T", cStmts.Statements[0])
 	}
-	ck, ok := cWhile.Body[0].(*ContinueStmt)
+	ck, ok := cWhile.Body[0].(*verb.ContinueStmt)
 	if !ok {
 		t.Fatalf("expected ContinueStmt, got %T", cWhile.Body[0])
 	}

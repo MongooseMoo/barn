@@ -1,17 +1,20 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestBitwiseOperators(t *testing.T) {
 	tests := []struct {
 		input    string
-		operator TokenType
+		operator verb.BinaryOperator
 	}{
-		{"5 &. 3", TOKEN_BITAND},
-		{"7 |. 1", TOKEN_BITOR},
-		{"9 ^. 2", TOKEN_BITXOR},
-		{"1 << 4", TOKEN_LSHIFT},
-		{"16 >> 2", TOKEN_RSHIFT},
+		{"5 &. 3", verb.BinaryBitAnd},
+		{"7 |. 1", verb.BinaryBitOr},
+		{"9 ^. 2", verb.BinaryBitXor},
+		{"1 << 4", verb.BinaryShiftLeft},
+		{"16 >> 2", verb.BinaryShiftRight},
 	}
 
 	for _, tt := range tests {
@@ -22,7 +25,7 @@ func TestBitwiseOperators(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
@@ -39,11 +42,11 @@ func TestBitwisePrecedence(t *testing.T) {
 	// &. has higher precedence than |., ^. is in between
 	tests := []struct {
 		input  string
-		rootOp TokenType
+		rootOp verb.BinaryOperator
 		desc   string
 	}{
-		{"a |. b &. c", TOKEN_BITOR, "should parse as a |. (b &. c)"},
-		{"a ^. b &. c", TOKEN_BITXOR, "should parse as a ^. (b &. c)"},
+		{"a |. b &. c", verb.BinaryBitOr, "should parse as a |. (b &. c)"},
+		{"a ^. b &. c", verb.BinaryBitXor, "should parse as a ^. (b &. c)"},
 	}
 
 	for _, tt := range tests {
@@ -54,7 +57,7 @@ func TestBitwisePrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr at root, got %T", expr)
 			}
@@ -75,20 +78,20 @@ func TestShiftPrecedence(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	binary, ok := expr.(*BinaryExpr)
+	binary, ok := expr.(*verb.BinaryExpr)
 	if !ok {
 		t.Fatalf("expected BinaryExpr at root, got %T", expr)
 	}
 
-	if binary.Operator != TOKEN_LSHIFT {
+	if binary.Operator != verb.BinaryShiftLeft {
 		t.Errorf("expected LSHIFT at root, got %s", binary.Operator)
 	}
 
 	// Left should be addition
-	leftBinary, ok := binary.Left.(*BinaryExpr)
+	leftBinary, ok := binary.Left.(*verb.BinaryExpr)
 	if !ok {
 		t.Errorf("expected left to be BinaryExpr, got %T", binary.Left)
-	} else if leftBinary.Operator != TOKEN_PLUS {
+	} else if leftBinary.Operator != verb.BinaryAdd {
 		t.Errorf("expected left to be +, got %s", leftBinary.Operator)
 	}
 }

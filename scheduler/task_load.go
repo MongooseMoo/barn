@@ -10,6 +10,7 @@ import (
 	dbformat "barn/db/format"
 	"barn/task"
 	"barn/types"
+	"barn/verb"
 	"barn/vm"
 )
 
@@ -34,7 +35,7 @@ func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	}
 
 	compiler := bytecode.NewCompilerWithRegistry(s.registry)
-	prog, err := compiler.CompileStatements(program.Statements)
+	prog, err := compiler.CompileProgram(&verb.Program{Statements: program.Statements})
 	if err != nil {
 		return err
 	}

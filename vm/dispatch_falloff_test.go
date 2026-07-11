@@ -40,21 +40,21 @@ func TestExprStmtNoReturnFallsOffToZero(t *testing.T) {
 // emitting the terminator, this fails loudly instead of producing an OOB read.
 func TestEveryCompiledProgramEndsWithTerminator(t *testing.T) {
 	cases := []string{
-		"",                       // empty
-		"x = 5;",                 // assignment, no return
-		"1 + 2;",                 // bare expr
-		"return 42;",             // explicit return
+		"",                              // empty
+		"x = 5;",                        // assignment, no return
+		"1 + 2;",                        // bare expr
+		"return 42;",                    // explicit return
 		"for i in [1..3] x = i; endfor", // loop as last statement
-		"if (1) x = 2; endif",    // conditional
+		"if (1) x = 2; endif",           // conditional
 	}
 	registry := BuildVMRegistry()
 	for _, src := range cases {
 		p := parser.NewParser(src)
-		stmts, err := p.ParseProgram()
+		program, err := p.ParseProgram()
 		if err != nil {
 			t.Fatalf("src %q: parse failed: %v", src, err)
 		}
-		prog, err := bytecode.NewCompilerWithRegistry(registry).CompileStatements(stmts)
+		prog, err := bytecode.NewCompilerWithRegistry(registry).CompileProgram(program)
 		if err != nil {
 			t.Fatalf("src %q: compile failed: %v", src, err)
 		}

@@ -33,9 +33,11 @@ func resetReviewManager(t *testing.T) {
 // task is finished while the task is merely suspended.
 //
 // scheduler.go:164-168:
-//   if t.Done != nil {
-//       close(t.Done)   <- fires unconditionally after runTask returns
-//   }
+//
+//	if t.Done != nil {
+//	    close(t.Done)   <- fires unconditionally after runTask returns
+//	}
+//
 // runTask returns nil for BOTH FlowSuspend and terminal completion.
 // -----------------------------------------------------------------------------
 func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
@@ -43,12 +45,12 @@ func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 	s := NewScheduler(store)
 
 	p := parser.NewParser("suspend(100);")
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 
-	taskID := s.CreateForegroundTask(types.ObjNothing, stmts)
+	taskID := s.CreateForegroundTask(types.ObjNothing, program.Statements)
 	bgTask := s.GetTask(taskID)
 	if bgTask == nil {
 		t.Fatal("task not found in scheduler")
@@ -111,11 +113,11 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 
 	// Now create a scheduler task — it gets the same ID from s.nextTaskID.
 	p := parser.NewParser("return 1;")
-	stmts, err := p.ParseProgram()
+	program, err := p.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	schedulerTaskID := s.CreateForegroundTask(types.ObjNothing, stmts)
+	schedulerTaskID := s.CreateForegroundTask(types.ObjNothing, program.Statements)
 	if schedulerTaskID != nextManagerID {
 		t.Fatalf("scheduler ID probe misfire: got %d, want %d", schedulerTaskID, nextManagerID)
 	}
@@ -151,8 +153,10 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 //
 // To detect: run with -race flag.
 // The test sets up two concurrent goroutines:
-//   goroutine A runs a suspending task (writes BytecodeVM at line 239)
-//   goroutine B runs a completing task whose liveTaskVMs call reads goroutine A's task BytecodeVM
+//
+//	goroutine A runs a suspending task (writes BytecodeVM at line 239)
+//	goroutine B runs a completing task whose liveTaskVMs call reads goroutine A's task BytecodeVM
+//
 // -----------------------------------------------------------------------------
 func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	resetReviewManager(t)
@@ -165,12 +169,12 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 
 	// taskA: suspend(100) — its runTask will write taskA.BytecodeVM = bcVM at line 239.
 	pA := parser.NewParser("suspend(100);")
-	stmtsA, err := pA.ParseProgram()
+	programA, err := pA.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse taskA: %v", err)
 	}
 	taskAID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskA := task.NewTaskFull(taskAID, types.ObjNothing, stmtsA, ticks, seconds)
+	taskA := task.NewTaskFull(taskAID, types.ObjNothing, programA.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(taskA.Context)
 	taskA.StartTime = time.Now()
 	taskA.ForkCreator = s
@@ -183,12 +187,12 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	// taskB: return 1 — completes quickly; its runTask calls liveTaskVMs at the
 	// GC boundary (task_runtime.go:307), which reads taskA.BytecodeVM.
 	pB := parser.NewParser("return 1;")
-	stmtsB, err := pB.ParseProgram()
+	programB, err := pB.ParseProgram()
 	if err != nil {
 		t.Fatalf("parse taskB: %v", err)
 	}
 	taskBID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskB := task.NewTaskFull(taskBID, types.ObjNothing, stmtsB, ticks, seconds)
+	taskB := task.NewTaskFull(taskBID, types.ObjNothing, programB.Statements, ticks, seconds)
 	s.populateTaskContextDependencies(taskB.Context)
 	taskB.StartTime = time.Now()
 	taskB.ForkCreator = s

@@ -11,9 +11,9 @@ import (
 	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
+	"barn/verb"
 	"barn/vm"
 )
 
@@ -47,7 +47,7 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 }
 
 // CreateForegroundTask creates a foreground task (user command)
-func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt) int64 {
+func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []verb.Stmt) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
@@ -178,7 +178,7 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 }
 
 // CreateBackgroundTask creates a background task (fork)
-func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
+func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []verb.Stmt, delay time.Duration) int64 {
 	taskID := atomic.AddInt64(&s.nextTaskID, 1)
 	ticks, seconds := backgroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
@@ -191,7 +191,7 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt,
 }
 
 // Fork creates a forked task with a delay
-func (s *Scheduler) Fork(ctx *kernel.TaskContext, code []parser.Stmt, delay time.Duration) int64 {
+func (s *Scheduler) Fork(ctx *kernel.TaskContext, code []verb.Stmt, delay time.Duration) int64 {
 	return s.CreateBackgroundTask(ctx.Player, code, delay)
 }
 

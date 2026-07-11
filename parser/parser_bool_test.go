@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestParseBoolLiteral(t *testing.T) {
 	tests := []struct {
@@ -14,7 +17,7 @@ func TestParseBoolLiteral(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != LiteralBool {
+			if lit.Kind != verb.LiteralBool {
 				t.Fatalf("literal kind = %v, want LiteralBool", lit.Kind)
 			}
 			if lit.BoolValue != tt.expected {
