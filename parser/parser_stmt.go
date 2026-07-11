@@ -517,15 +517,11 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 		return nil, err
 	}
 
-	// Check what follows: except, finally, or endtry
-	var excepts []*verb.ExceptClause
-	var finally []verb.Stmt
-	hasExcept := false
-	hasFinally := false
+	var handlers []verb.ExceptionHandler
+	var finalizer *verb.Finalizer
 
 	// Parse except clauses (zero or more)
 	for p.current.Type == TOKEN_EXCEPT {
-		hasExcept = true
 		exceptPos := p.current.Position
 		p.nextToken() // consume 'except'
 
@@ -580,7 +576,7 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 			return nil, err
 		}
 
-		excepts = append(excepts, &verb.ExceptClause{
+		handlers = append(handlers, verb.ExceptionHandler{
 			Pos:      exceptPos,
 			Variable: variable,
 			Codes:    codes,
@@ -591,13 +587,14 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 
 	// Parse finally clause (optional)
 	if p.current.Type == TOKEN_FINALLY {
-		hasFinally = true
+		finalizerPos := p.current.Position
 		p.nextToken() // consume 'finally'
 
-		finally, err = p.parseBody(TOKEN_ENDTRY)
+		finalizerBody, err := p.parseBody(TOKEN_ENDTRY)
 		if err != nil {
 			return nil, err
 		}
+		finalizer = &verb.Finalizer{Pos: finalizerPos, Body: finalizerBody}
 	}
 
 	// Consume 'endtry'
@@ -606,29 +603,11 @@ func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 	}
 	p.nextToken() // consume 'endtry'
 
-	// Construct the appropriate statement based on what we found
-	if hasExcept && hasFinally {
-		return &verb.TryExceptFinallyStmt{
-			Pos:     pos,
-			Body:    body,
-			Excepts: excepts,
-			Finally: finally,
-		}, nil
-	} else if hasExcept {
-		return &verb.TryExceptStmt{
-			Pos:     pos,
-			Body:    body,
-			Excepts: excepts,
-		}, nil
-	} else if hasFinally {
-		return &verb.TryFinallyStmt{
-			Pos:     pos,
-			Body:    body,
-			Finally: finally,
-		}, nil
-	} else {
+	if len(handlers) == 0 && finalizer == nil {
 		return nil, fmt.Errorf("try statement must have except or finally clause")
 	}
+
+	return &verb.TryStmt{Pos: pos, Body: body, Handlers: handlers, Finalizer: finalizer}, nil
 }
 
 // parseScatterOrExprStatement decides if {... is scatter assignment or expression

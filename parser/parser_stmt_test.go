@@ -44,3 +44,49 @@ func TestElseIfLowersToNestedSemanticConditionals(t *testing.T) {
 		t.Fatalf("conditional lines = %d, %d, %d; want 1, 3, 5", root.Position().Line, second.Position().Line, third.Position().Line)
 	}
 }
+
+func TestTryFormsLowerToOneSemanticStatement(t *testing.T) {
+	tests := []struct {
+		name          string
+		source        string
+		wantHandlers  int
+		wantFinalizer bool
+	}{
+		{
+			name:         "handlers only",
+			source:       "try\nreturn 1;\nexcept detail (E_DIV)\nreturn detail;\nendtry",
+			wantHandlers: 1,
+		},
+		{
+			name:          "finalizer only",
+			source:        "try\nreturn 1;\nfinally\nreturn 2;\nendtry",
+			wantFinalizer: true,
+		},
+		{
+			name:          "handlers and finalizer",
+			source:        "try\nreturn 1;\nexcept (E_DIV)\nreturn 2;\nexcept (ANY)\nreturn 3;\nfinally\nreturn 4;\nendtry",
+			wantHandlers:  2,
+			wantFinalizer: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			program, err := NewParser(test.source).ParseProgram()
+			if err != nil {
+				t.Fatalf("ParseProgram() error = %v", err)
+			}
+
+			tryStmt, ok := program.Statements[0].(*verb.TryStmt)
+			if !ok {
+				t.Fatalf("statement = %T, want *verb.TryStmt", program.Statements[0])
+			}
+			if len(tryStmt.Handlers) != test.wantHandlers {
+				t.Fatalf("handler count = %d, want %d", len(tryStmt.Handlers), test.wantHandlers)
+			}
+			if (tryStmt.Finalizer != nil) != test.wantFinalizer {
+				t.Fatalf("finalizer present = %t, want %t", tryStmt.Finalizer != nil, test.wantFinalizer)
+			}
+		})
+	}
+}

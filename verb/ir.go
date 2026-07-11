@@ -377,13 +377,14 @@ type ReturnStmt struct {
 func (s *ReturnStmt) Position() Position { return s.Pos }
 func (s *ReturnStmt) stmtNode()          {}
 
-type TryExceptStmt struct {
-	Pos     Position
-	Body    []Stmt
-	Excepts []*ExceptClause
+type TryStmt struct {
+	Pos       Position
+	Body      []Stmt
+	Handlers  []ExceptionHandler
+	Finalizer *Finalizer
 }
 
-type ExceptClause struct {
+type ExceptionHandler struct {
 	Pos      Position
 	Variable string
 	Codes    []string
@@ -391,27 +392,13 @@ type ExceptClause struct {
 	Body     []Stmt
 }
 
-func (s *TryExceptStmt) Position() Position { return s.Pos }
-func (s *TryExceptStmt) stmtNode()          {}
-
-type TryFinallyStmt struct {
-	Pos     Position
-	Body    []Stmt
-	Finally []Stmt
+type Finalizer struct {
+	Pos  Position
+	Body []Stmt
 }
 
-func (s *TryFinallyStmt) Position() Position { return s.Pos }
-func (s *TryFinallyStmt) stmtNode()          {}
-
-type TryExceptFinallyStmt struct {
-	Pos     Position
-	Body    []Stmt
-	Excepts []*ExceptClause
-	Finally []Stmt
-}
-
-func (s *TryExceptFinallyStmt) Position() Position { return s.Pos }
-func (s *TryExceptFinallyStmt) stmtNode()          {}
+func (s *TryStmt) Position() Position { return s.Pos }
+func (s *TryStmt) stmtNode()          {}
 
 type ScatterStmt struct {
 	Pos     Position

@@ -389,8 +389,56 @@ Gate results:
 
 Commit:
 
+- `37743ec refactor: normalize semantic conditionals`
+
+Next slice:
+
+- Normalize the exception family.
+
+## Iteration 6 - Phase 3.2 exception normalization
+
+Slice read:
+
+- `verb/ir.go` exception statement types
+- `parser/parser_stmt.go` try parsing
+- `bytecode/compiler.go` try lowering
+- `parser/unparse.go` try formatting
+- existing parser, bytecode, and VM exception tests
+
+Surfaces:
+
+- `TryExceptStmt`, `TryFinallyStmt`, and `TryExceptFinallyStmt`
+  - Disposition: delete
+  - Owner after cleanup: none
+  - Action: replaced the three concrete-spelling-shaped semantic statements
+    with one `TryStmt` containing ordered handlers and an optional finalizer.
+- `ExceptClause`
+  - Disposition: rewrite
+  - Owner after cleanup: `verb.ExceptionHandler`
+  - Action: retained semantic error matching, optional binding, body, and
+    source position without retaining the MOO `except` spelling in the type.
+- Try bytecode lowering
+  - Disposition: consolidate
+  - Owner after cleanup: `bytecode.compileTry`
+  - Action: deleted the three duplicated lowering paths and emit the same
+    nested handler/finalizer bytecode shape from the one semantic node.
+- Try semantic assertions
+  - Disposition: keep
+  - Owner after cleanup: parser frontend tests
+  - Action: added structural coverage proving handler-only, finalizer-only,
+    and combined MOO forms all become `verb.TryStmt`.
+
+Gate results:
+
+- Pass: zero Go hits for the deleted statement, clause, and compiler names.
+- Pass: `go test ./parser ./verb ./bytecode ./vm`.
+- Pass: `go test ./builtins ./server ./cmd/...`.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit conditional normalization, then normalize the exception family.
+- Commit exception normalization, then normalize the loop family.

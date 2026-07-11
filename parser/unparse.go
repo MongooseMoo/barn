@@ -121,22 +121,22 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		}
 		return indentStr + "continue;"
 
-	case *verb.TryExceptStmt:
+	case *verb.TryStmt:
 		var sb strings.Builder
 		sb.WriteString(indentStr + "try\n")
 		for _, bodyStmt := range s.Body {
 			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
 		}
-		for _, except := range s.Excepts {
+		for _, handler := range s.Handlers {
 			sb.WriteString(indentStr + "except ")
-			if except.Variable != "" {
-				sb.WriteString(except.Variable + " ")
+			if handler.Variable != "" {
+				sb.WriteString(handler.Variable + " ")
 			}
 			sb.WriteString("(")
-			if except.IsAny {
+			if handler.IsAny {
 				sb.WriteString("ANY")
 			} else {
-				for i, code := range except.Codes {
+				for i, code := range handler.Codes {
 					if i > 0 {
 						sb.WriteString(", ")
 					}
@@ -144,56 +144,15 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 				}
 			}
 			sb.WriteString(")\n")
-			for _, bodyStmt := range except.Body {
+			for _, bodyStmt := range handler.Body {
 				sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
 			}
 		}
-		sb.WriteString(indentStr + "endtry")
-		return strings.TrimSuffix(sb.String(), "\n")
-
-	case *verb.TryFinallyStmt:
-		var sb strings.Builder
-		sb.WriteString(indentStr + "try\n")
-		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
-		}
-		sb.WriteString(indentStr + "finally\n")
-		for _, bodyStmt := range s.Finally {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
-		}
-		sb.WriteString(indentStr + "endtry")
-		return strings.TrimSuffix(sb.String(), "\n")
-
-	case *verb.TryExceptFinallyStmt:
-		var sb strings.Builder
-		sb.WriteString(indentStr + "try\n")
-		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
-		}
-		for _, except := range s.Excepts {
-			sb.WriteString(indentStr + "except ")
-			if except.Variable != "" {
-				sb.WriteString(except.Variable + " ")
-			}
-			sb.WriteString("(")
-			if except.IsAny {
-				sb.WriteString("ANY")
-			} else {
-				for i, code := range except.Codes {
-					if i > 0 {
-						sb.WriteString(", ")
-					}
-					sb.WriteString(code)
-				}
-			}
-			sb.WriteString(")\n")
-			for _, bodyStmt := range except.Body {
+		if s.Finalizer != nil {
+			sb.WriteString(indentStr + "finally\n")
+			for _, bodyStmt := range s.Finalizer.Body {
 				sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
 			}
-		}
-		sb.WriteString(indentStr + "finally\n")
-		for _, bodyStmt := range s.Finally {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
 		}
 		sb.WriteString(indentStr + "endtry")
 		return strings.TrimSuffix(sb.String(), "\n")
