@@ -27,8 +27,8 @@ const (
 	precedenceProperty   // . : [] (highest - property access, verb call, index)
 )
 
-// UnparseProgram converts a semantic verb program back to MOO source lines.
-func UnparseProgram(program *verb.Program) []string {
+// FormatMOO converts a semantic verb program back to MOO source lines.
+func FormatMOO(program *verb.Program) []string {
 	if len(program.Statements) == 0 {
 		return []string{}
 	}
@@ -47,6 +47,9 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 
 	switch s := stmt.(type) {
 	case *verb.ExprStmt:
+		if s.Expr == nil {
+			return indentStr + ";"
+		}
 		return indentStr + unparseExpr(s.Expr, precedenceLowest) + ";"
 
 	case *verb.ReturnStmt:
@@ -198,9 +201,9 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 
 	case *verb.TernaryExpr:
 		prec := precedenceTernary
-		cond := unparseExpr(e.Condition, prec)
-		then := unparseExpr(e.ThenExpr, prec)
-		els := unparseExpr(e.ElseExpr, prec)
+		cond := unparseExpr(e.Condition, prec+1)
+		then := unparseExpr(e.ThenExpr, prec+1)
+		els := unparseExpr(e.ElseExpr, prec+1)
 		result := cond + " ? " + then + " | " + els
 		if prec < parentPrecedence {
 			return "(" + result + ")"
@@ -247,8 +250,8 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 		return "@" + unparseExpr(e.Expr, precedenceUnary)
 
 	case *verb.CatchExpr:
-		result := unparseExpr(e.Expr, precedenceTernary)
-		result += " `! "
+		result := "`" + unparseExpr(e.Expr, precedenceTernary)
+		result += " ! "
 		if e.IsAny {
 			result += "ANY"
 		} else {
@@ -262,7 +265,7 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 		if e.Default != nil {
 			result += " => " + unparseExpr(e.Default, precedenceTernary)
 		}
-		return result
+		return result + "'"
 
 	case *verb.AssignExpr:
 		prec := precedenceAssign
@@ -467,7 +470,11 @@ func unparseLiteral(v *verb.LiteralExpr) string {
 	case verb.LiteralInt:
 		return strconv.FormatInt(v.IntValue, 10)
 	case verb.LiteralFloat:
-		return fmt.Sprintf("%g", v.FloatValue)
+		formatted := strconv.FormatFloat(v.FloatValue, 'g', -1, 64)
+		if !strings.ContainsAny(formatted, ".eE") {
+			formatted += ".0"
+		}
+		return formatted
 	case verb.LiteralString:
 		// Need proper string escaping
 		return strconv.Quote(v.StringValue)

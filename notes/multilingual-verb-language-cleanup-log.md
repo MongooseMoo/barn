@@ -783,8 +783,68 @@ Gate results:
 
 Commit:
 
+- `f7e1608 refactor: disassemble compiled bytecode`
+
+Next slice:
+
+- Rebuild canonical MOO formatting.
+
+## Iteration 13 - Phase 7 canonical MOO formatting
+
+Slice read:
+
+- every sealed statement, expression, target, and binding variant in `verb`
+- the existing parser formatting implementation and parser tests
+- representative verbs from `db/format/testdata/toastcore.db`
+- original-source persistence paths in builtins and database writing
+
+Surfaces:
+
+- `UnparseProgram` and `parser/unparse.go`
+  - Disposition: replace
+  - Owner after cleanup: `parser.FormatMOO` in `parser/format.go`
+  - Action: used `gopls rename` for the public symbol and renamed the file to
+    reflect deterministic canonical formatting rather than syntax recovery.
+- Semantic round-trip contract
+  - Disposition: prove
+  - Owner after cleanup: parser formatter tests
+  - Action: compares parsed IR before and after formatting with every source
+    position recursively erased, then proves repeated formatting is stable.
+- IR coverage
+  - Disposition: keep exhaustive
+  - Owner after cleanup: formatter dispatch and corpus tests
+  - Action: covers every sealed statement/expression/target/binding variant,
+    precedence, associativity, empty statements/returns, literals, calls,
+    control flow, exceptions, destructuring, and fork syntax.
+- Representative database behavior
+  - Disposition: verify
+  - Owner after cleanup: parser formatter tests
+  - Action: round-trips 50 parse-compatible verbs from the tracked toastcore
+    fixture in deterministic object/verb order.
+- Formatter defects exposed by the new property test
+  - Disposition: fix
+  - Owner after cleanup: `parser.FormatMOO`
+  - Action: corrected catch delimiters, nested non-associative ternary
+    parentheses, float spelling that had collapsed `1.0` to integer `1`, and
+    empty expression statements.
+- Original source persistence
+  - Disposition: keep unchanged
+  - Owner after cleanup: `db/store`, `db/format`, and `verb_code()`
+  - Action: no production caller uses `FormatMOO`; stored original lines remain
+    the only persistence and `verb_code()` surface.
+
+Gate results:
+
+- Pass: `go test ./parser -count=1`.
+- Pass: runtime package gates from Phases 5 and 6.
+- Expected unrelated full-suite failure only:
+  `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit bytecode disassembly, then rebuild canonical MOO formatting.
+- Commit canonical formatting, then run Phase 8 fixed-point verification.
