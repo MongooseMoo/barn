@@ -138,9 +138,73 @@ Gate results:
 
 Commit:
 
-- Pending for this iteration.
+- `377366b test: lock MOO compilation cleanup baseline`
 
 Next slice:
 
 - Commit Phase 0, reread the plan, then execute Phase 1 specification ownership
   changes.
+
+## Iteration 2 - Phase 1 ownership specification
+
+Slice read:
+
+- `spec/README.md`
+- `spec/vm.md`
+- `spec/statements.md`
+- `spec/grammar.md`
+- `spec/database.md`
+- `parser/AGENTS.md`
+- `plans/multilingual-verb-language-cleanup-plan.md`
+
+Surfaces:
+
+- Related specification discovery
+  - Disposition: keep as review evidence
+  - Owner after cleanup: `reports/`
+  - Action: inventoried compilation, statement, grammar, persistence, and parser
+    charter contracts before drafting.
+  - Evidence: `reports/spec-discovery-verb-language-ownership.md`.
+- Ownership specification draft
+  - Disposition: keep as review evidence
+  - Owner after cleanup: `prompts/`
+  - Action: drafted the parser, verb IR, bytecode, compiler, persistence, and
+    compiled-only runtime ownership graph outside the live specifications.
+  - Evidence: `prompts/spec-draft-verb-language-ownership.md`.
+- External review gates
+  - Disposition: keep as review evidence
+  - Owner after cleanup: `reports/`
+  - Action: addressed four Codex concerns about the enclosing source compiler,
+    queued-task source, illustrative semantic-family examples, and semantic
+    constant keys. Codex then approved. Gemini CLI was unavailable because its
+    configured individual tier returned `UNSUPPORTED_CLIENT`; the user
+    explicitly directed use of `agy` instead, and `agy` approved the corrected
+    draft without concerns.
+  - Evidence: `reports/codex-spec-review-verb-language-ownership.md` and
+    `reports/agy-spec-review-verb-language-ownership.md`.
+- Ownership specifications and parser charter
+  - Disposition: keep
+  - Owner after cleanup: `spec/` and `parser/AGENTS.md`
+  - Action: integrated only the reviewed sections. The specification now makes
+    `compiler` the only source-to-bytecode owner, `verb` the semantic owner,
+    `bytecode` the IR lowering owner, and task/scheduler/VM compiled-only runtime
+    consumers. Original verb source, queued-task `code`, canonical formatter
+    output, IR, and compiled state remain distinct.
+  - Evidence: `spec/vm.md`, `spec/statements.md`, and `parser/AGENTS.md`.
+
+Gate results:
+
+- Pass: Codex review verdict `APPROVE`.
+- Pass: user-approved `agy` second-review verdict `APPROVE`.
+- Pass: `git diff --check`.
+- Pass: independent integration verification report.
+  - Evidence: `reports/spec-verification-verb-language-ownership.md`.
+
+Commit:
+
+- Pending for this iteration.
+
+Next slice:
+
+- Complete independent spec integration verification, commit Phase 1, reread
+  the plan, then begin Phase 2 verb IR extraction.

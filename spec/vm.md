@@ -8,16 +8,45 @@ The MOO virtual machine is a stack-based bytecode interpreter. This document spe
 
 ## 1. Compilation Pipeline
 
-```
-MOO Source → Lexer → Parser → AST → Compiler → Bytecode → VM
+```text
+Original MOO Source -> Source Compiler -> Bytecode Program -> VM
+                         | orchestrates
+                         +-> MOO Parser -> Verb IR -> Bytecode Compiler
 ```
 
-| Stage | Input | Output |
-|-------|-------|--------|
-| Lexer | Source text | Token stream |
-| Parser | Tokens | AST nodes |
-| Compiler | AST | Bytecode program |
-| VM | Bytecode | Execution result |
+| Stage | Owner | Input | Output |
+|-------|-------|-------|--------|
+| Source persistence | `db/store`, `db/format` | Original MOO source lines | Original MOO source lines |
+| Source compiler | `compiler` | Original MOO source plus builtin registry | Cached `bytecode.Program` or structured diagnostics |
+| MOO parser | `parser`, called by `compiler` | Original MOO source | `verb.Program` semantic IR |
+| Bytecode compiler | `bytecode`, called by `compiler` | `verb.Program` | `bytecode.Program` |
+| Runtime | `task`, `scheduler`, `vm` | `bytecode.Program` | Execution result |
+
+The artifacts in this pipeline are distinct:
+
+- **Original source** is the exact persisted sequence of MOO source lines. It is
+  returned by `verb_code()` and written to database verb-program sections.
+- **Verb IR** (`verb.Program`) is the language-neutral executable meaning of a
+  verb. It contains semantic statements, expressions, operators, literal
+  payloads, and source locations. It does not contain runtime values or exact
+  whitespace, comments, spelling, or redundant parentheses.
+- **Compiled program** (`bytecode.Program`) contains VM instructions, constants,
+  local-variable metadata, source-line mappings, and original source needed for
+  runtime diagnostics and fork persistence.
+
+Canonical MOO formatting deterministically renders a `verb.Program` as MOO
+source. It preserves semantic meaning, precedence, and associativity; it does
+not preserve the exact original text. Formatting never replaces the original
+source used by `verb_code()` or database persistence.
+
+Runtime tasks, scheduler state, and VM frames carry compiled bytecode programs.
+They do not carry parser syntax trees or verb IR. Persisted queued-task source is
+an IO artifact used to compile a bytecode program once during restoration; it
+does not make task or scheduler runtime state an owner of syntax or IR.
+
+`compiler` is the only callable source-to-bytecode boundary. The parser and
+bytecode compiler are its internal stages; runtime callers do not compose those
+stages independently.
 
 ---
 
@@ -540,71 +569,68 @@ func (vm *VM) CallBuiltin(id int, args []Value) (Value, error) {
 
 ## 12. Compilation
 
-### 12.1 Compiler Structure
+### 12.1 Source Compilation
+
+The `compiler` package owns complete MOO source compilation:
+
+1. Parse original MOO source through `parser` into `verb.Program`.
+2. Preserve structured diagnostics with source locations.
+3. Compile the verb IR through `bytecode`.
+4. Attach original source to the resulting bytecode program.
+5. Cache the immutable bytecode program by source content.
+
+No runtime caller performs an independent subset of these steps.
+
+### 12.2 Bytecode Compiler Structure
 
 ```go
 type Compiler struct {
     program    *Program
-    constants  map[Value]int  // Constant deduplication
-    variables  map[string]int // Variable indices
-    loops      []LoopContext  // For break/continue
-    scopes     []Scope        // Variable scopes
+    constants  map[ConstantKey]int
+    variables  map[string]int
+    loops      []LoopContext
+    scopes     []Scope
 }
 ```
 
-### 12.2 Expression Compilation
+The bytecode compiler accepts semantic nodes owned by `verb`. It does not
+import or interpret MOO lexer tokens, concrete syntax, or parser-owned nodes.
+`ConstantKey` represents semantic runtime-value equality and never source-text
+spelling.
 
-```go
-func (c *Compiler) compileExpr(expr Expr) {
-    switch e := expr.(type) {
-    case *IntLiteral:
-        if e.Value >= OP_IMM_MIN && e.Value <= OP_IMM_MAX {
-            c.emit(OP_IMM_BASE + e.Value - OP_IMM_MIN)
-        } else {
-            c.emitConstant(IntValue(e.Value))
-        }
+### 12.3 Expression Compilation
 
-    case *BinaryExpr:
-        c.compileExpr(e.Left)
-        c.compileExpr(e.Right)
-        c.emit(binaryOpcode(e.Op))
+Expression compilation dispatches on semantic expression variants. Operators
+are `verb` semantic operators rather than MOO token kinds. Literal payloads are
+converted to Barn runtime values only at the bytecode boundary.
 
-    case *VarExpr:
-        idx := c.resolveVariable(e.Name)
-        c.emit(OP_GET_VAR, idx)
-    }
-}
-```
+The implementation must exhaustively handle every sealed `verb.Expr` variant.
+Representative cases include semantic literals, binary expressions, and
+variable references; omitted cases in this specification are not invalid
+expressions.
 
-### 12.3 Statement Compilation
+### 12.4 Statement Compilation
 
-```go
-func (c *Compiler) compileStmt(stmt Stmt) {
-    switch s := stmt.(type) {
-    case *IfStmt:
-        c.compileExpr(s.Condition)
-        elseJump := c.emitJump(OP_JUMP_IF_FALSE)
-        c.compileBlock(s.Then)
-        endJump := c.emitJump(OP_JUMP)
-        c.patchJump(elseJump)
-        if s.Else != nil {
-            c.compileBlock(s.Else)
-        }
-        c.patchJump(endJump)
+Statement compilation dispatches on semantic statement variants and emits
+bytecode control flow. Statement nodes do not execute themselves.
 
-    case *ForStmt:
-        c.beginLoop(s.Label)
-        // ... compile loop body
-        c.endLoop()
-    }
-}
-```
+The implementation must exhaustively handle every sealed `verb.Stmt` variant.
+Representative cases include conditionals and the distinct semantic range-loop
+and collection-loop forms; omitted cases in this specification are not invalid
+statements.
 
 ---
 
 ## 13. VM State Serialization
 
 For task suspension/resumption:
+
+Serialized and live runtime execution state refer to compiled bytecode programs,
+instruction positions, values, and control-flow stacks. They contain no parser
+syntax tree and no verb IR. A queued-task database record retains its persisted
+`code` source artifact so restoration compiles that artifact exactly once before
+recreating runtime state. Queued-task `code` is distinct from live or serialized
+VM state and from the separately preserved original source of a database verb.
 
 ```go
 type VMState struct {

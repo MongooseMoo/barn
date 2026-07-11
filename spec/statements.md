@@ -679,39 +679,29 @@ Statements execute top-to-bottom unless control flow changes.
 
 ---
 
-## 13. Go Implementation Notes
+## 13. Implementation Boundary
 
-### 13.1 Statement Interface
+### 13.1 Semantic Statements
 
-```go
-type Stmt interface {
-    Node
-    stmtNode()
-    Execute(vm *VM) error
-}
-```
+Language-level statement meaning is represented by statement variants owned by
+the `verb` package. These nodes are compiler input: they do not contain VM
+methods and do not execute themselves.
 
-### 13.2 Loop Labels
+The MOO parser constructs these semantic statements directly. There is no
+parser-owned executable AST, parser-to-IR adapter, or parallel old/new statement
+path.
 
-```go
-type LoopContext struct {
-    Label    string  // Optional name
-    BreakTo  bool    // Break requested
-    Continue bool    // Continue requested
-}
-```
+### 13.2 Compiler Control Flow
+
+Loop labels, break and continue targets, exception handlers, and finally
+regions are resolved by the bytecode compiler while lowering semantic
+statements to bytecode. Compiler control-flow bookkeeping is not parser syntax
+and is not retained as a semantic statement object in runtime task state.
 
 ### 13.3 Try/Finally Guarantee
 
-```go
-func (t *TryFinallyStmt) Execute(vm *VM) (err error) {
-    defer func() {
-        // Finally always runs
-        finallyErr := t.Finally.Execute(vm)
-        if err == nil {
-            err = finallyErr
-        }
-    }()
-    return t.Try.Execute(vm)
-}
-```
+The bytecode emitted for a try/finally statement must run the finally body on
+normal completion, return, loop control transfer, or exception propagation, as
+specified in Section 10. The VM enforces this guarantee through compiled
+handler metadata and control flow; statement nodes do not recursively execute
+try or finally bodies.
