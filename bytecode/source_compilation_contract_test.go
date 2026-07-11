@@ -1,0 +1,119 @@
+package bytecode
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// TestMOOCompilationContractCharacterizesEveryNodeFamily fixes the current
+// source -> parser AST -> bytecode behavior before the parser AST is moved to
+// its semantic owner. It intentionally compiles through both current entry
+// points: Phase 5 will delete CompileVerb, and this test must then move to the
+// single source-compilation owner rather than preserving the old API.
+func TestMOOCompilationContractCharacterizesEveryNodeFamily(t *testing.T) {
+	source := []string{
+		"integer = 1;",
+		"floating = 2.5;",
+		"string = \"value\";",
+		"boolean = true;",
+		"object = #0;",
+		"err = E_TYPE;",
+		"unary = -integer;",
+		"binary = integer + 2 * 3;",
+		"ternary = boolean ? integer | 0;",
+		"list = {integer, @{2, 3}};",
+		"list_range = {1..3};",
+		"map = [\"key\" -> integer];",
+		"indexed = list[1];",
+		"ranged = list[^..$];",
+		"property = object.name;",
+		"dynamic_property = object.(\"name\");",
+		"verb_result = object:look();",
+		"dynamic_verb_result = object:(\"look\")();",
+		"caught = `integer / 0 ! E_DIV => 0';",
+		"if (boolean)",
+		"  integer = integer + 1;",
+		"elseif (integer == 2)",
+		"  integer = 3;",
+		"else",
+		"  integer = 4;",
+		"endif",
+		"while named_loop (integer < 5)",
+		"  integer = integer + 1;",
+		"  break named_loop;",
+		"endwhile",
+		"for value, index in (list)",
+		"  continue value;",
+		"endfor",
+		"for value in [1..3]",
+		"  break value;",
+		"endfor",
+		"try",
+		"  integer = integer / 1;",
+		"except detail (E_DIV)",
+		"  integer = 0;",
+		"finally",
+		"  boolean = false;",
+		"endtry",
+		"{required, ?optional = 2, @rest} = list;",
+		"fork task_id (0)",
+		"  integer = integer + 1;",
+		"endfork",
+		"return {integer, floating, string, boolean, object, err};",
+	}
+
+	parsed, parseErrors := CompileVerb(source)
+	if len(parseErrors) != 0 {
+		t.Fatalf("CompileVerb returned parse errors: %v", parseErrors)
+	}
+	if parsed == nil || len(parsed.Statements) == 0 {
+		t.Fatal("CompileVerb returned no statements")
+	}
+
+	verbProgramCache = newProgramCache(verbCacheCapacity)
+	compiled, err := CompileVerbBytecode(source, stubRegistry{})
+	if err != nil {
+		t.Fatalf("CompileVerbBytecode failed: %v", err)
+	}
+	if !reflect.DeepEqual(compiled.Source, source) {
+		t.Fatalf("compiled source changed:\n got: %#v\nwant: %#v", compiled.Source, source)
+	}
+	if len(compiled.Code) == 0 {
+		t.Fatal("compiled program contains no bytecode")
+	}
+	if len(compiled.LineInfo) == 0 {
+		t.Fatal("compiled program contains no source-line mapping")
+	}
+	if got := compiled.LineForIP(0); got != 1 {
+		t.Fatalf("first instruction maps to line %d, want 1", got)
+	}
+}
+
+func TestMOOCompilationContractPreservesEmptyProgram(t *testing.T) {
+	verbProgramCache = newProgramCache(verbCacheCapacity)
+
+	compiled, err := CompileVerbBytecode([]string{}, stubRegistry{})
+	if err != nil {
+		t.Fatalf("CompileVerbBytecode(empty) failed: %v", err)
+	}
+	if len(compiled.Source) != 0 {
+		t.Fatalf("empty program source = %#v, want empty", compiled.Source)
+	}
+	if len(compiled.Code) != 1 || OpCode(compiled.Code[0]) != OP_RETURN_NONE {
+		t.Fatalf("empty program bytecode = %v, want only OP_RETURN_NONE", compiled.Code)
+	}
+}
+
+func TestMOOCompilationContractReportsParseLine(t *testing.T) {
+	_, parseErrors := CompileVerb([]string{
+		"value = 1;",
+		"value = ;",
+	})
+	if len(parseErrors) != 1 {
+		t.Fatalf("parse errors = %v, want exactly one", parseErrors)
+	}
+	if !strings.HasPrefix(parseErrors[0], "Line 2:  ") {
+		t.Fatalf("parse error = %q, want Line 2 prefix", parseErrors[0])
+	}
+}
