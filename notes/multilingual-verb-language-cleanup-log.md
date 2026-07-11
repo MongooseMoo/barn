@@ -843,8 +843,60 @@ Gate results:
 
 Commit:
 
-- Pending for this iteration.
+- `9c9e1c0 refactor: canonicalize MOO formatting`
 
 Next slice:
 
 - Commit canonical formatting, then run Phase 8 fixed-point verification.
+
+## Iteration 14 - Phase 8 fixed-point inventory and regression gates
+
+Slice read:
+
+- every forbidden-surface search from the cleanup plan
+- source-compilation, database, task, scheduler, VM, builtin, server, and
+  command regression tests
+- remaining database terminology and VM test compilation entrypoints
+
+Surfaces:
+
+- Persisted verb source section naming
+  - Disposition: clarify
+  - Owner after cleanup: `db/format`
+  - Action: used `gopls rename` to replace the misleading internal
+    `writeVerbPrograms` name with `writeVerbCodeSections`; no storage format or
+    behavior changed.
+- VM test and benchmark source compilation
+  - Disposition: converge
+  - Owner after cleanup: `compiler.CompileMOO`
+  - Action: removed their remaining direct parser and bytecode-compiler paths.
+- World-model cache comment
+  - Disposition: correct
+  - Owner after cleanup: `db/store`
+  - Action: records that original source remains persistent while the compiler
+    owns its content-addressed compiled-program cache.
+
+Gate results:
+
+- Pass: all five forbidden-surface searches produce zero hits.
+- Pass: focused compilation-cache, database round-trip, empty programmed verb,
+  eval, command/server/login, fork, queued-task, and diagnostic regression
+  gates.
+- Pass: parser, verb, compiler, bytecode, VM, task, builtin, server, and command
+  package gates.
+- Expected unrelated failure only in `go test ./scheduler` and `go test ./...`:
+  `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+- Pass: `git diff --check`.
+- Fail: first final managed conformance run produced `11,331 passed`, `126
+  skipped`, and four disassembly failures in index-boundary, bitwise-complement,
+  and shift operator cases. Artifact:
+  `.tmp/multilingual-cleanup-final.xml`.
+
+Commit:
+
+- Pending for this iteration.
+
+Next slice:
+
+- Verify the four failing disassembly cases against the WSL Toast oracle, then
+  correct that exact bytecode-disassembly family.

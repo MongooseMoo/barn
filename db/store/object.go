@@ -159,11 +159,9 @@ type Verb struct {
 	// has an empty program that Toast still counts).
 	hasProgram bool
 
-	// NOTE (verbcache spike): the runtime-derived fields Program (*VerbProgram,
-	// AST) and BytecodeCache (any, *vm.Program) have been REMOVED from the world
-	// model. The compiled AST + bytecode cache now live in the barn/bytecode
-	// package, keyed externally. db/store holds only persistent state (source),
-	// and no longer imports barn/parser.
+	// Runtime-derived semantic IR and compiled-program caches do not belong in
+	// the world model. The compiler owns its content-addressed program cache;
+	// db/store holds only persistent original source.
 }
 
 // VerbView is a flat, read-only snapshot of a Verb. It is a value (a copy):

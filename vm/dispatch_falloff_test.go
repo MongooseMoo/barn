@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"barn/bytecode"
-	"barn/parser"
+	"barn/compiler"
 )
 
 // These tests pin the behavior that the C5 dispatch-loop change relies on: the
@@ -49,14 +49,9 @@ func TestEveryCompiledProgramEndsWithTerminator(t *testing.T) {
 	}
 	registry := BuildVMRegistry()
 	for _, src := range cases {
-		p := parser.NewParser(src)
-		program, err := p.ParseProgram()
-		if err != nil {
-			t.Fatalf("src %q: parse failed: %v", src, err)
-		}
-		prog, err := bytecode.NewCompilerWithRegistry(registry).CompileProgram(program)
-		if err != nil {
-			t.Fatalf("src %q: compile failed: %v", src, err)
+		prog, diagnostics := compiler.CompileMOO([]string{src}, registry)
+		if len(diagnostics) > 0 {
+			t.Fatalf("src %q: compile failed: %v", src, diagnostics)
 		}
 		if len(prog.Code) == 0 {
 			t.Fatalf("src %q: empty Code, expected a terminator opcode", src)

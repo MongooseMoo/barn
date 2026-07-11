@@ -3,10 +3,9 @@ package vm
 import (
 	"testing"
 
-	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
@@ -27,16 +26,9 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	ctx.Store = store
 	ctx.Registry = registry
 
-	p := parser.NewParser(code)
-	program, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse failed: %v", err)
-	}
-
-	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.CompileProgram(program)
-	if err != nil {
-		t.Fatalf("compile failed: %v", err)
+	prog, diagnostics := compiler.CompileMOO([]string{code}, registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
 	machine := NewVM(store, registry)

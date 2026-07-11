@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestRoundTripPreservesEmptyVerbProgram is the B6 regression guard.
+// TestRoundTripPreservesEmptyVerbCodeSection is the B6 regression guard.
 //
 // Toast (v17) emits one verb-program entry (#obj:verbidx + source + ".") for
 // every verb that has a program, INCLUDING verbs whose program source is empty
@@ -20,7 +20,7 @@ import (
 // This test builds those three cases and asserts the empty-program verb keeps
 // its program entry across load->write->load, distinct from the never-programmed
 // verb which must NOT gain one.
-func TestRoundTripPreservesEmptyVerbProgram(t *testing.T) {
+func TestRoundTripPreservesEmptyVerbCodeSection(t *testing.T) {
 	s := store.NewStore()
 
 	objID, errCode := s.CreateObject(nil, 0, false)
