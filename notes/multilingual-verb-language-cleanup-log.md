@@ -614,9 +614,60 @@ Implementation commit:
 
 Record commit:
 
+- `54bd9bf test: verify semantic index boundaries`
+
+Next slice:
+
+- Begin Phase 4 source compiler ownership.
+
+## Iteration 10 - Phase 4 source compiler owner
+
+Slice read:
+
+- `bytecode/verbcache.go`
+- `bytecode/cache.go`
+- `bytecode/compiler.go` source entry point and semantic compiler
+- `parser.ParseError`
+- `bytecode.Program.Source`
+- all current source compilation callers
+
+Surfaces:
+
+- Complete MOO source compilation
+  - Disposition: move
+  - Owner after cleanup: `compiler.CompileMOO`
+  - Action: added the single operation that joins original source lines, parses
+    MOO into `verb.Program`, lowers through bytecode, attaches an owned copy of
+    the original lines, and returns the immutable compiled program.
+- Syntax and compile failures
+  - Disposition: rewrite as structured data
+  - Owner after cleanup: `compiler.Diagnostic`
+  - Action: preserves semantic source position, public message, and underlying
+    detail without formatting and reparsing strings inside the pipeline.
+- Raw-source cache
+  - Disposition: move
+  - Owner after cleanup: `compiler`
+  - Action: added a bounded content-addressed LRU keyed by SHA-256 over
+    length-delimited original source lines; identical content shares immutable
+    programs and caller mutation cannot alter attached source.
+- Old bytecode source entry points and cache
+  - Disposition: delete in the immediately following Phase 5 caller migration
+  - Owner after cleanup: none
+  - Action: no wrapper was added. The old surface remains only until deletion
+    creates the compiler-error caller inventory required by the plan.
+
+Gate results:
+
+- Pass: `go test ./compiler ./bytecode ./parser ./verb ./vm`.
+- Pass: `go test ./builtins ./server ./task ./cmd/...`.
+- Pass: `go test ./scheduler -run '^$'`.
+- Pass: `git diff --check`.
+
+Commit:
+
 - Pending for this iteration.
 
 Next slice:
 
-- Commit the Phase 3.5 verification record, then begin Phase 4 source compiler
-  ownership.
+- Commit the source owner, then delete `VerbProgram`, `CompileVerb`, and
+  `CompileVerbBytecode` and migrate every resulting caller to `CompileMOO`.
