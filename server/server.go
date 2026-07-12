@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,10 +93,10 @@ func (s *Server) LoadDatabase() error {
 		lines := task.FormatTraceback(stack, err)
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
-			log.Printf("Traceback for player %v (connection not found):", player)
-			for _, line := range lines {
-				log.Printf("  %s", line)
-			}
+			slog.Error("traceback undeliverable (no connection)",
+				slog.Int64("player", int64(player)),
+				slog.String("error", types.NewErr(err).String()),
+				slog.String("traceback", strings.Join(lines, "\n")))
 			return
 		}
 		for _, line := range lines {
@@ -160,7 +162,9 @@ func (s *Server) LoadDatabase() error {
 
 	s.scheduler.LoadQueuedTasks(database.QueuedTasks)
 
-	log.Printf("Loaded database version %d with %d objects", database.Version, len(database.Objects))
+	slog.Info("database loaded",
+		slog.Int("version", database.Version),
+		slog.Int("objects", len(database.Objects)))
 	return nil
 }
 
@@ -198,7 +202,7 @@ func (s *Server) Start() error {
 
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
-		log.Printf("Warning: #0:server_started() failed: %v", err)
+		slog.Warn("#0:server_started() failed", slog.Any("err", err))
 	}
 
 	// Start listening for connections
@@ -228,7 +232,7 @@ func (s *Server) mainLoop() error {
 			return s.shutdown()
 		case <-s.checkpointChan:
 			if err := s.checkpoint(); err != nil {
-				log.Printf("Checkpoint failed: %v", err)
+				slog.Error("checkpoint failed", slog.Any("err", err))
 			}
 		}
 	}
@@ -270,11 +274,11 @@ func (s *Server) requestCheckpoint() error {
 
 // checkpoint saves the database to disk
 func (s *Server) checkpoint() error {
-	log.Println("Starting checkpoint...")
+	slog.Info("checkpoint started")
 
 	// Call #0:checkpoint_started()
 	if err := s.callCheckpointStarted(); err != nil {
-		log.Printf("Warning: #0:checkpoint_started() failed: %v", err)
+		slog.Warn("#0:checkpoint_started() failed", slog.Any("err", err))
 	}
 
 	start := time.Now()
@@ -287,10 +291,10 @@ func (s *Server) checkpoint() error {
 
 	// Call #0:checkpoint_finished(success)
 	if err := s.callCheckpointFinished(true); err != nil {
-		log.Printf("Warning: #0:checkpoint_finished() failed: %v", err)
+		slog.Warn("#0:checkpoint_finished() failed", slog.Any("err", err))
 	}
 
-	log.Printf("Checkpoint complete in %v", time.Since(start))
+	slog.Info("checkpoint complete", slog.Int64("duration_ms", time.Since(start).Milliseconds()))
 	return nil
 }
 
@@ -304,13 +308,13 @@ func (s *Server) Shutdown(message string) {
 	s.shutdownMessage = message
 	s.mu.Unlock()
 
-	log.Println("Initiating shutdown...")
+	slog.Info("initiating shutdown", slog.String("message", message))
 	s.cancel()
 }
 
 // shutdown performs the actual shutdown sequence
 func (s *Server) shutdown() error {
-	log.Println("Shutting down server...")
+	slog.Info("shutting down")
 
 	s.mu.Lock()
 	message := s.shutdownMessage
@@ -321,7 +325,7 @@ func (s *Server) shutdown() error {
 
 	// Call #0:shutdown_started()
 	if err := s.callShutdownStarted(message); err != nil {
-		log.Printf("Warning: #0:shutdown_started() failed: %v", err)
+		slog.Warn("#0:shutdown_started() failed", slog.Any("err", err))
 	}
 
 	s.connManager.CloseListeners()
@@ -331,12 +335,11 @@ func (s *Server) shutdown() error {
 
 	// Final checkpoint (unless checkpointing was explicitly disabled)
 	if s.checkpointInterval > 0 {
-		log.Println("Performing final checkpoint...")
 		if err := s.checkpoint(); err != nil {
-			log.Printf("Warning: final checkpoint failed: %v", err)
+			slog.Error("final checkpoint failed", slog.Any("err", err))
 		}
 	} else {
-		log.Println("Final checkpoint skipped (checkpointing disabled)")
+		slog.Info("final checkpoint skipped (checkpointing disabled)")
 	}
 
 	s.scheduler.Stop()
@@ -346,18 +349,23 @@ func (s *Server) shutdown() error {
 	s.running = false
 	s.mu.Unlock()
 
-	log.Println("Server shutdown complete")
+	slog.Info("shutdown complete")
 	return nil
 }
 
 // Panic performs emergency shutdown
 func (s *Server) Panic(message string) error {
-	log.Printf("PANIC: %s", message)
+	// The Go stack is the only record of where the server actually tripped;
+	// the message alone says that it died, not why.
+	slog.Error("server panic",
+		slog.String("panic", message),
+		slog.String("go_stack", string(debug.Stack())))
 
 	// Attempt emergency database dump
-	log.Println("Attempting emergency database dump...")
 	if err := s.checkpoint(); err != nil {
-		log.Printf("Emergency dump failed: %v", err)
+		slog.Error("emergency dump failed", slog.Any("err", err))
+	} else {
+		slog.Info("emergency dump written", slog.String("path", s.dbPath))
 	}
 
 	err := fmt.Errorf("%w: %s", ErrPanicShutdown, message)

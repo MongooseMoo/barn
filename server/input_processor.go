@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -144,7 +144,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 				p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 				return
 			}
-			log.Printf("Connection %d read error: %v", conn.ID, err)
+			slog.Warn("read error", slog.Int64("conn_id", conn.ID), slog.Any("err", err))
 			return
 		}
 
@@ -354,7 +354,7 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		p.callUserHook(handler, "user_client_disconnected", player)
 	}
 
-	log.Printf("Connection %d closed", conn.ID)
+	slog.Info("connection closed", slog.Int64("conn_id", conn.ID))
 }
 
 func (p *InputProcessor) processPreLogin(input command.InputEvent) {
@@ -380,7 +380,7 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 			srcIP := fields[2]
 			conn.SetProxiedIP(srcIP)
 			conn.SetResolvedName(srcIP)
-			log.Printf("PROXY: connection %d name rewritten to %s", conn.ID, srcIP)
+			slog.Info("proxy name rewritten", slog.Int64("conn_id", conn.ID), slog.String("addr", srcIP))
 		}
 		line = ""
 	}
@@ -460,7 +460,11 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 		// runs the verb without read() support and would silently regress the
 		// very bug this change fixes. Surface the failure instead.
 		conn.SetLoginTaskID(0)
-		log.Printf("login task dispatch failed for #%d:do_login_command: %v", handler, err)
+		slog.Warn("login task dispatch failed",
+			slog.Int64("this", int64(handler)),
+			slog.String("verb", "do_login_command"),
+			slog.Int64("conn_id", conn.ID),
+			slog.Any("err", err))
 		return
 	}
 }

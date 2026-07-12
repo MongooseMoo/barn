@@ -667,7 +667,6 @@ func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// First arg must be a list
 	if args[0].Type() != types.TYPE_LIST {
-		fmt.Printf("[SLICE DEBUG] First arg not a list: %T = %v\n", args[0], args[0])
 		return types.Err(types.E_TYPE)
 	}
 	list := args[0]

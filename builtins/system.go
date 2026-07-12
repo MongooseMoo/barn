@@ -3,6 +3,7 @@ package builtins
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -603,9 +604,7 @@ func builtinServerLog(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		msg += arg.String()
 	}
 
-	// Log to server output
-	// TODO: Use a proper logging system
-	println("[SERVER_LOG]", msg)
+	ctx.Logger().Info(msg, slog.String("src", "server_log"))
 
 	return types.Ok(types.NewInt(0))
 }

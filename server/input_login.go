@@ -2,7 +2,7 @@ package server
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"strings"
 	"time"
@@ -21,7 +21,7 @@ func (s *InputProcessor) shouldCallDoLoginCommand(conn *Connection, line string)
 	if line == "" && s.isTrustedProxyConnection(conn) {
 		allowLogin, err := s.callDoBlankCommand(conn, line)
 		if err != nil {
-			log.Printf("do_blank_command failed: %v", err)
+			slog.Warn("do_blank_command failed", slog.Any("err", err))
 			return false
 		}
 		return allowLogin
@@ -179,7 +179,10 @@ func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, 
 			return false, nil
 		}
 
-		log.Printf("do_command error: %v", result.Error)
+		// A MOO error code is an int; render it by name, as the traceback records do.
+		slog.Warn("do_command error",
+			slog.Int64("player", int64(player)),
+			slog.String("error", types.NewErr(result.Error).String()))
 		var stack []task.ActivationFrame
 		if result.CallStack != nil {
 			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
@@ -203,7 +206,10 @@ func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, play
 		if result.Error == types.E_VERBNF {
 			return
 		}
-		log.Printf("%s error: %v", verbName, result.Error)
+		slog.Warn("user hook error",
+			slog.String("verb", verbName),
+			slog.Int64("player", int64(player)),
+			slog.String("error", types.NewErr(result.Error).String()))
 		var stack []task.ActivationFrame
 		if result.CallStack != nil {
 			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
@@ -272,7 +278,7 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		if conn.ConnectionTime.IsZero() {
 			conn.ConnectionTime = time.Now()
 		}
-		log.Printf("Connection %d already logged in as player %d via switch_player", conn.ID, player)
+		slog.Warn("already logged in via switch_player", slog.Int64("conn_id", conn.ID), slog.Int64("player", int64(player)))
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}
@@ -300,7 +306,7 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	}
 
-	log.Printf("Connection %d logged in as player %d", conn.ID, player)
+	slog.Info("logged in", slog.Int64("conn_id", conn.ID), slog.Int64("player", int64(player)))
 }
 
 // isTrustedProxyConnection checks if a connection's IP is in the trusted proxies list.
