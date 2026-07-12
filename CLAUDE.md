@@ -267,6 +267,70 @@ go build -o moo_client.exe ./cmd/moo_client/
 
 Barn uses `Test.db` which creates new wizard players on `connect wizard`. Each connection gets a fresh wizard player object.
 
+## Reviewing What Happened On A Run
+
+Every run writes a structured JSON log to `logs/latest.jsonl` (the previous run is
+rotated to `logs/run-<timestamp>.jsonl`; the newest 10 are kept). This is on by
+default — no flag needed.
+
+**To find out what went wrong on the last run:**
+
+```bash
+go build -o barn_logs.exe ./cmd/barn_logs/
+./barn_logs.exe -level error     # failures only; exits 1 if the run logged an error
+./barn_logs.exe                  # warnings and errors
+./barn_logs.exe -run list        # available runs
+```
+
+An uncaught MOO error is **one** log record carrying the rendered traceback, the
+structured frames (verb, object, line, **source line**), and the error code. A
+recovered panic carries a Go stack. `barn_logs` prints those indented under the
+failure. The files are line-delimited JSON, so `jq` works too:
+
+```bash
+jq -c 'select(.level=="ERROR")' logs/latest.jsonl
+```
+
+**Caveat:** `Test.db` has genuinely broken object refs, so every boot logs ~30
+`src=startup_repair` warnings (Toast repairs them too — conformance *asserts* these
+messages). Use `-level error` to see what actually broke.
+
+### Log flags and the debug endpoint
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `-log-level` | `info` | `debug`, `info`, `warn`, `error` |
+| `-log-dir` | `logs` | Empty disables the JSON file sink |
+| `-debug-addr` | `127.0.0.1:0` | pprof + expvar; `off` disables |
+
+The debug endpoint binds an **ephemeral port**; find the real address in the log:
+
+```bash
+ADDR=$(jq -r 'select(.msg=="debug endpoint listening") | .addr' logs/latest.jsonl)
+curl -s "http://$ADDR/debug/vars" | jq 'with_entries(select(.key|startswith("barn.")))'
+curl -s "http://$ADDR/debug/pprof/heap" > heap.out
+curl -X POST "http://$ADDR/debug/loglevel?level=debug"   # no restart needed
+```
+
+Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
+`barn.panics_recovered` (nonzero = a Barn bug), `barn.checkpoints`,
+`barn.checkpoint_last_ms`, `barn.gc_sweeps`, `barn.gc_sweep_last_ms`,
+`barn.tasks_live`, `barn.connections_live`.
+
+### Rules when touching logging
+
+- **Log through `slog`, never the stdlib `log` package.** Use typed attrs
+  (`slog.String`, `slog.Int64`) — the key/value variadic silently corrupts records on
+  an odd arg count.
+- **A MOO error code is not a Go error.** `slog.Any("err", E_TYPE)` emits `"err":1`.
+  Use `slog.String("error", types.NewErr(code).String())` → `"error":"E_TYPE"`.
+- **Some log message TEXT is a conformance contract.** `assert_log` pins
+  `"CHECKPOINTING"` (dump_database), the startup-repair wording, and `server_log()`'s
+  message. Keep the text byte-identical; structured attrs are *additive*. Grep the
+  conformance suite for `assert_log` before rewording anything.
+- Attr conventions: `task_id`, `player`, `this` (object a verb runs on), `verb`,
+  `conn_id`, `error` (E_* name), `err` (Go error), `go_stack`, `traceback`, `frames`.
+
 ## Database Inspection Tools
 
 ### dump_verb - Display Verb Code
