@@ -2,9 +2,13 @@ package main
 
 import (
 	"errors"
+	"expvar"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -34,6 +38,40 @@ func fatalf(format string, args ...any) {
 	os.Exit(1)
 }
 
+// startDebugEndpoint serves pprof and expvar on a local address. The default
+// port is ephemeral so that several servers (the conformance runner starts them
+// in parallel) never collide; the address that was actually bound is logged, and
+// that log line is how you find it.
+//
+// The handlers are registered explicitly rather than by importing net/http/pprof
+// for its side effects, because that only populates http.DefaultServeMux — and
+// exposing pprof on a mux the rest of the program might serve publicly is how it
+// ends up on the open internet.
+func startDebugEndpoint(addr string) (*http.Server, error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/debug/vars", expvar.Handler())
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	srv := &http.Server{Handler: mux}
+	slog.Info("debug endpoint listening", slog.String("addr", listener.Addr().String()))
+
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Warn("debug endpoint stopped", slog.Any("err", err))
+		}
+	}()
+	return srv, nil
+}
+
 type stringListFlag []string
 
 func (f *stringListFlag) String() string {
@@ -59,6 +97,7 @@ func main() {
 	// Logging flags
 	logLevel := flag.String("log-level", "info", "Minimum log level: debug, info, warn, or error")
 	logDir := flag.String("log-dir", "logs", "Directory for JSON log files (empty disables the file sink)")
+	debugAddr := flag.String("debug-addr", "127.0.0.1:0", "Address for the pprof/expvar endpoint (\"off\" to disable)")
 
 	// Trace flags
 	traceEnabled := flag.Bool("trace", false, "Enable execution tracing")
@@ -221,6 +260,16 @@ func main() {
 		slog.Info("tracing enabled", slog.Any("filters", filters))
 	} else {
 		trace.Init(false, nil, nil)
+	}
+
+	if *debugAddr != "off" && *debugAddr != "" {
+		debugSrv, err := startDebugEndpoint(*debugAddr)
+		if err != nil {
+			// A missing debug endpoint is not worth refusing to serve MOO over.
+			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer debugSrv.Close()
+		}
 	}
 
 	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, options)

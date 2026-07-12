@@ -7,6 +7,7 @@ import (
 
 	"barn/bytecode"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/types"
 )
 
@@ -258,6 +259,11 @@ func (t *Task) GetState() TaskState {
 func (t *Task) SetState(state TaskState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	// Count the transition, not the assignment: a task can be marked killed more
+	// than once as an error unwinds, and it only died once.
+	if state == TaskKilled && t.State != TaskKilled {
+		metrics.TasksKilled.Add(1)
+	}
 	t.State = state
 }
 

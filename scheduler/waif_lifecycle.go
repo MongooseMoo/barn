@@ -6,6 +6,7 @@ import (
 	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/types"
 	"barn/vm"
 )
@@ -128,8 +129,12 @@ func (s *Scheduler) flushDeferredGC() {
 
 	vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, liveVMs...)
 
+	cost := time.Since(sweepStart)
+	metrics.GCSweeps.Add(1)
+	metrics.GCSweepLastMs.Set(cost.Milliseconds())
+
 	s.pendingWaifMu.Lock()
-	s.lastGCCost = time.Since(sweepStart)
+	s.lastGCCost = cost
 	s.pendingWaifMu.Unlock()
 }
 

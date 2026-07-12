@@ -16,6 +16,7 @@ import (
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	runtime "barn/scheduler"
 	"barn/task"
 	"barn/types"
@@ -81,6 +82,13 @@ func (s *Server) LoadDatabase() error {
 	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.options)
 	s.input = NewInputProcessor(s.store, s.scheduler)
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
+
+	// Counters are incremented where the events happen; these two are read on
+	// demand because "how many right now" is a question about live state.
+	metrics.PublishGauge("barn.tasks_live", s.scheduler.LiveTaskCount)
+	metrics.PublishGauge("barn.connections_live", func() int64 {
+		return int64(len(s.connManager.ConnectedPlayers(true)))
+	})
 
 	s.input.SetConnectionManager(s.connManager)
 	s.scheduler.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
@@ -294,7 +302,11 @@ func (s *Server) checkpoint() error {
 		slog.Warn("#0:checkpoint_finished() failed", slog.Any("err", err))
 	}
 
-	slog.Info("checkpoint complete", slog.Int64("duration_ms", time.Since(start).Milliseconds()))
+	elapsed := time.Since(start)
+	metrics.Checkpoints.Add(1)
+	metrics.CheckpointLastMs.Set(elapsed.Milliseconds())
+
+	slog.Info("checkpoint complete", slog.Int64("duration_ms", elapsed.Milliseconds()))
 	return nil
 }
 

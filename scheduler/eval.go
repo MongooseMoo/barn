@@ -9,6 +9,7 @@ import (
 
 	"barn/compiler"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -26,6 +27,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 			if suffix != "" {
 				lines = append(lines, suffix)
 			}
+			metrics.PanicsRecovered.Add(1)
 			slog.Error("panic in eval",
 				slog.Int64("player", int64(player)),
 				slog.String("panic", fmt.Sprint(r)),

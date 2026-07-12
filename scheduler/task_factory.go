@@ -4,7 +4,6 @@ import (
 	"container/heap"
 	"fmt"
 	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"barn/builtins"
@@ -48,7 +47,7 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 
 // CreateForegroundTask creates a foreground task (user command)
 func (s *Scheduler) CreateForegroundTask(player types.ObjID, program *bytecode.Program) int64 {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
@@ -75,7 +74,7 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 		return types.Result{}, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
 	}
 
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
@@ -133,7 +132,7 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 		return 0, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
 
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
@@ -179,7 +178,7 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 
 // CreateBackgroundTask creates a background task (fork)
 func (s *Scheduler) CreateBackgroundTask(player types.ObjID, program *bytecode.Program, delay time.Duration) int64 {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := backgroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
@@ -198,7 +197,7 @@ func (s *Scheduler) Fork(ctx *kernel.TaskContext, program *bytecode.Program, del
 // CreateForkedTask creates a forked child task from a bytecode VM fork yield.
 // Implements task.ForkCreator interface.
 func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 
 	var t *task.Task
 

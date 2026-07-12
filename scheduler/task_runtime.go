@@ -8,12 +8,12 @@ import (
 	"log/slog"
 	"runtime/debug"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"barn/command"
 	"barn/compiler"
 	dbstore "barn/db/store"
+	"barn/metrics"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -26,6 +26,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
+			metrics.PanicsRecovered.Add(1)
 			slog.Error("panic in task",
 				slog.Int64("task_id", t.ID),
 				slog.Int64("this", int64(t.This)),
@@ -384,7 +385,7 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 		return ErrCommandVerbNoCode
 	}
 
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)

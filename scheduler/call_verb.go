@@ -8,6 +8,7 @@ import (
 	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -25,6 +26,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
+			metrics.PanicsRecovered.Add(1)
 			slog.Error("panic in verb call",
 				slog.Int64("this", int64(objID)),
 				slog.String("verb", verbName),

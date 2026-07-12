@@ -3,6 +3,7 @@ package scheduler
 import (
 	"log/slog"
 
+	"barn/metrics"
 	"barn/task"
 	"barn/types"
 )
@@ -78,6 +79,7 @@ func (s *Scheduler) SendTracebackToPlayer(player types.ObjID, err types.ErrorCod
 // supplied by the caller so that the log records the same activation stack the
 // player is shown — the task's live stack has already unwound by this point.
 func (s *Scheduler) logTraceback(t *task.Task, err types.ErrorCode, stack []task.ActivationFrame) {
+	metrics.UncaughtExceptions.Add(1)
 	attrs := append([]any{
 		slog.Int64("task_id", t.ID),
 		slog.Int64("this", int64(t.This)),
@@ -92,6 +94,7 @@ func (s *Scheduler) logCallVerbTraceback(objID types.ObjID, verbName string, err
 	if err == types.E_VERBNF {
 		return // Verb not found is expected for optional hooks
 	}
+	metrics.UncaughtExceptions.Add(1)
 	attrs := append([]any{
 		slog.Int64("this", int64(objID)),
 		slog.String("verb", verbName),

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"barn/builtins"
 	"barn/config"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -85,6 +87,20 @@ func NewSchedulerWithOptions(store *dbstore.Store, options config.Options) *Sche
 // Registry returns the scheduler's builtin registry so the owning server can
 // wire host capabilities (connection manager, lifecycle hooks) onto it.
 func (s *Scheduler) Registry() *builtins.Registry { return s.registry }
+
+// newTaskID allocates the next task id. Every task in the server is born here,
+// which makes it the one place worth counting them.
+func (s *Scheduler) newTaskID() int64 {
+	metrics.TasksStarted.Add(1)
+	return atomic.AddInt64(&s.nextTaskID, 1)
+}
+
+// LiveTaskCount reports how many tasks the scheduler is currently holding.
+func (s *Scheduler) LiveTaskCount() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return int64(len(s.tasks))
+}
 
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	if ctx == nil {
