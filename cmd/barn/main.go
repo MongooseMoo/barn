@@ -4,7 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -19,12 +19,20 @@ import (
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/logging"
 	"barn/profile"
 	"barn/server"
 	"barn/trace"
 	"barn/types"
 	"barn/vm"
 )
+
+// fatalf logs a fatal startup error and exits. Unlike log.Fatalf it goes
+// through slog, so the failure that killed a run is in the run's log file.
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
+}
 
 type stringListFlag []string
 
@@ -47,6 +55,10 @@ func main() {
 	listProfiles := flag.Bool("list-profiles", false, "List known managed profiles and exit")
 	var listenFlags stringListFlag
 	flag.Var(&listenFlags, "listen", "Listener URL; repeatable, e.g. tcp://:7777")
+
+	// Logging flags
+	logLevel := flag.String("log-level", "info", "Minimum log level: debug, info, warn, or error")
+	logDir := flag.String("log-dir", "logs", "Directory for JSON log files (empty disables the file sink)")
 
 	// Trace flags
 	traceEnabled := flag.Bool("trace", false, "Enable execution tracing")
@@ -74,10 +86,17 @@ func main() {
 
 	flag.Parse()
 
+	closeLogs, err := logging.Setup(logging.Options{LevelStr: *logLevel, Dir: *logDir})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logging setup failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer closeLogs()
+
 	if *listProfiles {
 		registry, err := profile.LoadRegistry(*profileRegistry)
 		if err != nil {
-			log.Fatalf("Failed to load profile registry: %v", err)
+			fatalf("Failed to load profile registry: %v", err)
 		}
 		printProfiles(registry)
 		return
@@ -87,14 +106,14 @@ func main() {
 	if *configPath != "" {
 		loaded, err := config.LoadFile(*configPath)
 		if err != nil {
-			log.Fatalf("Failed to load config: %v", err)
+			fatalf("Failed to load config: %v", err)
 		}
 		options = loaded
 	}
 	outboundProvided := flagWasProvided("outbound") || flagWasProvided("o")
 	noOutboundProvided := flagWasProvided("no-outbound") || flagWasProvided("O")
 	if outboundProvided && noOutboundProvided {
-		log.Fatal("cannot combine --outbound and --no-outbound")
+		fatalf("cannot combine --outbound and --no-outbound")
 	}
 	if outboundProvided && (*outbound || *outboundShort) {
 		options.OutboundNetwork = true
@@ -106,36 +125,36 @@ func main() {
 		options.PromoteNumbers = true
 	}
 	if err := options.Validate(); err != nil {
-		log.Fatalf("Invalid config: %v", err)
+		fatalf("Invalid config: %v", err)
 	}
 	if *profileManifest != "" && *profileID == "" {
-		log.Fatal("--profile-id is required with --profile-manifest")
+		fatalf("--profile-id is required with --profile-manifest")
 	}
 	if *profileID != "" && *configPath == "" {
-		log.Fatal("--config is required with --profile-id")
+		fatalf("--config is required with --profile-id")
 	}
 
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
 		database, err := dbformat.LoadDatabase(*dbPath)
 		if err != nil {
-			log.Fatalf("Failed to load database: %v", err)
+			fatalf("Failed to load database: %v", err)
 		}
 		store := database.NewStoreFromDatabase()
 
 		f, err := os.Create(*dumpPath)
 		if err != nil {
-			log.Fatalf("Failed to create dump file: %v", err)
+			fatalf("Failed to create dump file: %v", err)
 		}
 
 		writer := dbformat.NewWriter(f, store.Snapshot())
 		if err := writer.WriteDatabase(); err != nil {
 			f.Close()
-			log.Fatalf("Failed to write database: %v", err)
+			fatalf("Failed to write database: %v", err)
 		}
 		f.Close()
 
-		log.Printf("Database dumped to %s", *dumpPath)
+		slog.Info("database dumped", slog.String("path", *dumpPath))
 		return
 	}
 
@@ -147,7 +166,7 @@ func main() {
 		// Load database for inspection
 		database, err := dbformat.LoadDatabase(*dbPath)
 		if err != nil {
-			log.Fatalf("Failed to load database: %v", err)
+			fatalf("Failed to load database: %v", err)
 		}
 		store := database.NewStoreFromDatabase()
 
@@ -176,16 +195,18 @@ func main() {
 	}
 
 	// Normal server startup
-	log.Printf("Barn MOO Server")
-	log.Printf("Database: %s", *dbPath)
-	if *configPath != "" {
-		log.Printf("Config: %s", *configPath)
-	}
 	listenerSpecs, err := buildListenerSpecs(*port, listenFlags, flagWasProvided("port"))
 	if err != nil {
-		log.Fatal(err)
+		fatalf("%v", err)
 	}
-	log.Printf("Listeners: %s", formatListenerSpecs(listenerSpecs))
+	startup := []any{
+		slog.String("database", *dbPath),
+		slog.String("listeners", formatListenerSpecs(listenerSpecs)),
+	}
+	if *configPath != "" {
+		startup = append(startup, slog.String("config", *configPath))
+	}
+	slog.Info("Barn MOO Server", startup...)
 
 	// Initialize tracer
 	if *traceEnabled {
@@ -197,14 +218,14 @@ func main() {
 			}
 		}
 		trace.Init(true, filters, os.Stderr)
-		log.Printf("Tracing enabled (filters: %v)", filters)
+		slog.Info("tracing enabled", slog.Any("filters", filters))
 	} else {
 		trace.Init(false, nil, nil)
 	}
 
 	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, options)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		fatalf("Failed to create server: %v", err)
 	}
 
 	if *profileManifest != "" {
@@ -216,16 +237,16 @@ func main() {
 			Options:           options,
 		})
 		if err != nil {
-			log.Fatalf("Failed to build profile manifest: %v", err)
+			fatalf("Failed to build profile manifest: %v", err)
 		}
 		if err := profile.WriteManifest(*profileManifest, manifest); err != nil {
-			log.Fatalf("Failed to write profile manifest: %v", err)
+			fatalf("Failed to write profile manifest: %v", err)
 		}
-		log.Printf("Profile manifest: %s", *profileManifest)
+		slog.Info("profile manifest written", slog.String("path", *profileManifest))
 	}
 
 	if err := srv.LoadDatabase(); err != nil {
-		log.Fatalf("Failed to load database: %v", err)
+		fatalf("Failed to load database: %v", err)
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -234,22 +255,23 @@ func main() {
 	go func() {
 		select {
 		case <-sigChan:
-			log.Println("Received shutdown signal")
+			slog.Info("received shutdown signal")
 			srv.Shutdown("Server shutdown")
 		case <-signalDone:
 		}
 	}()
 
-	log.Printf("Starting server...")
+	slog.Info("starting server")
 	err = srv.Start()
 	close(signalDone)
 	signal.Stop(sigChan)
 	if err != nil {
 		if errors.Is(err, server.ErrPanicShutdown) {
-			log.Printf("Server panic shutdown: %v", err)
+			slog.Error("server panic shutdown", slog.Any("err", err))
+			closeLogs()
 			os.Exit(1)
 		}
-		log.Fatalf("Server error: %v", err)
+		fatalf("Server error: %v", err)
 	}
 }
 

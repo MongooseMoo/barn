@@ -6,6 +6,9 @@
 *.err
 *.new
 
+# Server run logs (logging.Setup rotates these; latest.jsonl is the current run)
+logs/
+
 # Scratch test output
 *_results.txt
 manual_*.txt
