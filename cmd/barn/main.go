@@ -38,6 +38,31 @@ func fatalf(format string, args ...any) {
 	os.Exit(1)
 }
 
+// logLevelHandler reads and sets the log level of the running server, so that a
+// server can be turned up to debug while it misbehaves and turned back down
+// afterwards — without a restart, which would destroy the state you wanted to
+// look at. This lives on the admin endpoint rather than in a MOO builtin because
+// Barn's MOO surface is ToastStunt's, and Toast has no such function.
+//
+//	curl localhost:PORT/debug/loglevel
+//	curl -X POST 'localhost:PORT/debug/loglevel?level=debug'
+func logLevelHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost || r.Method == http.MethodPut {
+		want := r.URL.Query().Get("level")
+		level, err := logging.ParseLevel(want)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		was := logging.LevelName()
+		logging.Level.Set(level)
+		slog.Warn("log level changed",
+			slog.String("from", was),
+			slog.String("to", logging.LevelName()))
+	}
+	fmt.Fprintln(w, logging.LevelName())
+}
+
 // startDebugEndpoint serves pprof and expvar on a local address. The default
 // port is ephemeral so that several servers (the conformance runner starts them
 // in parallel) never collide; the address that was actually bound is logged, and
@@ -55,6 +80,7 @@ func startDebugEndpoint(addr string) (*http.Server, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/debug/vars", expvar.Handler())
+	mux.HandleFunc("/debug/loglevel", logLevelHandler)
 	mux.HandleFunc("/debug/pprof/", pprof.Index)
 	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
 	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
@@ -63,6 +89,7 @@ func startDebugEndpoint(addr string) (*http.Server, error) {
 
 	srv := &http.Server{Handler: mux}
 	slog.Info("debug endpoint listening", slog.String("addr", listener.Addr().String()))
+
 
 	go func() {
 		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
