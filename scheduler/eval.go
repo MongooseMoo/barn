@@ -2,7 +2,8 @@ package scheduler
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -25,7 +26,10 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 			if suffix != "" {
 				lines = append(lines, suffix)
 			}
-			log.Printf("PANIC in EvalCommand: %v", r)
+			slog.Error("panic in eval",
+				slog.Int64("player", int64(player)),
+				slog.String("panic", fmt.Sprint(r)),
+				slog.String("go_stack", string(debug.Stack())))
 		}
 	}()
 

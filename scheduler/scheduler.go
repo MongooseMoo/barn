@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -93,6 +93,11 @@ func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	ctx.Store = s.store
 	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
+	// With() formats these once per task rather than once per record.
+	ctx.Log = slog.Default().With(
+		slog.Int64("task_id", ctx.TaskID),
+		slog.Int64("player", int64(ctx.Player)),
+		slog.String("verb", ctx.Verb))
 }
 
 // Stop cancels scheduler-owned task contexts.
@@ -164,7 +169,11 @@ func (s *Scheduler) ProcessReadyTasks() int {
 	for _, t := range readyTasks {
 		err := s.runTask(t)
 		if err != nil {
-			log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
+			slog.Error("task error",
+				slog.Int64("task_id", t.ID),
+				slog.Int64("this", int64(t.This)),
+				slog.String("verb", t.VerbName),
+				slog.Any("err", err))
 		}
 
 		if s.taskOutputFlusher != nil {

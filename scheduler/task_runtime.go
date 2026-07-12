@@ -5,7 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -25,7 +26,12 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("PANIC in runTask(%d): %v", t.ID, r)
+			slog.Error("panic in task",
+				slog.Int64("task_id", t.ID),
+				slog.Int64("this", int64(t.This)),
+				slog.String("verb", t.VerbName),
+				slog.String("panic", fmt.Sprint(r)),
+				slog.String("go_stack", string(debug.Stack())))
 			t.SetState(task.TaskKilled)
 			retErr = fmt.Errorf("internal panic: %v", r)
 		}
@@ -251,10 +257,18 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
 		}
+		// Prefer the activation stack snapshotted at raise time (carried on the
+		// result): the live call stack has already unwound, so it would report the
+		// eval frame instead of the verb where the error occurred, and it carries
+		// no source lines. The log and the player see the same stack.
+		stack, ok := result.CallStack.([]task.ActivationFrame)
+		if !ok || len(stack) == 0 {
+			stack = t.GetCallStack()
+		}
 		// Log traceback to server log (skip for forked tasks to match Toast behavior:
 		// Toast does not log forked-task tracebacks to stderr)
 		if !t.IsForked {
-			s.logTraceback(t, result.Error)
+			s.logTraceback(t, result.Error, stack)
 		}
 		// An uncaught error aborts the task; report it to the player the way
 		// Toast does. (When a database's eval verb catches the error itself —
@@ -264,14 +278,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
 			s.sendTaskLine(t.Owner, "Task ran out of ticks")
 		} else if !t.IsForked {
-			// Prefer the activation stack snapshotted at raise time (carried on
-			// the result): the live call stack has already unwound, so it would
-			// report the eval frame instead of the verb where the error occurred.
-			if stack, ok := result.CallStack.([]task.ActivationFrame); ok && len(stack) > 0 {
-				s.SendTracebackToPlayer(t.Owner, result.Error, stack)
-			} else {
-				s.sendTraceback(t, result.Error)
-			}
+			s.SendTracebackToPlayer(t.Owner, result.Error, stack)
 		}
 		// Clean up call stack after traceback has been sent
 		for len(t.CallStack) > 0 {
@@ -411,7 +418,11 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	// Run synchronously on the scheduler goroutine
 	err := s.runTask(t)
 	if err != nil {
-		log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
+		slog.Error("task error",
+			slog.Int64("task_id", t.ID),
+			slog.Int64("this", int64(t.This)),
+			slog.String("verb", t.VerbName),
+			slog.Any("err", err))
 	}
 
 	// Flush output buffer for the player

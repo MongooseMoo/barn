@@ -1,7 +1,9 @@
 package scheduler
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
 
 	"barn/compiler"
 	dbstore "barn/db/store"
@@ -23,7 +25,12 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("PANIC in CallVerb(%v:%s): %v", objID, verbName, r)
+			slog.Error("panic in verb call",
+				slog.Int64("this", int64(objID)),
+				slog.String("verb", verbName),
+				slog.Int64("player", int64(player)),
+				slog.String("panic", fmt.Sprint(r)),
+				slog.String("go_stack", string(debug.Stack())))
 			result = types.Err(types.E_NONE)
 		}
 	}()
@@ -57,7 +64,10 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	// Compile verb to bytecode
 	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
 	if len(diagnostics) > 0 {
-		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
+		slog.Error("verb failed to compile",
+			slog.String("verb", verbName),
+			slog.Int64("verbloc", int64(defObjID)),
+			slog.String("diagnostic", diagnostics[0].Error()))
 		return types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,

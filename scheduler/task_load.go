@@ -2,7 +2,7 @@ package scheduler
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -20,7 +20,9 @@ func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 			continue
 		}
 		if err := s.loadQueuedTask(saved); err != nil {
-			log.Printf("Warning: failed to restore queued task %d: %v", saved.ID, err)
+			slog.Warn("failed to restore queued task",
+				slog.Int64("task_id", saved.ID),
+				slog.Any("err", err))
 			continue
 		}
 		restored++

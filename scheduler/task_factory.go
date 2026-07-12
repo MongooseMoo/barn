@@ -3,7 +3,7 @@ package scheduler
 import (
 	"container/heap"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -374,7 +374,11 @@ func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
 		return false
 	}
 	if err := s.runTask(t); err != nil {
-		log.Printf("Task %d (#%d:%s) resume error: %v", t.ID, t.This, t.VerbName, err)
+		slog.Error("task resume error",
+			slog.Int64("task_id", t.ID),
+			slog.Int64("this", int64(t.This)),
+			slog.String("verb", t.VerbName),
+			slog.Any("err", err))
 	}
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
