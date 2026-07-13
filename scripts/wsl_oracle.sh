@@ -6,7 +6,7 @@
 # The Windows MSVC build is NOT canonical (crypt/other divergences) — do not use it.
 #
 # Usage (run from WSL, or via `wsl -e bash -lc '.../wsl_oracle.sh ...'`):
-#   wsl_oracle.sh ';EXPR'                 # eval one expression against mongoose.db
+#   wsl_oracle.sh ';EXPR'                 # eval one expression against mongoose_fresh2.db
 #   wsl_oracle.sh ';E1' ';E2' 'program ...'   # multiple emergency commands in order
 #   DB=/path/to/other.db wsl_oracle.sh ';EXPR'
 #
@@ -15,7 +15,7 @@
 set -u
 
 MOO="${MOO:-$HOME/src/toaststunt/build/moo}"
-DB="${DB:-/mnt/c/Users/Q/code/barn/mongoose.db}"
+DB="${DB:-/mnt/c/Users/Q/code/barn/mongoose_fresh2.db}"
 
 if [[ ! -x "$MOO" ]]; then
   echo "ERROR: oracle moo binary not found/executable at $MOO" >&2

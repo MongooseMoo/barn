@@ -31,19 +31,25 @@ run is not authoritative.
 
 ## Fresh fixture identity
 
-Select one input database explicitly. Immediately before each authoritative
-run, record its absolute path, byte size, last-write time, and fresh SHA-256:
+The current authoritative Mongoose fixture is the untouched July 1 upstream
+snapshot `mongoose_fresh2.db`. Immediately before each authoritative run,
+record its absolute path, byte size, last-write time, and fresh SHA-256:
 
 ```powershell
-Get-Item -LiteralPath C:/Users/Q/code/barn/mongoose.db | Select-Object FullName,Length,LastWriteTimeUtc
-Get-FileHash -Algorithm SHA256 -LiteralPath C:/Users/Q/code/barn/mongoose.db
+Get-Item -LiteralPath C:/Users/Q/code/barn/mongoose_fresh2.db | Select-Object FullName,Length,LastWriteTimeUtc
+Get-FileHash -Algorithm SHA256 -LiteralPath C:/Users/Q/code/barn/mongoose_fresh2.db
 ```
 
-At plan-writing time, `mongoose.db` was 100,959,239 bytes with SHA-256
-`A9D167861EAB56D62E9BD12AE1D47C5E6A858530020A5DCF174A0B104FB23DB9`.
-That historical value is not current verification. Barn and Toast comparisons
-must use equivalent managed copies of the same freshly hashed input; a nearby
-or older database is not a substitute.
+The required identity is 101,244,108 bytes with SHA-256
+`33201970097D3D2D2BFC0D5F875F087D587601BF8255EF31EF19B416D65AC925`.
+Its provenance is the file fetched from
+`mongoose@mongoose.world:~/mongoose/mongoose.db.new` on July 1 and recorded in
+`notes/mongoose-differential-2026-07-01.md`. The local `mongoose.db` file with
+SHA-256 `A9D167861EAB56D62E9BD12AE1D47C5E6A858530020A5DCF174A0B104FB23DB9`
+is explicitly rejected because its upstream provenance is unproven. A fresh
+hash verifies identity, not provenance. Barn and Toast comparisons must use
+equivalent managed copies of `mongoose_fresh2.db`; a nearby or older database
+is not a substitute.
 
 ## Managed disposable lifecycle
 
@@ -78,7 +84,9 @@ Stock Toast:
 ```powershell
 uv run --project ..\moo-conformance-tests moo-conformance `
   --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
-  --server-db C:/Users/Q/code/barn/mongoose.db
+  --server-db C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db `
+  --oracle-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
+  --target-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json
 ```
 
 Mongoose Toast with number promotion and the real Mongoose login contract:
@@ -86,7 +94,9 @@ Mongoose Toast with number promotion and the real Mongoose login contract:
 ```powershell
 uv run --project ..\moo-conformance-tests moo-conformance `
   --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt-mongoose/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
-  --server-db C:/Users/Q/code/barn/mongoose.db `
+  --server-db C:/Users/Q/code/barn/mongoose_fresh2.db `
+  --oracle-profile-manifest C:/Users/Q/code/barn/profiles/toast/mongoose-wsl-mongoose.json `
+  --target-profile-manifest C:/Users/Q/code/barn/profiles/toast/mongoose-wsl-mongoose.json `
   --moo-login-script-env MONGOOSE_LOGIN_SCRIPT `
   --moo-skip-standard-properties
 ```
@@ -98,12 +108,12 @@ Windows Python harness consumes it; Toast and WSL do not. Never echo, print,
 write, commit, or include its value in a run record. Record only the variable
 name and the non-secret connection contract.
 
-The wrapper does not emit a `{manifest}`. Stock and Mongoose Toast oracle
-manifests and the fail-closed `option.PROMOTE_NUMBERS` profile gate are
-Milestone 1 work. Until those artifacts exist and are supplied through the
-reviewed profile flags, a run may prove managed behavior against a freshly
-verified engine and fixture, but it must not be described as a profile-gated
-convergence result.
+The wrapper does not emit a `{manifest}`. For an oracle self-run, pass the same
+reviewed Toast manifest as both sides of the profile gate, as shown above. This
+proves that the selected manifest is complete and internally eligible; the
+fresh WSL identity and fixture checks remain separate required evidence. A Barn
+comparison instead supplies the Toast manifest through
+`--oracle-profile-manifest` and the managed Barn `{manifest}` as the target.
 
 ## Required run record
 

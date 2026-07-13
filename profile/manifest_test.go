@@ -109,7 +109,7 @@ func TestCommittedToastOracleManifests(t *testing.T) {
 			file:           "mongoose-wsl-mongoose.json",
 			profileID:      "toast-mongoose-wsl-mongoose",
 			fixture:        "mongoose",
-			databaseSHA256: "a9d167861eab56d62e9bd12ae1d47c5e6a858530020a5dcf174a0b104fb23db9",
+			databaseSHA256: "33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925",
 			implementation: "72e3c7f96ce7a41fdeba793aef8818dc4408072e",
 			configSHA256:   "6c855f6b1f2dd584ba949d42891018ca68eccd34bd75b7e2300428b9246724a9",
 			promoteNumbers: true,

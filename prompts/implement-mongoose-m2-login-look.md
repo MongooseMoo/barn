@@ -17,9 +17,9 @@ Add only direct Python tests needed to prove the YAML discovers with its exact s
 
 Oracle-first execution:
 
-1. Freshly verify Debian WSL Mongoose Toast HEAD `72e3c7f96ce7a41fdeba793aef8818dc4408072e`, executable/version, and `mongoose.db` SHA-256 `a9d167861eab56d62e9bd12ae1d47c5e6a858530020a5dcf174a0b104fb23db9`.
+1. Freshly verify Debian WSL Mongoose Toast HEAD `72e3c7f96ce7a41fdeba793aef8818dc4408072e`, executable/version, and the provenance-pinned `mongoose_fresh2.db` SHA-256 `33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925`.
 2. Populate `MONGOOSE_LOGIN_SCRIPT` only inside the invoking process from the local uncommitted credential record; never echo its value.
-3. Run the focused test through `uv run --project ..\moo-conformance-tests moo-conformance` with the Debian `scripts/run_toast_wsl.sh` managed command, `mongoose.db`, `--moo-login-script-env MONGOOSE_LOGIN_SCRIPT`, `--moo-skip-standard-properties`, and both oracle/target profile flags pointing to `profiles/toast/mongoose-wsl-mongoose.json`.
+3. Run the focused test through `uv run --project ..\moo-conformance-tests moo-conformance` with the Debian `scripts/run_toast_wsl.sh` managed command, `mongoose_fresh2.db`, `--moo-login-script-env MONGOOSE_LOGIN_SCRIPT`, `--moo-skip-standard-properties`, and both oracle/target profile flags pointing to `profiles/toast/mongoose-wsl-mongoose.json`.
 4. Use the first managed Toast result to select stable room anchors and measure startup/login/test duration. The finalized unchanged test must pass Toast before any Barn production diagnosis.
 5. Record the exact credential-free command, identities, checksum, timing, assertions, and result under `C:/Users/Q/code/barn/reports/runs/`.
 
