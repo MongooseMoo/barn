@@ -16,13 +16,13 @@ These are pins, not permanent proof of current WSL state. Before every
 authoritative run, freshly verify both worktree HEADs and both executable paths:
 
 ```powershell
-wsl -d Ubuntu -u root -e git -C /root/src/toaststunt rev-parse HEAD
-wsl -d Ubuntu -u root -e test -x /root/src/toaststunt/build-release/moo
-wsl -d Ubuntu -u root -e /root/src/toaststunt/build-release/moo --version
+wsl -d Debian -u root -e git -C /root/src/toaststunt rev-parse HEAD
+wsl -d Debian -u root -e test -x /root/src/toaststunt/build-release/moo
+wsl -d Debian -u root -e /root/src/toaststunt/build-release/moo --version
 
-wsl -d Ubuntu -u root -e git -C /root/src/toaststunt-mongoose rev-parse HEAD
-wsl -d Ubuntu -u root -e test -x /root/src/toaststunt-mongoose/build-release/moo
-wsl -d Ubuntu -u root -e /root/src/toaststunt-mongoose/build-release/moo --version
+wsl -d Debian -u root -e git -C /root/src/toaststunt-mongoose rev-parse HEAD
+wsl -d Debian -u root -e test -x /root/src/toaststunt-mongoose/build-release/moo
+wsl -d Debian -u root -e /root/src/toaststunt-mongoose/build-release/moo --version
 ```
 
 The observed HEAD must equal the required SHA for the selected binary. Record
@@ -77,7 +77,7 @@ Stock Toast:
 
 ```powershell
 uv run --project ..\moo-conformance-tests moo-conformance `
-  --server-command "wsl -d Ubuntu -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
+  --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
   --server-db C:/Users/Q/code/barn/mongoose.db
 ```
 
@@ -85,7 +85,7 @@ Mongoose Toast with number promotion and the real Mongoose login contract:
 
 ```powershell
 uv run --project ..\moo-conformance-tests moo-conformance `
-  --server-command "wsl -d Ubuntu -u root -e env TOAST_MOO=/root/src/toaststunt-mongoose/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
+  --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt-mongoose/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
   --server-db C:/Users/Q/code/barn/mongoose.db `
   --moo-login-script-env MONGOOSE_LOGIN_SCRIPT `
   --moo-skip-standard-properties
