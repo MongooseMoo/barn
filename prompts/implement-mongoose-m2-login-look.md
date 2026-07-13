@@ -9,7 +9,7 @@ Add one focused integration suite at `src/moo_conformance/_tests/integration/mon
 
 - `requires.config: [managed_server]`;
 - one test with `permission: wizard` so the static Mongoose login is not followed by a harness user switch;
-- a `run` step that exactly asserts the PROXY source IP `203.0.113.5`, `server_version("options.PROMOTE_NUMBERS")`, one representative mixed arithmetic result, and one mixed comparison result;
+- a `run` step that exactly asserts the PROXY source IP `203.0.113.5`, one representative mixed arithmetic result, and one mixed comparison result. Do not query `server_version("options.PROMOTE_NUMBERS")`: the pinned Mongoose build compiles promotion semantics but does not publish that macro in its generated version-options tree. The verified oracle profile manifest carries the build-option assertion;
 - a raw `command: look` step asserting at least two stable anchors learned from the managed WSL Mongoose Toast run, not guessed volatile state;
 - an oracle-measured timeout/deadline once current Toast timing is known.
 
