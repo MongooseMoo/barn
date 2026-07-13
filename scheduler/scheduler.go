@@ -137,7 +137,12 @@ func (s *Scheduler) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 	s.taskOutputFlusher = flusher
 }
 
-// ProcessReadyTasks executes tasks that are ready to run.
+// ProcessReadyTasks executes at most one task that is ready to run.
+//
+// The input processor owns the outer scheduling loop. Returning after each
+// task lets that loop service socket input between runnable tasks instead of
+// draining an arbitrarily large ready snapshot first. A single MOO task still
+// runs atomically until completion or suspension.
 func (s *Scheduler) ProcessReadyTasks() int {
 	s.mu.Lock()
 
@@ -178,6 +183,16 @@ func (s *Scheduler) ProcessReadyTasks() int {
 				readyTasks = append(readyTasks, t)
 			}
 		}
+	}
+
+	// Preserve the ready order for later passes. These tasks were either popped
+	// from the waiting heap above or resumed from a timed suspension, so leaving
+	// them only in the scheduler map would lose their queue ordering.
+	if len(readyTasks) > 1 {
+		for _, t := range readyTasks[1:] {
+			heap.Push(s.waiting, t)
+		}
+		readyTasks = readyTasks[:1]
 	}
 
 	s.mu.Unlock()

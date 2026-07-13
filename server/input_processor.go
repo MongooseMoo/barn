@@ -176,7 +176,15 @@ func (p *InputProcessor) run() {
 		case input := <-p.inputQueue:
 			p.processInput(input)
 		case <-ticker.C:
-			p.runtime.ProcessReadyTasks()
+			// A select chooses randomly when both input and the scheduler tick are
+			// ready. Recheck the input queue before running another task so a busy
+			// scheduler cannot repeatedly win that tie and starve socket input.
+			select {
+			case input := <-p.inputQueue:
+				p.processInput(input)
+			default:
+				p.runtime.ProcessReadyTasks()
+			}
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
