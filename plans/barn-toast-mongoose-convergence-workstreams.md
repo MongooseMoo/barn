@@ -1,251 +1,356 @@
-# Barn/ToastStunt/Mongoose Convergence Workstream
+# Barn/ToastStunt/Mongoose Convergence Plan
 
-## Fixed Point
+## Goal
 
-Make Barn and ToastStunt converge on the real Mongoose workload by expanding
-`../moo-conformance-tests` until the suite describes the ToastStunt behavior
-Mongoose needs, then making Barn pass that expanded suite at matching profiles.
+Make Barn run the real Mongoose workload with exact Toast-compatible behavior,
+and keep it compatible by converting every discovered delta into a durable
+conformance test.
 
-The stable loop is:
+The required loop is:
 
-1. identify the profile and connection contract;
-2. get MOO-visible control of Barn and ToastStunt through that contract;
-3. use Mongoose to find an uncovered behavior;
-4. reduce the behavior into `../moo-conformance-tests`;
-5. verify ToastStunt passes that test at the named profile;
-6. run Barn against the unchanged test at the matching profile;
-7. keep either a coverage test, an unsupported-profile record, or the smallest
-   Barn fix required by the Barn failure.
+1. observe a concrete Mongoose failure or divergence;
+2. reduce it to the smallest useful conformance scenario;
+3. prove the unchanged scenario passes the WSL Toast oracle;
+4. prove it fails on Barn before changing Barn;
+5. make the smallest Barn production change that closes the delta;
+6. prove the unchanged scenario passes on Barn;
+7. run the relevant managed suite and commit the conformance and Barn slices in
+   their respective repositories.
 
-If an action does not move a behavior through that loop, it is not convergence
-work.
+Tests in their final state pass on both Toast and Barn. Before the Barn fix, the
+new test must pass on Toast and fail on Barn. If Barn already passes a genuine
+candidate test, keep it as coverage and do not invent a Barn source change.
 
-## Repos And Ownership
+This is a plan only. No current Mongoose regression was reproduced while
+writing it; reproducing the present break through the managed harness is an
+explicit execution milestone.
 
-- `C:/Users/Q/code/barn` owns Barn implementation, Barn runtime config, Barn
-  profile metadata, and Barn-side MOO command tooling.
-- `C:/Users/Q/code/moo-conformance-tests` owns behavioral truth.
-- `C:/Users/Q/code/mongoose` supplies the real workload and its existing bridge
-  is reference material for login/control patterns.
+## Repositories And Authority
 
-The existing Barn command surface for interactive MOO control is
-`cmd/moo_client`. The workstream should extend that surface or a close sibling
-only after reading it and the listener code it must drive. `../mongoose/bridge`
-is an example of how to talk to a MOO, not a component to patch.
+- `C:/Users/Q/code/barn` owns Barn implementation, runtime profiles, local
+  diagnostics, and Barn-side verification.
+- `C:/Users/Q/code/moo-conformance-tests` owns durable behavioral truth.
+- `C:/Users/Q/code/mongoose` supplies the real workload and its database/client
+  behavior. It is a discovery source, not a substitute for conformance.
+- WSL Toast is the behavioral oracle. Do not substitute a Windows Toast binary.
 
-## Current Code Facts To Preserve
+For ordinary Toast behavior, use:
 
-These facts come from the current Barn code and must shape the work:
+- `/root/src/toaststunt/build-release/moo`
+- stock Toast commit `aecc51e9449c6e7c95272f0f044b5ba38948459e`
 
-- `cmd/barn` starts listeners from `-port` or repeatable `-listen` specs.
-- Startup listener protocols are `tcp`, `tls`, `ws`, and `wss`.
-- TCP input strips Telnet IAC sequences and terminates on CR or LF.
-- Output is line-oriented on TCP/TLS and message-oriented on WebSocket.
-- Login dispatch happens through the listener object, not only through `#0`.
-- "The haproxy thing" means ToastStunt trusted-proxy login behavior around the
-  HAProxy PROXY protocol. It is not a WebSocket issue.
-- If the remote IP is listed in the database's
-  `server_options.trusted_proxies`, ToastStunt suppresses ordinary blank-login
-  behavior: blank initial input calls the listener's `do_blank_command`, and
-  `do_login_command("")` runs only if that hook returns true.
-- A pre-login line beginning with `PROXY ` is special only from a trusted remote
-  IP. ToastStunt parses it, rewrites connection metadata, clears the login
-  input, and then calls `do_login_command` with empty args and argstr.
-- Barn currently has trusted-proxy blank-line handling and clears trusted
-  `PROXY ...` input into empty login input; full Toast-style connection metadata
-  rewrite is a known behavior surface to verify through conformance.
-- `listeners()` exposes listener protocol, port, path, interface, TLS state,
-  object, and print-message metadata from inside the MOO.
+For Mongoose `PROMOTE_NUMBERS` behavior, use the pinned WSL Mongoose build:
 
-If later code inspection contradicts any of these facts, update this workstream
-first and commit the correction before proceeding.
+- `/root/src/toaststunt-mongoose/build-release/moo`
+- detached worktree commit `72e3c7f96ce7a41fdeba793aef8818dc4408072e`
 
-## Profile
+The Barn-local WSL oracle procedure is documented in
+`reports/toast-oracle-wsl.md`. The managed wrapper is
+`scripts/run_toast_wsl.sh`.
 
-A profile is the comparable runtime identity for one target. It includes:
+## Recovered Records
 
-- implementation: Barn or ToastStunt;
-- implementation ref and build identity;
-- database fixture identity and checksum;
-- runtime platform;
-- command used to start the server;
-- connection contract;
-- config/options/features;
-- support status.
+The useful prior records are:
 
-The connection contract includes:
+- `reports/toast-oracle-wsl.md`: canonical WSL oracle path and database notes;
+- `notes/mongoose-differential-2026-07-01.md`: the detailed successful July 1
+  Mongoose differential campaign;
+- `notes-mongoose-promote-and-login.md`: `PROMOTE_NUMBERS`, trusted-PROXY, and
+  `read()`-based login findings;
+- `notes/observability-slog-2026-07-11.md`: the structured logging, metrics, and
+  pprof implementation record;
+- `src/moo_conformance/_tests/builtins/yin_semantics.yaml`: durable `yin()`
+  coverage in the conformance repository;
+- `src/moo_conformance/_tests/builtins/connection_name_semantics.yaml`: durable
+  basic connection-name coverage;
+- `src/moo_conformance/_tests/audit/connection_lifecycle_toast_oracle.yaml`:
+  partial trusted-PROXY and login lifecycle coverage.
 
-- listener protocol and endpoint, normally TCP for ToastStunt comparison;
-- whether the client IP is trusted by `server_options.trusted_proxies`;
-- whether blank initial input should be consumed or passed through by
-  `do_blank_command`;
-- whether a `PROXY ...` prelude is expected, forbidden, or irrelevant;
-- login script and account profile;
-- expected first observable MOO output;
-- how to verify the listener from inside the MOO, usually `listeners()`;
-- whether the profile is `supported`, `unsupported`, or `diagnostic`.
+The July 1 campaign landed six Barn fixes but only two corresponding conformance
+suites. The real trusted-PROXY -> account login -> room render path, startup
+responsiveness, burst input, and most gameplay behavior were not captured as a
+single durable cross-engine gate.
 
-No Barn/ToastStunt comparison is valid without a named profile on both sides and
-a matching connection contract for the behavior being compared.
+## Current Profile And Process Gaps
 
-## Behavior Row
+### Mongoose profiles do not enable Mongoose semantics
 
-Every unit of convergence work is one row:
+`profiles/barn/profiles.json` names Mongoose profiles, but their config files
+only set `OUTBOUND_NETWORK`. They do not set `PROMOTE_NUMBERS = 1`.
 
-`behavior | profile | connection contract | Toast result | conformance test | Barn result | disposition`
+Barn already publishes `option.PROMOTE_NUMBERS` in profile manifests. However,
+the conformance profile gate currently requires only
+`option.OUTBOUND_NETWORK`. A strict-mode target can therefore be accepted as a
+Mongoose comparison.
 
-Legal state transitions:
+### Active oracle guidance has drifted
 
-- `mongoose-observation -> toast-profiled-behavior`
-- `toast-profiled-behavior -> conformance-test`
-- `conformance-test -> barn-result`
-- `barn-result -> barn-fix`
-- `barn-result -> coverage-only`
-- `barn-result -> unsupported-profile`
-- `barn-result -> invalid-comparison`
-- any final disposition -> `closed`
+`CLAUDE.md` still contains a Windows Toast server command even though the WSL
+oracle report and current project instructions require WSL Toast. The correct
+procedure must live in tracked active instructions, not only in an untracked
+side report.
 
-The next action is always the missing field for the active row. If there is no
-active row, the next action is to create one from a concrete Mongoose behavior
-or a known profile/config gap.
+### Existing PROXY coverage is incomplete
 
-## Halt Conditions
+The current conformance row proves that a trusted `PROXY` prelude is cleared
+before `do_login_command` runs. It does not prove:
 
-Stop and report the exact unfinished row when any of these is true:
+- adoption of the announced client address;
+- the Mongoose account-login conversation;
+- successful room entry and rendering;
+- input delivery while the Mongoose world is busy;
+- burst input through `hold-input` and `read()`;
+- reconnect and disconnect hooks in the real connection contract.
 
-- The active profile cannot name its listener protocol, endpoint, and login
-  account.
-- A localhost or other trusted-IP connection produces no banner/login output and
-  the next step is anything other than checking `trusted_proxies`,
-  `do_blank_command`, and PROXY-prelude handling.
-- A `PROXY ...` line is being used without first verifying that the database
-  profile trusts the client's remote IP.
-- The profile expects Toast-style PROXY metadata rewrite and the implementation
-  under test only clears the login command without proving connection metadata.
-- Barn cannot be started by the same lifecycle surface intended for repeated
-  work.
-- ToastStunt cannot be started by the same lifecycle surface intended for
-  repeated work.
-- Barn starts, but the selected client cannot obtain MOO-visible output through
-  the profile's actual connection contract.
-- ToastStunt starts, but the selected client cannot obtain MOO-visible output
-  through the profile's actual connection contract.
-- The client can connect at the socket level but cannot distinguish startup
-  banner, login prompt, login failure, command output, timeout, and disconnect.
-- The target database copy cannot be identified.
-- Barn and ToastStunt are not using equivalent fixture inputs for a comparison.
-- A Mongoose observation cannot be assigned to server behavior, database
-  content, profile mismatch, client/transport behavior, or unsupported profile.
-- The conformance harness cannot express the behavior being promoted.
-- ToastStunt does not pass the candidate conformance test at the named profile.
-- Barn does not fail the Toast-passing test and the planned next step is a Barn
-  source change.
-- The current slice would create a second truth surface outside
-  `../moo-conformance-tests`.
+## Current Fixture Identity
 
-These are not style rules. They are points where continuing would manufacture
-unreliable work.
+At plan-writing time, `mongoose.db` and `mongoose.db.new` were identical:
 
-## Workstream
+- size: `100959239` bytes;
+- SHA-256: `A9D167861EAB56D62E9BD12AE1D47C5E6A858530020A5DCF174A0B104FB23DB9`.
 
-### 1. Recover Profile And Option Support
+Execution must re-hash the selected fixture before comparing servers. Barn and
+Toast must receive equivalent disposable copies of that exact input. A nearby
+or older Mongoose database is not a substitute.
 
-Recover the useful work from `exp/barn-options-profile-workstream` without
-recovering the rejected bridge/artifact path.
+## Structured Observability
 
-Useful commits to inspect:
+Barn now has the diagnostics needed for this campaign:
 
-- `8327538`: runtime options parser;
-- `ab0ebd4`: options wired through Barn execution;
-- `9ff5357`: profile manifest emission;
-- `fbf1155`: profile registry and Barn profile configs.
+- every run writes readable stderr and structured JSONL;
+- `logs/latest.jsonl` is the stable current-run path and older runs rotate;
+- records carry fields such as `conn_id`, `task_id`, `player`, `this`, `verb`,
+  `error`, `err`, `traceback`, `frames`, and `go_stack`;
+- an uncaught MOO error is one record containing the player-visible traceback,
+  structured frames, and source lines;
+- `barn_logs` filters a run, expands tracebacks and Go stacks, and exits nonzero
+  if the selected records include an error;
+- `/debug/vars` exposes task, connection, GC, panic, exception, and checkpoint
+  counters;
+- `/debug/pprof/` exposes profiles on a localhost-only endpoint;
+- `/debug/loglevel` changes the running server's log level without restarting
+  it.
 
-The first recovered option is `OUTBOUND_NETWORK`, because it is a real
-Toast-sensitive runtime behavior and the prior branch already showed the shape.
-The output of this slice is Barn config/profile support that changes runtime
-behavior and is covered by Barn tests.
+These are diagnostic tools, not an oracle. A plausible JSON record, counter, or
+profile does not replace a Toast-passing conformance test.
 
-### 2. Make Profiles Visible To Conformance
+Some log message text is already a conformance contract. Preserve asserted text
+byte-for-byte and add structured attributes rather than rewording it.
 
-Teach `../moo-conformance-tests` only the profile machinery required by actual
-tests: feature requirements, profile manifests, matrix expectations, or invalid
-comparison handling. Unknown feature metadata fails closed.
+## Git Accountability
 
-This slice is complete when a test can state the profile facts it depends on and
-the managed harness refuses to compare mismatched profile facts.
+Before editing in either repository:
 
-### 3. Make MOO Control Match The Profile Contract
+1. record branch, HEAD, and tracked-file status;
+2. identify the exact intended files for the active slice;
+3. do not combine multiple experimental source slices in one worktree;
+4. finish each slice as either a committed kept improvement or a full revert;
+5. commit conformance changes in `moo-conformance-tests` and Barn changes in
+   `barn` separately;
+6. stage exact paths only and preserve unrelated untracked files.
 
-Extend `cmd/moo_client` or a close Barn-side sibling so an agent can drive the
-selected profile contract:
+Experiment records required by this plan are repository records, not chat-only
+summaries.
 
-- TCP line transport for ToastStunt-comparable MOO control;
-- optional `PROXY ...` prelude before login when the profile requires it;
-- explicit handling for trusted-proxy blank initial input: the tool must let the
-  operator distinguish normal no-output from Toast's trusted-proxy login gate;
-- scripted login/account selection from uncommitted local config;
-- Barn-only, Toast-only, and send-both command execution;
-- tagged output that lets the operator see which target produced each line.
+## Milestone 0: Repair The Durable Control Surface
 
-The command tool proves control only when it can start from the named profile,
-observe MOO-visible output, log in, send `look`, and show the response for both
-Barn and ToastStunt through their declared connection contracts.
+Reconcile the useful untracked Mongoose/oracle records into this tracked plan
+and the active project instructions.
 
-### 4. Discover With Mongoose
+Required work:
 
-Use equivalent disposable Mongoose fixture inputs and the command tool to run
-the same MOO-level actions on Barn and ToastStunt. Begin with behavior families
-that Mongoose actually exercises:
+- replace stale Windows Toast commands with the WSL-managed workflow;
+- record the exact Barn SHA, both Toast SHAs, selected database checksum, and
+  connection contract for each run;
+- document the environment variable used to provide the uncommitted login
+  script without recording credentials;
+- remove or clearly supersede conflicting process instructions;
+- commit the documentation-only correction before behavioral source work.
 
-- login and account selection;
+Acceptance criteria:
+
+- another agent can start the exact managed oracle workflow using tracked files
+  alone;
+- no active instruction directs Barn conformance work to Windows Toast;
+- the selected fixture and engine identities are explicit.
+
+## Milestone 1: Make Profiles Truthful
+
+Add explicit Mongoose profiles rather than reusing strict profiles with a
+Mongoose name.
+
+Required work:
+
+- add Mongoose config files with `PROMOTE_NUMBERS = 1` and an explicit outbound
+  networking value;
+- include `option.PROMOTE_NUMBERS` in each Mongoose profile's expected features;
+- require promotion compatibility in the conformance profile gate;
+- define stock WSL Toast and WSL Mongoose Toast oracle manifests;
+- fail closed when promotion metadata is missing or mismatched.
+
+Use two validation lanes:
+
+1. WSL Toast versus WSL Barn for OS-matched semantic conformance;
+2. Windows Barn against the same tests and fixture for the real deployment
+   proof.
+
+This avoids lying about `runtime_os` while still proving the Windows target.
+
+Acceptance criteria:
+
+- a strict Barn profile cannot masquerade as Mongoose-compatible;
+- a missing or mismatched promotion feature prevents tests from starting;
+- the selected database checksum and runtime options appear in both manifests.
+
+## Milestone 2: Capture The Present Break
+
+Use the managed conformance harness with the real Mongoose database copy. Supply
+the login conversation through the existing login-script environment mechanism;
+do not commit credentials.
+
+The first scenario should exercise the actual connection contract:
+
+1. start WSL Mongoose Toast through the managed harness;
+2. send the trusted `PROXY` prelude;
+3. complete the account login;
+4. prove post-login control;
+5. run the unchanged scenario against current Barn.
+
+Stable post-login assertions should include:
+
+- the announced client IP is reflected by `connection_name`;
+- `option.PROMOTE_NUMBERS` is enabled;
+- mixed integer/float arithmetic follows Mongoose Toast behavior;
+- `look` reaches stable room-render anchors rather than volatile world state;
+- the server responds within measured, oracle-derived deadlines.
+
+The test must pass WSL Toast first. If Barn already passes, keep the test as
+coverage and do not patch Barn. If Barn fails, record the exact failed assertion
+as the active behavior row.
+
+Acceptance criteria:
+
+- exact Toast command, profile manifest, fixture checksum, focused test name,
+  and pass result are recorded;
+- the same unchanged test produces a concrete Barn result;
+- no Barn production change precedes the Toast result and Barn red proof.
+
+## Milestone 3: Diagnose The Red Barn Run
+
+Run Barn through the managed harness with its structured log directed to a
+stable run directory.
+
+Diagnostic sequence:
+
+1. run `barn_logs -level error`;
+2. correlate `conn_id`, `task_id`, player, verb, traceback, frames, and source;
+3. snapshot `/debug/vars` before the PROXY prelude, during login, and after the
+   observed timeout or failure;
+4. if the server is alive but stalled, collect pprof from the already-running
+   process;
+5. raise the running server to debug only when a named decision requires more
+   detail, then turn it back down.
+
+Add instrumentation only when current evidence cannot distinguish two concrete
+hypotheses. Extend existing `slog` or metric choke points; do not introduce a
+new logging facade, sender, adapter, or service container.
+
+Acceptance criteria:
+
+- the failing ownership boundary is supported by evidence;
+- diagnostics are preserved with the run record;
+- logs and profiles are not presented as substitutes for the conformance row.
+
+## Milestone 4: Close One Delta At A Time
+
+Every behavior row follows this state machine:
+
+`Mongoose observation -> reduced test -> Toast green -> Barn red -> Barn fix -> Barn green -> full gate`
+
+Rules:
+
+- prefer a reduced `Test.db` test when reduction preserves the behavior;
+- retain a real-Mongoose integration test when reduction would erase the
+  behavior or workload condition;
+- patch the real Barn ownership boundary, not scattered symptoms;
+- run focused Go tests, the focused conformance row, the relevant managed suite,
+  and `git diff --check`;
+- commit the conformance test and Barn fix separately before selecting another
+  source slice;
+- if two consecutive slices on the active target produce no kept improvement,
+  stop and report that result instead of widening the search.
+
+The first behavior family is boot, login, and connection behavior because it
+gates every later Mongoose action:
+
+1. startup responsiveness under restored background tasks;
+2. trusted-PROXY metadata rewrite;
+3. account-login `read()` sequence;
+4. burst input and `hold-input` behavior;
+5. reconnect and disconnect hooks.
+
+After that family closes, proceed one family at a time:
+
 - `look`, movement, contents, exits, and room rendering;
-- parser shortcuts and `huh` behavior;
+- parser shortcuts, `huh`, and command dispatch;
 - `@who`, `@display`, `@props`, `@verbs`, and object inspection;
-- connection metadata, listener metadata, trusted-proxy blank-line behavior,
-  PROXY-prelude metadata rewrite, and reconnect/disconnect hooks;
-- task scheduling, suspended reads, queued tasks, and persistence-visible
-  workflows.
+- telnet negotiation and packet-boundary behavior;
+- MCP, GMCP, and out-of-band traffic;
+- task scheduling, suspended reads, queued tasks, restart, and persistence;
+- remaining promotion-sensitive comparison, sorting, map, and collection
+  semantics.
 
-Discovery output creates behavior rows. It is not the authority for a Barn fix.
+For raw telnet behavior, split the significant bytes across separate
+`send_bytes` steps so parser state across reads is part of the regression.
 
-### 5. Promote To Conformance
+## Milestone 5: Make "Amazingly" Measurable
 
-For each real row, add the smallest useful test to `../moo-conformance-tests`.
-Prefer `Test.db` or a reduced fixture. Use Mongoose as the fixture only when the
-behavior cannot be reduced without losing the behavior.
+Functional compatibility comes first. Once the boot/login gate is durable,
+measure the same fixture and script on WSL Mongoose Toast and Barn.
 
-The test must pass on ToastStunt first at the named profile. Then run Barn
-against the unchanged test at the matching profile. If Barn passes, keep the
-test as coverage. If Barn fails, the row enters the Barn fix slice.
+Baseline metrics:
 
-### 6. Fix Barn From The Test
+- database load to listening;
+- PROXY prelude to first banner;
+- complete login time;
+- command latency during startup jobs;
+- `look` and movement latency;
+- settled CPU and memory;
+- task and connection liveness;
+- checkpoint duration.
 
-Read the failing conformance test, the profile facts, and the Barn failure.
-Change the smallest Barn production surface needed for that behavior. Run the
-focused test, then the relevant managed conformance suite. Commit the Barn fix
-atomically.
+Do not choose performance targets before measuring Toast. Record the baseline,
+then define the Barn acceptance threshold in the repository before optimizing.
 
-If the profile is unsupported, do not edit Barn for that row. Record unsupported
-profile debt instead.
+For each performance slice:
 
-### 7. Repeat By Behavior Family
+1. name one metric and one hypothesis;
+2. capture the before measurement and relevant profile;
+3. change one production surface;
+4. rerun the same benchmark and conformance gate;
+5. commit a measured improvement or fully revert the slice.
 
-Stay on one behavior family until rows in that family are closed, unsupported,
-or invalid comparisons. Do not switch families because diagnostics are
-interesting. The expected output over time is a larger conformance suite and a
-Barn that passes it, not a pile of run artifacts.
+A profiler-looking result is not proof of a bottleneck. A performance change is
+not kept unless it improves the named metric while preserving behavior.
 
 ## Completion Criteria
 
-- Barn has committed config/profile support for the Toast-sensitive options
-  required by the expanded suite.
-- `../moo-conformance-tests` can represent the profile requirements used by the
-  added tests.
-- Barn-side MOO command tooling can drive Barn and ToastStunt through the
-  selected TCP profile connection contracts, including trusted-proxy blank-line
-  and PROXY-prelude cases when those profiles require them.
-- Every accepted Mongoose-discovered behavior is either represented in
-  `../moo-conformance-tests` or closed as database content, unsupported profile,
-  diagnostic-only behavior, client/transport behavior, or invalid comparison.
-- Barn passes the expanded managed conformance suite for every supported
-  matching profile.
+The workstream is complete only when:
+
+- the real Mongoose boot/login/look gate passes WSL Mongoose Toast and Barn;
+- every accepted semantic delta has a Toast-passing conformance test;
+- Barn passes the expanded managed suite under truthful strict and Mongoose
+  profiles;
+- Windows Barn passes the deployment lane on the same database checksum;
+- trusted-PROXY metadata, account login, burst input, and connection lifecycle
+  are durably covered;
+- gameplay and persistence behavior families have no open accepted rows;
+- performance targets derived from Toast are met or explicitly deferred by the
+  user;
+- no accepted behavior exists only in chat, memory, untracked notes, or an old
+  log;
+- every kept source slice and required experiment record is committed.
+
+The first execution action is Milestone 0. The first behavioral action is the
+managed Toast-first Mongoose login gate. No Barn source patch should precede
+that gate.
