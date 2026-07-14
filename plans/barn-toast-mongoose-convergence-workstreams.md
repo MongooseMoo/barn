@@ -1106,11 +1106,27 @@ same line after the same login and room-render anchors. The existing generic
 `say_shortcut_quote` and `audit_say_shortcut_reparses_preposition` rows already
 cover this rewrite; no source or conformance change is authorized.
 
-### Active behavior row 2026-07-14: semicolon eval shortcut
+### Live coverage 2026-07-14: semicolon eval shortcut
 
-The final unchecked server rewrite is leading semicolon to `eval`. Run
-`;return "codex eval probe";` after the unchanged login sequence on fresh
-disposable copies, with WSL Mongoose Toast first and committed Windows Barn
-second. If Barn matches Toast's visible eval result, record coverage only and
-close the parser-shortcut/`huh`/dispatch family; if it differs, reduce the
-behavior onto generic `Test.db` before changing Barn.
+The final server rewrite ran `;return "codex eval probe";` after the unchanged
+login sequence. Pinned WSL Mongoose Toast under
+`.tmp/mongoose-convergence/toast-semicolon-control-20260714-23` emitted
+`==> "codex eval probe"`. Committed Windows Barn `eead694` under
+`.tmp/mongoose-convergence/barn-semicolon-control-20260714-24` emitted the same
+line after the same login and room-render anchors. Generic semicolon dispatch
+and reparsing are already covered by `audit_do_command_runs_before_semicolon_eval`
+and `audit_eval_shortcut_reparses_preposition`; no source or conformance change
+is authorized.
+
+Unknown-command/`huh` dispatch and all three server rewrites now match their
+live Mongoose Toast controls. The parser-shortcut/`huh`/command-dispatch family
+is CLOSED.
+
+### Active behavior row 2026-07-14: `@who`
+
+The next Milestone 4 family is object inspection: `@who`, `@display`, `@props`,
+`@verbs`, and related inspection paths. Start with `@who` after the unchanged
+login sequence on fresh disposable copies, using WSL Mongoose Toast first and
+committed Windows Barn second. Compare the visible list structure and stable
+player anchors; if Barn differs, reduce the underlying behavior onto generic
+`Test.db` before changing Barn.
