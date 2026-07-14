@@ -232,3 +232,21 @@ bytes RSS, an increase of 174751744 bytes (13.49%) from slice 3's 1295065088
 bytes. All non-memory gates passed, but RSS is the sole keep/reject metric. The
 capacity change and its focused test were fully restored with no source commit.
 This is one consecutive slice with no kept improvement.
+
+## Pinned slice 5: delete the property hash map
+
+The slice-3 profile remains authoritative. The store already retains every
+persisted property name in `propOrder`, including cleared slots that must write
+as `TypeClear`; the hash map duplicates that indexing and retains 223 MB at
+final insertion. Runtime-propagated inherited properties are the only names not
+initially in `propOrder`, and they can be appended without changing their
+property semantics.
+
+Slice 5 will replace `map[string]Property` with a same-length `[]Property`
+aligned to `propOrder`. An existing padding byte in `Property` will become the
+presence bit for cleared holes, so the compact 40-byte value budget remains
+unchanged. Lookups will scan the ordered names with the existing
+case-insensitive rule; no replacement map, secondary index, interface, or
+adapter will be added. Existing store, dump-persistence, full-package, and
+unchanged deployment gates decide keep or full restore. A rejection is the
+second consecutive unsuccessful slice and requires stopping.

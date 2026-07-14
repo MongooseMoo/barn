@@ -1512,3 +1512,11 @@ but the unchanged deployment run at
 1295065088 to 1469816832 bytes (+174751744 bytes, +13.49%). No source commit was
 made. This is one consecutive slice with no kept improvement; the slice-3 kept
 profile remains the authority for the next property-storage attempt.
+
+The order/hole audit pins slice 5 to deleting the property hash map. Store
+properties as a `[]Property` aligned with the already-retained `propOrder`, use
+a presence bit for cleared holes, append runtime-inherited slots to both
+slices, and preserve case-insensitive lookup by ordered scan. Do not add a
+replacement index or representation. The unchanged deployment RSS result
+decides keep or full restore; rejection is the second consecutive unsuccessful
+slice and requires stopping.
