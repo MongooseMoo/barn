@@ -1462,3 +1462,10 @@ forced-GC heap profile confirms database representation as the cause:
 property-builder storage at 222.61 MB. The first slice is pinned to deleting
 `goMap`'s redundant retained small-map storage while preserving map semantics.
 Do not touch property or string storage in this slice.
+
+The first slice is REJECTED and fully restored. Its focused allocation and
+semantic gates passed, but the unchanged deployment benchmark increased RSS
+from 2010251264 to 2133549056 bytes (+6.13%). No source commit was made. This is
+one consecutive slice with no kept improvement. Inspect the next proven owner,
+`ObjectBuilder.ResetProperties` at 222.61 MB, before pinning slice 2; if slice 2
+also produces no kept improvement, stop under the exact-convergence rule.

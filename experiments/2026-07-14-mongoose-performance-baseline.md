@@ -122,3 +122,23 @@ key/value entries. The slice will delete redundant retained storage for small
 maps while preserving exact typed key identity, insertion order, copy-on-write,
 and indexed lookup for larger maps. The same deployment benchmark and managed
 promotion/conformance gate decide whether the slice is kept.
+
+### Slice 1 result: rejected and restored
+
+The adaptive small-map representation reduced a three-entry `NewMap` from 10
+allocations to at most 3. `go test ./types` passed. The managed map/promotion
+gate passed 3163 tests with 8 established skips after excluding the unrelated,
+pre-slice `toliteral(-0.0)` failure. That failure was initially misread as a
+map-key mismatch; the mistaken key-preservation change and test were removed,
+and the committed pre-slice formatter proves the row was already red.
+
+The unchanged deployment benchmark under
+`.tmp/mongoose-convergence/perf-barn-map-slice-01` measured 2133549056 bytes
+RSS, versus 2010251264 bytes in the profile-bearing baseline repeat: an increase
+of 123297792 bytes (6.13%). All latency, liveness, checkpoint, and CPU gates
+still passed, but RSS is the sole keep/revert metric. The entire source slice
+was restored and no source commit was made.
+
+This is one consecutive slice with no kept improvement. The next retained-byte
+owner on the same RSS target is `ObjectBuilder.ResetProperties` at 222.61 MB;
+it must be inspected before naming the second slice.
