@@ -959,6 +959,43 @@ The `look`, movement, contents, exits, and room-rendering family is therefore
 CLOSED for the current fixture. The next unchecked Milestone 4 family is
 parser shortcuts, `huh`, and command dispatch.
 
+### Slice implementation 2026-07-14: connection-option snapshot race
+
+The first parser-family candidate sent the generic unknown command
+`codex-no-such-command`. WSL Mongoose Toast completed login and replied
+`I don't understand that.` Barn did not reach the command: its process exited
+during login first, with `fatal error: concurrent map iteration and map write`
+in `builtins.getConnectionOptions` while `InputProcessor.HandleConnection`
+read the `binary` option. The missing `huh` response is therefore not evidence
+of a command-dispatch delta and must not be reduced as one.
+
+The Go race regression `TestConnectionOptionsConcurrentReadWrite` failed on
+pre-fix Barn with concurrent iteration in `getConnectionOptions` at
+`builtins/network.go:207` and mutation in `setConnectionOption` at line 224,
+matching the live fatal stack. The reader released `RLock` after retrieving the
+shared per-player map but before copying it. The production fix keeps `RLock`
+through the copy; no new storage path or abstraction was introduced.
+
+The unchanged race-instrumented regression then passed. The complete
+`builtins` and `server` package gates passed, and `git diff --check` passed.
+Barn commit is `01b64de`.
+
+The unknown-command candidate was repeated on committed `01b64de` with a fresh
+disposable fixture under
+`.tmp/mongoose-convergence/barn-huh-fixed-20260714-12`. The source and copy
+both hashed to
+`b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+Barn completed login without a process crash and replied
+`I don't understand that.`, matching the WSL Mongoose Toast control under
+`.tmp/mongoose-convergence/toast-huh-control-20260714-10`.
+
+Generic unknown-command and `huh` dispatch are already durably covered by
+`server/command_parsing.yaml`, `command/parser.yaml`, and
+`audit/command_parser_toast_oracle.yaml`. This genuine live candidate is
+coverage only after the prerequisite crash fix; no parser source or
+conformance change is authorized. The next unchecked candidate in the same
+family is parser shortcut dispatch.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
