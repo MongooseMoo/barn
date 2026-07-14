@@ -136,8 +136,8 @@ func (vm *VM) executeCallVerb() error {
 	currentFrame := vm.CurrentFrame()
 	callerObj := currentFrame.This
 	callerValue := types.NewObj(callerObj)
-	if vm.Context != nil && !vm.Context.ThisValue.IsNone() {
-		callerValue = vm.Context.ThisValue
+	if !currentFrame.ThisValue.IsNone() {
+		callerValue = currentFrame.ThisValue
 	}
 	player := currentFrame.Player
 	if vm.Context != nil && vm.Context.Player != types.ObjNothing {
@@ -168,6 +168,7 @@ func (vm *VM) executeCallVerb() error {
 		BasePointer:     vm.SP,
 		Locals:          make([]types.Value, prog.NumLocals),
 		This:            objID,
+		ThisValue:       thisValue,
 		Player:          player,
 		Verb:            lookupVerbName,
 		StoredVerb:      strings.Join(verb.Names, " "),
@@ -367,9 +368,9 @@ func (vm *VM) executePass() error {
 	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
 	passThis := types.NewObj(frame.This)
 	passThisValue := types.None
-	if vm.Context != nil && !vm.Context.ThisValue.IsNone() {
-		passThis = vm.Context.ThisValue
-		passThisValue = vm.Context.ThisValue
+	if !frame.ThisValue.IsNone() {
+		passThis = frame.ThisValue
+		passThisValue = frame.ThisValue
 	}
 
 	// Push new stack frame with parent verb's bytecode
@@ -381,6 +382,7 @@ func (vm *VM) executePass() error {
 		BasePointer:     vm.SP,
 		Locals:          make([]types.Value, prog.NumLocals),
 		This:            frame.This,
+		ThisValue:       passThisValue,
 		Player:          frame.Player,
 		Verb:            verbName,
 		StoredVerb:      strings.Join(verb.Names, " "),

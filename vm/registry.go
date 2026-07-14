@@ -81,6 +81,7 @@ func BuildVMRegistry() *builtins.Registry {
 			BasePointer:     callerVM.SP,
 			Locals:          make([]types.Value, prog.NumLocals),
 			This:            types.ObjNothing,
+			ThisValue:       types.None,
 			Player:          ctx.Player,
 			Verb:            "",
 			Caller:          ctx.ThisObj,

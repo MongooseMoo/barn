@@ -55,6 +55,7 @@ type StackFrame struct {
 	BasePointer  int                  // Stack base for this frame
 	Locals       []types.Value        // Local variables
 	This         types.ObjID          // Current object
+	ThisValue    types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
 	Player       types.ObjID          // Player context
 	Verb         string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
 	StoredVerb   string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
@@ -113,6 +114,7 @@ func (vm *VM) Run(prog *bytecode.Program) types.Result {
 		BasePointer: vm.SP,
 		Locals:      make([]types.Value, prog.NumLocals),
 		This:        types.ObjNothing,
+		ThisValue:   types.None,
 		Player:      types.ObjNothing,
 		Verb:        "",
 		Caller:      types.ObjNothing,
@@ -181,6 +183,7 @@ func (vm *VM) PrepareVerbFrame(prog *bytecode.Program, thisObj types.ObjID, play
 		BasePointer: vm.SP,
 		Locals:      make([]types.Value, prog.NumLocals),
 		This:        thisObj,
+		ThisValue:   types.None,
 		Player:      player,
 		Verb:        verbName,
 		Caller:      caller,

@@ -788,19 +788,32 @@ the focused row 1/1. Pre-fix Windows Barn failed the unchanged row with expected
 `[1, 1, 1]` and actual `[1, 0, 0]`.
 
 Unit regression `TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity`
-failed at the same caller-type assertion before the fix and passed afterward.
-The production change is confined to `vm/op_verb.go`: when binding the nested
-verb's `caller` local, preserve the current context's non-object `ThisValue`
-instead of always rebuilding it as `types.NewObj(currentFrame.This)`. Normal
-object callers retain the existing object value.
+failed at the same caller-type assertion before the first fix and passed
+afterward. That first implementation bound `caller` from the task-global
+`vm.Context.ThisValue` and landed as Barn commit `283f76d`. Its post-commit live
+login gate failed before the banner: every input reached
+`#0:do_login_command` line 24 and raised `E_TYPE` while calling the selected
+login verb. This proved that `Context.ThisValue` can retain an anonymous value
+across later, ordinary object-call task boundaries and is not valid frame
+ownership.
 
-Post-fix proof so far: the focused managed Barn row passed 1/1; the managed
-anonymous family passed 88 with 7 established skips on both WSL Toast and
-Windows Barn; `git diff --check` passed. The exact local package gate remained
-green in `bytecode` and `vm` and red only at the already-recorded scheduler
-regression `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
-The conformance commit is `dca934b`. The post-commit live login-only gate is the
-remaining acceptance item for this slice.
+The unit regression was extended with a stale anonymous context followed by an
+ordinary `#0` verb call. Commit `283f76d` returned `TYPE_ANON` for that call;
+the required result is `TYPE_OBJ`. The corrected production change gives each
+`StackFrame` its own optional `ThisValue`. Nested call and `pass()` frames copy
+the actual non-object receiver, while the initial run, prepared verb, and eval
+frames explicitly initialize it to `None`. `executeCallVerb` now binds
+`caller` from the active frame only, so an earlier task context cannot
+contaminate an ordinary object call.
+
+Post-correction proof so far: the extended unit regression passed; the focused
+managed Barn row passed 1/1; the managed anonymous family passed 88 with 7
+established skips on both WSL Toast and Windows Barn; and `git diff --check`
+passed. The exact local package gate remained green in `bytecode` and `vm` and
+red only at the already-recorded scheduler regression
+`TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`. The
+conformance commit is `dca934b`. The corrected post-commit live login-only gate
+is the remaining acceptance item for this slice.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:

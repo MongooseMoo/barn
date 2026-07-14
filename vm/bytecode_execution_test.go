@@ -217,9 +217,17 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 		execPerms, dbstore.VerbArgs{}, []string{"return this:anon_inner();"})); errCode != types.E_NONE {
 		t.Fatalf("add outer verb: %s", errCode)
 	}
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb("caller_type", []string{"caller_type"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return typeof(caller);"})); errCode != types.E_NONE {
+		t.Fatalf("add caller type verb: %s", errCode)
+	}
 
 	requireList(t, runBytecodeProgram(t, "return #0.anon:anon_outer();", store, nil),
 		types.NewInt(1), types.NewInt(1), types.NewInt(1))
+
+	staleContext := kernel.NewTaskContext()
+	staleContext.ThisValue = types.NewAnon(1)
+	requireInt(t, runBytecodeProgram(t, "return #0:caller_type();", store, staleContext), int64(types.TYPE_OBJ))
 }
 
 // TestBytecodeNestedCatchInsideTryDoesNotPopOuterHandler covers a case where
