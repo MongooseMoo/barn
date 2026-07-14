@@ -1266,11 +1266,19 @@ Conformance row `audit_telnet_two_byte_command_delivered_across_reads` splits
 deliver the complete `~FF~F1` command to `do_out_of_band_command` and pass 1/1.
 Conformance commit is `9569147`; no Barn source change is authorized.
 
-### Active packet row 2026-07-14: split CRLF terminator
+### Packet coverage 2026-07-14: split CRLF terminator
 
-Add one generic `Test.db` row that sends ordinary login text, CR, and LF in
-three separate `send_bytes` steps. Record every `do_login_command` invocation.
-Toast must establish whether CR dispatches one line and the subsequent LF is
-suppressed or causes another call; run that Toast-confirmed row unchanged on
-Barn. If both pass, keep coverage; if Toast is green and Barn is red, fix only
-that line-terminator state delta.
+Conformance row `audit_crlf_split_across_reads_dispatches_blank_lf` sends login
+text, CR, and LF in separate raw writes. Toast establishes that CR dispatches
+the nonempty line and the separately arriving LF dispatches one blank line;
+the row records the two results without depending on concurrent completion
+order. Barn matches and both engines pass 1/1. Conformance commit is `dbc98d9`;
+no Barn source change is authorized.
+
+### Active telnet gate 2026-07-14: complete raw follow-up family
+
+Run the complete managed `gap_followups_toast_oracle` family on stock WSL Toast
+and committed Windows Barn. If both pass, close telnet negotiation and packet
+boundaries and continue to MCP, GMCP, and out-of-band traffic. If a row fails,
+keep that single row active until it is either corrected against Toast or
+fixed in Barn.
