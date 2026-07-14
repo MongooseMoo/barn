@@ -1499,3 +1499,9 @@ unchanged deployment run at
 1837264896 to 1295065088 bytes (-542199808 bytes, -29.51%). All non-memory gates
 still pass. RSS remains above 467460096 bytes, so the kept profile selects
 slice 4 on the same target.
+
+The slice-3 profile keeps property resolution first at 263.18 MB, including
+223 MB at final map insertion. The resolver knows the final property count but
+allocates the map without capacity. Slice 4 is pinned to preallocating that
+existing map to `len(oldOrder)`; do not change representation or another owner.
+The unchanged deployment RSS result decides keep or full restore.

@@ -208,3 +208,16 @@ bytes RSS, a reduction of 542199808 bytes (29.51%) from slice 2's 1837264896
 bytes. All latency, liveness, checkpoint, and CPU gates pass. The slice is kept,
 but RSS remains above the 467460096-byte acceptance threshold. The saved heap
 profile from this kept run selects the next slice on the same metric.
+
+## Pinned slice 4: preallocate resolved property maps
+
+The slice-3 forced-GC profile retains 831.56 MB. Property resolution remains
+the largest flat owner at 263.18 MB: 223 MB at final map insertion and 39.68 MB
+for property order. The resolver knows `len(oldOrder)` before allocating the
+final property map but currently creates it with no capacity and grows it one
+entry at a time.
+
+Slice 4 will give that existing map the exact known capacity. It will not
+change representation or touch another owner. A focused resolver allocation
+regression, the affected package suites, and the unchanged deployment benchmark
+decide keep or full restore.
