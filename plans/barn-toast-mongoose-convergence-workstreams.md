@@ -1403,3 +1403,13 @@ The correction uses exact type-qualified IEEE float identity for compiler
 constant deduplication and map hashing, while canonicalizing signed zero to
 preserve MOO equality. Regressions cover both collapse points; the full `types`
 and `bytecode` packages pass. Barn commit is `284c52e`.
+
+### Promotion-aware list-membership gate closed 2026-07-14
+
+The reduced `list_membership_promotes_integer_to_float` row passes 1/1 on the
+pinned WSL Mongoose Toast build and current promotion-enabled Windows Barn.
+The earlier record that Barn returned `0` for `1 in {1.0}` is stale for the
+current tree, so no Barn source change is authorized. The row is gated by the
+validated `option.PROMOTE_NUMBERS` profile feature and skips under the stock
+strict profile. The conformance unit gate passes 59/59. Conformance commit is
+`255121a`.
