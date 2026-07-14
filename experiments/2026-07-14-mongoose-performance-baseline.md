@@ -160,3 +160,21 @@ and format tests must pass, and the unchanged deployment benchmark is the sole
 keep/reject decision. Any RSS decrease is kept because the acceptance target is
 exact convergence; no decrease is a rejection and triggers the required stop
 after two consecutive unsuccessful slices.
+
+### Slice 2 result: kept
+
+`TestResetPropertiesReusesResolvedValueMap` established the pre-change cost at
+5 allocations for three resolved properties and passes at 0 allocations after
+the conversion. The complete `db/store` and `db/format` suites pass. The full Go
+suite has no new failures; its only failure remains the independently recorded
+`TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent` scheduler
+collision.
+
+The unchanged deployment benchmark under
+`.tmp/mongoose-convergence/perf-barn-property-slice-02` measured 1837264896
+bytes RSS, a reduction of 172986368 bytes (8.61%) from the 2010251264-byte
+profile-bearing repeat. Database load, PROXY response, login, commands,
+liveness, checkpoint, and CPU all remain within their pinned gates. The slice
+is kept and resets the consecutive-no-improvement count, but RSS remains above
+the 467460096-byte acceptance threshold. The saved heap profile from this kept
+run is the authority for selecting the next representation slice.

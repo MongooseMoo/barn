@@ -141,9 +141,6 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 			continue
 		}
 		for _, prop := range obj.properties {
-			if prop == nil {
-				continue
-			}
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefs(prop.value, refs)
 			for id := range refs {
@@ -167,9 +164,6 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		}
 		reachablePresent[id] = struct{}{}
 		for _, prop := range obj.properties {
-			if prop == nil {
-				continue
-			}
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefs(prop.value, refs)
 			for nid := range refs {
@@ -294,9 +288,7 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 		}
 	}
 	for name, prop := range obj.properties {
-		if prop != nil {
-			so.Properties[name] = prop.View()
-		}
+		so.Properties[name] = prop.View()
 	}
 	return so
 }

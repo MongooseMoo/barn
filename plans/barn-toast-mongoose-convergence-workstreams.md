@@ -1477,3 +1477,10 @@ Replace the final object map with value entries, assign the resolved map
 directly, and add explicit write-back at the existing store mutation sites.
 The unchanged deployment RSS measurement decides keep or full restore. No RSS
 decrease is the second consecutive unsuccessful slice and requires stopping.
+
+Slice 2 is KEPT. The focused allocation regression moved from 5 allocations to
+0, the affected store and format suites pass, and the unchanged deployment run
+at `.tmp/mongoose-convergence/perf-barn-property-slice-02` reduced RSS from
+2010251264 to 1837264896 bytes (-172986368 bytes, -8.61%). All non-memory gates
+still pass. RSS remains above the 467460096-byte acceptance threshold, so the
+same target remains active and the kept run's heap profile selects slice 3.

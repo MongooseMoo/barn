@@ -67,9 +67,6 @@ func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 			continue
 		}
 		for _, prop := range obj.properties {
-			if prop == nil {
-				continue
-			}
 			refs := make(map[types.ObjID]struct{})
 			collectAnonymousObjectRefs(prop.value, refs)
 			for id := range refs {
@@ -131,9 +128,6 @@ func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]stru
 		reachable[id] = struct{}{}
 		nested := make(map[types.ObjID]struct{})
 		for _, prop := range obj.properties {
-			if prop == nil {
-				continue
-			}
 			collectAnonymousObjectRefs(prop.value, nested)
 		}
 		for nestedID := range nested {
@@ -219,9 +213,6 @@ func (s *Store) PersistentWaifRoots() []types.Value {
 			continue
 		}
 		for _, prop := range obj.properties {
-			if prop == nil {
-				continue
-			}
 			collectWaifsFromValue(prop.value, &roots)
 		}
 	}

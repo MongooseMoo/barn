@@ -25,23 +25,23 @@ type ObjectBuilder struct {
 func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 	return &ObjectBuilder{obj: &Object{
 		id:         id,
-		properties: make(map[string]*Property),
+		properties: make(map[string]Property),
 		verbs:      make(map[string]*Verb),
 	}}
 }
 
 // --- scalar setters ---
 
-func (b *ObjectBuilder) SetName(name string)           { b.obj.name = name }
-func (b *ObjectBuilder) SetOwner(owner types.ObjID)    { b.obj.owner = owner }
-func (b *ObjectBuilder) SetFlags(flags ObjectFlags)    { b.obj.flags = flags }
-func (b *ObjectBuilder) SetLocation(loc types.ObjID)   { b.obj.location = loc }
-func (b *ObjectBuilder) SetAnonymous(anonymous bool)   { b.obj.anonymous = anonymous }
-func (b *ObjectBuilder) SetPropDefsCount(count int)    { b.obj.propDefsCount = count }
-func (b *ObjectBuilder) SetParents(p []types.ObjID)    { b.obj.parents = p }
-func (b *ObjectBuilder) SetChildren(c []types.ObjID)   { b.obj.children = c }
-func (b *ObjectBuilder) SetContents(c []types.ObjID)   { b.obj.contents = c }
-func (b *ObjectBuilder) SetPropOrder(order []string)   { b.obj.propOrder = order }
+func (b *ObjectBuilder) SetName(name string)         { b.obj.name = name }
+func (b *ObjectBuilder) SetOwner(owner types.ObjID)  { b.obj.owner = owner }
+func (b *ObjectBuilder) SetFlags(flags ObjectFlags)  { b.obj.flags = flags }
+func (b *ObjectBuilder) SetLocation(loc types.ObjID) { b.obj.location = loc }
+func (b *ObjectBuilder) SetAnonymous(anonymous bool) { b.obj.anonymous = anonymous }
+func (b *ObjectBuilder) SetPropDefsCount(count int)  { b.obj.propDefsCount = count }
+func (b *ObjectBuilder) SetParents(p []types.ObjID)  { b.obj.parents = p }
+func (b *ObjectBuilder) SetChildren(c []types.ObjID) { b.obj.children = c }
+func (b *ObjectBuilder) SetContents(c []types.ObjID) { b.obj.contents = c }
+func (b *ObjectBuilder) SetPropOrder(order []string) { b.obj.propOrder = order }
 
 // --- scalar / aggregate getters (needed by cross-object repair + resolution) ---
 
@@ -105,8 +105,7 @@ func (b *ObjectBuilder) SetVerbCodeByIndex(index int, code []string) bool {
 // existing slot of that name). The loader uses placeholder names during the
 // first pass and rewrites them once inherited names are resolved.
 func (b *ObjectBuilder) SetProperty(name string, p Property) {
-	pp := p
-	b.obj.properties[name] = &pp
+	b.obj.properties[name] = p
 }
 
 // Property returns a read-only view of a property slot and whether it exists.
@@ -121,12 +120,7 @@ func (b *ObjectBuilder) Property(name string) (PropertyView, bool) {
 // ResetProperties replaces the entire property map and property order. Used by
 // the loader's inherited-name resolution pass, which rebuilds both together.
 func (b *ObjectBuilder) ResetProperties(props map[string]Property, order []string) {
-	m := make(map[string]*Property, len(props))
-	for name, p := range props {
-		pp := p
-		m[name] = &pp
-	}
-	b.obj.properties = m
+	b.obj.properties = props
 	b.obj.propOrder = order
 }
 
