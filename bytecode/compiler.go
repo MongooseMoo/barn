@@ -35,7 +35,7 @@ type Registry interface {
 // Compiler lowers semantic verb nodes to bytecode.
 type Compiler struct {
 	program              *Program
-	constants            map[string]int       // Constant deduplication (Value.String() -> index)
+	constants            map[string]int       // Constant deduplication (exact typed value -> index)
 	variables            map[string]int       // Variable name -> index mapping
 	loops                []LoopContext        // Loop context stack for break/continue
 	scopes               []Scope              // Variable scope stack
@@ -206,7 +206,14 @@ func (c *Compiler) emitConstant(v types.Value) {
 // as a safe fallback index.
 func (c *Compiler) addConstant(v types.Value) int {
 	// Check if constant already exists
-	key := v.String()
+	key := fmt.Sprintf("%d:%s", int(v.Type()), v.String())
+	if v.Type() == types.TYPE_FLOAT {
+		f := v.Float()
+		if f == 0 {
+			f = 0
+		}
+		key = fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
+	}
 	if idx, ok := c.constants[key]; ok {
 		return idx
 	}

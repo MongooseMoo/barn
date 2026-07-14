@@ -1,12 +1,14 @@
 package bytecode_test
 
 import (
+	"math"
 	"reflect"
 	"strings"
 	"testing"
 
 	"barn/bytecode"
 	"barn/compiler"
+	"barn/types"
 )
 
 // TestMOOCompilationContractCharacterizesEveryNodeFamily fixes the current
@@ -94,6 +96,34 @@ func TestMOOCompilationContractPreservesEmptyProgram(t *testing.T) {
 	}
 	if len(compiled.Code) != 1 || bytecode.OpCode(compiled.Code[0]) != bytecode.OP_RETURN_NONE {
 		t.Fatalf("empty program bytecode = %v, want only OP_RETURN_NONE", compiled.Code)
+	}
+}
+
+func TestMOOCompilationContractKeepsAdjacentFloatConstantsDistinct(t *testing.T) {
+	compiled, diagnostics := compiler.CompileMOO([]string{
+		"return {1.0, 1.0000000000000002};",
+	}, stubRegistry{})
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO failed: %v", diagnostics)
+	}
+
+	wantBits := map[uint64]bool{
+		math.Float64bits(1.0):                  false,
+		math.Float64bits(math.Nextafter(1, 2)): false,
+	}
+	for _, constant := range compiled.Constants {
+		if constant.Type() != types.TYPE_FLOAT {
+			continue
+		}
+		bits := math.Float64bits(constant.Float())
+		if _, ok := wantBits[bits]; ok {
+			wantBits[bits] = true
+		}
+	}
+	for bits, found := range wantBits {
+		if !found {
+			t.Fatalf("compiled constants omit float bits %016x: %#v", bits, compiled.Constants)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unsafe"
@@ -29,6 +30,13 @@ type goMap struct {
 func keyHash(v Value) string {
 	if v.Type() == TYPE_STR {
 		return fmt.Sprintf("%d:%s", int(v.Type()), strings.ToLower(v.Str()))
+	}
+	if v.Type() == TYPE_FLOAT {
+		f := v.Float()
+		if f == 0 {
+			f = 0
+		}
+		return fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
 	}
 	return fmt.Sprintf("%d:%s", int(v.Type()), v.String())
 }
