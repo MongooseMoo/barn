@@ -85,6 +85,19 @@ Do not scrape notes to reconstruct a client, replace `moo_client.exe` with an
 ad hoc socket script, or infer the login conversation from a nearby database.
 Run the existing tool and observe the selected fixture first.
 
+### Conformance repository boundary (user correction, 2026-07-13)
+
+`moo-conformance-tests` must know nothing about Mongoose. Mongoose fixtures,
+profiles, names, login flows, environment hooks, accounts, passwords, and other
+credentials must never appear in its tests or test-support code.
+
+Live Mongoose runs are discovery and deployment evidence in the Barn
+repository only. Every discovered behavioral issue must be minimized onto the
+bundled conformance `Test.db` before it becomes a durable cross-engine test. If
+a behavior cannot be reproduced faithfully with `Test.db`, stop and report the
+blocked reduction; do not put a Mongoose-specific test into the conformance
+repository.
+
 The July 1 campaign landed six Barn fixes but only two corresponding conformance
 suites. The real trusted-PROXY -> account login -> room render path, startup
 responsiveness, burst input, and most gameplay behavior were not captured as a
@@ -133,7 +146,7 @@ July 13 managed results using this file are rejected:
 - rejection reason: no proof that the file was a fresh upstream
   `mongoose.db.new` rather than a Barn-written or otherwise evolved copy.
 
-The recovered known-good fixture is the file Claude fetched from
+The recovered known-good control fixture is the file Claude fetched from
 `mongoose@mongoose.world:~/mongoose/mongoose.db.new` on July 1:
 
 - local path: `C:/Users/Q/code/barn/mongoose_fresh2.db`;
@@ -142,11 +155,22 @@ The recovered known-good fixture is the file Claude fetched from
 - provenance record: `notes/mongoose-differential-2026-07-01.md`;
 - matching untouched WSL discovery copy: `/tmp/mg_in.db`.
 
-Use this exact snapshot for the current convergence row. Re-hash it immediately
-before every authoritative comparison, copy it to a disposable run location,
-and never run Barn or Toast directly against the source file. A future live
-`mongoose.db.new` is a new fixture identity and must be fetched, recorded, and
-baselined on Toast before it replaces this snapshot.
+Use this exact snapshot as the fixed login control. Re-hash it immediately
+before every control run, copy it to a disposable run location, and never run
+Barn or Toast directly against the source file.
+
+The current upstream snapshot was fetched on July 13 with the exact source
+`mongoose@mongoose.world:~/mongoose/mongoose.db.new` and Windows-native `scp`:
+
+- fetched path: `C:/Users/Q/code/barn/.tmp/mongoose-refresh-20260713/mongoose.db.new`;
+- size: `98434477` bytes;
+- SHA-256: `b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+
+The fetched file was copied separately for Toast and Barn; neither engine ran
+against the fetched source path. Its unchanged WSL Mongoose Toast login passed,
+so this identity is the current convergence fixture. A later upstream fetch is
+a new identity and must repeat this exact fetch, hash, disposable-copy, and
+Toast-baseline sequence before use.
 
 ## Corrected Execution State (2026-07-13)
 
@@ -176,6 +200,114 @@ A later `Confunc failed: This database is not open.` traceback occurred after
 the room render in optional sound/database code. It does not negate successful
 login or room control, but it is a separate candidate delta only after it is
 reproduced through the Toast-first row.
+
+### Current upstream differential (2026-07-13)
+
+The fixed control was rerun first and passed unchanged on the pinned WSL
+Mongoose Toast binary. Player `#249` connected and the complete Zemilda's Tea
+House render contained all three recorded anchors above.
+
+The same login-only invocation was then run on a disposable copy of the current
+upstream snapshot. It used only the existing `moo_client.exe`,
+`-banner-wait 3000 -inter-cmd 2500 -timeout 15`, the trusted-PROXY prelude, the
+account, and the password. No `look`, `@test`, selection response, reconstructed
+login command, or additional wait was added. WSL Mongoose Toast passed:
+
+- player `#249` connected;
+- `[[Trojanovich plaza; Daystrom Annex]; Codex's Lab]` rendered completely;
+- `You can go west, northeast (closed), and north (closed).` appeared;
+- the later optional SQLite `This database is not open` traceback appeared;
+- during a three-minute observation, repeated `#4143:cycle "Already cycling"`
+  and optional SQLite batch-insert errors were visible to the connected wizard.
+
+Windows Barn was built from `b78f76e0595409de2f77e62d6c396083e5fb97f5`
+with the existing tracked dirty plan only. Its managed profile manifest recorded
+the current fixture checksum and both `option.OUTBOUND_NETWORK=true` and
+`option.PROMOTE_NUMBERS=true`. The unchanged login-only invocation authenticated
+and printed `Welcome!`, but did not emit Toast's MCP line, connected-player line,
+or room render before the 15-second idle timeout.
+
+Barn's structured log contains the preceding concrete delta:
+
+```text
+panic in task: runtime error: index out of range [171] with length 32
+task_id=1783980338 this=0 verb=server_started
+vm.(*VM).executeLoop -> scheduler.(*Scheduler).runTask
+```
+
+No additional Barn error appeared during the three-minute observation. The
+current active behavior row is therefore the startup fork panic, not the later
+`look` or `@test $pbt` symptoms from the manual transcript.
+
+The triggering source is already localized. Current `#0:server_started` lines
+14-21 fork a zero-delay body containing `try`/`except`. Barn extracts that body
+with `bytecode.Program.ExtractForkBody`, but the extracted program retains the
+parent program's absolute exception-handler instruction pointer. When the fork
+body handles an exception, `vm.HandleError` assigns parent IP `171` inside the
+32-byte extracted program and the unchecked fetch at `vm/vm.go:273` panics.
+Relative jump operands are not part of this delta.
+
+## Windows-To-WSL Connectivity (read this before any managed WSL Toast run)
+
+Verified 2026-07-13. Two independent walls sit between the Windows harness and
+a WSL-hosted Toast. Both produce misleading errors. Diagnose in this order
+before concluding anything about Toast, Barn, the harness, or the fixture.
+
+### Wall 1: localhost forwarding to WSL can be dead
+
+Symptom: the harness fails with `Server did not start accepting connections
+on port N within 30.0s`, or a direct client gets `connection refused` on
+`localhost`/`127.0.0.1`. The message is a lie in this state: the server is
+up; the dial path is dead.
+
+Proof procedure (run exactly this before believing any other theory):
+
+```powershell
+wsl -d Debian -u root -e bash -c "ss -tlnp | grep <port>"   # server IS listening
+wsl -d Debian -u root -e hostname -I                        # NAT IP, e.g. 172.17.144.45
+```
+
+If the listener exists but Windows cannot reach `127.0.0.1:<port>`, localhost
+forwarding is broken VM-wide. Facts established 2026-07-13:
+
+- a fresh trivial listener reproduces it, so it is not Toast-specific;
+- `wsl --terminate Debian` does NOT fix it — the relay lives in the shared
+  WSL utility VM, which stays up while any distro (docker-desktop) runs;
+- the only full reset is `wsl --shutdown`, which kills the user's live
+  Docker containers (azuracast radio, accessmap). NEVER run `wsl --shutdown`
+  without the user's explicit approval;
+- the working route is the WSL NAT IP from `wsl hostname -I`, passed to the
+  harness as `--moo-host <NAT-IP>`. `ManagedServer` accepts a non-localhost
+  host (guard removed 2026-07-13).
+
+### Wall 2: Toast reverse-DNS stalls connections from the Windows side
+
+Symptom: the connection is accepted but the banner/login output arrives ~10s
+late; the harness dies with `TimeoutError` in `transport.py` `_receive`, or a
+manual login takes ~20s instead of instantly.
+
+Cause: Toast reverse-DNS-resolves every incoming connection. From the WSL NAT
+gateway (the Windows host, e.g. `172.17.144.1`) that lookup hangs.
+
+Fix: `scripts/run_toast_wsl.sh` now appends the gateway to WSL `/etc/hosts`
+(idempotent, re-asserts after distro restarts because WSL regenerates
+`/etc/hosts`). If a manual Toast launch bypasses the wrapper, apply the same
+line first:
+
+```bash
+gw=$(ip route show default | awk '{print $3}')
+grep -q "^$gw " /etc/hosts || echo "$gw windows-nat-gateway" >> /etc/hosts
+```
+
+### Failure-to-action table
+
+| Observation | Action | Do NOT |
+|---|---|---|
+| "did not start accepting connections within 30s" on a WSL server | Run the Wall 1 proof; use `--moo-host <NAT-IP>` | Conclude Toast/the harness is broken; rewrite the server command |
+| `connection refused` on localhost, listener present in WSL | Same as above | `wsl --shutdown` without user approval |
+| recv `TimeoutError` after a successful accept | Check Wall 2; verify the hosts entry exists in WSL | Raise harness timeouts; blame the test |
+| `invalid-comparison: manifest runtime_os differs` | You paired a WSL oracle manifest with Windows Barn: omit `--oracle-profile-manifest` for the deployment lane | Edit manifests to lie about `runtime_os` |
+| Row fails on Toast | The test is wrong; fix the test, never run Barn | Patch Barn |
 
 ## Structured Observability
 
@@ -268,46 +400,27 @@ Acceptance criteria:
 
 ## Milestone 2: Capture The Present Break
 
-Start from the proven Claude tool and fixture, then transfer that exact behavior
-into the managed conformance harness. Do not begin with a reconstructed login
-script or an unproven database. Do not modify the conformance transport: it is
-an established measurement surface, and no transport defect has been shown.
+Start from a proven live observation, identify the smallest server behavior it
+depends on, and reproduce that behavior with bundled `Test.db` through the
+managed harness. Do not modify the conformance transport unless an independent
+`Test.db` row proves a transport defect.
 
-The discovery proof and the durable gate are distinct required artifacts:
+For every observation:
 
-1. **Known-good live proof.** Run `moo_client.exe` against the pinned WSL
-   Mongoose Toast build using a disposable copy of `mongoose_fresh2.db`,
-   `-banner-wait 3000`, `-inter-cmd 2500`, and `-timeout 15`. Send the
-   trusted-PROXY prelude, then answer the account and password prompts exactly
-   as the selected fixture presents them. Do not add `connect`, `login`, or a
-   character-selection line unless the live prompt for this exact fixture asks
-   for it.
-2. **Managed conformance proof.** Use the same freshly hashed source fixture via
-   the managed disposable lifecycle. Supply the already-prepared, uncommitted
-   login conversation through the existing login-script environment mechanism;
-   do not scrape a note to synthesize it and do not commit or print credentials.
+1. state the implementation-independent behavior;
+2. build the smallest `Test.db` setup that preserves the triggering workload or
+   state;
+3. run the exact row on the documented stock WSL Toast oracle;
+4. run the unchanged row on pre-fix Barn;
+5. keep it only when Toast is green and Barn shows the concrete delta;
+6. record Mongoose-specific discovery details only in Barn-local records.
 
-The July 13 `moo_client.exe` proof completed step 1. The earlier managed runs do
-not satisfy step 2 because they used the rejected `mongoose.db` fixture.
-
-The first scenario should exercise the actual connection contract:
-
-1. freshly verify `mongoose_fresh2.db` at
-   `33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925`;
-2. start WSL Mongoose Toast through the managed harness with a disposable copy;
-3. send the trusted `PROXY` prelude;
-4. complete the exact account login observed with `moo_client.exe`;
-5. prove post-login eval and command control;
-6. run the unchanged scenario against current Barn.
-
-Stable post-login assertions should include:
-
-- the announced client IP is reflected by `connection_name`;
-- `option.PROMOTE_NUMBERS` is enabled;
-- mixed integer/float arithmetic follows Mongoose Toast behavior;
-- `look` reaches at least two of the observed stable room-render anchors rather
-  than guessed or volatile world state;
-- the server responds within measured, oracle-derived deadlines.
+The first reduced scenario is scheduler/input fairness. It uses six finite
+background tasks in `Test.db` and requires a fresh eval to be admitted before
+the whole ready batch starts. Stock WSL Toast passed, Barn `8fe7e6a` failed
+with expected `1` and actual `0`, and corrected Barn passed. The durable test is
+conformance commit `8de1c22`; the Barn fix and investigation record are commit
+`b78f76e`.
 
 The test must pass WSL Toast first. If Barn already passes, keep the test as
 coverage and do not patch Barn. If Barn fails, record the exact failed assertion
@@ -315,11 +428,10 @@ as the active behavior row.
 
 Acceptance criteria:
 
-- the exact `moo_client.exe` proof command shape, WSL Toast identity, fresh
-  fixture identity, and successful connection/room anchors are recorded without
-  credentials;
-- the exact managed Toast command, profile manifest, fixture checksum, focused
-  test name, and pass result are recorded;
+- the Barn-local discovery observation is recorded without placing Mongoose or
+  credentials in the conformance repository;
+- the exact managed stock-Toast command, `Test.db` checksum, focused test name,
+  and pass result are recorded;
 - the same unchanged test produces a concrete Barn result;
 - `src/moo_conformance/transport.py` has no change for this row;
 - no Barn production change precedes the Toast result and Barn red proof.
@@ -358,9 +470,9 @@ Every behavior row follows this state machine:
 
 Rules:
 
-- prefer a reduced `Test.db` test when reduction preserves the behavior;
-- retain a real-Mongoose integration test when reduction would erase the
-  behavior or workload condition;
+- require a reduced `Test.db` test for every conformance behavior;
+- if reduction would erase the behavior or workload condition, stop and report
+  the blocked reduction instead of adding a Mongoose-specific conformance test;
 - patch the real Barn ownership boundary, not scattered symptoms;
 - run focused Go tests, the focused conformance row, the relevant managed suite,
   and `git diff --check`;
@@ -426,16 +538,14 @@ not kept unless it improves the named metric while preserving behavior.
 
 The workstream is complete only when:
 
-- the real Mongoose boot/login/look gate passes WSL Mongoose Toast and Barn on
-  disposable copies of the same provenance-proven fixture;
-- the current snapshot is
-  `mongoose_fresh2.db@33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925`,
-  or a later freshly fetched `mongoose.db.new` whose new identity and Toast
-  baseline are committed before use;
+- Barn-local live checks cover the deployment workload without exporting its
+  fixture, login contract, or credentials into `moo-conformance-tests`;
 - every accepted semantic delta has a Toast-passing conformance test;
-- Barn passes the expanded managed suite under truthful strict and Mongoose
+- every conformance test uses bundled `Test.db` and contains no Mongoose
+  knowledge;
+- Barn passes the expanded managed `Test.db` suite under truthful strict
   profiles;
-- Windows Barn passes the deployment lane on the same database checksum;
+- Windows Barn passes the separate Barn-local deployment lane;
 - trusted-PROXY metadata, account login, burst input, and connection lifecycle
   are durably covered;
 - gameplay and persistence behavior families have no open accepted rows;
@@ -445,7 +555,121 @@ The workstream is complete only when:
   log, or an ad hoc reconstructed command;
 - every kept source slice and required experiment record is committed.
 
-Milestones 0 and 1 are complete. The active next action is the Milestone 2
-managed Toast gate using `mongoose_fresh2.db`, after the successful Claude-tool
-live proof recorded above. No Barn source patch should precede the managed
-Toast-green result and unchanged Barn-red result.
+Milestones 0 and 1 are complete. The first Milestone 2 `Test.db` reduction and
+Barn fix are committed.
+
+### Slice executed 2026-07-13: forked-`try` handler rebase
+
+The `server_started` forked-`try` slice below was executed end to end on
+2026-07-13. Live step-zero observation: Toast control on a disposable copy of
+fixture `b9bc254...` rendered Codex's Lab as player `#249`; Barn from
+`b78f76e` authenticated but produced no MCP line or render, with the
+structured-log panic `index out of range [171] with length 32` in
+`server_started`. Toast-green (managed row, 3.49s), Barn-red
+(`expected 'E_INVARG', but got 0`), unit regression red→green
+(`bytecode/program_test.go`), fix in `ExtractForkBody` only, family
+`task_scheduling_toast_oracle` 22/22 green. The step-8 login gate re-check on
+rebuilt Barn is the remaining acceptance item for this slice.
+
+The slice recipe below is retained because it is the template for every
+following slice. Execute it exactly:
+
+1. In `moo-conformance-tests`, add only
+   `audit_forked_try_except_rebases_handler_ip` to
+   `src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml`. Its
+   setup, assertion, and cleanup are:
+
+   ```moo
+   try
+     add_property(#0, "audit_fork_except_result", 0, {#0, "rw"});
+   except (E_INVARG)
+     #0.audit_fork_except_result = 0;
+   endtry
+   fork (0)
+     try
+       raise(E_INVARG);
+     except e (ANY)
+       #0.audit_fork_except_result = e[1];
+     endtry
+   endfork
+   suspend(0);
+   return #0.audit_fork_except_result;
+   ```
+
+   Expect the value `E_INVARG`, assert that the server log does not contain
+   `panic in task`, and delete `#0.audit_fork_except_result` in cleanup. Do not
+   add Mongoose names, objects, fixture data, or profile knowledge to the test.
+
+2. Run that unchanged row on managed stock WSL Toast from
+   `C:/Users/Q/code/barn`:
+
+   ```powershell
+   $wslIp = (wsl -d Debian -u root -e hostname -I).Trim()
+   uv run --project ..\moo-conformance-tests moo-conformance `
+     --moo-host $wslIp `
+     --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
+     --server-db C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db `
+     --oracle-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
+     --target-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
+     -k audit_forked_try_except_rebases_handler_ip
+   ```
+
+   `--moo-host` is required while Windows→WSL localhost forwarding is broken
+   (see the connectivity section above; the failure without it is a
+   misleading "did not start accepting connections").
+
+   Keep the row only if this command exits zero with the named test passed.
+   Any skip, startup failure, connection failure, or failed assertion stops the
+   slice; record the exact command and output and do not run Barn.
+
+3. Build pre-fix Barn and run the unchanged row through the managed Windows
+   Barn profile:
+
+   ```powershell
+   go build -o .tmp/mongoose-convergence/barn.exe ./cmd/barn
+   uv run --project ..\moo-conformance-tests moo-conformance `
+     --server-command "C:/Users/Q/code/barn/.tmp/mongoose-convergence/barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config C:/Users/Q/code/barn/profiles/barn/outbound-on.conf --profile-id barn-windows-testdb-outbound-on --profile-manifest {manifest}" `
+     --server-db C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db `
+     -k audit_forked_try_except_rebases_handler_ip
+   ```
+
+   Do not pass `--oracle-profile-manifest` here: this is Milestone 1's
+   deployment lane (Windows Barn), and the profile gate correctly refuses a
+   cross-OS oracle pairing (`runtime_os` linux vs windows). The Toast-green
+   evidence comes from step 2's separate run, not from a paired manifest.
+
+   The required pre-fix result is the named row failing because the forked
+   exception handler does not set the marker, with `panic in task` or the same
+   out-of-range failure in the managed server log. If Barn passes unchanged,
+   commit the Toast-passing coverage only and stop without a Barn source patch.
+
+4. After Toast-green and Barn-red are recorded, add a bytecode unit regression
+   covering a fork body containing `try`/`except`, then change only
+   `bytecode.Program.ExtractForkBody` in `bytecode/program.go`. Rebase the
+   absolute handler targets encoded by `OP_TRY_EXCEPT` and `OP_TRY_FINALLY` by
+   subtracting the extracted body's parent `bodyIP`. Do not change relative
+   jump operands, add a fallback bounds check to `vm.executeLoop`, or introduce
+   an interface, adapter, alternate VM path, or Mongoose special case.
+
+5. Run exactly these local gates:
+
+   ```powershell
+   go test ./bytecode ./vm ./scheduler
+   git diff --check
+   ```
+
+6. Rerun the unchanged managed Barn row from step 3. It must pass with no panic.
+   Then run the complete managed task-scheduling family by replacing the final
+   selector with `-k task_scheduling_toast_oracle`. Both commands must exit
+   zero before keeping the Barn source slice.
+
+7. Commit the Toast-passing conformance row in `moo-conformance-tests`. Commit
+   the bytecode regression, `ExtractForkBody` fix, and this Barn-side run record
+   in `barn` as a separate commit. Stage only the named files.
+
+8. Rebuild Barn and repeat the exact trusted-PROXY/account/password login-only
+   run on a disposable copy of
+   `b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+   The gate is closed only when Barn emits the MCP line, player `#249`
+   connection, complete Codex's Lab render, and no `server_started` panic.
+   Do not send `look`, `@test $pbt`, or any other command until this gate passes.
