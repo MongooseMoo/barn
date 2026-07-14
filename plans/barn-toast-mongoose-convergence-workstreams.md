@@ -909,8 +909,55 @@ command verb with an inner `call_function` error. It passed focused and full
 managed traceback runs on both engines (25/25 family results), so it is
 coverage only and authorizes no Barn source change. Conformance commit is
 `7d952ef`. It rules out ordinary bytecode command-call propagation. The next
-reduction must preserve the distinct scheduler-mediated `bf_call_function`
-boundary visible in the live Barn log.
+reduction preserved the missing forked-task boundary.
+
+### Slice implementation 2026-07-14: uncaught fork error dispatch
+
+The generic row
+`uncaught_forked_call_function_error_reaches_server_handler` creates a debug
+command verb whose zero-delay fork calls a nested debug verb that fails through
+`call_function`. Stock `Test.db` already defines `#0:handle_uncaught_error` to
+write its formatted traceback argument to `server_log`, so the row asserts that
+the forked call chain reaches that hook without adding fixture-specific code.
+
+Managed stock WSL Toast passed the focused row 1/1. Pre-fix Windows Barn failed
+the unchanged row because `forkboominner` never appeared in the server log.
+The live trace already showed that Barn unwound the complete Mongoose chain
+from `#3882::execute` through `#249:travel_to`; the loss occurred only when the
+forked task reached scheduler completion.
+
+Unit regression `TestUncaughtForkInvokesDatabaseErrorHandler` reproduced the
+same boundary: a real zero-delay fork raised `E_TYPE`, but the database handler
+received no arguments. `scheduler.runTask` unconditionally suppressed both
+logging and fallback delivery for every `IsForked` exception and never invoked
+the database handler. The production change now uses the existing resumable
+`RunServerVerbTask` path to call `#0:handle_uncaught_error` with Toast's five
+arguments: error code, message, value, stack, and formatted traceback. A truthy
+return or suspension is treated as handled; a missing, false, or failed handler
+falls back to the original traceback without recursively invoking itself.
+
+Post-fix proof: the focused scheduler regression passed; the focused managed
+Barn row passed 1/1; and the complete `error_traceback` family passed 26/26 on
+both stock WSL Toast and Windows Barn. `git diff --check` passed. The exact
+local package gate remained green in `bytecode` and `vm` and red only at the
+already-recorded scheduler regression
+`TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`. The
+conformance commit is `8b6e561`; the Barn fix is `a83e103`.
+
+The fresh live rerun used committed Barn `a83e103`, the existing
+`moo_client.exe`, the unchanged trusted-PROXY/account/password inputs, one
+additional `west` command, and a disposable copy under
+`.tmp/mongoose-convergence/barn-west-handler-live-20260714-09`. Both source and
+copy hashed to
+`b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+Barn emitted the same stand and walk messages as Toast, the complete
+`$sqlite_db -> $sound_handler -> $Sound -> $waif -> $journey -> $gpo`
+traceback, and the subsequent `#0:handle_uncaught_error` output before client
+completion. The server log contains no `panic in task`.
+
+The `look`, movement, contents, exits, and room-rendering family is therefore
+CLOSED for the current fixture. The next unchecked Milestone 4 family is
+parser shortcuts, `huh`, and command dispatch.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
