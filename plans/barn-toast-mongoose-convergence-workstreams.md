@@ -1160,10 +1160,25 @@ Barn now renders the same stable `@who` anchors as Toast. Its captured trailing
 `Done.` is the local `moo_client` completion message from
 `cmd/moo_client/main.go`, not server output. The `@who` target is CLOSED.
 
-### Active behavior row 2026-07-14: `@display`
+### Live coverage 2026-07-14: `@display`
 
-Continue the same object-inspection family with `@display` after the unchanged
+The next object-inspection candidate ran `@display me` after the unchanged
+login sequence on fresh disposable copies. Pinned WSL Mongoose Toast under
+`.tmp/mongoose-convergence/toast-display-control-20260714-30` rendered
+`Q (#249)` with player/programmer/wizard flags, parent
+`Mongoose Wizard Class (#1191)`, location `Codex's Lab (#10132)`, the object
+size and timestamp, and the finished delimiter. Committed Windows Barn under
+`.tmp/mongoose-convergence/barn-display-control-20260714-31` rendered the same
+stable lines. Both database copies had SHA-256
+`B9BC25492BD56CB28BA0A63165F456C60417387E251391FBE8C97D7D79C9BB69`.
+This is live coverage only: Barn passed the genuine candidate, so no
+conformance or Barn source change is authorized. The `@display` target is
+CLOSED.
+
+### Active behavior row 2026-07-14: `@props`
+
+Continue the same object-inspection family with `@props` after the unchanged
 login sequence on fresh disposable copies, using WSL Mongoose Toast first and
-committed Windows Barn second. Compare stable visible object-inspection
-anchors. If Barn differs, reduce the underlying behavior onto generic
-`Test.db` before changing Barn.
+committed Windows Barn second. Compare stable visible property-listing anchors.
+If Barn differs, reduce the underlying behavior onto generic `Test.db` before
+changing Barn.
