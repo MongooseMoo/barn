@@ -1188,7 +1188,7 @@ authoritative SHA-256. This is live coverage only: Barn passed the genuine
 candidate, so no conformance or Barn source change is authorized. The
 `@props` target is CLOSED.
 
-### Active behavior row 2026-07-14: `@verbs`
+### Slice executed 2026-07-14: `@verbs` numeric index termination
 
 The final named object-inspection candidate ran `@verbs me` after the unchanged
 login sequence on fresh disposable copies. Pinned WSL Mongoose Toast under
@@ -1201,7 +1201,29 @@ login sequence on fresh disposable copies. Pinned WSL Mongoose Toast under
 `$old_prog #58:@verbs`, line 16. Both database copies had the authoritative
 SHA-256.
 
-The active target is the smallest generic `Test.db` reduction of the resource
-limit reached while enumerating accessible verbs. Run it on stock WSL Toast
-first, then unchanged Barn; do not change Barn until that row is Toast-green
-and Barn-red.
+The generic row `verb_info_numeric_index_past_end` creates one object with one
+verb and calls `verb_info(object, 2)`. Stock WSL Toast returned `E_VERBNF`;
+pre-fix Barn returned `E_RANGE`. That exact mismatch kept Mongoose's
+`accessible_verbs` loop running past the final verb until it exhausted the
+task resource limit. The conformance row is commit `d84d897`.
+
+Barn commit `f6274a2` maps the existing store's numeric past-end `E_RANGE` to
+Toast's public `verb_info` result `E_VERBNF`, with
+`TestVerbInfoNumericIndexPastEndReturnsEVERBNF` as the unit regression. The
+focused managed Barn row passes 1/1; the `verbs` selector passes 75 with 12
+skipped on both stock WSL Toast and fixed Barn; the complete `builtins` package
+passes; and `git diff --check` passes.
+
+The committed post-fix live replay is in
+`.tmp/mongoose-convergence/barn-verbs-fixed-20260714-36`. It renders the same
+complete verb grid as Toast with no `E_QUOTA` traceback. `@who`, `@display`,
+`@props`, and `@verbs` are now closed; the object-inspection family is CLOSED.
+
+### Active family 2026-07-14: telnet negotiation and packet boundaries
+
+Continue with the next Milestone 4 family: telnet negotiation and
+packet-boundary behavior. For every raw telnet candidate, split significant
+bytes across separate `send_bytes` steps as required above, then run the exact
+row on stock WSL Toast first and unchanged Barn second. Keep coverage when both
+pass; reduce and fix exactly one concrete delta at a time when Toast is green
+and Barn is red.
