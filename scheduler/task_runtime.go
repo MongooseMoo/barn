@@ -289,10 +289,18 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 			for _, line := range formattedLines {
 				formattedValues = append(formattedValues, types.NewStr(line))
 			}
+			handlerMessage := types.NewStr(result.Error.Message())
+			handlerValue := types.NewInt(0)
+			if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
+				if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
+					handlerMessage = message
+				}
+				handlerValue = result.Val.Get(3)
+			}
 			handlerResult, handlerErr := s.RunServerVerbTask(0, "handle_uncaught_error", []types.Value{
 				types.NewErr(result.Error),
-				types.NewStr(result.Error.Message()),
-				types.NewInt(0),
+				handlerMessage,
+				handlerValue,
 				types.NewList(stackValues),
 				types.NewList(formattedValues),
 			}, t.Owner)

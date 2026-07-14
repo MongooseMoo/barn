@@ -101,7 +101,7 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 	store.AddVerb(0, dbstore.NewVerb("forkboom", []string{"forkboom"}, 2,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
-		[]string{"fork (0)", `  x = 1 + "a";`, "endfork", "return 1;"}))
+		[]string{"fork (0)", `  raise(E_INVARG, "custom uncaught message", {7, 8});`, "endfork", "return 1;"}))
 
 	s := NewScheduler(store)
 	fallbacks := 0
@@ -120,14 +120,15 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 	if handledArgs.Type() != types.TYPE_LIST || len(handledArgs.Elements()) != 5 {
 		t.Fatalf("handle_uncaught_error args = %s, want five-element list", handledArgs.String())
 	}
-	if got := handledArgs.Elements()[0]; got.Type() != types.TYPE_ERR || got.ErrCode() != types.E_TYPE {
-		t.Errorf("error code argument = %s, want E_TYPE", got.String())
+	if got := handledArgs.Elements()[0]; got.Type() != types.TYPE_ERR || got.ErrCode() != types.E_INVARG {
+		t.Errorf("error code argument = %s, want E_INVARG", got.String())
 	}
-	if got := handledArgs.Elements()[1]; got.Type() != types.TYPE_STR || got.Str() != types.E_TYPE.Message() {
-		t.Errorf("message argument = %s, want %q", got.String(), types.E_TYPE.Message())
+	if got := handledArgs.Elements()[1]; got.Type() != types.TYPE_STR || got.Str() != "custom uncaught message" {
+		t.Errorf("message argument = %s, want %q", got.String(), "custom uncaught message")
 	}
-	if got := handledArgs.Elements()[2]; got.Type() != types.TYPE_INT || got.Int() != 0 {
-		t.Errorf("value argument = %s, want 0", got.String())
+	wantValue := types.NewList([]types.Value{types.NewInt(7), types.NewInt(8)})
+	if got := handledArgs.Elements()[2]; !got.Equal(wantValue) {
+		t.Errorf("value argument = %s, want %s", got.String(), wantValue.String())
 	}
 	if got := handledArgs.Elements()[3]; got.Type() != types.TYPE_LIST || len(got.Elements()) == 0 {
 		t.Errorf("stack argument = %s, want non-empty list", got.String())

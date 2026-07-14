@@ -27,3 +27,20 @@ func TestBuiltinRaisedErrorValueIsErrorList(t *testing.T) {
 		t.Fatalf("caught[1] = %v (type %v), want E_TYPE error code", first, first.Type())
 	}
 }
+
+func TestUncaughtRaisePreservesExceptionValue(t *testing.T) {
+	res := runBytecodeProgram(t, `raise(E_INVARG, "custom uncaught message", {7, 8});`, nil, nil)
+	if res.Flow != types.FlowException || res.Error != types.E_INVARG {
+		t.Fatalf("result = {Flow:%v Error:%v Val:%v}, want uncaught E_INVARG", res.Flow, res.Error, res.Val)
+	}
+	if res.Val.Type() != types.TYPE_LIST || res.Val.Len() != 4 {
+		t.Fatalf("uncaught value = %v, want four-element exception list", res.Val)
+	}
+	if got := res.Val.Get(2); got.Type() != types.TYPE_STR || got.Str() != "custom uncaught message" {
+		t.Errorf("uncaught message = %v, want custom uncaught message", got)
+	}
+	wantValue := types.NewList([]types.Value{types.NewInt(7), types.NewInt(8)})
+	if got := res.Val.Get(3); !got.Equal(wantValue) {
+		t.Errorf("uncaught custom value = %v, want %v", got, wantValue)
+	}
+}

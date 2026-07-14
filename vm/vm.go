@@ -316,7 +316,8 @@ func (vm *VM) executeLoop() types.Result {
 				}
 			}
 			// Handle error
-			if !vm.HandleError(err) {
+			handled, exceptionValue := vm.HandleError(err)
+			if !handled {
 				// Extract error code, preferring the typed MooError
 				var errCode types.ErrorCode
 				if mooErr, ok := err.(MooError); ok {
@@ -332,7 +333,7 @@ func (vm *VM) executeLoop() types.Result {
 				return types.Result{
 					Flow:      types.FlowException,
 					Error:     errCode,
-					Val:       types.NewStr(vm.annotateError(err, line).Error()),
+					Val:       exceptionValue,
 					CallStack: stackSnapshot,
 				}
 			}
@@ -709,7 +710,7 @@ func (vm *VM) CurrentLine() int {
 // Searches the current frame's ExceptStack first, then unwinds through caller
 // frames if no handler is found. This supports cross-frame exception propagation
 // for native verb calls.
-func (vm *VM) HandleError(err error) bool {
+func (vm *VM) HandleError(err error) (bool, types.Value) {
 	// Extract error code
 	errCode := types.E_NONE
 	exceptionValue := types.None
@@ -756,7 +757,7 @@ func (vm *VM) HandleError(err error) bool {
 	for len(vm.Frames) > 0 {
 		frame := vm.CurrentFrame()
 		if frame == nil {
-			return false
+			return false, exceptionValue
 		}
 
 		// Search this frame's ExceptStack (innermost handler first)
@@ -770,7 +771,7 @@ func (vm *VM) HandleError(err error) bool {
 				// Save the pending error so after finally runs, we re-raise it
 				frame.PendingError = err
 				frame.IP = handler.HandlerIP
-				return true
+				return true, exceptionValue
 			}
 
 			if handler.Type == bytecode.HandlerExcept && handler.Matches(errCode) {
@@ -783,7 +784,7 @@ func (vm *VM) HandleError(err error) bool {
 					frame.Locals[handler.VarIndex] = exceptionValue
 				}
 
-				return true
+				return true, exceptionValue
 			}
 		}
 
@@ -794,7 +795,7 @@ func (vm *VM) HandleError(err error) bool {
 				trace.Exception(frame.This, frame.Verb, errCode)
 			}
 			// This is the bottom frame — no more frames to unwind into
-			return false
+			return false, exceptionValue
 		}
 
 		// Eval frame boundary: catch the error and wrap as {0, error}.
@@ -844,5 +845,5 @@ func (vm *VM) HandleError(err error) bool {
 	}
 
 	// No frames left
-	return false
+	return false, exceptionValue
 }
