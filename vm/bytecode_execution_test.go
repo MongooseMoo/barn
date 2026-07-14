@@ -244,7 +244,7 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	if err := store.Add(anon.Build()); err != nil {
 		t.Fatalf("add anonymous object: %v", err)
 	}
-	if errCode := store.DefineProperty(0, dbstore.NewProperty("anon", types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define anonymous reference: %s", errCode)
 	}
 

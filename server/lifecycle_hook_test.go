@@ -18,7 +18,7 @@ func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define property: %v", errCode)
 	}
 	addTestVerb(store, system, "server_started", "#0.started = 1;")
@@ -45,7 +45,7 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("listener_count", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "listener_count", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define property: %v", errCode)
 	}
 	addTestVerb(store, system, "server_started", "#0.listener_count = length(listeners());")
@@ -132,10 +132,10 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("listener_count", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "listener_count", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define listener_count property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("shutdown_message", types.NewStr(""), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "shutdown_message", dbstore.NewProperty(types.NewStr(""), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define shutdown_message property: %v", errCode)
 	}
 	addTestVerb(store, system, "shutdown_started",
@@ -291,10 +291,10 @@ func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_started property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_finished", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_finished property: %v", errCode)
 	}
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
@@ -336,13 +336,13 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_started property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_finished", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_finished property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("shutdown_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "shutdown_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define shutdown_started property: %v", errCode)
 	}
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
@@ -399,10 +399,10 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_started", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "checkpoint_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_started property: %v", errCode)
 	}
-	if errCode := store.DefineProperty(system, dbstore.NewProperty("checkpoint_finished", types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(system, "checkpoint_finished", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define checkpoint_finished property: %v", errCode)
 	}
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = #0.checkpoint_started + 1;")

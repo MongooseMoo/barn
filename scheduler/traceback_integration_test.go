@@ -89,8 +89,8 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(0, dbstore.NewProperty(
-		"handled_args", types.NewEmptyList(), 2,
+	if errCode := store.DefineProperty(0, "handled_args", dbstore.NewProperty(
+		types.NewEmptyList(), 2,
 		dbstore.PropRead|dbstore.PropWrite, false, true,
 	)); errCode != types.E_NONE {
 		t.Fatalf("define handled_args: %v", errCode)
@@ -156,8 +156,8 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(0, dbstore.NewProperty(
-		"timeout_args", types.NewEmptyList(), 2,
+	if errCode := store.DefineProperty(0, "timeout_args", dbstore.NewProperty(
+		types.NewEmptyList(), 2,
 		dbstore.PropRead|dbstore.PropWrite, false, true,
 	)); errCode != types.E_NONE {
 		t.Fatalf("define timeout_args: %v", errCode)

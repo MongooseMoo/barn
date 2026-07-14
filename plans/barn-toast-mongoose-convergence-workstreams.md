@@ -1491,3 +1491,11 @@ and each `Property` redundantly stores the name already present as its map key.
 Delete that field and use the key at existing definition and view boundaries;
 do not add a replacement representation. The unchanged deployment RSS result
 decides keep or full restore.
+
+Slice 3 is KEPT. The property value size regression moved from 56 bytes into
+the 40-byte budget, all affected packages have no new failures, and the
+unchanged deployment run at
+`.tmp/mongoose-convergence/perf-barn-property-slice-03` reduced RSS from
+1837264896 to 1295065088 bytes (-542199808 bytes, -29.51%). All non-memory gates
+still pass. RSS remains above 467460096 bytes, so the kept profile selects
+slice 4 on the same target.

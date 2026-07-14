@@ -27,7 +27,6 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 				continue
 			}
 			result[name] = Property{
-				name:  prop.name,
 				value: prop.value,
 				owner: prop.owner,
 				perms: prop.perms,
@@ -73,15 +72,16 @@ func (s *Store) FindProperty(objID types.ObjID, name string) (PropertyView, type
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	prop, errCode := s.findPropertyLocked(objID, name)
+	resolvedName, prop, errCode := s.findPropertyLocked(objID, name)
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode
 	}
-	return prop.View(), types.E_NONE
+	return prop.View(resolvedName), types.E_NONE
 }
 
-func (s *Store) findPropertyLocked(objID types.ObjID, name string) (Property, types.ErrorCode) {
+func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Property, types.ErrorCode) {
 	var targetProp Property
+	var targetName string
 	targetFound := false
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
@@ -100,25 +100,26 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (Property, ty
 			continue
 		}
 
-		if _, prop, ok := propertyByName(current.properties, name); ok {
+		if actualName, prop, ok := propertyByName(current.properties, name); ok {
 			if !targetFound {
 				targetProp = prop
+				targetName = actualName
 				targetFound = true
 			}
 			if !prop.clear {
 				if targetProp.clear {
 					targetProp.value = prop.value
 					targetProp.clear = false
-					return targetProp, types.E_NONE
+					return targetName, targetProp, types.E_NONE
 				}
-				return prop, types.E_NONE
+				return actualName, prop, types.E_NONE
 			}
 		}
 
 		queue = append(queue, current.parents...)
 	}
 
-	return Property{}, types.E_PROPNF
+	return "", Property{}, types.E_PROPNF
 }
 
 func validLiveObject(obj *Object) bool {
@@ -352,11 +353,11 @@ func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, boo
 	if obj == nil {
 		return PropertyView{}, false, types.E_INVIND
 	}
-	_, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := propertyByName(obj.properties, name)
 	if !ok {
 		return PropertyView{}, false, types.E_NONE
 	}
-	return prop.View(), true, types.E_NONE
+	return prop.View(actualName), true, types.E_NONE
 }
 
 // DefinedProperty returns a read-only view of a property defined directly on the
@@ -443,12 +444,11 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 		return types.E_NONE
 	}
 
-	inherited, err := s.findPropertyLocked(objID, name)
+	inheritedName, inherited, err := s.findPropertyLocked(objID, name)
 	if err != types.E_NONE {
 		return err
 	}
-	obj.properties[inherited.name] = Property{
-		name:    inherited.name,
+	obj.properties[inheritedName] = Property{
 		value:   value,
 		owner:   inherited.owner,
 		perms:   inherited.perms,
@@ -461,7 +461,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 // DefineProperty adds a new property definition to an object and propagates
 // inherited clear slots to existing descendants.
 
-func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode {
+func (s *Store) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -469,12 +469,12 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	if obj == nil {
 		return types.E_INVIND
 	}
-	if _, _, exists := propertyByName(obj.properties, prop.name); exists {
+	if _, _, exists := propertyByName(obj.properties, name); exists {
 		return types.E_INVARG
 	}
 	prop.defined = true
 	prop.clear = false
-	obj.properties[prop.name] = prop
+	obj.properties[name] = prop
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -482,10 +482,10 @@ func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode
 	}
 	obj.propOrder = append(obj.propOrder, "")
 	copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-	obj.propOrder[pos] = prop.name
+	obj.propOrder[pos] = name
 	obj.propDefsCount++
 
-	s.propagatePropertyToDescendantsLocked(objID, &prop)
+	s.propagatePropertyToDescendantsLocked(objID, name, prop)
 	return types.E_NONE
 }
 
@@ -579,7 +579,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	return types.E_NONE
 }
 
-func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Property) {
+func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name string, prop Property) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -598,15 +598,14 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, existing, ok := propertyByName(child.properties, prop.name); ok {
+			if actualName, existing, ok := propertyByName(child.properties, name); ok {
 				if existing.defined {
 					queue = append(queue, childID)
 					continue
 				}
 				delete(child.properties, actualName)
 			}
-			child.properties[prop.name] = Property{
-				name:  prop.name,
+			child.properties[name] = Property{
 				value: prop.value,
 				owner: prop.owner,
 				perms: prop.perms,

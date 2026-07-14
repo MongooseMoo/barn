@@ -193,3 +193,18 @@ boundaries. It will not add a replacement type, index, adapter, or parallel
 storage. A red size regression must prove the map value shrinks, the complete
 Go package tests must show no new failure, and the unchanged deployment
 benchmark remains the sole keep/reject decision.
+
+### Slice 3 result: kept
+
+`TestPropertyFitsCompactMapValue` failed at 56 bytes before the deletion and
+passes within the 40-byte budget afterward. The affected store, format,
+builtins, VM, scheduler, and server packages have no new failures; the complete
+Go suite still reports only the independently recorded scheduler task-ID
+collision.
+
+The unchanged deployment benchmark under
+`.tmp/mongoose-convergence/perf-barn-property-slice-03` measured 1295065088
+bytes RSS, a reduction of 542199808 bytes (29.51%) from slice 2's 1837264896
+bytes. All latency, liveness, checkpoint, and CPU gates pass. The slice is kept,
+but RSS remains above the 467460096-byte acceptance threshold. The saved heap
+profile from this kept run selects the next slice on the same metric.

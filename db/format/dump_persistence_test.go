@@ -24,7 +24,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	propName := "persist_prop"
 	// Add the property on the parent at runtime (propagates a clear inherited slot
 	// to the child), then give the child a non-clear local override.
-	if errCode := objectStore.DefineProperty(1, store.NewProperty(propName, types.NewStr("base"), 3, 0, false, true)); errCode != types.E_NONE {
+	if errCode := objectStore.DefineProperty(1, propName, store.NewProperty(types.NewStr("base"), 3, 0, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty(parent) failed: %v", errCode)
 	}
 	if errCode := objectStore.SetPropertyValue(0, propName, types.NewStr("child-override")); errCode != types.E_NONE {
@@ -103,10 +103,10 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 
 	// Define two properties on the parent; both propagate cleared inherited
 	// slots to the child's properties map (but not yet to its propOrder).
-	if ec := objectStore.DefineProperty(1, store.NewProperty("conn_state", types.NewStr("active"), 3, 0, false, true)); ec != types.E_NONE {
+	if ec := objectStore.DefineProperty(1, "conn_state", store.NewProperty(types.NewStr("active"), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty conn_state: %v", ec)
 	}
-	if ec := objectStore.DefineProperty(1, store.NewProperty("sentinel", types.NewStr("base"), 3, 0, false, true)); ec != types.E_NONE {
+	if ec := objectStore.DefineProperty(1, "sentinel", store.NewProperty(types.NewStr("base"), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty sentinel: %v", ec)
 	}
 

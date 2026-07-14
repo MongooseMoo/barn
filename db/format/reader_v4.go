@@ -306,7 +306,7 @@ func (database *Database) readObjectV4(r *bufio.Reader) (*store.ObjectBuilder, e
 			return nil, err
 		}
 
-		obj.SetProperty(propName, store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined))
+		obj.SetProperty(propName, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
 	obj.SetPropOrder(propOrder)
 

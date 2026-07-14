@@ -60,8 +60,8 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
-	store.DefineProperty(system, dbstore.NewProperty("created", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
-	store.DefineProperty(system, dbstore.NewProperty("connected", types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
+	store.DefineProperty(system, "created", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
+	store.DefineProperty(system, "connected", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
@@ -95,7 +95,7 @@ func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	for _, name := range []string{"forked", "resumed", "continued"} {
-		if errCode := store.DefineProperty(system, dbstore.NewProperty(name, types.NewInt(0), 2,
+		if errCode := store.DefineProperty(system, name, dbstore.NewProperty(types.NewInt(0), 2,
 			dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define %s: %v", name, errCode)
 		}

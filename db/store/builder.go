@@ -114,7 +114,7 @@ func (b *ObjectBuilder) Property(name string) (PropertyView, bool) {
 	if !ok {
 		return PropertyView{}, false
 	}
-	return p.View(), true
+	return p.View(name), true
 }
 
 // ResetProperties replaces the entire property map and property order. Used by

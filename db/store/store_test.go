@@ -251,7 +251,7 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 		t.Fatalf("Add() failed: %v", err)
 	}
 
-	if errCode := store.DefineProperty(0, NewProperty("CaseProbe", types.NewInt(42), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "CaseProbe", NewProperty(types.NewInt(42), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty() failed: %v", errCode)
 	}
 
@@ -293,7 +293,7 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 		t.Fatalf("SetPropertyInfo() perms = %v, want %v", prop.Perms, PropRead)
 	}
 
-	if errCode := store.DefineProperty(0, NewProperty("caseprobe", types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_INVARG {
+	if errCode := store.DefineProperty(0, "caseprobe", NewProperty(types.NewInt(1), 0, PropRead, false, true)); errCode != types.E_INVARG {
 		t.Fatalf("DefineProperty() duplicate = %v, want E_INVARG", errCode)
 	}
 

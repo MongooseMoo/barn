@@ -26,10 +26,10 @@ func calculateObjectBytes(obj *Object) int {
 		// the relocated bytecode cache for an accurate estimate.
 	}
 
-	for _, prop := range obj.properties {
+	for name, prop := range obj.properties {
 		if prop.defined {
 			count += 32
-			count += len(prop.name) + 1
+			count += len(name) + 1
 		}
 	}
 

@@ -287,7 +287,7 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 			return nil, err
 		}
 
-		obj.SetProperty(propName, store.NewProperty(propName, propValue, propOwner, store.PropertyPerms(perms), clear, defined))
+		obj.SetProperty(propName, store.NewProperty(propValue, propOwner, store.PropertyPerms(perms), clear, defined))
 	}
 	obj.SetPropOrder(propOrder)
 

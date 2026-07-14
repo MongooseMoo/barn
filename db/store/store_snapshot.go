@@ -288,7 +288,7 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 		}
 	}
 	for name, prop := range obj.properties {
-		so.Properties[name] = prop.View()
+		so.Properties[name] = prop.View(name)
 	}
 	return so
 }

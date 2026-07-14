@@ -160,7 +160,7 @@ func (database *Database) resolvePropertyNames() {
 				newName = oldName
 			}
 
-			newProperties[newName] = store.NewProperty(newName, v.Value, v.Owner, v.Perms, v.Clear, v.Defined)
+			newProperties[newName] = store.NewProperty(v.Value, v.Owner, v.Perms, v.Clear, v.Defined)
 			newPropOrder = append(newPropOrder, newName)
 		}
 

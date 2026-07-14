@@ -88,7 +88,6 @@ func (o *Object) view() ObjectView {
 // properties through NewProperty. A direct field write to Property from outside
 // db/store is a compile error.
 type Property struct {
-	name    string
 	value   types.Value
 	owner   types.ObjID
 	perms   PropertyPerms
@@ -111,9 +110,8 @@ type PropertyView struct {
 // NewProperty builds a Property value from its fields. It is the only way for
 // external packages (the loader in db/format, the conformance fixture, and
 // tests) to construct a Property without touching unexported fields.
-func NewProperty(name string, value types.Value, owner types.ObjID, perms PropertyPerms, clear, defined bool) Property {
+func NewProperty(value types.Value, owner types.ObjID, perms PropertyPerms, clear, defined bool) Property {
 	return Property{
-		name:    name,
 		value:   value,
 		owner:   owner,
 		perms:   perms,
@@ -123,9 +121,9 @@ func NewProperty(name string, value types.Value, owner types.ObjID, perms Proper
 }
 
 // View returns a flat read-only snapshot of the property.
-func (p Property) View() PropertyView {
+func (p Property) View(name string) PropertyView {
 	return PropertyView{
-		Name:    p.name,
+		Name:    name,
 		Value:   p.value,
 		Owner:   p.owner,
 		Perms:   p.perms,
