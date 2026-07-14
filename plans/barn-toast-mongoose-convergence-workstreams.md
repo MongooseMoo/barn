@@ -583,16 +583,20 @@ Observation, live and current, same fixture both engines:
   continuous in-db heartbeat activity visible to a connected wizard;
 - Barn (with the forked-try fix): authenticated login then silence; the
   world is nearly idle (`barn.tasks_started` 25 after 10 minutes,
-  `tasks_live` 2) where Toast churns continuously; exactly one Barn
-  uncaught error: `#1584:bf_call_function` line 9 `E_RANGE`, absent from
-  the Toast control log.
+  `tasks_live` 2) where Toast churns continuously. A later Barn
+  `#1584:bf_call_function` line 9 `E_RANGE` was captured as
+  `call_function("mapdelete", [#3516 -> ["client" -> "Mongoose Client",
+  "version" -> "0.1"]], #249)`, but its timestamp follows the client timeout,
+  EOF, and connection close. It is a post-disconnect cleanup error and cannot
+  cause the earlier post-authentication silence.
 
 Candidate dependencies to isolate (in the Milestone 4 loop, one at a time,
 reduced onto `Test.db`, Toast first — no Barn debugging before a red row):
 `#0:user_connected` dispatch and its forked confunc chain, the in-db
 scheduler heartbeat's survival (task_id stability across suspend, fork
-cadence), and whatever `call_function` argument produces the Barn-only
-`E_RANGE`.
+cadence), and the first pre-timeout task or verb-lifecycle divergence after
+authentication. The post-disconnect `mapdelete` error is not part of this
+active row.
 
 ### Slice executed 2026-07-13: nested fork after suspended heartbeat
 
@@ -741,9 +745,28 @@ Barn. The complete SQLite-selected family passed 91/91 on both engines.
 Conformance commit is `73a178e`. This genuine candidate is retained as
 coverage and authorizes no Barn production change; it proves the July 1
 SQLite-handle call is not sufficient to reproduce the current Barn-only
-`E_RANGE`. The next diagnostic must capture the current failing `func` and
-`rest` values at the `call_function` boundary, reduce that exact call onto
-`Test.db`, and remove the temporary diagnostic before any kept Barn fix.
+`E_RANGE`.
+
+The subsequent temporary diagnostic captured the exact failing call as
+`mapdelete([#3516 -> ["client" -> "Mongoose Client", "version" -> "0.1"]],
+#249)`. The diagnostic record is at `23:32:49.097`, after client EOF and
+connection close at `23:32:49.089` and `23:32:49.090`. The temporary source
+diagnostic has been removed. This call is therefore excluded from the active
+login-silence row rather than promoted into a conformance slice.
+
+Next steps for the active row:
+
+1. Run the existing managed Barn login-only gate with the pinned client timing
+   and capture the structured task and verb lifecycle from authentication
+   through the client timeout; do not add post-login commands.
+2. Compare that pre-timeout interval with the already-established Toast live
+   control and identify the first behavior that Toast performs but Barn does
+   not, or the first Barn task that stops before producing output.
+3. Reduce only that exact pre-timeout behavior onto generic `Test.db`, run the
+   focused row on managed WSL Toast first, then run the unchanged row on Barn.
+4. Keep coverage only if Barn passes. If Barn fails, add the smallest unit
+   regression, implement the smallest production fix, run the named family and
+   full gates, commit the kept slice, and rerun the live login-only gate.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
