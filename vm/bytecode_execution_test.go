@@ -194,6 +194,46 @@ func TestBytecodeVerbCallExceptions(t *testing.T) {
 	requireString(t, runBytecodeProgram(t, noExecCaught, store, nil), "no such verb")
 }
 
+func TestPassPreservesOriginalCaller(t *testing.T) {
+	store := newBytecodeVerbStore()
+	for id, parent := range map[types.ObjID]types.ObjID{1: 0, 2: 1, 3: 2} {
+		builder := dbstore.NewObjectBuilder(id)
+		builder.SetOwner(0)
+		builder.SetName("pass test object")
+		builder.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+		builder.SetParents([]types.ObjID{parent})
+		if err := store.Add(builder.Build()); err != nil {
+			t.Fatalf("add object #%d: %v", id, err)
+		}
+	}
+
+	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute | dbstore.VerbDebug
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb("pass_caller", []string{"pass_caller"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return caller;"})); errCode != types.E_NONE {
+		t.Fatalf("add pass target: %s", errCode)
+	}
+	if _, errCode := store.AddVerb(2, dbstore.NewVerb("pass_caller", []string{"pass_caller"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return pass();"})); errCode != types.E_NONE {
+		t.Fatalf("add pass source: %s", errCode)
+	}
+
+	verb, defObjID, err := store.FindVerb(3, "pass_caller")
+	if err != nil {
+		t.Fatalf("find inherited verb: %v", err)
+	}
+	registry := BuildVMRegistry()
+	prog, diagnostics := compiler.CompileMOO(verb.Code, registry)
+	if len(diagnostics) != 0 {
+		t.Fatalf("compile inherited verb: %v", diagnostics)
+	}
+	machine := NewVM(store, registry)
+	machine.Context = kernel.NewTaskContext()
+	result := machine.RunWithVerbContext(prog, 3, 3, 3, "pass_caller", defObjID, nil)
+	if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_OBJ || result.Val.Obj() != 3 {
+		t.Fatalf("pass target caller = %v, want original caller #3", result.Val)
+	}
+}
+
 func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	store := newBytecodeVerbStore()
 	anon := dbstore.NewObjectBuilder(1)

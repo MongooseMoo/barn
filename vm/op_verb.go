@@ -386,7 +386,7 @@ func (vm *VM) executePass() error {
 		Player:          frame.Player,
 		Verb:            verbName,
 		StoredVerb:      strings.Join(verb.Names, " "),
-		Caller:          verbLoc,
+		Caller:          frame.Caller,
 		VerbLoc:         defObjID,
 		Args:            passArgs,
 		LoopStack:       make([]bytecode.LoopState, 0, 4),
@@ -408,7 +408,7 @@ func (vm *VM) executePass() error {
 	// Pre-populate built-in variables
 	SetLocalByName(newFrame, prog, "this", passThis)
 	SetLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
-	SetLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
+	SetLocalByName(newFrame, prog, "caller", types.NewObj(frame.Caller))
 	SetLocalByName(newFrame, prog, "args", types.NewList(passArgs))
 	SetLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
 
@@ -455,7 +455,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Trace pass() target call.
-	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, verbLoc)
+	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, frame.Caller)
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Context != nil && vm.Context.Task != nil {
@@ -465,7 +465,7 @@ func (vm *VM) executePass() error {
 				ThisValue:  passThisValue,
 				Player:     frame.Player,
 				Programmer: verb.Owner,
-				Caller:     verbLoc,
+				Caller:     frame.Caller,
 				Verb:       verbName,
 				VerbLoc:    defObjID,
 				Args:       passArgs,
