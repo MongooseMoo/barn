@@ -200,8 +200,8 @@ func defaultConnectionOptions() map[string]types.Value {
 
 func getConnectionOptions(player types.ObjID) map[string]types.Value {
 	connectionOptionState.mu.RLock()
+	defer connectionOptionState.mu.RUnlock()
 	existing, ok := connectionOptionState.byPlayer[player]
-	connectionOptionState.mu.RUnlock()
 	if ok {
 		out := make(map[string]types.Value, len(existing))
 		for k, v := range existing {
