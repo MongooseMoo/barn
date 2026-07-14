@@ -194,7 +194,7 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := store.VerbByIndex(objID, index)
 		if errCode == types.E_RANGE {
-			return types.Err(types.E_RANGE)
+			return types.Err(types.E_VERBNF)
 		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
