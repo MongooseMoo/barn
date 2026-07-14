@@ -1413,3 +1413,11 @@ current tree, so no Barn source change is authorized. The row is gated by the
 validated `option.PROMOTE_NUMBERS` profile feature and skips under the stock
 strict profile. The conformance unit gate passes 59/59. Conformance commit is
 `255121a`.
+
+### Promotion-aware sorting gate closed 2026-07-14
+
+Pinned WSL Mongoose Toast establishes that `PROMOTE_NUMBERS` does not extend to
+`sort()` comparisons: `sort({2.0, 1})` returns `E_TYPE`. The unchanged reduced
+row passes 1/1 on current promotion-enabled Windows Barn, and the complete
+promotion suite passes 2/2 on both engines. No Barn source change is authorized.
+Conformance commit is `c813cf8`.
