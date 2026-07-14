@@ -1434,3 +1434,15 @@ current promotion-enabled Windows Barn, and the complete promotion suite passes
 The plan's remaining promotion-sensitive comparison, sorting, map, and
 collection semantics family is closed. Milestone 5 performance measurement is
 the next unchecked phase.
+
+### Active Milestone 5 performance gate 2026-07-14
+
+The durable runner and pinned WSL Mongoose Toast baseline are recorded in
+`experiments/2026-07-14-mongoose-performance-baseline.md`. Toast completed the
+fixed workload with all required liveness anchors and a checkpoint. The Barn
+acceptance thresholds were derived and recorded before measuring Barn.
+
+Run the unchanged benchmark against committed Windows Barn. If every threshold
+passes, close Milestone 5 without a Barn performance change. If one or more
+thresholds fail, keep the first failed metric as the only active target and run
+the plan's single-metric performance loop.
