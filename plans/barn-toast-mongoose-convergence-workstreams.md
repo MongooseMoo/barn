@@ -1292,10 +1292,18 @@ delivered to `do_out_of_band_command`. Both stock WSL Toast and committed
 Windows Barn pass 1/1. This is existing generic coverage; no conformance or
 Barn source change is authorized.
 
-### Active OOB row 2026-07-14: held and disabled traffic
+### OOB coverage 2026-07-14: held and disabled traffic
 
-Run the existing `audit_connection_hold_and_oob_options` row next. It proves
-that normal input is held, OOB bypasses `hold-input`, and `disable-oob` changes
-the held/released behavior. Run the exact row on stock WSL Toast first and
-unchanged Barn second. Keep coverage if both pass; if Toast is green and Barn
-is red, fix that one option-interaction delta before continuing.
+The existing `audit_connection_hold_and_oob_options` row proves that normal
+input is held, OOB bypasses `hold-input`, and `disable-oob` changes the
+held/released behavior. Both stock WSL Toast and committed Windows Barn pass
+1/1. This is existing generic coverage; no conformance or Barn source change
+is authorized.
+
+### Active GMCP row 2026-07-14: option 201 subnegotiation
+
+Add one generic `Test.db` row that sends a GMCP option-201 subnegotiation with
+a `Core.Hello` payload across separate `send_bytes` steps. Record the complete
+binary-escaped command delivered to `do_out_of_band_command`. Run the exact row
+on stock WSL Toast first and unchanged Barn second. Keep coverage if both pass;
+if Toast is green and Barn is red, fix only that GMCP wire delta.
