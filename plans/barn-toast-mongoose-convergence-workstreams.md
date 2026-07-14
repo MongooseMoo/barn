@@ -1219,11 +1219,19 @@ The committed post-fix live replay is in
 complete verb grid as Toast with no `E_QUOTA` traceback. `@who`, `@display`,
 `@props`, and `@verbs` are now closed; the object-inspection family is CLOSED.
 
-### Active family 2026-07-14: telnet negotiation and packet boundaries
+### Telnet coverage 2026-07-14: split login IAC negotiation
 
-Continue with the next Milestone 4 family: telnet negotiation and
-packet-boundary behavior. For every raw telnet candidate, split significant
-bytes across separate `send_bytes` steps as required above, then run the exact
-row on stock WSL Toast first and unchanged Barn second. Keep coverage when both
-pass; reduce and fix exactly one concrete delta at a time when Toast is green
-and Barn is red.
+The existing generic row `audit_telnet_iac_stripped_from_login_input` was
+strengthened so the login-text prefix, lone IAC byte, WILL-plus-option bytes,
+and line suffix cross four separate `send_bytes` boundaries. The focused row
+passes 1/1 on both stock WSL Toast and committed Windows Barn. Conformance
+commit is `d3f74b2`; no Barn source change is authorized.
+
+### Active telnet row 2026-07-14: split IAC out-of-band delivery
+
+Run the existing `audit_telnet_iac_delivered_as_oob_command` row next. It
+already splits the lone IAC byte from WILL-plus-option bytes and asserts the
+complete binary-escaped command delivered to `do_out_of_band_command`. Run the
+exact row on stock WSL Toast first and unchanged Barn second. Keep it as
+coverage if both pass; if Toast is green and Barn is red, reduce and fix that
+one concrete delta before continuing.
