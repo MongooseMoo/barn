@@ -1334,10 +1334,19 @@ and unchanged managed row pass, and corrected Barn passes the complete family
 failure in `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
 Barn commit is `b4b5af0`.
 
-### Active suspended-read gate 2026-07-14
+### Suspended-read gate closed 2026-07-14
 
-Run the complete managed `read` family on stock WSL Toast, then committed
-Windows Barn. If both runs pass, close suspended reads and continue to
-queued-task APIs without widening into restart or persistence. If a row fails,
-keep that one row active until its Toast behavior is established and Barn either
+The exact managed `read` family passes 7/7 on stock WSL Toast and committed
+Windows Barn. The family covers argument errors, disconnected-player rejection,
+nonblocking reads, and blocking `read()` suspension/resumption through both the
+implicit and explicit player forms. No Barn source change is authorized.
+
+### Active `queued_tasks()` gate 2026-07-14
+
+Run the complete 19-case managed `queued_tasks` selector on stock WSL Toast,
+then committed Windows Barn. This selector covers the builtin's semantic shape,
+count mode, signature and call shapes, queued primitive/anonymous/waif values,
+and suspended `exec()` visibility. Do not include `queue_info`, kill/resume,
+task-stack, restart, or persistence behavior in this gate. If a row fails, keep
+that one row active until its Toast behavior is established and Barn either
 matches or receives one committed correction.
