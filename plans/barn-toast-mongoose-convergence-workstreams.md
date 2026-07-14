@@ -1341,12 +1341,33 @@ Windows Barn. The family covers argument errors, disconnected-player rejection,
 nonblocking reads, and blocking `read()` suspension/resumption through both the
 implicit and explicit player forms. No Barn source change is authorized.
 
-### Active `queued_tasks()` gate 2026-07-14
+### `queued_tasks()` gate closed 2026-07-14
 
-Run the complete 19-case managed `queued_tasks` selector on stock WSL Toast,
-then committed Windows Barn. This selector covers the builtin's semantic shape,
-count mode, signature and call shapes, queued primitive/anonymous/waif values,
-and suspended `exec()` visibility. Do not include `queue_info`, kill/resume,
-task-stack, restart, or persistence behavior in this gate. If a row fails, keep
-that one row active until its Toast behavior is established and Barn either
-matches or receives one committed correction.
+The complete 19-case managed `queued_tasks` selector finishes with 18 passes and
+one established anonymous-object skip on both stock WSL Toast and corrected
+Windows Barn. Pre-fix Barn had one additional failure,
+`exec::queued_tasks_shows_suspended_exec`.
+
+The first cause was Barn's `exec()` resolver: it searched source-tree
+`builtins/testdata/exec` locations instead of the managed server's
+`executables/` directory, producing `E_INVARG`. Regression
+`TestValidateAndResolvePathUsesServerExecutablesDirectory` proved the wrong
+ownership. The production correction deletes the source-tree search and uses
+only `executables/`.
+
+The managed harness installed only extensionless POSIX fixtures, so after the
+resolver correction Windows launched `sleep` unsuccessfully and the task left
+the suspended queue before observation. The conformance package now installs
+the seven existing Windows `.bat` counterparts alongside the POSIX files; Toast
+continues to use the extensionless files and Barn's existing PATHEXT path uses
+the batch files. The focused row passes, the complete selector matches, the full
+Barn `builtins` package passes, and the managed-server harness passes 11/11.
+Conformance commit is `11be5ee`; Barn commit is `d46be74`.
+
+### Active `queue_info()` gate 2026-07-14
+
+Run the complete 18-case managed `queue_info` selector on stock WSL Toast, then
+committed Windows Barn. Do not include kill/resume, task-stack, restart, or
+persistence behavior in this gate. If a row fails, keep that one row active
+until its Toast behavior is established and Barn either matches or receives one
+committed correction.
