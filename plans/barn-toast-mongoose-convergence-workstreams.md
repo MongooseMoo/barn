@@ -1421,3 +1421,16 @@ Pinned WSL Mongoose Toast establishes that `PROMOTE_NUMBERS` does not extend to
 row passes 1/1 on current promotion-enabled Windows Barn, and the complete
 promotion suite passes 2/2 on both engines. No Barn source change is authorized.
 Conformance commit is `c813cf8`.
+
+### Promotion-aware map-key gate closed 2026-07-14
+
+Pinned WSL Mongoose Toast establishes that `PROMOTE_NUMBERS` does not merge
+integer and float map keys. The reduced row proves two-key length, independent
+lookups, and a negative mixed-type `maphaskey()` result. It passes 1/1 on
+current promotion-enabled Windows Barn, and the complete promotion suite passes
+3/3 on both engines. No Barn source change is authorized. Conformance commit is
+`31cf3a7`.
+
+The plan's remaining promotion-sensitive comparison, sorting, map, and
+collection semantics family is closed. Milestone 5 performance measurement is
+the next unchecked phase.
