@@ -1364,10 +1364,15 @@ the batch files. The focused row passes, the complete selector matches, the full
 Barn `builtins` package passes, and the managed-server harness passes 11/11.
 Conformance commit is `11be5ee`; Barn commit is `d46be74`.
 
-### Active `queue_info()` gate 2026-07-14
+### `queue_info()` gate closed 2026-07-14
 
-Run the complete 18-case managed `queue_info` selector on stock WSL Toast, then
-committed Windows Barn. Do not include kill/resume, task-stack, restart, or
+The complete 18-case managed `queue_info` selector passes 18/18 on stock WSL
+Toast and committed Windows Barn. No Barn source change is authorized.
+
+### Active `kill_task()` gate 2026-07-14
+
+Run the complete 12-case managed `kill_task` selector on stock WSL Toast, then
+committed Windows Barn. Do not include resume, task-stack, restart, or
 persistence behavior in this gate. If a row fails, keep that one row active
 until its Toast behavior is established and Barn either matches or receives one
 committed correction.
