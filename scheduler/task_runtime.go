@@ -260,8 +260,9 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Handle completion
 	if result.Flow == types.FlowException {
 		t.SetState(task.TaskKilled)
+		handled := false
 		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
+			handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
 		}
 		// Prefer the activation stack snapshotted at raise time (carried on the
 		// result): the live call stack has already unwound, so it would report the
@@ -277,9 +278,8 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		// suppresses the fallback traceback. The handler itself runs with database
 		// traceback dispatch disabled, so an error there falls back to the original
 		// task's traceback instead of recursively invoking the same hook.
-		handled := false
 		isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
-		if !isUncaughtHandler {
+		if !handled && !isUncaughtHandler {
 			stackValues := make([]types.Value, 0, len(stack))
 			for i := len(stack) - 1; i >= 0; i-- {
 				stackValues = append(stackValues, stack[i].ToList())
@@ -367,7 +367,7 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	return nil
 }
 
-func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) {
+func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) bool {
 	stack := t.GetCallStack()
 	stackValues := make([]types.Value, 0, len(stack))
 	for _, frame := range stack {
@@ -384,11 +384,12 @@ func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message t
 	if len(traceValues) == 0 {
 		traceValues = append(traceValues, message)
 	}
-	_ = s.CallVerb(0, "handle_task_timeout", []types.Value{
+	result := s.CallVerb(0, "handle_task_timeout", []types.Value{
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
 	}, t.Owner)
+	return result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy())
 }
 
 func resultValueContains(value types.Value, text string) bool {

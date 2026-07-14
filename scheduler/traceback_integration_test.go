@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
@@ -145,5 +146,65 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 	}
 	if fallbacks != 0 {
 		t.Fatalf("fallback traceback sends = %d, want 0 after truthy handler", fallbacks)
+	}
+}
+
+func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T) {
+	resetServerVerbTaskManager(t)
+	t.Cleanup(func() { resetServerVerbTaskManager(t) })
+
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(0, dbstore.NewProperty(
+		"timeout_args", types.NewEmptyList(), 2,
+		dbstore.PropRead|dbstore.PropWrite, false, true,
+	)); errCode != types.E_NONE {
+		t.Fatalf("define timeout_args: %v", errCode)
+	}
+	store.AddVerb(0, dbstore.NewVerb("handle_task_timeout", []string{"handle_task_timeout"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"this.timeout_args = args;", "return 1;"}))
+	spinCode := []string{"while (1)", "endwhile"}
+	store.AddVerb(0, dbstore.NewVerb("spin", []string{"spin"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, spinCode))
+
+	s := NewScheduler(store)
+	program, diagnostics := compiler.CompileMOO(spinCode, s.registry)
+	if len(diagnostics) != 0 {
+		t.Fatalf("compile spin: %v", diagnostics)
+	}
+	timeoutTask := task.NewTaskFull(1, 2, program, 20, 1)
+	s.populateTaskContextDependencies(timeoutTask.Context)
+	timeoutTask.Programmer = 2
+	timeoutTask.This = 0
+	timeoutTask.Caller = 2
+	timeoutTask.VerbName = "spin"
+	timeoutTask.VerbLoc = 0
+	timeoutTask.IsForked = true
+	timeoutTask.Kind = task.TaskForked
+
+	fallbacks := 0
+	s.SetTracebackSender(func(types.ObjID, types.ErrorCode, []task.ActivationFrame) {
+		fallbacks++
+	})
+	if err := s.runTask(timeoutTask); err != nil {
+		t.Fatalf("run timeout task: %v", err)
+	}
+
+	timeoutArgs, errCode := store.PropertyValue(0, "timeout_args")
+	if errCode != types.E_NONE {
+		t.Fatalf("read timeout_args: %v", errCode)
+	}
+	if timeoutArgs.Type() != types.TYPE_LIST || len(timeoutArgs.Elements()) != 3 {
+		t.Fatalf("handle_task_timeout args = %s, want three-element list", timeoutArgs.String())
+	}
+	if got := timeoutArgs.Elements()[0]; got.Type() != types.TYPE_STR || got.Str() != "ticks" {
+		t.Errorf("resource argument = %s, want ticks", got.String())
+	}
+	if fallbacks != 0 {
+		t.Fatalf("fallback traceback sends = %d, want 0 after truthy timeout handler", fallbacks)
 	}
 }
