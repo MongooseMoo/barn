@@ -1391,9 +1391,15 @@ Restart coverage is already included in the closed 23/23
 `audit_suspended_task_survives_restart` and
 `audit_pending_forked_task_survives_genuine_offline_restart`.
 
-### Active dump-persistence gate 2026-07-14
+### Dump-persistence gate closed 2026-07-14
 
-Run the complete two-case managed `dump_persistence` family on stock WSL Toast,
-then committed Windows Barn. If a row fails, keep that one row active until its
-Toast behavior is established and Barn either matches or receives one committed
-correction.
+The complete two-case managed `dump_persistence` family passes 2/2 on stock WSL
+Toast and corrected Windows Barn. Pre-fix Barn passed the inherited-property
+case and failed `adjacent_floats_survive_dump_and_restart`: source literals
+`1.0` and `1.0000000000000002` collapsed to one compiler constant, and the same
+adjacent values collapsed to one map key.
+
+The correction uses exact type-qualified IEEE float identity for compiler
+constant deduplication and map hashing, while canonicalizing signed zero to
+preserve MOO equality. Regressions cover both collapse points; the full `types`
+and `bytecode` packages pass. Barn commit is `284c52e`.
