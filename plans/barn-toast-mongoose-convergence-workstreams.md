@@ -1001,7 +1001,7 @@ family is parser shortcut dispatch.
 
 ### Slice implementation 2026-07-14: uncaught handler stack values
 
-The quote shortcut `'codex shortcut probe` dispatched correctly on both
+The Mongoose single-quote command `'codex shortcut probe` dispatched correctly on both
 engines and printed `You say, "Codex shortcut probe."`. Its subsequent fixture
 SQLite failure exposed a remaining shared error-contract delta. Toast's
 `#0:handle_uncaught_error` output resolved every structured stack frame to the
@@ -1031,7 +1031,7 @@ and `git diff --check` passed. The exact local package gate remained green in
 `bytecode` and `vm` and red only at the already-recorded scheduler ID-collision
 review regression. Conformance commit is `c01a2ac`; Barn commit is `2b1be78`.
 
-The fresh quote-shortcut rerun used committed `2b1be78` and a disposable
+The fresh single-quote rerun used committed `2b1be78` and a disposable
 fixture under
 `.tmp/mongoose-convergence/barn-say-stack-fixed-20260714-15`. The database
 again hashed to the authoritative identity. Mongoose's handler now resolved
@@ -1065,7 +1065,7 @@ WSL Toast and Windows Barn. `git diff --check` passed. The exact local package
 gate remained green in `bytecode` and `vm` and red only at the already-recorded
 scheduler ID-collision review regression. Barn commit is `f6d2591`.
 
-The fresh live quote-shortcut rerun used committed `f6d2591`, the existing
+The fresh live single-quote rerun used committed `f6d2591`, the existing
 `moo_client.exe`, the unchanged trusted-PROXY/account/password inputs, and a
 disposable fixture under
 `.tmp/mongoose-convergence/barn-say-payload-fixed-20260714-16`. The source and
@@ -1077,12 +1077,27 @@ database handler output with `This database is not open`. Neither the generic
 `Invalid argument` substitution nor invalid-frame warnings appeared. Uncaught
 handler payload fidelity is CLOSED.
 
-### Active behavior row 2026-07-14: colon emote shortcut
+### Live coverage 2026-07-14: colon emote shortcut
 
-Unknown-command/`huh` dispatch and the quote/say shortcut now match the live
-Toast controls. The next unchecked operation in the parser-shortcut family is
-the colon emote shortcut. Run `:codex emote probe` after the unchanged login
-sequence on fresh disposable copies, with WSL Mongoose Toast first and
-committed Windows Barn second. If Barn matches the Toast-visible emote, record
-coverage only and continue within the same parser family; if it differs,
-reduce the behavior onto generic `Test.db` before changing Barn.
+The parser inventory establishes three server rewrites: leading double quote
+to `say`, colon to `emote`, and semicolon to `eval`. The earlier single-quote
+Mongoose command is not the server's double-quote rewrite and does not close
+that parser row.
+
+The colon candidate ran `:codex emote probe` after the unchanged login sequence
+on fresh disposable copies. Pinned WSL Mongoose Toast under
+`.tmp/mongoose-convergence/toast-emote-control-20260714-18` emitted
+`Q codex emote probe`. Committed Windows Barn `e10a66d` under
+`.tmp/mongoose-convergence/barn-emote-control-20260714-19` emitted the same
+line, with the MCP, player-connection, room-render, and exit anchors intact.
+Generic colon parsing and preposition reparsing are already covered by
+`command/parser.yaml` and `audit/command_parser_toast_oracle.yaml`; no source
+or conformance change is authorized.
+
+### Active behavior row 2026-07-14: double-quote say shortcut
+
+Run `"codex double quote probe` after the unchanged login sequence on fresh
+disposable copies, with WSL Mongoose Toast first and committed Windows Barn
+second. If Barn matches the Toast-visible say result, record coverage only and
+advance to the semicolon/eval shortcut; if it differs, reduce the behavior onto
+generic `Test.db` before changing Barn.
