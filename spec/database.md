@@ -1,311 +1,238 @@
-# MOO Database Format Specification
+# MOO database format and current Barn codec
 
-## Overview
+## Status and authority
 
-MOO databases are text-based files containing all persistent state: objects, properties, verbs, players, and suspended tasks.
+The database file is a durable MOO-observable contract. Freshly verified Toast
+source and managed Toast behavior are authoritative. Barn's Go structs and
+codec limitations describe current implementation status; they do not redefine
+the format.
 
-Freshly verified Toast is the behavioral and format authority. The managed WSL
-checkout and executable identity are recorded in `reports/toast-oracle-wsl.md`;
-the v17 reader/writer is principally `src/db_file.cc` and task persistence is in
-`src/tasks.cc`. Barn's implementation is in `db/format` and `db/store`.
+The verified WSL source identity, executable, profile, wrapper, and exact
+managed command are recorded in
+`../../banteng/docs/reports/toast-oracle-identity-2026-07-14.md`. The managed
+workflow is owned by
+`plans/barn-toast-mongoose-convergence-workstreams.md`. In the verified Toast
+checkout:
 
-`../../../src/lambdamoo-db-py/` provides a useful structural reader/writer for
-inspection and differential round trips. It is not authoritative when its
-behavior differs from freshly verified Toast.
+- `src/db_file.cc` owns the top-level version dispatch, section order, object
+  records, anonymous-object batches, and verb-program section;
+- `src/db_io.cc` owns line, number, float, string, tagged-value, activation, and
+  program IO;
+- `src/db_objects.cc`, `src/db_properties.cc`, and `src/db_verbs.cc` own the
+  corresponding world records and anonymous references;
+- `src/waif.cc` owns WAIF creation/reference records;
+- `src/eval_vm.cc` owns suspended VM read/write; and
+- `src/tasks.cc` owns clocks, queued tasks, suspended tasks, interrupted tasks,
+  and active-connection task state.
 
----
+These paths are relative to `/root/src/toaststunt` at the recorded source SHA.
+`../../../src/lambdamoo-db-py` is useful for structural inspection and
+differential round trips, but it does not override verified Toast.
 
-## 1. Format Versions
+## 1. Supported versions
 
-| Version | Name | Key Features |
-|---------|------|--------------|
-| 4 | LambdaMOO Classic | Original format |
-| 17 | ToastStunt | Maps, WAIFs, booleans, anonymous objects |
+Toast's `DB_Version` enum in `src/include/version.h` is append-only and its
+numeric value is written in the header. Relevant milestones are:
 
-Barn targets **version 17** (ToastStunt) for full feature support.
+| Version | Toast enum milestone | Relevant format effect |
+|---|---|---|
+| 4 | `DBV_BFBugFixed` | Last pre-next-generation object layout; includes floats and exception-era VM data |
+| 5 | `DBV_NextGen` | Next-generation object layout and locality |
+| 6 | `DBV_TaskLocal` | Task-local value in suspended VM data |
+| 7 | `DBV_Map` | Map values |
+| 10 | `DBV_Interrupt` | Interrupted task section |
+| 13 | `DBV_Anon` | Pending finalizations, early task sections, repeated object batches, anonymous objects |
+| 14 | `DBV_Waif` | WAIF values |
+| 15 | `DBV_Last_Move` | `last_move` object field |
+| 16 | `DBV_Threaded` | Activation thread-mode persistence |
+| 17 | `DBV_Bool` | Boolean values; current Toast output version |
 
----
+The required Barn contract is to read LambdaMOO v4 and Toast v17 and to write
+v17. Current `db/format/reader.go` also dispatches v5. Current
+`db/format/writer.go` writes only v17.
 
-## 2. File Structure
+## 2. Version 17 top-level order
 
-### 2.1 Header
+The header is:
 
-```
+```text
 ** LambdaMOO Database, Format Version 17 **
 ```
 
-### 2.2 Sections (v17 order)
+The top-level data then appears in this order:
 
-1. Players list
-2. Pending finalizations
-3. Clocks (obsolete, count = 0)
-4. Queued tasks
-5. Suspended tasks
-6. Interrupted tasks
-7. Active connections
-8. Object count
-9. Objects (with properties and verb metadata)
-10. Anonymous objects (batched, 0-terminated)
-11. Verb count
-12. Verb code
+1. player count and player object IDs;
+2. values pending finalization;
+3. obsolete clocks;
+4. queued fork tasks;
+5. suspended tasks;
+6. interrupted tasks;
+7. formerly active connections;
+8. a count followed by the permanent object records;
+9. zero or more later object batches containing anonymous objects, terminated
+   by a count of zero;
+10. verb-program count; and
+11. verb-program headers and source.
 
----
+`write_task_queue()` in `src/tasks.cc` owns items 3 through 6. The repeated
+object-count loop in `src/db_file.cc` owns both the first permanent batch and
+later anonymous batches; the zero is the loop terminator, not a second
+independent single-count section.
 
-## 3. Value Encoding
+## 3. Tagged values
 
-Values are type-tagged. Type code on one line, value on next (or inline for simple types).
+Outside enclosing record headers, `dbio_write_var()` writes a numeric type tag
+line and then the type-specific payload. Containers recursively contain tagged
+values. The accepted database tags are:
 
-### 3.1 Type Codes
+| Code | Type | Payload |
+|---:|---|---|
+| 0 | INT | integer line |
+| 1 | OBJ | signed object-number line, without a required `#` prefix |
+| 2 | STR | one raw newline-terminated string line |
+| 3 | ERR | numeric error-code line |
+| 4 | LIST | length, then that many tagged values |
+| 5 | CLEAR | no payload |
+| 6 | NONE | no payload |
+| 7 | CATCH | numeric internal VM marker |
+| 8 | FINALLY | numeric internal VM marker |
+| 9 | FLOAT | textual floating-point line |
+| 10 | MAP | pair count, then tagged key/value pairs |
+| 11 | ITER | accepted on read as a following tagged value; current Toast output writes an iterator's current value or CLEAR instead |
+| 12 | ANON | numeric anonymous-object serialization ID |
+| 13 | WAIF | creation or reference record owned by `src/waif.cc` |
+| 14 | BOOL | numeric 0 or 1 |
 
-| Code | Type | Format |
-|------|------|--------|
-| 0 | INT | Integer on next line |
-| 1 | OBJ | `#N` on next line |
-| 2 | STR | String on next line |
-| 3 | ERR | Error code (integer) on next line |
-| 4 | LIST | Length, then N values |
-| 5 | CLEAR | No additional data |
-| 6 | NONE | No additional data |
-| 9 | FLOAT | Float on next line |
-| 10 | MAP | Count, then N key-value pairs |
-| 12 | ANON | Anonymous object ID |
-| 13 | WAIF | WAIF structure |
-| 14 | BOOL | 0 or 1 |
+Toast writes floats with `DBL_DIG + 4` significant digits. A WAIF creation uses
+`c <index>`, class, owner, indexed non-clear properties, `-1`, and `.`; a later
+reference uses `r <index>` and `.`. Anonymous values allocate or reuse an
+above-permanent-range serialization ID and write that number.
 
-### 3.2 Examples
+## 4. Next-generation object records
 
-```
-0
-42
-```
-(INT 42)
+A live object record written by `ng_write_object()` has this sequence:
 
-```
-2
-Hello, world!
-```
-(STR "Hello, world!")
-
-```
-4
-3
-0
-1
-0
-2
-0
-3
-```
-(LIST {1, 2, 3})
-
----
-
-## 4. Object Format
-
-### 4.1 Object Header
-
-```
-#123
-Object Name
-flags_int
-owner_objnum
-location_value
-last_move_value
-contents_list
-parents_list
-children_list
-verb_count
+```text
+#<object-id>
+name
+flags
+owner
+<tagged location value>
+<tagged last_move value>
+<tagged contents value>
+<tagged parents value>
+<tagged children value>
+verb-definition count
+<verb definitions>
+local property-definition count
+<local property names>
+property-value count
+<property values>
 ```
 
-### 4.2 Verb Metadata (per verb)
+Each verb definition is `name`, owner object number, permissions, and
+preposition code. Each property value is a tagged value, owner object number,
+and permissions. The property-value sequence covers local and inherited
+properties; only locally defined names appear in the preceding property-name
+list.
 
-```
-verb_name
-owner_objnum
-perms_int
-preps_int
-```
+Object flag bit positions are defined by `src/include/db.h`:
 
-### 4.3 Properties
+| Bit | Flag |
+|---:|---|
+| 0 | USER |
+| 1 | PROGRAMMER |
+| 2 | WIZARD |
+| 3 | obsolete |
+| 4 | READ |
+| 5 | WRITE |
+| 6 | obsolete |
+| 7 | FERTILE |
+| 8 | ANONYMOUS |
+| 9 | INVALID anonymous object |
+| 10 | RECYCLED anonymous object pending storage release |
 
-```
-propdefs_count        # Properties DEFINED on this object
-propname1
-propname2
-...
-total_prop_count      # Including inherited
-value1
-owner1
-perms1
-value2
-owner2
-perms2
-...
-```
+A recycled permanent slot is a structural record of the form
+`#<object-id> recycled`; it is not encoded by setting the anonymous lifecycle
+flags in a normal object record.
 
-### 4.4 Object Flags
+## 5. Anonymous batches and verb programs
 
-| Bit | Flag | Description |
-|-----|------|-------------|
-| 0 | USER | Is a player object |
-| 1 | PROGRAMMER | Has programmer privileges |
-| 2 | WIZARD | Has wizard privileges |
-| 4 | READ | Object is readable |
-| 5 | WRITE | Object is writable |
-| 7 | FERTILE | Can be parent of new objects |
-| 8 | ANONYMOUS | Is anonymous object |
-| 9 | INVALID | Marked invalid |
-| 10 | RECYCLED | Marked recycled |
+The object-count loop first writes all permanent slots through the current
+maximum object ID. Serializing anonymous references can allocate later
+serialization IDs, so the loop writes additional batches until the maximum no
+longer grows, then writes `0`. A reader must continue through every batch; it
+must not treat the first count after permanent objects as the whole anonymous
+section.
 
----
+After the zero terminator, each verb program has a zero-based header followed by
+source terminated by a line containing `.`:
 
-## 5. Anonymous Objects Section
-
-Anonymous objects are stored in **batches**, terminated by a count of 0:
-
-```
-count1        # First batch size (or 0 if no anonymous objects)
-<objects...>  # count1 objects in standard object format
-count2        # Second batch size
-<objects...>  # count2 objects
-0             # Terminator (count of 0 ends the section)
-```
-
-This batched format allows incremental writing as anonymous objects are created.
-
-**CRITICAL:** The anonymous objects section is NOT just a single count + objects. It's a loop that reads batches until a 0 count is encountered. Misreading this as a single batch will cause the verb count to be read as 0, breaking all verb code.
-
----
-
-## 6. Verb Code Section
-
-After all objects, verb code appears:
-
-```
-#objnum:verbindex
-line1
-line2
-...
+```text
+#<object-id>:<zero-based-verb-index>
+<source lines>
 .
 ```
 
-The `.` terminates each verb's code.
+The verb metadata record and the later program record are distinct. A verb with
+no installed program has metadata but no program-section entry.
 
----
+## 6. Task persistence
 
-## 7. Task Persistence
+Toast writes an obsolete clock header first. A queued fork record is:
 
-### 7.1 Queued Tasks
-
-```
-N queued tasks
-```
-
-Each task:
-```
-unused firstline id starttime
-activation...
-rtenv...
-code...
-.
+```text
+0 <first-line> <start-time> <task-id>
+<programmer-interface activation>
+<runtime environment>
+<fork program source, terminated by .>
 ```
 
-### 7.2 Suspended Tasks
+A suspended record is:
 
-```
-N suspended tasks
-id starttime [type]
-task_local_value
-vm...
+```text
+<start-time> <task-id> <tagged resume value>
+<VM>
 ```
 
-### 7.3 VM Structure
+`src/eval_vm.cc` writes the VM as the tagged task-local value; a header holding
+top activation index, root vector, builtin continuation ID, and maximum stack
+size; then every activation. Interrupted records use `<task-id> <status>` plus
+the same VM. On load, Toast queues them for immediate resumption with
+`E_INTRPT`.
 
-```
-top_of_stack
-activation1
-activation2
-...
-```
+Current Barn does not implement that full contract. `db/format/writer_task.go`
+can write serializable queued forks but emits zero suspended and interrupted
+tasks. `db/format/reader_task.go` reads queued forks but skips complete suspended
+and interrupted task records without reconstructing either task class. Passing a
+checkpoint through Barn therefore does not preserve suspended or interrupted
+execution state.
 
----
+## 7. Current Barn IO and checkpoint behavior
 
-## 8. Recycled Objects
+`db/format` reads through `bufio.Reader` and writes through `bufio.Writer` while
+building a full in-memory `Database` or consuming a full `db/store` snapshot.
+It does not transcode or validate character encoding: database string bytes are
+carried in Go strings and written back as bytes. Treat the durable format as
+Latin-1-compatible byte data; do not apply Unicode normalization or implicit
+UTF-8 conversion.
 
-Recycled objects appear as:
+`db/format/checkpoint.go` currently creates `<path>.tmp`, writes and flushes the
+buffered v17 database, closes the file, and renames it to `<path>.new`. It never
+replaces `<path>` and does not call `File.Sync()`. Therefore the historical
+`os.Rename(tmp, dbPath)` snippet did not describe current Barn and did not prove
+atomic replacement or crash durability.
 
-```
-# 123 recycled
-```
+The release contract remains functional v4/v17 input and v17 output. A round
+trip must preserve MOO-visible world, source, value, topology, task, and
+connection state required by the selected profile; textual byte identity is
+not required. Narrow object-only or value-only round trips do not prove the
+full database contract.
 
-These IDs are tracked for potential reuse.
+## 8. Verification boundary
 
----
-
-## 9. Compatibility Requirements
-
-### 9.1 Read Support (Required)
-
-Barn MUST read:
-- LambdaMOO v4 databases
-- ToastStunt v17 databases
-
-Use Toast as the format authority. Use `lambdamoo-db-py` as a structural and
-differential reference only.
-
-### 9.2 Write Support (Required)
-
-Barn MUST write v17 format for:
-- Checkpoints
-- Panic dumps
-- Manual database dumps
-
-### 9.3 Round-Trip Integrity
-
-A database read and immediately written must produce functionally equivalent output (whitespace may differ).
-
----
-
-## 10. Go Implementation Notes
-
-### 10.1 Encoding
-
-- Use `latin-1` encoding (as original MOO does)
-- Line endings: `\n` (Unix style)
-
-### 10.2 Atomic Writes
-
-```go
-// Write to temp, rename for atomicity
-tmpFile := dbPath + ".tmp"
-// ... write to tmpFile ...
-os.Rename(tmpFile, dbPath)
-```
-
-### 10.3 Large Databases
-
-Stream parsing recommended - don't load entire file to memory.
-
----
-
-## 11. References
-
-Toast authority:
-
-- WSL oracle procedure and identity: `reports/toast-oracle-wsl.md`
-- v17 file codec: `/root/src/toaststunt/src/db_file.cc`
-- queued task and clock persistence: `/root/src/toaststunt/src/tasks.cc`
-
-Barn implementation:
-
-- codec: `db/format`
-- persistent store: `db/store`
-
-Structural Python reference:
-
-- **Reader:** `lambdamoo_db/reader.py`
-- **Writer:** `lambdamoo_db/writer.py`
-- **Types:** `lambdamoo_db/enums.py`
-- **Structures:** `lambdamoo_db/database.py`
-
-When in doubt, match Toast behavior.
+Use the managed WSL Toast profile for bootability and MOO-observable behavior.
+Use `../../../src/lambdamoo-db-py` for structural differential reads and writes.
+Focused Go codec tests can prove local parsing and output mechanics, but they do
+not replace Toast boot, managed restart/task rows, or full functional round
+trips. Never run a tracked fixture in place.
