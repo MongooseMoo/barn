@@ -1505,3 +1505,10 @@ The slice-3 profile keeps property resolution first at 263.18 MB, including
 allocates the map without capacity. Slice 4 is pinned to preallocating that
 existing map to `len(oldOrder)`; do not change representation or another owner.
 The unchanged deployment RSS result decides keep or full restore.
+
+Slice 4 is REJECTED and fully restored. Its focused allocation gate improved,
+but the unchanged deployment run at
+`.tmp/mongoose-convergence/perf-barn-property-slice-04` increased RSS from
+1295065088 to 1469816832 bytes (+174751744 bytes, +13.49%). No source commit was
+made. This is one consecutive slice with no kept improvement; the slice-3 kept
+profile remains the authority for the next property-storage attempt.

@@ -221,3 +221,14 @@ Slice 4 will give that existing map the exact known capacity. It will not
 change representation or touch another owner. A focused resolver allocation
 regression, the affected package suites, and the unchanged deployment benchmark
 decide keep or full restore.
+
+### Slice 4 result: rejected and restored
+
+The exact-capacity change reduced the focused 64-property resolver case from 19
+allocations to at most 18, and the affected and full package gates had no new
+failures. The unchanged deployment benchmark under
+`.tmp/mongoose-convergence/perf-barn-property-slice-04` measured 1469816832
+bytes RSS, an increase of 174751744 bytes (13.49%) from slice 3's 1295065088
+bytes. All non-memory gates passed, but RSS is the sole keep/reject metric. The
+capacity change and its focused test were fully restored with no source commit.
+This is one consecutive slice with no kept improvement.
