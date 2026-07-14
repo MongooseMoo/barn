@@ -1190,8 +1190,18 @@ candidate, so no conformance or Barn source change is authorized. The
 
 ### Active behavior row 2026-07-14: `@verbs`
 
-Continue the same object-inspection family with `@verbs` after the unchanged
-login sequence on fresh disposable copies, using WSL Mongoose Toast first and
-committed Windows Barn second. Compare stable visible verb-listing anchors. If
-Barn differs, reduce the underlying behavior onto generic `Test.db` before
-changing Barn.
+The final named object-inspection candidate ran `@verbs me` after the unchanged
+login sequence on fresh disposable copies. Pinned WSL Mongoose Toast under
+`.tmp/mongoose-convergence/toast-verbs-control-20260714-34` rendered the
+`Verbs for Q (#249):` heading and the complete sorted local verb-name grid from
+`@cleanup` through `xmoo_msg`. Committed Windows Barn under
+`.tmp/mongoose-convergence/barn-verbs-control-20260714-35` instead raised
+`E_QUOTA` (`Resource limit exceeded`) in
+`$object_utils #52:accessible_verbs`, line 7, called from
+`$old_prog #58:@verbs`, line 16. Both database copies had the authoritative
+SHA-256.
+
+The active target is the smallest generic `Test.db` reduction of the resource
+limit reached while enumerating accessible verbs. Run it on stock WSL Toast
+first, then unchanged Barn; do not change Barn until that row is Toast-green
+and Barn-red.
