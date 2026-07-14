@@ -655,6 +655,31 @@ slice therefore closes a real scheduler delta but does not close the live gate;
 post-authentication silence remains the active behavior row, and no additional
 Barn production change is bundled into this slice.
 
+### Coverage executed 2026-07-13: `user_connected` continuation after fork
+
+The next reduced `Test.db` row was
+`audit_user_connected_continues_after_zero_delay_fork` in
+`connection_lifecycle_toast_oracle.yaml`. It models the relevant control-flow
+shape of the current Mongoose hook without importing any Mongoose object,
+fixture, credential, or profile knowledge: first login dispatches
+`user_connected`, the hook creates a zero-delay child, the parent continues
+after `endfork`, and both activations record completion.
+
+Fresh authority checks observed stock Toast HEAD `aecc51e`, executable
+`/root/src/toaststunt/build-release/moo`, version `2.7.3_5`, and bundled
+`Test.db` SHA-256
+`1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`.
+The focused managed WSL Toast row passed 1/1, and current Windows Barn passed
+the unchanged row 1/1. The complete managed connection-lifecycle family then
+passed 21/21 on both engines. Conformance commit is `60ca66c`.
+
+Per the plan, this is coverage only: no Barn source change was made. The result
+rules out loss of the parent activation at a top-level zero-delay fork and loss
+of that immediate child. The live gate remains open, so the next reduction must
+preserve a deeper dynamic handler/confunc dependency or the independently
+observed `call_function` argument that produced Barn-only `E_RANGE`; it must
+again pass Toast before Barn runs.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
