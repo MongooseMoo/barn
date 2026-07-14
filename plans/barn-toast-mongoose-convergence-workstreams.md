@@ -872,6 +872,24 @@ The post-authentication-silence behavior row is therefore CLOSED. The next
 unchecked Milestone 4 family is `look`, movement, contents, exits, and room
 rendering, using the now-passing login control as its discovery entry point.
 
+### Live coverage 2026-07-14: explicit `look` and room render
+
+The first candidate in the next family used a fourth client command, `look`,
+after the unchanged trusted-PROXY/account/password conversation. WSL Mongoose
+Toast ran from the pinned executable on the disposable fixture under
+`.tmp/mongoose-convergence/toast-look-control-20260714-04`; Barn `5045acb` ran
+the unchanged script on the disposable fixture under
+`.tmp/mongoose-convergence/barn-look-control-20260714-05`. Both copies hashed
+to the current fixture identity.
+
+Both engines produced a second complete Codex's Lab render after the explicit
+command. The room title, three description paragraphs, contents, sleeping and
+positioned players, player position, and
+`You can go west, northeast (closed), and north (closed).` matched. This is
+live coverage only: Barn passed the genuine candidate, so no conformance or
+Barn source change is authorized. The next unchecked operation in this family
+is movement through the open west exit.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
