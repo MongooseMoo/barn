@@ -1175,10 +1175,23 @@ This is live coverage only: Barn passed the genuine candidate, so no
 conformance or Barn source change is authorized. The `@display` target is
 CLOSED.
 
-### Active behavior row 2026-07-14: `@props`
+### Live coverage 2026-07-14: `@props`
 
-Continue the same object-inspection family with `@props` after the unchanged
+The next object-inspection candidate ran `@props me` after the unchanged login
+sequence on fresh disposable copies. Pinned WSL Mongoose Toast under
+`.tmp/mongoose-convergence/toast-props-control-20260714-32` and committed
+Windows Barn under
+`.tmp/mongoose-convergence/barn-props-control-20260714-33` both rendered the
+`Properties for Q (#249:` heading and the same complete local property-name
+grid, from `allbolted` through `welcome_message`. Both database copies had the
+authoritative SHA-256. This is live coverage only: Barn passed the genuine
+candidate, so no conformance or Barn source change is authorized. The
+`@props` target is CLOSED.
+
+### Active behavior row 2026-07-14: `@verbs`
+
+Continue the same object-inspection family with `@verbs` after the unchanged
 login sequence on fresh disposable copies, using WSL Mongoose Toast first and
-committed Windows Barn second. Compare stable visible property-listing anchors.
-If Barn differs, reduce the underlying behavior onto generic `Test.db` before
+committed Windows Barn second. Compare stable visible verb-listing anchors. If
+Barn differs, reduce the underlying behavior onto generic `Test.db` before
 changing Barn.
