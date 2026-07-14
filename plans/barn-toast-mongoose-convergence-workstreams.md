@@ -1520,3 +1520,11 @@ slices, and preserve case-insensitive lookup by ordered scan. Do not add a
 replacement index or representation. The unchanged deployment RSS result
 decides keep or full restore; rejection is the second consecutive unsuccessful
 slice and requires stopping.
+
+Slice 5 is REJECTED and fully restored. Its complete store, format, and broad
+package gates had no new failures, but the unchanged deployment run at
+`.tmp/mongoose-convergence/perf-barn-property-slice-05` increased RSS from
+1295065088 to 1387020288 bytes (+91955200 bytes, +7.10%). No source commit was
+made. Slices 4 and 5 are two consecutive attempts with no kept improvement, so
+the exact-convergence rule requires stopping. Milestone 5 remains unfinished at
+1295065088 bytes RSS against the 467460096-byte threshold.

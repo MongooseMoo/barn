@@ -250,3 +250,19 @@ case-insensitive rule; no replacement map, secondary index, interface, or
 adapter will be added. Existing store, dump-persistence, full-package, and
 unchanged deployment gates decide keep or full restore. A rejection is the
 second consecutive unsuccessful slice and requires stopping.
+
+### Slice 5 result: rejected and restored
+
+The ordered storage passed the complete store and format suites, including the
+cleared-hole checkpoint regressions, and the full Go suite had no new failures.
+The unchanged deployment benchmark under
+`.tmp/mongoose-convergence/perf-barn-property-slice-05` measured 1387020288
+bytes RSS, an increase of 91955200 bytes (7.10%) from slice 3's kept
+1295065088-byte result. All non-memory gates passed, but RSS is the sole
+keep/reject metric. The entire source slice was restored and no source commit
+was made.
+
+Slices 4 and 5 are two consecutive attempts with no kept improvement. Under
+the exact-convergence rule, performance work stops here. Milestone 5 remains
+unfinished: the last kept Barn result is 1295065088 bytes RSS against the
+467460096-byte acceptance threshold.
