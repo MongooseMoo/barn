@@ -137,6 +137,46 @@ the next agent cannot deviate.
   copy, rebuilt barn, settle, moo_client PROXY/q/canefan → require MCP line
   + #249 + Codex's Lab render + no server_started panic.
 
+## Commits landed (18:30)
+- moo-conformance-tests: 1e1cf54 (forked-try row), ef9ee8d (--moo-host with
+  managed server). Ward: needed standalone `ward adopt` for the codex-
+  authored yaml; plugin.py staged clean.
+- barn: d05c3e5 (wrapper DNS self-heal), 6f777a4 (ExtractForkBody rebase fix
+  + unit tests + this note + plan corrections). Ward adopt needed for the
+  pre-session-dirty plan file.
+
+## Step 8 gate: panic GONE, render STILL missing → likely next slice
+- Fixed barn.exe on fresh fixture copy (mg_run2.db, hash re-verified
+  b9bc254...), port 9481: NO `panic in task` after 30s (pre-fix: fired ~1s
+  after boot). server_started delta closed.
+- Login (moo_client, exact recorded invocation): banner, username, password,
+  "Welcome!", "(***) WELCOME! (***)" — then NOTHING: no MCP line, no wizinfo
+  connected line, no room render, 15s idle timeout. Gate NOT closed.
+- KEY OBSERVATION vs July-1 churn theory: world is IDLE, not busy —
+  /debug/vars after 3 min: tasks_started=17, tasks_live=1, uncaught=0,
+  panics=0, zero ERROR records. Toast same fixture runs a continuous in-db
+  heartbeat (repeated #4143:cycle every few sec). 17 tasks ≈ the world's
+  startup machinery did NOT keep running on Barn. So missing render is
+  probably NOT a settle race this time; candidate next observation:
+  "authenticated login produces no user_connected/confunc output; in-db
+  heartbeat absent" — needs the loop (observe→reduce→Toast-green→Barn-red)
+  as its OWN slice. Do NOT hack at it outside the loop.
+- IN FLIGHT: btzkrvc0y — one settle-retry of the login at ~10.5 min uptime
+  + counters after. If render appears: gate closed, slice done. If not:
+  record the next-slice observation and stop per plan.
+
+## Step 8 verdict (18:40): gate OPEN, next row pinned
+- Settle-retry at 10.5 min uptime: identical — auth completes, no MCP/
+  render. Counters: tasks_started=25, tasks_live=2, uncaught=1.
+- The uncaught: #1584:bf_call_function line 9 E_RANGE (18:27). Toast control
+  log on same fixture: ZERO Range errors → Barn-owned.
+- Toast log also shows `getnameinfo failed: Temporary failure in name
+  resolution` for 172.17.144.1 — independent confirmation of the reverse-
+  DNS wall (pre-hosts-fix stall).
+- Plan updated with "Active behavior row: post-authentication silence"
+  (observation + candidates + no-debug-before-red-row discipline). This is
+  the NEXT slice; nothing further hacked tonight per Milestone 4 rules.
+
 ## Servers up right now
 - WSL Toast mongoose 9480 (/tmp/mg_ctl.db, log /tmp/mg_ctl.log) — MINE.
 - WSL Toast 9771 — codex leftover, not mine.

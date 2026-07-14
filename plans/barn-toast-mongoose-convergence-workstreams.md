@@ -571,6 +571,32 @@ structured-log panic `index out of range [171] with length 32` in
 `task_scheduling_toast_oracle` 22/22 green. The step-8 login gate re-check on
 rebuilt Barn is the remaining acceptance item for this slice.
 
+Step 8 was run twice on the rebuilt Barn (3 and 10.5 minutes uptime,
+fresh disposable copy, hash re-verified): the `server_started` panic is gone
+and authentication completes through `(***) WELCOME! (***)`, but no MCP line,
+no connected-player line, and no room render arrive. The step-8 gate remains
+OPEN and no further Barn change was made for it, because it is a new
+behavior row, not the closed one.
+
+### Active behavior row (pinned 2026-07-13): post-authentication silence
+
+Observation, live and current, same fixture both engines:
+
+- Toast control: MCP line, `Q (#249)` connection line, complete room render;
+  continuous in-db heartbeat activity visible to a connected wizard;
+- Barn (with the forked-try fix): authenticated login then silence; the
+  world is nearly idle (`barn.tasks_started` 25 after 10 minutes,
+  `tasks_live` 2) where Toast churns continuously; exactly one Barn
+  uncaught error: `#1584:bf_call_function` line 9 `E_RANGE`, absent from
+  the Toast control log.
+
+Candidate dependencies to isolate (in the Milestone 4 loop, one at a time,
+reduced onto `Test.db`, Toast first — no Barn debugging before a red row):
+`#0:user_connected` dispatch and its forked confunc chain, the in-db
+scheduler heartbeat's survival (task_id stability across suspend, fork
+cadence), and whatever `call_function` argument produces the Barn-only
+`E_RANGE`.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
