@@ -131,6 +131,13 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 	}
 	if got := handledArgs.Elements()[3]; got.Type() != types.TYPE_LIST || len(got.Elements()) == 0 {
 		t.Errorf("stack argument = %s, want non-empty list", got.String())
+	} else {
+		frame := got.Elements()[0]
+		if frame.Type() != types.TYPE_LIST || len(frame.Elements()) < 3 {
+			t.Errorf("first stack frame = %s, want six-field list", frame.String())
+		} else if programmer := frame.Elements()[2]; programmer.Type() != types.TYPE_OBJ || programmer.Obj() != 2 {
+			t.Errorf("first stack frame programmer = %s, want #2", programmer.String())
+		}
 	}
 	if got := handledArgs.Elements()[4]; got.Type() != types.TYPE_LIST || len(got.Elements()) == 0 {
 		t.Errorf("formatted argument = %s, want non-empty list", got.String())

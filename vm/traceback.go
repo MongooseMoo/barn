@@ -70,6 +70,13 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 		return nil
 	}
 
+	var taskStack []task.ActivationFrame
+	if vm.Context != nil && vm.Context.Task != nil {
+		if t, ok := vm.Context.Task.(*task.Task); ok {
+			taskStack = t.GetCallStack()
+		}
+	}
+
 	stack := make([]task.ActivationFrame, 0, len(vm.Frames))
 	for i, frame := range vm.Frames {
 		line := 1
@@ -85,19 +92,27 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 			line = frame.Program.LineForIP(ip)
 		}
 
+		programmer := types.ObjNothing
+		serverInitiated := false
+		if i < len(taskStack) {
+			programmer = taskStack[i].Programmer
+			serverInitiated = taskStack[i].ServerInitiated
+		}
+
 		stack = append(stack, task.ActivationFrame{
-			This:        frame.This,
-			ThisValue:   types.None,
-			Player:      frame.Player,
-			Programmer:  types.ObjNothing,
-			Caller:      frame.Caller,
-			Verb:        frame.Verb,
-			StoredVerb:  frame.StoredVerb,
-			VerbLoc:     frame.VerbLoc,
-			Args:        frame.Args,
-			LineNumber:  line,
-			SourceLine:  vm.sourceLineForFrame(frame, line),
-			IsEvalFrame: frame.IsEvalFrame,
+			This:            frame.This,
+			ThisValue:       frame.ThisValue,
+			Player:          frame.Player,
+			Programmer:      programmer,
+			Caller:          frame.Caller,
+			Verb:            frame.Verb,
+			StoredVerb:      frame.StoredVerb,
+			VerbLoc:         frame.VerbLoc,
+			Args:            frame.Args,
+			LineNumber:      line,
+			SourceLine:      vm.sourceLineForFrame(frame, line),
+			ServerInitiated: serverInitiated,
+			IsEvalFrame:     frame.IsEvalFrame,
 		})
 	}
 
