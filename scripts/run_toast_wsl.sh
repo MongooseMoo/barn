@@ -14,6 +14,15 @@ set -euo pipefail
 
 db_win="$1"
 port="$2"
+
+# Toast reverse-DNS-resolves every incoming connection. A connection from the
+# Windows side arrives from the NAT gateway IP, whose lookup hangs ~10s and
+# trips the harness's socket timeouts. Pin the gateway name locally; /etc/hosts
+# is regenerated on distro restart, so this must stay idempotent and re-run.
+gw="$(ip route show default | awk '{print $3}')"
+if [ -n "${gw}" ] && ! grep -q "^${gw} " /etc/hosts; then
+    echo "${gw} windows-nat-gateway" >> /etc/hosts
+fi
 moo="${TOAST_MOO:-$HOME/src/toaststunt/build-release/moo}"
 
 db_wsl="$(wslpath "$db_win")"
