@@ -768,6 +768,40 @@ Next steps for the active row:
    regression, implement the smallest production fix, run the named family and
    full gates, commit the kept slice, and rerun the live login-only gate.
 
+### Slice implementation 2026-07-14: anonymous caller identity
+
+The managed Barn login-only gate was repeated before changing conformance or
+production code. It reproduced authentication through `(***) WELCOME! (***)`
+followed by silence. Barn's existing execution trace then identified the first
+pre-timeout exception: after `CONN LOGIN` at trace line 894,
+`#1289:user_connected` created an anonymous MCP session and called its inherited
+`initialize_connection`; the nested `this:send()` raised `E_PERM` at line 934,
+before the MCP notification or room render. The later `mapdelete` error remained
+post-disconnect and unrelated.
+
+The implementation-independent reduction is
+`anonymous_nested_this_call_preserves_caller_identity` in
+`language/anonymous.yaml`: an anonymous instance calls an inherited outer verb,
+which calls `this:inner()`, and the inner verb requires both
+`typeof(caller) == ANON` and `caller == this`. Managed stock WSL Toast passed
+the focused row 1/1. Pre-fix Windows Barn failed the unchanged row with expected
+`[1, 1, 1]` and actual `[1, 0, 0]`.
+
+Unit regression `TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity`
+failed at the same caller-type assertion before the fix and passed afterward.
+The production change is confined to `vm/op_verb.go`: when binding the nested
+verb's `caller` local, preserve the current context's non-object `ThisValue`
+instead of always rebuilding it as `types.NewObj(currentFrame.This)`. Normal
+object callers retain the existing object value.
+
+Post-fix proof so far: the focused managed Barn row passed 1/1; the managed
+anonymous family passed 88 with 7 established skips on both WSL Toast and
+Windows Barn; `git diff --check` passed. The exact local package gate remained
+green in `bytecode` and `vm` and red only at the already-recorded scheduler
+regression `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+The conformance commit is `dca934b`. The post-commit live login-only gate is the
+remaining acceptance item for this slice.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 

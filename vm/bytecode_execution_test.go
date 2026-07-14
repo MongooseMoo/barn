@@ -194,6 +194,34 @@ func TestBytecodeVerbCallExceptions(t *testing.T) {
 	requireString(t, runBytecodeProgram(t, noExecCaught, store, nil), "no such verb")
 }
 
+func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
+	store := newBytecodeVerbStore()
+	anon := dbstore.NewObjectBuilder(1)
+	anon.SetOwner(0)
+	anon.SetFlags(dbstore.FlagRead | dbstore.FlagAnonymous)
+	anon.SetAnonymous(true)
+	anon.SetParents([]types.ObjID{0})
+	if err := store.Add(anon.Build()); err != nil {
+		t.Fatalf("add anonymous object: %v", err)
+	}
+	if errCode := store.DefineProperty(0, dbstore.NewProperty("anon", types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define anonymous reference: %s", errCode)
+	}
+
+	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb("anon_inner", []string{"anon_inner"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return {typeof(this) == ANON, typeof(caller) == ANON, caller == this};"})); errCode != types.E_NONE {
+		t.Fatalf("add inner verb: %s", errCode)
+	}
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb("anon_outer", []string{"anon_outer"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return this:anon_inner();"})); errCode != types.E_NONE {
+		t.Fatalf("add outer verb: %s", errCode)
+	}
+
+	requireList(t, runBytecodeProgram(t, "return #0.anon:anon_outer();", store, nil),
+		types.NewInt(1), types.NewInt(1), types.NewInt(1))
+}
+
 // TestBytecodeNestedCatchInsideTryDoesNotPopOuterHandler covers a case where
 // a backtick catch-expression (its own single-clause try/except) evaluates
 // inside the body of an outer try/except, on an early loop iteration that

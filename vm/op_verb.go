@@ -135,6 +135,10 @@ func (vm *VM) executeCallVerb() error {
 	// Get current frame's context for caller/player
 	currentFrame := vm.CurrentFrame()
 	callerObj := currentFrame.This
+	callerValue := types.NewObj(callerObj)
+	if vm.Context != nil && !vm.Context.ThisValue.IsNone() {
+		callerValue = vm.Context.ThisValue
+	}
 	player := currentFrame.Player
 	if vm.Context != nil && vm.Context.Player != types.ObjNothing {
 		player = vm.Context.Player
@@ -194,7 +198,7 @@ func (vm *VM) executeCallVerb() error {
 		SetLocalByName(frame, prog, "this", types.NewObj(objID))
 	}
 	SetLocalByName(frame, prog, "verb", types.NewStr(lookupVerbName))
-	SetLocalByName(frame, prog, "caller", types.NewObj(callerObj))
+	SetLocalByName(frame, prog, "caller", callerValue)
 	SetLocalByName(frame, prog, "args", types.NewList(args))
 	SetLocalByName(frame, prog, "player", types.NewObj(player))
 
