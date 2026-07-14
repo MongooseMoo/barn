@@ -98,3 +98,27 @@ The sole active performance target is post-settle RSS. The first hypothesis is
 that the loaded database's in-memory object/value representation dominates the
 retained heap. The next evidence is a heap profile from the same fixed Barn
 workload; no other metric or source surface is active.
+
+## Heap profile and first slice
+
+The unchanged profile-bearing repeat is under
+`.tmp/mongoose-convergence/perf-barn-20260714-02`. It reproduced the failure at
+2010251264 bytes RSS with all non-memory gates still passing. Forced-GC
+`inuse_space` accounted for 814.77 MB, of which database load retained 803.25
+MB. The leading flat owners were:
+
+| Owner | Retained bytes | Heap share |
+|---|---:|---:|
+| `types.NewMap` | 247.06 MB | 30.32% |
+| `ObjectBuilder.ResetProperties` | 222.61 MB | 27.32% |
+| `types.NewStr` | 131.01 MB | 16.08% |
+| `Database.resolvePropertyNames` cumulative | 256.68 MB | 31.50% |
+| `Database.readValue` cumulative | 508.04 MB | 62.35% |
+
+This confirms the database-representation hypothesis. The first and only
+active source slice is `types.NewMap`: its current `goMap` retains an insertion
+order slice of key hashes plus a Go hash map whose values duplicate the full
+key/value entries. The slice will delete redundant retained storage for small
+maps while preserving exact typed key identity, insertion order, copy-on-write,
+and indexed lookup for larger maps. The same deployment benchmark and managed
+promotion/conformance gate decide whether the slice is kept.

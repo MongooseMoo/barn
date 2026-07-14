@@ -1455,3 +1455,10 @@ the 467460096-byte threshold. Saved Go counters establish heap ownership
 a heap profile from the unchanged workload, test the recorded database
 representation hypothesis, and do not switch metrics until RSS passes or two
 consecutive slices produce no kept improvement.
+
+The unchanged profile-bearing repeat reproduced 2010251264 bytes RSS. Its
+forced-GC heap profile confirms database representation as the cause:
+`types.NewMap` is the largest flat owner at 247.06 MB (30.32%), followed by
+property-builder storage at 222.61 MB. The first slice is pinned to deleting
+`goMap`'s redundant retained small-map storage while preserving map semantics.
+Do not touch property or string storage in this slice.
