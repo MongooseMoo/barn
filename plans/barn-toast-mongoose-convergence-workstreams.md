@@ -1369,10 +1369,16 @@ Conformance commit is `11be5ee`; Barn commit is `d46be74`.
 The complete 18-case managed `queue_info` selector passes 18/18 on stock WSL
 Toast and committed Windows Barn. No Barn source change is authorized.
 
-### Active `kill_task()` gate 2026-07-14
+### `kill_task()` gate closed 2026-07-14
 
-Run the complete 12-case managed `kill_task` selector on stock WSL Toast, then
-committed Windows Barn. Do not include resume, task-stack, restart, or
-persistence behavior in this gate. If a row fails, keep that one row active
-until its Toast behavior is established and Barn either matches or receives one
-committed correction.
+The complete 12-case managed `kill_task` selector finishes with 11 passes and
+one established task-local skip on both stock WSL Toast and committed Windows
+Barn. No Barn source change is authorized.
+
+### Active `resume()` gate 2026-07-14
+
+Run the complete 18-case managed `resume` selector on stock WSL Toast, then
+committed Windows Barn. Do not include task-stack, restart, or persistence
+behavior in this gate. If a row fails, keep that one row active until its Toast
+behavior is established and Barn either matches or receives one committed
+correction.
