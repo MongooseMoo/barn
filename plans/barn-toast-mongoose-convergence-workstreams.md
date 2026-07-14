@@ -1122,11 +1122,48 @@ Unknown-command/`huh` dispatch and all three server rewrites now match their
 live Mongoose Toast controls. The parser-shortcut/`huh`/command-dispatch family
 is CLOSED.
 
-### Active behavior row 2026-07-14: `@who`
+### Slice executed 2026-07-14: `@who` and inherited `pass()` caller
 
-The next Milestone 4 family is object inspection: `@who`, `@display`, `@props`,
-`@verbs`, and related inspection paths. Start with `@who` after the unchanged
+The live WSL Mongoose Toast control on the fresh disposable fixture copy is in
+`.tmp/mongoose-convergence/toast-who-control-20260714-25`: `@who` rendered the
+player table, `Q (#249)`, `Codex's Lab`, the wizard marker, the one-player
+total, and zero sunnet links. Committed Barn before this slice, captured in
+`.tmp/mongoose-convergence/barn-who-control-20260714-26`, emitted no `@who`
+server response; the transcript contained only the local client's completion
+message, `Done.`. The focused trace in
+`.tmp/mongoose-convergence/barn-who-trace-20260714-27` showed inherited
+`#249:@who` returning `E_PERM` because `pass()` replaced the original player
+caller with the defining object.
+
+Three generic `Test.db` reductions were committed in order. Direct inherited
+command caller coverage is `2b0ecae`; deep inherited caller coverage is
+`9f0c5dc`; both already passed on Toast and Barn. The decisive row,
+`audit_inherited_command_pass_preserves_player_caller`, is committed as
+`d1f73b2`: Toast reported both the command-frame caller and the passed-frame
+caller as the player, while pre-fix Barn reported the passed-frame caller as
+the verb location. Barn commit `3155b46` makes `executePass` preserve
+`frame.Caller` in the passed frame, built-in local, trace, and activation
+frame, with `TestPassPreservesOriginalCaller` as the unit regression.
+
+The managed `command_parser_toast_oracle` family passes 18/18 on both WSL
+Toast and fixed Barn. `go test ./bytecode ./vm ./scheduler` passes `bytecode`
+and `vm`; `scheduler` retains only the pre-existing independent task-ID
+collision failure in
+`TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+`git diff --check` passes.
+
+The committed post-fix live replay is in
+`.tmp/mongoose-convergence/barn-who-pass-fixed-20260714-28`, on a fresh copy
+whose SHA-256 is
+`B9BC25492BD56CB28BA0A63165F456C60417387E251391FBE8C97D7D79C9BB69`.
+Barn now renders the same stable `@who` anchors as Toast. Its captured trailing
+`Done.` is the local `moo_client` completion message from
+`cmd/moo_client/main.go`, not server output. The `@who` target is CLOSED.
+
+### Active behavior row 2026-07-14: `@display`
+
+Continue the same object-inspection family with `@display` after the unchanged
 login sequence on fresh disposable copies, using WSL Mongoose Toast first and
-committed Windows Barn second. Compare the visible list structure and stable
-player anchors; if Barn differs, reduce the underlying behavior onto generic
+committed Windows Barn second. Compare stable visible object-inspection
+anchors. If Barn differs, reduce the underlying behavior onto generic
 `Test.db` before changing Barn.
