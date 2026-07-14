@@ -1275,10 +1275,19 @@ the row records the two results without depending on concurrent completion
 order. Barn matches and both engines pass 1/1. Conformance commit is `dbc98d9`;
 no Barn source change is authorized.
 
-### Active telnet gate 2026-07-14: complete raw follow-up family
+### Telnet gate completed 2026-07-14
 
-Run the complete managed `gap_followups_toast_oracle` family on stock WSL Toast
-and committed Windows Barn. If both pass, close telnet negotiation and packet
-boundaries and continue to MCP, GMCP, and out-of-band traffic. If a row fails,
-keep that single row active until it is either corrected against Toast or
-fixed in Barn.
+The complete managed `gap_followups_toast_oracle` family passes 16/16 on both
+stock WSL Toast and committed Windows Barn. The cross-read coverage includes
+login IAC stripping (`d3f74b2`), fragmented subnegotiation (`7190a7e`), escaped
+IAC stripping (`36f7c5c`), split two-byte command delivery (`9569147`), split
+CR/LF dispatch (`dbc98d9`), option-command OOB delivery, and binary chunks
+without newlines. Telnet negotiation and packet-boundary behavior are CLOSED.
+
+### Active family 2026-07-14: MCP, GMCP, and out-of-band traffic
+
+Inventory the current generic and Barn-local MCP, GMCP, and out-of-band
+coverage, then execute the first unchecked wire behavior. Use stock WSL Toast
+first and unchanged Barn second for every generic row. Keep passing coverage;
+if Toast is green and Barn is red, keep exactly that behavior active until its
+concrete delta is fixed and committed.
