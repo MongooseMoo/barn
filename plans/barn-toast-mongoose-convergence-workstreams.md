@@ -1315,10 +1315,29 @@ WSL Toast and committed Windows Barn. The complete managed
 `connection_lifecycle_toast_oracle` family passes 23/23 on both engines. This
 closes MCP, GMCP, and out-of-band traffic.
 
-### Active task-scheduling gate 2026-07-14
+### Task-scheduling gate closed 2026-07-14
 
-Run the complete managed `task_scheduling_toast_oracle` family on stock WSL
-Toast, then committed Windows Barn. If both runs pass, close task scheduling and
-continue to suspended reads without widening into queued-task APIs, restart, or
-persistence. If a row fails, keep that one row active until its Toast behavior
-is established and Barn either matches or receives one committed correction.
+Stock WSL Toast passed the complete managed `task_scheduling_toast_oracle`
+family 23/23. Pre-fix Windows Barn passed 22/23; the only failure was
+`audit_handle_task_timeout_invoked`. Barn invoked the truthy
+`#0:handle_task_timeout` hook but discarded its result and continued into the
+generic uncaught-error fallback, sending a traceback before the handler's
+recorded result.
+
+Unit regression `TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback`
+reproduced one fallback send after a real compiled fork exhausted its tick
+budget. The production correction makes the existing timeout hook report a
+truthy or suspended result and uses that result to suppress the existing generic
+handler and fallback path. No new runtime path was added. The focused regression
+and unchanged managed row pass, and corrected Barn passes the complete family
+23/23. The full `scheduler` package retains only the already-recorded independent
+failure in `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`.
+Barn commit is `b4b5af0`.
+
+### Active suspended-read gate 2026-07-14
+
+Run the complete managed `read` family on stock WSL Toast, then committed
+Windows Barn. If both runs pass, close suspended reads and continue to
+queued-task APIs without widening into restart or persistence. If a row fails,
+keep that one row active until its Toast behavior is established and Barn either
+matches or receives one committed correction.
