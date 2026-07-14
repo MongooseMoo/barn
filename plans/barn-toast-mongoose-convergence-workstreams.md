@@ -1094,10 +1094,23 @@ Generic colon parsing and preposition reparsing are already covered by
 `command/parser.yaml` and `audit/command_parser_toast_oracle.yaml`; no source
 or conformance change is authorized.
 
-### Active behavior row 2026-07-14: double-quote say shortcut
+### Live coverage 2026-07-14: double-quote say shortcut
 
-Run `"codex double quote probe` after the unchanged login sequence on fresh
+The valid control ran `"codex double quote probe` after the unchanged login
+sequence. Pinned WSL Mongoose Toast on the exact disposable database recorded
+under `.tmp/mongoose-convergence/toast-doublequote-control-20260714-21`
+emitted `You say, "Codex double quote probe."`. Committed Windows Barn
+`fb742f7` under
+`.tmp/mongoose-convergence/barn-doublequote-control-20260714-22` emitted the
+same line after the same login and room-render anchors. The existing generic
+`say_shortcut_quote` and `audit_say_shortcut_reparses_preposition` rows already
+cover this rewrite; no source or conformance change is authorized.
+
+### Active behavior row 2026-07-14: semicolon eval shortcut
+
+The final unchecked server rewrite is leading semicolon to `eval`. Run
+`;return "codex eval probe";` after the unchanged login sequence on fresh
 disposable copies, with WSL Mongoose Toast first and committed Windows Barn
-second. If Barn matches the Toast-visible say result, record coverage only and
-advance to the semicolon/eval shortcut; if it differs, reduce the behavior onto
-generic `Test.db` before changing Barn.
+second. If Barn matches Toast's visible eval result, record coverage only and
+close the parser-shortcut/`huh`/dispatch family; if it differs, reduce the
+behavior onto generic `Test.db` before changing Barn.
