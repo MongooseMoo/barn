@@ -955,9 +955,12 @@ Barn emitted the same stand and walk messages as Toast, the complete
 traceback, and the subsequent `#0:handle_uncaught_error` output before client
 completion. The server log contains no `panic in task`.
 
-The `look`, movement, contents, exits, and room-rendering family is therefore
-CLOSED for the current fixture. The next unchecked Milestone 4 family is
-parser shortcuts, `huh`, and command dispatch.
+The primary `look`, movement, contents, exits, and room-rendering operations
+match for the current fixture. Exact convergence of the uncaught-error handler
+arguments was later reopened by the parser-shortcut observation below; the
+visible traceback alone did not prove the structured stack argument matched.
+The next family remains parser shortcuts, `huh`, and command dispatch after
+that shared handler contract is closed.
 
 ### Slice implementation 2026-07-14: connection-option snapshot race
 
@@ -995,6 +998,55 @@ Generic unknown-command and `huh` dispatch are already durably covered by
 coverage only after the prerequisite crash fix; no parser source or
 conformance change is authorized. The next unchecked candidate in the same
 family is parser shortcut dispatch.
+
+### Slice implementation 2026-07-14: uncaught handler stack values
+
+The quote shortcut `'codex shortcut probe` dispatched correctly on both
+engines and printed `You say, "Codex shortcut probe."`. Its subsequent fixture
+SQLite failure exposed a remaining shared error-contract delta. Toast's
+`#0:handle_uncaught_error` output resolved every structured stack frame to the
+expected object and verb names. Barn's direct formatted traceback was correct,
+but the database handler rendered each frame as
+`vloc and prog are both < #0 -- what?`, proving that the fourth structured
+stack argument was not equivalent.
+
+The generic row `uncaught_forked_handler_stack_frames_are_complete` temporarily
+replaces stock `Test.db`'s handler with a recorder, triggers a zero-delay
+forked `call_function` error, and requires complete six-field inner and outer
+frames. Stock WSL Toast passed 1/1. Pre-fix Barn failed only the programmer
+field for both frames: every other identity and line field was correct, but
+programmer was `#-1` instead of the verb owner/player.
+
+The strengthened unit regression
+`TestUncaughtForkInvokesDatabaseErrorHandler` reproduced programmer `#-1`.
+`vm.snapshotActivationFrames` rebuilt live frames while hardcoding programmer
+to `#-1` and concrete `ThisValue` to `None`, despite both values already being
+owned by the VM/task activation. The production fix preserves `frame.ThisValue`
+and the corresponding task activation's programmer and server-origin fields
+while retaining the VM's live line/source data.
+
+Post-fix proof: the focused unit and managed Barn row passed; the complete
+`error_traceback` family passed 27/27 on both stock WSL Toast and Windows Barn;
+and `git diff --check` passed. The exact local package gate remained green in
+`bytecode` and `vm` and red only at the already-recorded scheduler ID-collision
+review regression. Conformance commit is `c01a2ac`; Barn commit is `2b1be78`.
+
+The fresh quote-shortcut rerun used committed `2b1be78` and a disposable
+fixture under
+`.tmp/mongoose-convergence/barn-say-stack-fixed-20260714-15`. The database
+again hashed to the authoritative identity. Mongoose's handler now resolved
+the complete `$sqlite_db -> $sound_handler -> $Sound -> $waif -> $room ->
+$player_class` chain instead of printing invalid frame warnings. Structured
+stack identity is CLOSED.
+
+### Active behavior row 2026-07-14: uncaught message and value
+
+The same live rerun exposed the next exact handler delta. Toast preserved the
+raised SQLite message `This database is not open`; Barn passed the generic
+`E_INVARG` message `Invalid argument` and value `0`. This is independent of the
+now-correct stack frames and quote shortcut dispatch. Reduce a forked uncaught
+custom message/value onto generic `Test.db`, run Toast first, and keep the
+current target on handler payload fidelity until both values match.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
