@@ -890,6 +890,28 @@ live coverage only: Barn passed the genuine candidate, so no conformance or
 Barn source change is authorized. The next unchecked operation in this family
 is movement through the open west exit.
 
+### Active behavior row 2026-07-14: movement error propagation
+
+The next live candidate sent `west` as the fourth command on fresh disposable
+copies. WSL Mongoose Toast under
+`.tmp/mongoose-convergence/toast-west-control-20260714-06` stood the player,
+started walking west, then emitted the current fixture's SQLite failure with
+the complete journey/travel call chain and the subsequent
+`#0:handle_uncaught_error` notification. Barn `5045acb` under
+`.tmp/mongoose-convergence/barn-west-control-20260714-07` emitted the same
+stand and walk messages, logged `#1584:bf_call_function` `E_INVARG` at the
+corresponding pre-timeout instant, but sent no traceback or uncaught-error
+notification to the player before the client timed out.
+
+The first generic reduction,
+`uncaught_command_call_function_error_preserves_call_chain`, composes an outer
+command verb with an inner `call_function` error. It passed focused and full
+managed traceback runs on both engines (25/25 family results), so it is
+coverage only and authorizes no Barn source change. Conformance commit is
+`7d952ef`. It rules out ordinary bytecode command-call propagation. The next
+reduction must preserve the distinct scheduler-mediated `bf_call_function`
+boundary visible in the live Barn log.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
