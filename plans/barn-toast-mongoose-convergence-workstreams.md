@@ -44,15 +44,12 @@ For Mongoose `PROMOTE_NUMBERS` behavior, use the pinned WSL Mongoose build:
 - `/root/src/toaststunt-mongoose/build-release/moo`
 - detached worktree commit `72e3c7f96ce7a41fdeba793aef8818dc4408072e`
 
-The Barn-local WSL oracle procedure is documented in
-`reports/toast-oracle-wsl.md`. The managed wrapper is
-`scripts/run_toast_wsl.sh`.
+The managed WSL oracle wrapper is `scripts/run_toast_wsl.sh`.
 
 ## Recovered Records
 
 The useful prior records are:
 
-- `reports/toast-oracle-wsl.md`: canonical WSL oracle path and database notes;
 - `notes/mongoose-differential-2026-07-01.md`: the detailed successful July 1
   Mongoose differential campaign;
 - `notes-mongoose-promote-and-login.md`: `PROMOTE_NUMBERS`, trusted-PROXY, and
@@ -704,6 +701,31 @@ it authorizes no Barn source change. It rules out the dynamic handler call and
 continuation boundary itself. The next reduction stays in the same live
 `user_connected` chain and must preserve the synchronous post-fork permission
 change plus nested confunc call before considering the separate `E_RANGE` row.
+
+### Coverage executed 2026-07-13: post-fork permissions and confunc chain
+
+The next reduced row is
+`audit_user_connected_confunc_calls_continue_after_fork_and_setting_task_perms`
+in `connection_lifecycle_toast_oracle.yaml`. A first-login `user_connected`
+activation creates a zero-delay child, continues synchronously, changes task
+permissions to the login player, invokes both the player's location and player
+`confunc` verbs, and records the final parent continuation. It contains only
+generic objects created in bundled `Test.db`.
+
+The initial draft covered the permission and confunc calls but omitted the
+post-fork control-flow dependency, so it was strengthened before commit. The
+first strengthened Toast assertion incorrectly required the child to retain
+`#0` permissions; Toast returned the intended child marker while using a
+different inherited permission value. The final row asserts child execution
+without over-specifying that unrelated value, while requiring the parent and
+both confunc calls to observe the login player's permissions.
+
+The focused final row passed 1/1 on managed WSL Toast and unchanged Windows
+Barn. The complete managed connection-lifecycle family passed 23/23 on both
+engines. Conformance commit is `5ee57e9`. This is coverage only and authorizes
+no Barn production change. The next independent reduction is the observed
+`call_function` argument that produced Barn-only `E_RANGE`; it must pass Toast
+before Barn runs.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:

@@ -89,7 +89,7 @@ The path format workaround works. Bash workarounds do not. Try paths first, then
 When Barn produces an error running MOO code from a reference database, verify
 the exact behavior through the managed conformance workflow before diagnosing
 Barn or blaming the database. The only ordinary Toast server authority is the
-WSL oracle documented in `reports/toast-oracle-wsl.md`; do not substitute a
+WSL oracle documented in `plans/barn-toast-mongoose-convergence-workstreams.md`; do not substitute a
 Windows Toast binary, an attached port, or a manually managed process.
 
 ---
@@ -143,7 +143,7 @@ Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in 
 
 | Name | Path | Description |
 |------|------|-------------|
-| ToastStunt | `/root/src/toaststunt/` in WSL | Primary reference; pinned release binaries and SHAs are in `reports/toast-oracle-wsl.md` |
+| ToastStunt | `/root/src/toaststunt/` in WSL | Primary reference; pinned release binaries and SHAs are in `plans/barn-toast-mongoose-convergence-workstreams.md` |
 | moo-conformance-tests | `C:/Users/Q/code/moo-conformance-tests/` | YAML-based conformance test suite and managed server harness |
 | moo_interp | `~/code/moo_interp/` | Python MOO interpreter |
 | cow_py | `~/code/cow_py/` | Python MOO server (no longer has conformance tests) |
@@ -169,9 +169,8 @@ its managed server lifecycle with explicit `--server-command` and `--server-db`;
 do not attach to a pre-launched server or manage Barn or Toast manually.
 
 For the exact stock and Mongoose WSL Toast commands, pinned engine identities,
-disposable database behavior, login-script environment mechanism, and required
-run record, follow `reports/toast-oracle-wsl.md`. For the cross-repository
-Toast-green/Barn-red/Barn-green loop, follow
+disposable database behavior, login-script environment mechanism, required run
+record, and cross-repository Toast-green/Barn-red/Barn-green loop, follow
 `plans/barn-toast-mongoose-convergence-workstreams.md`.
 
 Manual reproduction is exceptional and requires the user's explicit approval,
