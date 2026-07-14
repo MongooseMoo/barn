@@ -1484,3 +1484,10 @@ at `.tmp/mongoose-convergence/perf-barn-property-slice-02` reduced RSS from
 2010251264 to 1837264896 bytes (-172986368 bytes, -8.61%). All non-memory gates
 still pass. RSS remains above the 467460096-byte acceptance threshold, so the
 same target remains active and the kept run's heap profile selects slice 3.
+
+The kept profile pins slice 3 to the final property map value size. It retains
+317.05 MB in `resolvePropertyNames`, including 292.50 MB at the map insertion,
+and each `Property` redundantly stores the name already present as its map key.
+Delete that field and use the key at existing definition and view boundaries;
+do not add a replacement representation. The unchanged deployment RSS result
+decides keep or full restore.

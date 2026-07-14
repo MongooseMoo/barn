@@ -178,3 +178,18 @@ liveness, checkpoint, and CPU all remain within their pinned gates. The slice
 is kept and resets the consecutive-no-improvement count, but RSS remains above
 the 467460096-byte acceptance threshold. The saved heap profile from this kept
 run is the authority for selecting the next representation slice.
+
+## Pinned slice 3: delete duplicated property names
+
+The kept run's forced-GC profile retains 890.78 MB. Its largest flat owner is
+now `Database.resolvePropertyNames` at 317.05 MB, with 292.50 MB attributed to
+inserting final values into each object's `map[string]Property`. Every map entry
+stores the property name twice: once as the map key and again as the `name`
+field in the map value.
+
+Slice 3 will delete `Property.name`, use the existing map key wherever a name is
+needed, and pass names explicitly through the existing definition and view
+boundaries. It will not add a replacement type, index, adapter, or parallel
+storage. A red size regression must prove the map value shrinks, the complete
+Go package tests must show no new failure, and the unchanged deployment
+benchmark remains the sole keep/reject decision.
