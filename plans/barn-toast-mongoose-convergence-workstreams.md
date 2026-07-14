@@ -1284,10 +1284,18 @@ IAC stripping (`36f7c5c`), split two-byte command delivery (`9569147`), split
 CR/LF dispatch (`dbc98d9`), option-command OOB delivery, and binary chunks
 without newlines. Telnet negotiation and packet-boundary behavior are CLOSED.
 
-### Active family 2026-07-14: MCP, GMCP, and out-of-band traffic
+### OOB coverage 2026-07-14: textual MCP prefix dispatch
 
-Inventory the current generic and Barn-local MCP, GMCP, and out-of-band
-coverage, then execute the first unchecked wire behavior. Use stock WSL Toast
-first and unchanged Barn second for every generic row. Keep passing coverage;
-if Toast is green and Barn is red, keep exactly that behavior active until its
-concrete delta is fixed and committed.
+The existing `audit_oob_prefix_dispatches_do_out_of_band_command` row sends a
+`#$#audit-oob alpha beta` command and asserts the exact three-token `args`
+delivered to `do_out_of_band_command`. Both stock WSL Toast and committed
+Windows Barn pass 1/1. This is existing generic coverage; no conformance or
+Barn source change is authorized.
+
+### Active OOB row 2026-07-14: held and disabled traffic
+
+Run the existing `audit_connection_hold_and_oob_options` row next. It proves
+that normal input is held, OOB bypasses `hold-input`, and `disable-oob` changes
+the held/released behavior. Run the exact row on stock WSL Toast first and
+unchanged Barn second. Keep coverage if both pass; if Toast is green and Barn
+is red, fix that one option-interaction delta before continuing.
