@@ -638,7 +638,22 @@ commit is `6a4b416`. `git diff --check` passed. The exact local package gate
 tracked unconditional review regression
 `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`; that task-ID
 allocator defect is not bundled into this behavior slice. The live Mongoose
-login-only gate remains to be rerun after the Barn commit.
+login-only gate was rerun after Barn commit `7e9a1f7`.
+
+The step-8 rerun used a disposable copy at
+`.tmp/mongoose-convergence/barn-m4-after-2/mongoose.db`; both the source and
+copy freshly hashed to
+`b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+Barn used managed profile `barn-windows-mongoose-outbound-on`, and the existing
+`moo_client.exe` used only the trusted-PROXY/account/password conversation with
+`-banner-wait 3000 -inter-cmd 2500 -timeout 15`. Authentication again reached
+`Welcome!` and `(***) WELCOME! (***)`, but Barn emitted no MCP line, no player
+`#249` connection line, and no Codex's Lab room render. `barn_logs -level error`
+reported no error-level record in
+`.tmp/mongoose-convergence/barn-m4-after-2/logs/latest.jsonl`. The heartbeat
+slice therefore closes a real scheduler delta but does not close the live gate;
+post-authentication silence remains the active behavior row, and no additional
+Barn production change is bundled into this slice.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
