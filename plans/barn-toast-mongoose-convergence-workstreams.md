@@ -680,6 +680,31 @@ preserve a deeper dynamic handler/confunc dependency or the independently
 observed `call_function` argument that produced Barn-only `E_RANGE`; it must
 again pass Toast before Barn runs.
 
+### Coverage executed 2026-07-13: dynamic `user_connected` handler
+
+The next reduced row was
+`audit_user_connected_dynamic_handler_continues` in the same lifecycle family.
+It models the current hook's pre-fork dynamic dispatch boundary: a first-login
+`user_connected` activation invokes another object's same-named verb through
+`handler:(verb)(@args)` under an `ANY` error-catching expression, then continues
+the parent hook. The row contains only generic `Test.db` objects and markers.
+
+The first Toast draft was correctly rejected with both markers unset because
+it omitted the MOO backtick/apostrophe error-catching delimiters; Barn was not
+run on that invalid draft. After correcting the unchanged behavior to
+`` `handler:(verb)(@args) ! ANY' ``, fresh authority checks again observed
+stock Toast `aecc51e`, ToastStunt `2.7.3_5`, and `Test.db` SHA-256
+`1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`.
+The corrected focused row passed 1/1 on both managed WSL Toast and current
+Windows Barn, and the complete connection-lifecycle family passed 22/22 on
+both. Conformance commit is `80f19f2`.
+
+This is another committed coverage reduction, not an unproductive slice, and
+it authorizes no Barn source change. It rules out the dynamic handler call and
+continuation boundary itself. The next reduction stays in the same live
+`user_connected` chain and must preserve the synchronous post-fork permission
+change plus nested confunc call before considering the separate `E_RANGE` row.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
