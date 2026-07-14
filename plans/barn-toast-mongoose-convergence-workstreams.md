@@ -1469,3 +1469,11 @@ from 2010251264 to 2133549056 bytes (+6.13%). No source commit was made. This is
 one consecutive slice with no kept improvement. Inspect the next proven owner,
 `ObjectBuilder.ResetProperties` at 222.61 MB, before pinning slice 2; if slice 2
 also produces no kept improvement, stop under the exact-convergence rule.
+
+Inspection pins slice 2 to final property value storage. The loader already
+builds the resolved `map[string]Property`; `ResetProperties` currently copies it
+into a second map and retains one separately allocated `*Property` per entry.
+Replace the final object map with value entries, assign the resolved map
+directly, and add explicit write-back at the existing store mutation sites.
+The unchanged deployment RSS measurement decides keep or full restore. No RSS
+decrease is the second consecutive unsuccessful slice and requires stopping.

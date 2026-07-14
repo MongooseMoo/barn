@@ -142,3 +142,21 @@ was restored and no source commit was made.
 This is one consecutive slice with no kept improvement. The next retained-byte
 owner on the same RSS target is `ObjectBuilder.ResetProperties` at 222.61 MB;
 it must be inspected before naming the second slice.
+
+## Pinned slice 2: property value storage
+
+Inspection confirms that the loader's inherited-name resolution already builds
+the complete final `map[string]Property`, but `ObjectBuilder.ResetProperties`
+then allocates a second map and one separately allocated `*Property` for every
+entry. Those pointers remain in every loaded object's property map and account
+for the profile's 222.61 MB flat owner.
+
+Slice 2 will store final object properties as `map[string]Property`, assign the
+resolver-owned map directly in `ResetProperties`, and write changed values back
+at the existing `db/store` mutation sites. It will not add an interface,
+adapter, parallel property representation, or loader pass. A focused allocation
+regression must fail before the change and pass afterward, the affected store
+and format tests must pass, and the unchanged deployment benchmark is the sole
+keep/reject decision. Any RSS decrease is kept because the acceptance target is
+exact convergence; no decrease is a rejection and triggers the required stop
+after two consecutive unsuccessful slices.
