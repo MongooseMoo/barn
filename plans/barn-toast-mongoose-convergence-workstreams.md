@@ -1235,11 +1235,19 @@ command delivered to `do_out_of_band_command`. The focused row passes 1/1 on
 both stock WSL Toast and committed Windows Barn. This is existing generic
 coverage; no conformance or Barn source change is authorized.
 
-### Active packet row 2026-07-14: binary chunk without newline
+### Packet coverage 2026-07-14: binary chunk without newline
 
-Run the existing `audit_binary_mode_dispatches_raw_chunk_without_newline` row
-next. It switches a connected player to binary mode, sends one raw ASCII chunk
-without CR or LF, and asserts immediate command dispatch. Run the exact row on
-stock WSL Toast first and unchanged Barn second. Keep it as coverage if both
-pass; if Toast is green and Barn is red, reduce and fix that one concrete delta
-before continuing.
+The existing `audit_binary_mode_dispatches_raw_chunk_without_newline` row
+switches a connected player to binary mode, sends one raw ASCII chunk without
+CR or LF, and asserts immediate command dispatch. The focused row passes 1/1
+on both stock WSL Toast and committed Windows Barn. This is existing generic
+coverage; no conformance or Barn source change is authorized.
+
+### Active telnet row 2026-07-14: fragmented subnegotiation
+
+Add one generic `Test.db` row for a complete telnet subnegotiation split across
+separate reads: lone IAC, SB plus option and payload, closing IAC, then SE.
+Record the complete binary-escaped command delivered to
+`do_out_of_band_command`. Run the exact row on stock WSL Toast first and
+unchanged Barn second. Keep it as coverage if both pass; if Toast is green and
+Barn is red, fix that one concrete parser-state delta before continuing.
