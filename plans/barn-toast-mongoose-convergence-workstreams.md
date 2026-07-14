@@ -1442,7 +1442,16 @@ The durable runner and pinned WSL Mongoose Toast baseline are recorded in
 fixed workload with all required liveness anchors and a checkpoint. The Barn
 acceptance thresholds were derived and recorded before measuring Barn.
 
-Run the unchanged benchmark against committed Windows Barn. If every threshold
-passes, close Milestone 5 without a Barn performance change. If one or more
-thresholds fail, keep the first failed metric as the only active target and run
-the plan's single-metric performance loop.
+The unchanged Windows Barn benchmark is now recorded in the same experiment.
+Database load, PROXY-to-output, login, startup command, `look`, movement,
+liveness, checkpoint, and CPU all pass the pre-recorded thresholds. The
+connect-to-first-banner observation is not a failure: the client intentionally
+waits 3000 ms before PROXY and Barn's banner follows the prelude, so the causal
+plan metric is the passing 1 ms PROXY-to-first-output latency.
+
+Post-settle RSS is the sole active target: Barn used 1882996736 bytes against
+the 467460096-byte threshold. Saved Go counters establish heap ownership
+(`HeapAlloc=847925488`, `HeapInuse=1089699840`, `HeapSys=1945698304`). Capture
+a heap profile from the unchanged workload, test the recorded database
+representation hypothesis, and do not switch metrics until RSS passes or two
+consecutive slices produce no kept improvement.
