@@ -210,8 +210,11 @@ try {
         }
         $debugVars = Invoke-RestMethod -Uri "http://127.0.0.1:$DebugPort/debug/vars"
         $debugVars | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $OutputDir "debug-vars.json") -Encoding utf8
+        $heapProfilePath = Join-Path $OutputDir "heap.pprof"
+        Invoke-WebRequest -Uri "http://127.0.0.1:$DebugPort/debug/pprof/heap?gc=1" -OutFile $heapProfilePath
     } else {
         $resourceSample = Get-ToastProcessSample
+        $heapProfilePath = $null
     }
 
     $summary = [ordered]@{
@@ -239,6 +242,7 @@ try {
             events = $eventPath
             checkpoint = if (Test-Path -LiteralPath $checkpointPath) { $checkpointPath } else { $null }
             profile = if (Test-Path -LiteralPath $profilePath) { $profilePath } else { $null }
+            heap_profile = if ($null -ne $heapProfilePath -and (Test-Path -LiteralPath $heapProfilePath)) { $heapProfilePath } else { $null }
         }
     }
     $summaryPath = Join-Path $OutputDir "summary.json"
