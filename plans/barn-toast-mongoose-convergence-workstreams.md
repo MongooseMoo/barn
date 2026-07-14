@@ -1380,9 +1380,20 @@ Barn. No Barn source change is authorized.
 The complete 18-case managed `resume` selector passes 18/18 on stock WSL Toast
 and committed Windows Barn. No Barn source change is authorized.
 
-### Active `task_stack()` gate 2026-07-14
+### `task_stack()` gate closed 2026-07-14
 
-Run the complete 75-case managed `task_stack` selector on stock WSL Toast, then
-committed Windows Barn. Do not include restart or persistence behavior in this
-gate. If a row fails, keep that one row active until its Toast behavior is
-established and Barn either matches or receives one committed correction.
+The complete 75-case managed `task_stack` selector finishes with 73 passes and
+two established anonymous-object skips on both stock WSL Toast and committed
+Windows Barn. No Barn source change is authorized.
+
+Restart coverage is already included in the closed 23/23
+`task_scheduling_toast_oracle` family through
+`audit_suspended_task_survives_restart` and
+`audit_pending_forked_task_survives_genuine_offline_restart`.
+
+### Active dump-persistence gate 2026-07-14
+
+Run the complete two-case managed `dump_persistence` family on stock WSL Toast,
+then committed Windows Barn. If a row fails, keep that one row active until its
+Toast behavior is established and Barn either matches or receives one committed
+correction.
