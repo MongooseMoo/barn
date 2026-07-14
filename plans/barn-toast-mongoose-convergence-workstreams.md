@@ -1300,10 +1300,18 @@ held/released behavior. Both stock WSL Toast and committed Windows Barn pass
 1/1. This is existing generic coverage; no conformance or Barn source change
 is authorized.
 
-### Active GMCP row 2026-07-14: option 201 subnegotiation
+### GMCP coverage 2026-07-14: option 201 subnegotiation
 
-Add one generic `Test.db` row that sends a GMCP option-201 subnegotiation with
-a `Core.Hello` payload across separate `send_bytes` steps. Record the complete
-binary-escaped command delivered to `do_out_of_band_command`. Run the exact row
-on stock WSL Toast first and unchanged Barn second. Keep coverage if both pass;
-if Toast is green and Barn is red, fix only that GMCP wire delta.
+Conformance row `audit_gmcp_subnegotiation_delivered_across_reads` splits IAC,
+SB plus option 201, a `Core.Hello` JSON payload, closing IAC, and SE across raw
+writes. It asserts Toast's exact two-word `args` tokenization and quote-preserving
+`argstr`. Both stock WSL Toast and committed Windows Barn pass 1/1.
+Conformance commit is `88a8100`; no Barn source change is authorized.
+
+### Active MCP/GMCP/OOB gate 2026-07-14
+
+Run the complete managed `gap_followups_toast_oracle` and
+`connection_lifecycle_toast_oracle` families on stock WSL Toast and committed
+Windows Barn. If both families pass on both engines, close MCP, GMCP, and
+out-of-band traffic. If a row fails, keep that one row active until corrected
+against Toast or fixed in Barn.
