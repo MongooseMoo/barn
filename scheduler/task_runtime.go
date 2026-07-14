@@ -271,20 +271,50 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		if !ok || len(stack) == 0 {
 			stack = t.GetCallStack()
 		}
-		// Log traceback to server log (skip for forked tasks to match Toast behavior:
-		// Toast does not log forked-task tracebacks to stderr)
-		if !t.IsForked {
-			s.logTraceback(t, result.Error, stack)
+
+		// Toast gives #0:handle_uncaught_error the first opportunity to handle
+		// every uncaught task exception. A truthy return or a suspended handler
+		// suppresses the fallback traceback. The handler itself runs with database
+		// traceback dispatch disabled, so an error there falls back to the original
+		// task's traceback instead of recursively invoking the same hook.
+		handled := false
+		isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
+		if !isUncaughtHandler {
+			stackValues := make([]types.Value, 0, len(stack))
+			for i := len(stack) - 1; i >= 0; i-- {
+				stackValues = append(stackValues, stack[i].ToList())
+			}
+			formattedLines := task.FormatTraceback(stack, result.Error)
+			formattedValues := make([]types.Value, 0, len(formattedLines))
+			for _, line := range formattedLines {
+				formattedValues = append(formattedValues, types.NewStr(line))
+			}
+			handlerResult, handlerErr := s.RunServerVerbTask(0, "handle_uncaught_error", []types.Value{
+				types.NewErr(result.Error),
+				types.NewStr(result.Error.Message()),
+				types.NewInt(0),
+				types.NewList(stackValues),
+				types.NewList(formattedValues),
+			}, t.Owner)
+			if handlerErr == nil {
+				handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
+			}
 		}
-		// An uncaught error aborts the task; report it to the player the way
-		// Toast does. (When a database's eval verb catches the error itself —
-		// e.g. Test.db wraps results as {status, result} — the task completes
-		// normally and never reaches this branch.) Tick exhaustion gets the
-		// friendlier one-line message instead of a full traceback.
-		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			s.sendTaskLine(t.Owner, "Task ran out of ticks")
-		} else if !t.IsForked {
-			s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+
+		if !handled && !isUncaughtHandler {
+			// Preserve the existing structured task log for foreground failures.
+			// Toast does not write forked-task tracebacks directly to stderr.
+			if !t.IsForked {
+				s.logTraceback(t, result.Error, stack)
+			}
+			// When a database's eval verb catches the error itself — e.g. Test.db
+			// wraps results as {status, result} — the task completes normally and
+			// never reaches this branch. Tick exhaustion keeps its friendlier line.
+			if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+				s.sendTaskLine(t.Owner, "Task ran out of ticks")
+			} else {
+				s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+			}
 		}
 		// Clean up call stack after traceback has been sent
 		for len(t.CallStack) > 0 {

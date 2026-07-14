@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	dbstore "barn/db/store"
+	"barn/task"
+	"barn/types"
 )
 
 // A verb that raises an uncaught error must produce exactly one log record
@@ -76,5 +78,64 @@ func TestUncaughtExceptionInRealTaskLogsOneRecord(t *testing.T) {
 	tb, _ := found["traceback"].(string)
 	if !strings.Contains(tb, "(End of traceback)") || !strings.Contains(tb, "Type mismatch") {
 		t.Errorf("traceback text is missing or truncated: %q", tb)
+	}
+}
+
+func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
+	resetServerVerbTaskManager(t)
+	t.Cleanup(func() { resetServerVerbTaskManager(t) })
+
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(0, dbstore.NewProperty(
+		"handled_args", types.NewEmptyList(), 2,
+		dbstore.PropRead|dbstore.PropWrite, false, true,
+	)); errCode != types.E_NONE {
+		t.Fatalf("define handled_args: %v", errCode)
+	}
+	store.AddVerb(0, dbstore.NewVerb("handle_uncaught_error", []string{"handle_uncaught_error"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"this.handled_args = args;", "return 1;"}))
+	store.AddVerb(0, dbstore.NewVerb("forkboom", []string{"forkboom"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"fork (0)", `  x = 1 + "a";`, "endfork", "return 1;"}))
+
+	s := NewScheduler(store)
+	fallbacks := 0
+	s.SetTracebackSender(func(types.ObjID, types.ErrorCode, []task.ActivationFrame) {
+		fallbacks++
+	})
+	if _, err := s.RunServerVerbTask(0, "forkboom", nil, 2); err != nil {
+		t.Fatalf("run forkboom: %v", err)
+	}
+	s.ProcessReadyTasks()
+
+	handledArgs, errCode := store.PropertyValue(0, "handled_args")
+	if errCode != types.E_NONE {
+		t.Fatalf("read handled_args: %v", errCode)
+	}
+	if handledArgs.Type() != types.TYPE_LIST || len(handledArgs.Elements()) != 5 {
+		t.Fatalf("handle_uncaught_error args = %s, want five-element list", handledArgs.String())
+	}
+	if got := handledArgs.Elements()[0]; got.Type() != types.TYPE_ERR || got.ErrCode() != types.E_TYPE {
+		t.Errorf("error code argument = %s, want E_TYPE", got.String())
+	}
+	if got := handledArgs.Elements()[1]; got.Type() != types.TYPE_STR || got.Str() != types.E_TYPE.Message() {
+		t.Errorf("message argument = %s, want %q", got.String(), types.E_TYPE.Message())
+	}
+	if got := handledArgs.Elements()[2]; got.Type() != types.TYPE_INT || got.Int() != 0 {
+		t.Errorf("value argument = %s, want 0", got.String())
+	}
+	if got := handledArgs.Elements()[3]; got.Type() != types.TYPE_LIST || len(got.Elements()) == 0 {
+		t.Errorf("stack argument = %s, want non-empty list", got.String())
+	}
+	if got := handledArgs.Elements()[4]; got.Type() != types.TYPE_LIST || len(got.Elements()) == 0 {
+		t.Errorf("formatted argument = %s, want non-empty list", got.String())
+	}
+	if fallbacks != 0 {
+		t.Fatalf("fallback traceback sends = %d, want 0 after truthy handler", fallbacks)
 	}
 }
