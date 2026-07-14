@@ -1308,10 +1308,17 @@ writes. It asserts Toast's exact two-word `args` tokenization and quote-preservi
 `argstr`. Both stock WSL Toast and committed Windows Barn pass 1/1.
 Conformance commit is `88a8100`; no Barn source change is authorized.
 
-### Active MCP/GMCP/OOB gate 2026-07-14
+### MCP/GMCP/OOB gate closed 2026-07-14
 
-Run the complete managed `gap_followups_toast_oracle` and
-`connection_lifecycle_toast_oracle` families on stock WSL Toast and committed
-Windows Barn. If both families pass on both engines, close MCP, GMCP, and
-out-of-band traffic. If a row fails, keep that one row active until corrected
-against Toast or fixed in Barn.
+The complete managed `gap_followups_toast_oracle` family passes 17/17 on stock
+WSL Toast and committed Windows Barn. The complete managed
+`connection_lifecycle_toast_oracle` family passes 23/23 on both engines. This
+closes MCP, GMCP, and out-of-band traffic.
+
+### Active task-scheduling gate 2026-07-14
+
+Run the complete managed `task_scheduling_toast_oracle` family on stock WSL
+Toast, then committed Windows Barn. If both runs pass, close task scheduling and
+continue to suspended reads without widening into queued-task APIs, restart, or
+persistence. If a row fails, keep that one row active until its Toast behavior
+is established and Barn either matches or receives one committed correction.
