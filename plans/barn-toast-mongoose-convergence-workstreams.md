@@ -854,8 +854,23 @@ connection-lifecycle family passed 23/23 on both WSL Toast and Windows Barn;
 the full `server` package passed; and `git diff --check` passed. The exact local
 package gate remained green in `bytecode` and `vm` and red only at the
 already-recorded scheduler ID-collision review regression. The conformance
-commit is `09abeec`. The post-commit live login-only gate remains the final
-acceptance item for this slice.
+commit is `09abeec`, and the Barn fix is commit `5045acb`.
+
+The post-commit live login-only gate passed on a fresh disposable copy under
+`.tmp/mongoose-convergence/barn-resumable-hook-live-20260714-03`. The source
+and disposable database both hashed to
+`b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+Using only the trusted-PROXY/account/password inputs and the pinned client
+timings, Barn emitted the MCP line, `Q (#249)` connection line, the complete
+`[[Trojanovich plaza; Daystrom Annex]; Codex's Lab]` render, and
+`You can go west, northeast (closed), and north (closed).` The structured log
+contains no `server_started` panic. The later optional SQLite
+`This database is not open` confunc traceback matches the established Toast
+control and does not precede or invalidate room entry.
+
+The post-authentication-silence behavior row is therefore CLOSED. The next
+unchecked Milestone 4 family is `look`, movement, contents, exits, and room
+rendering, using the now-passing login control as its discovery entry point.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
