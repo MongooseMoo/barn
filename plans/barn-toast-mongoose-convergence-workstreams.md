@@ -727,6 +727,24 @@ no Barn production change. The next independent reduction is the observed
 `call_function` argument that produced Barn-only `E_RANGE`; it must pass Toast
 before Barn runs.
 
+### Coverage executed 2026-07-13: indirect SQLite invalid handle
+
+Fixture inspection confirmed that `#3882:is_open` calls
+`call_function("sqlite_info", this.handle)`, and the earlier live trace recorded
+handle `2`. Existing conformance covered direct `sqlite_info(999999)` but not
+error propagation through `call_function`, so
+`sqlite_info_invalid_handle_through_call_function` was added to `sqlite.yaml`
+with the generic expression `call_function("sqlite_info", 2)`.
+
+The final focused row passed 1/1 on managed WSL Toast and unchanged Windows
+Barn. The complete SQLite-selected family passed 91/91 on both engines.
+Conformance commit is `73a178e`. This genuine candidate is retained as
+coverage and authorizes no Barn production change; it proves the July 1
+SQLite-handle call is not sufficient to reproduce the current Barn-only
+`E_RANGE`. The next diagnostic must capture the current failing `func` and
+`rest` values at the `call_function` boundary, reduce that exact call onto
+`Test.db`, and remove the temporary diagnostic before any kept Barn fix.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 
