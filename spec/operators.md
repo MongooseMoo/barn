@@ -542,7 +542,11 @@ left >= right
 
 **Type strictness:** Both operands must be the **same type**. No INT/FLOAT coercion.
 
-**String comparison:** Lexicographic (case-sensitive, ASCII ordering)
+**String comparison:** Lexicographic after ASCII case folding. The relational
+operators therefore compare strings case-insensitively; `==`, `!=`, `equal()`,
+and `strcmp()` remain case-sensitive. This distinction is verified against
+Toast by
+`../moo-conformance-tests/src/moo_conformance/_tests/language/string_comparison_case.yaml`.
 
 **Examples:**
 ```moo
@@ -551,10 +555,10 @@ left >= right
 1.0 < 2.0       => 1
 1 < 1.0         => E_TYPE  // Type mismatch
 
-// String comparison (ASCII: uppercase 65-90, lowercase 97-122)
-"A" < "a"       => 1       // Uppercase sorts before lowercase
-"Z" < "a"       => 1       // All uppercase before lowercase
-"abc" < "abd"   => 1       // Lexicographic
+// Relational string comparison folds ASCII case before ordering
+"A" < "a"       => 0       // Equal after case folding
+"a" < "B"       => 1       // Folded 'a' sorts before folded 'b'
+"abc" < "ABD"   => 1       // Folded "abc" sorts before folded "abd"
 
 // Comparison chaining (C-style, not Python)
 1 < 2 < 3       // Equivalent to: (1 < 2) < 3
