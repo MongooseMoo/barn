@@ -112,3 +112,77 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 		t.Fatalf("after resume + ProcessReadyTasks: state = %v, want TaskCompleted", got)
 	}
 }
+
+func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewScheduler(store)
+
+	program, diagnostics := compiler.CompileMOO([]string{
+		"fork (0)",
+		"  suspend(0);",
+		"  fork (0)",
+		"    1 + 1;",
+		"  endfork",
+		"  suspend(0);",
+		"endfork",
+		"return 1;",
+	}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
+	}
+
+	mgr := task.GetManager()
+	parentID := s.CreateForegroundTask(types.ObjNothing, program)
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for id := range s.tasks {
+			mgr.RemoveTask(id)
+		}
+	}()
+
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("initial scheduler pass ran %d tasks, want 1", got)
+	}
+	if got := s.tasks[parentID].GetState(); got != task.TaskCompleted {
+		t.Fatalf("parent state = %v, want TaskCompleted", got)
+	}
+
+	var outer *task.Task
+	for _, queued := range s.tasks {
+		if queued.IsForked {
+			outer = queued
+			break
+		}
+	}
+	if outer == nil {
+		t.Fatal("outer fork task was not created")
+	}
+
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("outer fork scheduler pass ran %d tasks, want 1", got)
+	}
+	if got := outer.GetState(); got != task.TaskQueued {
+		t.Fatalf("outer fork state after first suspend = %v, want TaskQueued", got)
+	}
+
+	for range 4 {
+		if s.ProcessReadyTasks() == 0 {
+			break
+		}
+	}
+
+	forkedCount := 0
+	for _, queued := range s.tasks {
+		if !queued.IsForked {
+			continue
+		}
+		forkedCount++
+		if got := queued.GetState(); got != task.TaskCompleted {
+			t.Fatalf("forked task %d state = %v, want TaskCompleted", queued.ID, got)
+		}
+	}
+	if forkedCount != 2 {
+		t.Fatalf("forked task count = %d, want 2", forkedCount)
+	}
+}

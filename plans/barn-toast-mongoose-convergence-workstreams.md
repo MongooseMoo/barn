@@ -597,6 +597,49 @@ scheduler heartbeat's survival (task_id stability across suspend, fork
 cadence), and whatever `call_function` argument produces the Barn-only
 `E_RANGE`.
 
+### Slice executed 2026-07-13: nested fork after suspended heartbeat
+
+Two prerequisite/coverage-only conformance commits landed first. Commit
+`0ebcf88` makes the trusted-PROXY lifecycle rows trust the actual connected
+peer instead of assuming localhost, and commit `0df1dac` proves both Toast and
+Barn dispatch `user_connected` on a first login. The latter rules out the basic
+hook dispatch itself without inventing a Barn change.
+
+The next reduced row is
+`audit_background_task_id_stable_across_suspend_and_fork` in
+`task_scheduling_toast_oracle.yaml`. It uses only bundled `Test.db` (SHA-256
+`1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e`)
+and asserts that a background task keeps the fork-assigned `task_id()` across
+`suspend(0)`, creates a nested zero-delay fork, yields to it, and then resumes.
+The exact focused oracle command was the plan's managed WSL Toast command with
+selector `-k audit_background_task_id_stable_across_suspend_and_fork`; stock
+Toast `aecc51e` passed 1/1. The complete managed Toast family passed 23/23.
+
+Pre-fix Windows Barn `87d67fa` failed the unchanged row with expected
+`[1, 1, [1, 1]]` and actual `[1, 1, []]`. Stable diagnostic runs are under
+`.tmp/mongoose-convergence/heartbeat-red-20260713-2145` and
+`.tmp/mongoose-convergence/heartbeat-red-debug-20260713-2147`. `barn_logs`
+reported no error-level record: the task silently stopped progressing.
+
+The failing ownership boundary was `scheduler.runTask`. Its bounded inline
+handling of a forked task's `suspend(0)` resumed the VM, but if that continuation
+yielded `FlowFork`, it skipped `drainForks`, fell through the terminal branch,
+and marked the parent completed while the nested child and remaining parent
+continuation were still pending. Unit regression
+`TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork` reproduced the red
+state (`completed`, expected `queued`). The production change is confined to
+`scheduler/task_runtime.go`: drain an inline-resume `FlowFork`, then return the
+result to normal suspend/queue handling so the ready child owns the next turn.
+
+Post-fix proof: the unit regression passed, the unchanged managed Barn row
+passed 1/1, and the complete managed Barn family passed 23/23. Conformance
+commit is `6a4b416`. `git diff --check` passed. The exact local package gate
+`go test ./bytecode ./vm ./scheduler` remains red only at the pre-existing,
+tracked unconditional review regression
+`TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`; that task-ID
+allocator defect is not bundled into this behavior slice. The live Mongoose
+login-only gate remains to be rerun after the Barn commit.
+
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
 

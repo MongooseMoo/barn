@@ -220,6 +220,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 		result = bcVM.Resume()
 		t.Result = result
+		if result.Flow == types.FlowFork {
+			result = s.drainForks(t, bcVM, result)
+			t.Result = result
+			break
+		}
 	}
 
 	// Handle suspend
