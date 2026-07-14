@@ -1259,10 +1259,18 @@ escaped pair is stripped: both `args` and `argstr` contain `iac--login`. Barn
 matches and both engines pass 1/1. Conformance commit is `36f7c5c`; no Barn
 source change is authorized.
 
-### Active telnet row 2026-07-14: split two-byte command
+### Telnet coverage 2026-07-14: split two-byte command
 
-Add one generic `Test.db` row for a complete two-byte telnet command, `IAC NOP`,
-with IAC and NOP arriving in separate `send_bytes` steps. Record the complete
-binary-escaped command delivered to `do_out_of_band_command`. Run the exact row
-on stock WSL Toast first and unchanged Barn second. Keep coverage if both pass;
-if Toast is green and Barn is red, fix only that command-state delta.
+Conformance row `audit_telnet_two_byte_command_delivered_across_reads` splits
+`IAC NOP` across two raw sends. Both stock WSL Toast and committed Windows Barn
+deliver the complete `~FF~F1` command to `do_out_of_band_command` and pass 1/1.
+Conformance commit is `9569147`; no Barn source change is authorized.
+
+### Active packet row 2026-07-14: split CRLF terminator
+
+Add one generic `Test.db` row that sends ordinary login text, CR, and LF in
+three separate `send_bytes` steps. Record every `do_login_command` invocation.
+Toast must establish whether CR dispatches one line and the subsequent LF is
+suppressed or causes another call; run that Toast-confirmed row unchanged on
+Barn. If both pass, keep coverage; if Toast is green and Barn is red, fix only
+that line-terminator state delta.
