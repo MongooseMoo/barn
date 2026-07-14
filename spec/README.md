@@ -1,6 +1,9 @@
 # Barn MOO Language Specification
 
-This directory contains the formal specification for the MOO programming language as implemented in Barn (Go MOO server).
+This directory documents MOO behavior and the current Barn implementation.
+Normative language semantics must match freshly verified Toast behavior and the
+durable conformance suite. Implementation maps and Go snippets are
+non-normative and cannot override Toast.
 
 ## Documents
 
@@ -14,6 +17,7 @@ This directory contains the formal specification for the MOO programming languag
 | [objects.md](objects.md) | Object model, inheritance | ✅ Complete |
 | [tasks.md](tasks.md) | Task model, concurrency | ✅ Complete |
 | [vm.md](vm.md) | VM architecture, opcodes | ✅ Complete |
+| [database.md](database.md) | v4/v17 database format and persistence | ✅ Complete |
 | [go-design.md](go-design.md) | Go implementation notes | ✅ Complete |
 | [builtins/](builtins/) | Built-in function specs | ✅ Complete |
 
@@ -59,7 +63,18 @@ uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/U
 
 ## Sources
 
+- [Managed Toast oracle procedure](../reports/toast-oracle-wsl.md)
+- [ToastStunt source](../../../src/toaststunt/) - behavioral authority; use the managed WSL checkout for live verification
 - [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html)
 - [ToastStunt Documentation](https://github.com/lisdude/toaststunt-documentation)
-- [moo_interp](../moo_interp/) - Python reference implementation
-- [ToastStunt](../mongoose/toaststunt/) - C++ reference implementation
+- [moo_interp](../../moo_interp/) - Python implementation reference
+- [lambdamoo-db-py](../../../src/lambdamoo-db-py/) - structural database reference
+
+Authority order:
+
+1. Freshly verified Toast behavior.
+2. Durable `moo-conformance-tests` rows proven against Toast.
+3. Normative language sections in this directory.
+4. Structural and implementation references.
+
+When in doubt, match Toast behavior.

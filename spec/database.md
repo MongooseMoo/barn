@@ -4,7 +4,14 @@
 
 MOO databases are text-based files containing all persistent state: objects, properties, verbs, players, and suspended tasks.
 
-**Reference implementation:** `~/src/lambdamoo-db-py/` provides a Python reader/writer.
+Freshly verified Toast is the behavioral and format authority. The managed WSL
+checkout and executable identity are recorded in `reports/toast-oracle-wsl.md`;
+the v17 reader/writer is principally `src/db_file.cc` and task persistence is in
+`src/tasks.cc`. Barn's implementation is in `db/format` and `db/store`.
+
+`../../../src/lambdamoo-db-py/` provides a useful structural reader/writer for
+inspection and differential round trips. It is not authoritative when its
+behavior differs from freshly verified Toast.
 
 ---
 
@@ -243,7 +250,8 @@ Barn MUST read:
 - LambdaMOO v4 databases
 - ToastStunt v17 databases
 
-Use lambdamoo-db-py as reference for parsing.
+Use Toast as the format authority. Use `lambdamoo-db-py` as a structural and
+differential reference only.
 
 ### 9.2 Write Support (Required)
 
@@ -280,12 +288,24 @@ Stream parsing recommended - don't load entire file to memory.
 
 ---
 
-## 11. Reference
+## 11. References
 
-The authoritative implementation is:
+Toast authority:
+
+- WSL oracle procedure and identity: `reports/toast-oracle-wsl.md`
+- v17 file codec: `/root/src/toaststunt/src/db_file.cc`
+- queued task and clock persistence: `/root/src/toaststunt/src/tasks.cc`
+
+Barn implementation:
+
+- codec: `db/format`
+- persistent store: `db/store`
+
+Structural Python reference:
+
 - **Reader:** `lambdamoo_db/reader.py`
 - **Writer:** `lambdamoo_db/writer.py`
 - **Types:** `lambdamoo_db/enums.py`
 - **Structures:** `lambdamoo_db/database.py`
 
-When in doubt, match lambdamoo-db-py behavior.
+When in doubt, match Toast behavior.

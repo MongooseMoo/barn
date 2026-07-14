@@ -4,6 +4,14 @@
 
 MOO uses cooperative multitasking with tick-based resource limits. Tasks are units of execution that can be suspended, resumed, and killed.
 
+## Authority
+
+When in doubt, match Toast behavior. The verified WSL source and executable are
+recorded in `reports/toast-oracle-wsl.md`. The main server loop is in
+`src/server.cc`; runnable-task selection, synchronous fork ID allocation, task
+queues, and persisted tasks are in `src/tasks.cc`; default foreground and
+background limits are in `src/options.h`.
+
 ---
 
 ## 1. Task Types
@@ -190,6 +198,9 @@ Tasks automatically suspend during:
 
 Maximum suspended tasks per player (configurable).
 
+Once a foreground task suspends, Toast resumes it under the background tick and
+seconds limits. The original foreground limits do not survive suspension.
+
 ---
 
 ## 6. Task Resumption
@@ -362,197 +373,19 @@ Background task errors don't affect parent:
 
 ---
 
-## 13. Go Implementation
+## 13. Current Barn implementation map (non-normative)
 
-### 13.1 Task Structure
+Barn represents a MOO task explicitly in `task/task.go`; a task is not a Go
+goroutine. `scheduler/scheduler.go` owns the ready and delayed queues and runs
+one MOO task segment at a time. `server/input_processor.go` serializes command
+ingress into that scheduler. Fork allocates and binds the child task ID before
+the parent continues, then queues the child even when its delay is zero.
 
-```go
-type Task struct {
-    ID          int64
-    State       TaskState
-    VM          *VM
-    Player      int64
-    StartTime   time.Time
-    TicksUsed   int
-    TickLimit   int
-    Deadline    time.Time
-    TaskLocal   map[Value]Value
-    WakeChannel chan Value  // For suspension
-}
+Go goroutines are used at transport and host-operation boundaries. They do not
+define MOO scheduling, suspension, resumption, or kill semantics. Opaque host
+work must return through the explicit suspended-task path; it may not mutate the
+database concurrently with MOO execution.
 
-type TaskState int
-
-const (
-    TaskCreated TaskState = iota
-    TaskWaiting
-    TaskRunning
-    TaskSuspended
-    TaskCompleted
-    TaskAborted
-)
-```
-
-### 13.2 Goroutine Mapping
-
-```go
-// Fork creates new goroutine with delay
-func (vm *VM) Fork(delay time.Duration, body func()) int64 {
-    task := &Task{
-        ID:        nextTaskID(),
-        State:     TaskWaiting,
-        StartTime: time.Now().Add(delay),
-    }
-
-    go func() {
-        time.Sleep(delay)
-        task.State = TaskRunning
-        body()
-        task.State = TaskCompleted
-    }()
-
-    return task.ID
-}
-```
-
-### 13.3 Suspension with Channels
-
-```go
-// Suspend current task
-func (task *Task) Suspend(timeout time.Duration) Value {
-    task.State = TaskSuspended
-
-    if timeout > 0 {
-        select {
-        case value := <-task.WakeChannel:
-            return value
-        case <-time.After(timeout):
-            return Int(0)
-        }
-    } else {
-        return <-task.WakeChannel  // Wait forever
-    }
-}
-
-// Resume suspended task
-func ResumeTask(taskID int64, value Value) error {
-    task := findTask(taskID)
-    if task == nil || task.State != TaskSuspended {
-        return ErrInvarg
-    }
-    task.WakeChannel <- value
-    return nil
-}
-```
-
-### 13.4 Tick Counting
-
-```go
-func (vm *VM) Step() error {
-    op := vm.fetchOpcode()
-
-    if countsTick(op) {
-        vm.Task.TicksUsed++
-        if vm.Task.TicksUsed >= vm.Task.TickLimit {
-            return ErrTicksExceeded
-        }
-    }
-
-    if time.Now().After(vm.Task.Deadline) {
-        return ErrTimeout
-    }
-
-    return vm.execute(op)
-}
-```
-
-### 13.5 Context Cancellation
-
-```go
-// Using context for task lifecycle
-func (task *Task) Run(ctx context.Context) error {
-    ctx, cancel := context.WithDeadline(ctx, task.Deadline)
-    defer cancel()
-
-    for {
-        select {
-        case <-ctx.Done():
-            return ctx.Err()
-        default:
-            if err := task.VM.Step(); err != nil {
-                return err
-            }
-        }
-    }
-}
-```
-
-### 13.6 Task Killing
-
-```go
-func KillTask(taskID int64, killerID int64) error {
-    task := findTask(taskID)
-    if task == nil {
-        return ErrInvarg
-    }
-
-    // Permission check
-    if killerID != task.Player && !isWizard(killerID) {
-        return ErrPerm
-    }
-
-    // Cancel context (triggers abort)
-    task.Cancel()
-    return nil
-}
-```
-
----
-
-## 14. Go Concurrency Advantages
-
-### 14.1 Natural Mapping
-
-| MOO Concept | Go Concept |
-|-------------|------------|
-| Task | Goroutine |
-| Suspend | Channel receive |
-| Resume | Channel send |
-| Fork | go + time.After |
-| Kill | Context cancellation |
-| Task queue | Priority queue + scheduler goroutine |
-
-### 14.2 Benefits Over Python
-
-- Real parallelism (not GIL-limited)
-- Lightweight goroutines (not greenlets)
-- Built-in channels (not gevent.Queue)
-- Context cancellation (not manual state tracking)
-- select for timeouts (not gevent.Timeout)
-
-### 14.3 Scheduler Design
-
-```go
-type Scheduler struct {
-    waiting  *PriorityQueue  // Time-ordered
-    running  *Task           // Currently executing
-    mutex    sync.Mutex
-}
-
-func (s *Scheduler) Run(ctx context.Context) {
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        default:
-            task := s.nextRunnable()
-            if task != nil {
-                s.running = task
-                task.Run(ctx)
-                s.running = nil
-            } else {
-                time.Sleep(10 * time.Millisecond)
-            }
-        }
-    }
-}
-```
+The normative behavior in Sections 1-12 comes from freshly verified Toast and
+the conformance suite. These file references describe the current Barn code and
+must not be used to override observable Toast behavior.

@@ -4,6 +4,20 @@
 
 The MOO virtual machine is a stack-based bytecode interpreter. This document specifies the VM architecture for the Go implementation.
 
+## Status and authority
+
+The observable language and task behavior described here is normative only
+where it agrees with freshly verified Toast and the durable conformance suite.
+The package ownership and Go snippets are architectural documentation for the
+current Barn implementation; they are not a second VM specification and may be
+historical unless they match the cited source files.
+
+The current Barn implementation is in `compiler/`, `bytecode/`, `vm/`, and
+`task/`. Toast behavior is checked against the verified WSL checkout recorded
+in `reports/toast-oracle-wsl.md`, principally `src/code_gen.cc`,
+`src/execute.cc`, and `src/tasks.cc`. When a snippet or opcode description
+disagrees with that executable, Toast wins and this document must be corrected.
+
 ---
 
 ## 1. Compilation Pipeline
