@@ -201,7 +201,10 @@ func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, 
 
 func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, player types.ObjID) {
 	args := []types.Value{types.NewObj(player)}
-	result := s.runtime.CallVerb(handler, verbName, args, player)
+	result, err := s.runtime.RunServerVerbTask(handler, verbName, args, player)
+	if err != nil {
+		return
+	}
 	if result.Flow == types.FlowException {
 		if result.Error == types.E_VERBNF {
 			return

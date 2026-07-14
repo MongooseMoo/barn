@@ -86,3 +86,49 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 		t.Fatalf("connected hook value = %v, want #2", connectedVal)
 	}
 }
+
+func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
+	resetTaskManager()
+	t.Cleanup(resetTaskManager)
+
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	for _, name := range []string{"forked", "resumed", "continued"} {
+		if errCode := store.DefineProperty(system, dbstore.NewProperty(name, types.NewInt(0), 2,
+			dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("define %s: %v", name, errCode)
+		}
+	}
+
+	addTestVerb(store, system, "yield_once",
+		"suspend(0);",
+		"#0.resumed = 1;",
+	)
+	addTestVerb(store, system, "user_connected",
+		"fork (0)",
+		"  #0.forked = 1;",
+		"endfork",
+		"#0:yield_once();",
+		"#0.continued = 1;",
+	)
+
+	rt := runtime.NewScheduler(store)
+	processor := NewInputProcessor(store, rt)
+	processor.callUserHook(system, "user_connected", 2)
+	for range 4 {
+		if rt.ProcessReadyTasks() == 0 {
+			break
+		}
+	}
+
+	for _, name := range []string{"forked", "resumed", "continued"} {
+		value, errCode := store.PropertyValue(system, name)
+		if errCode != types.E_NONE {
+			t.Fatalf("read %s: %v", name, errCode)
+		}
+		if value.Type() != types.TYPE_INT || value.Int() != 1 {
+			t.Fatalf("%s = %v, want 1", name, value)
+		}
+	}
+}

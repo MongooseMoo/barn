@@ -812,8 +812,50 @@ established skips on both WSL Toast and Windows Barn; and `git diff --check`
 passed. The exact local package gate remained green in `bytecode` and `vm` and
 red only at the already-recorded scheduler regression
 `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`. The
-conformance commit is `dca934b`. The corrected post-commit live login-only gate
-is the remaining acceptance item for this slice.
+conformance commit is `dca934b`, and the corrected Barn commit is `7c46984`.
+Its post-commit live login-only gate emitted the MCP line for the first time,
+proving the anonymous `send()` path was repaired, but still emitted no player
+connection line or room render before timeout. The remaining live failure was
+therefore narrowed to the continuation after MCP rather than attributed back to
+the closed anonymous-caller delta.
+
+### Slice implementation 2026-07-14: resumable `user_connected` hook
+
+The trace-only repeat after `7c46984` used the same three login inputs and no
+post-login command. `#0:user_connected` created its handler fork, completed the
+MCP session and notification, then synchronously called `$wizinfo` at line 35.
+That nested call reached `#56:suspend_if_needed(0)`. Barn subsequently ran all
+forked handlers, but the parent activation never resumed at lines 37-63, so
+neither `user.location:confunc(user)` nor `user:confunc()` ran before the client
+timeout. The trace is under
+`.tmp/mongoose-convergence/barn-frame-caller-trace-20260714-02`.
+
+The existing generic row
+`audit_user_connected_confunc_calls_continue_after_fork_and_setting_task_perms`
+was strengthened with the missing dependency: after creating a zero-delay
+child, the hook calls a nested generic verb that performs `suspend(0)`, then
+must resume and reach both later confunc markers. Managed stock WSL Toast passed
+the strengthened row 1/1. Pre-fix Windows Barn failed the unchanged row with
+expected `[1, 1, 1, 1, 1]` and actual `[1, 0, 0, 0, 0]`: the child ran, while
+the suspended nested call and every parent continuation marker were lost.
+
+Unit regression `TestUserConnectedResumesAfterNestedSuspendWithPendingFork`
+reproduced the same state before the fix and passed afterward. The ownership
+error was in `server.InputProcessor.callUserHook`: it used the lightweight
+`Scheduler.CallVerb` path, whose task and VM are intentionally throwaway after
+the synchronous call returns. A `FlowSuspend` therefore discarded the live
+parent continuation. The production change routes lifecycle hooks through the
+already-existing `RunServerVerbTask`, which registers the task and preserves
+its VM for normal scheduler resumption; no new runtime path or adapter was
+introduced.
+
+Post-fix proof so far: the focused managed Barn row passed 1/1; the complete
+connection-lifecycle family passed 23/23 on both WSL Toast and Windows Barn;
+the full `server` package passed; and `git diff --check` passed. The exact local
+package gate remained green in `bytecode` and `vm` and red only at the
+already-recorded scheduler ID-collision review regression. The conformance
+commit is `09abeec`. The post-commit live login-only gate remains the final
+acceptance item for this slice.
 
 The slice recipe below is retained because it is the template for every
 following slice. Execute it exactly:
