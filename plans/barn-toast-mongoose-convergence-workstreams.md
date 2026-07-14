@@ -1039,114 +1039,50 @@ the complete `$sqlite_db -> $sound_handler -> $Sound -> $waif -> $room ->
 $player_class` chain instead of printing invalid frame warnings. Structured
 stack identity is CLOSED.
 
-### Active behavior row 2026-07-14: uncaught message and value
+### Slice implementation 2026-07-14: uncaught handler payload
 
-The same live rerun exposed the next exact handler delta. Toast preserved the
-raised SQLite message `This database is not open`; Barn passed the generic
-`E_INVARG` message `Invalid argument` and value `0`. This is independent of the
-now-correct stack frames and quote shortcut dispatch. Reduce a forked uncaught
-custom message/value onto generic `Test.db`, run Toast first, and keep the
-current target on handler payload fidelity until both values match.
+The generic row
+`uncaught_forked_handler_preserves_custom_message_and_value` temporarily
+replaces `Test.db`'s handler with a recorder and raises
+`E_INVARG, "custom uncaught message", {7, 8}` in a zero-delay fork. Managed
+stock WSL Toast passed with the exact first three handler arguments
+`[E_INVARG, "custom uncaught message", {7, 8}]`. Pre-fix Windows Barn failed
+with `[E_INVARG, "Invalid argument", 0]`. The conformance commit is `c1cf7a0`.
 
-The slice recipe below is retained because it is the template for every
-following slice. Execute it exactly:
+The VM regression `TestUncaughtRaisePreservesExceptionValue` proved that
+`raise()` already created the correct structured exception, but the uncaught
+return replaced it with the annotated string `"E_INVARG (line 1)"`. The
+strengthened scheduler regression independently proved that
+`handle_uncaught_error` then substituted the error code's default message and
+integer zero. The production change returns the four-element exception value
+already built by `VM.HandleError` and passes its message and value fields to
+the existing database handler path. No helper, adapter, or alternate runtime
+path was added.
 
-1. In `moo-conformance-tests`, add only
-   `audit_forked_try_except_rebases_handler_ip` to
-   `src/moo_conformance/_tests/audit/task_scheduling_toast_oracle.yaml`. Its
-   setup, assertion, and cleanup are:
+Post-fix proof: both focused regressions passed; the focused managed Barn row
+passed; and the complete `error_traceback` family passed 28/28 on both stock
+WSL Toast and Windows Barn. `git diff --check` passed. The exact local package
+gate remained green in `bytecode` and `vm` and red only at the already-recorded
+scheduler ID-collision review regression. Barn commit is `f6d2591`.
 
-   ```moo
-   try
-     add_property(#0, "audit_fork_except_result", 0, {#0, "rw"});
-   except (E_INVARG)
-     #0.audit_fork_except_result = 0;
-   endtry
-   fork (0)
-     try
-       raise(E_INVARG);
-     except e (ANY)
-       #0.audit_fork_except_result = e[1];
-     endtry
-   endfork
-   suspend(0);
-   return #0.audit_fork_except_result;
-   ```
+The fresh live quote-shortcut rerun used committed `f6d2591`, the existing
+`moo_client.exe`, the unchanged trusted-PROXY/account/password inputs, and a
+disposable fixture under
+`.tmp/mongoose-convergence/barn-say-payload-fixed-20260714-16`. The source and
+copy both hashed to
+`b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
+Barn emitted the MCP and player-connection lines, the complete Codex's Lab
+render, `You say, "Codex shortcut probe."`, and both the direct traceback and
+database handler output with `This database is not open`. Neither the generic
+`Invalid argument` substitution nor invalid-frame warnings appeared. Uncaught
+handler payload fidelity is CLOSED.
 
-   Expect the value `E_INVARG`, assert that the server log does not contain
-   `panic in task`, and delete `#0.audit_fork_except_result` in cleanup. Do not
-   add Mongoose names, objects, fixture data, or profile knowledge to the test.
+### Active behavior row 2026-07-14: colon emote shortcut
 
-2. Run that unchanged row on managed stock WSL Toast from
-   `C:/Users/Q/code/barn`:
-
-   ```powershell
-   $wslIp = (wsl -d Debian -u root -e hostname -I).Trim()
-   uv run --project ..\moo-conformance-tests moo-conformance `
-     --moo-host $wslIp `
-     --server-command "wsl -d Debian -u root -e env TOAST_MOO=/root/src/toaststunt/build-release/moo bash /mnt/c/Users/Q/code/barn/scripts/run_toast_wsl.sh {db} {port}" `
-     --server-db C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db `
-     --oracle-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
-     --target-profile-manifest C:/Users/Q/code/barn/profiles/toast/stock-wsl-testdb.json `
-     -k audit_forked_try_except_rebases_handler_ip
-   ```
-
-   `--moo-host` is required while Windows→WSL localhost forwarding is broken
-   (see the connectivity section above; the failure without it is a
-   misleading "did not start accepting connections").
-
-   Keep the row only if this command exits zero with the named test passed.
-   Any skip, startup failure, connection failure, or failed assertion stops the
-   slice; record the exact command and output and do not run Barn.
-
-3. Build pre-fix Barn and run the unchanged row through the managed Windows
-   Barn profile:
-
-   ```powershell
-   go build -o .tmp/mongoose-convergence/barn.exe ./cmd/barn
-   uv run --project ..\moo-conformance-tests moo-conformance `
-     --server-command "C:/Users/Q/code/barn/.tmp/mongoose-convergence/barn.exe --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config C:/Users/Q/code/barn/profiles/barn/outbound-on.conf --profile-id barn-windows-testdb-outbound-on --profile-manifest {manifest}" `
-     --server-db C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_db/Test.db `
-     -k audit_forked_try_except_rebases_handler_ip
-   ```
-
-   Do not pass `--oracle-profile-manifest` here: this is Milestone 1's
-   deployment lane (Windows Barn), and the profile gate correctly refuses a
-   cross-OS oracle pairing (`runtime_os` linux vs windows). The Toast-green
-   evidence comes from step 2's separate run, not from a paired manifest.
-
-   The required pre-fix result is the named row failing because the forked
-   exception handler does not set the marker, with `panic in task` or the same
-   out-of-range failure in the managed server log. If Barn passes unchanged,
-   commit the Toast-passing coverage only and stop without a Barn source patch.
-
-4. After Toast-green and Barn-red are recorded, add a bytecode unit regression
-   covering a fork body containing `try`/`except`, then change only
-   `bytecode.Program.ExtractForkBody` in `bytecode/program.go`. Rebase the
-   absolute handler targets encoded by `OP_TRY_EXCEPT` and `OP_TRY_FINALLY` by
-   subtracting the extracted body's parent `bodyIP`. Do not change relative
-   jump operands, add a fallback bounds check to `vm.executeLoop`, or introduce
-   an interface, adapter, alternate VM path, or Mongoose special case.
-
-5. Run exactly these local gates:
-
-   ```powershell
-   go test ./bytecode ./vm ./scheduler
-   git diff --check
-   ```
-
-6. Rerun the unchanged managed Barn row from step 3. It must pass with no panic.
-   Then run the complete managed task-scheduling family by replacing the final
-   selector with `-k task_scheduling_toast_oracle`. Both commands must exit
-   zero before keeping the Barn source slice.
-
-7. Commit the Toast-passing conformance row in `moo-conformance-tests`. Commit
-   the bytecode regression, `ExtractForkBody` fix, and this Barn-side run record
-   in `barn` as a separate commit. Stage only the named files.
-
-8. Rebuild Barn and repeat the exact trusted-PROXY/account/password login-only
-   run on a disposable copy of
-   `b9bc25492bd56cb28ba0a63165f456c60417387e251391fbe8c97d7d79c9bb69`.
-   The gate is closed only when Barn emits the MCP line, player `#249`
-   connection, complete Codex's Lab render, and no `server_started` panic.
-   Do not send `look`, `@test $pbt`, or any other command until this gate passes.
+Unknown-command/`huh` dispatch and the quote/say shortcut now match the live
+Toast controls. The next unchecked operation in the parser-shortcut family is
+the colon emote shortcut. Run `:codex emote probe` after the unchanged login
+sequence on fresh disposable copies, with WSL Mongoose Toast first and
+committed Windows Barn second. If Barn matches the Toast-visible emote, record
+coverage only and continue within the same parser family; if it differs,
+reduce the behavior onto generic `Test.db` before changing Barn.
