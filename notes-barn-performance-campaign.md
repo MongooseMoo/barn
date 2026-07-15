@@ -573,3 +573,30 @@
 - Hygiene result: authored Markdown passes `git diff --cached --check`. The whole staged check reports only the exact CRLF bytes in the three committed generated text artifacts, which were preserved to keep their closure-commit blob identities.
 - Current blocker: none for this record-only integration.
 - Next action: prepare a separate corrected C4 branch, worktree, and preregistration citing the actual source shape.
+
+## 2026-07-15 C4 corrected-retry initialization checkpoint
+
+- Authorized task: read and execute `C:\Users\Q\code\barn\prompts\barn-vm-c4-retry-triage.md` exactly in this worktree; Ward is forbidden.
+- Prior-context observation: repo-local prompt and current worktree state remain authoritative; older Barn memory is context only and must not substitute for the named workflow or its artifacts.
+- Current state: The retry-triage prompt has not yet been read. No branch, HEAD, tracked/untracked state, preregistration, source, test, benchmark, profile, build, conformance, oracle, holdout, staging, commit, push, switch, merge, rebase, cherry-pick, fetch, or pull action has occurred in this task.
+- Current blocker: none; the coordinating agent supplied this exact authorized notes-file path after the mandatory checkpoint identified it as missing.
+- Next action: read the named retry-triage prompt in full, then execute its literal first step.
+
+## 2026-07-15 C4 corrected-retry verification checkpoint 2
+
+- Instruction state: Read the retry-triage prompt, worktree `AGENTS.md`, Campaign and Experiment protocols, Go performance skill, Go strings/bytes/runes skill, and Go benchmarking-statistics skill in full. Ward has not been used and remains forbidden.
+- Git verification: branch `experiment/barn-vm-c4-tostr-retry-20260715`; exact HEAD `2e57e90ad3d94958deb2c3b103fbdc78a82836e6`. Complete status contains only this authorized pre-verification notes modification and no untracked paths.
+- Closure verification: `experiments/2026-07-15-c4-tostr-triage.md` records the earlier preregistration as invalid before source work because its frozen source shape was wrong; it records no source edit, test, candidate measurement, evaluator diff, holdout, or promotion and explicitly leaves C4 untested and retry-eligible under a corrected preregistration.
+- Source-location observation: `builtinTostr` begins at `builtins/types.go:27`; `valueToStr` begins at `builtins/types.go:49`. Their bodies have not yet been read in this retry task.
+- Current blocker: none.
+- Next action: read the exact current `builtinTostr` and `valueToStr` bodies and stop if either of the two prompt-pinned source facts does not hold.
+
+## 2026-07-15 C4 corrected-retry preregistration checkpoint 3
+
+- Source-shape gate: passed. Current `builtinTostr` preserves zero arguments as an immediate empty string, then declares and fills `strings.Builder`, then calls `UpdateContextLimits(ctx)`, materializes `result.String()`, applies `ctx.CheckStringLimit`, and returns `types.NewStr`. Current `valueToStr` returns only `string`.
+- Evidence read: the current candidate scout marks the single-argument `tostr` Builder bypass eligible and predicts the exact focused allocation reduction; the current VM benchmark defines `tostr_200k` as 200,000 calls to `length(tostr(i))`; the current focused builtin dispatch characterization tests were read without modification.
+- Preregistration state: created `experiments/2026-07-15-c4-tostr-retry-triage.md` with the corrected single variable, exact base, exact commands, threshold, three-sample plan, analysis, survival/kill/falsification rules, direct allocation instrumentation, and holdout prohibition. Evaluator hash and baseline fields remain explicitly pending before the preregistration commit.
+- Evaluator inventory state: enumerated every tracked `*_test.go` under `builtins` and `vm`; the 28-path result includes `vm/perf_bench_test.go`. The inventory artifact has not yet been created or hashed.
+- Execution state: no baseline command, summary, source edit/commit, targeted test, candidate measurement, evaluator diff, holdout, ledger update, staging, or commit has occurred in this retry task.
+- Current blocker: none.
+- Next action: create the exact evaluator-inventory artifact from the enumerated tracked paths, record its Git blob hash in the preregistration, then run the baseline command exactly once.
