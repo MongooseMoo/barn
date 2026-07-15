@@ -456,3 +456,44 @@
 - Execution status: No test, benchmark, profile, build, conformance, oracle, holdout, source command, push, branch switch, or promotion occurred.
 - Current blocker: none.
 - Next action: Run documentation/Git hygiene checks, stage only `experiments/INDEX.md` and `notes-barn-performance-campaign.md`, verify the exact staged diff, and commit descriptively without pushing.
+
+## 2026-07-15 campaign manager checkpoint: C4 experiment preparation
+
+- Ideation ledger commit `031afb2fce36729798d258bc4ff7fb1e937b442f` records candidates C1-C6 and exact Round 1 order C4, C2, C3, C1; budget remains 0/8 triage probes and 0/3 full experiments.
+- The Experiment protocol is now fully read. C4 must run on a dedicated experiment branch/worktree, with evaluator paths sealed and a preregistration commit created before any source delta.
+- C4 is one variable only: fast-path exactly the one-argument `tostr` case without the concatenation Builder while preserving zero/multi-argument behavior, `valueToStr`, context limit refresh, final string-size checking, and MOO value semantics.
+- C4 triage is directional only and cannot promote source. Its focused development row is `BenchmarkVM/tostr_200k`; the sealed holdout remains forbidden.
+- The preregistered killing threshold is fewer than 150k allocs/op removed or no directional timing improvement. A surviving triage branch still requires a separate full Experiment run, independent verification, and explicit user authorization before any holdout.
+- The full Go gate remains red at the pre-existing scheduler ID-collision test; no candidate can satisfy the full keep/promotion gate until that independent prerequisite is green.
+- Current blocker: no dedicated C4 branch/worktree has been prepared yet.
+- Next action: dispatch a coordination worker to create a clean dedicated C4 branch/worktree from `031afb2fce36729798d258bc4ff7fb1e937b442f`, then activate one experiment worker in that worktree with exact preregistration, evaluator seal, baseline/source/probe, revert-or-commit, ledger, and record duties.
+
+## 2026-07-15 C4 worktree preparation checkpoint
+
+- Current Git findings: The main worktree is on `master` at exact HEAD `031afb2fce36729798d258bc4ff7fb1e937b442f`. Its only tracked modification is the authorized `notes-barn-performance-campaign.md` checkpoint; the complete unrelated untracked inventory reported by `git status --short --untracked-files=all` remains untouched. The local branch `experiment/barn-vm-c4-tostr-20260715` is absent.
+- Current state: No branch or worktree has been created. Nothing has been staged, committed, fetched, pulled, pushed, merged, rebased, cherry-picked, tested, benchmarked, profiled, or implemented.
+- Current blocker: This mandatory checkpoint interrupted item 2 before remote branch absence was verified; no external blocker is known yet.
+- Next action: Resume item 2 by identifying configured remotes and verifying the exact branch is absent remotely, then continue the prompt's path and worktree-registration checks only if that verification passes.
+
+## 2026-07-15 C4 worktree preparation checkpoint 2
+
+- Current Git findings: The exact branch was absent locally and from configured remote `origin`; the exact target path was absent and unregistered. The authorized `git worktree add -b` command succeeded. Git now registers `C:/Users/Q/code/barn-worktrees/c4-tostr-20260715` on `refs/heads/experiment/barn-vm-c4-tostr-20260715` at `031afb2fce36729798d258bc4ff7fb1e937b442f`. Direct checks inside the new worktree confirm the exact branch and HEAD, and `git status --short --untracked-files=all` is empty.
+- Current state: No C4 implementation or experiment execution occurred. Nothing was staged, committed, fetched, pulled, pushed, merged, rebased, cherry-picked, tested, benchmarked, or profiled. The main worktree re-verification confirms branch `master` and exact HEAD `031afb2fce36729798d258bc4ff7fb1e937b442f`.
+- Current blocker: This mandatory checkpoint interrupted item 6 before the final complete main-worktree tracked/untracked status could be rechecked; no external blocker is known.
+- Next action: Run the final main-worktree `git status --short --untracked-files=all`, verify only the authorized notes path is tracked-modified and unrelated untracked files remain, then return the required preparation evidence.
+
+## 2026-07-15 C4 sample-count correction checkpoint
+
+- Current findings: The researcher, Campaign, and Experiment protocols and `AGENTS.md` are fully read. The Experiment protocol requires at least three runs per side for a directional signal. `experiments/INDEX.md` still contains the authorized stale C4 wording `pending two-sample` for the `tostr_200k` source probe and has no pre-execution correction paragraph.
+- Current Git state: The main worktree is on `master` at exact HEAD `031afb2fce36729798d258bc4ff7fb1e937b442f`. Before this checkpoint, the only tracked modification was this authorized campaign notes file; unrelated untracked state was inventoried and left untouched. No test, benchmark, profile, build, conformance, oracle, holdout, source, push, switch, or promotion command ran.
+- Current blocker: This mandatory checkpoint interrupted the documentation correction before `experiments/INDEX.md` was edited; no external blocker is known. Existing campaign-note convention records a created commit and then folds the checkpoint into that documentation commit.
+- Next action: Apply only the two exact authorized `experiments/INDEX.md` text changes, append the correction state to these notes, run documentation/Git hygiene checks, stage only the two authorized paths, verify the staged diff, and create the descriptive correction commit without running prohibited commands.
+
+## 2026-07-15 C4 sample-count correction
+
+- Correction: Before any C4 data collection, the candidate row now specifies a three-sample-per-side `tostr_200k` directional source probe, and the Round 1 preregistration records that the Experiment protocol's minimum replaced the scout's proposed two samples.
+- Correction commit: pending creation of the immutable documentation correction commit; its exact hash will be appended in a follow-up notes-only record commit so the recorded hash remains valid.
+- Execution state: C4 remains unrun. No C4 benchmark, source edit, preregistration, holdout, or candidate command has run.
+- Budget state: 0/8 triage probes and 0/3 full experiments remain consumed.
+- Current blocker: none.
+- Next action: Run documentation/Git hygiene checks, stage only `experiments/INDEX.md` and `notes-barn-performance-campaign.md`, verify the exact staged diff, and create the descriptive correction commit without pushing, switching, or promoting.
