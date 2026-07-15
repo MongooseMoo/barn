@@ -497,3 +497,79 @@
 - Budget state: 0/8 triage probes and 0/3 full experiments remain consumed.
 - Current blocker: none.
 - Next action: Commit this exact correction-commit identity as a notes-only campaign record without pushing, switching, or promoting.
+
+## 2026-07-15 C4 worktree fast-forward checkpoint
+
+- Current Git findings: Before this checkpoint, the main worktree was verified on `master` at exact HEAD `12acccaa82b3d893275d4ff9498a1ed5f8bd1468` with empty tracked status. `git worktree list --porcelain` registers `C:/Users/Q/code/barn-worktrees/c4-tostr-20260715` at `031afb2fce36729798d258bc4ff7fb1e937b442f` on `refs/heads/experiment/barn-vm-c4-tostr-20260715`; a direct check inside that worktree confirms branch `experiment/barn-vm-c4-tostr-20260715`.
+- Current state: The required fast-forward has not run. No C4 implementation, test, benchmark, profile, holdout, source/report/experiment artifact, fetch, pull, push, rebase, cherry-pick, stage, or commit occurred. This checkpoint append is not staged or committed.
+- Current blocker: This mandatory checkpoint interrupted the experiment-worktree precondition checks before its direct HEAD and complete cleanliness were verified; no external blocker is known.
+- Next action: Verify the experiment worktree's exact HEAD, complete cleanliness, and linear ancestry from `031afb2fce36729798d258bc4ff7fb1e937b442f` to `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`, then run the prompt's exact `git merge --ff-only` command only if every precondition passes.
+
+## 2026-07-15 campaign manager checkpoint: C4 ready to launch
+
+- The dedicated worktree `C:\Users\Q\code\barn-worktrees\c4-tostr-20260715` is registered on `experiment/barn-vm-c4-tostr-20260715`, fast-forwarded to corrected base `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`, and clean.
+- Main `master` remains at the same base; its only tracked modification is authorized campaign checkpoint notes.
+- The physical experiment prompt is `prompts/barn-vm-c4-triage.md`.
+- C4 preregistration freezes one direct `len(args) == 1` branch in `builtinTostr`; no helper, representation change, test edit, benchmark edit, or broader string change is allowed.
+- Baseline and candidate each use exactly three `BenchmarkVM/tostr_200k` samples at `-cpu=1`. Primary metric is allocs/op with a minimum reduction of 150,000; median sec/op must improve directionally and B/op must not increase.
+- Every tracked `*_test.go` path under `builtins` and `vm`, including `vm/perf_bench_test.go`, is sealed in a committed evaluator inventory before source work.
+- Preregistration/baseline evidence must be committed before the source commit. Targeted contracts are `go test ./builtins ./vm`.
+- A survivor remains only on the experiment branch as `triage-survivor; confirmation required`. A rejected source commit is explicitly reverted on that branch before the final evidence commit.
+- Budget remains 0/8 triage probes until C4 actually executes and commits its result. Holdout, promotion, integration, push, and main-worktree modification remain forbidden.
+- Current blocker: none; the experiment worker has not yet been activated.
+- Next action: activate one native experiment worker for the prepared C4 worktree, execute the frozen preregistration/baseline/source/contracts/candidate/evaluator/outcome sequence, then independently review the committed record before selecting C2.
+
+## 2026-07-15 campaign manager checkpoint: C4 preregistration invalidated
+
+- C4 preregistration commit `2c06488c23ef9009562ec56ad31b22e4aa4d4669` was invalid before any source change because its frozen source variable contradicted the current source shape.
+- Exact mismatch 1: current `builtinTostr` declares and runs the Builder loop before `UpdateContextLimits(ctx)`, while the frozen record required the one-argument branch after the refresh and before the Builder path.
+- Exact mismatch 2: current `valueToStr` returns only `string`, while the frozen record required propagation of a nonexistent existing error.
+- Closure commit `781c4fa7af10791ee125648bd46083732eb03f63` records the invalid preregistration on `experiment/barn-vm-c4-tostr-20260715`; that branch is clean.
+- No source edit/commit, targeted test, candidate measurement, evaluator diff, holdout, promotion, or integration occurred. The committed baseline/preregistration artifacts are not candidate evidence.
+- The C4 hypothesis remains untested. Budget remains 0/8 triage probes and 0/3 full experiments.
+- Current blocker: the invalid closure evidence is not yet recorded on `master`, and no corrected C4 branch/worktree/preregistration exists.
+- Next action: commit an exact record-only copy of the invalid-preregistration evidence on `master`, then prepare a separate corrected C4 branch/worktree/preregistration citing the actual source shape.
+
+## 2026-07-15 C4 invalid-record integration checkpoint
+
+- Current findings: Read the controlling integration prompt, repository `AGENTS.md`, `protocols:researcher`, Campaign protocol, Experiment protocol, and the current campaign notes through the C4 invalidation checkpoint.
+- Authorized task: record-only integration of the invalid C4 preregistration evidence from closure commit `781c4fa7af10791ee125648bd46083732eb03f63`; no C4 implementation or measurement is authorized.
+- Current state: No branch, HEAD, tracked/untracked state, experiment-worktree identity, ancestry, cleanliness, evidence artifact, or diff verification has occurred. No experiment artifact, ledger, source, test, benchmark, profile, build, conformance, oracle, holdout, staging, commit, push, branch switch, merge, rebase, cherry-pick, fetch, or pull action has occurred.
+- Current blocker: none external; prerequisite repository-state verification remains pending.
+- Next action: verify main branch `master`, exact HEAD `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`, and complete tracked/untracked state, requiring this authorized campaign notes file to be the only tracked modification.
+
+## 2026-07-15 C4 invalid-record integration checkpoint 2
+
+- Main verification: branch `master`, exact HEAD `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`; the authorized campaign notes file is the sole tracked modification and the complete unrelated untracked inventory remains untouched.
+- Evidence-worktree verification: branch `experiment/barn-vm-c4-tostr-20260715`, exact closure HEAD `781c4fa7af10791ee125648bd46083732eb03f63`, completely clean; its parent is exact preregistration commit `2c06488c23ef9009562ec56ad31b22e4aa4d4669`.
+- Evidence inspection: Read the four exact committed experiment artifacts. The closure record states the two frozen source-shape mismatches, no source/candidate/holdout execution, zero budget use, and an untested retry-eligible hypothesis.
+- Ledger delta verification: Relative to base `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`, the experiment branch changes only C4's status/evidence/cause and appends the Round 1 non-execution/zero-budget statement required by the integration prompt.
+- Current state: No integration artifact or ledger edit, staging, commit, source/test/benchmark/profile/build/conformance/oracle/holdout execution, push, switch, merge, rebase, cherry-pick, fetch, or pull has occurred.
+- Current blocker: none.
+- Next action: create the four exact evidence artifacts with `apply_patch`, verify their hashes against closure commit `781c4fa7af10791ee125648bd46083732eb03f63`, then apply only the verified ledger delta and append the required completion section to these notes.
+
+## 2026-07-15 C4 invalid-record integration checkpoint 3
+
+- Created all four authorized evidence artifacts with `apply_patch`.
+- Exact-hash result: `experiments/2026-07-15-c4-tostr-triage.md` already matches closure blob `05523e62a0c9c83b50b050468b71e7b80b77a6da` exactly.
+- The three generated `.txt` artifacts initially have correct visible content but LF working-tree line endings, so their blob hashes do not yet match the closure commit's CRLF blobs. They are not accepted as exact evidence yet.
+- Verified no Git attribute specifies text/EOL conversion for those paths and repository `core.autocrlf` is `false`. The installed `unix2dos` command is available for the required mechanical line-ending normalization after the `apply_patch` content edit.
+- Current state: No ledger edit, staging, commit, source/test/benchmark/profile/build/conformance/oracle/holdout execution, push, switch, merge, rebase, cherry-pick, fetch, or pull has occurred.
+- Current blocker: none; exact generated-artifact byte verification remains incomplete.
+- Next action: mechanically convert only the three authorized generated text artifacts to CRLF, verify all four blob hashes exactly against closure commit `781c4fa7af10791ee125648bd46083732eb03f63`, and proceed only on exact match.
+
+## 2026-07-15 C4 invalid-preregistration record integration completion
+
+- Evidence commits: preregistration `2c06488c23ef9009562ec56ad31b22e4aa4d4669`; invalid-record closure `781c4fa7af10791ee125648bd46083732eb03f63`.
+- Integrated exact experiment artifacts:
+  - `experiments/2026-07-15-c4-tostr-triage.md`
+  - `experiments/2026-07-15-c4-tostr-before.txt`
+  - `experiments/2026-07-15-c4-tostr-before-summary.txt`
+  - `experiments/2026-07-15-c4-evaluator-tree.txt`
+- Ledger record: C4 is `invalid preregistration; corrected retry eligible`; the two frozen source-shape mismatches are recorded, and Round 1 records that C4 did not execute.
+- Budget state: 0/8 triage probes and 0/3 full experiments consumed.
+- Execution state: no source edit/commit, candidate measurement, targeted test, evaluator execution, holdout, promotion, or integration of candidate source occurred.
+- Evidence verification: all four integrated experiment artifact blob hashes exactly match closure commit `781c4fa7af10791ee125648bd46083732eb03f63`; the integrated ledger is byte-identical to the closure worktree ledger.
+- Hygiene result: authored Markdown passes `git diff --cached --check`. The whole staged check reports only the exact CRLF bytes in the three committed generated text artifacts, which were preserved to keep their closure-commit blob identities.
+- Current blocker: none for this record-only integration.
+- Next action: prepare a separate corrected C4 branch, worktree, and preregistration citing the actual source shape.
