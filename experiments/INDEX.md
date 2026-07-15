@@ -124,3 +124,16 @@ No manual server command is a correctness gate.
 Established and committed the current development baseline and campaign frame.
 No candidate work occurred, and neither holdout row was run, profiled, tuned
 from, or otherwise opened.
+
+### Instrumentation 0 — 2026-07-15
+
+Collected aggregate CPU and allocation profiles for exactly the seven
+development rows at commit `c87229f66a4cf6e45234275f1eed53db8722aa77`.
+Evidence: [profile report](../reports/barn-vm-current-profile-2026-07-15.md),
+[raw CPU profile](2026-07-15-vm-dev-cpu.prof),
+[CPU flat view](2026-07-15-vm-dev-cpu-top.txt),
+[CPU cumulative view](2026-07-15-vm-dev-cpu-cum.txt),
+[raw allocation profile](2026-07-15-vm-dev-mem.prof),
+[allocation-space view](2026-07-15-vm-dev-alloc-space-top.txt), and
+[allocation-object view](2026-07-15-vm-dev-alloc-objects-top.txt).
+No candidate, holdout, source, conformance, or oracle work occurred.
