@@ -497,3 +497,20 @@
 - Budget state: 0/8 triage probes and 0/3 full experiments remain consumed.
 - Current blocker: none.
 - Next action: Commit this exact correction-commit identity as a notes-only campaign record without pushing, switching, or promoting.
+
+## 2026-07-15 C4 triage worker checkpoint
+
+- Current findings: Read the controlling C4 triage prompt, experiment-worktree `AGENTS.md`, Campaign and Experiment protocols, `experiments/INDEX.md`, and the required Go performance, string, zero-copy-string, and benchmarking-statistics skills. The prompt now explicitly authorizes this mandatory checkpoint notes append as the sole pre-verification write exception.
+- Current state: No branch/base/worktree verification, evaluator inventory, benchmark, source edit, test, holdout, staging, commit, push, switch, promotion, or main-worktree modification has occurred. The candidate scout report remains unread.
+- Current blocker: none after this checkpoint append.
+- Next action: Verify branch `experiment/barn-vm-c4-tostr-20260715`, exact base `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`, and complete tracked/untracked state, allowing only this checkpoint notes modification; stop on any other mismatch.
+
+## 2026-07-15 C4 triage preregistration
+
+- State verification passed: branch `experiment/barn-vm-c4-tostr-20260715`, exact base/HEAD `12acccaa82b3d893275d4ff9498a1ed5f8bd1468`, and no change other than the authorized checkpoint notes append before evaluator creation and measurement.
+- Evaluator inventory: `experiments/2026-07-15-c4-evaluator-tree.txt`, hash `cd73e8865515ff92518dde9c350cd3041dfe0391`; it includes every listed `builtins` and `vm` test path, including `vm/perf_bench_test.go`.
+- Baseline command passed with three `BenchmarkVM/tostr_200k` samples: 36,898,406 / 36,481,175 / 35,853,056 ns/op; 12,808,091 / 12,808,090 / 12,808,089 B/op; and 599,912 allocs/op for all three samples.
+- Baseline benchstat medians: 36.48 ms/op, 12.21 MiB/op, and 599.9k allocs/op. With the preregistered three samples, benchstat reports no 95% confidence interval.
+- Preregistration status: `experiments/2026-07-15-c4-tostr-triage.md` freezes the C4 hypothesis, single variable, primary metric, exact commands, evaluator hash/base, 150,000 allocs/op minimum effect, three-sample plan, analysis, survival/kill/falsification criteria, holdout prohibition, and triage-only status. No source edit has occurred.
+- Current blocker: none.
+- Next action: stage exactly the five required preregistration paths, verify that exact staged inventory, and commit before any source edit.
