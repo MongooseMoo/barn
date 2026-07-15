@@ -2,7 +2,7 @@
 
 Date: 2026-07-15
 
-Status: preregistered directional triage on experiment branch; source change not yet made.
+Status: measured directional triage survivor on experiment branch; full confirmation required; not promoted.
 
 Experiment branch: `experiment/barn-vm-c4-tostr-retry-20260715`
 
@@ -90,4 +90,48 @@ separate full confirmation experiment and independent verification.
 
 ## Results
 
-Not yet measured.
+Evidence commits:
+
+- Preregistration: `7138dfe` (`experiment: preregister corrected C4 tostr triage`).
+- Mandatory preregistration checkpoint: `16c0fda` (`notes: checkpoint corrected C4 preregistration`).
+- Source delta: `b806c9d` (`perf: bypass builder for one-argument tostr`).
+
+Targeted correctness gate:
+
+- Exact command: `go test ./builtins ./vm`.
+- Result: pass; `barn/builtins` completed in 1.458s and `barn/vm` completed in 1.428s.
+
+Candidate measurement:
+
+- Exact command: `go test ./vm -run='^$' -bench='^BenchmarkVM/tostr_200k$' -benchmem -count=3 -cpu=1 | Tee-Object -FilePath experiments/2026-07-15-c4-retry-after.txt`.
+- Command exit status: 0.
+- Raw artifact: `experiments/2026-07-15-c4-retry-after.txt`.
+- Summary artifact: `experiments/2026-07-15-c4-retry-after-summary.txt`.
+- Comparison artifact: `experiments/2026-07-15-c4-retry-comparison.txt`.
+- Sample 1: 33,288,606 ns/op; 10,927,776 B/op; 399,912 allocs/op.
+- Sample 2: 32,255,764 ns/op; 10,927,775 B/op; 399,912 allocs/op.
+- Sample 3: 35,858,203 ns/op; 10,927,776 B/op; 399,912 allocs/op.
+- Exact medians: 33,288,606 ns/op; 10,927,776 B/op; 399,912 allocs/op.
+- Benchstat medians: 33.29 ms/op; 10.42 MiB/op; 399.9k allocs/op.
+- Benchstat interval note: with the preregistered three samples, `benchstat` reports `± ∞` and `~` because at least four samples are needed to detect a difference and at least six are needed for the 95% median interval. No additional or selective samples were run.
+
+Directional gate calculation:
+
+- Primary allocation delta: 599,912 to 399,912 median allocs/op, exactly 200,000 fewer allocs/op. This clears the preregistered minimum meaningful effect of 150,000 by 50,000 allocs/op.
+- Timing direction: 35,773,548 to 33,288,606 median ns/op, 2,484,942 ns/op lower. Pass.
+- B/op guard: 12,808,091 to 10,927,776 median B/op, 1,880,315 B/op lower. Pass.
+- Targeted correctness: pass.
+- Evaluator seal: pass. Exact command `git diff --exit-code 7138dfe -- 'builtins/*_test.go' 'vm/*_test.go'` exited 0 with empty output over every inventoried evaluator path.
+
+Operational interpretation: direct `allocs/op` instrumentation shows the intended
+one-argument allocation cost shrank by exactly one allocation per each of the
+200,000 `tostr(i)` calls in the benchmark. The measured remaining cost is
+399,912 median allocs/op; the intended cost did not remain unchanged and did
+not merely shrink below the threshold.
+
+Holdout and promotion state: neither sealed holdout row was run, profiled,
+tuned from, or otherwise opened. This three-sample directional result is not
+promotion evidence and the source commit remains only on this experiment
+branch.
+
+Outcome: `triage-survivor; full confirmation required`.

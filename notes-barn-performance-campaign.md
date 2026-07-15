@@ -611,3 +611,30 @@
 - Clean-state verification: complete tracked and untracked status was empty immediately after the preregistration commit.
 - Current blocker: none.
 - Next action: commit this mandatory checkpoint into the preregistration state so the branch is clean, then apply only the corrected single-variable source delta to `builtins/types.go`.
+
+## 2026-07-15 C4 corrected-retry measurement checkpoint 5
+
+- Source commit: `b806c9d` (`perf: bypass builder for one-argument tostr`) changes only `builtins/types.go` by adding the eight-line direct one-argument path before the byte-for-byte existing Builder path.
+- Targeted correctness gate: exact command `go test ./builtins ./vm` passed (`barn/builtins` 1.458s; `barn/vm` 1.428s).
+- Candidate execution: ran the exact three-sample paired command once and only once. Samples were 33,288,606 / 32,255,764 / 35,858,203 ns/op; 10,927,776 / 10,927,775 / 10,927,776 B/op; and 399,912 allocs/op for all three samples.
+- Candidate medians: 33,288,606 ns/op; 10,927,776 B/op; 399,912 allocs/op.
+- Preliminary exact gate arithmetic: median allocs/op fell by exactly 200,000, clearing the 150,000 threshold; median sec/op is lower than the 35,773,548 baseline; median B/op is lower than the 12,808,091 baseline.
+- Remaining gates: create the required candidate summary and A/B comparison with `benchstat`; verify the evaluator-path diff from preregistration commit `7138dfe` is empty; then close the record and ledger without changing frozen fields.
+- Current blocker: none.
+- Next action: create `experiments/2026-07-15-c4-retry-after-summary.txt` with `benchstat`, then create `experiments/2026-07-15-c4-retry-comparison.txt` with `benchstat`.
+
+## 2026-07-15 C4 corrected-retry triage completion
+
+- Preregistration commit: `7138dfe`; mandatory clean-state checkpoint commit: `16c0fda`; source commit: `b806c9d`.
+- Exact source slice: only `builtins/types.go`; a direct one-argument branch calls `valueToStr` once, refreshes context limits, applies the existing final string-limit check/error, and returns `types.NewStr`. Zero- and multi-argument paths remain on the existing Builder path; no helper, test, benchmark, evaluator, or second source path changed.
+- Correctness result: exact command `go test ./builtins ./vm` passed.
+- Baseline medians: 35,773,548 ns/op; 12,808,091 B/op; 599,912 allocs/op.
+- Candidate medians: 33,288,606 ns/op; 10,927,776 B/op; 399,912 allocs/op.
+- Gate result: exactly 200,000 fewer median allocs/op, 2,484,942 lower median ns/op, and 1,880,315 lower median B/op. All directional survival conditions pass.
+- Operational allocation interpretation: the intended cost shrank by exactly one allocation for each of the benchmark's 200,000 one-argument `tostr(i)` calls; 399,912 median allocs/op remain.
+- Evaluator result: `git diff --exit-code 7138dfe -- 'builtins/*_test.go' 'vm/*_test.go'` exited 0 with empty output.
+- Decision: `triage-survivor; full confirmation required`. The source commit is kept only on this experiment branch; no revert is required and no promotion/integration is authorized.
+- Campaign ledger: only the C4 row and Round 1 log were updated; budget is 1/8 triage probes and 0/3 full experiments.
+- Prohibited actions: neither holdout row, conformance, oracle, main worktree, branch switch, merge, rebase, cherry-pick, push, promotion, second idea, nor Ward was used.
+- Current blocker: none.
+- Next action: stage only the completed record, candidate raw/summary/comparison artifacts, C4 ledger delta, and this campaign-notes completion; commit them and verify the branch is clean.

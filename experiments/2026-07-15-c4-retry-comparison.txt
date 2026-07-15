@@ -1,0 +1,21 @@
+goos: windows
+goarch: amd64
+pkg: barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+              │ experiments/2026-07-15-c4-retry-before.txt │ experiments/2026-07-15-c4-retry-after.txt │
+              │                   sec/op                   │         sec/op          vs base           │
+VM/tostr_200k                                 35.77m ± ∞ ¹             33.29m ± ∞ ¹  ~ (p=0.400 n=3) ²
+¹ need >= 6 samples for confidence interval at level 0.95
+² need >= 4 samples to detect a difference at alpha level 0.05
+
+              │ experiments/2026-07-15-c4-retry-before.txt │ experiments/2026-07-15-c4-retry-after.txt │
+              │                    B/op                    │          B/op           vs base           │
+VM/tostr_200k                                12.21Mi ± ∞ ¹            10.42Mi ± ∞ ¹  ~ (p=0.100 n=3) ²
+¹ need >= 6 samples for confidence interval at level 0.95
+² need >= 4 samples to detect a difference at alpha level 0.05
+
+              │ experiments/2026-07-15-c4-retry-before.txt │ experiments/2026-07-15-c4-retry-after.txt │
+              │                 allocs/op                  │       allocs/op         vs base           │
+VM/tostr_200k                                 599.9k ± ∞ ¹             399.9k ± ∞ ¹  ~ (p=0.100 n=3) ²
+¹ need >= 6 samples for confidence interval at level 0.95
+² need >= 4 samples to detect a difference at alpha level 0.05

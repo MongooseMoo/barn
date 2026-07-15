@@ -119,7 +119,7 @@ No manual server command is a correctness gate.
 | C1 | Carry cached frame/code/IP through VM-owned operand decode | proposed: Round 1 probe 4 | `reports/barn-vm-candidate-scout-2026-07-15.md` C1 | pending isolated `int_arith_1M` decode line profile; kill below 8% combined decode/frame samples or if reloads are compiler-elided |
 | C2 | Replace `CountsTick` switch with immutable opcode metadata | proposed: Round 1 probe 2 | `reports/barn-vm-candidate-scout-2026-07-15.md` C2 | pending isolated `int_arith_1M` CPU/list profile; kill below 2% flat share |
 | C3 | Resolve builtin line-sync metadata and dispatch entry once | proposed: Round 1 probe 3 | `reports/barn-vm-candidate-scout-2026-07-15.md` C3 | pending isolated `builtin_abs_200k` CPU profile; kill if duplicate resolutions are not visible or registry cluster is below 5% flat |
-| C4 | Fast-path one-argument `tostr` without concatenation Builder | invalid preregistration; corrected retry eligible | `experiments/2026-07-15-c4-tostr-triage.md` | current `builtinTostr` Builder declaration/loop precedes `UpdateContextLimits(ctx)`, contradicting frozen branch placement; current `valueToStr` returns only `string`, contradicting frozen error propagation instruction |
+| C4 | Fast-path one-argument `tostr` without concatenation Builder | triage-survivor; full confirmation required | `experiments/2026-07-15-c4-tostr-retry-triage.md` | corrected retry reduced median allocs/op 599,912 -> 399,912 (exactly 200,000 fewer), median time 35,773,548 -> 33,288,606 ns/op, and median B/op 12,808,091 -> 10,927,776; targeted tests and evaluator seal passed; not promotion evidence |
 | C5 | Compact append-heavy `strRep` header without changing COW | eligible: deferred after Round 1 | `reports/barn-vm-candidate-scout-2026-07-15.md` C5 | not run; representation probe deferred behind cheaper C4 string-allocation probe |
 | C6 | Compact append-heavy `sliceList` header without changing COW | eligible: deferred after Round 1 | `reports/barn-vm-candidate-scout-2026-07-15.md` C6 | not run; representation probe deferred because timing is noisy and alias-sensitive prototype cost is higher |
 
@@ -162,3 +162,11 @@ No candidate source is authorized for integration by this preregistration.
 
 C4 did not execute because its frozen preregistration contradicted the current
 source shape. Budget remains 0/8 triage probes and 0/3 full experiments.
+
+C4 corrected retry executed on branch
+`experiment/barn-vm-c4-tostr-retry-20260715`. The exact one-argument Builder
+bypass reduced median allocs/op by 200,000, lowered median sec/op, lowered
+median B/op, passed `go test ./builtins ./vm`, and preserved the evaluator
+seal. C4 is `triage-survivor; full confirmation required`; it is not promotion
+evidence and no holdout was opened. Budget is now 1/8 triage probes and 0/3
+full experiments consumed.
