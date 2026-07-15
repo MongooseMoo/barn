@@ -514,3 +514,20 @@
 - Preregistration status: `experiments/2026-07-15-c4-tostr-triage.md` freezes the C4 hypothesis, single variable, primary metric, exact commands, evaluator hash/base, 150,000 allocs/op minimum effect, three-sample plan, analysis, survival/kill/falsification criteria, holdout prohibition, and triage-only status. No source edit has occurred.
 - Current blocker: none.
 - Next action: stage exactly the five required preregistration paths, verify that exact staged inventory, and commit before any source edit.
+
+## 2026-07-15 C4 invalid-preregistration closure checkpoint
+
+- Current findings: Read the controlling closure prompt, worktree `AGENTS.md`, Campaign and Experiment protocols, and the frozen C4 record. The frozen record still ends with an unmeasured Results placeholder and must be closed without changing any PREREG field.
+- Current state: Branch verification passed for `experiment/barn-vm-c4-tostr-20260715`. Exact preregistration HEAD and complete tracked-state verification remain pending. No source edit/revert, test, benchmark, profile, build, conformance, oracle, holdout, branch switch, merge, rebase, cherry-pick, push, or promotion action occurred.
+- Current blocker: none after this checkpoint append.
+- Next action: verify HEAD is exactly preregistration commit `2c06488c23ef9009562ec56ad31b22e4aa4d4669`, then verify complete tracked/untracked state permits only this authorized campaign-notes modification.
+
+## 2026-07-15 C4 invalid-preregistration closure
+
+- Invalid preregistration commit: `2c06488c23ef9009562ec56ad31b22e4aa4d4669`.
+- Source-shape evidence: current `builtinTostr` declares and runs its Builder loop before `UpdateContextLimits(ctx)`, contradicting the frozen branch placement; current `valueToStr` returns only `string`, contradicting the frozen instruction to propagate an existing error unchanged.
+- Execution state: invalid before source change. No source edit/commit, targeted test, candidate measurement, evaluator diff, holdout, or promotion action occurred. Baseline/preregistration artifacts are not candidate evidence, and the C4 hypothesis remains untested.
+- Budget state: 0/8 triage probes and 0/3 full experiments consumed.
+- Worker recommendation: abandon this invalid preregistration, not the C4 hypothesis.
+- Current blocker: none.
+- Next action: prepare a separate corrected C4 branch/worktree/preregistration that cites the actual source shape.

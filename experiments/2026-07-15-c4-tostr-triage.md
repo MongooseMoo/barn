@@ -74,3 +74,12 @@ experiment and independent verification.
 
 Not yet measured.
 
+## Results / Closure
+
+- Status: invalid before source change.
+- Source-shape mismatch 1: current `builtinTostr` Builder declaration/loop precedes `UpdateContextLimits(ctx)`, contradicting the frozen branch placement.
+- Source-shape mismatch 2: current `valueToStr` returns only `string`, contradicting the frozen error propagation instruction.
+- Execution record: no source edit/commit, targeted test, candidate measurement, evaluator diff, holdout, or promotion action occurred.
+- Evidence status: baseline/preregistration artifacts exist but are not candidate evidence.
+- Hypothesis status: the hypothesis remains untested and may be retried only under a new corrected preregistration that cites the actual source shape.
+- Worker recommendation: abandon this invalid preregistration, not the C4 hypothesis.
