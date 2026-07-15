@@ -1,0 +1,76 @@
+goos: windows
+goarch: amd64
+pkg: barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/int_arith_1M         	      37	  32174851 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  34276784 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  31981192 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  31445762 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  32265330 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  31840284 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  32059892 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      38	  31239532 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  31126230 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/int_arith_1M         	      37	  31370470 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      36	  33010689 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      36	  32959175 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      34	  32933065 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      36	  33030453 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      36	  32907642 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      34	  32936041 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      34	  33275388 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      34	  32931950 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      31	  32938471 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/float_arith_1M       	      36	  32502503 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/string_concat_10k    	    1730	    836557 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1417	    840226 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1434	    862368 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1380	    865871 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1425	    835252 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1456	    835114 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1436	    832591 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1471	    839930 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1411	    851588 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/string_concat_10k    	    1438	    877576 ns/op	  531944 B/op	   10034 allocs/op
+BenchmarkVM/list_append_10k      	     895	   1155139 ns/op	 1465929 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1364	    857076 ns/op	 1465928 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1420	    851096 ns/op	 1465928 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1405	    969465 ns/op	 1465929 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1101	   1106636 ns/op	 1465930 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1102	   1043511 ns/op	 1465930 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1424	    999488 ns/op	 1465929 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1080	   1098716 ns/op	 1465930 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1068	   1085027 ns/op	 1465930 B/op	   10048 allocs/op
+BenchmarkVM/list_append_10k      	    1393	    978671 ns/op	 1465929 B/op	   10048 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80322886 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80350929 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80920614 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  79974657 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80103564 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  79630100 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  79733707 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80732036 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80462350 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/list_index_1M        	      14	  80475121 ns/op	  116448 B/op	    1034 allocs/op
+BenchmarkVM/builtin_abs_200k     	      86	  13898081 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      86	  13536817 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      86	  13449145 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      85	  13403855 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      86	  13581879 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      86	  13612822 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      85	  13432698 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      84	  14699683 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      87	  14133972 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/builtin_abs_200k     	      86	  13540892 ns/op	    8864 B/op	      11 allocs/op
+BenchmarkVM/tostr_200k           	      31	  37048758 ns/op	12808091 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  35659434 ns/op	12808087 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      33	  36214364 ns/op	12808091 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  36041356 ns/op	12808091 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  36188731 ns/op	12808092 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  36487781 ns/op	12808090 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  36330703 ns/op	12808090 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  35881344 ns/op	12808091 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      33	  35602945 ns/op	12808088 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k           	      32	  35389894 ns/op	12808088 B/op	  599912 allocs/op
+PASS
+ok  	barn/vm	88.040s
