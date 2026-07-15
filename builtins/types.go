@@ -29,14 +29,6 @@ func builtinTostr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) == 0 {
 		return types.Ok(types.NewStr(""))
 	}
-	if len(args) == 1 {
-		resultStr := valueToStr(args[0])
-		UpdateContextLimits(ctx)
-		if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
-			return types.Err(err)
-		}
-		return types.Ok(types.NewStr(resultStr))
-	}
 
 	var result strings.Builder
 	for _, val := range args {
