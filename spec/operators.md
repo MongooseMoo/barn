@@ -492,6 +492,7 @@ left != right
 - Same type required for equality
 - Different types are never equal
 - Lists/maps compared by value (deep)
+- WAIFs compare by reference identity: aliases are equal and separately created WAIFs are unequal
 
 **Type strictness:** Equality requires **exact type match**. INT and FLOAT are never equal.
 
@@ -538,7 +539,7 @@ left > right
 left >= right
 ```
 
-**Valid types:** INT, FLOAT, STR
+**Valid types:** INT, FLOAT, STR, plus the WAIF special case below.
 
 **Type strictness:** Both operands must be the **same type**. No INT/FLOAT coercion.
 
@@ -547,6 +548,12 @@ operators therefore compare strings case-insensitively; `==`, `!=`, `equal()`,
 and `strcmp()` remain case-sensitive. This distinction is verified against
 Toast by
 `../moo-conformance-tests/src/moo_conformance/_tests/language/string_comparison_case.yaml`.
+
+**WAIF comparison:** Relational comparison of two WAIFs uses the default zero
+ordering result independently of reference equality. Thus `a < b` and `a > b`
+are false, while `a <= b` and `a >= b` are true, even for distinct WAIFs.
+This does not make WAIFs sortable: using WAIF values as `sort()` keys raises
+`E_TYPE`.
 
 **Examples:**
 ```moo
@@ -567,7 +574,7 @@ Toast by
 ```
 
 **Errors:**
-- `E_TYPE`: Incompatible types (including INT vs FLOAT)
+- `E_TYPE`: Incompatible types (including INT vs FLOAT); the WAIF/WAIF special case does not raise
 
 ### 9.3 Membership (`in`)
 
@@ -838,13 +845,19 @@ object.(expression)
 - `E_PROPNF`: Property not found
 - `E_PERM`: Property not readable
 
-### 14.2 Waif Property Access (`.:`)
+### 14.2 Waif Property Access (`.`)
 
 ```moo
-waif.:property
+waif.property
 ```
 
-**Semantics:** Access property on waif object
+**Semantics:** Access or assign a property on a WAIF. Copies of the same WAIF
+are aliases, so a property assignment through one alias is visible through all
+of them. Assigning the WAIF to one of its own properties, directly or through
+a list or map, raises `E_RECMOVE`.
+
+`waif.class` returns its class object, `waif.wizard` and `waif.programmer`
+return `0`, and assigning `waif.class` raises `E_PERM`.
 
 ### 14.3 Indexing (`[ ]`)
 
@@ -874,6 +887,19 @@ here and in `types.md`.
 **Errors:**
 - `E_RANGE`: Index out of bounds
 - `E_TYPE`: Invalid index type
+
+**WAIF indexing:** A WAIF whose valid class is owned by a wizard may dispatch
+indexed access to executable class handlers. `waif[key]` calls `:_index` with
+the key. `waif[key] = value` calls `:_set_index` with the key and value; the
+handler's return value replaces the indexed base, so a handler returning `this`
+preserves a local WAIF variable.
+
+If the required handler is absent, or the WAIF class is not wizard-owned,
+indexing raises `E_TYPE`. If the class has been recycled, indexing raises
+`E_INVIND`.
+
+These WAIF operator semantics are frozen by
+[`waif_authority.yaml`](../../moo-conformance-tests/src/moo_conformance/_tests/language/waif_authority.yaml).
 
 ### 14.4 Verb Call (`:`)
 
@@ -976,4 +1002,5 @@ defined in Section 14.3, not bytecode or VM token values.
 | `{}` | No |
 | `[]` | No |
 | `false` | No |
+| WAIF | No |
 | Everything else | Yes |

@@ -545,14 +545,24 @@ anon = create($thing, $nothing, 1);
 
 **Signature:** `new_waif() → WAIF`
 
-**Description:** Creates lightweight object.
+**Description:** Creates a lightweight object. This builtin is invoked from a
+verb: the receiver of the calling verb becomes the WAIF class and the current
+programmer becomes its owner. The class and owner do not change afterward,
+and each call creates a distinct reference identity.
 
-**Properties accessed via `.:` syntax:**
+**Properties use ordinary `.` syntax and aliases share mutation:**
 ```moo
-w = new_waif();
-w.:name = "example";
-value = w.:name;
+waif_class = create($waif);
+add_property(waif_class, ":name", "", {player, ""});
+w = waif_class:new();
+alias = w;
+alias.name = "example";
+value = w.name;
 ```
+
+**Errors:**
+- `E_INVIND`: The receiver used as the WAIF class is recycled or invalid.
+- `E_INVARG`: The receiver is an anonymous object.
 
 ---
 

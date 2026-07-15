@@ -105,8 +105,11 @@ values. The accepted database tags are:
 
 Toast writes floats with `DBL_DIG + 4` significant digits. A WAIF creation uses
 `c <index>`, class, owner, indexed non-clear properties, `-1`, and `.`; a later
-reference uses `r <index>` and `.`. Anonymous values allocate or reuse an
-above-permanent-range serialization ID and write that number.
+reference uses `r <index>` and `.`. Every reference to one index reloads as the
+same WAIF identity, including after dump and managed restart; mutation through
+one alias is therefore visible through every other alias. Anonymous values
+allocate or reuse an above-permanent-range serialization ID and write that
+number.
 
 ## 4. Next-generation object records
 
@@ -225,8 +228,9 @@ atomic replacement or crash durability.
 
 The release contract remains functional v4/v17 input and v17 output. A round
 trip must preserve MOO-visible world, source, value, topology, task, and
-connection state required by the selected profile; textual byte identity is
-not required. Narrow object-only or value-only round trips do not prove the
+connection state required by the selected profile. Repeated WAIF references
+must remain one identity across round trip and restart; textual byte identity
+is not required. Narrow object-only or value-only round trips do not prove the
 full database contract.
 
 ## 8. Verification boundary

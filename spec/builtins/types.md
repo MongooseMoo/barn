@@ -23,7 +23,7 @@ Type conversion functions transform values between MOO types.
 | LIST | 4 | TYPE_LIST |
 | FLOAT | 9 | TYPE_FLOAT |
 | MAP | 10 | TYPE_MAP |
-| WAIF | 12 | TYPE_WAIF |
+| WAIF | 13 | TYPE_WAIF |
 | BOOL | 14 | TYPE_BOOL |
 
 **Examples:**
@@ -35,6 +35,7 @@ typeof(E_TYPE)    => 3  (TYPE_ERR)
 typeof({1,2,3})   => 4  (TYPE_LIST)
 typeof(3.14)      => 9  (TYPE_FLOAT)
 typeof(["a"->1])  => 10 (TYPE_MAP)
+typeof(waif)      => 13 (TYPE_WAIF)
 typeof(true)      => 14 (TYPE_BOOL)
 ```
 
@@ -59,6 +60,7 @@ typeof(true)      => 14 (TYPE_BOOL)
 | ERR | Error name (E_TYPE, etc.) |
 | LIST | "{...}" format |
 | MAP | "[...]" format |
+| WAIF | `"[[waif]]"` |
 | BOOL | "true" or "false" |
 
 **Examples:**
@@ -70,11 +72,15 @@ tostr(#0)              => "#0"
 tostr(E_TYPE)          => "Type mismatch"
 tostr({1, 2})          => "{list}"  (not expanded)
 tostr(["a" -> 1])      => "[map]"   (not expanded)
+tostr(waif)            => "[[waif]]"
 tostr(true)            => "true"
 tostr("a", 1, "b")     => "a1b"
 ```
 
 **Note:** Collections (lists, maps) are formatted as `"{list}"` and `"[map]"` rather than being fully expanded. Use `toliteral()` for expanded representation.
+
+For a WAIF with class `#C` and owner `#O`, `toliteral(waif)` returns exactly
+`"[[class = #C, owner = #O]]"`.
 
 **Errors:** None
 
@@ -271,7 +277,7 @@ const (
     TYPE_LIST  TypeCode = 4
     TYPE_FLOAT TypeCode = 9
     TYPE_MAP   TypeCode = 10
-    TYPE_WAIF  TypeCode = 12
+    TYPE_WAIF  TypeCode = 13
     TYPE_BOOL  TypeCode = 14
 )
 
