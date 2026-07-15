@@ -252,8 +252,13 @@ Verbs can specify expected arguments:
 1. Parse command: `verb dobj prep iobj`
 2. Find verb on dobj's ancestor chain
 3. Check verb argument specifiers match
-4. Check execute permission
-5. Call verb with context variables
+4. Call verb with context variables
+
+Parsed command dispatch does not check the verb's `x` permission. Toast's
+`db_find_command_verb()` matches the command name and argument specifiers only;
+the `x` permission applies to programmed verb calls such as `obj:verb()`.
+This distinction is covered by
+`gap_followups_toast_oracle::audit_command_dispatch_ignores_execute_flag`.
 
 ### 5.5 Context Variables
 
