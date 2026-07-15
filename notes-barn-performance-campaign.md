@@ -600,3 +600,14 @@
 - Execution state: no baseline command, summary, source edit/commit, targeted test, candidate measurement, evaluator diff, holdout, ledger update, staging, or commit has occurred in this retry task.
 - Current blocker: none.
 - Next action: create the exact evaluator-inventory artifact from the enumerated tracked paths, record its Git blob hash in the preregistration, then run the baseline command exactly once.
+
+## 2026-07-15 C4 corrected-retry preregistration checkpoint 4
+
+- Baseline execution: ran the exact three-sample current-branch command once and only once. Samples were 35,773,548 / 36,281,969 / 35,746,906 ns/op; 12,808,092 / 12,808,091 / 12,808,091 B/op; and 599,912 allocs/op for all three samples.
+- Baseline medians: 35,773,548 ns/op; 12,808,091 B/op; 599,912 allocs/op. `benchstat` summarized 35.77 ms/op, 12.21 MiB/op, and 599.9k allocs/op, with the expected infinite interval for three samples.
+- Evaluator seal: `experiments/2026-07-15-c4-retry-evaluator-tree.txt` contains all 28 tracked `*_test.go` paths under `builtins` and `vm`, including `vm/perf_bench_test.go`; Git blob hash `aa9f498a0f1da710714880c317e87185ee933616`.
+- Preregistration commit: `7138dfe` (`experiment: preregister corrected C4 tostr triage`) contains the corrected frozen record, baseline raw/summary artifacts, evaluator inventory, and prior authorized checkpoints.
+- Hygiene observation: the staged diff contained only the five authorized paths. Authored Markdown and the LF evaluator inventory were clean; `git diff --cached --check` reported only CRLF bytes in the exact Tee/benchstat generated artifacts, which were preserved as complete command output.
+- Clean-state verification: complete tracked and untracked status was empty immediately after the preregistration commit.
+- Current blocker: none.
+- Next action: commit this mandatory checkpoint into the preregistration state so the branch is clean, then apply only the corrected single-variable source delta to `builtins/types.go`.
