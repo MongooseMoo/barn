@@ -390,3 +390,53 @@
 - Current status: collection, report, ledger, notes, cleanup, and applicable hygiene checks are complete; final staged-content verification and commit remain.
 - Current blocker: none.
 - Next required action: restage this authorized notes update, verify the exact staged diff, and commit descriptively without pushing.
+
+## 2026-07-15 VM candidate scout checkpoint
+
+- Current findings: Read the controlling scout prompt, repository `AGENTS.md`, Campaign protocol, Foreman protocol, scout role instructions, and the required Go performance, methodology, and pprof skills. No repository source, history, test, benchmark, profile, holdout result, or campaign ledger has been inspected yet.
+- Current state: Required instruction loading is incomplete; four required Go skills remain unread. No probe, candidate, holdout, source execution, test, benchmark, profile, build, conformance, oracle command, or source edit has occurred.
+- Blocker: Mandatory checkpoint interrupted instruction loading; there is no external blocker after this checkpoint is recorded.
+- Next action: Finish reading the four remaining required Go skills, then verify branch `master`, expected HEAD `d9c9f4dfe7d9fe8ffe0168f8e6a6738ad04f7a7d`, tracked state, and all pre-existing untracked state before any further writing.
+
+## 2026-07-15 VM candidate scout evidence checkpoint
+
+- Current findings: Verified branch `master` at exact HEAD `d9c9f4dfe7d9fe8ffe0168f8e6a6738ad04f7a7d`. The only tracked diff is this scout's authorized checkpoint notes; the complete pre-existing untracked inventory was enumerated and remains untouched. Read `experiments/INDEX.md`, the prior-art gate, and the current aggregate development profile. The profile attributes aggregate CPU to VM dispatch/stack/bytecode/builtin paths and aggregate allocation churn chiefly to list append, string append, `NewStr`, integer formatting, and Builder growth; it explicitly cannot assign those aggregate shares to individual rows without isolated probes.
+- Current state: Required instructions and mandatory campaign artifacts are fully read. No test, benchmark, profile, escape analysis, build, conformance, oracle, holdout, candidate, or source execution has occurred. No source/test/benchmark/ledger file has been edited.
+- Blocker: none.
+- Next action: Perform the prompt's read-only investigation of the exact source owners, directly relevant tests/benchmark/compiler consumers, and Git/report/ledger history while excluding sealed holdout results and execution.
+
+## 2026-07-15 VM candidate scout source-owner checkpoint
+
+- Current findings: Read every exact measured production owner named by the scout prompt. The dispatch loop performs an immediate-op test, opcode switch call, tick predicate and context-tick sync for counted opcodes, yield check, and limit check per instruction (`vm/vm.go`); stack and bytecode reads are small methods over cached frame state (`vm/stack.go`). Builtin calls read two operands, slice fixed args directly from the VM stack, separately query line-sync metadata, then call the registry, where the same entry is bounds-checked again before protected redirect and signature validation (`vm/op_misc.go`, `builtins/registry.go`). String and list append use alias-safe copy-on-write frontier watermarks and return new heap headers even on backing reuse (`types/str.go`, `types/list.go`); these header/aliasing semantics are correctness constraints. `tostr` builds through `strings.Builder`, formats each value to a Go string, checks the materialized result length, then boxes it with `NewStr` (`builtins/types.go`).
+- Current state: Exact production owners are read; compiler/bytecode consumers, development benchmark definition excluding holdout result inspection, relevant correctness tests, and Git/report/ledger history remain. No prohibited execution or edit occurred.
+- Blocker: none.
+- Next action: Read compiler and bytecode consumers that establish emitted opcode/terminator/peephole shapes, then the development benchmark source without opening holdout results, then contract tests and adjacent history.
+
+## 2026-07-15 VM candidate scout compiler-benchmark checkpoint
+
+- Current findings: The compiler emits a frame-popping terminator for all compiled programs and fork extraction appends `OP_RETURN_NONE`; the dispatch loop relies on that invariant. Fixed-argument builtins compile args directly followed by `OP_CALL_BUILTIN <id> <argc>`, while splice calls build lists through list append/extend. Effect-context self-accumulation compiles `x = x + expr` through `OP_STRING_APPEND` for numeric and string rows, and self-list append compiles through `OP_LIST_APPEND`; these compiler choices couple several development rows to the same production surfaces. The seven allowed development workload definitions and benchmark harness were read without inspecting holdout results or executing anything. Each timed iteration creates a fresh task context and VM, then runs a precompiled program; compilation and store creation are outside the timer.
+- Current state: Compiler/bytecode consumers and development benchmark source are read. Relevant correctness and aliasing tests plus adjacent Git/report/ledger history remain.
+- Blocker: none.
+- Next action: Read the focused VM/string/list/value/builtin/bytecode contract tests that constrain the measured owners, then search Git and durable reports/ledgers for every adjacent kept, rejected, skipped, superseded, or blocked optimization.
+
+## 2026-07-15 VM candidate scout contract checkpoint
+
+- Current findings: Focused tests require list and string aliases to retain old content across divergent appends, including aliases captured in lists, maps, properties, slices, and multi-binding chains. Numeric/string self-accumulation through `OP_STRING_APPEND` must preserve int, float, string, and strict mixed-type behavior. VM tests pin implicit return-zero and the universal terminator invariant. Builtin tests pin invalid-ID `E_VERBNF`, arg count/type validation, protected redirect/fallthrough/deny behavior, and concurrent protected-set reads. Value tests pin zero-allocation scalar int construction/read, exact scalar representation, distinct cross-type values, explicit `None`/`Unbound`, and string equality semantics. Bytecode tests pin empty-program termination plus absolute handler-IP rebasing and relative jump preservation in extracted fork bodies.
+- Current state: Focused correctness/aliasing/value/builtin/bytecode contracts are read. The remaining scout work is the adjacent Git/report/ledger audit, eligibility synthesis, report writing, documentation/Git hygiene, notes finalization, and commit.
+- Blocker: none.
+- Next action: Search Git history and durable performance artifacts for every nearby kept, rejected, skipped, superseded, or blocked VM optimization, mapping each candidate family to its exact prior cause and current eligibility.
+
+## 2026-07-15 VM candidate scout prior-art checkpoint
+
+- Current findings: Git and durable reports confirm the end-of-code check removal, cached frame, scalar de-box, fixed-argc stack-window args, lock-free protected snapshot, ID-indexed builtin entries, inline validation, numeric-first self-accumulation, O(1) list byte sizing, and watermark-backed list/string growth are already implemented. Switching self-accumulation from `OP_STRING_APPEND` to `OP_ADD` remains blocked/dead because its float-overflow and `PROMOTE_NUMBERS` behavior still differs and the required Toast semantic verification has not changed. The old O(n^2) append hypothesis is dead/already fixed, but per-append string/list header allocation was explicitly left unexecuted; the new current profile now measures those exact headers as dominant allocation owners, so that narrower constant-factor family is eligible. Smaller initial VM stack/frame capacities and loop/exception preallocation removal were previously rejected and current `NewVM` evidence is only 0.67% of allocation space, so they remain dead/dominated. Registration-time protected-builtin caching remains invalid because runtime options mutate the protected set; the current atomic snapshot is already implemented.
+- Current state: Source, compiler, development benchmark, focused contracts, Git history, and adjacent durable performance records are substantially complete. No execution or source edit occurred.
+- Blocker: none.
+- Next action: Finish the eligibility synthesis against exact current line citations, choose no more than eight distinct one-surface hypotheses, rank the non-dominated set, specify four or fewer first-round probes, write the authorized report, run documentation/Git hygiene, finalize notes, and commit only the two authorized paths.
+
+## 2026-07-15 VM candidate scout completion
+
+- Current findings: Created `reports/barn-vm-candidate-scout-2026-07-15.md` with exact repository/search identity, measured source-shape findings and correctness constraints, an explicit prior-art eligibility table, six one-surface falsifiable hypotheses, separate CPU/allocation non-dominated rankings, first-round exclusions, the pre-existing scheduler ID-collision gate note, and a four-probe recommended triage round.
+- Scout commit/status: report and campaign-note deliverables are complete and `git diff --check` passes; the commit containing this line is the scout commit whose exact hash is returned to the foreman. No push, branch switch, promotion, or ledger update is authorized.
+- Execution record: no triage probe, candidate, holdout, test, benchmark, profile, escape analysis, build, conformance, oracle, or production/source execution occurred. No source, test, benchmark, or `experiments/INDEX.md` edit occurred.
+- Current blocker: none.
+- Next required action: stage only `reports/barn-vm-candidate-scout-2026-07-15.md` and `notes-barn-performance-campaign.md`, verify the exact staged diff, commit descriptively, and return the exact commit hash without pushing.
