@@ -13,14 +13,19 @@ import (
 // the highest committed append index so growth is amortized-O(1) without
 // mutating aliases.
 type strRep struct {
-	val       string
 	data      []byte
 	watermark *int
 }
 
 // NewStr creates a string value.
 func NewStr(s string) Value {
-	return Value{tag: TYPE_STR, ref: unsafe.Pointer(&strRep{val: s})}
+	var data []byte
+	if len(s) > 0 {
+		// This is a read-only view. Its nil watermark prevents appendRep from
+		// ever writing into the string's immutable backing bytes.
+		data = unsafe.Slice(unsafe.StringData(s), len(s))
+	}
+	return Value{tag: TYPE_STR, ref: unsafe.Pointer(&strRep{data: data})}
 }
 
 // strValue boxes an existing strRep into a Value.
@@ -40,33 +45,23 @@ func growStringCap(needed int) int {
 }
 
 func (s *strRep) byteLen() int {
-	if s.data != nil {
-		return len(s.data)
-	}
-	return len(s.val)
+	return len(s.data)
 }
 
 func (s *strRep) copyTo(dst []byte) {
-	if s.data != nil {
-		copy(dst, s.data)
-		return
-	}
-	copy(dst, s.val)
+	copy(dst, s.data)
 }
 
 func (s *strRep) appendTo(dst []byte) []byte {
-	if s.data != nil {
-		return append(dst, s.data...)
-	}
-	return append(dst, s.val...)
+	return append(dst, s.data...)
 }
 
 // str returns the materialized Go string.
 func (s *strRep) str() string {
-	if s.data != nil {
-		return string(s.data)
+	if len(s.data) == 0 {
+		return ""
 	}
-	return s.val
+	return unsafe.String(unsafe.SliceData(s.data), len(s.data))
 }
 
 // appendRep returns a strRep with other appended, preserving MOO value
@@ -101,12 +96,7 @@ func (s *strRep) literal() string {
 	result.WriteByte('"')
 	n := s.byteLen()
 	for i := 0; i < n; i++ {
-		var b byte
-		if s.data != nil {
-			b = s.data[i]
-		} else {
-			b = s.val[i]
-		}
+		b := s.data[i]
 		switch {
 		case b == '"':
 			result.WriteString("\\\"")
