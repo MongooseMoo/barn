@@ -674,3 +674,11 @@
 - Full-gate state: the full gate failed at `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`. C4 therefore remains isolated on its experiment branch pending a green full gate and a later full confirmation experiment.
 - Integration boundary: no holdout was opened and no candidate source, test, benchmark, evaluator, or other production path was integrated on `master`.
 - Next action: C2 is the preregistered Round 1 probe 2; execute C2 next while C4 remains isolated.
+
+## 2026-07-15 C4 survivor-record integration commit checkpoint
+
+- Created record-only commit `c14e6abf91a0fa24268ec7615292858e69ae7371` (`docs: record C4 triage survivor evidence`) with exactly the nine authorized paths: the seven exact evidence artifacts, `experiments/INDEX.md`, and this campaign notes file.
+- The pre-commit staged inventory and full diff were inspected. All seven staged evidence blob identities matched final record commit `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`; the staged ledger blob matched the evidence ledger exactly; no unstaged tracked diff remained.
+- Hygiene result: authored Markdown passed `git diff --cached --check`. The whole staged check reported only CRLF-as-trailing-whitespace in the five benchmark-generated artifacts whose exact committed bytes were required and preserved.
+- Current blocker: none; the mandatory post-commit checkpoint notes append requires a final notes-only commit before tracked-clean verification.
+- Next action: resolve the full commit identity, commit this authorized checkpoint append, then verify `master` tracked-clean and return the final master commit hash.
