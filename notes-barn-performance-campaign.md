@@ -573,3 +573,104 @@
 - Hygiene result: authored Markdown passes `git diff --cached --check`. The whole staged check reports only the exact CRLF bytes in the three committed generated text artifacts, which were preserved to keep their closure-commit blob identities.
 - Current blocker: none for this record-only integration.
 - Next action: prepare a separate corrected C4 branch, worktree, and preregistration citing the actual source shape.
+
+## 2026-07-15 campaign manager checkpoint: invalid record independently adopted
+
+- Record-only integration commit `2e57e90ad3d94958deb2c3b103fbdc78a82836e6` is independently verified as the exact `master` HEAD.
+- `master` has an empty tracked status after the integration commit.
+- The integration record reports exact blob identity for all four closure artifacts, the ledger status `invalid preregistration; corrected retry eligible`, and zero budget consumption.
+- No candidate source, test, measurement, evaluator execution, holdout, promotion, or candidate integration occurred.
+- Current blocker: the C4 ledger and closure record still require the manager's content review before a corrected retry base and source variable may be authorized.
+- Next action: review the committed C4 ledger row, Round 1 log, and closure record; if exact, prepare a new corrected C4 branch/worktree from this commit.
+
+## 2026-07-15 workflow correction: Ward removed
+
+- The user explicitly states Ward is not installed, is not a campaign dependency or blocker, and must never be invoked again.
+- All earlier Ward-oriented coordination assumptions are superseded. No future Barn campaign action may run or wait on a Ward command.
+- Campaign work continues through ordinary physical prompts, scoped workers, Git accountability, experiment records, and the existing repository rules.
+- Current state: the invalid C4 record is independently reviewed and exact; budget remains 0/8 triage probes and 0/3 full experiments.
+- Current blocker: none.
+- Next action: commit the current manager notes, then prepare the separate corrected C4 branch/worktree/preregistration from the resulting clean `master` commit.
+
+## 2026-07-15 corrected C4 worktree preparation checkpoint
+
+- Main worktree branch is exactly `master`.
+- Main worktree HEAD is exactly `2e57e90ad3d94958deb2c3b103fbdc78a82836e6`.
+- The only tracked modification is `notes-barn-performance-campaign.md`.
+- Unrelated untracked files were inventoried and left untouched.
+- Local branch `experiment/barn-vm-c4-tostr-retry-20260715` is absent.
+- Resolved blocker: the mandatory checkpoint initially lacked an authorized notes-file path; the controlling prompt now explicitly authorizes this append.
+- Current blocker: none; the target path and worktree registration preconditions remain to be verified.
+- Next action: verify `C:\Users\Q\code\barn-worktrees\c4-tostr-retry-20260715` is absent and not registered as a worktree, then create the exact branch/worktree only if every prerequisite passes.
+
+## 2026-07-15 corrected C4 independent verifier checkpoint
+
+- Verifier prompt reread from `prompts/barn-vm-c4-retry-verify.md`; it authorizes this main-notes append as the sole write exception and keeps the experiment worktree read-only.
+- Worktree `AGENTS.md` and the Campaign protocol have been read. No Ward command has been or will be used.
+- No Git state, experiment artifact, measurement, source delta, evaluator surface, or correctness gate has yet been inspected in this resumed verification.
+- Current blocker: none.
+- Next action: read the required Experiment, Go performance, and benchmarking-statistics skills completely, then verify the exact branch, clean status, and linear commit chain before artifact analysis.
+
+## 2026-07-15 corrected C4 independent verifier artifact checkpoint
+
+- All required verifier authorities are read: worktree `AGENTS.md`, Campaign, Experiment, Go performance, and Go benchmarking-statistics.
+- Exact branch is `experiment/barn-vm-c4-tostr-retry-20260715`; status is empty including untracked files; HEAD is final record commit `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`.
+- Required commits are a direct-parent linear chain: base `2e57e90`, preregistration `7138dfe`, notes checkpoint `16c0fda`, source `b806c9d`, final record `3a9c205`.
+- Completed retry record is read. Baseline raw samples are 35,773,548 / 36,281,969 / 35,746,906 ns/op, 12,808,092 / 12,808,091 / 12,808,091 B/op, and 599,912 allocs/op for all three. Candidate raw samples are 33,288,606 / 32,255,764 / 35,858,203 ns/op, 10,927,776 / 10,927,775 / 10,927,776 B/op, and 399,912 allocs/op for all three.
+- Both raw benchmark artifacts identify the same Windows amd64 environment, `barn/vm` package, AMD Ryzen 9 5950X CPU, exact benchmark row, and PASS result.
+- Current blocker: none.
+- Next action: finish reading the referenced summaries/comparison and evaluator inventory, then independently recompute all medians, deltas, percentages, and frozen survival gates from raw samples.
+
+## 2026-07-15 corrected C4 independent verifier integrity checkpoint
+
+- Every referenced retry raw, summary, comparison, and evaluator-inventory artifact is read.
+- Independent medians: baseline 599,912 allocs/op, 35,773,548 ns/op, 12,808,091 B/op; candidate 399,912 allocs/op, 33,288,606 ns/op, 10,927,776 B/op.
+- Independent candidate-minus-baseline deltas: -200,000 allocs/op; -2,484,942 ns/op (-6.9463112800553075%); -1,880,315 B/op. All three frozen numeric survival criteria pass, and the allocation reduction clears the 150,000 threshold by 50,000.
+- Frozen preregistration fields are unchanged after `7138dfe`; only the top-level status changed and results were appended.
+- Evaluator diff from preregistration to final is empty. The prereg evaluator-inventory blob is exactly the recorded `aa9f498a0f1da710714880c317e87185ee933616`, and its entries exactly match all tracked `builtins/*_test.go` and `vm/*_test.go` paths.
+- Source commit `b806c9d` changes only `builtins/types.go`; final preserves that source blob unchanged. The base-to-final source delta adds only the eight-line one-argument direct path. Existing zero-argument empty-string behavior and multi-argument Builder code are unchanged; no helper, test, benchmark, evaluator, or second source surface changed.
+- The prereg commit contains the baseline raw/summary, evaluator inventory, and frozen record before the source commit; the final commit adds the candidate raw/summary/comparison and completed results afterward.
+- Current blocker: none.
+- Next action: inspect only the exact `BenchmarkVM/tostr_200k` benchmark implementation and relevant semantic contracts for dead-code/weakening risk, finish all adversarial explanations, then run the required full Go gate exactly once.
+
+## 2026-07-15 C4 survivor-record integration checkpoint
+
+- Controlling prompt read: `prompts/barn-vm-c4-survivor-record-integration.md`.
+- Required authorities read: repository `AGENTS.md`, Campaign protocol, Experiment protocol, and the current campaign notes through the corrected C4 independent-verifier integrity checkpoint.
+- Authorized task: integrate only the independently verified C4 retry record and exact evidence artifacts on `master`; candidate source and all source/test/benchmark/evaluator paths remain forbidden.
+- Required evidence identities from the prompt: preregistration `7138dfe6971b717d6d7457403642a2a71a1324ca`, source `b806c9db99073f4bd5137b119e8caf55b6922027`, and final record `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`.
+- Protocol effect: C4 may be recorded only as `triage-survivor; full confirmation required`; no holdout, promotion, or candidate-source integration is authorized.
+- Current state: No branch, HEAD, tracked/untracked state, evidence-worktree state, commit ancestry, record contents, or blob identity has yet been verified in this integration turn. No evidence artifact, ledger, source, test, benchmark, evaluator, staging, commit, push, switch, merge, rebase, cherry-pick, fetch, or pull action has occurred.
+- Current blocker: none external; prerequisite repository-state and evidence verification remains pending.
+- Next action: read the completed C4 retry record, then verify main `master` at exact HEAD `2e57e90ad3d94958deb2c3b103fbdc78a82836e6` with this notes file as the only tracked modification.
+
+## 2026-07-15 C4 survivor-record integration checkpoint 2
+
+- Main verification: branch `master`, exact HEAD `2e57e90ad3d94958deb2c3b103fbdc78a82836e6`; this authorized campaign notes file is the sole tracked modification. The complete unrelated untracked inventory was captured and remains untouched.
+- Evidence-worktree verification: branch `experiment/barn-vm-c4-tostr-retry-20260715`, exact final-record HEAD `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`, completely clean.
+- Linear evidence chain verified: base `2e57e90ad3d94958deb2c3b103fbdc78a82836e6`; preregistration `7138dfe6971b717d6d7457403642a2a71a1324ca`; mandatory notes checkpoint `16c0fdad21a4e6001ed56bf94153548575b2a147`; source `b806c9db99073f4bd5137b119e8caf55b6922027`; final record `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`. Each commit is the direct parent of the next.
+- Completed retry record read. It records exact medians from 599,912 to 399,912 allocs/op, 35,773,548 to 33,288,606 ns/op, and 12,808,091 to 10,927,776 B/op; outcome `triage-survivor; full confirmation required`; no holdout or promotion.
+- Exact evidence blobs inventoried: record `7868fdfb2cb679c122a4208c25901c826f77d966`; evaluator tree `aa9f498a0f1da710714880c317e87185ee933616`; before raw `807add56bd5e08ecf300effb0101fe1128c3d83f`; before summary `43cc59c9ecdd997046af62acb2b8b98f9198605c`; after raw `349b5d262fedda892045b10209f103b3d4e1caeb`; after summary `4963aa0da2a9c504cb02c1a9c60de2045d483bdb`; comparison `d6cbaf7b00d347db1daeb860ff116cea1a4e4ee2`.
+- Artifact inspection so far: the evaluator inventory, baseline raw output, and baseline summary are read; no artifact has yet been created on `master`.
+- Current blocker: none; exact evidence content inspection and transfer remain incomplete.
+- Next action: read the remaining committed evidence artifacts, recreate all seven authorized artifacts with `apply_patch`, and verify their Git blob identities before editing the ledger.
+
+## 2026-07-15 C4 survivor-record integration checkpoint 3
+
+- All seven authorized evidence artifacts were recreated on `master` with `apply_patch` after reading the exact committed contents from final record commit `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`.
+- Initial blob verification passed exactly for the Markdown record (`7868fdfb2cb679c122a4208c25901c826f77d966`) and evaluator inventory (`aa9f498a0f1da710714880c317e87185ee933616`).
+- The five benchmark-generated text artifacts had correct content but LF line endings after `apply_patch`, so their initial hashes did not match the committed CRLF blobs.
+- Applied only the prompt-authorized mechanical line-ending conversion to the five benchmark-generated text artifacts with `unix2dos`; their post-conversion blob identities have not yet been reverified.
+- No ledger edit, staging, commit, source/test/benchmark/profile/build/conformance/oracle/holdout execution, push, switch, merge, rebase, cherry-pick, fetch, or pull has occurred.
+- Current blocker: none; exact post-conversion blob verification remains pending.
+- Next action: recompute all seven working-tree Git blob hashes and proceed only if every hash matches the evidence commit exactly.
+
+## 2026-07-15 C4 triage-survivor record integration completion
+
+- Exact evidence commits: preregistration `7138dfe6971b717d6d7457403642a2a71a1324ca`; source `b806c9db99073f4bd5137b119e8caf55b6922027`; final record `3a9c205d3e275ca2dba5e754a091cb65db5d2c6c`.
+- Independent verification: the evidence worktree is clean at the exact final record commit; the commit chain is linear; frozen preregistration fields are unchanged; the evaluator seal is empty; all seven integrated evidence artifacts match their final-record Git blobs exactly; and the integrated ledger matches the evidence branch ledger byte-for-byte.
+- Exact measured medians: allocs/op 599,912 to 399,912, delta -200,000; ns/op 35,773,548 to 33,288,606, delta -2,484,942 (-6.9463112800553075%); B/op 12,808,091 to 10,927,776, delta -1,880,315.
+- Result: C4 is `triage-survivor; full confirmation required`. Budget is 1/8 triage probes and 0/3 full experiments consumed.
+- Full-gate state: the full gate failed at `TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent`. C4 therefore remains isolated on its experiment branch pending a green full gate and a later full confirmation experiment.
+- Integration boundary: no holdout was opened and no candidate source, test, benchmark, evaluator, or other production path was integrated on `master`.
+- Next action: C2 is the preregistered Round 1 probe 2; execute C2 next while C4 remains isolated.
