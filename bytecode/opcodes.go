@@ -243,12 +243,15 @@ func MakeImmediateOpcode(value int) (OpCode, bool) {
 	return OpCode(int(OP_IMM_BASE) + value - OP_IMM_MIN), true
 }
 
+var opcodeCountsTick = [256]bool{
+	OP_CALL_BUILTIN:   true,
+	OP_CALL_VERB:      true,
+	OP_LOOP:           true,
+	OP_FOR_RANGE_NEXT: true,
+	OP_PASS:           true,
+}
+
 // CountsTick reports whether an opcode counts toward tick limit
 func CountsTick(op OpCode) bool {
-	switch op {
-	case OP_CALL_BUILTIN, OP_CALL_VERB, OP_LOOP, OP_FOR_RANGE_NEXT, OP_PASS:
-		return true
-	default:
-		return false
-	}
+	return opcodeCountsTick[op]
 }
