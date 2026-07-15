@@ -440,3 +440,19 @@
 - Execution record: no triage probe, candidate, holdout, test, benchmark, profile, escape analysis, build, conformance, oracle, or production/source execution occurred. No source, test, benchmark, or `experiments/INDEX.md` edit occurred.
 - Current blocker: none.
 - Next required action: stage only `reports/barn-vm-candidate-scout-2026-07-15.md` and `notes-barn-performance-campaign.md`, verify the exact staged diff, commit descriptively, and return the exact commit hash without pushing.
+
+## 2026-07-15 VM ledger ideation checkpoint
+
+- Current findings: Read the controlling ideation prompt, Barn `AGENTS.md`, the `protocols:researcher` role instructions, the Campaign protocol, `experiments/INDEX.md`, the candidate scout report, and the full campaign notes. The manager-authorized candidate rows and exact Round 1 preregistration text are ready to be recorded without running any candidate work.
+- Current state: No branch/HEAD/worktree verification, test, benchmark, profile, build, conformance, oracle, holdout, source command, staging, or commit has occurred. This mandatory checkpoint append is the only repository write by this worker so far.
+- Current blocker: none.
+- Next action: Verify branch `master`, expected HEAD `aa9370312039dca9484a5180b4b30135833d9d1c`, and complete tracked/untracked state before any ledger edit.
+
+## 2026-07-15 VM ledger ideation completion
+
+- Ideation commit/status: The authorized ledger and campaign-note updates are complete; the commit containing this line is the ideation commit whose exact hash is returned to the campaign manager.
+- Accepted Round 1 probe order: C4, C2, C3, C1. C5 and C6 remain eligible but deferred after Round 1.
+- Campaign budget remains 0/8 triage probes and 0/3 full experiments consumed. No candidate source is authorized for integration by this preregistration.
+- Execution status: No test, benchmark, profile, build, conformance, oracle, holdout, source command, push, branch switch, or promotion occurred.
+- Current blocker: none.
+- Next action: Run documentation/Git hygiene checks, stage only `experiments/INDEX.md` and `notes-barn-performance-campaign.md`, verify the exact staged diff, and commit descriptively without pushing.
