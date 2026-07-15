@@ -492,8 +492,8 @@
 ## 2026-07-15 C4 sample-count correction
 
 - Correction: Before any C4 data collection, the candidate row now specifies a three-sample-per-side `tostr_200k` directional source probe, and the Round 1 preregistration records that the Experiment protocol's minimum replaced the scout's proposed two samples.
-- Correction commit: pending creation of the immutable documentation correction commit; its exact hash will be appended in a follow-up notes-only record commit so the recorded hash remains valid.
+- Correction commit: `fd60567ffb70e5ef45fa169325c1d6d7a17347e6` (`docs: correct C4 directional sample count`) contains the corrected ledger wording and pre-execution protocol paragraph.
 - Execution state: C4 remains unrun. No C4 benchmark, source edit, preregistration, holdout, or candidate command has run.
 - Budget state: 0/8 triage probes and 0/3 full experiments remain consumed.
 - Current blocker: none.
-- Next action: Run documentation/Git hygiene checks, stage only `experiments/INDEX.md` and `notes-barn-performance-campaign.md`, verify the exact staged diff, and create the descriptive correction commit without pushing, switching, or promoting.
+- Next action: Commit this exact correction-commit identity as a notes-only campaign record without pushing, switching, or promoting.
