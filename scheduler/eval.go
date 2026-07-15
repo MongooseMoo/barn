@@ -65,7 +65,8 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	// semantics match normal task execution.
 	mgr := task.GetManager()
 	ticks, secondsLimit := foregroundTaskLimits()
-	t := mgr.CreateTask(player, ticks, secondsLimit)
+	t := task.NewTask(s.newTaskID(), player, ticks, secondsLimit)
+	mgr.RegisterTask(t)
 	defer mgr.RemoveTask(t.ID)
 	t.Programmer = player
 	t.ForkCreator = s // Enable fork support in eval commands

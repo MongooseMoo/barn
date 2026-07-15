@@ -3,15 +3,13 @@ package task
 import (
 	"barn/types"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 // Manager is a global singleton that manages all tasks
 type Manager struct {
-	tasks      map[int64]*Task
-	nextTaskID int64
-	mu         sync.RWMutex
+	tasks map[int64]*Task
+	mu    sync.RWMutex
 }
 
 var (
@@ -23,23 +21,10 @@ var (
 func GetManager() *Manager {
 	globalManagerOnce.Do(func() {
 		globalManager = &Manager{
-			tasks:      make(map[int64]*Task),
-			nextTaskID: 1,
+			tasks: make(map[int64]*Task),
 		}
 	})
 	return globalManager
-}
-
-// CreateTask creates a new task and adds it to the manager
-func (m *Manager) CreateTask(owner types.ObjID, tickLimit int64, secondsLimit float64) *Task {
-	id := atomic.AddInt64(&m.nextTaskID, 1)
-	task := NewTask(id, owner, tickLimit, secondsLimit)
-
-	m.mu.Lock()
-	m.tasks[id] = task
-	m.mu.Unlock()
-
-	return task
 }
 
 // GetTask retrieves a task by ID
