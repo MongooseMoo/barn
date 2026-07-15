@@ -382,7 +382,10 @@ set_task_local({#123, "request-456", time()});  // Store tuple
 
 **Permissions:** Wizard only.
 
-**Returns:** The value previously stored with `set_task_local()`, or 0 if none.
+**Returns:** The value previously stored with `set_task_local()`, or an empty
+map if none. A forked child starts with its own empty map and does not inherit
+its parent's task-local value; suspending and resuming one task preserves that
+task's value.
 
 **Examples:**
 ```moo
