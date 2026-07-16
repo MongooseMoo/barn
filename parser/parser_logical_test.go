@@ -1,16 +1,19 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestLogicalOperators(t *testing.T) {
 	tests := []struct {
 		input    string
-		operator TokenType
+		operator verb.BinaryOperator
 	}{
-		{"a && b", TOKEN_AND},
-		{"x || y", TOKEN_OR},
-		{"true && false", TOKEN_AND},
-		{"1 || 0", TOKEN_OR},
+		{"a && b", verb.BinaryAnd},
+		{"x || y", verb.BinaryOr},
+		{"true && false", verb.BinaryAnd},
+		{"1 || 0", verb.BinaryOr},
 	}
 
 	for _, tt := range tests {
@@ -21,7 +24,7 @@ func TestLogicalOperators(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
@@ -35,12 +38,12 @@ func TestLogicalOperators(t *testing.T) {
 
 func TestLogicalPrecedence(t *testing.T) {
 	tests := []struct {
-		input    string
-		rootOp   TokenType
-		desc     string
+		input  string
+		rootOp verb.BinaryOperator
+		desc   string
 	}{
-		{"a || b && c", TOKEN_OR, "should parse as a || (b && c)"},
-		{"a && b || c && d", TOKEN_OR, "should parse as (a && b) || (c && d)"},
+		{"a || b && c", verb.BinaryOr, "should parse as a || (b && c)"},
+		{"a && b || c && d", verb.BinaryOr, "should parse as (a && b) || (c && d)"},
 	}
 
 	for _, tt := range tests {
@@ -51,7 +54,7 @@ func TestLogicalPrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr at root, got %T", expr)
 			}
@@ -72,27 +75,27 @@ func TestLogicalVsComparison(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	binary, ok := expr.(*BinaryExpr)
+	binary, ok := expr.(*verb.BinaryExpr)
 	if !ok {
 		t.Fatalf("expected BinaryExpr at root, got %T", expr)
 	}
 
-	if binary.Operator != TOKEN_AND {
+	if binary.Operator != verb.BinaryAnd {
 		t.Errorf("expected AND at root, got %s", binary.Operator)
 	}
 
 	// Both sides should be comparison operators
-	leftBinary, ok := binary.Left.(*BinaryExpr)
+	leftBinary, ok := binary.Left.(*verb.BinaryExpr)
 	if !ok {
 		t.Errorf("expected left to be BinaryExpr, got %T", binary.Left)
-	} else if leftBinary.Operator != TOKEN_LT {
+	} else if leftBinary.Operator != verb.BinaryLess {
 		t.Errorf("expected left to be <, got %s", leftBinary.Operator)
 	}
 
-	rightBinary, ok := binary.Right.(*BinaryExpr)
+	rightBinary, ok := binary.Right.(*verb.BinaryExpr)
 	if !ok {
 		t.Errorf("expected right to be BinaryExpr, got %T", binary.Right)
-	} else if rightBinary.Operator != TOKEN_GT {
+	} else if rightBinary.Operator != verb.BinaryGreater {
 		t.Errorf("expected right to be >, got %s", rightBinary.Operator)
 	}
 }

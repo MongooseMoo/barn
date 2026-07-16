@@ -5,7 +5,7 @@ import (
 	"barn/types"
 	"bufio"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -86,7 +86,7 @@ func LoadDatabase(path string) (*Database, error) {
 		return nil, err
 	}
 	for _, msg := range database.startupRepairLogs {
-		log.Print(msg)
+		slog.Warn(msg, slog.String("src", "startup_repair"))
 	}
 	return database, nil
 }

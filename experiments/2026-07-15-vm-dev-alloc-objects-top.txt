@@ -1,0 +1,28 @@
+File: vm.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build3604729509\b001\vm.test.exe2026-07-15 12:50:22.1500504 -0600 MDT
+Type: alloc_objects
+Time: 2026-07-15 12:50:49 MDT
+Showing nodes accounting for 127117102, 99.89% of 127252720 total
+Dropped 26 nodes (cum <= 636263)
+      flat  flat%   sum%        cum   cum%
+  53415015 41.98% 41.98%   53415015 41.98%  barn/types.(*strRep).appendRep
+  35490400 27.89% 69.87%   35490400 27.89%  barn/types.(*sliceList).append
+  19607083 15.41% 85.27%   19607083 15.41%  barn/types.NewStr (inline)
+  13992149 11.00% 96.27%   13992149 11.00%  internal/strconv.FormatInt
+   4587590  3.61% 99.87%    4587590  3.61%  strings.(*Builder).WriteString (inline)
+     24865  0.02% 99.89%  127122065 99.90%  barn/vm.(*VM).Run
+         0     0% 99.89%   38191785 30.01%  barn/builtins.(*Registry).CallByID
+         0     0% 99.89%   38191785 30.01%  barn/builtins.(*Registry).dispatch
+         0     0% 99.89%   38186822 30.01%  barn/builtins.builtinTostr
+         0     0% 99.89%   13992149 11.00%  barn/builtins.valueToStr
+         0     0% 99.89%   35490400 27.89%  barn/types.Value.Append (inline)
+         0     0% 99.89%   53415015 41.98%  barn/types.Value.StrAppend (inline)
+         0     0% 99.89%  127097200 99.88%  barn/vm.(*VM).Execute
+         0     0% 99.89%   38191785 30.01%  barn/vm.(*VM).executeCallBuiltin
+         0     0% 99.89%   35490400 27.89%  barn/vm.(*VM).executeListAppend
+         0     0% 99.89%  127097200 99.88%  barn/vm.(*VM).executeLoop
+         0     0% 99.89%   53415015 41.98%  barn/vm.(*VM).executeStringAppend
+         0     0% 99.89%  127252399   100%  barn/vm.BenchmarkVM.func1
+         0     0% 99.89%   13992149 11.00%  strconv.FormatInt (inline)
+         0     0% 99.89%  126852617 99.69%  testing.(*B).launch
+         0     0% 99.89%  127252399   100%  testing.(*B).runN

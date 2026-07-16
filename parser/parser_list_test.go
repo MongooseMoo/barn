@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestParseListLiteral(t *testing.T) {
 	tests := []struct {
@@ -22,11 +25,11 @@ func TestParseListLiteral(t *testing.T) {
 			}
 
 			for i, expected := range tt.expected {
-				lit, ok := list.Elements[i].(*LiteralExpr)
+				lit, ok := list.Elements[i].(*verb.LiteralExpr)
 				if !ok {
 					t.Fatalf("element %d = %T, want *LiteralExpr", i, list.Elements[i])
 				}
-				if lit.Kind != LiteralInt {
+				if lit.Kind != verb.LiteralInt {
 					t.Fatalf("element %d kind = %v, want LiteralInt", i, lit.Kind)
 				}
 				if lit.IntValue != expected {
@@ -44,7 +47,7 @@ func TestParseNestedList(t *testing.T) {
 	}
 
 	assertIntLiteral(t, list.Elements[0], 1)
-	inner, ok := list.Elements[1].(*ListExpr)
+	inner, ok := list.Elements[1].(*verb.ListExpr)
 	if !ok {
 		t.Fatalf("element 1 = %T, want *ListExpr", list.Elements[1])
 	}
@@ -56,23 +59,23 @@ func TestParseNestedList(t *testing.T) {
 	assertIntLiteral(t, list.Elements[2], 4)
 }
 
-func parseListForTest(t *testing.T, input string) *ListExpr {
+func parseListForTest(t *testing.T, input string) *verb.ListExpr {
 	t.Helper()
 	expr := parseExprForTest(t, input)
-	list, ok := expr.(*ListExpr)
+	list, ok := expr.(*verb.ListExpr)
 	if !ok {
 		t.Fatalf("ParseExpression(%q) returned %T, want *ListExpr", input, expr)
 	}
 	return list
 }
 
-func assertIntLiteral(t *testing.T, expr Expr, expected int64) {
+func assertIntLiteral(t *testing.T, expr verb.Expr, expected int64) {
 	t.Helper()
-	lit, ok := expr.(*LiteralExpr)
+	lit, ok := expr.(*verb.LiteralExpr)
 	if !ok {
 		t.Fatalf("expr = %T, want *LiteralExpr", expr)
 	}
-	if lit.Kind != LiteralInt {
+	if lit.Kind != verb.LiteralInt {
 		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 	}
 	if lit.IntValue != expected {

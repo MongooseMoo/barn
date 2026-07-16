@@ -49,6 +49,25 @@ func TestMapKeepsThreeDistinctEntries(t *testing.T) {
 	}
 }
 
+func TestMapKeepsAdjacentFloatKeysDistinct(t *testing.T) {
+	one := NewFloat(1.0)
+	next := NewFloat(math.Nextafter(1.0, 2.0))
+	m := NewMap([][2]Value{
+		{one, NewStr("one")},
+		{next, NewStr("next")},
+	})
+
+	if got := m.Len(); got != 2 {
+		t.Fatalf("adjacent float keys collapsed to %d entry, want 2", got)
+	}
+	if v, ok := m.MapGet(one); !ok || v.Str() != "one" {
+		t.Errorf("1.0 key lookup = %v ok=%v, want one", v, ok)
+	}
+	if v, ok := m.MapGet(next); !ok || v.Str() != "next" {
+		t.Errorf("next float key lookup = %v ok=%v, want next", v, ok)
+	}
+}
+
 // --- int round-trip + zero-alloc ----------------------------------------
 
 func TestIntRoundTrip(t *testing.T) {

@@ -1,0 +1,9 @@
+goos: windows
+goarch: amd64
+pkg: barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkVM/tostr_200k         	      33	  35773548 ns/op	12808092 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k         	      32	  36281969 ns/op	12808091 B/op	  599912 allocs/op
+BenchmarkVM/tostr_200k         	      33	  35746906 ns/op	12808091 B/op	  599912 allocs/op
+PASS
+ok  	barn/vm	4.533s

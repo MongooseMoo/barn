@@ -6,9 +6,9 @@ import (
 
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
@@ -40,26 +40,13 @@ func BuildVMRegistry() *builtins.Registry {
 		}
 
 		code := fmt.Sprintf("%s", joinLines(lines))
-		p := parser.NewParser(code)
-		stmts, err := p.ParseProgram()
-		if err != nil {
-			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", err.Error())
+		prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), registry)
+		if len(diagnostics) > 0 {
 			return types.Ok(types.NewList([]types.Value{
 				types.NewInt(0),
-				types.NewList([]types.Value{types.NewStr(errorMsg)}),
+				types.NewList([]types.Value{types.NewStr(diagnostics[0].Error())}),
 			}))
 		}
-
-		c := bytecode.NewCompilerWithRegistry(registry)
-		prog, compileErr := c.CompileStatements(stmts)
-		if compileErr != nil {
-			errorMsg := fmt.Sprintf("Line 1:  syntax error: %s", compileErr.Error())
-			return types.Ok(types.NewList([]types.Value{
-				types.NewInt(0),
-				types.NewList([]types.Value{types.NewStr(errorMsg)}),
-			}))
-		}
-		prog.Source = strings.Split(code, "\n")
 
 		callerVM, vmOK := ctx.CallerVM.(*VM)
 		if !vmOK || callerVM == nil {
@@ -94,6 +81,7 @@ func BuildVMRegistry() *builtins.Registry {
 			BasePointer:     callerVM.SP,
 			Locals:          make([]types.Value, prog.NumLocals),
 			This:            types.ObjNothing,
+			ThisValue:       types.None,
 			Player:          ctx.Player,
 			Verb:            "",
 			Caller:          ctx.ThisObj,

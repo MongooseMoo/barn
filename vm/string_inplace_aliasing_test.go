@@ -77,7 +77,7 @@ func TestStringInplaceAppendPropertyCapture(t *testing.T) {
 	root.SetOwner(0)
 	root.SetName("Root")
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagProgrammer)
-	root.SetProperty("scratch", dbstore.NewProperty("scratch", types.NewStr(""), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("scratch", dbstore.NewProperty(types.NewStr(""), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}

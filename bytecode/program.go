@@ -75,6 +75,12 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	copy(code, p.Code[bodyIP:bodyIP+bodyLen])
 	code[bodyLen] = byte(OP_RETURN_NONE) // Implicit return at end of fork body
 
+	// OP_TRY_EXCEPT / OP_TRY_FINALLY operands are ABSOLUTE handler IPs in the
+	// parent program's coordinates; the extracted body starts at 0, so they
+	// must be rebased or the handler jump lands outside the sub-program.
+	// Relative operands (OP_JUMP family) need no adjustment.
+	rebaseAbsoluteHandlerIPs(code[:bodyLen], bodyIP)
+
 	// Adjust line info for the sub-program
 	var lineInfo []LineEntry
 	for _, entry := range p.LineInfo {
@@ -94,6 +100,55 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 		NumLocals: p.NumLocals, // Same local count (inherit all vars)
 		Source:    p.Source,
 	}
+}
+
+// rebaseAbsoluteHandlerIPs walks the instruction stream and subtracts bodyIP
+// from every absolute handler target: the per-clause handler IP of
+// OP_TRY_EXCEPT and the finally IP of OP_TRY_FINALLY. Nested fork bodies in
+// the range are rebased into this program's coordinates too; a later
+// extraction of the nested body subtracts its own bodyIP, which composes to
+// the correct final coordinates.
+func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) {
+	for ip := 0; ip < len(code); {
+		op := OpCode(code[ip])
+		ip++
+		operandCount := instructionOperandCount(op, code[ip:])
+		if operandCount > len(code)-ip {
+			operandCount = len(code) - ip
+		}
+		switch op {
+		case OP_TRY_FINALLY:
+			if operandCount == 2 {
+				rebaseShort(code, ip, bodyIP)
+			}
+		case OP_TRY_EXCEPT:
+			// Operands: numClauses, then per clause:
+			// numCodes, codes..., var+1, handlerIP hi, handlerIP lo.
+			end := ip + operandCount
+			clauses := int(code[ip])
+			pos := ip + 1
+			for c := 0; c < clauses && pos < end; c++ {
+				ipPos := pos + 1 + int(code[pos]) + 1
+				if ipPos+2 > end {
+					break
+				}
+				rebaseShort(code, ipPos, bodyIP)
+				pos = ipPos + 2
+			}
+		}
+		ip += operandCount
+	}
+}
+
+// rebaseShort rewrites the 2-byte big-endian value at code[i:i+2] minus delta.
+func rebaseShort(code []byte, i, delta int) {
+	v := decodeAbsoluteShort(code[i], code[i+1]) - delta
+	code[i] = byte(uint16(v) >> 8)
+	code[i+1] = byte(uint16(v) & 0xFF)
+}
+
+func decodeAbsoluteShort(hi, lo byte) int {
+	return int(uint16(hi)<<8 | uint16(lo))
 }
 
 // Matches checks if a handler matches an error code

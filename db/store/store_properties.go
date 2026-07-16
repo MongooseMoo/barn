@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]*Property {
-	result := make(map[string]*Property)
+func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]Property {
+	result := make(map[string]Property)
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
 
@@ -26,8 +26,7 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 			if _, _, exists := propertyByName(result, name); exists {
 				continue
 			}
-			result[name] = &Property{
-				name:    prop.name,
+			result[name] = Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
@@ -45,7 +44,7 @@ func propertyNameKey(name string) string {
 	return strings.ToLower(name)
 }
 
-func propertyByName(properties map[string]*Property, name string) (string, *Property, bool) {
+func propertyByName(properties map[string]Property, name string) (string, Property, bool) {
 	if prop, ok := properties[name]; ok {
 		return name, prop, true
 	}
@@ -54,7 +53,7 @@ func propertyByName(properties map[string]*Property, name string) (string, *Prop
 			return propName, prop, true
 		}
 	}
-	return "", nil, false
+	return "", Property{}, false
 }
 
 func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
@@ -74,15 +73,17 @@ func (s *Store) FindProperty(objID types.ObjID, name string) (PropertyView, type
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	prop, errCode := s.findPropertyLocked(objID, name)
+	resolvedName, prop, errCode := s.findPropertyLocked(objID, name)
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode
 	}
-	return prop.View(), types.E_NONE
+	return prop.View(resolvedName), types.E_NONE
 }
 
-func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, types.ErrorCode) {
-	var targetProp *Property
+func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Property, types.ErrorCode) {
+	var targetProp Property
+	var targetName string
+	targetFound := false
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
 
@@ -100,37 +101,30 @@ func (s *Store) findPropertyLocked(objID types.ObjID, name string) (*Property, t
 			continue
 		}
 
-		if _, prop, ok := propertyByName(current.properties, name); ok {
-			if targetProp == nil {
+		if actualName, prop, ok := propertyByName(current.properties, name); ok {
+			if !targetFound {
 				targetProp = prop
+				targetName = actualName
+				targetFound = true
 			}
 			if !prop.clear {
-				if targetProp != prop {
-					result := *targetProp
-					result.value = prop.value
-					result.clear = false
-					return &result, types.E_NONE
+				if targetProp.clear {
+					targetProp.value = prop.value
+					targetProp.clear = false
+					return targetName, targetProp, types.E_NONE
 				}
-				return prop, types.E_NONE
+				return actualName, prop, types.E_NONE
 			}
 		}
 
 		queue = append(queue, current.parents...)
 	}
 
-	return nil, types.E_PROPNF
+	return "", Property{}, types.E_PROPNF
 }
 
 func validLiveObject(obj *Object) bool {
 	return obj != nil && !obj.recycled && !obj.flags.Has(FlagInvalid)
-}
-
-func cloneProperty(prop *Property) *Property {
-	if prop == nil {
-		return nil
-	}
-	clone := *prop
-	return &clone
 }
 
 // DefinedPropertyNames returns properties defined directly on an object in
@@ -148,7 +142,7 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 	names := make([]string, 0, len(obj.properties))
 	for _, name := range obj.propOrder {
 		prop := obj.properties[name]
-		if prop != nil && prop.defined {
+		if prop.defined {
 			names = append(names, name)
 		}
 	}
@@ -186,7 +180,7 @@ func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[st
 			continue
 		}
 		for name, prop := range current.properties {
-			if prop != nil && prop.defined {
+			if prop.defined {
 				names[propertyNameKey(name)] = true
 			}
 		}
@@ -207,7 +201,7 @@ func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types
 			return false, types.E_INVARG
 		}
 		for name, prop := range obj.properties {
-			if prop == nil || !prop.defined {
+			if !prop.defined {
 				continue
 			}
 			key := propertyNameKey(name)
@@ -236,7 +230,7 @@ func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parent
 
 	ancestorNames := s.definedPropertyNamesInAncestryLocked(parentIDs)
 	for name, prop := range obj.properties {
-		if prop != nil && prop.defined && ancestorNames[propertyNameKey(name)] {
+		if prop.defined && ancestorNames[propertyNameKey(name)] {
 			return true, types.E_NONE
 		}
 	}
@@ -265,7 +259,7 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 				continue
 			}
 			for name, prop := range child.properties {
-				if prop != nil && prop.defined && names[propertyNameKey(name)] {
+				if prop.defined && names[propertyNameKey(name)] {
 					return true
 				}
 			}
@@ -298,9 +292,7 @@ func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCod
 
 	values := make([]types.Value, 0, len(obj.properties))
 	for _, prop := range obj.properties {
-		if prop != nil {
-			values = append(values, prop.value)
-		}
+		values = append(values, prop.value)
 	}
 	return values, types.E_NONE
 }
@@ -331,7 +323,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 			continue
 		}
 		for propName, prop := range current.properties {
-			if prop == nil || !strings.HasPrefix(strings.ToLower(propName), strings.ToLower(prefix)) {
+			if !strings.HasPrefix(strings.ToLower(propName), strings.ToLower(prefix)) {
 				continue
 			}
 			name := propName[len(prefix):]
@@ -362,11 +354,11 @@ func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, boo
 	if obj == nil {
 		return PropertyView{}, false, types.E_INVIND
 	}
-	_, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := propertyByName(obj.properties, name)
 	if !ok {
 		return PropertyView{}, false, types.E_NONE
 	}
-	return prop.View(), true, types.E_NONE
+	return prop.View(actualName), true, types.E_NONE
 }
 
 // DefinedProperty returns a read-only view of a property defined directly on the
@@ -421,7 +413,7 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if obj == nil {
 		return types.E_INVIND
 	}
-	_, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := propertyByName(obj.properties, name)
 	if !ok {
 		return types.E_PROPNF
 	}
@@ -433,7 +425,8 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if perms != nil {
 		prop.perms = *perms
 	}
-	stampProperty(prop, ts)
+	prop.version = ts
+	obj.properties[actualName] = prop
 	stampObjectProperties(obj, ts)
 	return types.E_NONE
 }
@@ -451,20 +444,20 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	}
 	s.rememberObjectLocked(obj)
 	ts := s.bumpClockLocked()
-	if _, prop, ok := propertyByName(obj.properties, name); ok {
+	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
 		prop.value = value
-		stampProperty(prop, ts)
+		prop.version = ts
+		obj.properties[actualName] = prop
 		stampObjectProperties(obj, ts)
 		return types.E_NONE
 	}
 
-	inherited, err := s.findPropertyLocked(objID, name)
+	inheritedName, inherited, err := s.findPropertyLocked(objID, name)
 	if err != types.E_NONE {
 		return err
 	}
-	obj.properties[inherited.name] = &Property{
-		name:    inherited.name,
+	obj.properties[inheritedName] = Property{
 		value:   value,
 		owner:   inherited.owner,
 		perms:   inherited.perms,
@@ -479,19 +472,19 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 // DefineProperty adds a new property definition to an object and propagates
 // inherited clear slots to existing descendants.
 
-func (s *Store) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode {
+func (s *Store) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.definePropertyLocked(objID, prop, 0)
+	return s.definePropertyLocked(objID, name, prop, 0)
 }
 
-func (s *Store) definePropertyLocked(objID types.ObjID, prop Property, ts uint64) types.ErrorCode {
+func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Property, ts uint64) types.ErrorCode {
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
 		return types.E_INVIND
 	}
-	if _, _, exists := propertyByName(obj.properties, prop.name); exists {
+	if _, _, exists := propertyByName(obj.properties, name); exists {
 		return types.E_INVARG
 	}
 	s.rememberObjectLocked(obj)
@@ -501,7 +494,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, prop Property, ts uint64
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
-	obj.properties[prop.name] = cloneProperty(&prop)
+	obj.properties[name] = prop
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -509,11 +502,11 @@ func (s *Store) definePropertyLocked(objID types.ObjID, prop Property, ts uint64
 	}
 	obj.propOrder = append(obj.propOrder, "")
 	copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-	obj.propOrder[pos] = prop.name
+	obj.propOrder[pos] = name
 	obj.propDefsCount++
 	stampObjectProperties(obj, ts)
 
-	s.propagatePropertyToDescendantsLocked(objID, &prop, ts)
+	s.propagatePropertyToDescendantsLocked(objID, name, prop, ts)
 	return types.E_NONE
 }
 
@@ -625,7 +618,7 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	return types.E_NONE
 }
 
-func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Property, ts uint64) {
+func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name string, prop Property, ts uint64) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -644,7 +637,7 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, existing, ok := propertyByName(child.properties, prop.name); ok {
+			if actualName, existing, ok := propertyByName(child.properties, name); ok {
 				if existing.defined {
 					queue = append(queue, childID)
 					continue
@@ -654,8 +647,7 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, prop *Pr
 			} else {
 				s.rememberObjectLocked(child)
 			}
-			child.properties[prop.name] = &Property{
-				name:    prop.name,
+			child.properties[name] = Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,

@@ -160,7 +160,7 @@ func TestReview_RuntimeAnonLostAtSnapshot(t *testing.T) {
 	// Store a reference to the anon object in #0's property so it is
 	// reference-reachable from a non-anonymous object (required for serialisation).
 	anonRef := types.NewAnon(anonID)
-	if ec := s.DefineProperty(0, NewProperty("anon_ref", anonRef, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DefineProperty(0, "anon_ref", NewProperty(anonRef, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty anon_ref: %v", ec)
 	}
 
@@ -214,7 +214,7 @@ func TestReview_RenumberRewritesVerbAndPropOwners(t *testing.T) {
 		t.Fatalf("AddVerb greet on #0: %v", ec)
 	}
 	// A property on #0 owned by #1.
-	if ec := s.DefineProperty(0, NewProperty("color", types.NewStr("red"), 1, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DefineProperty(0, "color", NewProperty(types.NewStr("red"), 1, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty color: %v", ec)
 	}
 
@@ -270,7 +270,7 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 
 	// Store a reference to #1 in a property of #0.
 	refTo1 := types.NewObj(1)
-	if ec := s.DefineProperty(0, NewProperty("ref", refTo1, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DefineProperty(0, "ref", NewProperty(refTo1, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty ref: %v", ec)
 	}
 

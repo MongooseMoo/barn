@@ -26,7 +26,7 @@ type Object struct {
 	flags    ObjectFlags
 
 	// Properties and verbs
-	properties    map[string]*Property
+	properties    map[string]Property
 	propDefsCount int      // Number of properties defined on this object (not inherited)
 	propOrder     []string // Property names in order they were read (for name resolution)
 	verbs         map[string]*Verb
@@ -93,7 +93,6 @@ func (o *Object) view() ObjectView {
 // properties through NewProperty. A direct field write to Property from outside
 // db/store is a compile error.
 type Property struct {
-	name    string
 	value   types.Value
 	owner   types.ObjID
 	perms   PropertyPerms
@@ -117,9 +116,8 @@ type PropertyView struct {
 // NewProperty builds a Property value from its fields. It is the only way for
 // external packages (the loader in db/format, the conformance fixture, and
 // tests) to construct a Property without touching unexported fields.
-func NewProperty(name string, value types.Value, owner types.ObjID, perms PropertyPerms, clear, defined bool) Property {
+func NewProperty(value types.Value, owner types.ObjID, perms PropertyPerms, clear, defined bool) Property {
 	return Property{
-		name:    name,
 		value:   value,
 		owner:   owner,
 		perms:   perms,
@@ -129,9 +127,9 @@ func NewProperty(name string, value types.Value, owner types.ObjID, perms Proper
 }
 
 // View returns a flat read-only snapshot of the property.
-func (p *Property) View() PropertyView {
+func (p Property) View(name string) PropertyView {
 	return PropertyView{
-		Name:    p.name,
+		Name:    name,
 		Value:   p.value,
 		Owner:   p.owner,
 		Perms:   p.perms,
@@ -166,11 +164,9 @@ type Verb struct {
 	// has an empty program that Toast still counts).
 	hasProgram bool
 
-	// NOTE (verbcache spike): the runtime-derived fields Program (*VerbProgram,
-	// AST) and BytecodeCache (any, *vm.Program) have been REMOVED from the world
-	// model. The compiled AST + bytecode cache now live in the barn/bytecode
-	// package, keyed externally. db/store holds only persistent state (source),
-	// and no longer imports barn/parser.
+	// Runtime-derived semantic IR and compiled-program caches do not belong in
+	// the world model. The compiler owns its content-addressed program cache;
+	// db/store holds only persistent original source.
 }
 
 // VerbView is a flat, read-only snapshot of a Verb. It is a value (a copy):
@@ -342,7 +338,7 @@ func NewObject(id types.ObjID, owner types.ObjID) *Object {
 		children:         []types.ObjID{},
 		contents:         []types.ObjID{},
 		location:         types.ObjNothing,
-		properties:       make(map[string]*Property),
+		properties:       make(map[string]Property),
 		verbs:            make(map[string]*Verb),
 		flags:            0, // Default: not readable or writable (MOO semantics)
 		chparentChildren: make(map[types.ObjID]bool),

@@ -31,7 +31,7 @@ func TestHistoryGCKeepsLongReaderSnapshotThenPrunes(t *testing.T) {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, NewProperty("n", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 

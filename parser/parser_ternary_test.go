@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestParseTernary(t *testing.T) {
 	tests := []string{
@@ -17,7 +20,7 @@ func TestParseTernary(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			ternary, ok := expr.(*TernaryExpr)
+			ternary, ok := expr.(*verb.TernaryExpr)
 			if !ok {
 				t.Fatalf("expected TernaryExpr, got %T", expr)
 			}
@@ -44,13 +47,13 @@ func TestTernaryRightAssociative(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	outer, ok := expr.(*TernaryExpr)
+	outer, ok := expr.(*verb.TernaryExpr)
 	if !ok {
 		t.Fatalf("expected TernaryExpr at root, got %T", expr)
 	}
 
 	// The then branch should be another ternary
-	inner, ok := outer.ThenExpr.(*TernaryExpr)
+	inner, ok := outer.ThenExpr.(*verb.TernaryExpr)
 	if !ok {
 		t.Errorf("expected ThenExpr to be TernaryExpr for right-associativity, got %T", outer.ThenExpr)
 	} else {
@@ -79,13 +82,13 @@ func TestTernaryPrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			ternary, ok := expr.(*TernaryExpr)
+			ternary, ok := expr.(*verb.TernaryExpr)
 			if !ok {
 				t.Fatalf("%s - expected TernaryExpr at root, got %T", tt.desc, expr)
 			}
 
 			// Condition should be a binary expression
-			_, ok = ternary.Condition.(*BinaryExpr)
+			_, ok = ternary.Condition.(*verb.BinaryExpr)
 			if !ok {
 				t.Errorf("%s - expected condition to be BinaryExpr, got %T", tt.desc, ternary.Condition)
 			}
@@ -111,22 +114,16 @@ func TestParenthesesOverridePrecedence(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("%s - expected BinaryExpr at root, got %T", tt.desc, expr)
 			}
 
-			// One side should have parentheses
-			foundParen := false
-			if _, ok := binary.Left.(*ParenExpr); ok {
-				foundParen = true
-			}
-			if _, ok := binary.Right.(*ParenExpr); ok {
-				foundParen = true
-			}
-
-			if !foundParen {
-				t.Errorf("%s - expected ParenExpr on one side", tt.desc)
+			// Parentheses affect grouping but do not survive as semantic nodes.
+			if _, leftGrouped := binary.Left.(*verb.BinaryExpr); !leftGrouped {
+				if _, rightGrouped := binary.Right.(*verb.BinaryExpr); !rightGrouped {
+					t.Errorf("%s - expected grouped binary child", tt.desc)
+				}
 			}
 		})
 	}
@@ -140,18 +137,7 @@ func TestNestedParentheses(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	outer, ok := expr.(*ParenExpr)
-	if !ok {
-		t.Fatalf("expected outer ParenExpr, got %T", expr)
-	}
-
-	inner, ok := outer.Expr.(*ParenExpr)
-	if !ok {
-		t.Fatalf("expected inner ParenExpr, got %T", outer.Expr)
-	}
-
-	_, ok = inner.Expr.(*LiteralExpr)
-	if !ok {
-		t.Errorf("expected innermost to be LiteralExpr, got %T", inner.Expr)
+	if _, ok := expr.(*verb.LiteralExpr); !ok {
+		t.Errorf("expected nested parentheses to produce a literal, got %T", expr)
 	}
 }

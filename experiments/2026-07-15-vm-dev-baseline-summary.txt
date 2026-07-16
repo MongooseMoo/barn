@@ -1,0 +1,36 @@
+goos: windows
+goarch: amd64
+pkg: barn/vm
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+                     │ experiments/2026-07-15-vm-dev-baseline.txt │
+                     │                   sec/op                   │
+VM/int_arith_1M                                      31.91m ±  2%
+VM/float_arith_1M                                    32.94m ±  0%
+VM/string_concat_10k                                 840.1µ ±  3%
+VM/list_append_10k                                   1.021m ± 16%
+VM/list_index_1M                                     80.34m ±  1%
+VM/builtin_abs_200k                                  13.56m ±  4%
+VM/tostr_200k                                        36.12m ±  1%
+geomean                                              11.98m
+
+                     │ experiments/2026-07-15-vm-dev-baseline.txt │
+                     │                    B/op                    │
+VM/int_arith_1M                                      8.656Ki ± 0%
+VM/float_arith_1M                                    8.656Ki ± 0%
+VM/string_concat_10k                                 519.5Ki ± 0%
+VM/list_append_10k                                   1.398Mi ± 0%
+VM/list_index_1M                                     113.7Ki ± 0%
+VM/builtin_abs_200k                                  8.656Ki ± 0%
+VM/tostr_200k                                        12.21Mi ± 0%
+geomean                                              131.7Ki
+
+                     │ experiments/2026-07-15-vm-dev-baseline.txt │
+                     │                 allocs/op                  │
+VM/int_arith_1M                                        11.00 ± 0%
+VM/float_arith_1M                                      11.00 ± 0%
+VM/string_concat_10k                                  10.03k ± 0%
+VM/list_append_10k                                    10.05k ± 0%
+VM/list_index_1M                                      1.034k ± 0%
+VM/builtin_abs_200k                                    11.00 ± 0%
+VM/tostr_200k                                         599.9k ± 0%
+geomean                                                701.1

@@ -5,17 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"runtime/debug"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"barn/builtins"
-	"barn/bytecode"
 	"barn/command"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
+	"barn/metrics"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -29,12 +29,19 @@ import (
 const maxConflictRetryAttempts = 64
 
 var ErrCommandVerbNoCode = errors.New("command verb has no code")
+
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("PANIC in runTask(%d): %v", t.ID, r)
+			metrics.PanicsRecovered.Add(1)
+			slog.Error("panic in task",
+				slog.Int64("task_id", t.ID),
+				slog.Int64("this", int64(t.This)),
+				slog.String("verb", t.VerbName),
+				slog.String("panic", fmt.Sprint(r)),
+				slog.String("go_stack", string(debug.Stack())))
 			t.SetState(task.TaskKilled)
 			retErr = fmt.Errorf("internal panic: %v", r)
 		}
@@ -141,24 +148,11 @@ retryAttempt:
 			result = bcVM.ExecuteLoop()
 		}
 	} else {
-		// First run - compile and execute
-		code, ok := t.Code.([]parser.Stmt)
-		if !ok || code == nil {
+		// First run - execute the program compiled at the source boundary.
+		prog := t.Program
+		if prog == nil {
 			t.SetState(task.TaskKilled)
-			return errors.New("task has no code")
-		}
-
-		// Compile AST to bytecode
-		compiler := bytecode.NewCompilerWithRegistry(s.registry)
-		prog, compileErr := compiler.CompileStatements(code)
-		if compileErr != nil {
-			t.SetState(task.TaskKilled)
-			return fmt.Errorf("compile error: %w", compileErr)
-		}
-		if t.VerbName != "" {
-			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil && len(taskVerb.Code) > 0 {
-				prog.Source = append([]string(nil), taskVerb.Code...)
-			}
+			return errors.New("task has no compiled program")
 		}
 
 		// Update TaskContext for permissions and builtins
@@ -311,6 +305,11 @@ retryAttempt:
 		}
 		result = bcVM.Resume()
 		t.Result = result
+		if result.Flow == types.FlowFork {
+			result = s.drainForks(t, bcVM, result)
+			t.Result = result
+			break
+		}
 	}
 	if result.Flow != types.FlowSuspend && ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
@@ -422,29 +421,68 @@ retryAttempt:
 	// Handle completion
 	if result.Flow == types.FlowException {
 		t.SetState(task.TaskKilled)
+		handled := false
 		if t.IsForked && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
+			handled = s.callTaskTimeoutHook(t, "ticks", types.NewStr("Task ran out of ticks"))
 		}
-		// Log traceback to server log (skip for forked tasks to match Toast behavior:
-		// Toast does not log forked-task tracebacks to stderr)
-		if !t.IsForked {
-			s.logTraceback(t, result.Error)
+		// Prefer the activation stack snapshotted at raise time (carried on the
+		// result): the live call stack has already unwound, so it would report the
+		// eval frame instead of the verb where the error occurred, and it carries
+		// no source lines. The log and the player see the same stack.
+		stack, ok := result.CallStack.([]task.ActivationFrame)
+		if !ok || len(stack) == 0 {
+			stack = t.GetCallStack()
 		}
-		// An uncaught error aborts the task; report it to the player the way
-		// Toast does. (When a database's eval verb catches the error itself —
-		// e.g. Test.db wraps results as {status, result} — the task completes
-		// normally and never reaches this branch.) Tick exhaustion gets the
-		// friendlier one-line message instead of a full traceback.
-		if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
-			s.sendTaskLine(t.Owner, "Task ran out of ticks")
-		} else if !t.IsForked {
-			// Prefer the activation stack snapshotted at raise time (carried on
-			// the result): the live call stack has already unwound, so it would
-			// report the eval frame instead of the verb where the error occurred.
-			if stack, ok := result.CallStack.([]task.ActivationFrame); ok && len(stack) > 0 {
-				s.SendTracebackToPlayer(t.Owner, result.Error, stack)
+
+		// Toast gives #0:handle_uncaught_error the first opportunity to handle
+		// every uncaught task exception. A truthy return or a suspended handler
+		// suppresses the fallback traceback. The handler itself runs with database
+		// traceback dispatch disabled, so an error there falls back to the original
+		// task's traceback instead of recursively invoking the same hook.
+		isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
+		if !handled && !isUncaughtHandler {
+			stackValues := make([]types.Value, 0, len(stack))
+			for i := len(stack) - 1; i >= 0; i-- {
+				stackValues = append(stackValues, stack[i].ToList())
+			}
+			formattedLines := task.FormatTraceback(stack, result.Error)
+			formattedValues := make([]types.Value, 0, len(formattedLines))
+			for _, line := range formattedLines {
+				formattedValues = append(formattedValues, types.NewStr(line))
+			}
+			handlerMessage := types.NewStr(result.Error.Message())
+			handlerValue := types.NewInt(0)
+			if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
+				if message := result.Val.Get(2); message.Type() == types.TYPE_STR {
+					handlerMessage = message
+				}
+				handlerValue = result.Val.Get(3)
+			}
+			handlerResult, handlerErr := s.RunServerVerbTask(0, "handle_uncaught_error", []types.Value{
+				types.NewErr(result.Error),
+				handlerMessage,
+				handlerValue,
+				types.NewList(stackValues),
+				types.NewList(formattedValues),
+			}, t.Owner)
+			if handlerErr == nil {
+				handled = handlerResult.Flow == types.FlowSuspend || handlerResult.Val.Truthy()
+			}
+		}
+
+		if !handled && !isUncaughtHandler {
+			// Preserve the existing structured task log for foreground failures.
+			// Toast does not write forked-task tracebacks directly to stderr.
+			if !t.IsForked {
+				s.logTraceback(t, result.Error, stack)
+			}
+			// When a database's eval verb catches the error itself — e.g. Test.db
+			// wraps results as {status, result} — the task completes normally and
+			// never reaches this branch. Tick exhaustion keeps its friendlier line.
+			if t.VerbName == "eval" && t.Result.Error == types.E_MAXREC && resultValueContains(t.Result.Val, "tick") {
+				s.sendTaskLine(t.Owner, "Task ran out of ticks")
 			} else {
-				s.sendTraceback(t, result.Error)
+				s.SendTracebackToPlayer(t.Owner, result.Error, stack)
 			}
 		}
 		// Clean up call stack after traceback has been sent
@@ -537,7 +575,6 @@ type taskRetryState struct {
 	wakeValue    types.Value
 	ticksLimit   int64
 	secondsLimit float64
-	code         interface{}
 }
 
 // taskIsConflictRetryable reports whether a task may be re-run from the top after
@@ -548,7 +585,7 @@ type taskRetryState struct {
 // optimistically with other tasks: if two such tasks happen to conflict at commit,
 // the loser simply retries against the winner's committed writes.
 func taskIsConflictRetryable(t *task.Task) bool {
-	return t != nil && t.BytecodeVMValue() == nil && !t.IsForked && t.ForkInfo == nil && t.Code != nil
+	return t != nil && t.BytecodeVMValue() == nil && !t.IsForked && t.ForkInfo == nil && t.Program != nil
 }
 
 func captureTaskRetryState(t *task.Task) taskRetryState {
@@ -563,7 +600,6 @@ func captureTaskRetryState(t *task.Task) taskRetryState {
 		wakeValue:    t.WakeValue,
 		ticksLimit:   t.TicksLimit,
 		secondsLimit: t.SecondsLimit,
-		code:         t.Code,
 	}
 	return state
 }
@@ -572,7 +608,6 @@ func (state taskRetryState) restore(t *task.Task) {
 	if t == nil || !state.canRetry {
 		return
 	}
-	t.Code = state.code
 	t.SetBytecodeVM(nil)
 	t.Result = types.Result{}
 	t.CallStack = cloneActivationFramesForRetry(state.callStack)
@@ -617,7 +652,7 @@ func cloneActivationFramesForRetry(frames []task.ActivationFrame) []task.Activat
 	return cloned
 }
 
-func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) {
+func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message types.Value) bool {
 	stack := t.GetCallStack()
 	stackValues := make([]types.Value, 0, len(stack))
 	for _, frame := range stack {
@@ -634,11 +669,12 @@ func (s *Scheduler) callTaskTimeoutHook(t *task.Task, resource string, message t
 	if len(traceValues) == 0 {
 		traceValues = append(traceValues, message)
 	}
-	_ = s.CallVerb(0, "handle_task_timeout", []types.Value{
+	result := s.CallVerb(0, "handle_task_timeout", []types.Value{
 		types.NewStr(resource),
 		types.NewList(stackValues),
 		types.NewList(traceValues),
 	}, t.Owner)
+	return result.Flow == types.FlowSuspend || (result.Flow != types.FlowException && result.Val.Truthy())
 }
 
 func resultValueContains(value types.Value, text string) bool {
@@ -695,17 +731,17 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 
 // ExecuteVerbTaskSync creates and immediately runs a command verb task on the scheduler goroutine.
 func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
-	program, compileErrors := bytecode.CompileVerb(match.Verb.Code)
-	if len(compileErrors) > 0 {
-		return fmt.Errorf("Verb compile error: %s", compileErrors[0])
+	program, diagnostics := compiler.CompileMOO(match.Verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("Verb compile error: %s", diagnostics[0].Error())
 	}
-	if len(program.Statements) == 0 {
+	if len(match.Verb.Code) == 0 {
 		return ErrCommandVerbNoCode
 	}
 
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = match.Verb.Owner
@@ -737,7 +773,11 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	// Run synchronously on the scheduler goroutine
 	err := s.runTask(t)
 	if err != nil {
-		log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, err)
+		slog.Error("task error",
+			slog.Int64("task_id", t.ID),
+			slog.Int64("this", int64(t.This)),
+			slog.String("verb", t.VerbName),
+			slog.Any("err", err))
 	}
 
 	// Flush output buffer for the player

@@ -1,5 +1,7 @@
 package parser
 
+import "barn/verb"
+
 // TokenType represents different types of lexical tokens
 type TokenType int
 
@@ -10,10 +12,10 @@ const (
 	TOKEN_ILLEGAL
 
 	// Literals
-	TOKEN_INT      // 42
-	TOKEN_FLOAT    // 3.14
-	TOKEN_STRING   // "hello"
-	TOKEN_OBJECT   // #123
+	TOKEN_INT       // 42
+	TOKEN_FLOAT     // 3.14
+	TOKEN_STRING    // "hello"
+	TOKEN_OBJECT    // #123
 	TOKEN_ERROR_LIT // E_TYPE
 
 	// Keywords
@@ -43,69 +45,62 @@ const (
 	TOKEN_IDENTIFIER
 
 	// Operators
-	TOKEN_PLUS     // +
-	TOKEN_MINUS    // -
-	TOKEN_STAR     // *
-	TOKEN_SLASH    // /
-	TOKEN_PERCENT  // %
-	TOKEN_CARET    // ^
+	TOKEN_PLUS    // +
+	TOKEN_MINUS   // -
+	TOKEN_STAR    // *
+	TOKEN_SLASH   // /
+	TOKEN_PERCENT // %
+	TOKEN_CARET   // ^
 
-	TOKEN_EQ       // ==
-	TOKEN_NE       // !=
-	TOKEN_LT       // <
-	TOKEN_GT       // >
-	TOKEN_LE       // <=
-	TOKEN_GE       // >=
+	TOKEN_EQ // ==
+	TOKEN_NE // !=
+	TOKEN_LT // <
+	TOKEN_GT // >
+	TOKEN_LE // <=
+	TOKEN_GE // >=
 
-	TOKEN_AND      // &&
-	TOKEN_OR       // ||
-	TOKEN_NOT      // !
+	TOKEN_AND // &&
+	TOKEN_OR  // ||
+	TOKEN_NOT // !
 
-	TOKEN_BITAND   // &.
-	TOKEN_BITOR    // |.
-	TOKEN_BITXOR   // ^.
-	TOKEN_BITNOT   // ~
-	TOKEN_LSHIFT   // <<
-	TOKEN_RSHIFT   // >>
+	TOKEN_BITAND // &.
+	TOKEN_BITOR  // |.
+	TOKEN_BITXOR // ^.
+	TOKEN_BITNOT // ~
+	TOKEN_LSHIFT // <<
+	TOKEN_RSHIFT // >>
 
 	TOKEN_ASSIGN   // =
 	TOKEN_QUESTION // ?
 	TOKEN_PIPE     // |
-	TOKEN_ARROW      // ->
-	TOKEN_RANGE      // ..
-	TOKEN_FATARROW   // =>
-	TOKEN_BACKTICK   // `
-	TOKEN_SQUOTE     // '
+	TOKEN_ARROW    // ->
+	TOKEN_RANGE    // ..
+	TOKEN_FATARROW // =>
+	TOKEN_BACKTICK // `
+	TOKEN_SQUOTE   // '
 
 	// Delimiters
-	TOKEN_LPAREN   // (
-	TOKEN_RPAREN   // )
-	TOKEN_LBRACE   // {
-	TOKEN_RBRACE   // }
-	TOKEN_LBRACKET // [
-	TOKEN_RBRACKET // ]
-	TOKEN_COMMA    // ,
+	TOKEN_LPAREN    // (
+	TOKEN_RPAREN    // )
+	TOKEN_LBRACE    // {
+	TOKEN_RBRACE    // }
+	TOKEN_LBRACKET  // [
+	TOKEN_RBRACKET  // ]
+	TOKEN_COMMA     // ,
 	TOKEN_SEMICOLON // ;
-	TOKEN_DOT      // .
-	TOKEN_COLON    // :
-	TOKEN_AT       // @
-	TOKEN_DOLLAR   // $
-	TOKEN_BANG     // !
+	TOKEN_DOT       // .
+	TOKEN_COLON     // :
+	TOKEN_AT        // @
+	TOKEN_DOLLAR    // $
+	TOKEN_BANG      // !
 )
-
-// Position represents a position in the source code
-type Position struct {
-	Line   int
-	Column int
-	Offset int
-}
 
 // Token represents a lexical token
 type Token struct {
 	Type     TokenType
 	Value    string
 	Literal  string // Decoded string value (for TOKEN_STRING)
-	Position Position
+	Position verb.Position
 }
 
 // String returns a string representation of the token type

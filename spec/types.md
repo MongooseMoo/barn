@@ -215,7 +215,7 @@ false
 ```
 
 **Truthiness:**
-- False: `0`, `0.0`, `""`, `{}`, `[]`, `false`
+- False: `0`, `0.0`, `""`, `{}`, `[]`, `false`, and every WAIF
 - True: Everything else
 
 **Go mapping:** `bool`
@@ -224,15 +224,39 @@ false
 
 **Characteristics:**
 - Prototype-based (no full object overhead)
-- Properties accessed via `.:` syntax
+- Falsy in Boolean contexts
+- Reference identity: two separately created WAIFs are unequal; an alias is equal to its source
+- Aliases share property mutation in place
+- Properties are accessible with ordinary `.` syntax
 - Garbage collected
 - Used for temporary/lightweight data
 
+The receiver of the verb that calls `new_waif()` is the WAIF class, and the
+current programmer is the WAIF owner. Calling `new_waif()` after recycling that
+receiver raises `E_INVIND`. The intrinsic `class` and `owner` properties are
+fixed at construction and cannot be assigned (`E_PERM`); the intrinsic
+`wizard` and `programmer` properties read as `0`.
+
+Assigning a WAIF to one of its own properties, directly or through a list or
+map, raises `E_RECMOVE`.
+
+String forms are fixed:
+
+```moo
+tostr(w)      => "[[waif]]"
+toliteral(w)  => "[[class = #<class>, owner = #<owner>]]"
+```
+
 **Creation:**
 ```moo
-w = new_waif();
-w.:name = "example";
+waif_class = create($waif);
+add_property(waif_class, ":name", "", {player, ""});
+w = waif_class:new();
+w.name = "example";
 ```
+
+These semantics are frozen by
+[`waif_authority.yaml`](../../moo-conformance-tests/src/moo_conformance/_tests/language/waif_authority.yaml).
 
 **Go mapping:** Custom `MOOWaif` struct
 
@@ -324,10 +348,10 @@ All comparison operators return BOOL (0 or 1 in classic MOO).
 |----------|-------|----------|
 | `==` | Any | Equal (type-sensitive) |
 | `!=` | Any | Not equal |
-| `<` | INT, FLOAT, STR | Less than |
-| `<=` | INT, FLOAT, STR | Less or equal |
-| `>` | INT, FLOAT, STR | Greater than |
-| `>=` | INT, FLOAT, STR | Greater or equal |
+| `<` | INT, FLOAT, STR, WAIF | Less than; WAIF/WAIF returns 0 |
+| `<=` | INT, FLOAT, STR, WAIF | Less or equal; WAIF/WAIF returns 1 |
+| `>` | INT, FLOAT, STR, WAIF | Greater than; WAIF/WAIF returns 0 |
+| `>=` | INT, FLOAT, STR, WAIF | Greater or equal; WAIF/WAIF returns 1 |
 | `in` | Any, LIST/MAP/STR | Membership |
 
 **`in` operator:**
@@ -413,10 +437,18 @@ For range indexing `list[start..end]`:
 
 | Marker | Meaning | Context |
 |--------|---------|---------|
-| `^` | 1 (first) | Index only |
-| `$` | length (last) | Index and range end |
+| `^` | first boundary | Index or range |
+| `$` | last boundary | Index or range |
 
-**Evaluation order:** Special markers `^` and `$` are substituted before range bounds checking. `$` always evaluates to `length(list)` at the time of range evaluation. If substitution results in `start > end`, an empty list is returned.
+**Evaluation order:** MOO `^` and `$` syntax is lowered before bytecode
+compilation to semantic first and last boundary expressions. During collection
+evaluation, list and string index boundaries resolve to `1` and collection
+length. Map index boundaries resolve to the first and last key in map key order.
+For ranges over any collection, boundaries are positional: first is `1` and
+last is collection length, including maps whose keys are non-integers or
+integers outside that positional range. The resolved values then participate in
+the normal one-based, inclusive range and strict bounds rules. If a resolved
+range has `start > end`, an empty collection of the sliced type is returned.
 
 Example:
 ```moo

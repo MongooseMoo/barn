@@ -1,0 +1,32 @@
+File: vm.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build3604729509\b001\vm.test.exe2026-07-15 12:50:22.1500504 -0600 MDT
+Type: alloc_space
+Time: 2026-07-15 12:50:49 MDT
+Showing nodes accounting for 8809.01MB, 99.83% of 8824.04MB total
+Dropped 22 nodes (cum <= 44.12MB)
+      flat  flat%   sum%        cum   cum%
+ 4909.26MB 55.64% 55.64%  4909.26MB 55.64%  barn/types.(*sliceList).append
+ 2605.40MB 29.53% 85.16%  2605.40MB 29.53%  barn/types.(*strRep).appendRep
+  897.54MB 10.17% 95.33%   897.54MB 10.17%  barn/types.NewStr (inline)
+  213.50MB  2.42% 97.75%   213.50MB  2.42%  internal/strconv.FormatInt
+      70MB  0.79% 98.55%       70MB  0.79%  strings.(*Builder).WriteString (inline)
+   59.33MB  0.67% 99.22%    59.33MB  0.67%  barn/vm.NewVM (inline)
+   48.47MB  0.55% 99.77%    48.47MB  0.55%  barn/types.(*strRep).str (inline)
+    5.50MB 0.062% 99.83%  8749.68MB 99.16%  barn/vm.(*VM).Run
+         0     0% 99.83%  1229.52MB 13.93%  barn/builtins.(*Registry).CallByID
+         0     0% 99.83%  1229.52MB 13.93%  barn/builtins.(*Registry).dispatch
+         0     0% 99.83%    48.47MB  0.55%  barn/builtins.builtinLength
+         0     0% 99.83%  1181.05MB 13.38%  barn/builtins.builtinTostr
+         0     0% 99.83%   213.50MB  2.42%  barn/builtins.valueToStr
+         0     0% 99.83%  4909.26MB 55.64%  barn/types.Value.Append (inline)
+         0     0% 99.83%    48.47MB  0.55%  barn/types.Value.Str (inline)
+         0     0% 99.83%  2605.40MB 29.53%  barn/types.Value.StrAppend (inline)
+         0     0% 99.83%  8744.18MB 99.10%  barn/vm.(*VM).Execute
+         0     0% 99.83%  1229.52MB 13.93%  barn/vm.(*VM).executeCallBuiltin
+         0     0% 99.83%  4909.26MB 55.64%  barn/vm.(*VM).executeListAppend
+         0     0% 99.83%  8744.18MB 99.10%  barn/vm.(*VM).executeLoop
+         0     0% 99.83%  2605.40MB 29.53%  barn/vm.(*VM).executeStringAppend
+         0     0% 99.83%  8822.52MB   100%  barn/vm.BenchmarkVM.func1
+         0     0% 99.83%   213.50MB  2.42%  strconv.FormatInt (inline)
+         0     0% 99.83%  8811.44MB 99.86%  testing.(*B).launch
+         0     0% 99.83%  8822.52MB   100%  testing.(*B).runN

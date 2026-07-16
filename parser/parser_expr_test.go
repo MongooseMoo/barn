@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestParseUnaryMinus(t *testing.T) {
 	tests := []struct {
@@ -27,16 +30,16 @@ func TestParseUnaryMinus(t *testing.T) {
 			}
 
 			if tt.expectUnary {
-				unary, ok := expr.(*UnaryExpr)
+				unary, ok := expr.(*verb.UnaryExpr)
 				if !ok {
 					t.Fatalf("expected UnaryExpr for %s, got %T", tt.description, expr)
 				}
-				if unary.Operator != TOKEN_MINUS {
+				if unary.Operator != verb.UnaryNegate {
 					t.Errorf("expected operator MINUS, got %s", unary.Operator)
 				}
 			} else {
 				// Should be a literal with negative value
-				lit, ok := expr.(*LiteralExpr)
+				lit, ok := expr.(*verb.LiteralExpr)
 				if !ok {
 					t.Fatalf("expected LiteralExpr for %s, got %T", tt.description, expr)
 				}
@@ -64,12 +67,12 @@ func TestParseLogicalNot(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			unary, ok := expr.(*UnaryExpr)
+			unary, ok := expr.(*verb.UnaryExpr)
 			if !ok {
 				t.Fatalf("expected UnaryExpr, got %T", expr)
 			}
 
-			if unary.Operator != TOKEN_NOT {
+			if unary.Operator != verb.UnaryNot {
 				t.Errorf("expected operator NOT, got %s", unary.Operator)
 			}
 		})
@@ -93,12 +96,12 @@ func TestParseBitwiseNot(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			unary, ok := expr.(*UnaryExpr)
+			unary, ok := expr.(*verb.UnaryExpr)
 			if !ok {
 				t.Fatalf("expected UnaryExpr, got %T", expr)
 			}
 
-			if unary.Operator != TOKEN_BITNOT {
+			if unary.Operator != verb.UnaryBitwiseNot {
 				t.Errorf("expected operator BITNOT, got %s", unary.Operator)
 			}
 		})
@@ -125,13 +128,13 @@ func TestUnaryOperatorPrecedence(t *testing.T) {
 			}
 
 			// Should be a binary expression
-			binary, ok := expr.(*BinaryExpr)
+			binary, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("expected BinaryExpr, got %T", expr)
 			}
 
 			if tt.hasUnary {
-				_, ok = binary.Left.(*UnaryExpr)
+				_, ok = binary.Left.(*verb.UnaryExpr)
 				if !ok {
 					t.Errorf("expected left operand to be UnaryExpr, got %T", binary.Left)
 				}
@@ -147,12 +150,12 @@ func TestParseIntegerLiteralExpr(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	lit, ok := expr.(*LiteralExpr)
+	lit, ok := expr.(*verb.LiteralExpr)
 	if !ok {
 		t.Fatalf("expected LiteralExpr, got %T", expr)
 	}
 
-	if lit.Kind != LiteralInt {
+	if lit.Kind != verb.LiteralInt {
 		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 	}
 
@@ -168,7 +171,7 @@ func TestParseIdentifierExpr(t *testing.T) {
 		t.Fatalf("failed to parse: %v", err)
 	}
 
-	ident, ok := expr.(*IdentifierExpr)
+	ident, ok := expr.(*verb.IdentifierExpr)
 	if !ok {
 		t.Fatalf("expected IdentifierExpr, got %T", expr)
 	}
@@ -178,14 +181,15 @@ func TestParseIdentifierExpr(t *testing.T) {
 	}
 }
 
-func TestParseParenExpr(t *testing.T) {
+func TestParenthesesDoNotCreateSemanticNodes(t *testing.T) {
 	tests := []struct {
 		input string
+		want  string
 	}{
-		{"(42)"},
-		{"(x)"},
-		{"((5))"},
-		{"(1 + 2)"},
+		{"(42)", "literal"},
+		{"(x)", "identifier"},
+		{"((5))", "literal"},
+		{"(1 + 2)", "binary"},
 	}
 
 	for _, tt := range tests {
@@ -196,14 +200,31 @@ func TestParseParenExpr(t *testing.T) {
 				t.Fatalf("failed to parse: %v", err)
 			}
 
-			paren, ok := expr.(*ParenExpr)
-			if !ok {
-				t.Fatalf("expected ParenExpr, got %T", expr)
-			}
-
-			if paren.Expr == nil {
-				t.Error("ParenExpr.Expr should not be nil")
+			switch tt.want {
+			case "literal":
+				if _, ok := expr.(*verb.LiteralExpr); !ok {
+					t.Fatalf("expected semantic literal, got %T", expr)
+				}
+			case "identifier":
+				if _, ok := expr.(*verb.IdentifierExpr); !ok {
+					t.Fatalf("expected semantic identifier, got %T", expr)
+				}
+			case "binary":
+				if _, ok := expr.(*verb.BinaryExpr); !ok {
+					t.Fatalf("expected semantic binary expression, got %T", expr)
+				}
 			}
 		})
+	}
+}
+
+func TestParenthesesPreserveContainedExpressionLocation(t *testing.T) {
+	expr := parseExprForTest(t, "(42)")
+	literal, ok := expr.(*verb.LiteralExpr)
+	if !ok {
+		t.Fatalf("expected semantic literal, got %T", expr)
+	}
+	if got, want := literal.Position().Offset, 1; got != want {
+		t.Fatalf("literal offset = %d, want %d for the contained expression", got, want)
 	}
 }

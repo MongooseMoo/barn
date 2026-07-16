@@ -1,14 +1,13 @@
 package builtins
 
 import (
-	stderrors "errors"
 	"fmt"
 	"strings"
 
 	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/types"
 )
 
@@ -189,7 +188,7 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
-			return types.Err(types.E_RANGE)
+			return types.Err(types.E_VERBNF)
 		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -325,7 +324,7 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Return original source lines
-	// Note: Full AST unparsing deferred - unparser has bugs causing regressions
+	// Note: canonical formatting is deferred until the formatter convergence phase.
 	sourceLines := verb.Code
 
 	// Convert source lines to list
@@ -747,35 +746,21 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	// Compile the code. Toast verb_code() returns source without semicolons for
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
 	compileLines := lines
-	_, errors := bytecode.CompileVerb(compileLines)
-	if len(errors) > 0 {
+	registry, _ := ctx.Registry.(*Registry)
+	_, diagnostics := compiler.CompileMOO(compileLines, registry)
+	if len(diagnostics) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
 			compileLines = normalized
-			_, errors = bytecode.CompileVerb(compileLines)
+			_, diagnostics = compiler.CompileMOO(compileLines, registry)
 		}
 	}
-	if len(errors) > 0 {
+	if len(diagnostics) > 0 {
 		// Return compile errors
-		errVals := make([]types.Value, len(errors))
-		for i, errStr := range errors {
-			errVals[i] = types.NewStr(errStr)
+		errVals := make([]types.Value, len(diagnostics))
+		for i, diagnostic := range diagnostics {
+			errVals[i] = types.NewStr(diagnostic.Error())
 		}
 		return types.Ok(types.NewList(errVals))
-	}
-
-	// Parsing succeeded; now validate that every builtin function referenced
-	// actually exists. Toast rejects unknown builtins at compile time with
-	// "Line N:  Unknown built-in function: NAME" and leaves the verb unchanged.
-	// We run the full bytecode compile (which walks the whole AST and resolves
-	// every builtin name against the registry) to find the first unknown one.
-	if registry, ok := ctx.Registry.(*Registry); ok {
-		if _, err := bytecode.CompileVerbBytecode(compileLines, registry); err != nil {
-			var unknown *bytecode.UnknownBuiltinError
-			if stderrors.As(err, &unknown) {
-				msg := fmt.Sprintf("Line %d:  Unknown built-in function: %s", unknown.Line, unknown.Name)
-				return types.Ok(types.NewList([]types.Value{types.NewStr(msg)}))
-			}
-		}
 	}
 
 	switch args[1].Type() {
@@ -931,19 +916,12 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	// AST no longer lives on the verb (moved to barn/bytecode); compile from
-	// source on demand to walk it.
-	vp, _ := bytecode.CompileVerb(verb.Code)
-	if vp == nil || len(vp.Statements) == 0 {
-		return types.Ok(types.NewList([]types.Value{types.NewStr("Main code vector:")}))
+	registry, _ := ctx.Registry.(*Registry)
+	program, diagnostics := compiler.CompileMOO(verb.Code, registry)
+	if len(diagnostics) > 0 {
+		return types.Err(types.E_INVARG)
 	}
-
-	// Walk AST to produce pseudo-disassembly with opcode names.
-	// ToastStunt includes this header in disassembly output.
-	lines := []string{"Main code vector:"}
-	for _, stmt := range vp.Statements {
-		lines = append(lines, disassembleStmt(stmt)...)
-	}
+	lines := bytecode.Disassemble(program)
 
 	// Convert to Value list
 	result := make([]types.Value, len(lines))
@@ -952,125 +930,4 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	return types.Ok(types.NewList(result))
-}
-
-// disassembleStmt walks a statement AST node and emits pseudo-opcodes
-func disassembleStmt(stmt parser.Stmt) []string {
-	switch s := stmt.(type) {
-	case *parser.ExprStmt:
-		return disassembleExpr(s.Expr)
-	case *parser.ReturnStmt:
-		if s.Value != nil {
-			lines := disassembleExpr(s.Value)
-			lines = append(lines, "RETURN")
-			return lines
-		}
-		return []string{"RETURN"}
-	default:
-		return []string{"STMT"}
-	}
-}
-
-// disassembleExpr walks an expression AST node and emits pseudo-opcodes
-func disassembleExpr(expr parser.Expr) []string {
-	switch e := expr.(type) {
-	case *parser.BinaryExpr:
-		// Emit operands then operator
-		lines := disassembleExpr(e.Left)
-		lines = append(lines, disassembleExpr(e.Right)...)
-		lines = append(lines, opToOpcode(e.Operator))
-		return lines
-	case *parser.UnaryExpr:
-		// Emit operand then operator
-		lines := disassembleExpr(e.Operand)
-		lines = append(lines, unaryOpToOpcode(e.Operator))
-		return lines
-	case *parser.LiteralExpr:
-		return []string{fmt.Sprintf("PUSH %s", disassembleLiteral(e))}
-	case *parser.IndexExpr:
-		// Emit collection, index, then INDEX opcode
-		lines := disassembleExpr(e.Expr)
-		lines = append(lines, disassembleExpr(e.Index)...)
-		lines = append(lines, "INDEX")
-		return lines
-	case *parser.RangeExpr:
-		// Emit collection, start, end, then RANGE opcode
-		lines := disassembleExpr(e.Expr)
-		lines = append(lines, disassembleExpr(e.Start)...)
-		lines = append(lines, disassembleExpr(e.End)...)
-		lines = append(lines, "RANGE")
-		return lines
-	case *parser.IndexMarkerExpr:
-		// ^ = FIRST, $ = LAST
-		if e.Marker == parser.TOKEN_CARET {
-			return []string{"FIRST"}
-		}
-		return []string{"LAST"}
-	default:
-		return []string{"EXPR"}
-	}
-}
-
-func disassembleLiteral(e *parser.LiteralExpr) string {
-	switch e.Kind {
-	case parser.LiteralInt:
-		return fmt.Sprintf("%d", e.IntValue)
-	case parser.LiteralFloat:
-		return fmt.Sprintf("%g", e.FloatValue)
-	case parser.LiteralString:
-		return fmt.Sprintf("%q", e.StringValue)
-	case parser.LiteralBool:
-		if e.BoolValue {
-			return "true"
-		}
-		return "false"
-	case parser.LiteralObj:
-		return fmt.Sprintf("#%d", e.ObjID)
-	case parser.LiteralErr:
-		return e.ErrorName
-	default:
-		return "<literal>"
-	}
-}
-
-// opToOpcode converts a binary operator token to opcode name
-func opToOpcode(op parser.TokenType) string {
-	switch op {
-	case parser.TOKEN_BITAND:
-		return "BITAND"
-	case parser.TOKEN_BITOR:
-		return "BITOR"
-	case parser.TOKEN_BITXOR:
-		return "BITXOR"
-	case parser.TOKEN_LSHIFT:
-		return "BITSHL"
-	case parser.TOKEN_RSHIFT:
-		return "BITSHR"
-	case parser.TOKEN_PLUS:
-		return "ADD"
-	case parser.TOKEN_MINUS:
-		return "SUB"
-	case parser.TOKEN_STAR:
-		return "MUL"
-	case parser.TOKEN_SLASH:
-		return "DIV"
-	case parser.TOKEN_PERCENT:
-		return "MOD"
-	default:
-		return "OP"
-	}
-}
-
-// unaryOpToOpcode converts a unary operator token to opcode name
-func unaryOpToOpcode(op parser.TokenType) string {
-	switch op {
-	case parser.TOKEN_BITNOT:
-		return "COMPLEMENT"
-	case parser.TOKEN_MINUS:
-		return "NEG"
-	case parser.TOKEN_NOT:
-		return "NOT"
-	default:
-		return "UNARY_OP"
-	}
 }

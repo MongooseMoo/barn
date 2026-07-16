@@ -2,7 +2,7 @@ package format
 
 import (
 	"bytes"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,14 +134,9 @@ func TestLoadDatabaseRepairsBrokenFixturesAndLogs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			oldWriter := log.Writer()
-			oldFlags := log.Flags()
-			log.SetOutput(&buf)
-			log.SetFlags(0)
-			defer func() {
-				log.SetOutput(oldWriter)
-				log.SetFlags(oldFlags)
-			}()
+			prior := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+			defer slog.SetDefault(prior)
 
 			database, err := LoadDatabase(startupRepairFixture(tc.fixture))
 			if err != nil {

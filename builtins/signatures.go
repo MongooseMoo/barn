@@ -1,7 +1,7 @@
 package builtins
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"runtime"
 
@@ -427,10 +427,14 @@ func builtinDumpDatabase(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	log.Printf("CHECKPOINTING: dump_database() requested by #%d", ctx.Programmer)
+	// The "CHECKPOINTING" wording is Toast's and is asserted by the conformance
+	// suite (server/dump_database.yaml): the message text is part of the contract,
+	// so the structured attrs are additive rather than a replacement.
+	slog.Info("CHECKPOINTING: dump_database() requested",
+		slog.Int64("programmer", int64(ctx.Programmer)))
 	if dump := hostOf(ctx).Checkpoint; dump != nil {
 		if err := dump(); err != nil {
-			log.Printf("dump_database() error: %v", err)
+			slog.Error("dump_database() failed", slog.Any("err", err))
 			// MOO spec: dump_database() returns 0 on success
 			// On error, still return 0 (Toast behavior)
 		}

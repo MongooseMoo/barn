@@ -1,9 +1,11 @@
 package parser
 
+import "barn/verb"
+
 // readErrorLiteral reads an error literal (E_TYPE, E_DIV, etc.)
 func (l *Lexer) readErrorLiteral() Token {
 	tok := Token{
-		Position: Position{
+		Position: verb.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,

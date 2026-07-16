@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"barn/builtins"
-	"barn/bytecode"
 	"barn/command"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	runtime "barn/scheduler"
 	"barn/task"
@@ -152,7 +152,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 				p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 				return
 			}
-			log.Printf("Connection %d read error: %v", conn.ID, err)
+			slog.Warn("read error", slog.Int64("conn_id", conn.ID), slog.Any("err", err))
 			return
 		}
 
@@ -184,7 +184,15 @@ func (p *InputProcessor) run() {
 		case input := <-p.inputQueue:
 			p.dispatch(input)
 		case <-ticker.C:
-			p.runtime.ProcessReadyTasks()
+			// A select chooses randomly when both input and the scheduler tick are
+			// ready. Recheck the input queue before running another task so a busy
+			// scheduler cannot repeatedly win that tie and starve socket input.
+			select {
+			case input := <-p.inputQueue:
+				p.processInput(input)
+			default:
+				p.runtime.ProcessReadyTasks()
+			}
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
@@ -405,7 +413,7 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 		p.callUserHook(handler, "user_client_disconnected", player)
 	}
 
-	log.Printf("Connection %d closed", conn.ID)
+	slog.Info("connection closed", slog.Int64("conn_id", conn.ID))
 }
 
 func (p *InputProcessor) processPreLogin(input command.InputEvent) {
@@ -431,7 +439,7 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 			srcIP := fields[2]
 			conn.SetProxiedIP(srcIP)
 			conn.SetResolvedName(srcIP)
-			log.Printf("PROXY: connection %d name rewritten to %s", conn.ID, srcIP)
+			slog.Info("proxy name rewritten", slog.Int64("conn_id", conn.ID), slog.String("addr", srcIP))
 		}
 		line = ""
 	}
@@ -511,7 +519,11 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 		// runs the verb without read() support and would silently regress the
 		// very bug this change fixes. Surface the failure instead.
 		conn.SetLoginTaskID(0)
-		log.Printf("login task dispatch failed for #%d:do_login_command: %v", handler, err)
+		slog.Warn("login task dispatch failed",
+			slog.Int64("this", int64(handler)),
+			slog.String("verb", "do_login_command"),
+			slog.Int64("conn_id", conn.ID),
+			slog.Any("err", err))
 		return
 	}
 }
@@ -666,10 +678,10 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 		conn.Send("Verb not found")
 		return true
 	}
-	_, errors := bytecode.CompileVerb(lines)
-	if len(errors) > 0 {
-		for _, errText := range errors {
-			conn.Send(errText)
+	_, diagnostics := compiler.CompileMOO(lines, p.runtime.Registry())
+	if len(diagnostics) > 0 {
+		for _, diagnostic := range diagnostics {
+			conn.Send(diagnostic.Error())
 		}
 		return true
 	}

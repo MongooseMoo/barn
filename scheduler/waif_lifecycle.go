@@ -3,9 +3,10 @@ package scheduler
 import (
 	"time"
 
-	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/types"
 	"barn/vm"
 )
@@ -191,8 +192,12 @@ func (s *Scheduler) flushDeferredGC() {
 
 	vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, siblingAnon)
 
+	cost := time.Since(sweepStart)
+	metrics.GCSweeps.Add(1)
+	metrics.GCSweepLastMs.Set(cost.Milliseconds())
+
 	s.pendingWaifMu.Lock()
-	s.lastGCCost = time.Since(sweepStart)
+	s.lastGCCost = cost
 	s.pendingWaifMu.Unlock()
 }
 
@@ -205,8 +210,8 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Va
 		return
 	}
 
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
-	if compileErr != nil {
+	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
 		return
 	}
 

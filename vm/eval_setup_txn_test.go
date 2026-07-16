@@ -2,13 +2,13 @@ package vm
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"barn/bytecode"
+	"barn/compiler"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
@@ -91,16 +91,10 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 		}
 	}
 
-	p := parser.NewParser(auditProxySetupSource)
-	stmts, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("ParseProgram failed: %v", err)
-	}
 	registry := BuildVMRegistry()
-	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.CompileStatements(stmts)
-	if err != nil {
-		t.Fatalf("CompileStatements failed: %v", err)
+	prog, diagnostics := compiler.CompileMOO(strings.Split(auditProxySetupSource, "\n"), registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
 
 	ctx := kernel.NewTaskContext()
@@ -157,16 +151,10 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 		}
 	}
 
-	p := parser.NewParser(auditWaifCallersSource)
-	stmts, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("ParseProgram failed: %v", err)
-	}
 	registry := BuildVMRegistry()
-	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.CompileStatements(stmts)
-	if err != nil {
-		t.Fatalf("CompileStatements failed: %v", err)
+	prog, diagnostics := compiler.CompileMOO(strings.Split(auditWaifCallersSource, "\n"), registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
 
 	ctx := kernel.NewTaskContext()

@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 func TestParseIntegerLiterals(t *testing.T) {
 	tests := []struct {
@@ -16,7 +19,7 @@ func TestParseIntegerLiterals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != LiteralInt {
+			if lit.Kind != verb.LiteralInt {
 				t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
 			}
 			if lit.IntValue != tt.want {
@@ -42,7 +45,7 @@ func TestParseFloatLiterals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			lit := parseLiteralForTest(t, tt.input)
-			if lit.Kind != LiteralFloat {
+			if lit.Kind != verb.LiteralFloat {
 				t.Fatalf("literal kind = %v, want LiteralFloat", lit.Kind)
 			}
 			if lit.FloatValue != tt.want {

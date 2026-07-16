@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"barn/compiler"
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
@@ -33,22 +33,23 @@ func resetReviewManager(t *testing.T) {
 // task is finished while the task is merely suspended.
 //
 // scheduler.go:164-168:
-//   if t.Done != nil {
-//       close(t.Done)   <- fires unconditionally after runTask returns
-//   }
+//
+//	if t.Done != nil {
+//	    close(t.Done)   <- fires unconditionally after runTask returns
+//	}
+//
 // runTask returns nil for BOTH FlowSuspend and terminal completion.
 // -----------------------------------------------------------------------------
 func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
 
-	p := parser.NewParser("suspend(100);")
-	stmts, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+	program, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile: %v", diagnostics)
 	}
 
-	taskID := s.CreateForegroundTask(types.ObjNothing, stmts)
+	taskID := s.CreateForegroundTask(types.ObjNothing, program)
 	bgTask := s.GetTask(taskID)
 	if bgTask == nil {
 		t.Fatal("task not found in scheduler")
@@ -77,14 +78,9 @@ func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// BUG-2: Scheduler.nextTaskID and task.Manager.nextTaskID are independent
-// counters both starting at 1. EvalCommandOutput creates tasks via
-// manager.CreateTask (manager counter); all other paths use s.nextTaskID.
-// After checkpoint restore s.nextTaskID is advanced to max(restored IDs) but
-// manager.nextTaskID is NOT, so the eval-task IDs overlap the restored
-// scheduler-task IDs. QueueTask.RegisterTask then overwrites the manager's
-// record for the colliding ID — the original task is silently lost from
-// manager.tasks so kill_task / resume_task / queued_tasks act on the wrong task.
+// Task IDs have one owner: the scheduler counter advanced by checkpoint restore.
+// Eval and queued tasks must consume that same sequence so manager registration
+// cannot overwrite a different live task with a colliding ID.
 // -----------------------------------------------------------------------------
 func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.T) {
 	resetReviewManager(t)
@@ -94,47 +90,26 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 	s := NewScheduler(store)
 	mgr := task.GetManager()
 
-	// Probe: discover the next ID the manager will allocate.
-	probe := mgr.CreateTask(types.ObjNothing, 100, 1.0)
-	nextManagerID := probe.ID + 1 // manager will hand out this ID next
-	mgr.RemoveTask(probe.ID)
-
-	// Coerce the scheduler counter to produce the same ID on its next allocation.
-	atomic.StoreInt64(&s.nextTaskID, nextManagerID-1)
-
-	// Simulate EvalCommandOutput: create a task directly via manager.
-	evalTask := mgr.CreateTask(types.ObjNothing, 100, 1.0)
-	defer mgr.RemoveTask(evalTask.ID)
-	if evalTask.ID != nextManagerID {
-		t.Fatalf("manager ID probe misfire: got %d, want %d", evalTask.ID, nextManagerID)
+	// Simulate a restored database whose highest task ID was 99. Eval and queued
+	// tasks must both advance the scheduler-owned counter from that point.
+	atomic.StoreInt64(&s.nextTaskID, 99)
+	lines := s.EvalCommandOutput(types.ObjNothing, "return task_id();", "", "")
+	if len(lines) != 1 || lines[0] != "{1, 100}" {
+		t.Fatalf("eval task ID = %v, want [{1, 100}]", lines)
 	}
 
-	// Now create a scheduler task — it gets the same ID from s.nextTaskID.
-	p := parser.NewParser("return 1;")
-	stmts, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse: %v", err)
+	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile: %v", diagnostics)
 	}
-	schedulerTaskID := s.CreateForegroundTask(types.ObjNothing, stmts)
-	if schedulerTaskID != nextManagerID {
-		t.Fatalf("scheduler ID probe misfire: got %d, want %d", schedulerTaskID, nextManagerID)
+	schedulerTaskID := s.CreateForegroundTask(types.ObjNothing, program)
+	if schedulerTaskID != 101 {
+		t.Fatalf("scheduler task ID = %d, want 101", schedulerTaskID)
 	}
 
-	// QueueTask (called by CreateForegroundTask) calls manager.RegisterTask,
-	// writing manager.tasks[nextManagerID] = schedulerTask — overwriting the eval task.
-	managerView := mgr.GetTask(nextManagerID)
-
-	if managerView == evalTask {
-		// If we still see the eval task, the collision did not overwrite it.
-		t.Fatal("eval task unexpectedly still in manager after scheduler registration (test setup issue)")
+	if managerView := mgr.GetTask(schedulerTaskID); managerView == nil {
+		t.Fatal("scheduler task was not registered with the global task manager")
 	}
-
-	// The eval task has been silently displaced from manager.tasks[nextManagerID].
-	// kill_task(nextManagerID) now kills the scheduler task, not the eval task.
-	t.Errorf("BUG: ID collision at %d — manager.CreateTask and scheduler.QueueTask produced "+
-		"the same task ID from independent counters; the eval task was overwritten in "+
-		"manager.tasks and is no longer reachable by kill_task/resume_task/queued_tasks",
-		nextManagerID)
 }
 
 // -----------------------------------------------------------------------------
@@ -151,8 +126,10 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 //
 // To detect: run with -race flag.
 // The test sets up two concurrent goroutines:
-//   goroutine A runs a suspending task (writes BytecodeVM at line 239)
-//   goroutine B runs a completing task whose liveTaskVMs call reads goroutine A's task BytecodeVM
+//
+//	goroutine A runs a suspending task (writes BytecodeVM at line 239)
+//	goroutine B runs a completing task whose liveTaskVMs call reads goroutine A's task BytecodeVM
+//
 // -----------------------------------------------------------------------------
 func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	resetReviewManager(t)
@@ -164,13 +141,12 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	ticks, seconds := foregroundTaskLimits()
 
 	// taskA: suspend(100) — its runTask will write taskA.BytecodeVM = bcVM at line 239.
-	pA := parser.NewParser("suspend(100);")
-	stmtsA, err := pA.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse taskA: %v", err)
+	programA, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile taskA: %v", diagnostics)
 	}
 	taskAID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskA := task.NewTaskFull(taskAID, types.ObjNothing, stmtsA, ticks, seconds)
+	taskA := task.NewTaskFull(taskAID, types.ObjNothing, programA, ticks, seconds)
 	s.populateTaskContextDependencies(taskA.Context)
 	taskA.StartTime = time.Now()
 	taskA.ForkCreator = s
@@ -182,13 +158,12 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 
 	// taskB: return 1 — completes quickly; its runTask calls liveTaskVMs at the
 	// GC boundary (task_runtime.go:307), which reads taskA.BytecodeVM.
-	pB := parser.NewParser("return 1;")
-	stmtsB, err := pB.ParseProgram()
-	if err != nil {
-		t.Fatalf("parse taskB: %v", err)
+	programB, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile taskB: %v", diagnostics)
 	}
 	taskBID := atomic.AddInt64(&s.nextTaskID, 1)
-	taskB := task.NewTaskFull(taskBID, types.ObjNothing, stmtsB, ticks, seconds)
+	taskB := task.NewTaskFull(taskBID, types.ObjNothing, programB, ticks, seconds)
 	s.populateTaskContextDependencies(taskB.Context)
 	taskB.StartTime = time.Now()
 	taskB.ForkCreator = s

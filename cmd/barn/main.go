@@ -2,9 +2,13 @@ package main
 
 import (
 	"errors"
+	"expvar"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,12 +19,12 @@ import (
 	"syscall"
 
 	"barn/builtins"
-	"barn/bytecode"
+	"barn/compiler"
 	"barn/config"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
+	"barn/logging"
 	"barn/profile"
 	"barn/server"
 	"barn/trace"
@@ -33,6 +37,74 @@ import (
 // GOGC=200 lifts parallel speedup from ~4.1x to ~5.9x with memory bounded
 // relative to the live set.
 const defaultGOGCPercent = 200
+
+// fatalf logs a fatal startup error and exits. Unlike log.Fatalf it goes
+// through slog, so the failure that killed a run is in the run's log file.
+func fatalf(format string, args ...any) {
+	slog.Error(fmt.Sprintf(format, args...))
+	os.Exit(1)
+}
+
+// logLevelHandler reads and sets the log level of the running server, so that a
+// server can be turned up to debug while it misbehaves and turned back down
+// afterwards — without a restart, which would destroy the state you wanted to
+// look at. This lives on the admin endpoint rather than in a MOO builtin because
+// Barn's MOO surface is ToastStunt's, and Toast has no such function.
+//
+//	curl localhost:PORT/debug/loglevel
+//	curl -X POST 'localhost:PORT/debug/loglevel?level=debug'
+func logLevelHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost || r.Method == http.MethodPut {
+		want := r.URL.Query().Get("level")
+		level, err := logging.ParseLevel(want)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		was := logging.LevelName()
+		logging.Level.Set(level)
+		slog.Warn("log level changed",
+			slog.String("from", was),
+			slog.String("to", logging.LevelName()))
+	}
+	fmt.Fprintln(w, logging.LevelName())
+}
+
+// startDebugEndpoint serves pprof and expvar on a local address. The default
+// port is ephemeral so that several servers (the conformance runner starts them
+// in parallel) never collide; the address that was actually bound is logged, and
+// that log line is how you find it.
+//
+// The handlers are registered explicitly rather than by importing net/http/pprof
+// for its side effects, because that only populates http.DefaultServeMux — and
+// exposing pprof on a mux the rest of the program might serve publicly is how it
+// ends up on the open internet.
+func startDebugEndpoint(addr string) (*http.Server, error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", addr, err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/debug/vars", expvar.Handler())
+	mux.HandleFunc("/debug/loglevel", logLevelHandler)
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	srv := &http.Server{Handler: mux}
+	slog.Info("debug endpoint listening", slog.String("addr", listener.Addr().String()))
+
+
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Warn("debug endpoint stopped", slog.Any("err", err))
+		}
+	}()
+	return srv, nil
+}
 
 type stringListFlag []string
 
@@ -55,6 +127,11 @@ func main() {
 	listProfiles := flag.Bool("list-profiles", false, "List known managed profiles and exit")
 	var listenFlags stringListFlag
 	flag.Var(&listenFlags, "listen", "Listener URL; repeatable, e.g. tcp://:7777")
+
+	// Logging flags
+	logLevel := flag.String("log-level", "info", "Minimum log level: debug, info, warn, or error")
+	logDir := flag.String("log-dir", "logs", "Directory for JSON log files (empty disables the file sink)")
+	debugAddr := flag.String("debug-addr", "127.0.0.1:0", "Address for the pprof/expvar endpoint (\"off\" to disable)")
 
 	// Trace flags
 	traceEnabled := flag.Bool("trace", false, "Enable execution tracing")
@@ -86,30 +163,37 @@ func main() {
 
 	flag.Parse()
 
+	closeLogs, err := logging.Setup(logging.Options{LevelStr: *logLevel, Dir: *logDir})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logging setup failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer closeLogs()
+
 	// Apply GC overrides only when explicitly set; otherwise leave Go's
 	// automatic GOMEMLIMIT/GOGC env-var honoring untouched.
 	if *gomemlimitMiB > 0 {
 		debug.SetMemoryLimit(int64(*gomemlimitMiB) * 1024 * 1024)
-		log.Printf("GC memory limit: %d MiB", *gomemlimitMiB)
+		slog.Info("GC memory limit set", slog.Int("mib", *gomemlimitMiB))
 	}
 	// GC-percent precedence: explicit -gogc flag > GOGC env > Barn default 200.
 	if *gogc >= 0 {
 		// Explicit override wins.
 		debug.SetGCPercent(*gogc)
-		log.Printf("GC target: %d%%", *gogc)
+		slog.Info("GC target set", slog.Int("percent", *gogc))
 	} else if os.Getenv("GOGC") != "" {
 		// Operator set GOGC in the environment; Go already honored it at
 		// startup, so respect it and do nothing.
 	} else {
 		// Barn's on-by-default tuned budget.
 		debug.SetGCPercent(defaultGOGCPercent)
-		log.Printf("GC target: %d%% (default)", defaultGOGCPercent)
+		slog.Info("GC target set (default)", slog.Int("percent", defaultGOGCPercent))
 	}
 
 	if *listProfiles {
 		registry, err := profile.LoadRegistry(*profileRegistry)
 		if err != nil {
-			log.Fatalf("Failed to load profile registry: %v", err)
+			fatalf("Failed to load profile registry: %v", err)
 		}
 		printProfiles(registry)
 		return
@@ -119,14 +203,14 @@ func main() {
 	if *configPath != "" {
 		loaded, err := config.LoadFile(*configPath)
 		if err != nil {
-			log.Fatalf("Failed to load config: %v", err)
+			fatalf("Failed to load config: %v", err)
 		}
 		options = loaded
 	}
 	outboundProvided := flagWasProvided("outbound") || flagWasProvided("o")
 	noOutboundProvided := flagWasProvided("no-outbound") || flagWasProvided("O")
 	if outboundProvided && noOutboundProvided {
-		log.Fatal("cannot combine --outbound and --no-outbound")
+		fatalf("cannot combine --outbound and --no-outbound")
 	}
 	if outboundProvided && (*outbound || *outboundShort) {
 		options.OutboundNetwork = true
@@ -138,36 +222,36 @@ func main() {
 		options.PromoteNumbers = true
 	}
 	if err := options.Validate(); err != nil {
-		log.Fatalf("Invalid config: %v", err)
+		fatalf("Invalid config: %v", err)
 	}
 	if *profileManifest != "" && *profileID == "" {
-		log.Fatal("--profile-id is required with --profile-manifest")
+		fatalf("--profile-id is required with --profile-manifest")
 	}
 	if *profileID != "" && *configPath == "" {
-		log.Fatal("--config is required with --profile-id")
+		fatalf("--config is required with --profile-id")
 	}
 
 	// Handle -dump flag: dump database and exit
 	if *dumpPath != "" {
 		database, err := dbformat.LoadDatabase(*dbPath)
 		if err != nil {
-			log.Fatalf("Failed to load database: %v", err)
+			fatalf("Failed to load database: %v", err)
 		}
 		store := database.NewStoreFromDatabase()
 
 		f, err := os.Create(*dumpPath)
 		if err != nil {
-			log.Fatalf("Failed to create dump file: %v", err)
+			fatalf("Failed to create dump file: %v", err)
 		}
 
 		writer := dbformat.NewWriter(f, store.Snapshot())
 		if err := writer.WriteDatabase(); err != nil {
 			f.Close()
-			log.Fatalf("Failed to write database: %v", err)
+			fatalf("Failed to write database: %v", err)
 		}
 		f.Close()
 
-		log.Printf("Database dumped to %s", *dumpPath)
+		slog.Info("database dumped", slog.String("path", *dumpPath))
 		return
 	}
 
@@ -179,7 +263,7 @@ func main() {
 		// Load database for inspection
 		database, err := dbformat.LoadDatabase(*dbPath)
 		if err != nil {
-			log.Fatalf("Failed to load database: %v", err)
+			fatalf("Failed to load database: %v", err)
 		}
 		store := database.NewStoreFromDatabase()
 
@@ -208,16 +292,18 @@ func main() {
 	}
 
 	// Normal server startup
-	log.Printf("Barn MOO Server")
-	log.Printf("Database: %s", *dbPath)
-	if *configPath != "" {
-		log.Printf("Config: %s", *configPath)
-	}
 	listenerSpecs, err := buildListenerSpecs(*port, listenFlags, flagWasProvided("port"))
 	if err != nil {
-		log.Fatal(err)
+		fatalf("%v", err)
 	}
-	log.Printf("Listeners: %s", formatListenerSpecs(listenerSpecs))
+	startup := []any{
+		slog.String("database", *dbPath),
+		slog.String("listeners", formatListenerSpecs(listenerSpecs)),
+	}
+	if *configPath != "" {
+		startup = append(startup, slog.String("config", *configPath))
+	}
+	slog.Info("Barn MOO Server", startup...)
 
 	// Initialize tracer
 	if *traceEnabled {
@@ -229,14 +315,24 @@ func main() {
 			}
 		}
 		trace.Init(true, filters, os.Stderr)
-		log.Printf("Tracing enabled (filters: %v)", filters)
+		slog.Info("tracing enabled", slog.Any("filters", filters))
 	} else {
 		trace.Init(false, nil, nil)
 	}
 
+	if *debugAddr != "off" && *debugAddr != "" {
+		debugSrv, err := startDebugEndpoint(*debugAddr)
+		if err != nil {
+			// A missing debug endpoint is not worth refusing to serve MOO over.
+			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer debugSrv.Close()
+		}
+	}
+
 	srv, err := server.NewServerWithOptions(*dbPath, listenerSpecs, *checkpointInterval, options)
 	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		fatalf("Failed to create server: %v", err)
 	}
 
 	if *profileManifest != "" {
@@ -248,16 +344,16 @@ func main() {
 			Options:           options,
 		})
 		if err != nil {
-			log.Fatalf("Failed to build profile manifest: %v", err)
+			fatalf("Failed to build profile manifest: %v", err)
 		}
 		if err := profile.WriteManifest(*profileManifest, manifest); err != nil {
-			log.Fatalf("Failed to write profile manifest: %v", err)
+			fatalf("Failed to write profile manifest: %v", err)
 		}
-		log.Printf("Profile manifest: %s", *profileManifest)
+		slog.Info("profile manifest written", slog.String("path", *profileManifest))
 	}
 
 	if err := srv.LoadDatabase(); err != nil {
-		log.Fatalf("Failed to load database: %v", err)
+		fatalf("Failed to load database: %v", err)
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -266,22 +362,23 @@ func main() {
 	go func() {
 		select {
 		case <-sigChan:
-			log.Println("Received shutdown signal")
+			slog.Info("received shutdown signal")
 			srv.Shutdown("Server shutdown")
 		case <-signalDone:
 		}
 	}()
 
-	log.Printf("Starting server...")
+	slog.Info("starting server")
 	err = srv.Start()
 	close(signalDone)
 	signal.Stop(sigChan)
 	if err != nil {
 		if errors.Is(err, server.ErrPanicShutdown) {
-			log.Printf("Server panic shutdown: %v", err)
+			slog.Error("server panic shutdown", slog.Any("err", err))
+			closeLogs()
 			os.Exit(1)
 		}
-		log.Fatalf("Server error: %v", err)
+		fatalf("Server error: %v", err)
 	}
 }
 
@@ -538,18 +635,10 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 
 // evalExpression parses and evaluates a MOO expression
 func evalExpression(store *dbstore.Store, expr string, options config.Options) {
-	p := parser.NewParser(expr)
-	node, err := p.ParseExpression(0)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
-		os.Exit(1)
-	}
-
 	registry := vm.BuildVMRegistry()
-	compiler := bytecode.NewCompilerWithRegistry(registry)
-	prog, err := compiler.Compile(&parser.ReturnStmt{Value: node})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Compile error: %v\n", err)
+	prog, diagnostics := compiler.CompileMOO([]string{"return " + expr + ";"}, registry)
+	if len(diagnostics) > 0 {
+		fmt.Fprintf(os.Stderr, "Compile error: %s\n", diagnostics[0].Error())
 		os.Exit(1)
 	}
 

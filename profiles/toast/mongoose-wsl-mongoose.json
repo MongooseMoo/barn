@@ -1,0 +1,20 @@
+{
+  "profile_id": "toast-mongoose-wsl-mongoose",
+  "implementation": "toaststunt",
+  "implementation_ref": "72e3c7f96ce7a41fdeba793aef8818dc4408072e",
+  "binary_path": "/root/src/toaststunt-mongoose/build-release/moo",
+  "build_system": "cmake",
+  "runtime_os": "linux",
+  "arch_bits": 64,
+  "database_fixture": "mongoose",
+  "database_checksum": "33201970097d3d2d2bfc0d5f875f087d587601bf8255ef31ef19b416d65ac925",
+  "config_file": "/root/src/toaststunt-mongoose/src/include/options.h",
+  "config_checksum": "6c855f6b1f2dd584ba949d42891018ca68eccd34bd75b7e2300428b9246724a9",
+  "features": {
+    "option.OUTBOUND_NETWORK": true,
+    "option.PROMOTE_NUMBERS": true,
+    "runtime.arch_bits": 64
+  },
+  "support_status": "supported",
+  "unsupported_reason": ""
+}

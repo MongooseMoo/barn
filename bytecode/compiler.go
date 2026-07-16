@@ -5,8 +5,8 @@ import (
 	"math"
 	"strconv"
 
-	"barn/parser"
 	"barn/types"
+	"barn/verb"
 )
 
 // UnknownBuiltinError is returned by the compiler when a verb references a
@@ -32,28 +32,26 @@ type Registry interface {
 	GetID(name string) (int, bool)
 }
 
-// Compiler compiles AST nodes to bytecode
+// Compiler lowers semantic verb nodes to bytecode.
 type Compiler struct {
-	program         *Program
-	constants       map[string]int  // Constant deduplication (Value.String() -> index)
-	variables       map[string]int  // Variable name -> index mapping
-	loops           []LoopContext   // Loop context stack for break/continue
-	scopes          []Scope         // Variable scope stack
-	tempCount       int             // Counter for unique temporary variable names
-	registry        Registry        // Builtin function registry for name->ID resolution
-	indexContextVar int             // Variable slot used by index-marker compilation (-1 = none)
-	indexMarkerMode indexMarkerMode // Controls ^/$ compilation semantics in current context
-	lastLine        int             // Last emitted line number for LineInfo deduplication
-	err             error           // First overflow/limit error; checked at Compile boundaries
+	program              *Program
+	constants            map[string]int       // Constant deduplication (exact typed value -> index)
+	variables            map[string]int       // Variable name -> index mapping
+	loops                []LoopContext        // Loop context stack for break/continue
+	scopes               []Scope              // Variable scope stack
+	tempCount            int                  // Counter for unique temporary variable names
+	registry             Registry             // Builtin function registry for name->ID resolution
+	indexContextVar      int                  // Variable slot used by index-boundary compilation (-1 = none)
+	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions
+	lastLine             int                  // Last emitted line number for LineInfo deduplication
+	err                  error                // First overflow/limit error; checked at Compile boundaries
 }
 
-type indexMarkerMode int
+type indexBoundaryContext byte
 
 const (
-	// ^ => 1, $ => collection length from indexContextVar.
-	indexMarkerModeLength indexMarkerMode = iota
-	// ^/$ => first/last for maps, 1/length for list/string using collection in indexContextVar.
-	indexMarkerModeCollection
+	indexBoundaryIndex indexBoundaryContext = iota
+	indexBoundaryRange
 )
 
 // LoopContext tracks loop compilation state
@@ -88,7 +86,6 @@ func NewCompiler() *Compiler {
 		loops:           make([]LoopContext, 0, 8),
 		scopes:          make([]Scope, 0, 8),
 		indexContextVar: -1,
-		indexMarkerMode: indexMarkerModeLength,
 	}
 }
 
@@ -101,7 +98,7 @@ func NewCompilerWithRegistry(registry Registry) *Compiler {
 }
 
 // Compile compiles a node to a Program
-func (c *Compiler) Compile(node parser.Node) (*Program, error) {
+func (c *Compiler) Compile(node verb.Node) (*Program, error) {
 	// Initialize global scope
 	c.beginScope()
 
@@ -117,7 +114,7 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 
 	// If the node is a loop statement (which pushes its result), use OP_RETURN
 	// to return the loop value. Otherwise use implicit return 0.
-	if stmt, ok := node.(parser.Stmt); ok && isLoopStmt(stmt) {
+	if stmt, ok := node.(verb.Stmt); ok && isLoopStmt(stmt) {
 		c.emit(OP_RETURN)
 	} else {
 		c.emit(OP_RETURN_NONE)
@@ -129,12 +126,13 @@ func (c *Compiler) Compile(node parser.Node) (*Program, error) {
 	return c.program, nil
 }
 
-// CompileStatements compiles a slice of statements (e.g. a verb body) to a Program.
+// CompileProgram compiles a semantic verb program to bytecode.
 // An implicit "return 0" is appended if no explicit return is present (MOO verbs
 // return 0 by default). When the last statement is a loop, its result value
 // (from break expr or default 0) is used as the implicit return value.
 // VarNames is populated from the compiler's variable table.
-func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
+func (c *Compiler) CompileProgram(program *verb.Program) (*Program, error) {
+	stmts := program.Statements
 	c.beginScope()
 
 	if len(stmts) > 0 {
@@ -178,48 +176,6 @@ func (c *Compiler) CompileStatements(stmts []parser.Stmt) (*Program, error) {
 	return c.program, nil
 }
 
-// CompileVerbBytecode compiles verb source (code lines) to bytecode, backed by a
-// content-addressed cache.
-//
-// In the relocated topology the bytecode package owns the cache and the parser
-// bridge. The caller passes only persistent state (the source lines) plus the
-// registry; bytecode no longer reaches into a db/store.Verb struct, so it does
-// NOT import db/store.
-//
-// The cache is keyed by a hash of the RAW stored source (the code lines). On a
-// hit the cached *Program is returned directly (a cheap map lookup, no parse, no
-// compile). On a miss the source is parsed + compiled, the result is stored, and
-// returned. Correctness is automatic: changed source hashes to a new key and
-// recompiles; eviction (LRU) is memory-management only and at worst forces a
-// recompile. The cached *Program is immutable (all per-execution state lives on
-// the VM StackFrame), so sharing it across executions is safe.
-//
-// Returns the compiled *Program or an error.
-func CompileVerbBytecode(code []string, registry Registry) (*Program, error) {
-	key := hashCode(code)
-	if prog, ok := verbProgramCache.get(key); ok {
-		return prog, nil
-	}
-
-	vp, errs := CompileVerb(code)
-	if errs != nil {
-		// errs[0] is already Toast-formatted ("Line N:  syntax error").
-		return nil, fmt.Errorf("%s", errs[0])
-	}
-
-	c := NewCompilerWithRegistry(registry)
-	prog, err := c.CompileStatements(vp.Statements)
-	if err != nil {
-		return nil, fmt.Errorf("bytecode compile error: %w", err)
-	}
-	if len(code) > 0 {
-		prog.Source = append([]string(nil), code...)
-	}
-
-	verbProgramCache.put(key, prog)
-	return prog, nil
-}
-
 // emit adds an opcode to the bytecode
 func (c *Compiler) emit(op OpCode) int {
 	pos := len(c.program.Code)
@@ -250,7 +206,14 @@ func (c *Compiler) emitConstant(v types.Value) {
 // as a safe fallback index.
 func (c *Compiler) addConstant(v types.Value) int {
 	// Check if constant already exists
-	key := v.String()
+	key := fmt.Sprintf("%d:%s", int(v.Type()), v.String())
+	if v.Type() == types.TYPE_FLOAT {
+		f := v.Float()
+		if f == 0 {
+			f = 0
+		}
+		key = fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
+	}
 	if idx, ok := c.constants[key]; ok {
 		return idx
 	}
@@ -296,10 +259,10 @@ func (c *Compiler) currentOffset() int {
 	return len(c.program.Code)
 }
 
-// trackLine records a line number entry if the given AST node's line differs
+// trackLine records a line number entry if the semantic node's line differs
 // from the last recorded line. This populates Program.LineInfo so that runtime
 // errors can include source line numbers.
-func (c *Compiler) trackLine(node parser.Node) {
+func (c *Compiler) trackLine(node verb.Node) {
 	line := node.Position().Line
 	if line > 0 && line != c.lastLine {
 		c.program.LineInfo = append(c.program.LineInfo, LineEntry{
@@ -434,15 +397,15 @@ func (c *Compiler) findLoopByTarget(name string) *LoopContext {
 }
 
 // compileNode dispatches compilation based on node type
-func (c *Compiler) compileNode(node parser.Node) error {
+func (c *Compiler) compileNode(node verb.Node) error {
 	// Bail out early if an overflow error has been recorded
 	if c.err != nil {
 		return c.err
 	}
 
-	// Guard against nil nodes (e.g. empty ExprStmt from parser)
+	// Guard against nil nodes (e.g. an empty expression statement).
 	if node == nil {
-		return fmt.Errorf("nil AST node")
+		return fmt.Errorf("nil semantic node")
 	}
 
 	// Track source line for runtime error reporting
@@ -450,67 +413,61 @@ func (c *Compiler) compileNode(node parser.Node) error {
 
 	switch n := node.(type) {
 	// Expressions
-	case *parser.LiteralExpr:
+	case *verb.LiteralExpr:
 		return c.compileLiteral(n)
-	case *parser.IdentifierExpr:
+	case *verb.IdentifierExpr:
 		return c.compileIdentifier(n)
-	case *parser.UnaryExpr:
+	case *verb.UnaryExpr:
 		return c.compileUnary(n)
-	case *parser.BinaryExpr:
+	case *verb.BinaryExpr:
 		return c.compileBinary(n)
-	case *parser.TernaryExpr:
+	case *verb.TernaryExpr:
 		return c.compileTernary(n)
-	case *parser.ParenExpr:
-		return c.compileNode(n.Expr)
-	case *parser.AssignExpr:
+	case *verb.AssignExpr:
 		return c.compileAssign(n)
-	case *parser.BuiltinCallExpr:
+	case *verb.BuiltinCallExpr:
 		return c.compileBuiltinCall(n)
-	case *parser.IndexExpr:
+	case *verb.IndexExpr:
 		return c.compileIndex(n)
-	case *parser.RangeExpr:
+	case *verb.RangeExpr:
 		return c.compileRange(n)
-	case *parser.IndexMarkerExpr:
-		return c.compileIndexMarker(n)
-	case *parser.PropertyExpr:
+	case *verb.IndexBoundaryExpr:
+		return c.compileIndexBoundary(n)
+	case *verb.PropertyExpr:
 		return c.compileProperty(n)
-	case *parser.VerbCallExpr:
+	case *verb.VerbCallExpr:
 		return c.compileVerbCall(n)
-	case *parser.SpliceExpr:
+	case *verb.SpliceExpr:
 		return c.compileSplice(n)
-	case *parser.CatchExpr:
+	case *verb.CatchExpr:
 		return c.compileCatch(n)
-	case *parser.ListExpr:
+	case *verb.ListExpr:
 		return c.compileList(n)
-	case *parser.ListRangeExpr:
+	case *verb.ListRangeExpr:
 		return c.compileListRange(n)
-	case *parser.MapExpr:
+	case *verb.MapExpr:
 		return c.compileMap(n)
 
 	// Statements
-	case *parser.ExprStmt:
+	case *verb.ExprStmt:
 		return c.compileExprStmt(n)
-	case *parser.IfStmt:
+	case *verb.IfStmt:
 		return c.compileIf(n)
-	case *parser.WhileStmt:
+	case *verb.WhileStmt:
 		return c.compileWhile(n)
-	case *parser.ForStmt:
-		return c.compileFor(n)
-	case *parser.BreakStmt:
+	case *verb.CollectionLoopStmt:
+		return c.compileCollectionLoop(n)
+	case *verb.RangeLoopStmt:
+		return c.compileRangeLoop(n)
+	case *verb.BreakStmt:
 		return c.compileBreak(n)
-	case *parser.ContinueStmt:
+	case *verb.ContinueStmt:
 		return c.compileContinue(n)
-	case *parser.ReturnStmt:
+	case *verb.ReturnStmt:
 		return c.compileReturn(n)
-	case *parser.TryExceptStmt:
-		return c.compileTryExcept(n)
-	case *parser.TryFinallyStmt:
-		return c.compileTryFinally(n)
-	case *parser.TryExceptFinallyStmt:
-		return c.compileTryExceptFinally(n)
-	case *parser.ScatterStmt:
-		return c.compileScatter(n)
-	case *parser.ForkStmt:
+	case *verb.TryStmt:
+		return c.compileTry(n)
+	case *verb.ForkStmt:
 		return c.compileFork(n)
 
 	default:
@@ -519,9 +476,9 @@ func (c *Compiler) compileNode(node parser.Node) error {
 }
 
 // compileLiteral compiles a literal value
-func (c *Compiler) compileLiteral(n *parser.LiteralExpr) error {
+func (c *Compiler) compileLiteral(n *verb.LiteralExpr) error {
 	// Check if it's a small integer that can use immediate opcode
-	if n.Kind == parser.LiteralInt {
+	if n.Kind == verb.LiteralInt {
 		c.emitIntLiteral(n.IntValue)
 		return nil
 	}
@@ -588,7 +545,7 @@ var builtinConstants = map[string]types.Value{
 }
 
 // compileIdentifier compiles a variable reference
-func (c *Compiler) compileIdentifier(n *parser.IdentifierExpr) error {
+func (c *Compiler) compileIdentifier(n *verb.IdentifierExpr) error {
 	// User variables take precedence over built-in type constants so code can
 	// intentionally use names like NUM/INT as loop counters or temporaries.
 	if idx, ok := c.resolveVariable(n.Name); ok {
@@ -613,7 +570,7 @@ func (c *Compiler) compileIdentifier(n *parser.IdentifierExpr) error {
 }
 
 // compileUnary compiles a unary expression
-func (c *Compiler) compileUnary(n *parser.UnaryExpr) error {
+func (c *Compiler) compileUnary(n *verb.UnaryExpr) error {
 	// Compile operand
 	if err := c.compileNode(n.Operand); err != nil {
 		return err
@@ -621,11 +578,11 @@ func (c *Compiler) compileUnary(n *parser.UnaryExpr) error {
 
 	// Emit operator
 	switch n.Operator {
-	case parser.TOKEN_MINUS:
+	case verb.UnaryNegate:
 		c.emit(OP_NEG)
-	case parser.TOKEN_NOT:
+	case verb.UnaryNot:
 		c.emit(OP_NOT)
-	case parser.TOKEN_BITNOT:
+	case verb.UnaryBitwiseNot:
 		c.emit(OP_BITNOT)
 	default:
 		return fmt.Errorf("unknown unary operator: %v", n.Operator)
@@ -635,12 +592,12 @@ func (c *Compiler) compileUnary(n *parser.UnaryExpr) error {
 }
 
 // compileBinary compiles a binary expression
-func (c *Compiler) compileBinary(n *parser.BinaryExpr) error {
+func (c *Compiler) compileBinary(n *verb.BinaryExpr) error {
 	// Short-circuit for && and ||
-	if n.Operator == parser.TOKEN_AND {
+	if n.Operator == verb.BinaryAnd {
 		return c.compileShortCircuitAnd(n)
 	}
-	if n.Operator == parser.TOKEN_OR {
+	if n.Operator == verb.BinaryOr {
 		return c.compileShortCircuitOr(n)
 	}
 
@@ -656,41 +613,41 @@ func (c *Compiler) compileBinary(n *parser.BinaryExpr) error {
 
 	// Emit operator
 	switch n.Operator {
-	case parser.TOKEN_PLUS:
+	case verb.BinaryAdd:
 		c.emit(OP_ADD)
-	case parser.TOKEN_MINUS:
+	case verb.BinarySubtract:
 		c.emit(OP_SUB)
-	case parser.TOKEN_STAR:
+	case verb.BinaryMultiply:
 		c.emit(OP_MUL)
-	case parser.TOKEN_SLASH:
+	case verb.BinaryDivide:
 		c.emit(OP_DIV)
-	case parser.TOKEN_PERCENT:
+	case verb.BinaryModulo:
 		c.emit(OP_MOD)
-	case parser.TOKEN_CARET:
+	case verb.BinaryPower:
 		c.emit(OP_POW)
-	case parser.TOKEN_EQ:
+	case verb.BinaryEqual:
 		c.emit(OP_EQ)
-	case parser.TOKEN_NE:
+	case verb.BinaryNotEqual:
 		c.emit(OP_NE)
-	case parser.TOKEN_LT:
+	case verb.BinaryLess:
 		c.emit(OP_LT)
-	case parser.TOKEN_LE:
+	case verb.BinaryLessEqual:
 		c.emit(OP_LE)
-	case parser.TOKEN_GT:
+	case verb.BinaryGreater:
 		c.emit(OP_GT)
-	case parser.TOKEN_GE:
+	case verb.BinaryGreaterEqual:
 		c.emit(OP_GE)
-	case parser.TOKEN_IN:
+	case verb.BinaryIn:
 		c.emit(OP_IN)
-	case parser.TOKEN_BITAND:
+	case verb.BinaryBitAnd:
 		c.emit(OP_BITAND)
-	case parser.TOKEN_BITOR:
+	case verb.BinaryBitOr:
 		c.emit(OP_BITOR)
-	case parser.TOKEN_BITXOR:
+	case verb.BinaryBitXor:
 		c.emit(OP_BITXOR)
-	case parser.TOKEN_LSHIFT:
+	case verb.BinaryShiftLeft:
 		c.emit(OP_SHL)
-	case parser.TOKEN_RSHIFT:
+	case verb.BinaryShiftRight:
 		c.emit(OP_SHR)
 	default:
 		return fmt.Errorf("unknown binary operator: %v", n.Operator)
@@ -700,7 +657,7 @@ func (c *Compiler) compileBinary(n *parser.BinaryExpr) error {
 }
 
 // compileShortCircuitAnd compiles && with short-circuit evaluation
-func (c *Compiler) compileShortCircuitAnd(n *parser.BinaryExpr) error {
+func (c *Compiler) compileShortCircuitAnd(n *verb.BinaryExpr) error {
 	// Compile left
 	if err := c.compileNode(n.Left); err != nil {
 		return err
@@ -720,7 +677,7 @@ func (c *Compiler) compileShortCircuitAnd(n *parser.BinaryExpr) error {
 }
 
 // compileShortCircuitOr compiles || with short-circuit evaluation
-func (c *Compiler) compileShortCircuitOr(n *parser.BinaryExpr) error {
+func (c *Compiler) compileShortCircuitOr(n *verb.BinaryExpr) error {
 	// Compile left
 	if err := c.compileNode(n.Left); err != nil {
 		return err
@@ -740,7 +697,7 @@ func (c *Compiler) compileShortCircuitOr(n *parser.BinaryExpr) error {
 }
 
 // compileTernary compiles a ternary expression
-func (c *Compiler) compileTernary(n *parser.TernaryExpr) error {
+func (c *Compiler) compileTernary(n *verb.TernaryExpr) error {
 	// Compile condition
 	if err := c.compileNode(n.Condition); err != nil {
 		return err
@@ -769,7 +726,7 @@ func (c *Compiler) compileTernary(n *parser.TernaryExpr) error {
 }
 
 // compileAssign compiles an assignment expression
-func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
+func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 	// Compile value
 	if err := c.compileNode(n.Value); err != nil {
 		return err
@@ -780,73 +737,39 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 
 	// Handle different target types
 	switch target := n.Target.(type) {
-	case *parser.IdentifierExpr:
+	case *verb.VariableTarget:
 		// Simple variable assignment
 		idx := c.declareVariable(target.Name)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(idx))
-	case *parser.ListExpr:
-		// Scatter-style assignment expression:
-		//   {a, b, c} = value
-		// Assignment expression result remains on stack (the RHS value).
-		names := make([]string, len(target.Elements))
-		for i, elem := range target.Elements {
-			id, ok := elem.(*parser.IdentifierExpr)
-			if !ok {
-				return fmt.Errorf("invalid assignment target: %T", target)
-			}
-			names[i] = id.Name
-		}
-
-		listVar := c.declareVariable(c.tempVar("scatter_assign_list"))
-		// Stack: [value, value_copy] -> store value_copy.
-		c.emit(OP_SET_VAR)
-		c.emitByte(byte(listVar))
-		// Stack: [value]
-
-		// Validate shape exactly matches required count.
-		c.emit(OP_GET_VAR)
-		c.emitByte(byte(listVar))
-		c.emit(OP_SCATTER)
-		c.emitByte(byte(len(names))) // required
-		c.emitByte(0)                // optional
-		c.emitByte(0)                // hasRest
-
-		for i, name := range names {
-			c.emit(OP_GET_VAR)
-			c.emitByte(byte(listVar))
-			c.emitConstant(types.NewInt(int64(i + 1)))
-			c.emit(OP_INDEX)
-			idx := c.declareVariable(name)
-			c.emit(OP_SET_VAR)
-			c.emitByte(byte(idx))
-		}
-	case *parser.IndexExpr:
+	case *verb.DestructuringTarget:
+		return c.compileDestructuringTarget(target)
+	case *verb.IndexTarget:
 		// Index assignment: coll[idx] = value  OR  nested: coll[i][j]... = value
 		// Walk the IndexExpr chain to find the base variable and collect indices
-		var indices []parser.Expr
-		var baseExpr parser.Expr = target
+		var indices []verb.Expr
+		var baseTarget verb.CollectionTarget = target
 		for {
-			ie, ok := baseExpr.(*parser.IndexExpr)
+			ie, ok := baseTarget.(*verb.IndexTarget)
 			if !ok {
 				break
 			}
 			indices = append(indices, ie.Index)
-			baseExpr = ie.Expr
+			baseTarget = ie.Collection
 		}
 
 		// Determine base type: variable or property
 		var baseVarIdx int
-		var basePropExpr *parser.PropertyExpr
+		var basePropTarget *verb.PropertyTarget
 
-		if baseIdent, ok := baseExpr.(*parser.IdentifierExpr); ok {
+		if baseIdent, ok := baseTarget.(*verb.VariableTarget); ok {
 			// Variable-based: x[i] = val
 			baseVarIdx = c.declareVariable(baseIdent.Name)
-		} else if propExpr, ok := baseExpr.(*parser.PropertyExpr); ok {
+		} else if property, ok := baseTarget.(*verb.PropertyTarget); ok {
 			// Property-based: obj.prop[i] = val
 			// Read the property value into a temp variable, use it as the base,
 			// then write the modified temp back to the property after index ops.
-			basePropExpr = propExpr
+			basePropTarget = property
 
 			// Stack currently: [value, value_copy]
 			// Store value_copy into temp so we can use the stack for GET_PROP
@@ -856,15 +779,15 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// Stack: [value]
 
 			// Compile obj expression, emit GET_PROP to read current property value
-			if err := c.compileNode(propExpr.Expr); err != nil {
+			if err := c.compileNode(property.Object); err != nil {
 				return err
 			}
-			if propExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(propExpr.Property))
+			if property.Name != "" {
+				propIdx := c.addConstant(types.NewStr(property.Name))
 				c.emit(OP_GET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if propExpr.PropertyExpr != nil {
-				if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+			} else if property.NameExpr != nil {
+				if err := c.compileNode(property.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_GET_PROP)
@@ -901,21 +824,21 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// Stack currently: [value, value_copy]
 			// Compile the index expression -> [value, value_copy, index]
 			oldContextVar := c.indexContextVar
-			oldMarkerMode := c.indexMarkerMode
-			if containsIndexMarker(indices[0]) {
+			oldBoundaryContext := c.indexBoundaryContext
+			if containsIndexBoundary(indices[0]) {
 				tempIdx := c.declareVariable(c.tempVar("idxsetctx"))
 				c.emit(OP_GET_VAR)
 				c.emitByte(byte(baseVarIdx))
 				c.emit(OP_SET_VAR)
 				c.emitByte(byte(tempIdx))
 				c.indexContextVar = tempIdx
-				c.indexMarkerMode = indexMarkerModeCollection
+				c.indexBoundaryContext = indexBoundaryIndex
 			}
 			if err := c.compileNode(indices[0]); err != nil {
 				return err
 			}
 			c.indexContextVar = oldContextVar
-			c.indexMarkerMode = oldMarkerMode
+			c.indexBoundaryContext = oldBoundaryContext
 			// VM will: pop index, pop value_copy, read coll from locals[baseVarIdx],
 			// set coll[index] = value_copy, store modified coll back
 			c.emit(OP_INDEX_SET)
@@ -936,21 +859,21 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			tmpIndices := make([]int, depth)
 			for k := 0; k < depth; k++ {
 				oldContextVar := c.indexContextVar
-				oldMarkerMode := c.indexMarkerMode
-				if containsIndexMarker(indices[k]) {
+				oldBoundaryContext := c.indexBoundaryContext
+				if containsIndexBoundary(indices[k]) {
 					tempIdx := c.declareVariable(c.tempVar("nestedidxctx"))
 					c.emit(OP_GET_VAR)
 					c.emitByte(byte(baseVarIdx))
 					c.emit(OP_SET_VAR)
 					c.emitByte(byte(tempIdx))
 					c.indexContextVar = tempIdx
-					c.indexMarkerMode = indexMarkerModeCollection
+					c.indexBoundaryContext = indexBoundaryIndex
 				}
 				if err := c.compileNode(indices[k]); err != nil {
 					return err
 				}
 				c.indexContextVar = oldContextVar
-				c.indexMarkerMode = oldMarkerMode
+				c.indexBoundaryContext = oldBoundaryContext
 				tmpIndices[k] = c.declareVariable(fmt.Sprintf("__nested_idx_%d", k))
 				c.emit(OP_SET_VAR)
 				c.emitByte(byte(tmpIndices[k]))
@@ -1013,7 +936,7 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		}
 
 		// If the base was a property, write the modified temp back to the property
-		if basePropExpr != nil {
+		if basePropTarget != nil {
 			// Stack: [value]
 			// Load the modified base temp (now has the updated collection)
 			c.emit(OP_GET_VAR)
@@ -1021,18 +944,18 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// Stack: [value, modified_collection]
 
 			// Compile the object expression again
-			if err := c.compileNode(basePropExpr.Expr); err != nil {
+			if err := c.compileNode(basePropTarget.Object); err != nil {
 				return err
 			}
 			// Stack: [value, modified_collection, obj]
 
 			// Emit SET_PROP: pops obj, pops modified_collection, writes property
-			if basePropExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+			if basePropTarget.Name != "" {
+				propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
 				c.emit(OP_SET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if basePropExpr.PropertyExpr != nil {
-				if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+			} else if basePropTarget.NameExpr != nil {
+				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_SET_PROP)
@@ -1040,22 +963,22 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			}
 			// Stack: [value] (original assigned value remains as expression result)
 		}
-	case *parser.PropertyExpr:
+	case *verb.PropertyTarget:
 		// Property assignment: obj.prop = value
 		// Stack currently: [value, value_copy]
 		// Compile the object expression -> [value, value_copy, obj]
-		if err := c.compileNode(target.Expr); err != nil {
+		if err := c.compileNode(target.Object); err != nil {
 			return err
 		}
 
-		if target.Property != "" {
+		if target.Name != "" {
 			// Static property: obj.prop = value
-			propIdx := c.addConstant(types.NewStr(target.Property))
+			propIdx := c.addConstant(types.NewStr(target.Name))
 			c.emit(OP_SET_PROP)
 			c.emitByte(byte(propIdx))
-		} else if target.PropertyExpr != nil {
+		} else if target.NameExpr != nil {
 			// Dynamic property: obj.(expr) = value
-			if err := c.compileNode(target.PropertyExpr); err != nil {
+			if err := c.compileNode(target.NameExpr); err != nil {
 				return err
 			}
 			c.emit(OP_SET_PROP)
@@ -1063,22 +986,22 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		} else {
 			return fmt.Errorf("property expression has neither static name nor dynamic expression")
 		}
-	case *parser.RangeExpr:
+	case *verb.RangeTarget:
 		// Range assignment: coll[start..end] = value
-		if nestedIndex, ok := target.Expr.(*parser.IndexExpr); ok {
+		if nestedIndex, ok := target.Collection.(*verb.IndexTarget); ok {
 			return c.compileNestedRangeAssign(nestedIndex, target.Start, target.End)
 		}
 
 		var varIdx int
-		var basePropExpr *parser.PropertyExpr
+		var basePropTarget *verb.PropertyTarget
 
-		if baseIdent, ok := target.Expr.(*parser.IdentifierExpr); ok {
+		if baseIdent, ok := target.Collection.(*verb.VariableTarget); ok {
 			// Variable-based: x[2..3] = val
 			varIdx = c.declareVariable(baseIdent.Name)
-		} else if propExpr, ok := target.Expr.(*parser.PropertyExpr); ok {
+		} else if property, ok := target.Collection.(*verb.PropertyTarget); ok {
 			// Property-based: obj.prop[2..3] = val
 			// Read the property into a temp, do range-set on temp, write back.
-			basePropExpr = propExpr
+			basePropTarget = property
 
 			// Stack currently: [value, value_copy]
 			// Store value_copy into temp so we can use the stack for GET_PROP
@@ -1088,15 +1011,15 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// Stack: [value]
 
 			// Compile obj expression, emit GET_PROP to read current property value
-			if err := c.compileNode(propExpr.Expr); err != nil {
+			if err := c.compileNode(property.Object); err != nil {
 				return err
 			}
-			if propExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(propExpr.Property))
+			if property.Name != "" {
+				propIdx := c.addConstant(types.NewStr(property.Name))
 				c.emit(OP_GET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if propExpr.PropertyExpr != nil {
-				if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+			} else if property.NameExpr != nil {
+				if err := c.compileNode(property.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_GET_PROP)
@@ -1141,7 +1064,7 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 		c.emitByte(byte(varIdx))
 
 		// If the base was a property, write the modified temp back to the property
-		if basePropExpr != nil {
+		if basePropTarget != nil {
 			// Stack: [value]
 			// Load the modified base temp (now has the updated collection)
 			c.emit(OP_GET_VAR)
@@ -1149,18 +1072,18 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 			// Stack: [value, modified_collection]
 
 			// Compile the object expression again
-			if err := c.compileNode(basePropExpr.Expr); err != nil {
+			if err := c.compileNode(basePropTarget.Object); err != nil {
 				return err
 			}
 			// Stack: [value, modified_collection, obj]
 
 			// Emit SET_PROP: pops obj, pops modified_collection, writes property
-			if basePropExpr.Property != "" {
-				propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+			if basePropTarget.Name != "" {
+				propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
 				c.emit(OP_SET_PROP)
 				c.emitByte(byte(propIdx))
-			} else if basePropExpr.PropertyExpr != nil {
-				if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+			} else if basePropTarget.NameExpr != nil {
+				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 					return err
 				}
 				c.emit(OP_SET_PROP)
@@ -1175,30 +1098,30 @@ func (c *Compiler) compileAssign(n *parser.AssignExpr) error {
 	return nil
 }
 
-// compileRangeIndex compiles a range index expression with numeric marker semantics.
-// In range context, ^ means 1 and $ means collection length.
-func (c *Compiler) compileRangeIndex(expr parser.Expr, varIdx int) error {
-	if !containsIndexMarker(expr) {
+// compileRangeIndex compiles a range index expression against its collection.
+// OP_INDEX_MARKER resolves ^ and $ while preserving those semantic operations
+// in the compiled program.
+func (c *Compiler) compileRangeIndex(expr verb.Expr, varIdx int) error {
+	if !containsIndexBoundary(expr) {
 		return c.compileNode(expr)
 	}
 
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexMarkerMode
+	oldBoundaryContext := c.indexBoundaryContext
 
 	tempIdx := c.declareVariable(c.tempVar("rngsetctx"))
 	c.emit(OP_GET_VAR)
 	c.emitByte(byte(varIdx))
-	c.emit(OP_LENGTH)
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(tempIdx))
 
 	c.indexContextVar = tempIdx
-	c.indexMarkerMode = indexMarkerModeLength
+	c.indexBoundaryContext = indexBoundaryRange
 
 	err := c.compileNode(expr)
 
 	c.indexContextVar = oldContextVar
-	c.indexMarkerMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	return err
 }
@@ -1208,20 +1131,20 @@ func (c *Compiler) compileRangeIndex(expr parser.Expr, varIdx int) error {
 //	outer[idx][start..end] = value
 //
 // by desugaring through temporary variables and existing INDEX/RANGE_SET opcodes.
-func (c *Compiler) compileNestedRangeAssign(indexExpr *parser.IndexExpr, start, end parser.Expr) error {
+func (c *Compiler) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end verb.Expr) error {
 	// For now, support one nested index level (x[i][a..b]); deeper forms can be added later.
-	if _, deeper := indexExpr.Expr.(*parser.IndexExpr); deeper {
+	if _, deeper := indexTarget.Collection.(*verb.IndexTarget); deeper {
 		return fmt.Errorf("range assignment target nesting depth > 1 is not supported")
 	}
 
 	var baseVarIdx int
-	var basePropExpr *parser.PropertyExpr
+	var basePropTarget *verb.PropertyTarget
 
 	// If the base is a property, load it into a temp base variable.
-	if baseIdent, ok := indexExpr.Expr.(*parser.IdentifierExpr); ok {
+	if baseIdent, ok := indexTarget.Collection.(*verb.VariableTarget); ok {
 		baseVarIdx = c.declareVariable(baseIdent.Name)
-	} else if propExpr, ok := indexExpr.Expr.(*parser.PropertyExpr); ok {
-		basePropExpr = propExpr
+	} else if property, ok := indexTarget.Collection.(*verb.PropertyTarget); ok {
+		basePropTarget = property
 
 		// Stack currently: [value, value_copy]
 		tmpValHold := c.declareVariable("__prop_nested_range_val")
@@ -1229,15 +1152,15 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *parser.IndexExpr, start, 
 		c.emitByte(byte(tmpValHold))
 		// Stack: [value]
 
-		if err := c.compileNode(propExpr.Expr); err != nil {
+		if err := c.compileNode(property.Object); err != nil {
 			return err
 		}
-		if propExpr.Property != "" {
-			propIdx := c.addConstant(types.NewStr(propExpr.Property))
+		if property.Name != "" {
+			propIdx := c.addConstant(types.NewStr(property.Name))
 			c.emit(OP_GET_PROP)
 			c.emitByte(byte(propIdx))
-		} else if propExpr.PropertyExpr != nil {
-			if err := c.compileNode(propExpr.PropertyExpr); err != nil {
+		} else if property.NameExpr != nil {
+			if err := c.compileNode(property.NameExpr); err != nil {
 				return err
 			}
 			c.emit(OP_GET_PROP)
@@ -1267,21 +1190,21 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *parser.IndexExpr, start, 
 
 	// Resolve outer index once and store it.
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexMarkerMode
-	if containsIndexMarker(indexExpr.Index) {
+	oldBoundaryContext := c.indexBoundaryContext
+	if containsIndexBoundary(indexTarget.Index) {
 		tempIdx := c.declareVariable(c.tempVar("nestedrangectx"))
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(baseVarIdx))
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
-		c.indexMarkerMode = indexMarkerModeCollection
+		c.indexBoundaryContext = indexBoundaryIndex
 	}
-	if err := c.compileNode(indexExpr.Index); err != nil {
+	if err := c.compileNode(indexTarget.Index); err != nil {
 		return err
 	}
 	c.indexContextVar = oldContextVar
-	c.indexMarkerMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	tmpOuterIndex := c.declareVariable("__nested_range_index")
 	c.emit(OP_SET_VAR)
@@ -1322,18 +1245,18 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *parser.IndexExpr, start, 
 	// Stack: [value]
 
 	// If base was a property, persist modified base temp back onto the object property.
-	if basePropExpr != nil {
+	if basePropTarget != nil {
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(baseVarIdx))
-		if err := c.compileNode(basePropExpr.Expr); err != nil {
+		if err := c.compileNode(basePropTarget.Object); err != nil {
 			return err
 		}
-		if basePropExpr.Property != "" {
-			propIdx := c.addConstant(types.NewStr(basePropExpr.Property))
+		if basePropTarget.Name != "" {
+			propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
 			c.emit(OP_SET_PROP)
 			c.emitByte(byte(propIdx))
-		} else if basePropExpr.PropertyExpr != nil {
-			if err := c.compileNode(basePropExpr.PropertyExpr); err != nil {
+		} else if basePropTarget.NameExpr != nil {
+			if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 				return err
 			}
 			c.emit(OP_SET_PROP)
@@ -1347,7 +1270,7 @@ func (c *Compiler) compileNestedRangeAssign(indexExpr *parser.IndexExpr, start, 
 // Stub implementations for other compile methods
 // These will be completed based on the actual requirements
 
-func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
+func (c *Compiler) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	if c.registry == nil {
 		return fmt.Errorf("builtin call compilation requires a builtins registry")
 	}
@@ -1366,7 +1289,7 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 			c.emit(OP_MAKE_LIST)
 			c.emitByte(0)
 			for _, arg := range n.Args {
-				if splice, ok := arg.(*parser.SpliceExpr); ok {
+				if splice, ok := arg.(*verb.SpliceExpr); ok {
 					if err := c.compileNode(splice.Expr); err != nil {
 						return err
 					}
@@ -1418,7 +1341,7 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 		c.emit(OP_MAKE_LIST)
 		c.emitByte(0)
 		for _, arg := range n.Args {
-			if splice, ok := arg.(*parser.SpliceExpr); ok {
+			if splice, ok := arg.(*verb.SpliceExpr); ok {
 				if err := c.compileNode(splice.Expr); err != nil {
 					return err
 				}
@@ -1449,7 +1372,7 @@ func (c *Compiler) compileBuiltinCall(n *parser.BuiltinCallExpr) error {
 	return nil
 }
 
-func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
+func (c *Compiler) compileIndex(n *verb.IndexExpr) error {
 	// Compile collection
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -1457,16 +1380,16 @@ func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
 
 	// If the index contains ^ or $, set up an index context variable with the collection.
 	// Stack: [coll] -> DUP -> [coll, coll] -> SET_VAR -> [coll]
-	hasIndexMarker := containsIndexMarker(n.Index)
+	hasIndexBoundary := containsIndexBoundary(n.Index)
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexMarkerMode
-	if hasIndexMarker {
+	oldBoundaryContext := c.indexBoundaryContext
+	if hasIndexBoundary {
 		tempIdx := c.declareVariable(c.tempVar("idxctx"))
 		c.emit(OP_DUP)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
-		c.indexMarkerMode = indexMarkerModeCollection
+		c.indexBoundaryContext = indexBoundaryIndex
 	}
 
 	// Compile index
@@ -1476,32 +1399,33 @@ func (c *Compiler) compileIndex(n *parser.IndexExpr) error {
 
 	// Restore previous context
 	c.indexContextVar = oldContextVar
-	c.indexMarkerMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	// Emit index operation
 	c.emit(OP_INDEX)
 	return nil
 }
 
-func (c *Compiler) compileRange(n *parser.RangeExpr) error {
+func (c *Compiler) compileRange(n *verb.RangeExpr) error {
 	// Compile collection
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
 	}
 
-	// If start or end contains ^ or $, set up an index context variable with collection length.
-	// Stack: [coll] -> DUP -> [coll, coll] -> LENGTH -> [coll, len] -> SET_VAR -> [coll]
-	hasIndexMarker := containsIndexMarker(n.Start) || containsIndexMarker(n.End)
+	// If start or end contains ^ or $, retain the collection as the index
+	// context. OP_INDEX_MARKER then preserves the semantic FIRST/LAST operation
+	// in bytecode while resolving it against the collection at runtime.
+	// Stack: [coll] -> DUP -> [coll, coll] -> SET_VAR -> [coll]
+	hasIndexBoundary := containsIndexBoundary(n.Start) || containsIndexBoundary(n.End)
 	oldContextVar := c.indexContextVar
-	oldMarkerMode := c.indexMarkerMode
-	if hasIndexMarker {
+	oldBoundaryContext := c.indexBoundaryContext
+	if hasIndexBoundary {
 		tempIdx := c.declareVariable(c.tempVar("rngctx"))
 		c.emit(OP_DUP)
-		c.emit(OP_LENGTH)
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
 		c.indexContextVar = tempIdx
-		c.indexMarkerMode = indexMarkerModeLength
+		c.indexBoundaryContext = indexBoundaryRange
 	}
 
 	// Compile start
@@ -1516,49 +1440,45 @@ func (c *Compiler) compileRange(n *parser.RangeExpr) error {
 
 	// Restore previous context
 	c.indexContextVar = oldContextVar
-	c.indexMarkerMode = oldMarkerMode
+	c.indexBoundaryContext = oldBoundaryContext
 
 	// Emit range operation
 	c.emit(OP_RANGE)
 	return nil
 }
 
-func (c *Compiler) compileIndexMarker(n *parser.IndexMarkerExpr) error {
-	if n.Marker != parser.TOKEN_CARET && n.Marker != parser.TOKEN_DOLLAR {
-		return fmt.Errorf("unknown index marker type")
-	}
-
-	if c.indexContextVar >= 0 && c.indexMarkerMode == indexMarkerModeCollection {
+func (c *Compiler) compileIndexBoundary(n *verb.IndexBoundaryExpr) error {
+	if c.indexContextVar >= 0 {
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(c.indexContextVar))
 		c.emit(OP_INDEX_MARKER)
-		if n.Marker == parser.TOKEN_CARET {
-			c.emitByte(0)
+		if c.indexBoundaryContext == indexBoundaryRange {
+			if n.Boundary == verb.IndexFirst {
+				c.emitByte(RangeMarkerFirst)
+			} else {
+				c.emitByte(RangeMarkerLast)
+			}
+		} else if n.Boundary == verb.IndexFirst {
+			c.emitByte(IndexMarkerFirst)
 		} else {
-			c.emitByte(1)
+			c.emitByte(IndexMarkerLast)
 		}
 		return nil
 	}
 
-	if n.Marker == parser.TOKEN_CARET {
+	if n.Boundary == verb.IndexFirst {
 		c.emitConstant(types.NewInt(1))
 		return nil
 	}
 
-	// $ resolves to collection length in length mode.
-	if c.indexContextVar >= 0 {
-		c.emit(OP_GET_VAR)
-		c.emitByte(byte(c.indexContextVar))
-	} else {
-		// No index context (shouldn't happen for well-formed index/range expressions).
-		// Fall back to literal -1 (will produce E_RANGE at runtime).
-		c.emitConstant(types.NewInt(-1))
-	}
+	// No index context (shouldn't happen for well-formed index/range
+	// expressions). Fall back to -1, which produces E_RANGE at runtime.
+	c.emitConstant(types.NewInt(-1))
 
 	return nil
 }
 
-func (c *Compiler) compileProperty(n *parser.PropertyExpr) error {
+func (c *Compiler) compileProperty(n *verb.PropertyExpr) error {
 	// Compile the object expression (pushes object onto stack)
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -1586,7 +1506,7 @@ func (c *Compiler) compileProperty(n *parser.PropertyExpr) error {
 	return nil
 }
 
-func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
+func (c *Compiler) compileVerbCall(n *verb.VerbCallExpr) error {
 	// Compile the object expression (pushes object onto stack)
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -1605,7 +1525,7 @@ func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
 		c.emit(OP_MAKE_LIST)
 		c.emitByte(0)
 		for _, arg := range n.Args {
-			if splice, ok := arg.(*parser.SpliceExpr); ok {
+			if splice, ok := arg.(*verb.SpliceExpr); ok {
 				if err := c.compileNode(splice.Expr); err != nil {
 					return err
 				}
@@ -1659,7 +1579,7 @@ func (c *Compiler) compileVerbCall(n *parser.VerbCallExpr) error {
 	return nil
 }
 
-func (c *Compiler) compileSplice(n *parser.SpliceExpr) error {
+func (c *Compiler) compileSplice(n *verb.SpliceExpr) error {
 	// Compile the expression to splice
 	if err := c.compileNode(n.Expr); err != nil {
 		return err
@@ -1670,7 +1590,7 @@ func (c *Compiler) compileSplice(n *parser.SpliceExpr) error {
 	return nil
 }
 
-func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
+func (c *Compiler) compileCatch(n *verb.CatchExpr) error {
 	// Catch expressions (`expr ! codes => default`) are compiled as a
 	// single-clause try/except that leaves the result on the stack.
 	//
@@ -1765,7 +1685,7 @@ func (c *Compiler) compileCatch(n *parser.CatchExpr) error {
 	return nil
 }
 
-func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
+func (c *Compiler) compileExprStmt(n *verb.ExprStmt) error {
 	// Guard against nil expression (e.g. bare semicolons)
 	if n.Expr == nil {
 		return nil
@@ -1776,14 +1696,14 @@ func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
 	// value-preserving OP_DUP and the trailing OP_POP (dead value shuffling that
 	// otherwise dominates assignment-heavy loops). Complex targets (scatter /
 	// index / property) keep the general value-producing path below.
-	if assign, ok := n.Expr.(*parser.AssignExpr); ok {
-		if ident, ok := assign.Target.(*parser.IdentifierExpr); ok {
+	if assign, ok := n.Expr.(*verb.AssignExpr); ok {
+		if ident, ok := assign.Target.(*verb.VariableTarget); ok {
 			// Self-concat idiom: s = s + expr. This statement does not need the
 			// assignment's result value, so emit a string-append opcode directly.
 			// Runtime type checks preserve normal `+` errors if either operand is
 			// not a string.
-			if bin, ok := assign.Value.(*parser.BinaryExpr); ok && bin.Operator == parser.TOKEN_PLUS {
-				if leftIdent, ok := bin.Left.(*parser.IdentifierExpr); ok && leftIdent.Name == ident.Name {
+			if bin, ok := assign.Value.(*verb.BinaryExpr); ok && bin.Operator == verb.BinaryAdd {
+				if leftIdent, ok := bin.Left.(*verb.IdentifierExpr); ok && leftIdent.Name == ident.Name {
 					idx := c.declareVariable(ident.Name)
 					c.emit(OP_GET_VAR)
 					c.emitByte(byte(idx))
@@ -1802,14 +1722,14 @@ func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
 			// trailing elements directly onto v. With the in-place Append path
 			// this turns an O(n^2) build loop into amortized O(n); the result is
 			// identical (v's elements followed by the trailing items).
-			if list, ok := assign.Value.(*parser.ListExpr); ok && len(list.Elements) > 0 {
-				if sp, ok := list.Elements[0].(*parser.SpliceExpr); ok {
-					if spIdent, ok := sp.Expr.(*parser.IdentifierExpr); ok && spIdent.Name == ident.Name {
+			if list, ok := assign.Value.(*verb.ListExpr); ok && len(list.Elements) > 0 {
+				if sp, ok := list.Elements[0].(*verb.SpliceExpr); ok {
+					if spIdent, ok := sp.Expr.(*verb.IdentifierExpr); ok && spIdent.Name == ident.Name {
 						idx := c.declareVariable(ident.Name)
 						c.emit(OP_GET_VAR)
 						c.emitByte(byte(idx))
 						for _, elem := range list.Elements[1:] {
-							if splice, ok := elem.(*parser.SpliceExpr); ok {
+							if splice, ok := elem.(*verb.SpliceExpr); ok {
 								if err := c.compileNode(splice.Expr); err != nil {
 									return err
 								}
@@ -1848,13 +1768,13 @@ func (c *Compiler) compileExprStmt(n *parser.ExprStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileIf(n *parser.IfStmt) error {
+func (c *Compiler) compileIf(n *verb.IfStmt) error {
 	// Compile condition
 	if err := c.compileNode(n.Condition); err != nil {
 		return err
 	}
 
-	// Jump to next clause if false
+	// Jump to the semantic else branch if false.
 	elseJump := c.emitJump(OP_JUMP_IF_FALSE)
 
 	// Compile then branch
@@ -1862,46 +1782,22 @@ func (c *Compiler) compileIf(n *parser.IfStmt) error {
 		return err
 	}
 
-	// Jump over else branches
-	endJumps := []int{c.emitJump(OP_JUMP)}
+	if len(n.Else) == 0 {
+		c.patchJump(elseJump)
+		return nil
+	}
 
-	// Compile elseif chains
+	endJump := c.emitJump(OP_JUMP)
 	c.patchJump(elseJump)
-	for _, elseif := range n.ElseIfs {
-		// Compile elseif condition
-		if err := c.compileNode(elseif.Condition); err != nil {
-			return err
-		}
-
-		// Jump to next clause if false
-		nextJump := c.emitJump(OP_JUMP_IF_FALSE)
-
-		// Compile elseif body
-		if err := c.compileBlock(elseif.Body); err != nil {
-			return err
-		}
-
-		// Jump to end
-		endJumps = append(endJumps, c.emitJump(OP_JUMP))
-		c.patchJump(nextJump)
+	if err := c.compileBlock(n.Else); err != nil {
+		return err
 	}
-
-	// Compile else branch
-	if n.Else != nil {
-		if err := c.compileBlock(n.Else); err != nil {
-			return err
-		}
-	}
-
-	// Patch all end jumps
-	for _, jump := range endJumps {
-		c.patchJump(jump)
-	}
+	c.patchJump(endJump)
 
 	return nil
 }
 
-func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
+func (c *Compiler) compileWhile(n *verb.WhileStmt) error {
 	// Declare temp variable for loop result (break expr value or default 0)
 	resultVar := c.declareVariable(c.tempVar("loop_result"))
 	// Initialize to 0 (default loop result when no break expr)
@@ -1947,13 +1843,6 @@ func (c *Compiler) compileWhile(n *parser.WhileStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileFor(n *parser.ForStmt) error {
-	if n.RangeStart != nil {
-		return c.compileForRange(n)
-	}
-	return c.compileForList(n)
-}
-
 // tempVar generates a unique temporary variable name
 func (c *Compiler) tempVar(prefix string) string {
 	c.tempCount++
@@ -1961,83 +1850,81 @@ func (c *Compiler) tempVar(prefix string) string {
 }
 
 // hasSpliceArgs checks if any argument in a list is a splice expression.
-func hasSpliceArgs(args []parser.Expr) bool {
+func hasSpliceArgs(args []verb.Expr) bool {
 	for _, arg := range args {
-		if _, ok := arg.(*parser.SpliceExpr); ok {
+		if _, ok := arg.(*verb.SpliceExpr); ok {
 			return true
 		}
 	}
 	return false
 }
 
-// containsIndexMarker reports whether expr contains a ^/$ index marker bound
+// containsIndexBoundary reports whether expr contains a ^/$ index boundary bound
 // to the *current* indexing context — i.e. one not already shadowed by a
 // nested index/range expression's own brackets (which establish their own
 // context for any ^/$ inside them). It must recurse into every expression
-// kind that can hold a child expression so a marker nested arbitrarily deep
+// kind that can hold a child expression so a boundary nested arbitrarily deep
 // (e.g. inside a function call argument, list/map literal element, or
 // assignment value) is still detected; under-detection silently falls back
-// to an unbound marker (compiles to a literal -1), not a compile error.
+// to an unbound boundary (compiles to a literal -1), not a compile error.
 // Over-detection is harmless: nested index/range expressions always push
 // and restore their own context around their own Index/Start/End fields.
-func containsIndexMarker(expr parser.Expr) bool {
+func containsIndexBoundary(expr verb.Expr) bool {
 	switch n := expr.(type) {
 	case nil:
 		return false
-	case *parser.IndexMarkerExpr:
-		return n.Marker == parser.TOKEN_DOLLAR || n.Marker == parser.TOKEN_CARET
-	case *parser.BinaryExpr:
-		return containsIndexMarker(n.Left) || containsIndexMarker(n.Right)
-	case *parser.UnaryExpr:
-		return containsIndexMarker(n.Operand)
-	case *parser.ParenExpr:
-		return containsIndexMarker(n.Expr)
-	case *parser.TernaryExpr:
-		return containsIndexMarker(n.Condition) || containsIndexMarker(n.ThenExpr) || containsIndexMarker(n.ElseExpr)
-	case *parser.IndexExpr:
+	case *verb.IndexBoundaryExpr:
+		return n.Boundary == verb.IndexLast || n.Boundary == verb.IndexFirst
+	case *verb.BinaryExpr:
+		return containsIndexBoundary(n.Left) || containsIndexBoundary(n.Right)
+	case *verb.UnaryExpr:
+		return containsIndexBoundary(n.Operand)
+	case *verb.TernaryExpr:
+		return containsIndexBoundary(n.Condition) || containsIndexBoundary(n.ThenExpr) || containsIndexBoundary(n.ElseExpr)
+	case *verb.IndexExpr:
 		// n.Index is scoped to this IndexExpr's own brackets; only n.Expr
 		// (the collection being indexed) is in the enclosing context.
-		return containsIndexMarker(n.Expr)
-	case *parser.RangeExpr:
+		return containsIndexBoundary(n.Expr)
+	case *verb.RangeExpr:
 		// n.Start/n.End are scoped to this RangeExpr's own brackets.
-		return containsIndexMarker(n.Expr)
-	case *parser.PropertyExpr:
-		return containsIndexMarker(n.Expr) || containsIndexMarker(n.PropertyExpr)
-	case *parser.VerbCallExpr:
-		if containsIndexMarker(n.Expr) || containsIndexMarker(n.VerbExpr) {
+		return containsIndexBoundary(n.Expr)
+	case *verb.PropertyExpr:
+		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.PropertyExpr)
+	case *verb.VerbCallExpr:
+		if containsIndexBoundary(n.Expr) || containsIndexBoundary(n.VerbExpr) {
 			return true
 		}
 		for _, arg := range n.Args {
-			if containsIndexMarker(arg) {
+			if containsIndexBoundary(arg) {
 				return true
 			}
 		}
 		return false
-	case *parser.BuiltinCallExpr:
+	case *verb.BuiltinCallExpr:
 		for _, arg := range n.Args {
-			if containsIndexMarker(arg) {
+			if containsIndexBoundary(arg) {
 				return true
 			}
 		}
 		return false
-	case *parser.SpliceExpr:
-		return containsIndexMarker(n.Expr)
-	case *parser.CatchExpr:
-		return containsIndexMarker(n.Expr) || containsIndexMarker(n.Default)
-	case *parser.AssignExpr:
-		return containsIndexMarker(n.Target) || containsIndexMarker(n.Value)
-	case *parser.ListExpr:
+	case *verb.SpliceExpr:
+		return containsIndexBoundary(n.Expr)
+	case *verb.CatchExpr:
+		return containsIndexBoundary(n.Expr) || containsIndexBoundary(n.Default)
+	case *verb.AssignExpr:
+		return containsTargetIndexBoundary(n.Target) || containsIndexBoundary(n.Value)
+	case *verb.ListExpr:
 		for _, el := range n.Elements {
-			if containsIndexMarker(el) {
+			if containsIndexBoundary(el) {
 				return true
 			}
 		}
 		return false
-	case *parser.ListRangeExpr:
-		return containsIndexMarker(n.Start) || containsIndexMarker(n.End)
-	case *parser.MapExpr:
+	case *verb.ListRangeExpr:
+		return containsIndexBoundary(n.Start) || containsIndexBoundary(n.End)
+	case *verb.MapExpr:
 		for _, pair := range n.Pairs {
-			if containsIndexMarker(pair.Key) || containsIndexMarker(pair.Value) {
+			if containsIndexBoundary(pair.Key) || containsIndexBoundary(pair.Value) {
 				return true
 			}
 		}
@@ -2047,9 +1934,31 @@ func containsIndexMarker(expr parser.Expr) bool {
 	}
 }
 
-// compileForRange compiles: for x in [start..end] ... endfor
+func containsTargetIndexBoundary(target verb.Target) bool {
+	switch target := target.(type) {
+	case *verb.VariableTarget:
+		return false
+	case *verb.PropertyTarget:
+		return containsIndexBoundary(target.Object) || containsIndexBoundary(target.NameExpr)
+	case *verb.IndexTarget:
+		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Index)
+	case *verb.RangeTarget:
+		return containsTargetIndexBoundary(target.Collection) || containsIndexBoundary(target.Start) || containsIndexBoundary(target.End)
+	case *verb.DestructuringTarget:
+		for _, binding := range target.Bindings {
+			if optional, ok := binding.(*verb.OptionalBinding); ok && containsIndexBoundary(optional.Default) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// compileRangeLoop compiles: for x in [start..end] ... endfor
 // Compiles to equivalent while loop pattern.
-func (c *Compiler) compileForRange(n *parser.ForStmt) error {
+func (c *Compiler) compileRangeLoop(n *verb.RangeLoopStmt) error {
 	// Hidden variable for end bound
 	endVar := c.declareVariable(c.tempVar("end"))
 	valueVar := c.declareVariable(n.Value)
@@ -2063,14 +1972,14 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	c.emitByte(byte(resultVar))
 
 	// Evaluate end and store
-	if err := c.compileNode(n.RangeEnd); err != nil {
+	if err := c.compileNode(n.End); err != nil {
 		return err
 	}
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(endVar))
 
 	// Evaluate start and store as loop variable
-	if err := c.compileNode(n.RangeStart); err != nil {
+	if err := c.compileNode(n.Start); err != nil {
 		return err
 	}
 	c.emit(OP_SET_VAR)
@@ -2115,11 +2024,11 @@ func (c *Compiler) compileForRange(n *parser.ForStmt) error {
 	return nil
 }
 
-// compileForList compiles: for x in (expr) ... endfor
+// compileCollectionLoop compiles: for x in (expr) ... endfor
 // Handles lists, maps, and strings via OP_ITER_PREP runtime type dispatch.
 // When an index/key variable is present (for v, k in ...), OP_ITER_PREP wraps
 // elements as {value, key/index} pairs and the loop extracts both components.
-func (c *Compiler) compileForList(n *parser.ForStmt) error {
+func (c *Compiler) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	hasIndex := n.Index != ""
 
 	// Hidden variables (unique per loop to support nesting)
@@ -2142,7 +2051,7 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	c.emitByte(byte(resultVar))
 
 	// Evaluate container, then OP_ITER_PREP normalizes it
-	if err := c.compileNode(n.Container); err != nil {
+	if err := c.compileNode(n.Collection); err != nil {
 		return err
 	}
 	c.emit(OP_ITER_PREP)
@@ -2230,7 +2139,7 @@ func (c *Compiler) compileForList(n *parser.ForStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
+func (c *Compiler) compileBreak(n *verb.BreakStmt) error {
 	// Mirror compileContinue: an explicit loop name must resolve to an
 	// enclosing loop, otherwise raise "Invalid loop name" (ToastStunt
 	// parser.y:1205-1206, check_loop_name LOOP_BREAK).
@@ -2248,7 +2157,7 @@ func (c *Compiler) compileBreak(n *parser.BreakStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileContinue(n *parser.ContinueStmt) error {
+func (c *Compiler) compileContinue(n *verb.ContinueStmt) error {
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
 		return fmt.Errorf("Invalid loop name")
@@ -2272,7 +2181,7 @@ func (c *Compiler) compileContinue(n *parser.ContinueStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileReturn(n *parser.ReturnStmt) error {
+func (c *Compiler) compileReturn(n *verb.ReturnStmt) error {
 	if n.Value != nil {
 		// Compile return value
 		if err := c.compileNode(n.Value); err != nil {
@@ -2286,241 +2195,92 @@ func (c *Compiler) compileReturn(n *parser.ReturnStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileTryExcept(n *parser.TryExceptStmt) error {
-	// Bytecode layout:
-	//   OP_TRY_EXCEPT <num_clauses>
-	//     per clause: <num_codes> <code1> <code2>... <var_index+1> <handler_offset:short>
-	//   [body]
-	//   OP_END_EXCEPT <num_clauses>
-	//   OP_JUMP <end_offset>  (skip past handler blocks on normal path)
-	//   [handler 1 body]
-	//   OP_JUMP <end_offset>
-	//   [handler 2 body]
-	//   OP_JUMP <end_offset>
-	//   ...
-	//   <end>
-
-	numClauses := len(n.Excepts)
-
-	// Emit OP_TRY_EXCEPT with clause count
-	c.emit(OP_TRY_EXCEPT)
-	c.emitByte(byte(numClauses))
-
-	// Emit clause metadata with placeholder handler offsets
-	clauseOffsetPatches := make([]int, numClauses)
-	clauseVarIndices := make([]int, numClauses)
-
-	for i, except := range n.Excepts {
-		if except.IsAny {
-			c.emitByte(0) // 0 codes = catch any
-		} else {
-			codes, err := lowerErrorNames(except.Codes)
-			if err != nil {
-				return err
-			}
-			c.emitByte(byte(len(codes)))
-			for _, code := range codes {
-				c.emitByte(byte(code))
-			}
-		}
-
-		// Variable index (0 = no variable, 1+ = index+1)
-		if except.Variable != "" {
-			idx := c.declareVariable(except.Variable)
-			clauseVarIndices[i] = idx
-			c.emitByte(byte(idx + 1)) // +1 so 0 means "no variable"
-		} else {
-			clauseVarIndices[i] = -1
-			c.emitByte(0) // no variable
-		}
-
-		// Placeholder for handler IP (absolute offset in code)
-		clauseOffsetPatches[i] = len(c.program.Code)
+func (c *Compiler) compileTry(n *verb.TryStmt) error {
+	finallyIPPatch := -1
+	if n.Finalizer != nil {
+		c.emit(OP_TRY_FINALLY)
+		finallyIPPatch = len(c.program.Code)
 		c.emitShort(0xFFFF)
 	}
 
-	// Compile try body
-	if err := c.compileBlock(n.Body); err != nil {
-		return err
-	}
+	if len(n.Handlers) == 0 {
+		if err := c.compileBlock(n.Body); err != nil {
+			return err
+		}
+	} else {
+		numHandlers := len(n.Handlers)
+		c.emit(OP_TRY_EXCEPT)
+		c.emitByte(byte(numHandlers))
 
-	// OP_END_EXCEPT pops handlers from ExceptStack
-	c.emit(OP_END_EXCEPT)
-	c.emitByte(byte(numClauses))
+		handlerOffsetPatches := make([]int, numHandlers)
+		for i, handler := range n.Handlers {
+			if handler.IsAny {
+				c.emitByte(0)
+			} else {
+				codes, err := lowerErrorNames(handler.Codes)
+				if err != nil {
+					return err
+				}
+				c.emitByte(byte(len(codes)))
+				for _, code := range codes {
+					c.emitByte(byte(code))
+				}
+			}
 
-	// Jump past all handler blocks (normal path)
-	endJump := c.emitJump(OP_JUMP)
+			if handler.Variable != "" {
+				idx := c.declareVariable(handler.Variable)
+				c.emitByte(byte(idx + 1))
+			} else {
+				c.emitByte(0)
+			}
 
-	// Compile each handler clause body
-	handlerEndJumps := make([]int, 0, numClauses)
-	for i, except := range n.Excepts {
-		// Patch the handler offset to point here
-		handlerIP := c.currentOffset()
-		c.program.Code[clauseOffsetPatches[i]] = byte(handlerIP >> 8)
-		c.program.Code[clauseOffsetPatches[i]+1] = byte(handlerIP)
+			handlerOffsetPatches[i] = len(c.program.Code)
+			c.emitShort(0xFFFF)
+		}
 
-		_ = except // metadata already handled above
-
-		// Compile handler body
-		if err := c.compileBlock(except.Body); err != nil {
+		if err := c.compileBlock(n.Body); err != nil {
 			return err
 		}
 
-		// Jump to end (past remaining handlers)
-		if i < numClauses-1 {
-			hEndJump := c.emitJump(OP_JUMP)
-			handlerEndJumps = append(handlerEndJumps, hEndJump)
-		}
-	}
+		c.emit(OP_END_EXCEPT)
+		c.emitByte(byte(numHandlers))
+		endHandlersJump := c.emitJump(OP_JUMP)
+		handlerEndJumps := make([]int, 0, numHandlers-1)
 
-	// Patch all end jumps
-	c.patchJump(endJump)
-	for _, j := range handlerEndJumps {
-		c.patchJump(j)
-	}
+		for i, handler := range n.Handlers {
+			handlerIP := c.currentOffset()
+			c.program.Code[handlerOffsetPatches[i]] = byte(handlerIP >> 8)
+			c.program.Code[handlerOffsetPatches[i]+1] = byte(handlerIP)
 
-	return nil
-}
-
-func (c *Compiler) compileTryFinally(n *parser.TryFinallyStmt) error {
-	// Bytecode layout:
-	//   OP_TRY_FINALLY <finally_ip:short>
-	//   [body]
-	//   OP_END_FINALLY  (normal path: pop handler, fall through to finally code)
-	//   <finally_ip>:   (error path entry point)
-	//   [finally block]
-	//   OP_END_FINALLY  (re-raise PendingError if set)
-
-	// Emit OP_TRY_FINALLY with placeholder for finally IP
-	c.emit(OP_TRY_FINALLY)
-	finallyIPPatch := len(c.program.Code)
-	c.emitShort(0xFFFF)
-
-	// Compile try body
-	if err := c.compileBlock(n.Body); err != nil {
-		return err
-	}
-
-	// OP_END_FINALLY on normal path: pop the handler
-	c.emit(OP_END_FINALLY)
-
-	// Patch finally IP to point here (the finally block entry for error path)
-	finallyIP := c.currentOffset()
-	c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
-	c.program.Code[finallyIPPatch+1] = byte(finallyIP)
-
-	// Compile finally block
-	if err := c.compileBlock(n.Finally); err != nil {
-		return err
-	}
-
-	// OP_END_FINALLY at end of finally block: re-raise pending error if any
-	c.emit(OP_END_FINALLY)
-
-	return nil
-}
-
-func (c *Compiler) compileTryExceptFinally(n *parser.TryExceptFinallyStmt) error {
-	// This is a combination: wrap try/except inside try/finally.
-	// Desugar to: try { try { body } except ... endtry } finally { ... } endtry
-	//
-	// Bytecode layout:
-	//   OP_TRY_FINALLY <finally_ip:short>
-	//   OP_TRY_EXCEPT <num_clauses> [clause metadata...]
-	//   [body]
-	//   OP_END_EXCEPT <num_clauses>
-	//   OP_JUMP <past_handlers>
-	//   [handler bodies...]
-	//   <past_handlers>:
-	//   OP_END_FINALLY
-	//   [finally block]
-
-	// Outer: try/finally
-	c.emit(OP_TRY_FINALLY)
-	finallyIPPatch := len(c.program.Code)
-	c.emitShort(0xFFFF)
-
-	// Inner: try/except (reuse compileTryExcept logic inline)
-	numClauses := len(n.Excepts)
-	c.emit(OP_TRY_EXCEPT)
-	c.emitByte(byte(numClauses))
-
-	clauseOffsetPatches := make([]int, numClauses)
-	for i, except := range n.Excepts {
-		if except.IsAny {
-			c.emitByte(0)
-		} else {
-			codes, err := lowerErrorNames(except.Codes)
-			if err != nil {
+			if err := c.compileBlock(handler.Body); err != nil {
 				return err
 			}
-			c.emitByte(byte(len(codes)))
-			for _, code := range codes {
-				c.emitByte(byte(code))
+			if i < numHandlers-1 {
+				handlerEndJumps = append(handlerEndJumps, c.emitJump(OP_JUMP))
 			}
 		}
-		if except.Variable != "" {
-			idx := c.declareVariable(except.Variable)
-			c.emitByte(byte(idx + 1))
-		} else {
-			c.emitByte(0)
+
+		c.patchJump(endHandlersJump)
+		for _, jump := range handlerEndJumps {
+			c.patchJump(jump)
 		}
-		clauseOffsetPatches[i] = len(c.program.Code)
-		c.emitShort(0xFFFF)
 	}
 
-	// Compile try body
-	if err := c.compileBlock(n.Body); err != nil {
-		return err
-	}
-
-	// End except handlers (normal path)
-	c.emit(OP_END_EXCEPT)
-	c.emitByte(byte(numClauses))
-	endExceptJump := c.emitJump(OP_JUMP)
-
-	// Compile handler bodies
-	handlerEndJumps := make([]int, 0, numClauses)
-	for i, except := range n.Excepts {
-		handlerIP := c.currentOffset()
-		c.program.Code[clauseOffsetPatches[i]] = byte(handlerIP >> 8)
-		c.program.Code[clauseOffsetPatches[i]+1] = byte(handlerIP)
-
-		if err := c.compileBlock(except.Body); err != nil {
+	if n.Finalizer != nil {
+		c.emit(OP_END_FINALLY)
+		finallyIP := c.currentOffset()
+		c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
+		c.program.Code[finallyIPPatch+1] = byte(finallyIP)
+		if err := c.compileBlock(n.Finalizer.Body); err != nil {
 			return err
 		}
-
-		if i < numClauses-1 {
-			hEndJump := c.emitJump(OP_JUMP)
-			handlerEndJumps = append(handlerEndJumps, hEndJump)
-		}
+		c.emit(OP_END_FINALLY)
 	}
-
-	c.patchJump(endExceptJump)
-	for _, j := range handlerEndJumps {
-		c.patchJump(j)
-	}
-
-	// OP_END_FINALLY on normal path: pop handler
-	c.emit(OP_END_FINALLY)
-
-	// Patch finally IP
-	finallyIP := c.currentOffset()
-	c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
-	c.program.Code[finallyIPPatch+1] = byte(finallyIP)
-
-	// Compile finally block
-	if err := c.compileBlock(n.Finally); err != nil {
-		return err
-	}
-
-	// OP_END_FINALLY at end: re-raise pending error if any
-	c.emit(OP_END_FINALLY)
 
 	return nil
 }
 
-func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
+func (c *Compiler) compileDestructuringTarget(target *verb.DestructuringTarget) error {
 	// Scatter assignment: {a, ?b, @rest} = list
 	//
 	// Runtime strategy:
@@ -2532,12 +2292,27 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 	numRequired := 0
 	numOptional := 0
 	restIndex := -1
-	for i, target := range n.Targets {
-		if target.Rest {
+	type compiledBinding struct {
+		name     string
+		optional bool
+		rest     bool
+		default_ verb.Expr
+	}
+	bindings := make([]compiledBinding, len(target.Bindings))
+	for i, binding := range target.Bindings {
+		switch binding := binding.(type) {
+		case *verb.RequiredBinding:
+			bindings[i].name = binding.Name
+		case *verb.OptionalBinding:
+			bindings[i] = compiledBinding{name: binding.Name, optional: true, default_: binding.Default}
+		case *verb.RestBinding:
+			bindings[i] = compiledBinding{name: binding.Name, rest: true}
+		}
+		if bindings[i].rest {
 			restIndex = i
 			continue
 		}
-		if target.Optional {
+		if bindings[i].optional {
 			numOptional++
 		} else {
 			numRequired++
@@ -2550,13 +2325,12 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 	leftVar := c.declareVariable(c.tempVar("scatter_left"))
 	rightVar := c.declareVariable(c.tempVar("scatter_right"))
 
-	if err := c.compileNode(n.Value); err != nil {
-		return err
-	}
-	c.emit(OP_DUP)
 	c.emit(OP_SET_VAR)
 	c.emitByte(byte(listVar))
 
+	// Preserve the original assignment value while validating the stored copy.
+	c.emit(OP_GET_VAR)
+	c.emitByte(byte(listVar))
 	c.emit(OP_SCATTER)
 	c.emitByte(byte(numRequired))
 	c.emitByte(byte(numOptional))
@@ -2589,12 +2363,12 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 	// countRequired returns number of required non-rest targets in [start, end].
 	countRequired := func(start, end int) int {
 		count := 0
-		for i := start; i <= end && i < len(n.Targets); i++ {
+		for i := start; i <= end && i < len(bindings); i++ {
 			if i < 0 {
 				continue
 			}
-			target := n.Targets[i]
-			if !target.Rest && !target.Optional {
+			binding := bindings[i]
+			if !binding.rest && !binding.optional {
 				count++
 			}
 		}
@@ -2648,9 +2422,9 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 		c.emit(OP_GT)
 	}
 
-	emitOptionalMissingValue := func(target parser.ScatterTarget, targetVar int) error {
-		if target.Default != nil {
-			if err := c.compileNode(target.Default); err != nil {
+	emitOptionalMissingValue := func(binding compiledBinding, targetVar int) error {
+		if binding.default_ != nil {
+			if err := c.compileNode(binding.default_); err != nil {
 				return err
 			}
 			c.emit(OP_SET_VAR)
@@ -2662,13 +2436,13 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 
 	// Bind suffix targets from the right when @rest is present.
 	if hasRest {
-		for i := len(n.Targets) - 1; i > restIndex; i-- {
-			target := n.Targets[i]
-			if target.Rest {
+		for i := len(bindings) - 1; i > restIndex; i-- {
+			binding := bindings[i]
+			if binding.rest {
 				continue
 			}
-			targetVar := c.declareVariable(target.Name)
-			if target.Optional {
+			targetVar := c.declareVariable(binding.name)
+			if binding.optional {
 				requiredBefore := countRequired(0, i-1)
 				emitOptionalCondition(requiredBefore)
 				elseJump := c.emitJump(OP_JUMP_IF_FALSE)
@@ -2678,7 +2452,7 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 				endJump := c.emitJump(OP_JUMP)
 
 				c.patchJump(elseJump)
-				if err := emitOptionalMissingValue(target, targetVar); err != nil {
+				if err := emitOptionalMissingValue(binding, targetVar); err != nil {
 					return err
 				}
 				c.patchJump(endJump)
@@ -2690,18 +2464,18 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 	}
 
 	// Bind prefix targets from the left.
-	prefixEnd := len(n.Targets) - 1
+	prefixEnd := len(bindings) - 1
 	if hasRest {
 		prefixEnd = restIndex - 1
 	}
 	for i := 0; i <= prefixEnd; i++ {
-		target := n.Targets[i]
-		if target.Rest {
+		binding := bindings[i]
+		if binding.rest {
 			continue
 		}
 
-		targetVar := c.declareVariable(target.Name)
-		if target.Optional {
+		targetVar := c.declareVariable(binding.name)
+		if binding.optional {
 			requiredAfter := countRequired(i+1, prefixEnd)
 			emitOptionalCondition(requiredAfter)
 			elseJump := c.emitJump(OP_JUMP_IF_FALSE)
@@ -2711,7 +2485,7 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 			endJump := c.emitJump(OP_JUMP)
 
 			c.patchJump(elseJump)
-			if err := emitOptionalMissingValue(target, targetVar); err != nil {
+			if err := emitOptionalMissingValue(binding, targetVar); err != nil {
 				return err
 			}
 			c.patchJump(endJump)
@@ -2723,8 +2497,8 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 
 	// Bind @rest to the remaining middle slice.
 	if hasRest {
-		restTarget := n.Targets[restIndex]
-		restVar := c.declareVariable(restTarget.Name)
+		restBinding := bindings[restIndex]
+		restVar := c.declareVariable(restBinding.name)
 
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(leftVar))
@@ -2755,7 +2529,7 @@ func (c *Compiler) compileScatter(n *parser.ScatterStmt) error {
 	return nil
 }
 
-func (c *Compiler) compileFork(n *parser.ForkStmt) error {
+func (c *Compiler) compileFork(n *verb.ForkStmt) error {
 	// Fork statement: fork [name] (delay) body endfork
 	//
 	// Bytecode layout:
@@ -2799,16 +2573,16 @@ func (c *Compiler) compileFork(n *parser.ForkStmt) error {
 }
 
 // isLoopStmt returns true if a statement node is a loop (pushes a result value).
-func isLoopStmt(stmt parser.Stmt) bool {
+func isLoopStmt(stmt verb.Stmt) bool {
 	switch stmt.(type) {
-	case *parser.WhileStmt, *parser.ForStmt:
+	case *verb.WhileStmt, *verb.CollectionLoopStmt, *verb.RangeLoopStmt:
 		return true
 	default:
 		return false
 	}
 }
 
-func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
+func (c *Compiler) compileBlock(stmts []verb.Stmt) error {
 	for _, stmt := range stmts {
 		if err := c.compileNode(stmt); err != nil {
 			return err
@@ -2824,13 +2598,13 @@ func (c *Compiler) compileBlock(stmts []parser.Stmt) error {
 
 // compileList compiles a list literal incrementally:
 // start with {}, then append regular elements and extend splices.
-func (c *Compiler) compileList(n *parser.ListExpr) error {
+func (c *Compiler) compileList(n *verb.ListExpr) error {
 	// Start with an empty list on the stack.
 	c.emit(OP_MAKE_LIST)
 	c.emitByte(0)
 
 	for _, elem := range n.Elements {
-		if splice, ok := elem.(*parser.SpliceExpr); ok {
+		if splice, ok := elem.(*verb.SpliceExpr); ok {
 			// Splice: compile inner expression, then extend
 			if err := c.compileNode(splice.Expr); err != nil {
 				return err
@@ -2851,7 +2625,7 @@ func (c *Compiler) compileList(n *parser.ListExpr) error {
 // compileListRange compiles a range list: {start..end}
 // Emits: [start] [end] OP_LIST_RANGE
 // VM handler builds the list at runtime.
-func (c *Compiler) compileListRange(n *parser.ListRangeExpr) error {
+func (c *Compiler) compileListRange(n *verb.ListRangeExpr) error {
 	// Compile start expression
 	if err := c.compileNode(n.Start); err != nil {
 		return err
@@ -2868,7 +2642,7 @@ func (c *Compiler) compileListRange(n *parser.ListRangeExpr) error {
 }
 
 // compileMap compiles a map literal: [key -> value, ...]
-func (c *Compiler) compileMap(n *parser.MapExpr) error {
+func (c *Compiler) compileMap(n *verb.MapExpr) error {
 	// Build map incrementally in a temp local via OP_INDEX_SET.
 	tmp := c.declareVariable(c.tempVar("maplit"))
 	c.emit(OP_MAKE_MAP)

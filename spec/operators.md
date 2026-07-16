@@ -126,6 +126,39 @@ list[2..2] = 5;             // E_TYPE (not a list)
 - `E_TYPE`: Replacement is not a LIST
 - `E_RANGE`: Invalid range bounds (see Range Indexing in types.md)
 
+### 2.4 Semantic Assignment Targets
+
+Every semantic assignment contains a right-hand-side expression and one target
+from the sealed `verb.Target` family:
+
+| Target variant | Meaning |
+|----------------|---------|
+| Variable | Assign a local variable |
+| Property | Assign a static or dynamic property of an object expression |
+| Index | Assign one element of a collection expression |
+| Range | Assign an inclusive range of a collection expression |
+| Destructuring | Assign an ordered sealed family of variable bindings |
+
+Targets are not expressions. Every constructed target is valid by shape, and
+bytecode compilation exhaustively lowers target variants rather than accepting
+an arbitrary expression and rejecting invalid lvalue types later.
+
+The target family does not change source-language evaluation order, errors, or
+the rule that assignment evaluates to the assigned value.
+
+A destructuring target contains only members from the sealed `verb.Binding`
+family:
+
+| Binding variant | Payload |
+|-----------------|---------|
+| Required | Variable name |
+| Optional | Variable name and optional default expression; no default means the MOO zero value |
+| Rest | Variable name |
+
+Bindings cannot contain property, index, range, destructuring, or other general
+assignment targets. At most one rest binding is permitted, and binding order is
+the source order.
+
 ---
 
 ## 3. Ternary Operator (`? |`)
@@ -232,6 +265,10 @@ func(@list1, @list2)      // Concatenates both lists as args
 - Required: `var` - Must have value
 - Optional: `?var` or `?var = default` - Uses default if missing
 - Rest: `@var` - Collects remaining elements
+
+Scatter syntax lowers to the destructuring member of the same sealed semantic
+assignment-target family. It does not create a second statement-only target
+model or a parallel assignment path.
 
 **Semantics:**
 1. Evaluate right side (must be list)
@@ -455,6 +492,7 @@ left != right
 - Same type required for equality
 - Different types are never equal
 - Lists/maps compared by value (deep)
+- WAIFs compare by reference identity: aliases are equal and separately created WAIFs are unequal
 
 **Type strictness:** Equality requires **exact type match**. INT and FLOAT are never equal.
 
@@ -501,11 +539,21 @@ left > right
 left >= right
 ```
 
-**Valid types:** INT, FLOAT, STR
+**Valid types:** INT, FLOAT, STR, plus the WAIF special case below.
 
 **Type strictness:** Both operands must be the **same type**. No INT/FLOAT coercion.
 
-**String comparison:** Lexicographic (case-sensitive, ASCII ordering)
+**String comparison:** Lexicographic after ASCII case folding. The relational
+operators therefore compare strings case-insensitively; `==`, `!=`, `equal()`,
+and `strcmp()` remain case-sensitive. This distinction is verified against
+Toast by
+`../moo-conformance-tests/src/moo_conformance/_tests/language/string_comparison_case.yaml`.
+
+**WAIF comparison:** Relational comparison of two WAIFs uses the default zero
+ordering result independently of reference equality. Thus `a < b` and `a > b`
+are false, while `a <= b` and `a >= b` are true, even for distinct WAIFs.
+This does not make WAIFs sortable: using WAIF values as `sort()` keys raises
+`E_TYPE`.
 
 **Examples:**
 ```moo
@@ -514,10 +562,10 @@ left >= right
 1.0 < 2.0       => 1
 1 < 1.0         => E_TYPE  // Type mismatch
 
-// String comparison (ASCII: uppercase 65-90, lowercase 97-122)
-"A" < "a"       => 1       // Uppercase sorts before lowercase
-"Z" < "a"       => 1       // All uppercase before lowercase
-"abc" < "abd"   => 1       // Lexicographic
+// Relational string comparison folds ASCII case before ordering
+"A" < "a"       => 0       // Equal after case folding
+"a" < "B"       => 1       // Folded 'a' sorts before folded 'b'
+"abc" < "ABD"   => 1       // Folded "abc" sorts before folded "abd"
 
 // Comparison chaining (C-style, not Python)
 1 < 2 < 3       // Equivalent to: (1 < 2) < 3
@@ -526,7 +574,7 @@ left >= right
 ```
 
 **Errors:**
-- `E_TYPE`: Incompatible types (including INT vs FLOAT)
+- `E_TYPE`: Incompatible types (including INT vs FLOAT); the WAIF/WAIF special case does not raise
 
 ### 9.3 Membership (`in`)
 
@@ -797,13 +845,19 @@ object.(expression)
 - `E_PROPNF`: Property not found
 - `E_PERM`: Property not readable
 
-### 14.2 Waif Property Access (`.:`)
+### 14.2 Waif Property Access (`.`)
 
 ```moo
-waif.:property
+waif.property
 ```
 
-**Semantics:** Access property on waif object
+**Semantics:** Access or assign a property on a WAIF. Copies of the same WAIF
+are aliases, so a property assignment through one alias is visible through all
+of them. Assigning the WAIF to one of its own properties, directly or through
+a list or map, raises `E_RECMOVE`.
+
+`waif.class` returns its class object, `waif.wizard` and `waif.programmer`
+return `0`, and assigning `waif.class` raises `E_PERM`.
 
 ### 14.3 Indexing (`[ ]`)
 
@@ -820,9 +874,32 @@ collection[start..end]
 - `^` = 1 (first)
 - `$` = length (last)
 
+MOO `^` and `$` are frontend spellings. In index or range position, the parser
+lowers them directly to language-neutral **first** and **last** semantic
+boundary expressions. Parser tokens and source marker spelling do not cross
+into verb IR or bytecode compilation.
+
+First resolves to one. Last resolves to the current collection length at the
+point the index or range is evaluated. Single indexing remains one-based,
+ranges remain inclusive, and all bounds and error behavior remain as specified
+here and in `types.md`.
+
 **Errors:**
 - `E_RANGE`: Index out of bounds
 - `E_TYPE`: Invalid index type
+
+**WAIF indexing:** A WAIF whose valid class is owned by a wizard may dispatch
+indexed access to executable class handlers. `waif[key]` calls `:_index` with
+the key. `waif[key] = value` calls `:_set_index` with the key and value; the
+handler's return value replaces the indexed base, so a handler returning `this`
+preserves a local WAIF variable.
+
+If the required handler is absent, or the WAIF class is not wizard-owned,
+indexing raises `E_TYPE`. If the class has been recycled, indexing raises
+`E_INVIND`.
+
+These WAIF operator semantics are frozen by
+[`waif_authority.yaml`](../../moo-conformance-tests/src/moo_conformance/_tests/language/waif_authority.yaml).
 
 ### 14.4 Verb Call (`:`)
 
@@ -862,6 +939,9 @@ list[^]     // First element (same as list[1])
 list[$]     // Last element (same as list[length(list)])
 list[^..$]  // Entire list
 ```
+
+These are MOO spellings for the semantic first and last boundary operations
+defined in Section 14.3, not bytecode or VM token values.
 
 ---
 
@@ -922,4 +1002,5 @@ list[^..$]  // Entire list
 | `{}` | No |
 | `[]` | No |
 | `false` | No |
+| WAIF | No |
 | Everything else | Yes |

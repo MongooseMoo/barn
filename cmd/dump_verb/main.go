@@ -3,6 +3,7 @@ package main
 import (
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/compiler"
 	dbformat "barn/db/format"
 	"barn/types"
 	"flag"
@@ -68,9 +69,9 @@ func main() {
 	}
 
 	if os.Getenv("DISASM") == "1" {
-		prog, err := bytecode.CompileVerbBytecode(view.Code, builtins.NewRegistry())
-		if err != nil {
-			fmt.Printf("\n[disasm] compile error: %v\n", err)
+		prog, diagnostics := compiler.CompileMOO(view.Code, builtins.NewRegistry())
+		if len(diagnostics) > 0 {
+			fmt.Printf("\n[disasm] compile error: %s\n", diagnostics[0].Error())
 			return
 		}
 		fmt.Printf("\n[disasm] %d bytes, %d constants, %d locals\n", len(prog.Code), len(prog.Constants), prog.NumLocals)

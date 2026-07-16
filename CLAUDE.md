@@ -25,21 +25,18 @@ Your instinct on failure is to immediately start investigating Barn code. **THAT
 
 ---
 
-## CRITICAL: NEVER Touch The Conformance Tests
+## CRITICAL: Preserve Conformance Truth
 
-**The moo-conformance-tests are SACRED. They are the spec. They define correct behavior.**
+`C:/Users/Q/code/moo-conformance-tests` owns durable behavioral truth. Do not
+weaken, skip, remove, or rewrite expectations to accommodate Barn. A genuine
+behavioral discovery belongs in that repository as a Toast-passing conformance
+test, committed separately from any Barn change.
 
-- **NEVER add skip markers** to conformance test YAML files
-- **NEVER modify test expectations** to match Barn's broken behavior
-- **NEVER weaken assertions** in any test
-- **NEVER remove tests** that Barn fails
-- **NEVER celebrate "0 failures"** if tests are being skipped that shouldn't be
-
-**When a conformance test fails, there is exactly ONE correct response: FIX BARN.**
-
-Not "skip it." Not "it needs complex infrastructure." Not "legitimate skip." **FIX. BARN.**
-
-The conformance tests live in `~/code/moo-conformance-tests/`. They are a **read-only dependency**. If you find yourself editing files in that directory, you are doing the wrong thing.
+Follow the Toast-first loop in
+`plans/barn-toast-mongoose-convergence-workstreams.md`: prove the unchanged
+scenario on the managed WSL Toast oracle, then run it on Barn. If Barn fails,
+make the smallest Barn production fix. If Barn already passes, keep the test as
+coverage and do not invent a Barn source change.
 
 ---
 
@@ -85,54 +82,26 @@ The path format workaround works. Bash workarounds do not. Try paths first, then
 
 ---
 
-## CRITICAL: Test Against Toast Before Blaming External Code
+## CRITICAL: Test Against The Managed WSL Toast Oracle First
 
 **SEE RULE ZERO ABOVE. This is not optional.**
 
-When Barn produces an error running MOO code from toastcore.db or other reference databases:
-
-**ASSUME YOUR CODE IS WRONG.** That MOO code has worked for years/decades.
-
-Before concluding external code is broken:
-```bash
-# Test the expression against Toast oracle
-./toast_oracle.exe 'toint("[::1]")'
-# Returns: 0
-
-# If Toast returns a value and Barn returns an error, YOUR CODE IS WRONG
-```
-
-For server-level testing (login flows, connections, etc.):
-```bash
-# Start Toast with the database
-C:/Users/Q/src/toaststunt/test/moo.exe mongoose.db mongoose.db.new 9451
-# (Toast syntax here is: input-db output-db port)
-
-# Test against Toast
-./moo_client.exe -port 9451 -cmd "..."
-
-# Compare with Barn on different port
-./moo_client.exe -port 9450 -cmd "..."
-```
-
-The toast_oracle tool exists for expression testing. For server behavior, run Toast as a server and compare.
+When Barn produces an error running MOO code from a reference database, verify
+the exact behavior through the managed conformance workflow before diagnosing
+Barn or blaming the database. The only ordinary Toast server authority is the
+WSL oracle documented in `plans/barn-toast-mongoose-convergence-workstreams.md`; do not substitute a
+Windows Toast binary, an attached port, or a manually managed process.
 
 ---
 
-## CRITICAL: Test.db IS THE SAME DATABASE TOAST USES
+## CRITICAL: Use The Exact Selected Fixture
 
-**Test.db is the SAME database that ToastStunt uses for its conformance tests.**
-
-This means:
-- If a test passes on Toast with Test.db, **the database is CORRECT**
-- If the same test fails on Barn with Test.db, **BARN'S CODE IS BROKEN**
-- **NEVER blame the database** - $waif, $anon, prototype properties, EVERYTHING EXISTS
-- **NEVER say "need to set up database"** - it's already set up, Toast proves it works
-- **NEVER say "database missing X"** - if Toast works, X exists
-
-When tests fail on Barn but pass on Toast: **THE BUG IS IN BARN. PERIOD.**
-
-Stop making excuses. Fix Barn's code.
+The managed harness gives each engine a disposable copy of the selected input
+database. Record and compare the source fixture's path, size, and freshly
+computed SHA-256; a nearby database with a similar name is not a substitute.
+When the unchanged test passes Toast and fails Barn on equivalent copies, the
+delta is Barn-owned. When a candidate test passes both, retain the coverage and
+do not invent a Barn change.
 
 ---
 
@@ -174,8 +143,8 @@ Barn is a Go implementation of a MOO (MUD Object Oriented) server. Currently in 
 
 | Name | Path | Description |
 |------|------|-------------|
-| ToastStunt | `~/src/toaststunt/` | C++ MOO server (primary reference), binary at `test/moo.exe` |
-| moo-conformance-tests | `~/code/moo-conformance-tests/` | YAML-based conformance test suite |
+| ToastStunt | `/root/src/toaststunt/` in WSL | Primary reference; pinned release binaries and SHAs are in `plans/barn-toast-mongoose-convergence-workstreams.md` |
+| moo-conformance-tests | `C:/Users/Q/code/moo-conformance-tests/` | YAML-based conformance test suite and managed server harness |
 | moo_interp | `~/code/moo_interp/` | Python MOO interpreter |
 | cow_py | `~/code/cow_py/` | Python MOO server (no longer has conformance tests) |
 | lambdamoo-db-py | `~/src/lambdamoo-db-py/` | LambdaMOO database parser |
@@ -191,81 +160,85 @@ barn/
 └── CLAUDE.md       # This file
 ```
 
-## Conformance Tests
+## Managed Conformance Workflow
 
-Tests live in `~/code/moo-conformance-tests/` and are run via its CLI tool.
+Tests live in
+`C:/Users/Q/code/moo-conformance-tests/src/moo_conformance/_tests/` and run via
+the local checkout's `moo-conformance` CLI. Ordinary conformance work must use
+its managed server lifecycle with explicit `--server-command` and `--server-db`;
+do not attach to a pre-launched server or manage Barn or Toast manually.
 
-**Test YAML files:** `~/code/moo-conformance-tests/src/moo_conformance/_tests/`
+For the exact stock and Mongoose WSL Toast commands, pinned engine identities,
+disposable database behavior, login-script environment mechanism, required run
+record, and cross-repository Toast-green/Barn-red/Barn-green loop, follow
+`plans/barn-toast-mongoose-convergence-workstreams.md`.
 
-### Running Tests Against Any MOO Server
+Manual reproduction is exceptional and requires the user's explicit approval,
+as specified in `AGENTS.md`.
 
-```bash
-# From barn directory (has moo-conformance-tests as dependency)
-cd ~/code/barn
+## Reviewing What Happened On A Run
 
-# Run against Toast (port 9501)
-uv tool run ..\moo-conformance-tests --moo-port=9501
+Every run writes a structured JSON log to `logs/latest.jsonl` (the previous run is
+rotated to `logs/run-<timestamp>.jsonl`; the newest 10 are kept). This is on by
+default — no flag needed.
 
-# Run against Barn (port 9500)
-uv tool run ..\moo-conformance-tests --moo-port=9500
-```
-
-### Managed Server Lifecycle (Preferred With Local Checkout)
-
-Use the local `moo-conformance-tests` checkout to get the latest CLI features (`--server-command`, `--server-db`):
-
-```powershell
-go build -o barn.exe ./cmd/barn/
-uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"
-```
-
-This auto-starts/stops Barn and runs against a temp copy of `Test.db`.
-
-Note: `uv tool run ..\moo-conformance-tests ...` may point at a packaged version that does not yet expose new flags.
-
-### Test Options
-
-| Option | Description |
-|--------|-------------|
-| `--moo-port PORT` | Port to connect to (required) |
-| `--moo-host HOST` | Host to connect to (default: localhost) |
-| `--server-command CMD` | Start/stop server automatically (`{port}` and `{db}` placeholders) |
-| `--server-db PATH` | DB file used in managed mode (defaults to bundled `Test.db`) |
-
-### Test Database
-
-Both Toast and Barn use `Test.db`. Connect as wizard with `connect wizard`.
-
-### Current Test Status
-
-- 1465 total tests
-- 1233 pass on both Toast and Barn
-- 67 fail on both (test bugs, not server bugs)
-- 165 skipped
-
-### Manual Testing with moo_client
-
-Use the `moo_client` tool for interactive testing:
+**To find out what went wrong on the last run:**
 
 ```bash
-# Build the client
-go build -o moo_client.exe ./cmd/moo_client/
-
-# Send commands and capture output
-./moo_client.exe -port 9300 -cmd "connect wizard" -cmd "; return 1 + 1;"
-
-# With longer timeout for slow operations
-./moo_client.exe -port 9300 -timeout 5 -cmd "connect wizard" -cmd "look"
-
-# Commands from a file
-./moo_client.exe -port 9300 -file test_commands.txt
+go build -o barn_logs.exe ./cmd/barn_logs/
+./barn_logs.exe -level error     # failures only; exits 1 if the run logged an error
+./barn_logs.exe                  # warnings and errors
+./barn_logs.exe -run list        # available runs
 ```
 
-**Do NOT use printf/nc for testing** - it's unreliable and loses output.
+An uncaught MOO error is **one** log record carrying the rendered traceback, the
+structured frames (verb, object, line, **source line**), and the error code. A
+recovered panic carries a Go stack. `barn_logs` prints those indented under the
+failure. The files are line-delimited JSON, so `jq` works too:
 
-### Test Database
+```bash
+jq -c 'select(.level=="ERROR")' logs/latest.jsonl
+```
 
-Barn uses `Test.db` which creates new wizard players on `connect wizard`. Each connection gets a fresh wizard player object.
+**Caveat:** `Test.db` has genuinely broken object refs, so every boot logs ~30
+`src=startup_repair` warnings (Toast repairs them too — conformance *asserts* these
+messages). Use `-level error` to see what actually broke.
+
+### Log flags and the debug endpoint
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `-log-level` | `info` | `debug`, `info`, `warn`, `error` |
+| `-log-dir` | `logs` | Empty disables the JSON file sink |
+| `-debug-addr` | `127.0.0.1:0` | pprof + expvar; `off` disables |
+
+The debug endpoint binds an **ephemeral port**; find the real address in the log:
+
+```bash
+ADDR=$(jq -r 'select(.msg=="debug endpoint listening") | .addr' logs/latest.jsonl)
+curl -s "http://$ADDR/debug/vars" | jq 'with_entries(select(.key|startswith("barn.")))'
+curl -s "http://$ADDR/debug/pprof/heap" > heap.out
+curl -X POST "http://$ADDR/debug/loglevel?level=debug"   # no restart needed
+```
+
+Counters: `barn.tasks_started`, `barn.tasks_killed`, `barn.uncaught_exceptions`,
+`barn.panics_recovered` (nonzero = a Barn bug), `barn.checkpoints`,
+`barn.checkpoint_last_ms`, `barn.gc_sweeps`, `barn.gc_sweep_last_ms`,
+`barn.tasks_live`, `barn.connections_live`.
+
+### Rules when touching logging
+
+- **Log through `slog`, never the stdlib `log` package.** Use typed attrs
+  (`slog.String`, `slog.Int64`) — the key/value variadic silently corrupts records on
+  an odd arg count.
+- **A MOO error code is not a Go error.** `slog.Any("err", E_TYPE)` emits `"err":1`.
+  Use `slog.String("error", types.NewErr(code).String())` → `"error":"E_TYPE"`.
+- **Some log message TEXT is a conformance contract.** `assert_log` pins
+  `"CHECKPOINTING"` (dump_database), the startup-repair wording, and `server_log()`'s
+  message. Keep the text byte-identical; structured attrs are *additive*. Grep the
+  conformance suite for `assert_log` before rewording anything.
+- Attr conventions: `task_id`, `player`, `this` (object a verb runs on), `verb`,
+  `conn_id`, `error` (E_* name), `err` (Go error), `go_stack`, `traceback`, `frames`.
 
 ## Database Inspection Tools
 

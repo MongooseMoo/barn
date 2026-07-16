@@ -67,9 +67,9 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 		}
 	}
 
-	store.DefineProperty(4, dbstore.NewProperty("two", types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false))
-	store.DefineProperty(0, dbstore.NewProperty("one", types.NewObj(4), 0, dbstore.PropRead, false, false))
-	store.DefineProperty(5, dbstore.NewProperty("foo", types.NewAnon(5), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(4, "two", dbstore.NewProperty(types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(0, "one", dbstore.NewProperty(types.NewObj(4), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(5, "foo", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, false))
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{

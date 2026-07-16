@@ -21,7 +21,7 @@ func verbMetadataTxnTestContext(t *testing.T) (*kernel.TaskContext, *dbstore.Sto
 			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
 		}
 	}
-	if errCode := store.DefineProperty(0, dbstore.NewProperty("marker", types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "marker", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	verb := dbstore.NewVerb(

@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
 // TestB1SubtractionWithoutSpaces is the regression test for bug B1: the lexer
 // used to fold a '-' immediately after a digit into a negative number literal,
@@ -47,19 +50,19 @@ func TestB1SubtractionParsesAsBinaryMinus(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseExpression(%q) error: %v", input, err)
 			}
-			bin, ok := expr.(*BinaryExpr)
+			bin, ok := expr.(*verb.BinaryExpr)
 			if !ok {
 				t.Fatalf("ParseExpression(%q) = %T, want *BinaryExpr", input, expr)
 			}
-			if bin.Operator != TOKEN_MINUS {
+			if bin.Operator != verb.BinarySubtract {
 				t.Errorf("operator = %s, want MINUS", bin.Operator)
 			}
-			left, ok := bin.Left.(*LiteralExpr)
-			if !ok || left.Kind != LiteralInt {
+			left, ok := bin.Left.(*verb.LiteralExpr)
+			if !ok || left.Kind != verb.LiteralInt {
 				t.Fatalf("Left = %T, want positive int LiteralExpr", bin.Left)
 			}
-			right, ok := bin.Right.(*LiteralExpr)
-			if !ok || right.Kind != LiteralInt {
+			right, ok := bin.Right.(*verb.LiteralExpr)
+			if !ok || right.Kind != verb.LiteralInt {
 				t.Fatalf("Right = %T, want positive int LiteralExpr", bin.Right)
 			}
 			if left.IntValue < 0 || right.IntValue < 0 {
@@ -78,22 +81,22 @@ func TestB1Precedence(t *testing.T) {
 		t.Fatalf("ParseExpression error: %v", err)
 	}
 	// Top level is the subtraction.
-	sub, ok := expr.(*BinaryExpr)
-	if !ok || sub.Operator != TOKEN_MINUS {
+	sub, ok := expr.(*verb.BinaryExpr)
+	if !ok || sub.Operator != verb.BinarySubtract {
 		t.Fatalf("top = %T (%v), want BinaryExpr MINUS", expr, expr)
 	}
 	// Right of subtraction is literal 4.
-	right, ok := sub.Right.(*LiteralExpr)
+	right, ok := sub.Right.(*verb.LiteralExpr)
 	if !ok || right.IntValue != 4 {
 		t.Fatalf("subtraction right = %v, want literal 4", sub.Right)
 	}
 	// Left of subtraction is the addition 1 + (2*3).
-	add, ok := sub.Left.(*BinaryExpr)
-	if !ok || add.Operator != TOKEN_PLUS {
+	add, ok := sub.Left.(*verb.BinaryExpr)
+	if !ok || add.Operator != verb.BinaryAdd {
 		t.Fatalf("subtraction left = %T, want BinaryExpr PLUS", sub.Left)
 	}
-	mul, ok := add.Right.(*BinaryExpr)
-	if !ok || mul.Operator != TOKEN_STAR {
+	mul, ok := add.Right.(*verb.BinaryExpr)
+	if !ok || mul.Operator != verb.BinaryMultiply {
 		t.Fatalf("addition right = %T, want BinaryExpr STAR", add.Right)
 	}
 }
@@ -108,12 +111,12 @@ func TestB1UnaryMinusStillParses(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseExpression error: %v", err)
 		}
-		un, ok := expr.(*UnaryExpr)
-		if !ok || un.Operator != TOKEN_MINUS {
+		un, ok := expr.(*verb.UnaryExpr)
+		if !ok || un.Operator != verb.UnaryNegate {
 			t.Fatalf("expr = %T, want UnaryExpr MINUS", expr)
 		}
-		lit, ok := un.Operand.(*LiteralExpr)
-		if !ok || lit.Kind != LiteralInt || lit.IntValue != 5 {
+		lit, ok := un.Operand.(*verb.LiteralExpr)
+		if !ok || lit.Kind != verb.LiteralInt || lit.IntValue != 5 {
 			t.Fatalf("operand = %v, want literal int 5", un.Operand)
 		}
 	})
@@ -124,11 +127,11 @@ func TestB1UnaryMinusStillParses(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseExpression error: %v", err)
 		}
-		un, ok := expr.(*UnaryExpr)
-		if !ok || un.Operator != TOKEN_MINUS {
+		un, ok := expr.(*verb.UnaryExpr)
+		if !ok || un.Operator != verb.UnaryNegate {
 			t.Fatalf("expr = %T, want UnaryExpr MINUS", expr)
 		}
-		id, ok := un.Operand.(*IdentifierExpr)
+		id, ok := un.Operand.(*verb.IdentifierExpr)
 		if !ok || id.Name != "y" {
 			t.Fatalf("operand = %v, want identifier y", un.Operand)
 		}

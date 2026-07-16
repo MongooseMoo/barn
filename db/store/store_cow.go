@@ -36,23 +36,23 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 
 	// Copy only the properties map (the touched collection). Unedited *Property
 	// nodes are shared (immutable); the edited one is replaced with a new node.
-	newProps := make(map[string]*Property, len(old.properties))
+	newProps := make(map[string]Property, len(old.properties))
 	for name, prop := range old.properties {
 		newProps[name] = prop
 	}
 
-	if liveName, prop, ok := propertyByName(newProps, w.prop.name); ok {
-		// Existing property: copy it by value into a fresh node, apply the write,
-		// stamp the property version, and swap it into the new map under its
-		// existing key. The old *Property is left untouched (immutable).
-		updated := *prop
+	if liveName, prop, ok := propertyByName(newProps, w.name); ok {
+		// Existing property: copy it by value, apply the write, stamp the property
+		// version, and swap it into the new map under its existing key. The old
+		// image's stored value is left untouched (map copy is by value).
+		updated := prop
 		updated.value = w.prop.value
 		updated.owner = w.prop.owner
 		updated.perms = w.prop.perms
 		updated.clear = w.prop.clear
 		updated.defined = w.prop.defined
 		updated.version = ts
-		newProps[liveName] = &updated
+		newProps[liveName] = updated
 	} else {
 		// New property slot on this object: the staged prop carries metadata; value
 		// comes from the write. Honor the staged clear flag: a normal inherited-override
@@ -67,7 +67,7 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		np := w.prop
 		np.value = w.value
 		np.version = ts
-		newProps[np.name] = &np
+		newProps[w.name] = np
 	}
 
 	img.properties = newProps
@@ -118,7 +118,7 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Object {
 	img := *old // shallow struct copy
 
-	newProps := make(map[string]*Property, len(old.properties))
+	newProps := make(map[string]Property, len(old.properties))
 	for name, prop := range old.properties {
 		newProps[name] = prop
 	}
@@ -146,19 +146,21 @@ func buildImageWithPropertyDelete(old *Object, actualName string, ts uint64) *Ob
 // shared by reference with the old image. The new defined property is a freshly-allocated
 // *Property so the old image is never mutated. Caller has already validated that the
 // property does not already exist on O (the staging side enforced E_INVARG).
-func buildImageWithPropertyDefine(old *Object, prop Property, ts uint64) *Object {
+func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *Object {
 	img := *old // shallow struct copy: shares all slices/maps/pointers with old
 
-	newProps := make(map[string]*Property, len(old.properties)+1)
+	newProps := make(map[string]Property, len(old.properties)+1)
 	for name, p := range old.properties {
 		newProps[name] = p
 	}
 
-	// Mirror definePropertyLocked: stamp the defined property and add it.
+	// Mirror definePropertyLocked: stamp the defined property and add it under its
+	// original-case name.
+	prop := def.prop
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
-	newProps[prop.name] = cloneProperty(&prop)
+	newProps[def.name] = prop
 
 	// Insert the new name into propOrder at the propDefsCount position (mirrors the
 	// coarse path's insertion order). Copy the slice so the old image's propOrder is
@@ -169,7 +171,7 @@ func buildImageWithPropertyDefine(old *Object, prop Property, ts uint64) *Object
 	}
 	newOrder := make([]string, 0, len(old.propOrder)+1)
 	newOrder = append(newOrder, old.propOrder[:pos]...)
-	newOrder = append(newOrder, prop.name)
+	newOrder = append(newOrder, def.name)
 	newOrder = append(newOrder, old.propOrder[pos:]...)
 
 	img.properties = newProps
@@ -192,7 +194,7 @@ func buildImageWithPropertyDefine(old *Object, prop Property, ts uint64) *Object
 func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts uint64) *Object {
 	img := *old // shallow struct copy
 
-	newProps := make(map[string]*Property, len(old.properties))
+	newProps := make(map[string]Property, len(old.properties))
 	liveActual := actualName
 	for name, p := range old.properties {
 		newProps[name] = p
@@ -415,9 +417,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// on the descendants' own images by propagateDefinedProperty); a definition-delete
 	// applies only to the DEFINER's image (descendant removals are staged as
 	// propertyDeletes by removeInheritedProperty).
-	propDefinesByObj := make(map[types.ObjID][]Property)
-	for key, prop := range tx.propertyDefines {
-		propDefinesByObj[key.objID] = append(propDefinesByObj[key.objID], prop)
+	propDefinesByObj := make(map[types.ObjID][]propertyDefine)
+	for key, def := range tx.propertyDefines {
+		propDefinesByObj[key.objID] = append(propDefinesByObj[key.objID], def)
 	}
 	propDefDeletesByObj := make(map[types.ObjID][]string)
 	for key, actualName := range tx.propertyDefinitionDeletes {
@@ -454,8 +456,8 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		// Property DEFINE / DEFINITION-DELETE on the definer image first: they
 		// establish/remove the defined slot + propOrder before any inherited-slot
 		// value writes (different property names, so order is independent in practice).
-		for _, prop := range propDefinesByObj[id] {
-			img = buildImageWithPropertyDefine(img, prop, ts)
+		for _, def := range propDefinesByObj[id] {
+			img = buildImageWithPropertyDefine(img, def, ts)
 		}
 		for _, actualName := range propDefDeletesByObj[id] {
 			img = buildImageWithPropertyDefinitionDelete(img, actualName, ts)

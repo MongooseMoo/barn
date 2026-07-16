@@ -82,7 +82,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	}
 	beforeVal := before.Val.Int()
 
-	if errCode := ctx.StoreTxn.DefineProperty(obj, dbstore.NewProperty("test1", types.NewStr("hello world"), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := ctx.StoreTxn.DefineProperty(obj, "test1", dbstore.NewProperty(types.NewStr("hello world"), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	after := builtinObjectBytes(ctx, []types.Value{types.NewObj(obj)})

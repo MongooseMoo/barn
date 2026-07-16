@@ -137,7 +137,7 @@ func measureConcurrencyWorkers(t *testing.T, n, loop int, useVerb, pool bool, wo
 
 func (s *Scheduler) buildBenchTask(t *testing.T, id int64, code string) *task.Task {
 	t.Helper()
-	stmts := parseTestStatements(t, code)
+	stmts := compileTestProgram(t, s.registry, code)
 	// Generous tick/second budget so CPU loops never hit foreground limits.
 	tk := task.NewTaskFull(id, types.ObjID(3), stmts, 1<<50, 1e9)
 	s.populateTaskContextDependencies(tk.Context)

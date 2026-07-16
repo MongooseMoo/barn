@@ -14,8 +14,8 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("server_options", dbstore.NewProperty("server_options", types.NewObj(1), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
-	root.SetProperty("conflict_marker", dbstore.NewProperty("conflict_marker", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("server_options", dbstore.NewProperty(types.NewObj(1), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("conflict_marker", dbstore.NewProperty(types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add root failed: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 	options.SetName("Server Options")
 	options.SetOwner(0)
 	options.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	options.SetProperty("max_string_concat", dbstore.NewProperty("max_string_concat", types.NewInt(3000), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	options.SetProperty("max_string_concat", dbstore.NewProperty(types.NewInt(3000), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(options.Build()); err != nil {
 		t.Fatalf("store.Add options failed: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 	if errCode := ctx.StoreTxn.SetPropertyValue(1, "max_string_concat", types.NewInt(4000)); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue max_string_concat failed: %s", errCode)
 	}
-	if errCode := ctx.StoreTxn.DefineProperty(1, dbstore.NewProperty("protect_create", types.NewInt(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := ctx.StoreTxn.DefineProperty(1, "protect_create", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty protect_create failed: %s", errCode)
 	}
 

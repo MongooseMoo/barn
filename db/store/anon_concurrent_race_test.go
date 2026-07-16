@@ -48,12 +48,12 @@ import (
 // Run: go test -race ./db/store -run TestConcurrentAnonObjectWritesSerialize -count=3
 func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 	const (
-		nIncrWriters = 24 // >= 16 required; same-anon read-modify-write probe
+		nIncrWriters   = 24 // >= 16 required; same-anon read-modify-write probe
 		nScalarWriters = 8  // exercise the scalar (name) coarse apply path on the anon
-		nReaders     = 16
-		incrEach     = 150
-		scalarEach   = 150
-		readsEach    = 3000
+		nReaders       = 16
+		incrEach       = 150
+		scalarEach     = 150
+		readsEach      = 3000
 	)
 
 	store := NewStore()
@@ -62,7 +62,7 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 	}
 	// Inheritable property the anon writes through its parent #0 (matches how the
 	// coder's regression test and real MOO anon objects carry properties).
-	if errCode := store.DefineProperty(0, NewProperty("counter", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty #0.counter failed: %v", errCode)
 	}
 

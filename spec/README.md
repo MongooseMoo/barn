@@ -1,65 +1,95 @@
-# Barn MOO Language Specification
+# Barn MOO specification index
 
-This directory contains the formal specification for the MOO programming language as implemented in Barn (Go MOO server).
+This directory records MOO behavior and the current Barn implementation.
+MOO-observable semantics and durable database behavior must match freshly
+verified Toast source and managed Toast behavior. Barn's Go code, package maps,
+and implementation notes describe current status; they do not redefine Toast.
+
+The verified WSL source SHA, executable, fixture, profile, wrapper, and exact
+managed command are recorded in
+[`toast-oracle-identity-2026-07-14.md`](../../banteng/docs/reports/toast-oracle-identity-2026-07-14.md).
+The managed workflow is owned by
+[`barn-toast-mongoose-convergence-workstreams.md`](../plans/barn-toast-mongoose-convergence-workstreams.md).
+The older `reports/toast-oracle-wsl.md` path is stale and absent.
 
 ## Documents
 
-| Document | Description | Status |
-|----------|-------------|--------|
-| [grammar.md](grammar.md) | EBNF grammar, operator precedence | ✅ Complete |
-| [types.md](types.md) | Type system, coercion rules | ✅ Complete |
-| [operators.md](operators.md) | Operator semantics | ✅ Complete |
-| [statements.md](statements.md) | Control flow statements | ✅ Complete |
-| [errors.md](errors.md) | Error codes and conditions | ✅ Complete |
-| [objects.md](objects.md) | Object model, inheritance | ✅ Complete |
-| [tasks.md](tasks.md) | Task model, concurrency | ✅ Complete |
-| [vm.md](vm.md) | VM architecture, opcodes | ✅ Complete |
-| [go-design.md](go-design.md) | Go implementation notes | ✅ Complete |
-| [builtins/](builtins/) | Built-in function specs | ✅ Complete |
+| Document | Subject | Phase 0 audit status |
+|---|---|---|
+| [grammar.md](grammar.md) | Grammar and operator precedence | Not part of this audit |
+| [types.md](types.md) | Values, types, and conversions | Not part of this audit |
+| [operators.md](operators.md) | Operator semantics | Not part of this audit |
+| [statements.md](statements.md) | Control-flow statements | Not part of this audit |
+| [errors.md](errors.md) | Error values and conditions | Not part of this audit |
+| [objects.md](objects.md) | Object model and inheritance | Not part of this audit |
+| [tasks.md](tasks.md) | Toast task semantics and current Barn task behavior | Corrected against current Toast and Barn |
+| [vm.md](vm.md) | Toast VM authority and current Barn compiler/VM map | Corrected against current Toast and Barn |
+| [database.md](database.md) | Toast v17 format and current Barn codec | Corrected against current Toast and Barn |
+| [go-design.md](go-design.md) | Non-normative current Go package and ownership map | Corrected against current Barn |
+| [builtins/](builtins/) | Built-in function specifications | Not part of this audit |
 
-## Built-in Function Categories
+The presence of a document is not a completeness or conformance claim. The
+current Phase 0 audit covers only `tasks.md`, `go-design.md`, `vm.md`,
+`database.md`, and this index.
 
-| Category | File | Functions |
-|----------|------|-----------|
-| Type conversion | [builtins/types.md](builtins/types.md) | typeof, tostr, toint, etc. |
-| Math | [builtins/math.md](builtins/math.md) | abs, min, max, random, sin, cos, sqrt, etc. |
-| Strings | [builtins/strings.md](builtins/strings.md) | length, strsub, index, match, explode, etc. |
-| Lists | [builtins/lists.md](builtins/lists.md) | listappend, listdelete, sort, setadd, etc. |
-| Maps | [builtins/maps.md](builtins/maps.md) | mapkeys, mapvalues, mapdelete, etc. |
-| Objects | [builtins/objects.md](builtins/objects.md) | create, recycle, valid, parent, move, etc. |
-| Properties | [builtins/properties.md](builtins/properties.md) | properties, property_info, add_property, etc. |
-| Verbs | [builtins/verbs.md](builtins/verbs.md) | verbs, verb_info, verb_code, add_verb, etc. |
-| Tasks | [builtins/tasks.md](builtins/tasks.md) | task_id, suspend, resume, kill_task, etc. |
-| Time | [builtins/time.md](builtins/time.md) | time, ctime, strftime, etc. |
-| JSON | [builtins/json.md](builtins/json.md) | parse_json, generate_json |
-| File I/O | [builtins/fileio.md](builtins/fileio.md) | file_open, file_read, file_write, etc. |
-| Network | [builtins/network.md](builtins/network.md) | notify, read, curl, etc. |
-| Crypto | [builtins/crypto.md](builtins/crypto.md) | string_hash, bcrypt, encrypt, etc. |
-| Regex | [builtins/regex.md](builtins/regex.md) | pcre_match, pcre_replace, etc. |
-| SQLite | [builtins/sqlite.md](builtins/sqlite.md) | sqlite_open, sqlite_execute, etc. |
-| Exec | [builtins/exec.md](builtins/exec.md) | exec, exec_async |
+## Built-in specification files
 
-## Principles
+| Category | File |
+|---|---|
+| Type conversion | [builtins/types.md](builtins/types.md) |
+| Math | [builtins/math.md](builtins/math.md) |
+| Strings | [builtins/strings.md](builtins/strings.md) |
+| Lists | [builtins/lists.md](builtins/lists.md) |
+| Maps | [builtins/maps.md](builtins/maps.md) |
+| Objects | [builtins/objects.md](builtins/objects.md) |
+| Properties | [builtins/properties.md](builtins/properties.md) |
+| Verbs | [builtins/verbs.md](builtins/verbs.md) |
+| Tasks | [builtins/tasks.md](builtins/tasks.md) |
+| Time | [builtins/time.md](builtins/time.md) |
+| JSON | [builtins/json.md](builtins/json.md) |
+| File IO | [builtins/fileio.md](builtins/fileio.md) |
+| Network | [builtins/network.md](builtins/network.md) |
+| Server | [builtins/server.md](builtins/server.md) |
+| Crypto | [builtins/crypto.md](builtins/crypto.md) |
+| Regular expressions | [builtins/regex.md](builtins/regex.md) |
+| SQLite | [builtins/sqlite.md](builtins/sqlite.md) |
+| External execution | [builtins/exec.md](builtins/exec.md) |
 
-1. **Spec-first**: Every feature documented before implemented
-2. **Test-driven**: Every spec item has corresponding tests
-3. **Rigorous**: Formal enough to resolve ambiguities
-4. **Practical**: Examples for every construct
+## Verification
 
-## Conformance Tests
+The shared behavioral rows live in
+[`moo-conformance-tests`](../../moo-conformance-tests/). A row is authority only
+after it passes against the exact managed stock-Toast command and profile named
+in the current identity record. Focused Go tests and Barn-only conformance runs
+can prove Barn behavior, but they do not establish Toast behavior.
 
-Conformance tests live in `../moo-conformance-tests/` and are executed via the
-`moo-conformance` CLI.
+Barn's managed server command templates and support classifications are owned
+by [`profiles/barn/profiles.json`](../profiles/barn/profiles.json). Its Linux
+profiles are supported; its Windows profiles are diagnostic until paired with a
+matching Windows Toast oracle. Do not present a diagnostic Windows run as the
+primary conformance gate.
 
-```powershell
-# Run full suite with managed server lifecycle (recommended)
-go build -o barn.exe ./cmd/barn/
-uv run --project ..\moo-conformance-tests moo-conformance --server-command "C:/Users/Q/code/barn/barn.exe -db {db} -port {port}"
-```
+Run the managed Toast command only against the disposable fixture controlled by
+the harness. Never run Toast directly against the tracked fixture.
 
-## Sources
+## Sources and authority order
 
-- [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html)
-- [ToastStunt Documentation](https://github.com/lisdude/toaststunt-documentation)
-- [moo_interp](../moo_interp/) - Python reference implementation
-- [ToastStunt](../mongoose/toaststunt/) - C++ reference implementation
+1. Freshly verified Toast source and managed Toast behavior at the identity
+   recorded above.
+2. Durable `moo-conformance-tests` rows proven against that exact Toast profile.
+3. Normative language and persistence statements in this directory that have
+   been checked against those owners.
+4. Current Barn implementation, for implementation status and divergences.
+5. Structural and implementation references, for comparison only.
+
+Additional references:
+
+- Toast source: `/root/src/toaststunt` in the verified WSL checkout;
+- [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html);
+- [ToastStunt documentation](https://github.com/lisdude/toaststunt-documentation);
+- [`moo_interp`](../../moo_interp/), an implementation reference; and
+- [`lambdamoo-db-py`](../../../src/lambdamoo-db-py/), a structural database
+  reference.
+
+If a Barn specification or reference disagrees with verified Toast, correct the
+durable specification or conformance row before using it to drive implementation.

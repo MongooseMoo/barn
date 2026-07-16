@@ -19,7 +19,7 @@ type StoreTxn struct {
 	relationshipWrites        map[types.ObjID]objectRelationshipWrite
 	propertyReads             map[propertyReadKey]uint64
 	propertyScans             map[types.ObjID]uint64
-	propertyDefines           map[propertyWriteKey]Property
+	propertyDefines           map[propertyWriteKey]propertyDefine
 	propertyDefinitionDeletes map[propertyWriteKey]string
 	propertyWrites            map[propertyWriteKey]propertyWrite
 	propertyDeletes           map[propertyWriteKey]string
@@ -86,8 +86,21 @@ type propertyWriteKey struct {
 }
 
 type propertyWrite struct {
+	// name is the original-case property name. The Property value no longer
+	// carries its own name (it is stored keyed by name in the object's map),
+	// and the propertyWriteKey carries only the lowercased match key, so the
+	// original-case name is threaded here for storage/propOrder insertion.
+	name  string
 	value types.Value
 	prop  Property
+}
+
+// propertyDefine is a staged property DEFINITION carrying the original-case name
+// alongside the property value. Like propertyWrite, it exists because Property no
+// longer embeds its own name and the write key is lowercased.
+type propertyDefine struct {
+	name string
+	prop Property
 }
 
 type verbReadKey struct {
@@ -353,18 +366,18 @@ func (tx *StoreTxn) markObjectRelationshipRead(objID types.ObjID, obj *Object) {
 	tx.relationshipReads[objID] = obj.relationshipVersion
 }
 
-func (tx *StoreTxn) markPropertyRead(objID types.ObjID, prop *Property) {
-	if tx == nil || prop == nil {
+func (tx *StoreTxn) markPropertyRead(objID types.ObjID, name string, prop Property) {
+	if tx == nil {
 		return
 	}
-	key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
+	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	if _, staged := tx.propertyDefines[key]; staged {
 		return
 	}
 	if _, staged := tx.propertyWrites[key]; staged {
 		return
 	}
-	tx.propertyReads[propertyReadKey{objID: objID, name: propertyNameKey(prop.name)}] = prop.version
+	tx.propertyReads[propertyReadKey{objID: objID, name: propertyNameKey(name)}] = prop.version
 }
 
 func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
@@ -374,16 +387,17 @@ func (tx *StoreTxn) markPropertyScan(objID types.ObjID, obj *Object) {
 	tx.propertyScans[objID] = obj.propertyVersion
 }
 
-func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, prop Property, value types.Value) {
+func (tx *StoreTxn) stagePropertyValue(objID types.ObjID, name string, prop Property, value types.Value) {
 	prop.value = value
 	prop.clear = false
-	key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
+	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	delete(tx.propertyDeletes, key)
 	if _, stagedDefine := tx.propertyDefines[key]; stagedDefine {
-		lazySet(&tx.propertyDefines, key, prop)
+		lazySet(&tx.propertyDefines, key, propertyDefine{name: name, prop: prop})
 		return
 	}
 	lazySet(&tx.propertyWrites, key, propertyWrite{
+		name:  name,
 		value: value,
 		prop:  prop,
 	})
@@ -558,17 +572,17 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 	if !validLiveObject(obj) {
 		return
 	}
-	for key, prop := range tx.propertyDefines {
+	for key, def := range tx.propertyDefines {
 		if key.objID != objID {
 			continue
 		}
-		if actualName, _, ok := propertyByName(obj.properties, prop.name); ok {
+		if actualName, _, ok := propertyByName(obj.properties, def.name); ok {
 			delete(obj.properties, actualName)
 		}
-		obj.properties[prop.name] = cloneProperty(&prop)
+		obj.properties[def.name] = def.prop
 		foundOrder := false
 		for _, name := range obj.propOrder {
-			if strings.EqualFold(name, prop.name) {
+			if strings.EqualFold(name, def.name) {
 				foundOrder = true
 				break
 			}
@@ -580,7 +594,7 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 			}
 			obj.propOrder = append(obj.propOrder, "")
 			copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-			obj.propOrder[pos] = prop.name
+			obj.propOrder[pos] = def.name
 			obj.propDefsCount++
 		}
 	}
@@ -588,7 +602,7 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 		if key.objID != objID {
 			continue
 		}
-		obj.properties[write.prop.name] = cloneProperty(&write.prop)
+		obj.properties[write.name] = write.prop
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		if key.objID != objID {
@@ -623,9 +637,9 @@ func cloneObjectForReadTxn(obj *Object) *Object {
 	clone.propOrder = append([]string(nil), obj.propOrder...)
 	clone.anonymousChildren = append([]types.ObjID(nil), obj.anonymousChildren...)
 
-	clone.properties = make(map[string]*Property, len(obj.properties))
+	clone.properties = make(map[string]Property, len(obj.properties))
 	for name, prop := range obj.properties {
-		clone.properties[name] = cloneProperty(prop)
+		clone.properties[name] = prop
 	}
 
 	verbClones := make(map[*Verb]*Verb, len(obj.verbList))
@@ -838,15 +852,17 @@ func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
-	prop, errCode := tx.findProperty(objID, name)
+	prop, actualName, errCode := tx.findProperty(objID, name)
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode
 	}
-	return prop.View(), types.E_NONE
+	return prop.View(actualName), types.E_NONE
 }
 
-func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, types.ErrorCode) {
-	var targetProp *Property
+func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode) {
+	var targetProp Property
+	var targetName string
+	haveTarget := false
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
 
@@ -863,19 +879,22 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, typ
 			continue
 		}
 
-		if _, prop, ok := propertyByName(current.properties, name); ok {
-			tx.markPropertyRead(currentID, prop)
-			if targetProp == nil {
+		if actualName, prop, ok := propertyByName(current.properties, name); ok {
+			tx.markPropertyRead(currentID, actualName, prop)
+			firstFound := !haveTarget
+			if !haveTarget {
 				targetProp = prop
+				targetName = actualName
+				haveTarget = true
 			}
 			if !prop.clear {
-				if targetProp != prop {
-					result := *targetProp
+				if !firstFound {
+					result := targetProp
 					result.value = prop.value
 					result.clear = false
-					return &result, types.E_NONE
+					return result, targetName, types.E_NONE
 				}
-				return prop, types.E_NONE
+				return prop, actualName, types.E_NONE
 			}
 		} else {
 			tx.markPropertyScan(currentID, current)
@@ -883,7 +902,7 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (*Property, typ
 		queue = append(queue, current.parents...)
 	}
 
-	return nil, types.E_PROPNF
+	return Property{}, "", types.E_PROPNF
 }
 
 func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
@@ -902,11 +921,8 @@ func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.Erro
 	tx.markPropertyScan(objID, obj)
 
 	values := make([]types.Value, 0, len(obj.properties))
-	for _, prop := range obj.properties {
-		if prop == nil {
-			continue
-		}
-		tx.markPropertyRead(objID, prop)
+	for pname, prop := range obj.properties {
+		tx.markPropertyRead(objID, pname, prop)
 		values = append(values, prop.value)
 	}
 	return values, types.E_NONE
@@ -917,13 +933,13 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
 	}
-	_, prop, ok := propertyByName(obj.properties, name)
+	actualName, prop, ok := propertyByName(obj.properties, name)
 	if !ok {
 		tx.markPropertyScan(objID, obj)
 		return PropertyView{}, false, types.E_NONE
 	}
-	tx.markPropertyRead(objID, prop)
-	return prop.View(), true, types.E_NONE
+	tx.markPropertyRead(objID, actualName, prop)
+	return prop.View(actualName), true, types.E_NONE
 }
 
 func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
@@ -935,8 +951,7 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 
 	names := make([]string, 0, len(obj.properties))
 	for _, name := range obj.propOrder {
-		prop := obj.properties[name]
-		if prop != nil && prop.defined {
+		if prop, ok := obj.properties[name]; ok && prop.defined {
 			names = append(names, name)
 		}
 	}
@@ -968,10 +983,10 @@ func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, pref
 		}
 		tx.markPropertyScan(currentID, current)
 		for propName, prop := range current.properties {
-			if prop == nil || !strings.HasPrefix(strings.ToLower(propName), lowerPrefix) {
+			if !strings.HasPrefix(strings.ToLower(propName), lowerPrefix) {
 				continue
 			}
-			tx.markPropertyRead(currentID, prop)
+			tx.markPropertyRead(currentID, propName, prop)
 			name := propName[len(prefix):]
 			if name == "" || decidedNames[name] || prop.clear {
 				continue
@@ -996,7 +1011,7 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 		}
 		tx.markPropertyScan(id, obj)
 		for name, prop := range obj.properties {
-			if prop == nil || !prop.defined {
+			if !prop.defined {
 				continue
 			}
 			key := propertyNameKey(name)
@@ -1037,7 +1052,7 @@ func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[stri
 		tx.markPropertyScan(currentID, current)
 		tx.markObjectRelationshipRead(currentID, current)
 		for name, prop := range current.properties {
-			if prop != nil && prop.defined {
+			if prop.defined {
 				names[propertyNameKey(name)] = true
 			}
 		}
@@ -1061,7 +1076,7 @@ func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, pa
 
 	ancestorNames := tx.definedPropertyNamesInAncestry(parentIDs)
 	for name, prop := range obj.properties {
-		if prop != nil && prop.defined && ancestorNames[propertyNameKey(name)] {
+		if prop.defined && ancestorNames[propertyNameKey(name)] {
 			return true, types.E_NONE
 		}
 	}
@@ -1089,7 +1104,7 @@ func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, nam
 			}
 			tx.markPropertyScan(childID, child)
 			for name, prop := range child.properties {
-				if prop != nil && prop.defined && names[propertyNameKey(name)] {
+				if prop.defined && names[propertyNameKey(name)] {
 					return true
 				}
 			}
@@ -1114,7 +1129,7 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 
 	newProps := tx.copyInheritedProperties(obj.parents)
 	for name, prop := range obj.properties {
-		if prop != nil && prop.defined {
+		if prop.defined {
 			newProps[name] = prop
 		}
 	}
@@ -1147,20 +1162,21 @@ func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode
 		}
 	}
 	for name, prop := range obj.properties {
-		if prop == nil || prop.defined {
+		if prop.defined {
 			continue
 		}
 		key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 		lazySet(&tx.propertyWrites, key, propertyWrite{
+			name:  name,
 			value: prop.value,
-			prop:  *prop,
+			prop:  prop,
 		})
 	}
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]*Property {
-	result := make(map[string]*Property)
+func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]Property {
+	result := make(map[string]Property)
 	visited := make(map[types.ObjID]bool)
 	queue := append([]types.ObjID(nil), parents...)
 
@@ -1181,8 +1197,7 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]*P
 			if _, _, exists := propertyByName(result, name); exists {
 				continue
 			}
-			result[name] = &Property{
-				name:    prop.name,
+			result[name] = Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
@@ -1201,12 +1216,12 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
 	}
-	_, prop, exists := propertyByName(obj.properties, name)
+	actualName, prop, exists := propertyByName(obj.properties, name)
 	if !exists {
 		tx.markPropertyScan(objID, obj)
 		return true, types.E_NONE
 	}
-	tx.markPropertyRead(objID, prop)
+	tx.markPropertyRead(objID, actualName, prop)
 	if prop.defined {
 		return false, types.E_NONE
 	}
@@ -1219,20 +1234,22 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		return types.E_INVIND
 	}
 
-	if _, prop, ok := propertyByName(obj.properties, name); ok {
-		tx.markPropertyRead(objID, prop)
+	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
+		tx.markPropertyRead(objID, actualName, prop)
 		prop.clear = false
 		prop.value = value
-		tx.stagePropertyValue(objID, *prop, value)
+		// Properties are stored by value: write the mutated copy back so reads
+		// within this txn (e.g. PropertyValues) see the staged change.
+		obj.properties[actualName] = prop
+		tx.stagePropertyValue(objID, actualName, prop, value)
 		return types.E_NONE
 	}
 
-	inherited, err := tx.findProperty(objID, name)
+	inherited, inheritedName, err := tx.findProperty(objID, name)
 	if err != types.E_NONE {
 		return err
 	}
 	override := Property{
-		name:    inherited.name,
 		value:   value,
 		owner:   inherited.owner,
 		perms:   inherited.perms,
@@ -1240,8 +1257,8 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 		defined: false,
 		version: inherited.version,
 	}
-	obj.properties[inherited.name] = &override
-	tx.stagePropertyValue(objID, override, value)
+	obj.properties[inheritedName] = override
+	tx.stagePropertyValue(objID, inheritedName, override, value)
 	return types.E_NONE
 }
 
@@ -1250,23 +1267,27 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if _, prop, ok := propertyByName(obj.properties, name); ok {
-		tx.markPropertyRead(objID, prop)
+	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
+		tx.markPropertyRead(objID, actualName, prop)
 		if owner != nil {
 			prop.owner = *owner
 		}
 		if perms != nil {
 			prop.perms = *perms
 		}
-		key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
+		// Properties are stored by value: write the mutated copy back so reads
+		// within this txn see the staged owner/perms change.
+		obj.properties[actualName] = prop
+		key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
 		delete(tx.propertyDeletes, key)
 		if _, stagedDefine := tx.propertyDefines[key]; stagedDefine {
-			lazySet(&tx.propertyDefines, key, *prop)
+			lazySet(&tx.propertyDefines, key, propertyDefine{name: actualName, prop: prop})
 			return types.E_NONE
 		}
 		lazySet(&tx.propertyWrites, key, propertyWrite{
+			name:  actualName,
 			value: prop.value,
-			prop:  *prop,
+			prop:  prop,
 		})
 		return types.E_NONE
 	}
@@ -1274,23 +1295,23 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 	return types.E_PROPNF
 }
 
-func (tx *StoreTxn) DefineProperty(objID types.ObjID, prop Property) types.ErrorCode {
+func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
-	if _, existing, ok := propertyByName(obj.properties, prop.name); ok {
-		tx.markPropertyRead(objID, existing)
+	if existingName, existing, ok := propertyByName(obj.properties, name); ok {
+		tx.markPropertyRead(objID, existingName, existing)
 		return types.E_INVARG
 	}
 	tx.markPropertyScan(objID, obj)
 
 	prop.defined = true
 	prop.clear = false
-	key := propertyWriteKey{objID: objID, name: propertyNameKey(prop.name)}
+	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	delete(tx.propertyDeletes, key)
-	lazySet(&tx.propertyDefines, key, prop)
-	obj.properties[prop.name] = cloneProperty(&prop)
+	lazySet(&tx.propertyDefines, key, propertyDefine{name: name, prop: prop})
+	obj.properties[name] = prop
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -1298,14 +1319,14 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, prop Property) types.Error
 	}
 	obj.propOrder = append(obj.propOrder, "")
 	copy(obj.propOrder[pos+1:], obj.propOrder[pos:])
-	obj.propOrder[pos] = prop.name
+	obj.propOrder[pos] = name
 	obj.propDefsCount++
 
-	tx.propagateDefinedProperty(objID, &prop)
+	tx.propagateDefinedProperty(objID, name, prop)
 	return types.E_NONE
 }
 
-func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, prop *Property) {
+func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, prop Property) {
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -1325,8 +1346,8 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, prop *Property) 
 			if !validLiveObject(child) {
 				continue
 			}
-			if actualName, existing, ok := propertyByName(child.properties, prop.name); ok {
-				tx.markPropertyRead(childID, existing)
+			if actualName, existing, ok := propertyByName(child.properties, name); ok {
+				tx.markPropertyRead(childID, actualName, existing)
 				if existing.defined {
 					queue = append(queue, childID)
 					continue
@@ -1335,17 +1356,17 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, prop *Property) 
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
-			child.properties[prop.name] = &Property{
-				name:    prop.name,
+			child.properties[name] = Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
 				clear:   true,
 				defined: false,
 			}
-			lazySet(&tx.propertyWrites, propertyWriteKey{objID: childID, name: propertyNameKey(prop.name)}, propertyWrite{
+			lazySet(&tx.propertyWrites, propertyWriteKey{objID: childID, name: propertyNameKey(name)}, propertyWrite{
+				name:  name,
 				value: prop.value,
-				prop:  *child.properties[prop.name],
+				prop:  child.properties[name],
 			})
 			queue = append(queue, childID)
 		}
@@ -1362,7 +1383,7 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 		tx.markPropertyScan(objID, obj)
 		return types.E_NONE
 	}
-	tx.markPropertyRead(objID, prop)
+	tx.markPropertyRead(objID, actualName, prop)
 	delete(obj.properties, actualName)
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(actualName)}
 	delete(tx.propertyWrites, key)
@@ -1391,8 +1412,8 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 			if !validLiveObject(child) {
 				continue
 			}
-			if _, prop, ok := propertyByName(child.properties, name); ok {
-				tx.markPropertyRead(childID, prop)
+			if actualName, prop, ok := propertyByName(child.properties, name); ok {
+				tx.markPropertyRead(childID, actualName, prop)
 				if prop.defined {
 					return true
 				}
@@ -1415,7 +1436,7 @@ func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.
 		tx.markPropertyScan(objID, obj)
 		return types.E_PROPNF
 	}
-	tx.markPropertyRead(objID, prop)
+	tx.markPropertyRead(objID, actualName, prop)
 	if !prop.defined {
 		return types.E_PROPNF
 	}
@@ -1460,7 +1481,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 				continue
 			}
 			if actualName, prop, ok := propertyByName(child.properties, name); ok {
-				tx.markPropertyRead(childID, prop)
+				tx.markPropertyRead(childID, actualName, prop)
 				if !prop.defined {
 					delete(child.properties, actualName)
 					key := propertyWriteKey{objID: childID, name: propertyNameKey(actualName)}
@@ -1595,12 +1616,12 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 		stampObjectRelationship(live, ts)
 	}
-	for key, prop := range tx.propertyDefines {
+	for key, def := range tx.propertyDefines {
 		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if errCode := tx.store.definePropertyLocked(key.objID, prop, ts); errCode != types.E_NONE {
+		if errCode := tx.store.definePropertyLocked(key.objID, def.name, def.prop, ts); errCode != types.E_NONE {
 			return errCode
 		}
 		remembered[key.objID] = true
@@ -1624,19 +1645,20 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 			tx.store.rememberObjectLocked(live)
 			remembered[key.objID] = true
 		}
-		if _, prop, ok := propertyByName(live.properties, write.prop.name); ok {
+		if liveActual, prop, ok := propertyByName(live.properties, write.name); ok {
 			prop.value = write.prop.value
 			prop.owner = write.prop.owner
 			prop.perms = write.prop.perms
 			prop.clear = write.prop.clear
 			prop.defined = write.prop.defined
-			stampProperty(prop, ts)
+			prop.version = ts
+			live.properties[liveActual] = prop
 		} else {
 			prop := write.prop
 			prop.value = write.value
 			prop.clear = false
 			prop.version = ts
-			live.properties[prop.name] = &prop
+			live.properties[write.name] = prop
 		}
 		stampObjectProperties(live, ts)
 	}

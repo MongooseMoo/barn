@@ -1,12 +1,14 @@
 package parser
 
+import "barn/verb"
+
 // readString reads a string literal using MOO escape semantics:
 // backslash strips itself and leaves the next character literal.
 // e.g. "\n" -> "n", "\t" -> "t", "\\\"" -> "\"".
 func (l *Lexer) readString() Token {
 	tok := Token{
 		Type: TOKEN_STRING,
-		Position: Position{
+		Position: verb.Position{
 			Line:   l.line,
 			Column: l.column,
 			Offset: l.position,

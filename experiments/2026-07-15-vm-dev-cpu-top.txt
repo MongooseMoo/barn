@@ -1,0 +1,39 @@
+File: vm.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build3308536073\b001\vm.test.exe2026-07-15 12:42:43.9202112 -0600 MDT
+Type: cpu
+Time: 2026-07-15 12:42:45 MDT
+Duration: 28.27s, Total samples = 27.57s (97.52%)
+Showing nodes accounting for 23.39s, 84.84% of 27.57s total
+Dropped 199 nodes (cum <= 0.14s)
+Showing top 30 nodes out of 81
+      flat  flat%   sum%        cum   cum%
+     6.32s 22.92% 22.92%     27.32s 99.09%  barn/vm.(*VM).executeLoop
+     3.42s 12.40% 35.33%     20.09s 72.87%  barn/vm.(*VM).Execute
+     2.49s  9.03% 44.36%      3.14s 11.39%  barn/vm.(*VM).ReadByte (inline)
+     1.60s  5.80% 50.16%      3.60s 13.06%  barn/builtins.(*Registry).dispatch
+     0.91s  3.30% 53.46%      0.91s  3.30%  barn/vm.(*VM).Pop (inline)
+     0.89s  3.23% 56.69%      1.02s  3.70%  runtime.tryDeferToSpanScan
+     0.87s  3.16% 59.85%      0.87s  3.16%  barn/bytecode.CountsTick (inline)
+     0.65s  2.36% 62.21%      0.65s  2.36%  barn/vm.(*VM).CurrentFrame (inline)
+     0.56s  2.03% 64.24%      1.38s  5.01%  barn/vm.(*VM).Push (inline)
+     0.54s  1.96% 66.20%      0.55s  1.99%  barn/vm.(*VM).ReadShort (inline)
+     0.50s  1.81% 68.01%      4.98s 18.06%  barn/vm.(*VM).executeCallBuiltin
+     0.49s  1.78% 69.79%      4.09s 14.83%  barn/builtins.(*Registry).CallByID
+     0.39s  1.41% 71.20%      1.88s  6.82%  runtime.mallocgcSmallScanNoHeader
+     0.34s  1.23% 72.43%      0.34s  1.23%  barn/bytecode.IsImmediateInt (inline)
+     0.33s  1.20% 73.63%      0.33s  1.20%  runtime.memclrNoHeapPointers
+     0.30s  1.09% 74.72%      0.33s  1.20%  barn/vm.compareValues
+     0.27s  0.98% 75.70%      3.57s 12.95%  runtime.mallocgc
+     0.26s  0.94% 76.64%      0.26s  0.94%  runtime.nextFreeFast (inline)
+     0.25s  0.91% 77.55%      0.25s  0.91%  barn/types.Value.Type (inline)
+     0.24s  0.87% 78.42%      0.33s  1.20%  barn/builtins.(*Registry).maybeProtectedRedirect
+     0.24s  0.87% 79.29%      2.01s  7.29%  barn/types.(*sliceList).append
+     0.23s  0.83% 80.12%      0.25s  0.91%  runtime.(*mspan).writeHeapBitsSmall
+     0.22s   0.8% 80.92%      2.76s 10.01%  barn/vm.(*VM).executeStringAppend
+     0.19s  0.69% 81.61%      0.19s  0.69%  sync/atomic.(*Int32).Add (inline)
+     0.17s  0.62% 82.23%      0.18s  0.65%  barn/builtins.validateKnownFunctionArgs
+     0.17s  0.62% 82.84%      0.25s  0.91%  barn/vm.(*VM).executeMod
+     0.15s  0.54% 83.39%      1.15s  4.17%  runtime.wbBufFlush1
+     0.14s  0.51% 83.90%      1.57s  5.69%  barn/types.(*strRep).appendRep
+     0.14s  0.51% 84.40%      0.29s  1.05%  runtime.typePointers.next
+     0.12s  0.44% 84.84%      1.26s  4.57%  gcWriteBarrier

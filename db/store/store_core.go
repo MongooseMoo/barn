@@ -555,8 +555,8 @@ func (s *Store) AliasStrings(objID types.ObjID) ([]string, types.ErrorCode) {
 	if obj == nil {
 		return nil, types.E_INVIND
 	}
-	prop := obj.properties["aliases"]
-	if prop == nil {
+	prop, ok := obj.properties["aliases"]
+	if !ok {
 		return nil, types.E_NONE
 	}
 	listVal := prop.value

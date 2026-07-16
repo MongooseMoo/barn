@@ -1,12 +1,46 @@
 package builtins
 
 import (
+	"sync"
 	"testing"
 
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
 )
+
+func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
+	player := types.ObjID(424242)
+	connectionOptionState.mu.Lock()
+	delete(connectionOptionState.byPlayer, player)
+	connectionOptionState.mu.Unlock()
+	t.Cleanup(func() {
+		connectionOptionState.mu.Lock()
+		delete(connectionOptionState.byPlayer, player)
+		connectionOptionState.mu.Unlock()
+	})
+
+	setConnectionOption(player, "binary", types.NewInt(0))
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		<-start
+		for i := 0; i < 10000; i++ {
+			_ = getConnectionOptions(player)
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		<-start
+		for i := 0; i < 10000; i++ {
+			setConnectionOption(player, "binary", types.NewInt(int64(i&1)))
+		}
+	}()
+	close(start)
+	workers.Wait()
+}
 
 // ctxWithConnManager returns a task context whose registry has the given
 // connection manager wired, mirroring how the server wires its registry.

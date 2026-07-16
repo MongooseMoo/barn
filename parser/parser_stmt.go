@@ -1,6 +1,9 @@
 package parser
 
-import "fmt"
+import (
+	"barn/verb"
+	"fmt"
+)
 
 // ParseError is a syntax error carrying the source line of the offending token.
 // ToastStunt collapses essentially all parse errors to the generic message
@@ -22,8 +25,8 @@ func (e *ParseError) Error() string { return e.Msg }
 func (e *ParseError) Unwrap() error { return e.Detail }
 
 // ParseProgram parses a complete MOO program (sequence of statements)
-func (p *Parser) ParseProgram() ([]Stmt, error) {
-	var statements []Stmt
+func (p *Parser) ParseProgram() (*verb.Program, error) {
+	var statements []verb.Stmt
 
 	for p.current.Type != TOKEN_EOF {
 		stmt, err := p.parseStatement()
@@ -39,11 +42,11 @@ func (p *Parser) ParseProgram() ([]Stmt, error) {
 		statements = append(statements, stmt)
 	}
 
-	return statements, nil
+	return &verb.Program{Statements: statements}, nil
 }
 
 // parseStatement parses a single statement
-func (p *Parser) parseStatement() (Stmt, error) {
+func (p *Parser) parseStatement() (verb.Stmt, error) {
 	switch p.current.Type {
 	case TOKEN_IF:
 		return p.parseIfStatement()
@@ -68,7 +71,7 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		// Empty statement
 		pos := p.current.Position
 		p.nextToken()
-		return &ExprStmt{Pos: pos, Expr: nil}, nil
+		return &verb.ExprStmt{Pos: pos, Expr: nil}, nil
 	default:
 		// Expression statement
 		return p.parseExpressionStatement()
@@ -76,7 +79,7 @@ func (p *Parser) parseStatement() (Stmt, error) {
 }
 
 // parseIfStatement parses if/elseif/else/endif
-func (p *Parser) parseIfStatement() (Stmt, error) {
+func (p *Parser) parseIfStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'if'
 
@@ -102,8 +105,11 @@ func (p *Parser) parseIfStatement() (Stmt, error) {
 		return nil, err
 	}
 
-	// Parse elseif clauses
-	var elseIfs []*ElseIfClause
+	conditions := []verb.Expr{condition}
+	bodies := [][]verb.Stmt{body}
+	positions := []verb.Position{pos}
+
+	// Parse concrete elseif clauses for direct lowering to nested conditionals.
 	for p.current.Type == TOKEN_ELSEIF {
 		elseIfPos := p.current.Position
 		p.nextToken() // consume 'elseif'
@@ -128,15 +134,13 @@ func (p *Parser) parseIfStatement() (Stmt, error) {
 			return nil, err
 		}
 
-		elseIfs = append(elseIfs, &ElseIfClause{
-			Pos:       elseIfPos,
-			Condition: elseIfCond,
-			Body:      elseIfBody,
-		})
+		conditions = append(conditions, elseIfCond)
+		bodies = append(bodies, elseIfBody)
+		positions = append(positions, elseIfPos)
 	}
 
 	// Parse else clause (optional)
-	var elseBody []Stmt
+	var elseBody []verb.Stmt
 	if p.current.Type == TOKEN_ELSE {
 		p.nextToken() // consume 'else'
 		elseBody, err = p.parseBody(TOKEN_ENDIF)
@@ -151,17 +155,20 @@ func (p *Parser) parseIfStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume 'endif'
 
-	return &IfStmt{
-		Pos:       pos,
-		Condition: condition,
-		Body:      body,
-		ElseIfs:   elseIfs,
-		Else:      elseBody,
-	}, nil
+	for i := len(conditions) - 1; i > 0; i-- {
+		elseBody = []verb.Stmt{&verb.IfStmt{
+			Pos:       positions[i],
+			Condition: conditions[i],
+			Body:      bodies[i],
+			Else:      elseBody,
+		}}
+	}
+
+	return &verb.IfStmt{Pos: pos, Condition: condition, Body: body, Else: elseBody}, nil
 }
 
 // parseWhileStatement parses while loops
-func (p *Parser) parseWhileStatement() (Stmt, error) {
+func (p *Parser) parseWhileStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'while'
 
@@ -200,7 +207,7 @@ func (p *Parser) parseWhileStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume 'endwhile'
 
-	return &WhileStmt{
+	return &verb.WhileStmt{
 		Pos:       pos,
 		Label:     label,
 		Condition: condition,
@@ -209,7 +216,7 @@ func (p *Parser) parseWhileStatement() (Stmt, error) {
 }
 
 // parseForStatement parses for loops (list, range, or map iteration)
-func (p *Parser) parseForStatement() (Stmt, error) {
+func (p *Parser) parseForStatement() (verb.Stmt, error) {
 	startPos := p.current.Position
 	p.nextToken() // consume 'for'
 
@@ -246,12 +253,15 @@ func (p *Parser) parseForStatement() (Stmt, error) {
 	p.nextToken() // consume 'in'
 
 	// Check for range [start..end] or container (expr)
-	var container Expr
-	var rangeStart, rangeEnd Expr
+	var container verb.Expr
+	var rangeStart, rangeEnd verb.Expr
 	var err error
 
 	if p.current.Type == TOKEN_LBRACKET {
 		// Range iteration: for x in [start..end]
+		if index != "" {
+			return nil, fmt.Errorf("range loop cannot bind an index variable")
+		}
 		p.nextToken() // consume '['
 
 		rangeStart, err = p.ParseExpression(PREC_LOWEST)
@@ -310,21 +320,30 @@ func (p *Parser) parseForStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume 'endfor'
 
-	return &ForStmt{
-		Pos:        startPos,
-		Label:      label,
-		Value:      value,
-		Index:      index,
-		Container:  container,
-		RangeStart: rangeStart,
-		RangeEnd:   rangeEnd,
-		Body:       body,
+	if container != nil {
+		return &verb.CollectionLoopStmt{
+			Pos:        startPos,
+			Label:      label,
+			Value:      value,
+			Index:      index,
+			Collection: container,
+			Body:       body,
+		}, nil
+	}
+
+	return &verb.RangeLoopStmt{
+		Pos:   startPos,
+		Label: label,
+		Value: value,
+		Start: rangeStart,
+		End:   rangeEnd,
+		Body:  body,
 	}, nil
 }
 
 // parseForkStatement parses fork statements
 // Syntax: fork [varname] (delay) body endfork
-func (p *Parser) parseForkStatement() (Stmt, error) {
+func (p *Parser) parseForkStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'fork'
 
@@ -363,7 +382,7 @@ func (p *Parser) parseForkStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume 'endfork'
 
-	return &ForkStmt{
+	return &verb.ForkStmt{
 		Pos:     pos,
 		Delay:   delay,
 		VarName: varName,
@@ -372,11 +391,11 @@ func (p *Parser) parseForkStatement() (Stmt, error) {
 }
 
 // parseReturnStatement parses return statements
-func (p *Parser) parseReturnStatement() (Stmt, error) {
+func (p *Parser) parseReturnStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'return'
 
-	var value Expr
+	var value verb.Expr
 	var err error
 
 	// Check if there's an expression to return
@@ -393,7 +412,7 @@ func (p *Parser) parseReturnStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &ReturnStmt{
+	return &verb.ReturnStmt{
 		Pos:   pos,
 		Value: value,
 	}, nil
@@ -402,7 +421,7 @@ func (p *Parser) parseReturnStatement() (Stmt, error) {
 // parseBreakStatement parses break statements.
 // Syntax: break; OR break ID; where ID names an enclosing loop.
 // Mirrors parseContinueStatement (ToastStunt parser.y:241-252).
-func (p *Parser) parseBreakStatement() (Stmt, error) {
+func (p *Parser) parseBreakStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'break'
 
@@ -418,14 +437,14 @@ func (p *Parser) parseBreakStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &BreakStmt{
+	return &verb.BreakStmt{
 		Pos:   pos,
 		Label: label,
 	}, nil
 }
 
 // parseContinueStatement parses continue statements
-func (p *Parser) parseContinueStatement() (Stmt, error) {
+func (p *Parser) parseContinueStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'continue'
 
@@ -441,14 +460,14 @@ func (p *Parser) parseContinueStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &ContinueStmt{
+	return &verb.ContinueStmt{
 		Pos:   pos,
 		Label: label,
 	}, nil
 }
 
 // parseExpressionStatement parses an expression statement
-func (p *Parser) parseExpressionStatement() (Stmt, error) {
+func (p *Parser) parseExpressionStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 
 	expr, err := p.ParseExpression(PREC_LOWEST)
@@ -462,15 +481,15 @@ func (p *Parser) parseExpressionStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &ExprStmt{
+	return &verb.ExprStmt{
 		Pos:  pos,
 		Expr: expr,
 	}, nil
 }
 
 // parseBody parses a sequence of statements until one of the terminators is reached
-func (p *Parser) parseBody(terminators ...TokenType) ([]Stmt, error) {
-	var body []Stmt
+func (p *Parser) parseBody(terminators ...TokenType) ([]verb.Stmt, error) {
+	var body []verb.Stmt
 
 	for {
 		// Check if we've reached a terminator
@@ -500,7 +519,7 @@ func (p *Parser) parseBody(terminators ...TokenType) ([]Stmt, error) {
 // - try ... except ... endtry
 // - try ... finally ... endtry
 // - try ... except ... finally ... endtry
-func (p *Parser) parseTryStatement() (Stmt, error) {
+func (p *Parser) parseTryStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume 'try'
 
@@ -510,15 +529,11 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 		return nil, err
 	}
 
-	// Check what follows: except, finally, or endtry
-	var excepts []*ExceptClause
-	var finally []Stmt
-	hasExcept := false
-	hasFinally := false
+	var handlers []verb.ExceptionHandler
+	var finalizer *verb.Finalizer
 
 	// Parse except clauses (zero or more)
 	for p.current.Type == TOKEN_EXCEPT {
-		hasExcept = true
 		exceptPos := p.current.Position
 		p.nextToken() // consume 'except'
 
@@ -573,7 +588,7 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 			return nil, err
 		}
 
-		excepts = append(excepts, &ExceptClause{
+		handlers = append(handlers, verb.ExceptionHandler{
 			Pos:      exceptPos,
 			Variable: variable,
 			Codes:    codes,
@@ -584,13 +599,14 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 
 	// Parse finally clause (optional)
 	if p.current.Type == TOKEN_FINALLY {
-		hasFinally = true
+		finalizerPos := p.current.Position
 		p.nextToken() // consume 'finally'
 
-		finally, err = p.parseBody(TOKEN_ENDTRY)
+		finalizerBody, err := p.parseBody(TOKEN_ENDTRY)
 		if err != nil {
 			return nil, err
 		}
+		finalizer = &verb.Finalizer{Pos: finalizerPos, Body: finalizerBody}
 	}
 
 	// Consume 'endtry'
@@ -599,33 +615,15 @@ func (p *Parser) parseTryStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume 'endtry'
 
-	// Construct the appropriate statement based on what we found
-	if hasExcept && hasFinally {
-		return &TryExceptFinallyStmt{
-			Pos:     pos,
-			Body:    body,
-			Excepts: excepts,
-			Finally: finally,
-		}, nil
-	} else if hasExcept {
-		return &TryExceptStmt{
-			Pos:     pos,
-			Body:    body,
-			Excepts: excepts,
-		}, nil
-	} else if hasFinally {
-		return &TryFinallyStmt{
-			Pos:     pos,
-			Body:    body,
-			Finally: finally,
-		}, nil
-	} else {
+	if len(handlers) == 0 && finalizer == nil {
 		return nil, fmt.Errorf("try statement must have except or finally clause")
 	}
+
+	return &verb.TryStmt{Pos: pos, Body: body, Handlers: handlers, Finalizer: finalizer}, nil
 }
 
 // parseScatterOrExprStatement decides if {... is scatter assignment or expression
-func (p *Parser) parseScatterOrExprStatement() (Stmt, error) {
+func (p *Parser) parseScatterOrExprStatement() (verb.Stmt, error) {
 	// Simple heuristic: if we see { followed by identifier/? /@, likely scatter
 	// Otherwise, parse as expression
 	if p.looksLikeScatter() {
@@ -681,19 +679,25 @@ func (p *Parser) looksLikeScatter() bool {
 }
 
 // parseScatterStatement parses a scatter assignment
-func (p *Parser) parseScatterStatement() (Stmt, error) {
+func (p *Parser) parseScatterStatement() (verb.Stmt, error) {
 	pos := p.current.Position
 	p.nextToken() // consume '{'
 
-	// Parse scatter targets
-	var targets []ScatterTarget
+	var bindings []verb.Binding
+	hasRest := false
 
 	for p.current.Type != TOKEN_RBRACE && p.current.Type != TOKEN_EOF {
-		target, err := p.parseScatterTarget()
+		binding, err := p.parseScatterBinding()
 		if err != nil {
 			return nil, err
 		}
-		targets = append(targets, target)
+		if _, rest := binding.(*verb.RestBinding); rest {
+			if hasRest {
+				return nil, fmt.Errorf("more than one '@' target in scattering assignment")
+			}
+			hasRest = true
+		}
+		bindings = append(bindings, binding)
 
 		if p.current.Type == TOKEN_COMMA {
 			p.nextToken() // consume ','
@@ -725,44 +729,52 @@ func (p *Parser) parseScatterStatement() (Stmt, error) {
 	}
 	p.nextToken() // consume ';'
 
-	return &ScatterStmt{
-		Pos:     pos,
-		Targets: targets,
-		Value:   value,
+	return &verb.ExprStmt{
+		Pos: pos,
+		Expr: &verb.AssignExpr{
+			Pos:    pos,
+			Target: &verb.DestructuringTarget{Pos: pos, Bindings: bindings},
+			Value:  value,
+		},
 	}, nil
 }
 
-// parseScatterTarget parses a single scatter target: var, ?var, ?var = default, @var
-func (p *Parser) parseScatterTarget() (ScatterTarget, error) {
-	target := ScatterTarget{
-		Pos: p.current.Position,
-	}
+// parseScatterBinding parses a single binding: var, ?var, ?var = default, @var.
+func (p *Parser) parseScatterBinding() (verb.Binding, error) {
+	pos := p.current.Position
 
-	// Check for optional (?) or rest (@)
+	optional := false
+	rest := false
 	if p.current.Type == TOKEN_QUESTION {
-		target.Optional = true
+		optional = true
 		p.nextToken() // consume '?'
 	} else if p.current.Type == TOKEN_AT {
-		target.Rest = true
+		rest = true
 		p.nextToken() // consume '@'
 	}
 
 	// Parse identifier
 	if p.current.Type != TOKEN_IDENTIFIER {
-		return target, fmt.Errorf("expected identifier in scatter target")
+		return nil, fmt.Errorf("expected identifier in scatter target")
 	}
-	target.Name = p.current.Value
+	name := p.current.Value
 	p.nextToken()
 
-	// Check for default value (only for optional)
-	if target.Optional && p.current.Type == TOKEN_ASSIGN {
-		p.nextToken() // consume '='
-		defaultExpr, err := p.ParseExpression(PREC_LOWEST)
-		if err != nil {
-			return target, err
+	if optional {
+		var defaultExpr verb.Expr
+		if p.current.Type == TOKEN_ASSIGN {
+			p.nextToken() // consume '='
+			var err error
+			defaultExpr, err = p.ParseExpression(PREC_LOWEST)
+			if err != nil {
+				return nil, err
+			}
 		}
-		target.Default = defaultExpr
+		return &verb.OptionalBinding{Pos: pos, Name: name, Default: defaultExpr}, nil
+	}
+	if rest {
+		return &verb.RestBinding{Pos: pos, Name: name}, nil
 	}
 
-	return target, nil
+	return &verb.RequiredBinding{Pos: pos, Name: name}, nil
 }

@@ -43,7 +43,7 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("counter", dbstore.NewProperty("counter", types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("counter", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestOptimisticConflictingWritersAreSerializable(t *testing.T) {
 	const n = 64
 	tasks := make([]*task.Task, n)
 	for k := 0; k < n; k++ {
-		tk := task.NewTaskFull(int64(6000+k), types.ObjID(0), parseTestStatements(t, "return #0:bump();"), 1<<50, 1e9)
+		tk := task.NewTaskFull(int64(6000+k), types.ObjID(0), compileTestProgram(t, s.registry, "return #0:bump();"), 1<<50, 1e9)
 		s.populateTaskContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
@@ -124,7 +124,7 @@ func TestOptimisticConcurrentSuspendsNoRace(t *testing.T) {
 	const n = 48
 	tasks := make([]*task.Task, n)
 	for k := 0; k < n; k++ {
-		tk := task.NewTaskFull(int64(7000+k), types.ObjID(0), parseTestStatements(t, "suspend(0); return 1;"), 1<<50, 1e9)
+		tk := task.NewTaskFull(int64(7000+k), types.ObjID(0), compileTestProgram(t, s.registry, "suspend(0); return 1;"), 1<<50, 1e9)
 		s.populateTaskContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.StartTime = time.Now().Add(-time.Second)
@@ -182,7 +182,7 @@ func TestOptimisticDisjointLiveMutatorsDoNotCorrupt(t *testing.T) {
 	tasks := make([]*task.Task, n)
 	for k := 0; k < n; k++ {
 		code := fmt.Sprintf("add_verb(#%d, {#3, \"rxd\", \"poked\"}, {\"this\", \"none\", \"none\"}); return verbs(#%d);", ids[k], ids[k])
-		tk := task.NewTaskFull(int64(6500+k), types.ObjID(3), parseTestStatements(t, code), 1<<50, 1e9)
+		tk := task.NewTaskFull(int64(6500+k), types.ObjID(3), compileTestProgram(t, s.registry, code), 1<<50, 1e9)
 		s.populateTaskContextDependencies(tk.Context)
 		tk.Context.IsWizard = true
 		tk.Programmer = 3

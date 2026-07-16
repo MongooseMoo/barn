@@ -1,0 +1,39 @@
+File: vm.test.exe
+Build ID: C:\Users\Q\AppData\Local\Temp\go-build3308536073\b001\vm.test.exe2026-07-15 12:42:43.9202112 -0600 MDT
+Type: cpu
+Time: 2026-07-15 12:42:45 MDT
+Duration: 28.27s, Total samples = 27.57s (97.52%)
+Showing nodes accounting for 19.89s, 72.14% of 27.57s total
+Dropped 199 nodes (cum <= 0.14s)
+Showing top 30 nodes out of 81
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%     27.39s 99.35%  testing.(*B).runN
+         0     0%     0%     27.38s 99.31%  barn/vm.BenchmarkVM.func1
+         0     0%     0%     27.33s 99.13%  barn/vm.(*VM).Run
+     6.32s 22.92% 22.92%     27.32s 99.09%  barn/vm.(*VM).executeLoop
+         0     0% 22.92%     27.01s 97.97%  testing.(*B).launch
+     3.42s 12.40% 35.33%     20.09s 72.87%  barn/vm.(*VM).Execute
+     0.50s  1.81% 37.14%      4.98s 18.06%  barn/vm.(*VM).executeCallBuiltin
+     0.49s  1.78% 38.92%      4.09s 14.83%  barn/builtins.(*Registry).CallByID
+     1.60s  5.80% 44.72%      3.60s 13.06%  barn/builtins.(*Registry).dispatch
+     0.27s  0.98% 45.70%      3.57s 12.95%  runtime.mallocgc
+     2.49s  9.03% 54.73%      3.14s 11.39%  barn/vm.(*VM).ReadByte (inline)
+     0.22s   0.8% 55.53%      2.76s 10.01%  barn/vm.(*VM).executeStringAppend
+     0.07s  0.25% 55.79%      2.60s  9.43%  runtime.newobject
+     0.03s  0.11% 55.89%      2.47s  8.96%  barn/vm.(*VM).executeListAppend
+     0.05s  0.18% 56.08%      2.24s  8.12%  runtime.systemstack
+     0.24s  0.87% 56.95%      2.01s  7.29%  barn/types.(*sliceList).append
+         0     0% 56.95%      2.01s  7.29%  barn/types.Value.Append (inline)
+     0.39s  1.41% 58.36%      1.88s  6.82%  runtime.mallocgcSmallScanNoHeader
+     0.14s  0.51% 58.87%      1.57s  5.69%  barn/types.(*strRep).appendRep
+         0     0% 58.87%      1.57s  5.69%  barn/types.Value.StrAppend (inline)
+     0.56s  2.03% 60.90%      1.38s  5.01%  barn/vm.(*VM).Push (inline)
+     0.02s 0.073% 60.97%      1.36s  4.93%  barn/builtins.builtinTostr
+     0.12s  0.44% 61.41%      1.26s  4.57%  gcWriteBarrier
+     0.01s 0.036% 61.44%      1.18s  4.28%  runtime.wbBufFlush
+     0.01s 0.036% 61.48%      1.16s  4.21%  runtime.wbBufFlush.func1
+     0.15s  0.54% 62.02%      1.15s  4.17%  runtime.wbBufFlush1
+     0.89s  3.23% 65.25%      1.02s  3.70%  runtime.tryDeferToSpanScan
+     0.12s  0.44% 65.69%         1s  3.63%  runtime.growslice
+     0.91s  3.30% 68.99%      0.91s  3.30%  barn/vm.(*VM).Pop (inline)
+     0.87s  3.16% 72.14%      0.87s  3.16%  barn/bytecode.CountsTick (inline)

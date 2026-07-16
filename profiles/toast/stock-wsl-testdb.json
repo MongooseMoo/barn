@@ -1,0 +1,20 @@
+{
+  "profile_id": "toast-stock-wsl-testdb",
+  "implementation": "toaststunt",
+  "implementation_ref": "aecc51e9449c6e7c95272f0f044b5ba38948459e",
+  "binary_path": "/root/src/toaststunt/build-release/moo",
+  "build_system": "cmake",
+  "runtime_os": "linux",
+  "arch_bits": 64,
+  "database_fixture": "testdb",
+  "database_checksum": "1a3f23ebb549e02ccf5341668425118fcdc935b977096add87bc2a8ef29d408e",
+  "config_file": "/root/src/toaststunt/src/include/options.h",
+  "config_checksum": "a88a8c6c37b66ca65a08a318988361827f131421edeff25e5b4af83fb3fa8036",
+  "features": {
+    "option.OUTBOUND_NETWORK": true,
+    "option.PROMOTE_NUMBERS": false,
+    "runtime.arch_bits": 64
+  },
+  "support_status": "supported",
+  "unsupported_reason": ""
+}

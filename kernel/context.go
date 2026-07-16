@@ -1,6 +1,8 @@
 package kernel
 
 import (
+	"log/slog"
+
 	"barn/config"
 	dbstore "barn/db/store"
 	"barn/types"
@@ -100,6 +102,20 @@ type TaskContext struct {
 
 	// RuntimeOptions holds server/runtime feature flags visible to builtins and VM execution.
 	RuntimeOptions config.Options
+
+	// Log carries the task's identity (task id, player, verb) so that anything
+	// logged while the task runs is attributable without repeating those attrs
+	// at each call site. Use Logger() to read it; it may be nil.
+	Log *slog.Logger
+}
+
+// Logger returns the task-scoped logger, falling back to the default logger for
+// contexts built without one (tests construct bare contexts freely).
+func (ctx *TaskContext) Logger() *slog.Logger {
+	if ctx == nil || ctx.Log == nil {
+		return slog.Default()
+	}
+	return ctx.Log
 }
 
 type PendingNotification struct {

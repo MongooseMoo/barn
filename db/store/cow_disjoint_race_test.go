@@ -23,11 +23,11 @@ import (
 // under -race. Run with: go test -race -run TestCOWDisjointCommitsRaceFree ./db/store
 func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 	const (
-		nObjects     = 16
-		nWriters     = 16 // one writer goroutine per object (disjoint footprints)
-		nReaders     = 16
-		commitsEach  = 200
-		readsEach    = 2000
+		nObjects    = 16
+		nWriters    = 16 // one writer goroutine per object (disjoint footprints)
+		nReaders    = 16
+		commitsEach = 200
+		readsEach   = 2000
 	)
 
 	store := NewStore()
@@ -40,7 +40,7 @@ func TestCOWDisjointCommitsRaceFree(t *testing.T) {
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}
-		if errCode := store.DefineProperty(id, NewProperty("counter", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty failed: %v", errCode)
 		}
 		ids[i] = id
@@ -140,10 +140,10 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		// simply pre-define a "keep" prop and delete-and-redefine via the store API
 		// between rounds is overkill — instead we delete a property that the writer
 		// re-stages each commit via a value write, see below).
-		if errCode := store.DefineProperty(id, NewProperty("counter", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty counter failed: %v", errCode)
 		}
-		if errCode := store.DefineProperty(id, NewProperty("scratch", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DefineProperty(id, "scratch", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty scratch failed: %v", errCode)
 		}
 		if _, errCode := store.AddVerb(id, NewVerb("look", []string{"look"}, 0, VerbRead|VerbExecute, VerbArgs{}, []string{"return 1;"})); errCode != types.E_NONE {
@@ -211,7 +211,7 @@ func TestCOWDisjointMixedKindCommitsRaceFree(t *testing.T) {
 		go func(id types.ObjID) {
 			defer wg.Done()
 			for c := 0; c < commitsEach/4; c++ {
-				_ = store.DefineProperty(id, NewProperty("scratch", types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
+				_ = store.DefineProperty(id, "scratch", NewProperty(types.NewInt(int64(c)), 0, PropRead|PropWrite, false, true))
 				tx := store.BeginReadOnly(0)
 				if errCode := tx.ClearPropertyOverride(id, "scratch"); errCode != types.E_NONE {
 					_ = tx.Commit()
@@ -270,7 +270,7 @@ func TestCOWSameObjectCommitsSerialize(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(id, NewProperty("counter", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 

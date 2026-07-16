@@ -1,13 +1,14 @@
 package parser
 
 import (
+	"barn/verb"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
 )
 
-// Parser parses MOO source code into syntax nodes.
+// Parser parses MOO source code into language-neutral verb semantics.
 type Parser struct {
 	lexer   *Lexer
 	current Token
@@ -87,10 +88,70 @@ func precedence(t TokenType) int {
 	}
 }
 
+func semanticUnaryOperator(token TokenType) verb.UnaryOperator {
+	switch token {
+	case TOKEN_MINUS:
+		return verb.UnaryNegate
+	case TOKEN_NOT:
+		return verb.UnaryNot
+	case TOKEN_BITNOT:
+		return verb.UnaryBitwiseNot
+	default:
+		panic(fmt.Sprintf("non-unary token %s", token))
+	}
+}
+
+func semanticBinaryOperator(token TokenType) verb.BinaryOperator {
+	switch token {
+	case TOKEN_PLUS:
+		return verb.BinaryAdd
+	case TOKEN_MINUS:
+		return verb.BinarySubtract
+	case TOKEN_STAR:
+		return verb.BinaryMultiply
+	case TOKEN_SLASH:
+		return verb.BinaryDivide
+	case TOKEN_PERCENT:
+		return verb.BinaryModulo
+	case TOKEN_CARET:
+		return verb.BinaryPower
+	case TOKEN_EQ:
+		return verb.BinaryEqual
+	case TOKEN_NE:
+		return verb.BinaryNotEqual
+	case TOKEN_LT:
+		return verb.BinaryLess
+	case TOKEN_LE:
+		return verb.BinaryLessEqual
+	case TOKEN_GT:
+		return verb.BinaryGreater
+	case TOKEN_GE:
+		return verb.BinaryGreaterEqual
+	case TOKEN_IN:
+		return verb.BinaryIn
+	case TOKEN_AND:
+		return verb.BinaryAnd
+	case TOKEN_OR:
+		return verb.BinaryOr
+	case TOKEN_BITAND:
+		return verb.BinaryBitAnd
+	case TOKEN_BITOR:
+		return verb.BinaryBitOr
+	case TOKEN_BITXOR:
+		return verb.BinaryBitXor
+	case TOKEN_LSHIFT:
+		return verb.BinaryShiftLeft
+	case TOKEN_RSHIFT:
+		return verb.BinaryShiftRight
+	default:
+		panic(fmt.Sprintf("non-binary token %s", token))
+	}
+}
+
 // ParseExpression parses an expression
-func (p *Parser) ParseExpression(prec int) (Expr, error) {
+func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 	// Parse prefix expression
-	var left Expr
+	var left verb.Expr
 	var err error
 
 	switch p.current.Type {
@@ -119,7 +180,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 	case TOKEN_IDENTIFIER:
 		// Parse identifier
-		left = &IdentifierExpr{
+		left = &verb.IdentifierExpr{
 			Pos:  p.current.Position,
 			Name: p.current.Value,
 		}
@@ -127,9 +188,9 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 	case TOKEN_CARET:
 		// Parse ^ index marker (first)
-		left = &IndexMarkerExpr{
-			Pos:    p.current.Position,
-			Marker: p.current.Type,
+		left = &verb.IndexBoundaryExpr{
+			Pos:      p.current.Position,
+			Boundary: verb.IndexFirst,
 		}
 		p.nextToken()
 
@@ -152,7 +213,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				p.nextToken() // consume '('
 
 				// Parse arguments
-				args := []Expr{}
+				args := []verb.Expr{}
 				for p.current.Type != TOKEN_RPAREN && p.current.Type != TOKEN_EOF {
 					arg, err := p.ParseExpression(PREC_LOWEST)
 					if err != nil {
@@ -172,7 +233,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				}
 				p.nextToken() // consume ')'
 
-				left = &VerbCallExpr{
+				left = &verb.VerbCallExpr{
 					Pos:  pos,
 					Expr: systemObjectLiteral(pos),
 					Verb: propName,
@@ -180,7 +241,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				}
 			} else {
 				// $name => #0.name (property access)
-				left = &PropertyExpr{
+				left = &verb.PropertyExpr{
 					Pos:      pos,
 					Expr:     systemObjectLiteral(pos),
 					Property: propName,
@@ -188,9 +249,9 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			}
 		} else {
 			// Just $ alone - index marker (last)
-			left = &IndexMarkerExpr{
-				Pos:    pos,
-				Marker: TOKEN_DOLLAR,
+			left = &verb.IndexBoundaryExpr{
+				Pos:      pos,
+				Boundary: verb.IndexLast,
 			}
 		}
 
@@ -203,15 +264,14 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &UnaryExpr{
+		left = &verb.UnaryExpr{
 			Pos:      pos,
-			Operator: op,
+			Operator: semanticUnaryOperator(op),
 			Operand:  operand,
 		}
 
 	case TOKEN_LPAREN:
 		// Parse parenthesized expression
-		pos := p.current.Position
 		p.nextToken()
 		expr, err := p.ParseExpression(PREC_LOWEST)
 		if err != nil {
@@ -221,10 +281,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			return nil, fmt.Errorf("expected ')', got %s", p.current.Type)
 		}
 		p.nextToken()
-		left = &ParenExpr{
-			Pos:  pos,
-			Expr: expr,
-		}
+		left = expr
 
 	case TOKEN_AT:
 		// Parse splice operator: @expr
@@ -235,7 +292,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		if err != nil {
 			return nil, err
 		}
-		left = &SpliceExpr{
+		left = &verb.SpliceExpr{
 			Pos:  pos,
 			Expr: operand,
 		}
@@ -262,7 +319,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		}
 
 		// Check for optional default (=> expr)
-		var defaultExpr Expr
+		var defaultExpr verb.Expr
 		if p.current.Type == TOKEN_FATARROW {
 			p.nextToken()
 			defaultExpr, err = p.ParseExpression(PREC_CATCH)
@@ -277,7 +334,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 		}
 		p.nextToken()
 
-		left = &CatchExpr{
+		left = &verb.CatchExpr{
 			Pos:     pos,
 			Expr:    expr,
 			Codes:   codes,
@@ -303,7 +360,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			p.nextToken()
 
 			// Handle right-associativity for power operator
-			var right Expr
+			var right verb.Expr
 			if op == TOKEN_CARET {
 				right, err = p.ParseExpression(opPrec) // Don't increment for right-assoc
 			} else {
@@ -312,17 +369,17 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			left = &BinaryExpr{
+			left = &verb.BinaryExpr{
 				Pos:      pos,
 				Left:     left,
-				Operator: op,
+				Operator: semanticBinaryOperator(op),
 				Right:    right,
 			}
 
 		case TOKEN_LPAREN:
 			// Function call: identifier(args)
 			// Only parse as function call if left is an identifier
-			ident, ok := left.(*IdentifierExpr)
+			ident, ok := left.(*verb.IdentifierExpr)
 			if !ok {
 				return nil, fmt.Errorf("cannot call non-identifier")
 			}
@@ -330,7 +387,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			p.nextToken() // consume '('
 
 			// Parse arguments
-			args := []Expr{}
+			args := []verb.Expr{}
 			if p.current.Type != TOKEN_RPAREN {
 				for {
 					arg, err := p.ParseExpression(PREC_LOWEST)
@@ -352,7 +409,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			}
 			p.nextToken() // consume ')'
 
-			left = &BuiltinCallExpr{
+			left = &verb.BuiltinCallExpr{
 				Pos:  pos,
 				Name: ident.Name,
 				Args: args,
@@ -381,7 +438,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 					return nil, fmt.Errorf("expected ']' after range, got %s", p.current.Type)
 				}
 				p.nextToken() // consume ']'
-				left = &RangeExpr{
+				left = &verb.RangeExpr{
 					Pos:   pos,
 					Expr:  left,
 					Start: first,
@@ -393,7 +450,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 					return nil, fmt.Errorf("expected ']' after index, got %s", p.current.Type)
 				}
 				p.nextToken() // consume ']'
-				left = &IndexExpr{
+				left = &verb.IndexExpr{
 					Pos:   pos,
 					Expr:  left,
 					Index: first,
@@ -417,7 +474,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				}
 				p.nextToken() // consume ')'
 
-				left = &PropertyExpr{
+				left = &verb.PropertyExpr{
 					Pos:          pos,
 					Expr:         left,
 					PropertyExpr: propExpr,
@@ -430,7 +487,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 				propName := p.current.Value
 				p.nextToken()
 
-				left = &PropertyExpr{
+				left = &verb.PropertyExpr{
 					Pos:      pos,
 					Expr:     left,
 					Property: propName,
@@ -444,7 +501,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 
 			// Verb name can be static or dynamic
 			var verbName string
-			var verbExpr Expr
+			var verbExpr verb.Expr
 			if p.current.Type == TOKEN_IDENTIFIER {
 				verbName = p.current.Value
 				p.nextToken()
@@ -471,7 +528,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			p.nextToken()
 
 			// Parse arguments
-			args := []Expr{}
+			args := []verb.Expr{}
 			for p.current.Type != TOKEN_RPAREN && p.current.Type != TOKEN_EOF {
 				arg, err := p.ParseExpression(PREC_LOWEST)
 				if err != nil {
@@ -491,7 +548,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			}
 			p.nextToken()
 
-			left = &VerbCallExpr{
+			left = &verb.VerbCallExpr{
 				Pos:      pos,
 				Expr:     left,
 				Verb:     verbName,
@@ -524,7 +581,7 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			if err != nil {
 				return nil, err
 			}
-			left = &TernaryExpr{
+			left = &verb.TernaryExpr{
 				Pos:       pos,
 				Condition: left,
 				ThenExpr:  thenExpr,
@@ -540,14 +597,18 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 			// Assignment: target = value
 			// Assignment is right-associative with lowest precedence
 			pos := p.current.Position
+			target, err := lowerAssignmentTarget(left)
+			if err != nil {
+				return nil, err
+			}
 			p.nextToken()
 			value, err := p.ParseExpression(PREC_ASSIGNMENT) // Right-associative
 			if err != nil {
 				return nil, err
 			}
-			left = &AssignExpr{
+			left = &verb.AssignExpr{
 				Pos:    pos,
-				Target: left,
+				Target: target,
 				Value:  value,
 			}
 
@@ -559,11 +620,61 @@ func (p *Parser) ParseExpression(prec int) (Expr, error) {
 	return left, err
 }
 
-func systemObjectLiteral(pos Position) *LiteralExpr {
-	return &LiteralExpr{Pos: pos, Kind: LiteralObj, ObjID: 0}
+func lowerAssignmentTarget(expr verb.Expr) (verb.Target, error) {
+	switch target := expr.(type) {
+	case *verb.IdentifierExpr:
+		return &verb.VariableTarget{Pos: target.Pos, Name: target.Name}, nil
+	case *verb.PropertyExpr:
+		return &verb.PropertyTarget{
+			Pos:      target.Pos,
+			Object:   target.Expr,
+			Name:     target.Property,
+			NameExpr: target.PropertyExpr,
+		}, nil
+	case *verb.IndexExpr:
+		collection, err := lowerCollectionAssignmentTarget(target.Expr)
+		if err != nil {
+			return nil, err
+		}
+		return &verb.IndexTarget{Pos: target.Pos, Collection: collection, Index: target.Index}, nil
+	case *verb.RangeExpr:
+		collection, err := lowerCollectionAssignmentTarget(target.Expr)
+		if err != nil {
+			return nil, err
+		}
+		return &verb.RangeTarget{Pos: target.Pos, Collection: collection, Start: target.Start, End: target.End}, nil
+	case *verb.ListExpr:
+		bindings := make([]verb.Binding, len(target.Elements))
+		for i, element := range target.Elements {
+			identifier, ok := element.(*verb.IdentifierExpr)
+			if !ok {
+				return nil, fmt.Errorf("invalid assignment target: %T", element)
+			}
+			bindings[i] = &verb.RequiredBinding{Pos: identifier.Pos, Name: identifier.Name}
+		}
+		return &verb.DestructuringTarget{Pos: target.Pos, Bindings: bindings}, nil
+	default:
+		return nil, fmt.Errorf("invalid assignment target: %T", expr)
+	}
 }
 
-// parseLiteralExpr parses a simple literal syntax node.
+func lowerCollectionAssignmentTarget(expr verb.Expr) (verb.CollectionTarget, error) {
+	target, err := lowerAssignmentTarget(expr)
+	if err != nil {
+		return nil, err
+	}
+	collection, ok := target.(verb.CollectionTarget)
+	if !ok {
+		return nil, fmt.Errorf("invalid collection assignment target: %T", expr)
+	}
+	return collection, nil
+}
+
+func systemObjectLiteral(pos verb.Position) *verb.LiteralExpr {
+	return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralObj, ObjID: 0}
+}
+
+// parseLiteralExpr parses a MOO literal into its semantic payload.
 // wrapInt64Literal reduces a non-negative decimal integer literal modulo 2^64
 // and reinterprets the low 64 bits as a signed two's-complement int64, matching
 // how MOO's C lexer handles out-of-range literals. The token is always
@@ -579,7 +690,7 @@ func wrapInt64Literal(s string) (int64, bool) {
 	return int64(z.Uint64()), true
 }
 
-func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
+func (p *Parser) parseLiteralExpr() (*verb.LiteralExpr, error) {
 	pos := p.current.Position
 
 	switch p.current.Type {
@@ -602,7 +713,7 @@ func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
 			}
 		}
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralInt, IntValue: val}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralInt, IntValue: val}, nil
 
 	case TOKEN_FLOAT:
 		val, err := strconv.ParseFloat(p.current.Value, 64)
@@ -610,20 +721,20 @@ func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
 			return nil, fmt.Errorf("failed to parse float: %w", err)
 		}
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralFloat, FloatValue: val}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralFloat, FloatValue: val}, nil
 
 	case TOKEN_TRUE:
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralBool, BoolValue: true}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralBool, BoolValue: true}, nil
 
 	case TOKEN_FALSE:
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralBool, BoolValue: false}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralBool, BoolValue: false}, nil
 
 	case TOKEN_STRING:
 		val := p.current.Literal
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralString, StringValue: val}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralString, StringValue: val}, nil
 
 	case TOKEN_ERROR_LIT:
 		name := p.current.Value
@@ -631,7 +742,7 @@ func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
 			return nil, fmt.Errorf("unknown error code: %s", name)
 		}
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralErr, ErrorName: name}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralErr, ErrorName: name}, nil
 
 	case TOKEN_OBJECT:
 		val := strings.TrimPrefix(p.current.Value, "#")
@@ -640,7 +751,7 @@ func (p *Parser) parseLiteralExpr() (*LiteralExpr, error) {
 			return nil, fmt.Errorf("failed to parse object ID: %w", err)
 		}
 		p.nextToken()
-		return &LiteralExpr{Pos: pos, Kind: LiteralObj, ObjID: id}, nil
+		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralObj, ObjID: id}, nil
 
 	default:
 		return nil, fmt.Errorf("unexpected token: %s", p.current.Type)
@@ -699,16 +810,16 @@ func (p *Parser) parseErrorName() (string, error) {
 // parseListExpr parses a list expression: {expr, expr, ...} or {start..end}.
 // It allows full expressions including splice (@).
 // Returns either *ListExpr or *ListRangeExpr depending on the syntax
-func (p *Parser) parseListExpr() (Expr, error) {
+func (p *Parser) parseListExpr() (verb.Expr, error) {
 	pos := p.current.Position
 	p.nextToken() // skip '{'
 
-	var elements []Expr
+	var elements []verb.Expr
 
 	// Check for empty list
 	if p.current.Type == TOKEN_RBRACE {
 		p.nextToken() // skip '}'
-		return &ListExpr{Pos: pos, Elements: elements}, nil
+		return &verb.ListExpr{Pos: pos, Elements: elements}, nil
 	}
 
 	// Parse first element
@@ -733,7 +844,7 @@ func (p *Parser) parseListExpr() (Expr, error) {
 		}
 		p.nextToken() // skip '}'
 
-		return &ListRangeExpr{Pos: pos, Start: elem, End: endExpr}, nil
+		return &verb.ListRangeExpr{Pos: pos, Start: elem, End: endExpr}, nil
 	}
 
 	elements = append(elements, elem)
@@ -760,21 +871,21 @@ func (p *Parser) parseListExpr() (Expr, error) {
 	}
 	p.nextToken() // skip '}'
 
-	return &ListExpr{Pos: pos, Elements: elements}, nil
+	return &verb.ListExpr{Pos: pos, Elements: elements}, nil
 }
 
 // parseMapExpr parses a map expression: [key -> value, ...].
 // It allows full expressions.
-func (p *Parser) parseMapExpr() (*MapExpr, error) {
+func (p *Parser) parseMapExpr() (*verb.MapExpr, error) {
 	pos := p.current.Position
 	p.nextToken() // skip '['
 
-	var pairs []MapPair
+	var pairs []verb.MapPair
 
 	// Check for empty map
 	if p.current.Type == TOKEN_RBRACKET {
 		p.nextToken() // skip ']'
-		return &MapExpr{Pos: pos, Pairs: pairs}, nil
+		return &verb.MapExpr{Pos: pos, Pairs: pairs}, nil
 	}
 
 	// Parse first pair
@@ -792,7 +903,7 @@ func (p *Parser) parseMapExpr() (*MapExpr, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse map value: %w", err)
 	}
-	pairs = append(pairs, MapPair{Key: key, Value: value})
+	pairs = append(pairs, verb.MapPair{Key: key, Value: value})
 
 	// Parse remaining pairs
 	for p.current.Type == TOKEN_COMMA {
@@ -817,7 +928,7 @@ func (p *Parser) parseMapExpr() (*MapExpr, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse map value: %w", err)
 		}
-		pairs = append(pairs, MapPair{Key: key, Value: value})
+		pairs = append(pairs, verb.MapPair{Key: key, Value: value})
 	}
 
 	// Expect closing ']'
@@ -826,5 +937,5 @@ func (p *Parser) parseMapExpr() (*MapExpr, error) {
 	}
 	p.nextToken() // skip ']'
 
-	return &MapExpr{Pos: pos, Pairs: pairs}, nil
+	return &verb.MapExpr{Pos: pos, Pairs: pairs}, nil
 }

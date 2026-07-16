@@ -3,15 +3,14 @@ package scheduler
 import (
 	"container/heap"
 	"fmt"
-	"log"
-	"sync/atomic"
+	"log/slog"
 	"time"
 
 	"barn/builtins"
 	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -47,10 +46,10 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 }
 
 // CreateForegroundTask creates a foreground task (user command)
-func (s *Scheduler) CreateForegroundTask(player types.ObjID, code []parser.Stmt) int64 {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+func (s *Scheduler) CreateForegroundTask(player types.ObjID, program *bytecode.Program) int64 {
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.ForkCreator = s // Give task access to scheduler for forks
@@ -67,17 +66,17 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, errors := bytecode.CompileVerb(verb.Code)
-	if len(errors) > 0 {
-		return types.Result{}, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+	program, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return types.Result{}, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
-	if len(program.Statements) == 0 && len(verb.Code) == 0 {
+	if len(verb.Code) == 0 {
 		return types.Result{}, fmt.Errorf("verb %s on #%d has no code", verbName, defObjID)
 	}
 
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	t.Programmer = verb.Owner
@@ -128,14 +127,14 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, errors := bytecode.CompileVerb(verb.Code)
-	if len(errors) > 0 {
-		return 0, fmt.Errorf("compile %s on #%d: %v", verbName, defObjID, errors[0])
+	program, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		return 0, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
 
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 	ticks, seconds := foregroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, program.Statements, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
 	// Login task runs with verb-owner permissions, matching the throwaway
@@ -178,10 +177,10 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 }
 
 // CreateBackgroundTask creates a background task (fork)
-func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt, delay time.Duration) int64 {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+func (s *Scheduler) CreateBackgroundTask(player types.ObjID, program *bytecode.Program, delay time.Duration) int64 {
+	taskID := s.newTaskID()
 	ticks, seconds := backgroundTaskLimits()
-	t := task.NewTaskFull(taskID, player, code, ticks, seconds)
+	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
 	t.ForkCreator = s // Give task access to scheduler for forks
@@ -191,14 +190,14 @@ func (s *Scheduler) CreateBackgroundTask(player types.ObjID, code []parser.Stmt,
 }
 
 // Fork creates a forked task with a delay
-func (s *Scheduler) Fork(ctx *kernel.TaskContext, code []parser.Stmt, delay time.Duration) int64 {
-	return s.CreateBackgroundTask(ctx.Player, code, delay)
+func (s *Scheduler) Fork(ctx *kernel.TaskContext, program *bytecode.Program, delay time.Duration) int64 {
+	return s.CreateBackgroundTask(ctx.Player, program, delay)
 }
 
 // CreateForkedTask creates a forked child task from a bytecode VM fork yield.
 // Implements task.ForkCreator interface.
 func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
-	taskID := atomic.AddInt64(&s.nextTaskID, 1)
+	taskID := s.newTaskID()
 
 	var t *task.Task
 
@@ -378,7 +377,11 @@ func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
 		return false
 	}
 	if err := s.runTask(t); err != nil {
-		log.Printf("Task %d (#%d:%s) resume error: %v", t.ID, t.This, t.VerbName, err)
+		slog.Error("task resume error",
+			slog.Int64("task_id", t.ID),
+			slog.Int64("this", int64(t.This)),
+			slog.String("verb", t.VerbName),
+			slog.Any("err", err))
 	}
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)

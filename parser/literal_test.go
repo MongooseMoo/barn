@@ -1,8 +1,11 @@
 package parser
 
-import "testing"
+import (
+	"barn/verb"
+	"testing"
+)
 
-func parseExprForTest(t *testing.T, input string) Expr {
+func parseExprForTest(t *testing.T, input string) verb.Expr {
 	t.Helper()
 	p := NewParser(input)
 	expr, err := p.ParseExpression(PREC_LOWEST)
@@ -15,16 +18,16 @@ func parseExprForTest(t *testing.T, input string) Expr {
 	return expr
 }
 
-func parseLiteralForTest(t *testing.T, input string) *LiteralExpr {
+func parseLiteralForTest(t *testing.T, input string) *verb.LiteralExpr {
 	t.Helper()
 	expr := parseExprForTest(t, input)
-	lit, ok := expr.(*LiteralExpr)
+	lit, ok := expr.(*verb.LiteralExpr)
 	if !ok {
 		t.Fatalf("ParseExpression(%q) returned %T, want *LiteralExpr", input, expr)
 	}
 	return lit
 }
 
-func literalInt(value int64) *LiteralExpr {
-	return &LiteralExpr{Kind: LiteralInt, IntValue: value}
+func literalInt(value int64) *verb.LiteralExpr {
+	return &verb.LiteralExpr{Kind: verb.LiteralInt, IntValue: value}
 }

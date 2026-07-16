@@ -35,17 +35,18 @@ import (
 // Under COW every commit publishes new immutable images and never mutates the old ones a
 // reader Loaded, so this MUST be clean under -race AND the descendant-inheritance
 // assertions must hold. Run with:
-//   go test -race -run TestCOWConcurrentDefineDeleteSubtreeRaceFree ./db/store
+//
+//	go test -race -run TestCOWConcurrentDefineDeleteSubtreeRaceFree ./db/store
 func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 	const (
-		nSubtrees    = 8
-		depthPerArm  = 3 // chain depth below each root
-		armsPerRoot  = 2 // fan-out: two chains per root
-		roundsEach   = 120
-		nReaders     = 16
-		readsEach    = 4000
-		nDisjoint    = 8
-		commitsEach  = 200
+		nSubtrees   = 8
+		depthPerArm = 3 // chain depth below each root
+		armsPerRoot = 2 // fan-out: two chains per root
+		roundsEach  = 120
+		nReaders    = 16
+		readsEach   = 4000
+		nDisjoint   = 8
+		commitsEach = 200
 	)
 
 	store := NewStore()
@@ -81,7 +82,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 	disjoint := make([]types.ObjID, nDisjoint)
 	for i := 0; i < nDisjoint; i++ {
 		id := createChild(0)
-		if errCode := store.DefineProperty(id, NewProperty("counter", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DefineProperty(id, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty counter failed: %v", errCode)
 		}
 		disjoint[i] = id
@@ -103,7 +104,7 @@ func TestCOWConcurrentDefineDeleteSubtreeRaceFree(t *testing.T) {
 			for r := 0; r < roundsEach; r++ {
 				// DEFINE on the root via the decentralized COW path.
 				txd := store.BeginReadOnly(0)
-				if errCode := txd.DefineProperty(root, NewProperty(propName, types.NewInt(want), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+				if errCode := txd.DefineProperty(root, propName, NewProperty(types.NewInt(want), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 					t.Errorf("subtree %d DefineProperty failed: %v", i, errCode)
 					return
 				}

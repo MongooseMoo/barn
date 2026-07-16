@@ -13,7 +13,7 @@ func buildBenchStore(b *testing.B) *Store {
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		b.Fatalf("Add root failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, NewProperty("counter", types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		b.Fatalf("DefineProperty failed: %v", errCode)
 	}
 	return store

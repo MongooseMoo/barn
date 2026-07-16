@@ -4,15 +4,17 @@ import (
 	"container/heap"
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"barn/builtins"
 	"barn/config"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
@@ -135,6 +137,20 @@ func (s *Scheduler) workerLoop() {
 // wire host capabilities (connection manager, lifecycle hooks) onto it.
 func (s *Scheduler) Registry() *builtins.Registry { return s.registry }
 
+// newTaskID allocates the next task id. Every task in the server is born here,
+// which makes it the one place worth counting them.
+func (s *Scheduler) newTaskID() int64 {
+	metrics.TasksStarted.Add(1)
+	return atomic.AddInt64(&s.nextTaskID, 1)
+}
+
+// LiveTaskCount reports how many tasks the scheduler is currently holding.
+func (s *Scheduler) LiveTaskCount() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return int64(len(s.tasks))
+}
+
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	if ctx == nil {
 		return
@@ -142,6 +158,11 @@ func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 	ctx.Store = s.store
 	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
+	// With() formats these once per task rather than once per record.
+	ctx.Log = slog.Default().With(
+		slog.Int64("task_id", ctx.TaskID),
+		slog.Int64("player", int64(ctx.Player)),
+		slog.String("verb", ctx.Verb))
 }
 
 // Stop cancels scheduler-owned task contexts.
@@ -166,7 +187,12 @@ func (s *Scheduler) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 	s.taskOutputFlusher = flusher
 }
 
-// ProcessReadyTasks executes tasks that are ready to run.
+// ProcessReadyTasks executes at most one task that is ready to run.
+//
+// The input processor owns the outer scheduling loop. Returning after each
+// task lets that loop service socket input between runnable tasks instead of
+// draining an arbitrarily large ready snapshot first. A single MOO task still
+// runs atomically until completion or suspension.
 func (s *Scheduler) ProcessReadyTasks() int {
 	s.mu.Lock()
 
@@ -336,7 +362,11 @@ func (s *Scheduler) runTaskBatch(readyTasks []*task.Task) {
 	for _, t := range readyTasks {
 		result := byID[t.ID]
 		if result.err != nil {
-			log.Printf("Task %d (#%d:%s) error: %v", t.ID, t.This, t.VerbName, result.err)
+			slog.Error("task error",
+				slog.Int64("task_id", t.ID),
+				slog.Int64("this", int64(t.This)),
+				slog.String("verb", t.VerbName),
+				slog.Any("err", result.err))
 		}
 
 		if s.taskOutputFlusher != nil {

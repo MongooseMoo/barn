@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"slices"
@@ -262,11 +262,11 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 	cm.listeners[key] = record
 	cm.mu.Unlock()
 
-	if primary {
-		log.Printf("Listening on port %d", port)
-	} else {
-		log.Printf("Added %s listener on port %d for #%d", spec.Protocol, port, spec.Object)
-	}
+	slog.Info("listening",
+		slog.String("protocol", spec.Protocol),
+		slog.Int64("port", port),
+		slog.Int64("this", int64(spec.Object)),
+		slog.Bool("primary", primary))
 
 	return desc, nil
 }
@@ -279,7 +279,7 @@ func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			log.Printf("Accept error: %v", err)
+			slog.Warn("accept error", slog.Any("err", err))
 			continue
 		}
 
@@ -311,7 +311,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 		_ = socket.SetDeadline(time.Now().Add(cm.connectTimeout))
 		tlsSocket := tls.Server(socket, record.tlsConfig)
 		if err := tlsSocket.Handshake(); err != nil {
-			log.Printf("TLS handshake error from %s: %v", socket.RemoteAddr(), err)
+			slog.Warn("tls handshake error", slog.String("addr", socket.RemoteAddr().String()), slog.Any("err", err))
 			_ = socket.Close()
 			return
 		}
@@ -323,7 +323,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 	conn := cm.NewConnectionFromTransport(transport)
 	conn.SetListener(record.object, record.port, record.printMessages)
 
-	log.Printf("New connection from %s (ID: %d)", conn.RemoteAddr(), conn.ID)
+	slog.Info("new connection", slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
 	cm.connectionWG.Add(1)
 	go cm.handleConnection(conn)
@@ -332,7 +332,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 func (cm *ConnectionManager) serveWebSocketListener(record *listenerRecord) {
 	err := record.httpServer.Serve(record.listener)
 	if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
-		log.Printf("WebSocket listener error: %v", err)
+		slog.Warn("websocket listener error", slog.Any("err", err))
 	}
 }
 
@@ -359,7 +359,7 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 
 	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
-		log.Printf("WebSocket upgrade error from %s: %v", r.RemoteAddr, err)
+		slog.Warn("websocket upgrade error", slog.String("addr", r.RemoteAddr), slog.Any("err", err))
 		return
 	}
 	wsConn.SetReadLimit(1 << 20)
@@ -368,7 +368,7 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 	conn := cm.NewConnectionFromTransport(transport)
 	conn.SetListener(record.object, record.port, record.printMessages)
 
-	log.Printf("New %s connection from %s (ID: %d)", record.protocol, conn.RemoteAddr(), conn.ID)
+	slog.Info("new connection", slog.String("protocol", record.protocol), slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
 	cm.connectionWG.Add(1)
 	go cm.handleConnection(conn)
@@ -876,6 +876,6 @@ func (cm *ConnectionManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) erro
 	conn.SetPlayer(newPlayer)
 	cm.playerConns[newPlayer] = conn
 
-	log.Printf("Switched connection %d from player %d to %d", conn.ID, oldPlayer, newPlayer)
+	slog.Info("switched connection", slog.Int64("conn_id", conn.ID), slog.Int64("old_player", int64(oldPlayer)), slog.Int64("new_player", int64(newPlayer)))
 	return nil
 }

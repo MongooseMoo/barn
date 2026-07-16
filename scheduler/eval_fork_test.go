@@ -9,9 +9,9 @@ import (
 
 	"barn/builtins"
 	"barn/command"
+	"barn/compiler"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
-	"barn/parser"
 	"barn/types"
 )
 
@@ -290,11 +290,11 @@ func TestForkedZeroDelayResumeCommitsPostSuspendWrites(t *testing.T) {
 	if err := store.Add(wizard.Build()); err != nil {
 		t.Fatalf("Add wizard failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, dbstore.NewProperty("fork_value", types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "fork_value", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty failed: %v", errCode)
 	}
 
-	p := parser.NewParser(`
+	source := `
 set_task_local({"parent", 7});
 fork (0)
   suspend(0);
@@ -303,15 +303,15 @@ endfork
 suspend(0);
 suspend(0);
 return #0.fork_value;
-`)
-	stmts, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("ParseProgram failed: %v", err)
-	}
+`
 
 	s := NewScheduler(store)
 	defer s.Stop()
-	s.CreateForegroundTask(0, stmts)
+	prog, diagnostics := compiler.CompileMOO(strings.Split(source, "\n"), s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
+	}
+	s.CreateForegroundTask(0, prog)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if s.ProcessReadyTasks() == 0 {

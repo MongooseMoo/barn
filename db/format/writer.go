@@ -110,7 +110,7 @@ func (w *Writer) WriteDatabase() error {
 	}
 
 	// 11. Verb programs
-	if err := w.writeVerbPrograms(); err != nil {
+	if err := w.writeVerbCodeSections(); err != nil {
 		return fmt.Errorf("write verb programs: %w", err)
 	}
 

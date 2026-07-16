@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"barn/bytecode"
-	"barn/parser"
+	"barn/compiler"
 )
 
 // These tests pin the behavior that the C5 dispatch-loop change relies on: the
@@ -40,23 +40,18 @@ func TestExprStmtNoReturnFallsOffToZero(t *testing.T) {
 // emitting the terminator, this fails loudly instead of producing an OOB read.
 func TestEveryCompiledProgramEndsWithTerminator(t *testing.T) {
 	cases := []string{
-		"",                       // empty
-		"x = 5;",                 // assignment, no return
-		"1 + 2;",                 // bare expr
-		"return 42;",             // explicit return
+		"",                              // empty
+		"x = 5;",                        // assignment, no return
+		"1 + 2;",                        // bare expr
+		"return 42;",                    // explicit return
 		"for i in [1..3] x = i; endfor", // loop as last statement
-		"if (1) x = 2; endif",    // conditional
+		"if (1) x = 2; endif",           // conditional
 	}
 	registry := BuildVMRegistry()
 	for _, src := range cases {
-		p := parser.NewParser(src)
-		stmts, err := p.ParseProgram()
-		if err != nil {
-			t.Fatalf("src %q: parse failed: %v", src, err)
-		}
-		prog, err := bytecode.NewCompilerWithRegistry(registry).CompileStatements(stmts)
-		if err != nil {
-			t.Fatalf("src %q: compile failed: %v", src, err)
+		prog, diagnostics := compiler.CompileMOO([]string{src}, registry)
+		if len(diagnostics) > 0 {
+			t.Fatalf("src %q: compile failed: %v", src, diagnostics)
 		}
 		if len(prog.Code) == 0 {
 			t.Fatalf("src %q: empty Code, expected a terminator opcode", src)

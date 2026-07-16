@@ -1,32 +1,33 @@
 package scheduler
 
 import (
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"barn/bytecode"
+	"barn/compiler"
 	"barn/config"
 	dbstore "barn/db/store"
 	"barn/kernel"
-	"barn/parser"
 	"barn/task"
 	"barn/types"
 )
 
-func parseTestStatements(t *testing.T, code string) []parser.Stmt {
+func compileTestProgram(t *testing.T, registry bytecode.Registry, code string) *bytecode.Program {
 	t.Helper()
-	p := parser.NewParser(code)
-	stmts, err := p.ParseProgram()
-	if err != nil {
-		t.Fatalf("ParseProgram() failed: %v", err)
+	prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO() failed: %v", diagnostics[0])
 	}
-	return stmts
+	return prog
 }
 
-func newReadyTestTask(t *testing.T, id int64, owner types.ObjID) *task.Task {
+func newReadyTestTask(t *testing.T, registry bytecode.Registry, id int64, owner types.ObjID) *task.Task {
 	t.Helper()
 	ticks, seconds := foregroundTaskLimits()
-	queued := task.NewTaskFull(id, owner, parseTestStatements(t, "return 1;"), ticks, seconds)
+	queued := task.NewTaskFull(id, owner, compileTestProgram(t, registry, "return 1;"), ticks, seconds)
 	queued.StartTime = time.Now().Add(-time.Second)
 	queued.Done = make(chan struct{})
 	return queued
@@ -67,10 +68,10 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 	})
 
 	ticks, seconds := foregroundTaskLimits()
-	first := task.NewTaskFull(1101, 7, parseTestStatements(t, "parallel_gate(); return 1;"), ticks, seconds)
+	first := task.NewTaskFull(1101, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 1;"), ticks, seconds)
 	first.StartTime = time.Now().Add(-time.Second)
 	first.Done = make(chan struct{})
-	second := task.NewTaskFull(1102, 7, parseTestStatements(t, "parallel_gate(); return 2;"), ticks, seconds)
+	second := task.NewTaskFull(1102, 7, compileTestProgram(t, s.registry, "parallel_gate(); return 2;"), ticks, seconds)
 	second.StartTime = time.Now().Add(-time.Second)
 	second.Done = make(chan struct{})
 	s.QueueTask(first)
@@ -108,8 +109,8 @@ func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
-	first := task.NewTaskFull(1201, 7, parseTestStatements(t, "#1.a = 2;"), ticks, seconds)
-	second := task.NewTaskFull(1202, 7, parseTestStatements(t, "#1.b = 3;"), ticks, seconds)
+	first := task.NewTaskFull(1201, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
+	second := task.NewTaskFull(1202, 7, compileTestProgram(t, s.registry, "#1.b = 3;"), ticks, seconds)
 
 	batches := s.readyTaskBatches([]*task.Task{first, second})
 
@@ -121,26 +122,27 @@ func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 	}
 }
 
-func TestReadyTaskBatchesKeepConflictingPropertyWritesOrdered(t *testing.T) {
+// Conflicting property writes to the same cell are no longer separated into
+// ordered batches by static footprint analysis — that analysis is stubbed to
+// "unknown" (see access_footprint.go). Two fresh retryable tasks are instead
+// co-scheduled optimistically in one batch; the commit-time read/write-set
+// validation serializes them and re-runs the loser (see
+// TestOptimisticConflictingWritersAreSerializable).
+func TestReadyTaskBatchesCoScheduleConflictingRetryableWrites(t *testing.T) {
 	s := newSchedulerWithWorkerCount(dbstore.NewStore(), config.Options{}, 2)
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
-	first := task.NewTaskFull(1211, 7, parseTestStatements(t, "#1.a = 2;"), ticks, seconds)
-	second := task.NewTaskFull(1212, 7, parseTestStatements(t, "#1.a = 3;"), ticks, seconds)
+	first := task.NewTaskFull(1211, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
+	second := task.NewTaskFull(1212, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
 	batches := s.readyTaskBatches([]*task.Task{first, second})
 
-	if len(batches) != 2 {
-		t.Fatalf("batch count = %d, want 2", len(batches))
+	if len(batches) != 1 {
+		t.Fatalf("batch count = %d, want 1", len(batches))
 	}
-	for i, batch := range batches {
-		if len(batch) != 1 {
-			t.Fatalf("batch %d size = %d, want 1", i, len(batch))
-		}
-	}
-	if batches[0][0] != first || batches[1][0] != second {
-		t.Fatal("conflicting task order changed")
+	if len(batches[0]) != 2 {
+		t.Fatalf("batch size = %d, want 2", len(batches[0]))
 	}
 }
 
@@ -153,8 +155,8 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
-	first := task.NewTaskFull(1221, 7, parseTestStatements(t, "notify(player, \"x\");"), ticks, seconds)
-	second := task.NewTaskFull(1222, 7, parseTestStatements(t, "#1.a = 3;"), ticks, seconds)
+	first := task.NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
+	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
 	batches := s.readyTaskBatches([]*task.Task{first, second})
 
@@ -174,9 +176,9 @@ func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
 	defer s.Stop()
 
 	ticks, seconds := foregroundTaskLimits()
-	first := task.NewTaskFull(1221, 7, parseTestStatements(t, "notify(player, \"x\");"), ticks, seconds)
+	first := task.NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
 	first.IsForked = true // not conflict-retryable
-	second := task.NewTaskFull(1222, 7, parseTestStatements(t, "#1.a = 3;"), ticks, seconds)
+	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
 	batches := s.readyTaskBatches([]*task.Task{first, second})
 
@@ -193,7 +195,7 @@ func TestProcessReadyTasksRunsTaskOnceAndClosesDoneOnce(t *testing.T) {
 	defer s.Stop()
 
 	var completes atomic.Int32
-	queued := newReadyTestTask(t, 1001, 7)
+	queued := newReadyTestTask(t, s.registry, 1001, 7)
 	queued.OnComplete = func(types.Result) {
 		completes.Add(1)
 	}
@@ -229,9 +231,9 @@ func TestProcessReadyTasksFlushesInReadyOrder(t *testing.T) {
 		flushed = append(flushed, suffix)
 	})
 
-	first := newReadyTestTask(t, 2001, 7)
+	first := newReadyTestTask(t, s.registry, 2001, 7)
 	first.CommandOutputSuffix = "first"
-	second := newReadyTestTask(t, 2002, 7)
+	second := newReadyTestTask(t, s.registry, 2002, 7)
 	second.CommandOutputSuffix = "second"
 	s.QueueTask(first)
 	s.QueueTask(second)
@@ -256,7 +258,7 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("snapshot_value", dbstore.NewProperty(types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -274,7 +276,7 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 	})
 
 	ticks, seconds := foregroundTaskLimits()
-	queued := task.NewTaskFull(3001, 0, parseTestStatements(t, `
+	queued := task.NewTaskFull(3001, 0, compileTestProgram(t, s.registry, `
 first = #0.snapshot_value;
 mutate_snapshot_value();
 return {first, #0.snapshot_value};
@@ -327,7 +329,7 @@ func TestRunTaskKeepsForksAfterSuccessfulCommit(t *testing.T) {
 
 	owner := types.ObjID(7702)
 	ticks, seconds := foregroundTaskLimits()
-	queued := task.NewTaskFull(3002, owner, parseTestStatements(t, `
+	queued := task.NewTaskFull(3002, owner, compileTestProgram(t, s.registry, `
 fork child (30)
   suspend(5);
 endfork
@@ -364,7 +366,7 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("yield_order", dbstore.NewProperty("yield_order", types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("yield_order", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -378,7 +380,7 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 	// yin() yields when FEWER than min_ticks remain (Toast bf_yield_if_needed), and
 	// min_ticks must stay under the foreground limit, so burn a few ticks first to
 	// put the budget below the threshold.
-	queued := task.NewTaskFull(3010, owner, parseTestStatements(t, `
+	queued := task.NewTaskFull(3010, owner, compileTestProgram(t, s.registry, `
 #0.yield_order = {"main-before"};
 fork (0)
   #0.yield_order = listappend(#0.yield_order, "fork");
@@ -431,7 +433,7 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("snapshot_value", dbstore.NewProperty(types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -461,7 +463,7 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 	// The `for` loop drops the tick budget below min_ticks so yin() actually
 	// yields: Toast's yin yields when FEWER than min_ticks remain, and min_ticks
 	// must stay under the foreground limit.
-	queued := task.NewTaskFull(3012, owner, parseTestStatements(t, `
+	queued := task.NewTaskFull(3012, owner, compileTestProgram(t, s.registry, `
 #0.snapshot_value = "before-yin";
 fork child (30)
   suspend(5);
@@ -512,7 +514,7 @@ func TestForkedSuspendZeroRefreshesAfterPreResumeCommit(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("yield_progress", dbstore.NewProperty("yield_progress", types.NewStr("before"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("yield_progress", dbstore.NewProperty(types.NewStr("before"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -522,7 +524,7 @@ func TestForkedSuspendZeroRefreshesAfterPreResumeCommit(t *testing.T) {
 
 	owner := types.ObjID(7711)
 	ticks, seconds := backgroundTaskLimits()
-	queued := task.NewTaskFull(3011, owner, parseTestStatements(t, `
+	queued := task.NewTaskFull(3011, owner, compileTestProgram(t, s.registry, `
 #0.yield_progress = "after-long-suspend";
 suspend(0);
 #0.yield_progress = "after-yield";
@@ -551,7 +553,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("snapshot_value", dbstore.NewProperty(types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -577,7 +579,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 
 	owner := types.ObjID(7703)
 	ticks, seconds := foregroundTaskLimits()
-	queued := task.NewTaskFull(3003, owner, parseTestStatements(t, `
+	queued := task.NewTaskFull(3003, owner, compileTestProgram(t, s.registry, `
 before = #0.snapshot_value;
 fork child (30)
   suspend(5);
@@ -611,7 +613,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 	root.SetName("Root")
 	root.SetOwner(0)
 	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
-	root.SetProperty("snapshot_value", dbstore.NewProperty("snapshot_value", types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("snapshot_value", dbstore.NewProperty(types.NewStr("old"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("store.Add failed: %v", err)
 	}
@@ -638,7 +640,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 	})
 
 	ticks, seconds := foregroundTaskLimits()
-	queued := task.NewTaskFull(3004, 0, parseTestStatements(t, `
+	queued := task.NewTaskFull(3004, 0, compileTestProgram(t, s.registry, `
 before = #0.snapshot_value;
 mutate_snapshot_value_once();
 stage_snapshot_value();

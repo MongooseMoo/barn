@@ -252,8 +252,13 @@ Verbs can specify expected arguments:
 1. Parse command: `verb dobj prep iobj`
 2. Find verb on dobj's ancestor chain
 3. Check verb argument specifiers match
-4. Check execute permission
-5. Call verb with context variables
+4. Call verb with context variables
+
+Parsed command dispatch does not check the verb's `x` permission. Toast's
+`db_find_command_verb()` matches the command name and argument specifiers only;
+the `x` permission applies to programmed verb calls such as `obj:verb()`.
+This distinction is covered by
+`gap_followups_toast_oracle::audit_command_dispatch_ignores_execute_flag`.
 
 ### 5.5 Context Variables
 
@@ -425,28 +430,48 @@ Anonymous objects with circular references are detected and collected.
 ### 10.1 Creation
 
 ```moo
-w = new_waif();
+waif_class = create($waif);
+w = waif_class:new();
 ```
+
+`new_waif()` is called from a verb. The receiver of that calling verb becomes
+the WAIF class, and the current programmer becomes the WAIF owner. A recycled
+or otherwise invalid class raises `E_INVIND`.
 
 ### 10.2 Characteristics
 
 - Lightweight (less overhead than objects)
 - Prototype-based
-- Properties accessed via `.:` syntax
+- Properties accessed with ordinary `.` syntax
 - Garbage collected
+- Distinct creations have reference identity; aliases share the same mutable
+  instance properties
+- Class and owner are fixed at construction
 
 ### 10.3 Waif Properties
 
 ```moo
-w.:name = "example";
-value = w.:name;
+add_property(waif_class, ":name", "", {player, ""});
+w.name = "example";
+value = w.name;
 ```
+
+The intrinsic `.class` and `.owner` properties return objects.
+`.wizard` and `.programmer` return zero. Assigning any of those four
+intrinsics raises `E_PERM`. Assigning the WAIF itself, or a list or map that
+contains it, into one of its properties raises `E_RECMOVE`.
 
 ### 10.4 Waif Class
 
 All waifs inherit from their "waif class" object, which provides:
 - Default property values
 - Verb implementations
+
+For a valid Wizard-owned class, `w[key]` dispatches `:_index(key)` and
+`w[key] = value` dispatches `:_set_index(key, value)`. A missing handler or a
+non-Wizard-owned class raises `E_TYPE`; an invalid class raises `E_INVIND`.
+Indexed assignment stores the `:_set_index` return value back into its base, so
+a handler that mutates and preserves the WAIF returns `this`.
 
 ---
 

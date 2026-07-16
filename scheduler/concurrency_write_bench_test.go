@@ -210,8 +210,8 @@ func buildWriteStore(t *testing.T, n int) (*dbstore.Store, []types.ObjID, types.
 	}
 
 	defineCounter := func(id types.ObjID) {
-		prop := dbstore.NewProperty("counter", types.NewInt(0), 3, dbstore.PropRead|dbstore.PropWrite, false, true)
-		if errCode := store.DefineProperty(id, prop); errCode != types.E_NONE {
+		prop := dbstore.NewProperty(types.NewInt(0), 3, dbstore.PropRead|dbstore.PropWrite, false, true)
+		if errCode := store.DefineProperty(id, "counter", prop); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty(counter) on #%d failed: %v", id, errCode)
 		}
 	}

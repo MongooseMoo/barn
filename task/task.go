@@ -5,7 +5,9 @@ import (
 	"sync"
 	"time"
 
+	"barn/bytecode"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/types"
 )
 
@@ -133,8 +135,8 @@ type Task struct {
 	IsForked     bool            // True if this is a forked task
 	CreatedForks []int64         // Forked task IDs created during the current execution slice
 
-	// Execution fields (use interface{} to avoid circular imports)
-	Code           interface{}         // []parser.Stmt - parsed code compiled on first run
+	// Execution fields
+	Program        *bytecode.Program   // Compiled program ready for execution
 	BytecodeVM     interface{}         // *vm.VM - bytecode VM for execution (saved across suspend/resume)
 	Context        *kernel.TaskContext // Task execution context
 	Result         types.Result        // Last execution result
@@ -212,7 +214,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 }
 
 // NewTaskFull creates a task with full execution context.
-func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64, secondsLimit float64) *Task {
+func NewTaskFull(id int64, owner types.ObjID, program *bytecode.Program, tickLimit int64, secondsLimit float64) *Task {
 	ctx := kernel.NewTaskContext()
 	ctx.Player = owner
 	ctx.Programmer = owner
@@ -237,7 +239,7 @@ func NewTaskFull(id int64, owner types.ObjID, code interface{}, tickLimit int64,
 		ReadingPlayer: types.ObjNothing,
 		Dobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
 		Iobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
-		Code:          code,
+		Program:       program,
 		Context:       ctx,
 	}
 	// Set ctx.Task to this task so builtins can access it
@@ -258,6 +260,11 @@ func (t *Task) GetState() TaskState {
 func (t *Task) SetState(state TaskState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	// Count the transition, not the assignment: a task can be marked killed more
+	// than once as an error unwinds, and it only died once.
+	if state == TaskKilled && t.State != TaskKilled {
+		metrics.TasksKilled.Add(1)
+	}
 	t.State = state
 }
 

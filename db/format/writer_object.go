@@ -273,8 +273,8 @@ func (w *Writer) writeProperty(view store.PropertyView) error {
 	return w.writeInt(int(view.Perms))
 }
 
-// writeVerbPrograms writes all verb code sections
-func (w *Writer) writeVerbPrograms() error {
+// writeVerbCodeSections writes all verb code sections
+func (w *Writer) writeVerbCodeSections() error {
 	// Collect all verbs with code
 	type verbRef struct {
 		objID   types.ObjID

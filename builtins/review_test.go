@@ -216,7 +216,7 @@ func TestReview_AddVerbUsesProgNotPlayerForPerm(t *testing.T) {
 	result := builtinAddVerb(ctx, []types.Value{
 		types.NewObj(obj),
 		types.NewList([]types.Value{ // {owner, perms, names}
-			types.NewObj(0),          // owner = programmer
+			types.NewObj(0), // owner = programmer
 			types.NewStr("rx"),
 			types.NewStr("myfunc"),
 		}),

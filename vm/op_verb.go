@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/trace"
@@ -126,9 +127,9 @@ func (vm *VM) executeCallVerb() error {
 	}
 
 	// Try to compile verb to bytecode
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
-	if compileErr != nil {
-		return fmt.Errorf("E_VERBNF: compile error in %s: %v", verbName, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, vm.Builtins)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("E_VERBNF: compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
 
 	// --- Native frame push ---
@@ -136,6 +137,10 @@ func (vm *VM) executeCallVerb() error {
 	// Get current frame's context for caller/player
 	currentFrame := vm.CurrentFrame()
 	callerObj := currentFrame.This
+	callerValue := types.NewObj(callerObj)
+	if !currentFrame.ThisValue.IsNone() {
+		callerValue = currentFrame.ThisValue
+	}
 	player := currentFrame.Player
 	if vm.Context != nil && vm.Context.Player != types.ObjNothing {
 		player = vm.Context.Player
@@ -165,6 +170,7 @@ func (vm *VM) executeCallVerb() error {
 		BasePointer:     vm.SP,
 		Locals:          make([]types.Value, prog.NumLocals),
 		This:            objID,
+		ThisValue:       thisValue,
 		Player:          player,
 		Verb:            lookupVerbName,
 		StoredVerb:      strings.Join(verb.Names, " "),
@@ -195,7 +201,7 @@ func (vm *VM) executeCallVerb() error {
 		SetLocalByName(frame, prog, "this", types.NewObj(objID))
 	}
 	SetLocalByName(frame, prog, "verb", types.NewStr(lookupVerbName))
-	SetLocalByName(frame, prog, "caller", types.NewObj(callerObj))
+	SetLocalByName(frame, prog, "caller", callerValue)
 	SetLocalByName(frame, prog, "args", types.NewList(args))
 	SetLocalByName(frame, prog, "player", types.NewObj(player))
 
@@ -352,9 +358,9 @@ func (vm *VM) executePass() error {
 	}
 
 	// Compile the parent verb to bytecode
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, vm.Builtins)
-	if compileErr != nil {
-		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %v", verbName, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, vm.Builtins)
+	if len(diagnostics) > 0 {
+		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}
 
 	// --- Native frame push ---
@@ -376,9 +382,9 @@ func (vm *VM) executePass() error {
 	// Preserve the effective `this` value for primitive/waif/anonymous pass() calls.
 	passThis := types.NewObj(frame.This)
 	passThisValue := types.None
-	if vm.Context != nil && !vm.Context.ThisValue.IsNone() {
-		passThis = vm.Context.ThisValue
-		passThisValue = vm.Context.ThisValue
+	if !frame.ThisValue.IsNone() {
+		passThis = frame.ThisValue
+		passThisValue = frame.ThisValue
 	}
 
 	// Push new stack frame with parent verb's bytecode
@@ -390,10 +396,11 @@ func (vm *VM) executePass() error {
 		BasePointer:     vm.SP,
 		Locals:          make([]types.Value, prog.NumLocals),
 		This:            frame.This,
+		ThisValue:       passThisValue,
 		Player:          frame.Player,
 		Verb:            verbName,
 		StoredVerb:      strings.Join(verb.Names, " "),
-		Caller:          verbLoc,
+		Caller:          frame.Caller,
 		VerbLoc:         defObjID,
 		Args:            passArgs,
 		LoopStack:       make([]bytecode.LoopState, 0, 4),
@@ -415,7 +422,7 @@ func (vm *VM) executePass() error {
 	// Pre-populate built-in variables
 	SetLocalByName(newFrame, prog, "this", passThis)
 	SetLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
-	SetLocalByName(newFrame, prog, "caller", types.NewObj(verbLoc))
+	SetLocalByName(newFrame, prog, "caller", types.NewObj(frame.Caller))
 	SetLocalByName(newFrame, prog, "args", types.NewList(passArgs))
 	SetLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
 
@@ -462,7 +469,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Trace pass() target call.
-	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, verbLoc)
+	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, frame.Caller)
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Context != nil && vm.Context.Task != nil {
@@ -472,7 +479,7 @@ func (vm *VM) executePass() error {
 				ThisValue:  passThisValue,
 				Player:     frame.Player,
 				Programmer: verb.Owner,
-				Caller:     verbLoc,
+				Caller:     frame.Caller,
 				Verb:       verbName,
 				VerbLoc:    defObjID,
 				Args:       passArgs,

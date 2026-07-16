@@ -1,13 +1,16 @@
 package scheduler
 
 import (
-	"log"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 
 	"barn/builtins"
-	"barn/bytecode"
+	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/metrics"
 	"barn/task"
 	"barn/trace"
 	"barn/types"
@@ -40,9 +43,12 @@ func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args [
 		return types.Err(types.E_VERBNF)
 	}
 
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
-	if compileErr != nil {
-		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %v", verbName, defObjID, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		slog.Error("verb compile error",
+			slog.String("verb", verbName),
+			slog.Int64("this", int64(defObjID)),
+			slog.String("error", diagnostics[0].Error()))
 		return types.Err(types.E_VERBNF)
 	}
 
@@ -137,7 +143,13 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("PANIC in CallVerb(%v:%s): %v", objID, verbName, r)
+			metrics.PanicsRecovered.Add(1)
+			slog.Error("panic in verb call",
+				slog.Int64("this", int64(objID)),
+				slog.String("verb", verbName),
+				slog.Int64("player", int64(player)),
+				slog.String("panic", fmt.Sprint(r)),
+				slog.String("go_stack", string(debug.Stack())))
 			result = types.Err(types.E_NONE)
 		}
 	}()
@@ -169,9 +181,12 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	}
 
 	// Compile verb to bytecode
-	prog, compileErr := bytecode.CompileVerbBytecode(verb.Code, s.registry)
-	if compileErr != nil {
-		log.Printf("[COMPILE ERROR] Failed to compile verb %s on #%d: %v", verbName, defObjID, compileErr)
+	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	if len(diagnostics) > 0 {
+		slog.Error("verb failed to compile",
+			slog.String("verb", verbName),
+			slog.Int64("verbloc", int64(defObjID)),
+			slog.String("diagnostic", diagnostics[0].Error()))
 		return types.Result{
 			Flow:  types.FlowException,
 			Error: types.E_VERBNF,
