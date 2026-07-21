@@ -67,3 +67,19 @@ func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
 		t.Fatalf("toliteral(anonymous) = %q, want %q", got, "*anonymous*")
 	}
 }
+
+func TestAnonymousObjectNumericConversionsReturnTypeError(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	for name, convert := range map[string]func(*kernel.TaskContext, []types.Value) types.Result{
+		"toint":   builtinToint,
+		"toobj":   builtinToobj,
+		"tofloat": builtinTofloat,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := convert(ctx, []types.Value{types.NewAnon(12)})
+			if !result.IsError() || result.Error != types.E_TYPE {
+				t.Fatalf("%s(anonymous) = %+v, want E_TYPE", name, result)
+			}
+		})
+	}
+}

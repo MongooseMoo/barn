@@ -103,7 +103,7 @@ func builtinToint(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		// Truncate float to int
 		return types.Ok(types.NewInt(int64(val.Float())))
 
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		// Object ID as int
 		return types.Ok(types.NewInt(int64(val.ID())))
 
@@ -163,7 +163,7 @@ func builtinTofloat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		// Convert int to float
 		return types.Ok(types.NewFloat(float64(val.Int())))
 
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		// Object ID as float
 		return types.Ok(types.NewFloat(float64(val.ID())))
 
@@ -222,7 +222,7 @@ func builtinToobj(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	val := args[0]
 
 	switch val.Type() {
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		return types.Ok(val)
 
 	case types.TYPE_INT:
