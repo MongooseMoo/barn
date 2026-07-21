@@ -308,6 +308,11 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 		return 0, nil
 	}
 
+	// Toast treats all boolean values as equal for relational ordering.
+	if a.Type() == types.TYPE_BOOL && b.Type() == types.TYPE_BOOL {
+		return 0, nil
+	}
+
 	// Error comparison (by integer code). MOO's relational operators order error
 	// values by their numeric code (E_NONE=0, E_TYPE=1, ...), matching ToastStunt.
 	aIsErr := a.Type() == types.TYPE_ERR
