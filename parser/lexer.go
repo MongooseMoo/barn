@@ -305,8 +305,10 @@ func (l *Lexer) NextToken() Token {
 		tok.Value = string(l.ch)
 		l.readChar()
 	case '.':
-		// Check for .. (range operator)
-		if l.peekChar() == '.' {
+		if isDigit(l.peekChar()) {
+			tok = l.readNumber()
+		} else if l.peekChar() == '.' {
+			// Check for .. (range operator)
 			tok.Type = TOKEN_RANGE
 			tok.Value = ".."
 			l.readChar()
@@ -346,6 +348,24 @@ func (l *Lexer) readNumber() Token {
 	}
 
 	start := l.position
+	if l.ch == '.' {
+		tok.Type = TOKEN_FLOAT
+		l.readChar()
+		for isDigit(l.ch) {
+			l.readChar()
+		}
+		if l.ch == 'e' || l.ch == 'E' {
+			l.readChar()
+			if l.ch == '+' || l.ch == '-' {
+				l.readChar()
+			}
+			for isDigit(l.ch) {
+				l.readChar()
+			}
+		}
+		tok.Value = l.input[start:l.position]
+		return tok
+	}
 
 	// Read digits. readNumber is only entered on a leading digit; MOO has no
 	// negative numeric literals (see the '-' case in NextToken), so there is
@@ -355,7 +375,7 @@ func (l *Lexer) readNumber() Token {
 	}
 
 	// Check for decimal point (float)
-	if l.ch == '.' && isDigit(l.peekChar()) {
+	if l.ch == '.' && l.peekChar() != '.' {
 		tok.Type = TOKEN_FLOAT
 		l.readChar() // skip '.'
 		for isDigit(l.ch) {

@@ -34,6 +34,8 @@ func TestParseFloatLiterals(t *testing.T) {
 		input string
 		want  float64
 	}{
+		{".5", 0.5},
+		{"1.", 1.0},
 		{"3.14", 3.14},
 		{"0.5", 0.5}, // "-0.5" is unary minus on 0.5; not a literal (B1)
 		{"1e10", 1e10},
