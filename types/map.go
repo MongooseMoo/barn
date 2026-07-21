@@ -161,6 +161,9 @@ func keyHash(v Value) string {
 		}
 		return fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
 	}
+	if v.Type() == TYPE_WAIF {
+		return fmt.Sprintf("%d:%p", int(v.Type()), v.WaifIdentity())
+	}
 	return fmt.Sprintf("%d:%s", int(v.Type()), v.String())
 }
 
@@ -429,7 +432,7 @@ func (v Value) KeyPosition(key Value) int64 {
 // IsValidMapKey reports whether a value type is valid as a map key.
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
-	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR || t == TYPE_BOOL
+	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR || t == TYPE_WAIF || t == TYPE_BOOL
 }
 
 // IsValidBuiltinMapKey reports whether a value is valid as a key argument to map

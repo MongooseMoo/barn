@@ -104,6 +104,50 @@ func TestMapIntegerKeysCollideAt32BitComparatorBoundary(t *testing.T) {
 	}
 }
 
+func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
+	first := NewWaif(1, 2)
+	second := NewWaif(1, 2)
+	if !IsValidMapKey(first) || !IsValidBuiltinMapKey(first) {
+		t.Fatal("waif is not admitted as a map key")
+	}
+	if keyHash(first) == keyHash(second) {
+		t.Fatalf("distinct waifs have the same key hash %q", keyHash(first))
+	}
+
+	firstFirst := NewMap([][2]Value{
+		{first, NewInt(1)},
+		{second, NewInt(2)},
+	})
+	secondFirst := NewMap([][2]Value{
+		{second, NewInt(2)},
+		{first, NewInt(1)},
+	})
+
+	assertWaifKeys(t, firstFirst.Keys(), second, first)
+	assertWaifKeys(t, secondFirst.Keys(), first, second)
+	if got := firstFirst.String(); got != "[<waif #1> -> 2, <waif #1> -> 1]" {
+		t.Fatalf("first-first literal = %q, want reverse topology", got)
+	}
+	if got := secondFirst.String(); got != "[<waif #1> -> 1, <waif #1> -> 2]" {
+		t.Fatalf("second-first literal = %q, want reverse topology", got)
+	}
+	if firstFirst.Equal(secondFirst) {
+		t.Fatal("maps with different waif-key topology compare equal")
+	}
+}
+
+func assertWaifKeys(t *testing.T, got []Value, want ...Value) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("key count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Type() != TYPE_WAIF || got[i].WaifIdentity() != want[i].WaifIdentity() {
+			t.Fatalf("key %d has identity %p, want %p", i+1, got[i].WaifIdentity(), want[i].WaifIdentity())
+		}
+	}
+}
+
 // --- int round-trip + zero-alloc ----------------------------------------
 
 func TestIntRoundTrip(t *testing.T) {
