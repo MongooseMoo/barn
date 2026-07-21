@@ -58,6 +58,7 @@
 - `callers_preserves_owner_and_wizard_but_redacts_other_viewer` then failed independently in two stages: `toliteral` exposed the internal `*#12` identity, and unrelated viewers received a live anonymous `this`. Stock WSL Toast passed the unchanged row. Anonymous literals now render as `*anonymous*`, and callers preserves the live value only for its owner or a wizard. Direct regressions, full `builtins` tests, and managed run `20260721_125622` pass. Fix commit: `d2eefab`.
 - `suspended_task_views_preserve_owner_and_wizard_but_hide_from_other` failed independently because `queued_tasks()` exposed a delayed task to its task owner even after the task's anonymous `this` was transferred to another owner; `task_stack()` already returned `E_PERM`. Stock WSL Toast passed the unchanged row. Non-wizards now see anonymous-`this` queued tasks only when they own that anonymous object. The direct regression, full `builtins` tests, and managed run `20260721_125938` pass. Fix commit: `8a41d92`.
 - `error_tracebacks_redact_anon_for_owner_wizard_and_other_viewer` failed independently because caught exception tracebacks exposed the live anonymous frame identity even to the object's owner; Toast invalidates anonymous `this` for every traceback viewer. Stock WSL Toast passed the unchanged row. Traceback construction now preserves ANON type while replacing identity with the invalid anonymous sentinel. The direct VM regression, full `vm` tests, and managed run `20260721_130218` pass. Fix commit: `5d55a3e`.
+- `anon_scalar_truth_identity_relations_conversions_text_and_hash` initially failed with uncaught `E_TYPE`; stock WSL Toast passed the unchanged row. Four isolated repairs matched its pinned semantics: distinct ANON values compare equal only for relational ordering (`1881a10`); `toint`/`toobj`/`tofloat` return `E_TYPE` (`09b796a`); `tostr` returns `*anonymous*` (`b936750`); and `value_hash` hashes that shared public literal (`62cab7c`). Each slice had a red/green direct regression and full package verification; managed run `20260721_131015` passes the complete row.
 
 ## Theories (plausible)
 
@@ -103,15 +104,16 @@
 | Focused callers authority row, stock WSL Toast, direct literal and frame regressions | Anonymous public identity and viewer authorization | Barn exposed `*#12` and a live ANON to an unrelated viewer; direct and managed tests now return `*anonymous*` and an invalid ANON while preserving owner/wizard visibility | Task-stack and traceback surfaces | `toliteral` used internal IDs and callers had no anonymous-frame redaction |
 | Focused suspended-task authority row, stock WSL Toast, direct queued-task regression | Task ownership versus anonymous-`this` ownership | `task_stack()` denied access but `queued_tasks()` exposed the delayed task; both direct and managed tests now hide it from unrelated non-wizards | General queued-task filtering defects | Queue visibility ignored ownership of anonymous `this` |
 | Focused anonymous-traceback row, stock WSL Toast, direct VM regression | Live activation identity versus caught traceback value | Barn returned a valid ANON for owner, wizard, and other viewers; direct and managed tests now preserve type with invalid identity | Uncaught formatted traceback surfaces | `buildTraceback` serialized live `ThisValue` unchanged |
+| Focused anonymous-scalar row, stock WSL Toast, four direct regression slices | Relational order, conversions, public text, and hash identity | Barn raised on ANON ordering, exposed numeric/internal identities, and hashed distinct IDs; the complete authority row now passes | Anonymous query/index behavior | Scalar paths treated ANON as ordinary object IDs or unsupported values |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, and anonymous task/traceback identity leaks. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, and anonymous task/traceback/scalar identity defects. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does the next old full-run anonymous scalar authority failure remain independent after public literal repair?
+- Does the next old full-run anonymous query/index authority failure remain independent after scalar repairs?
 
 ## Next Action
 
-Keep the source ledger clean and run `anon_scalar_truth_identity_relations_conversions_text_and_hash` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
+Keep the source ledger clean and run `anon_queries_direct_index_and_map_range_endpoint` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
