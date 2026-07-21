@@ -1067,8 +1067,13 @@ func builtinValueHash(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_INVARG)
 	}
 
-	// Hash the literal representation of the value
-	hasher.Write([]byte(args[0].String()))
+	// Hash the public literal representation. Anonymous object identity is not
+	// observable, so every ANON value hashes as *anonymous*.
+	literal := args[0].String()
+	if args[0].Type() == types.TYPE_ANON {
+		literal = "*anonymous*"
+	}
+	hasher.Write([]byte(literal))
 	hashBytes := hasher.Sum(nil)
 
 	if binaryOutput {

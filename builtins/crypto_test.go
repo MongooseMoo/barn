@@ -2,6 +2,9 @@ package builtins
 
 import (
 	"testing"
+
+	"barn/kernel"
+	"barn/types"
 )
 
 func TestCryptDES(t *testing.T) {
@@ -86,5 +89,17 @@ func TestCryptRoundsHonored(t *testing.T) {
 	}
 	if got := "$5$rounds=5000$testsalt$"; len(a) < len(got) || a[:len(got)] != got {
 		t.Errorf("rounds=5000 output prefix = %q, want it to begin %q", a, got)
+	}
+}
+
+func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	first := builtinValueHash(ctx, []types.Value{types.NewAnon(12)})
+	second := builtinValueHash(ctx, []types.Value{types.NewAnon(13)})
+	if first.IsError() || second.IsError() {
+		t.Fatalf("value_hash failed: first=%+v second=%+v", first, second)
+	}
+	if first.Val.Str() != second.Val.Str() {
+		t.Fatalf("distinct anonymous hashes differ: %q != %q", first.Val.Str(), second.Val.Str())
 	}
 }
