@@ -27,6 +27,9 @@ func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
 	frames := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
 		f := stack[i]
+		if f.ThisValue.Type() == types.TYPE_ANON {
+			f.ThisValue = types.NewAnon(types.ObjNothing)
+		}
 		if f.IsEvalFrame {
 			if includeEvalFrame {
 				frames = append(frames, f.ToList())
