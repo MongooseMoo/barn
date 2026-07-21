@@ -346,6 +346,17 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		// Object doesn't exist or was already recycled - both are E_INVARG.
 		return types.Err(types.E_INVARG)
 	}
+	owner, ownerErr := objectOwnerForRead(ctx, objID)
+	if ownerErr != types.E_NONE {
+		return types.Err(ownerErr)
+	}
+	programmerIsWizard, wizardErr := hasObjectFlagForRead(ctx, ctx.Programmer, dbstore.FlagWizard)
+	if wizardErr != types.E_NONE {
+		programmerIsWizard = false
+	}
+	if !programmerIsWizard && owner != ctx.Programmer {
+		return types.Err(types.E_PERM)
+	}
 
 	var oldParents []types.ObjID
 	var oldChildren []types.ObjID
@@ -370,8 +381,6 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			return types.Err(errCode)
 		}
 	}
-
-	// TODO: Check permissions (Layer 8.5)
 
 	// Invoke :recycle hook if present. Missing hook and hook errors are ignored.
 	// This matches lifecycle behavior: recycle should proceed even if hook throws.

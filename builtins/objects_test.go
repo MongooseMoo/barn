@@ -59,6 +59,49 @@ func TestMoveInvalidObjectsReturnInvarg(t *testing.T) {
 	}
 }
 
+func TestRecycleRequiresObjectControl(t *testing.T) {
+	store := dbstore.NewStore()
+	for _, object := range []struct {
+		id    types.ObjID
+		owner types.ObjID
+		flags dbstore.ObjectFlags
+	}{
+		{id: 0, owner: 0, flags: dbstore.FlagWizard},
+		{id: 2, owner: 2},
+		{id: 3, owner: 3, flags: dbstore.FlagProgrammer},
+		{id: 4, owner: 2},
+	} {
+		builder := dbstore.NewObjectBuilder(object.id)
+		builder.SetOwner(object.owner)
+		builder.SetFlags(object.flags)
+		if err := store.Add(builder.Build()); err != nil {
+			t.Fatalf("add object #%d: %v", object.id, err)
+		}
+	}
+
+	ctx := kernel.NewTaskContext()
+	ctx.Store = store
+	ctx.Registry = NewRegistry()
+	ctx.Programmer = 3
+	ctx.Player = 3
+
+	result := builtinRecycle(ctx, []types.Value{types.NewObj(4)})
+	if !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("nonowner recycle = %+v, want E_PERM", result)
+	}
+	if !store.Valid(4) {
+		t.Fatal("permission-denied recycle invalidated target")
+	}
+
+	ctx.Programmer = 0
+	ctx.Player = 0
+	ctx.IsWizard = true
+	result = builtinRecycle(ctx, []types.Value{types.NewObj(4)})
+	if result.IsError() {
+		t.Fatalf("wizard recycle failed: %s", result.Error)
+	}
+}
+
 func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
