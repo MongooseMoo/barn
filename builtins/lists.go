@@ -34,8 +34,10 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 			return types.Err(types.E_TYPE)
 		}
 		index = int(args[2].Int())
-		if index < 0 || index > list.Len()+1 {
-			return types.Err(types.E_RANGE)
+		if index < 0 {
+			index = 0
+		} else if index > list.Len() {
+			index = list.Len()
 		}
 	}
 

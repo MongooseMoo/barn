@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"fmt"
 	"testing"
 
 	"barn/kernel"
@@ -32,5 +33,43 @@ func TestIsMemberPromoteNumbers(t *testing.T) {
 	}
 	if got := builtinIsMember(strict, []types.Value{types.NewInt(1), m}); got.Val.Int() != 0 {
 		t.Fatalf("strict is_member(1, [\"a\"->1.0]) = %v, want 0", got.Val)
+	}
+}
+
+func TestListappendClampsExplicitPosition(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	list := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
+	tests := []struct {
+		position int64
+		want     []int64
+	}{
+		{position: -5, want: []int64{3, 1, 2}},
+		{position: 0, want: []int64{3, 1, 2}},
+		{position: 1, want: []int64{1, 3, 2}},
+		{position: 2, want: []int64{1, 2, 3}},
+		{position: 3, want: []int64{1, 2, 3}},
+		{position: 99, want: []int64{1, 2, 3}},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("position_%d", tc.position), func(t *testing.T) {
+			result := builtinListappend(ctx, []types.Value{
+				list,
+				types.NewInt(3),
+				types.NewInt(tc.position),
+			})
+			if result.Flow != types.FlowNormal {
+				t.Fatalf("listappend position %d flow = %v error = %v, want normal", tc.position, result.Flow, result.Error)
+			}
+			got := result.Val.Elements()
+			if len(got) != len(tc.want) {
+				t.Fatalf("listappend position %d length = %d, want %d", tc.position, len(got), len(tc.want))
+			}
+			for i, want := range tc.want {
+				if got[i].Type() != types.TYPE_INT || got[i].Int() != want {
+					t.Fatalf("listappend position %d element %d = %v, want %d", tc.position, i+1, got[i], want)
+				}
+			}
+		})
 	}
 }
