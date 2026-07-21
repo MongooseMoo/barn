@@ -68,6 +68,24 @@ func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
 	}
 }
 
+func TestToliteralHidesNestedAnonymousMapKeyIdentity(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	first := types.NewAnon(1)
+	second := types.NewAnon(2)
+	mapping := types.NewMap([][2]types.Value{
+		{first, types.NewInt(1)},
+		{second, types.NewInt(2)},
+	})
+
+	result := builtinToliteral(ctx, []types.Value{mapping})
+	if result.IsError() {
+		t.Fatalf("toliteral failed: %v", result.Error)
+	}
+	if got := result.Val.Str(); got != "[*anonymous* -> 2, *anonymous* -> 1]" {
+		t.Fatalf("toliteral(anonymous-key map) = %q, want nested identities hidden in tree order", got)
+	}
+}
+
 func TestAnonymousObjectNumericConversionsReturnTypeError(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	for name, convert := range map[string]func(*kernel.TaskContext, []types.Value) types.Result{

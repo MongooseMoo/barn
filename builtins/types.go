@@ -199,10 +199,7 @@ func builtinToliteral(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_ARGS)
 	}
 
-	resultStr := args[0].String()
-	if args[0].Type() == types.TYPE_ANON {
-		resultStr = "*anonymous*"
-	}
+	resultStr := publicLiteral(args[0])
 
 	// Check string length limit (update from load_server_options cache first)
 	UpdateContextLimits(ctx)
@@ -211,6 +208,29 @@ func builtinToliteral(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	return types.Ok(types.NewStr(resultStr))
+}
+
+func publicLiteral(value types.Value) string {
+	switch value.Type() {
+	case types.TYPE_ANON:
+		return "*anonymous*"
+	case types.TYPE_LIST:
+		elements := value.Elements()
+		parts := make([]string, len(elements))
+		for i := range elements {
+			parts[i] = publicLiteral(elements[i])
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	case types.TYPE_MAP:
+		pairs := value.Pairs()
+		parts := make([]string, len(pairs))
+		for i := range pairs {
+			parts[i] = publicLiteral(pairs[i][0]) + " -> " + publicLiteral(pairs[i][1])
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
+	default:
+		return value.String()
+	}
 }
 
 // builtinToobj converts a value to an object reference

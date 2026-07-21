@@ -136,6 +136,47 @@ func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
 	}
 }
 
+func TestReverseInsertedAnonymousMapKeysExposeReverseTopology(t *testing.T) {
+	first := NewAnon(1)
+	second := NewAnon(2)
+	if !IsValidMapKey(first) || IsValidBuiltinMapKey(first) {
+		t.Fatal("anonymous map-key admission does not match Toast")
+	}
+	if got := CompareMapKeys(first, second); got <= 0 {
+		t.Fatalf("CompareMapKeys(first, second) = %d, want positive", got)
+	}
+	if got := CompareMapKeys(second, first); got <= 0 {
+		t.Fatalf("CompareMapKeys(second, first) = %d, want positive", got)
+	}
+
+	firstFirst := NewMap([][2]Value{
+		{first, NewInt(1)},
+		{second, NewInt(2)},
+	})
+	secondFirst := NewMap([][2]Value{
+		{second, NewInt(2)},
+		{first, NewInt(1)},
+	})
+
+	assertAnonymousKeys(t, firstFirst.Keys(), second, first)
+	assertAnonymousKeys(t, secondFirst.Keys(), first, second)
+	if firstFirst.Equal(secondFirst) {
+		t.Fatal("maps with different anonymous-key topology compare equal")
+	}
+}
+
+func assertAnonymousKeys(t *testing.T, got []Value, want ...Value) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("key count = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Type() != TYPE_ANON || got[i].ID() != want[i].ID() {
+			t.Fatalf("key %d = %v, want anonymous id %d", i+1, got[i], want[i].ID())
+		}
+	}
+}
+
 func assertWaifKeys(t *testing.T, got []Value, want ...Value) {
 	t.Helper()
 	if len(got) != len(want) {

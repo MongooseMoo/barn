@@ -348,8 +348,13 @@ func CompareMapKeys(a, b Value) int {
 	switch a.Type() {
 	case TYPE_INT:
 		return cmpInt64(a.Int(), b.Int())
-	case TYPE_OBJ, TYPE_ANON:
+	case TYPE_OBJ:
 		return cmpInt64(int64(a.Obj()), int64(b.Obj()))
+	case TYPE_ANON:
+		if a.ID() == b.ID() {
+			return 0
+		}
+		return 1
 	case TYPE_FLOAT:
 		af, bf := a.Float(), b.Float()
 		if af < bf {
