@@ -33,6 +33,9 @@
 - Focused connect-timeout diagnostics (`20260721_114445`, `20260721_114643`, `20260721_114746`, `20260721_114852`, `20260721_115020`) prove `connect_timeout = 3` is loaded and applied, activity is read, and `user_disconnected` completes normally.
 - In `20260721_115020`, the activity arrived at `11:50:32.411`; Barn's read deadline fired at `11:50:35.411` exactly 3.000 seconds later. The harness's Toast-confirmed "still empty" query arrived at `11:50:35.416`, then raced the hook commit and observed the hook too early. The later expected-frame step was never reached.
 - Temporary diagnostic logging was removed; no source mutation from the timeout investigation remains.
+- Stock WSL Toast at required commit `aecc51e9449c6e7c95272f0f044b5ba38948459e` passed the unchanged focused timeout row 1/1 through `scripts/run_toast_wsl.sh`; WSL was healthy and did not require restart.
+- Toast source stores `last_activity_time` as integer `time_t` and times out only when `now - last_activity_time > connect_timeout`. Barn now schedules the first eligible whole-second boundary rather than the exact duration boundary.
+- Deterministic server regression was red at exactly `3s` and green in Toast's strict-second window `(3s, 4s]`; full server tests pass. Managed Windows run `20260721_115649` passes the unchanged row. Fix commit: `a901dfc`.
 
 ## Theories (plausible)
 
@@ -62,15 +65,16 @@
 | Direct `rxd` disconnect frame regression and managed rerun | Unrelated connection fallback | Hook recorded `connection_info_succeeds = 1` with another player connected; exact lookup records `0`; managed row passes 1/1 | Disconnect removal timing and hook frame defects | `resolveConnection` substituted an unrelated session |
 | Focused cross-listener rerun and direct transition regression | Replacement publication timing | Only old disconnect frame remained false; replacement was visible before old hook; delayed publication makes direct and managed tests pass | Shared resolver fallback as the entire cross-listener cause | Reconnection association order defect |
 | Timestamped focused connect-timeout diagnostics | Configuration, deadline, hook commit | Selected timeout is 3s; activity read; deadline fires exactly +3.000s; hook completes; query at +3.005s observes it too early | Missing option, missing hook, lost hook transaction | Timeout boundary differs from Toast-confirmed coarse boundary |
+| Stock WSL Toast row, Toast source, deterministic deadline regression, Windows rerun | Exact timeout boundary | Toast row passes; source uses integer seconds and strict `>`; Barn test red at exact 3s and green after whole-second boundary; Windows row passes | Arbitrary grace period or environment workaround | Source-defined strict-second semantics |
 
 ## Current Best Theory
 
-The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The client-disconnected frame failure was unrelated-session substitution and is fixed by `d03f9f1`. The cross-listener frame failure was replacement publication before old-hook completion and is fixed by `4655354`. The connect-timeout defect is now isolated to Barn firing at the exact configured boundary; the Toast-confirmed row requires it absent at that boundary and present later. Firewall and WSL are not causal for the Windows-managed failures; WSL Toast is now required only to confirm the exact timeout boundary before implementation.
+The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The client-disconnected frame failure was unrelated-session substitution and is fixed by `d03f9f1`. The cross-listener frame failure was replacement publication before old-hook completion and is fixed by `4655354`. The connect-timeout boundary is fixed by `a901dfc`. The last known lifecycle failure is flush-command pending-input behavior. Firewall and WSL are not causal for these Windows-managed failures.
 
 ## Open Questions
 
-- What exact timeout comparison/check cadence does stock WSL Toast use around a 3-second configured interval?
+- Does `flush-command` fail to discard held queued events, fail to apply to the active connection, or release already-dispatched input?
 
 ## Next Action
 
-Run the exact focused connect-timeout row against the documented stock WSL Toast oracle, then encode the confirmed boundary in a deterministic server regression before changing Barn's deadline behavior.
+Run the flush-command row alone with managed diagnostics, trace its held-input queue transitions, and add a direct regression at the proven failing boundary before editing.
