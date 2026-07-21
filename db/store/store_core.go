@@ -145,6 +145,18 @@ func (s *Store) CommitSuccesses() uint64 { return s.commitSuccesses.Load() }
 func (s *Store) CommitConflicts() uint64 { return s.commitConflicts.Load() }
 func (s *Store) CommitRetries() uint64   { return s.commitRetries.Load() }
 
+// ActiveReadTransactions returns the number of StoreTxn read timestamps currently
+// registered with history GC, including multiple transactions at the same timestamp.
+func (s *Store) ActiveReadTransactions() int {
+	s.floorMu.Lock()
+	defer s.floorMu.Unlock()
+	total := 0
+	for _, count := range s.activeReadTS {
+		total += count
+	}
+	return total
+}
+
 // NoteCommitRetry records one scheduler-side conflict retry (loop-back). It is
 // the only exported mutator; the scheduler lives in another package and cannot
 // touch the unexported counter fields directly.

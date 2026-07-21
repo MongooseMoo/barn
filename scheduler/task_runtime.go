@@ -48,6 +48,11 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	}()
 
 	retryState := captureTaskRetryState(t)
+	defer func() {
+		if t.Context != nil && t.Context.StoreTxn != nil {
+			t.Context.StoreTxn.Release()
+		}
+	}()
 	attempt := 0
 
 retryAttempt:

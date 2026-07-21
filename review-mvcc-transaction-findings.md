@@ -10,7 +10,7 @@ Each finding is resolved in order with a failing regression test, the narrow imp
 - [x] 6. Support delete-then-redefine in one transaction (`db/store/store_txn.go`)
 - [x] 7. Preserve call order when flushing side effects (`scheduler/task_runtime.go`)
 - [x] 8. Keep property definitions in insertion order (`db/store/store_cow.go`)
-- [ ] 9. Release terminal task transactions (`scheduler/task_runtime.go`)
+- [x] 9. Release terminal task transactions (`scheduler/task_runtime.go`)
 - [ ] 10. Do not turn flush failures into uncatchable task errors (`scheduler/task_runtime.go`)
 
 Final gate:

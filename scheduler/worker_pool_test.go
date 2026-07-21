@@ -750,6 +750,43 @@ return 0;
 	}
 }
 
+func TestRunTaskReleasesTerminalStoreTransaction(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		code string
+	}{
+		{name: "read only", code: "return #0.value;"},
+		{name: "write", code: "#0.value = 1; return 1;"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := dbstore.NewStore()
+			root := dbstore.NewObjectBuilder(0)
+			root.SetOwner(0)
+			root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+			root.SetProperty("value", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+			if err := store.Add(root.Build()); err != nil {
+				t.Fatalf("store.Add failed: %v", err)
+			}
+
+			s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+			defer s.Stop()
+			ticks, seconds := foregroundTaskLimits()
+			queued := task.NewTaskFull(3007, 0, compileTestProgram(t, s.registry, test.code), ticks, seconds)
+			queued.Context.IsWizard = true
+
+			if err := s.runTask(queued); err != nil {
+				t.Fatalf("runTask failed: %v", err)
+			}
+			if queued.Result.Flow != types.FlowReturn {
+				t.Fatalf("result = flow %v err %v, want return", queued.Result.Flow, queued.Result.Error)
+			}
+			if got := store.ActiveReadTransactions(); got != 0 {
+				t.Fatalf("active read transactions after terminal task = %d, want 0", got)
+			}
+		})
+	}
+}
+
 func removeTasksForOwner(s *Scheduler, owner types.ObjID) {
 	var ids []int64
 	s.mu.Lock()
