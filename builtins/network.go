@@ -151,19 +151,7 @@ func resolveConnection(ctx *kernel.TaskContext, player types.ObjID) Connection {
 	if cm == nil {
 		return nil
 	}
-	if conn := cm.GetConnection(player); conn != nil {
-		return conn
-	}
-	// Compatibility fallback: when running top-level eval with mismatched locals,
-	// resolving self should still find the active connection.
-	if ctx != nil && player == ctx.Player {
-		for _, p := range cm.ConnectedPlayers(true) {
-			if conn := cm.GetConnection(p); conn != nil {
-				return conn
-			}
-		}
-	}
-	return nil
+	return cm.GetConnection(player)
 }
 
 func validConnectionOption(name string) bool {

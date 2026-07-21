@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"barn/command"
 	dbstore "barn/db/store"
 	runtime "barn/scheduler"
 	"barn/types"
@@ -114,6 +115,67 @@ func TestUserConnectedUsesServerInitiatedCallerFrame(t *testing.T) {
 	})
 	if !got.Equal(want) {
 		t.Fatalf("user_connected frame = %s, want %s", got.String(), want.String())
+	}
+}
+
+func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	disconnectedPlayer := addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	otherPlayer := addTestObject(t, store, 3, dbstore.FlagUser)
+	if errCode := store.DefineProperty(system, "disconnected_frames", dbstore.NewProperty(types.NewList(nil), 2,
+		dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define disconnected_frames: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(system, dbstore.NewVerb("user_client_disconnected", []string{"user_client_disconnected"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{
+			"connection_info_succeeds = 1;",
+			"try",
+			"  connection_info(args[1]);",
+			"except (E_INVARG)",
+			"  connection_info_succeeds = 0;",
+			"endtry",
+			"#0.disconnected_frames = {@#0.disconnected_frames, {this, player, caller, args, argstr, connection_info_succeeds}};",
+		})); errCode != types.E_NONE {
+		t.Fatalf("add user_client_disconnected: %v", errCode)
+	}
+
+	rt := runtime.NewScheduler(store)
+	processor := NewInputProcessor(store, rt)
+	cm := NewConnectionManager(7777)
+	processor.SetConnectionManager(cm)
+	rt.Registry().SetConnectionManager(cm)
+
+	disconnectedConn := cm.NewConnectionFromTransport(stubTransport{})
+	if err := cm.SwitchPlayer(types.ObjID(-disconnectedConn.ID), disconnectedPlayer); err != nil {
+		t.Fatalf("connect disconnected player: %v", err)
+	}
+	otherConn := cm.NewConnectionFromTransport(stubTransport{})
+	if err := cm.SwitchPlayer(types.ObjID(-otherConn.ID), otherPlayer); err != nil {
+		t.Fatalf("connect other player: %v", err)
+	}
+
+	processor.processDisconnect(command.InputEvent{ConnID: disconnectedConn.ID})
+	if conn := cm.GetConnection(disconnectedPlayer); conn != nil {
+		t.Fatalf("disconnected player still resolves to connection %v", conn)
+	}
+
+	got, errCode := store.PropertyValue(system, "disconnected_frames")
+	if errCode != types.E_NONE {
+		t.Fatalf("read disconnected_frames: %v", errCode)
+	}
+	want := types.NewList([]types.Value{types.NewList([]types.Value{
+		types.NewObj(system),
+		types.NewObj(disconnectedPlayer),
+		types.NewObj(types.ObjNothing),
+		types.NewList([]types.Value{types.NewObj(disconnectedPlayer)}),
+		types.NewStr(""),
+		types.NewInt(0),
+	})})
+	if !got.Equal(want) {
+		t.Fatalf("user_client_disconnected frames = %s, want %s", got.String(), want.String())
 	}
 }
 
