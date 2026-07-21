@@ -1696,6 +1696,29 @@ func TestTransactionAdoptLiveVerbsSeesAddedVerb(t *testing.T) {
 	}
 }
 
+func TestTransactionCallableLookupDoesNotExposeWaifOnlyVerbToObjectCall(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if _, errCode := store.AddVerb(0, NewVerb(":foo", []string{":foo"}, 0, VerbRead|VerbExecute, VerbArgs{This: "this", Prep: "none", That: "this"}, []string{"return 99;"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+	if errCode := tx.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs failed: %v", errCode)
+	}
+
+	if _, _, err := tx.FindCallableVerb(0, "foo"); err == nil {
+		t.Fatal("object call resolved waif-only :foo verb, want verb not found")
+	}
+	if _, _, err := tx.FindCallableVerb(0, ":foo"); err != nil {
+		t.Fatalf("waif call did not resolve :foo verb: %v", err)
+	}
+}
+
 func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

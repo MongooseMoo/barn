@@ -1859,9 +1859,11 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 				tx.markVerbRead(current, verb)
 				return verb, current, nil
 			}
-			if verb, ok := obj.verbs[":"+verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
-				tx.markVerbRead(current, verb)
-				return verb, current, nil
+			if !requireExecute {
+				if verb, ok := obj.verbs[":"+verbName]; ok {
+					tx.markVerbRead(current, verb)
+					return verb, current, nil
+				}
 			}
 		}
 		queue = append(queue, obj.parents...)
