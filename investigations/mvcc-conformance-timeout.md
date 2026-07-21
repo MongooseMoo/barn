@@ -41,6 +41,10 @@
 - Direct builtins and server regressions proved Barn compared `flush-command` case-sensitively, queued `.FlUsH` as ordinary input, and exposed no discarded lines to the connection path. Both tests were red before the repair.
 - `HandleHeldInput` now matches the command case-insensitively and returns the queued lines in input order; the originating input connection emits Toast's exact four-line report. Full `builtins` and `server` tests pass. Managed Windows run `20260721_120642` passes the unchanged row. Fix commit: `458bdc8`.
 - Managed lifecycle-family run `20260721_120729` passes all 23 selected rows together, including the four formerly independent failures.
+- Full managed run `20260721_120906` completed with 11,334 passed, 159 skipped, and 65 failed. At least one failure is harness configuration (`assert_log` without `--moo-log-file`), so the raw count does not represent 65 independent Barn semantic defects.
+- The first semantic mismatch, `audit_server_options_max_stack_depth_runtime`, failed independently as expected recursion count 58, actual 48. Stock WSL Toast passed the unchanged row.
+- Toast reads the live `$server_options.max_stack_depth` property when creating a task and clamps it to at least 50; Barn read a stale `load_server_options()` cache and therefore kept its default 50.
+- A direct scheduler regression was red at 50 with a live property of 60. New VMs now read the live store through the existing `GetMaxStackDepth` path. Full `builtins` and `scheduler` tests pass, and managed run `20260721_121723` passes the focused row. Fix commit: `63a5f45`.
 
 ## Theories (plausible)
 
@@ -73,15 +77,17 @@
 | Stock WSL Toast row, Toast source, deterministic deadline regression, Windows rerun | Exact timeout boundary | Toast row passes; source uses integer seconds and strict `>`; Barn test red at exact 3s and green after whole-second boundary; Windows row passes | Arbitrary grace period or environment workaround | Source-defined strict-second semantics |
 | Stock WSL Toast flush row, direct regressions, focused Windows rerun | Case matching, queue discard, and observable report | Toast passes; Barn tests were red for queued mixed-case input and empty output, then green after returning discarded lines and reporting them | Firewall, WSL routing, and a conformance expectation error | Case-sensitive silent flush handling |
 | Managed lifecycle family `20260721_120729` | Remaining order contamination or independent lifecycle failures | 23/23 pass together | Remaining lifecycle cascade or order dependence | All isolated lifecycle repairs compose correctly |
+| Full managed suite `20260721_120906` | Final conformance gate | 11,334 passed, 159 skipped, 65 failed; failures include both semantic mismatches and missing runner configuration | Full conformance completion | Further one-at-a-time isolation required |
+| Focused stack-depth row, stock WSL Toast, direct scheduler regression | Live task-creation limit versus cached limit | Barn independently got 48; Toast passed at 58; direct VM got stale 50 before and live 60 after repair; focused Barn row passes | Full-suite order contamination and stale expected behavior | Barn incorrectly cached `max_stack_depth` |
 
 ## Current Best Theory
 
-The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The client-disconnected frame failure was unrelated-session substitution and is fixed by `d03f9f1`. The cross-listener frame failure was replacement publication before old-hook completion and is fixed by `4655354`. The connect-timeout boundary is fixed by `a901dfc`. The flush-command failure was case-sensitive matching plus a silent queue-clear path and is fixed by `458bdc8`. Firewall and WSL were not causal; all 23 lifecycle rows now pass together.
+The original lifecycle timeout and its six subsequent semantic failures are fixed, and all 23 lifecycle rows pass together. Firewall and WSL were not causal. The unfiltered suite exposed additional current failures outside that family; the first independent semantic failure was stale `max_stack_depth` caching and is fixed by `63a5f45`. Remaining failures must be classified individually because the run also contains harness-configuration failures.
 
 ## Open Questions
 
-- None for the lifecycle family.
+- Which failure is first after the stack-depth repair when the managed runner supplies the configuration required by current tests?
 
 ## Next Action
 
-Run the full managed 11,558-test conformance suite required by `review-mvcc-transaction-findings.md`, then complete the remaining checklist gates only from the observed results.
+Keep the source ledger clean, correct the documented managed runner's missing current-test configuration only if its exact required arguments are already supported, then isolate the next remaining current failure without combining source slices.
