@@ -81,3 +81,34 @@ func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
 		})
 	}
 }
+
+func TestMultiKeyMapdeleteRaisesMissingKeyDetail(t *testing.T) {
+	ctx := &kernel.TaskContext{}
+	mapping := types.NewMap([][2]types.Value{
+		{types.NewInt(1), types.NewStr("one")},
+		{types.NewInt(2), types.NewStr("two")},
+		{types.NewInt(3), types.NewStr("three")},
+	})
+	keys := types.NewList([]types.Value{
+		types.NewInt(1),
+		types.NewInt(99),
+		types.NewInt(3),
+	})
+
+	result := builtinMapdelete(ctx, []types.Value{mapping, keys})
+	if result.Flow != types.FlowException || result.Error != types.E_RANGE {
+		t.Fatalf("mapdelete result = %+v, want E_RANGE exception", result)
+	}
+	if result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 3 {
+		t.Fatalf("mapdelete exception value = %v, want three-element raise payload", result.Val)
+	}
+	if got := result.Val.Get(1); got.Type() != types.TYPE_ERR || got.Code() != types.E_RANGE {
+		t.Fatalf("exception code = %v, want E_RANGE", got)
+	}
+	if got := result.Val.Get(2); got.Type() != types.TYPE_STR || got.Str() != "Key 99 not found in map" {
+		t.Fatalf("exception message = %v, want missing-key detail", got)
+	}
+	if got := result.Val.Get(3); got.Type() != types.TYPE_INT || got.Int() != 99 {
+		t.Fatalf("exception detail = %v, want 99", got)
+	}
+}

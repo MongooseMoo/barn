@@ -110,7 +110,16 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 				return types.Err(types.E_TYPE)
 			}
 			if _, found := result.MapGet(key); !found {
-				return types.Err(types.E_RANGE)
+				exceptionList := types.NewList([]types.Value{
+					types.NewErr(types.E_RANGE),
+					types.NewStr("Key " + key.String() + " not found in map"),
+					key,
+				})
+				return types.Result{
+					Flow:  types.FlowException,
+					Error: types.E_RANGE,
+					Val:   exceptionList,
+				}
 			}
 			result = result.MapDelete(key)
 		}
