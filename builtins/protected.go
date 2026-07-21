@@ -113,11 +113,16 @@ func LoadProtectedBuiltinsForTask(ctx *kernel.TaskContext) {
 		},
 	)
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
-		if ctx.PendingServerOptions == nil {
+		pending := pendingServerOptions(ctx)
+		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()
-			ctx.PendingServerOptions = &snapshot
+			enqueuePendingEffect(ctx, kernel.PendingEffect{
+				Kind:          kernel.PendingEffectServerOptions,
+				ServerOptions: snapshot,
+			})
+			pending = pendingServerOptions(ctx)
 		}
-		ctx.PendingServerOptions.ProtectedBuiltins = flags
+		pending.ProtectedBuiltins = flags
 		return
 	}
 	applyProtectedBuiltins(flags)

@@ -164,18 +164,18 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 	if len(conn.sent) != 0 {
 		t.Fatalf("sent before flush = %#v, want none", conn.sent)
 	}
-	if len(ctx.PendingNotifications) != 1 {
-		t.Fatalf("pending notifications = %d, want 1", len(ctx.PendingNotifications))
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectNotification {
+		t.Fatalf("pending effects = %#v, want one notification", ctx.PendingEffects)
 	}
 
-	if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingNotifications failed: %v", errCode)
+	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingEffects failed: %v", errCode)
 	}
 	if len(conn.sent) != 1 || conn.sent[0] != "hello" {
 		t.Fatalf("sent after flush = %#v, want hello", conn.sent)
 	}
-	if len(ctx.PendingNotifications) != 0 {
-		t.Fatalf("pending notifications after flush = %d, want 0", len(ctx.PendingNotifications))
+	if len(ctx.PendingEffects) != 0 {
+		t.Fatalf("pending effects after flush = %d, want 0", len(ctx.PendingEffects))
 	}
 }
 
@@ -228,8 +228,8 @@ func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 		t.Fatalf("buffered before flush = %#v, want none", conn.buffered)
 	}
 
-	if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingNotifications failed: %v", errCode)
+	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingEffects failed: %v", errCode)
 	}
 	if len(conn.sent) != 0 {
 		t.Fatalf("sent after no-flush notify = %#v, want none", conn.sent)
@@ -251,9 +251,9 @@ func TestDiscardPendingNotificationsDropsDeferredNotify(t *testing.T) {
 		t.Fatalf("notify failed: %v", res.Error)
 	}
 
-	DiscardPendingNotifications(ctx)
-	if len(ctx.PendingNotifications) != 0 {
-		t.Fatalf("pending notifications after discard = %d, want 0", len(ctx.PendingNotifications))
+	DiscardPendingEffects(ctx)
+	if len(ctx.PendingEffects) != 0 {
+		t.Fatalf("pending effects after discard = %d, want 0", len(ctx.PendingEffects))
 	}
 	if len(conn.sent) != 0 || len(conn.buffered) != 0 {
 		t.Fatalf("connection output after discard sent=%#v buffered=%#v, want none", conn.sent, conn.buffered)
@@ -285,11 +285,8 @@ func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
 		t.Fatalf("boots before flush = %#v, want none", manager.boots)
 	}
 
-	if errCode := FlushPendingNotifications(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingNotifications failed: %v", errCode)
-	}
-	if errCode := FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingBootPlayers failed: %v", errCode)
+	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingEffects failed: %v", errCode)
 	}
 	if len(manager.boots) != 1 || manager.boots[0] != 7 {
 		t.Fatalf("boots after flush = %#v, want [7]", manager.boots)
@@ -313,12 +310,12 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 	if len(manager.switches) != 0 {
 		t.Fatalf("switches before flush = %#v, want none", manager.switches)
 	}
-	if len(ctx.PendingConnectionSwitches) != 1 {
-		t.Fatalf("pending switches = %d, want 1", len(ctx.PendingConnectionSwitches))
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectConnectionSwitch {
+		t.Fatalf("pending effects = %#v, want one switch", ctx.PendingEffects)
 	}
 
-	if errCode := FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingConnectionSwitches failed: %v", errCode)
+	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingEffects failed: %v", errCode)
 	}
 	if len(manager.switches) != 1 {
 		t.Fatalf("switches after flush = %#v, want one", manager.switches)
@@ -326,8 +323,8 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 	if manager.switches[0].oldPlayer != 7 || manager.switches[0].newPlayer != 8 {
 		t.Fatalf("switch = %#v, want 7->8", manager.switches[0])
 	}
-	if len(ctx.PendingConnectionSwitches) != 0 {
-		t.Fatalf("pending switches after flush = %d, want 0", len(ctx.PendingConnectionSwitches))
+	if len(ctx.PendingEffects) != 0 {
+		t.Fatalf("pending effects after flush = %d, want 0", len(ctx.PendingEffects))
 	}
 }
 
@@ -343,9 +340,9 @@ func TestDiscardPendingConnectionSwitchesDropsDeferredSwitch(t *testing.T) {
 		t.Fatalf("switch_player failed: %v", res.Error)
 	}
 
-	DiscardPendingConnectionSwitches(ctx)
-	if len(ctx.PendingConnectionSwitches) != 0 {
-		t.Fatalf("pending switches after discard = %d, want 0", len(ctx.PendingConnectionSwitches))
+	DiscardPendingEffects(ctx)
+	if len(ctx.PendingEffects) != 0 {
+		t.Fatalf("pending effects after discard = %d, want 0", len(ctx.PendingEffects))
 	}
 	if len(manager.switches) != 0 {
 		t.Fatalf("switches after discard = %#v, want none", manager.switches)

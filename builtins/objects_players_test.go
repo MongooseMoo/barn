@@ -85,15 +85,15 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 	if len(manager.boots) != 0 {
 		t.Fatalf("boots before flush = %#v, want none", manager.boots)
 	}
-	if len(ctx.PendingBootPlayers) != 1 || ctx.PendingBootPlayers[0] != obj {
-		t.Fatalf("pending boots = %#v, want [%d]", ctx.PendingBootPlayers, obj)
+	if len(ctx.PendingEffects) != 1 || ctx.PendingEffects[0].Kind != kernel.PendingEffectBootPlayer || ctx.PendingEffects[0].BootPlayer != obj {
+		t.Fatalf("pending effects = %#v, want boot of %d", ctx.PendingEffects, obj)
 	}
 
 	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	if errCode := FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingBootPlayers failed: %v", errCode)
+	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
+		t.Fatalf("FlushPendingEffects failed: %v", errCode)
 	}
 	if len(manager.boots) != 1 || manager.boots[0] != obj {
 		t.Fatalf("boots after flush = %#v, want [%d]", manager.boots, obj)

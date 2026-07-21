@@ -239,10 +239,7 @@ retryAttempt:
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingNotifications(ctx)
-				builtins.DiscardPendingConnectionSwitches(ctx)
-				builtins.DiscardPendingBootPlayers(ctx)
-				builtins.DiscardPendingServerOptions(ctx)
+				builtins.DiscardPendingEffects(ctx)
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
 				attempt++
 				goto retryAttempt
@@ -256,28 +253,13 @@ retryAttempt:
 	}
 	if committed {
 		t.CreatedForks = nil
-		if errCode := builtins.FlushPendingServerOptions(ctx); errCode != types.E_NONE {
-			result = types.Err(errCode)
-			t.Result = result
-		}
-		if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
-			result = types.Err(errCode)
-			t.Result = result
-		}
-		if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
-			result = types.Err(errCode)
-			t.Result = result
-		}
-		if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+		if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			t.Result = result
 		}
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingNotifications(ctx)
-		builtins.DiscardPendingConnectionSwitches(ctx)
-		builtins.DiscardPendingBootPlayers(ctx)
-		builtins.DiscardPendingServerOptions(ctx)
+		builtins.DiscardPendingEffects(ctx)
 	}
 	if committed && committedWrites && ctx.StoreTxn != nil {
 		ctx.StoreTxn.Release()
@@ -317,25 +299,10 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 			s.discardCreatedForks(t)
-			builtins.DiscardPendingNotifications(ctx)
-			builtins.DiscardPendingConnectionSwitches(ctx)
-			builtins.DiscardPendingBootPlayers(ctx)
-			builtins.DiscardPendingServerOptions(ctx)
+			builtins.DiscardPendingEffects(ctx)
 		} else {
 			t.CreatedForks = nil
-			if errCode := builtins.FlushPendingServerOptions(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
-			if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
-			if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
-			if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+			if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
 				result = types.Err(errCode)
 				t.Result = result
 			}
@@ -363,29 +330,14 @@ retryAttempt:
 				t.SetState(task.TaskKilled)
 				t.SetBytecodeVM(nil)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingNotifications(ctx)
-				builtins.DiscardPendingConnectionSwitches(ctx)
-				builtins.DiscardPendingBootPlayers(ctx)
-				builtins.DiscardPendingServerOptions(ctx)
+				builtins.DiscardPendingEffects(ctx)
 				return nil
 			}
 			// The commit published this slice's forks; they are the scheduler's now.
 			// Leaving them on the task would let a later conflict-retry discard forks
 			// that are already durable (yin() suspends mid-verb, so a retry can follow).
 			t.CreatedForks = nil
-			if errCode := builtins.FlushPendingServerOptions(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
-			if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
-			if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
-			if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+			if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
 				result = types.Err(errCode)
 				t.Result = result
 			}
@@ -525,24 +477,9 @@ retryAttempt:
 				t.Result = result
 				t.SetState(task.TaskKilled)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingNotifications(ctx)
-				builtins.DiscardPendingConnectionSwitches(ctx)
-				builtins.DiscardPendingBootPlayers(ctx)
-				builtins.DiscardPendingServerOptions(ctx)
+				builtins.DiscardPendingEffects(ctx)
 			} else {
-				if errCode := builtins.FlushPendingServerOptions(ctx); errCode != types.E_NONE {
-					result = types.Err(errCode)
-					t.Result = result
-				}
-				if errCode := builtins.FlushPendingConnectionSwitches(ctx); errCode != types.E_NONE {
-					result = types.Err(errCode)
-					t.Result = result
-				}
-				if errCode := builtins.FlushPendingNotifications(ctx); errCode != types.E_NONE {
-					result = types.Err(errCode)
-					t.Result = result
-				}
-				if errCode := builtins.FlushPendingBootPlayers(ctx); errCode != types.E_NONE {
+				if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
 					result = types.Err(errCode)
 					t.Result = result
 				}
@@ -633,10 +570,7 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 	}
 	clone := *ctx
 	clone.StoreTxn = nil
-	clone.PendingNotifications = nil
-	clone.PendingConnectionSwitches = nil
-	clone.PendingBootPlayers = nil
-	clone.PendingServerOptions = nil
+	clone.PendingEffects = nil
 	clone.CallerVM = nil
 	return &clone
 }

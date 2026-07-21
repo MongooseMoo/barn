@@ -80,21 +80,9 @@ type TaskContext struct {
 	// conflicts after this point must not retry the whole task body.
 	IrreversibleSideEffect bool
 
-	// PendingNotifications holds notify() output until the task's store
-	// transaction commits. Failed commits must not leak user-visible output.
-	PendingNotifications []PendingNotification
-
-	// PendingConnectionSwitches holds switch_player() effects until the task's
-	// store transaction commits.
-	PendingConnectionSwitches []PendingConnectionSwitch
-
-	// PendingBootPlayers holds boot_player() effects until the task's store
-	// transaction commits.
-	PendingBootPlayers []types.ObjID
-
-	// PendingServerOptions holds load_server_options() cache updates that were
-	// read from uncommitted task state. They publish only after StoreTxn commits.
-	PendingServerOptions *PendingServerOptions
+	// PendingEffects holds commit-deferred external effects in source call order.
+	// Failed commits discard the log; successful commits replay it sequentially.
+	PendingEffects []PendingEffect
 
 	// Registry is a reference to the builtins registry (if available).
 	// This allows builtins to call other builtins or look up function info.
@@ -133,6 +121,23 @@ type PendingNotification struct {
 type PendingConnectionSwitch struct {
 	OldPlayer types.ObjID
 	NewPlayer types.ObjID
+}
+
+type PendingEffectKind uint8
+
+const (
+	PendingEffectNotification PendingEffectKind = iota + 1
+	PendingEffectConnectionSwitch
+	PendingEffectBootPlayer
+	PendingEffectServerOptions
+)
+
+type PendingEffect struct {
+	Kind             PendingEffectKind
+	Notification     PendingNotification
+	ConnectionSwitch PendingConnectionSwitch
+	BootPlayer       types.ObjID
+	ServerOptions    PendingServerOptions
 }
 
 type PendingServerOptions struct {

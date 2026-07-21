@@ -24,7 +24,7 @@ import (
 // against bytecode — before knowing whether it pays off, we return "unknown" for
 // every task. For a read-mostly command workload the optimistic path is where the
 // concurrency comes from anyway: read-and-tell verbs have empty write sets and
-// never conflict, and notify() output is buffered outside MVCC (PendingNotifications)
+// never conflict, and notify() output is buffered outside MVCC (PendingEffects)
 // and flushed at commit, so the socket is never a contended store resource.
 //
 // This is the measurable null hypothesis. The store already counts real conflict

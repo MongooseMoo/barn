@@ -121,7 +121,10 @@ func builtinSetPlayerFlag(ctx *kernel.TaskContext, args []types.Value) types.Res
 			return types.Err(errCode)
 		}
 		if cm := hostOf(ctx).ConnManager; clearingPlayerFlag && cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
-			ctx.PendingBootPlayers = append(ctx.PendingBootPlayers, objVal.ID())
+			enqueuePendingEffect(ctx, kernel.PendingEffect{
+				Kind:       kernel.PendingEffectBootPlayer,
+				BootPlayer: objVal.ID(),
+			})
 		}
 		return types.Ok(types.NewInt(0))
 	}

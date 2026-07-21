@@ -596,7 +596,11 @@ func builtinBufferedOutputLength(ctx *kernel.TaskContext, args []types.Value) ty
 
 	length := conn.BufferedOutputLength()
 	if ctx != nil {
-		for _, note := range ctx.PendingNotifications {
+		for _, effect := range ctx.PendingEffects {
+			if effect.Kind != kernel.PendingEffectNotification {
+				continue
+			}
+			note := effect.Notification
 			if note.Player == target {
 				length++
 			}

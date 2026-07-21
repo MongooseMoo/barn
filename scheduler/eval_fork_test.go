@@ -35,12 +35,13 @@ func (c *evalCommandStubConn) GetResolvedName() string   { return "" }
 func (c *evalCommandStubConn) ListenerPort() int64       { return 0 }
 
 type evalCommandStubConnManager struct {
-	player types.ObjID
-	conn   *evalCommandStubConn
+	player           types.ObjID
+	conn             *evalCommandStubConn
+	disconnectOnBoot bool
 }
 
 func (m *evalCommandStubConnManager) GetConnection(player types.ObjID) builtins.Connection {
-	if player == m.player {
+	if player == m.player && m.conn != nil {
 		return m.conn
 	}
 	return nil
@@ -48,7 +49,13 @@ func (m *evalCommandStubConnManager) GetConnection(player types.ObjID) builtins.
 func (m *evalCommandStubConnManager) ConnectedPlayers(showAll bool) []types.ObjID {
 	return []types.ObjID{m.player}
 }
-func (m *evalCommandStubConnManager) BootPlayer(player types.ObjID) error { return nil }
+func (m *evalCommandStubConnManager) BootPlayer(player types.ObjID) error {
+	if m.disconnectOnBoot && player == m.player && m.conn != nil {
+		_ = m.conn.Send("*** Disconnected ***")
+		m.conn = nil
+	}
+	return nil
+}
 func (m *evalCommandStubConnManager) RecyclePlayer(player types.ObjID) error {
 	return nil
 }

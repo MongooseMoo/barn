@@ -254,31 +254,14 @@ func LoadServerOptionsForTask(ctx *kernel.TaskContext) int {
 		},
 	)
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
-		ctx.PendingServerOptions = &snapshot
+		enqueuePendingEffect(ctx, kernel.PendingEffect{
+			Kind:          kernel.PendingEffectServerOptions,
+			ServerOptions: snapshot,
+		})
 		return snapshot.Loaded
 	}
 	applyServerOptionsSnapshot(&snapshot)
 	return snapshot.Loaded
-}
-
-func FlushPendingServerOptions(ctx *kernel.TaskContext) types.ErrorCode {
-	if ctx == nil || ctx.PendingServerOptions == nil {
-		return types.E_NONE
-	}
-	pending := ctx.PendingServerOptions
-	applyServerOptionsSnapshot(pending)
-	if pending.ProtectedBuiltins != nil {
-		applyProtectedBuiltins(pending.ProtectedBuiltins)
-	}
-	ctx.PendingServerOptions = nil
-	return types.E_NONE
-}
-
-func DiscardPendingServerOptions(ctx *kernel.TaskContext) {
-	if ctx == nil {
-		return
-	}
-	ctx.PendingServerOptions = nil
 }
 
 func numericSeconds(value types.Value) (float64, bool) {

@@ -719,6 +719,37 @@ return before;
 	}
 }
 
+func TestRunTaskFlushesBufferedEffectsInCallOrder(t *testing.T) {
+	store := dbstore.NewStore()
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+	defer s.Stop()
+	conn := &evalCommandStubConn{}
+	manager := &evalCommandStubConnManager{
+		player:           7,
+		conn:             conn,
+		disconnectOnBoot: true,
+	}
+	s.Registry().SetConnectionManager(manager)
+
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3006, 7, compileTestProgram(t, s.registry, `
+boot_player(#7);
+notify(#7, "after boot");
+return 0;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn {
+		t.Fatalf("result = flow %v err %v, want return", queued.Result.Flow, queued.Result.Error)
+	}
+	if len(conn.sent) != 1 || conn.sent[0] != "*** Disconnected ***" {
+		t.Fatalf("connection output = %#v, want only the earlier boot", conn.sent)
+	}
+}
+
 func removeTasksForOwner(s *Scheduler, owner types.ObjID) {
 	var ids []int64
 	s.mu.Lock()

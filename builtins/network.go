@@ -863,10 +863,13 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	if ctx != nil && ctx.StoreTxn != nil {
-		ctx.PendingNotifications = append(ctx.PendingNotifications, kernel.PendingNotification{
-			Player:  player,
-			Message: message,
-			NoFlush: noFlush,
+		enqueuePendingEffect(ctx, kernel.PendingEffect{
+			Kind: kernel.PendingEffectNotification,
+			Notification: kernel.PendingNotification{
+				Player:  player,
+				Message: message,
+				NoFlush: noFlush,
+			},
 		})
 		return types.Ok(types.NewInt(0))
 	}
@@ -880,35 +883,6 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
-}
-
-func FlushPendingNotifications(ctx *kernel.TaskContext) types.ErrorCode {
-	if ctx == nil || len(ctx.PendingNotifications) == 0 {
-		return types.E_NONE
-	}
-	pending := ctx.PendingNotifications
-	ctx.PendingNotifications = nil
-	for _, note := range pending {
-		conn := resolveConnection(ctx, note.Player)
-		if conn == nil {
-			continue
-		}
-		trace.Notify(note.Player, note.Message)
-		if note.NoFlush {
-			conn.Buffer(note.Message)
-			continue
-		}
-		if err := conn.Send(note.Message); err != nil {
-			return types.E_INVARG
-		}
-	}
-	return types.E_NONE
-}
-
-func DiscardPendingNotifications(ctx *kernel.TaskContext) {
-	if ctx != nil {
-		ctx.PendingNotifications = nil
-	}
 }
 
 // listeners([find]) -> list of listener maps.
@@ -1112,40 +1086,16 @@ func builtinBootPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Ok(types.NewInt(0))
 	}
 	if ctx != nil && ctx.StoreTxn != nil {
-		ctx.PendingBootPlayers = append(ctx.PendingBootPlayers, player)
+		enqueuePendingEffect(ctx, kernel.PendingEffect{
+			Kind:       kernel.PendingEffectBootPlayer,
+			BootPlayer: player,
+		})
 		return types.Ok(types.NewInt(0))
 	}
 	if err := cm.BootPlayer(player); err != nil {
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
-}
-
-func FlushPendingBootPlayers(ctx *kernel.TaskContext) types.ErrorCode {
-	if ctx == nil || len(ctx.PendingBootPlayers) == 0 {
-		return types.E_NONE
-	}
-	cm := hostOf(ctx).ConnManager
-	if cm == nil {
-		return types.E_INVARG
-	}
-	pending := ctx.PendingBootPlayers
-	ctx.PendingBootPlayers = nil
-	for _, player := range pending {
-		if resolveConnection(ctx, player) == nil {
-			continue
-		}
-		if err := cm.BootPlayer(player); err != nil {
-			return types.E_INVARG
-		}
-	}
-	return types.E_NONE
-}
-
-func DiscardPendingBootPlayers(ctx *kernel.TaskContext) {
-	if ctx != nil {
-		ctx.PendingBootPlayers = nil
-	}
 }
 
 // switch_player(old_player, new_player [, silent]) -> none.
@@ -1176,9 +1126,12 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_INVARG)
 	}
 	if ctx != nil && ctx.StoreTxn != nil {
-		ctx.PendingConnectionSwitches = append(ctx.PendingConnectionSwitches, kernel.PendingConnectionSwitch{
-			OldPlayer: args[0].ID(),
-			NewPlayer: args[1].ID(),
+		enqueuePendingEffect(ctx, kernel.PendingEffect{
+			Kind: kernel.PendingEffectConnectionSwitch,
+			ConnectionSwitch: kernel.PendingConnectionSwitch{
+				OldPlayer: args[0].ID(),
+				NewPlayer: args[1].ID(),
+			},
 		})
 		return types.Ok(types.NewInt(0))
 	}
@@ -1187,30 +1140,6 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_INVARG)
 	}
 	return types.Ok(types.NewInt(0))
-}
-
-func FlushPendingConnectionSwitches(ctx *kernel.TaskContext) types.ErrorCode {
-	if ctx == nil || len(ctx.PendingConnectionSwitches) == 0 {
-		return types.E_NONE
-	}
-	cm := hostOf(ctx).ConnManager
-	if cm == nil {
-		return types.E_INVARG
-	}
-	pending := ctx.PendingConnectionSwitches
-	ctx.PendingConnectionSwitches = nil
-	for _, sw := range pending {
-		if err := cm.SwitchPlayer(sw.OldPlayer, sw.NewPlayer); err != nil {
-			return types.E_INVARG
-		}
-	}
-	return types.E_NONE
-}
-
-func DiscardPendingConnectionSwitches(ctx *kernel.TaskContext) {
-	if ctx != nil {
-		ctx.PendingConnectionSwitches = nil
-	}
 }
 
 // idle_seconds(player) -> int.
