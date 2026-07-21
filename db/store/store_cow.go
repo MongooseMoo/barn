@@ -5,9 +5,9 @@ import "barn/types"
 // store_cow.go — copy-on-write property-value publish (COW Phase 0).
 //
 // A published *Object is IMMUTABLE. The decentralized property-value commit path
-// never mutates a live object in place; it builds a NEW *Object image (sharing the
-// untouched immutable sub-objects) and atomically publishes it into the slot under
-// the slot's mutex. This is the only decentralized writer in Phase 0; every other
+// never mutates a live object in place; it detaches the old image's collections,
+// builds a NEW *Object image, and atomically publishes it into the slot under the
+// slot's mutex. This is the only decentralized writer in Phase 0; every other
 // mutator (the coarse store.mu.Lock writers and the other commit-apply kinds) keeps
 // mutating in place under store.mu.Lock — see commitCoarseLocked.
 //
@@ -442,11 +442,14 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 
 	// Build one new immutable image per object, applying all its staged writes in a
-	// fixed kind order, then publish. Each builder copies ONLY the collection it
-	// touches and SHARES every untouched immutable sub-node with the prior image.
+	// fixed kind order, then publish. Detach every collection from the published old
+	// image first: later coarse writers mutate the current image in place, so sharing
+	// even an untouched map or slice here would let them corrupt the old image kept in
+	// history. Builders may safely share untouched collections with this unpublished
+	// detached image while composing the final replacement.
 	for _, id := range writeIDs {
 		old := s.load(id)
-		img := old
+		img := cloneObjectForReadTxn(old)
 		if w, ok := tx.scalarWrites[id]; ok {
 			img = buildImageWithScalar(img, w, ts)
 		}

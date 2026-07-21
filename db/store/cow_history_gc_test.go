@@ -180,3 +180,33 @@ func TestHistoryGCRegistryDeregistersOnRelease(t *testing.T) {
 		t.Fatalf("distinct active readTS after double release = %d, want 0", got)
 	}
 }
+
+func TestCOWHistoryDoesNotShareCollectionsWithLiveImage(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	reader := store.BeginReadOnly(0)
+	defer reader.Release()
+
+	writer := store.BeginReadOnly(0)
+	if errCode := writer.SetPropertyValue(0, "n", types.NewInt(1)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	if errCode := writer.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	writer.Release()
+
+	if _, errCode := store.AddVerb(0, NewVerb("later", []string{"later"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	if verb, _, err := reader.FindVerb(0, "later"); err == nil {
+		t.Fatalf("reader found verb added after its snapshot: %#v", verb)
+	}
+}
