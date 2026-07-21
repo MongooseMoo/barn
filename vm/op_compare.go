@@ -308,6 +308,12 @@ func compareValues(a, b types.Value, promote bool) (int, error) {
 		return 0, nil
 	}
 
+	// Toast treats all waif values as equal for relational ordering. Identity
+	// equality remains reference-based in Value.Equal.
+	if a.Type() == types.TYPE_WAIF && b.Type() == types.TYPE_WAIF {
+		return 0, nil
+	}
+
 	// Toast treats all boolean values as equal for relational ordering.
 	if a.Type() == types.TYPE_BOOL && b.Type() == types.TYPE_BOOL {
 		return 0, nil
