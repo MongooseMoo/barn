@@ -662,3 +662,36 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 		t.Fatalf("unexpected listener entry: %s", entry.String())
 	}
 }
+
+func TestFlushCommandMatchesCaseInsensitivelyAndClearsPendingCommands(t *testing.T) {
+	player := types.ObjID(424243)
+	clearHeldCommands(player)
+	connectionOptionState.mu.Lock()
+	delete(connectionOptionState.byPlayer, player)
+	connectionOptionState.mu.Unlock()
+	t.Cleanup(func() {
+		clearHeldCommands(player)
+		connectionOptionState.mu.Lock()
+		delete(connectionOptionState.byPlayer, player)
+		connectionOptionState.mu.Unlock()
+	})
+
+	setConnectionOption(player, "hold-input", types.NewInt(1))
+	setConnectionOption(player, "flush-command", types.NewStr(".flush"))
+	if handled, _ := HandleHeldInput(player, "auditflush first", false); !handled {
+		t.Fatal("first command was not held")
+	}
+	if handled, _ := HandleHeldInput(player, "auditflush second", false); !handled {
+		t.Fatal("second command was not held")
+	}
+	handled, flushed := HandleHeldInput(player, ".FlUsH", false)
+	if !handled {
+		t.Fatal("mixed-case flush command was not handled")
+	}
+	if len(flushed) != 2 || flushed[0] != "auditflush first" || flushed[1] != "auditflush second" {
+		t.Fatalf("flushed commands = %q, want queued commands in input order", flushed)
+	}
+	if pending := drainHeldCommands(player); len(pending) != 0 {
+		t.Fatalf("pending commands after mixed-case flush = %q, want none", pending)
+	}
+}

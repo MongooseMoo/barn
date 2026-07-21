@@ -548,11 +548,14 @@ func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWa
 	return wakes
 }
 
-func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
+func HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
 	options := getConnectionOptions(player)
-	if flush := options["flush-command"]; flush.Type() == types.TYPE_STR && flush.Str() != "" && line == flush.Str() {
-		clearHeldCommands(player)
-		return true
+	if flush := options["flush-command"]; flush.Type() == types.TYPE_STR && flush.Str() != "" && strings.EqualFold(line, flush.Str()) {
+		lines := drainHeldCommands(player)
+		if lines == nil {
+			lines = []string{}
+		}
+		return true, lines
 	}
 
 	held := heldInputEnabled(player)
@@ -570,7 +573,7 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 
 	if !held && !hadWaiter {
 		httpHeldInputState.mu.Unlock()
-		return false
+		return false, nil
 	}
 
 	state = getOrCreateHeldHTTPInput(player)
@@ -601,7 +604,7 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) bool {
 		}
 		heldCommandState.mu.Unlock()
 	}
-	return true
+	return true, nil
 }
 
 func prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {

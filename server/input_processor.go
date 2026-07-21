@@ -270,8 +270,20 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		}
 		return
 	}
-	if !(oob && !disableOOB) && builtins.HandleHeldInput(input.Player, input.Line, false) {
-		return
+	if !(oob && !disableOOB) {
+		handled, flushed := builtins.HandleHeldInput(input.Player, input.Line, false)
+		if handled {
+			if flushed != nil && p.connManager != nil {
+				if conn := p.connManager.getConnectionByConnID(input.ConnID); conn != nil {
+					_ = conn.Send(">> Flushing the following pending input:")
+					for _, line := range flushed {
+						_ = conn.Send(">>     " + line)
+					}
+					_ = conn.Send(">> (Done flushing)")
+				}
+			}
+			return
+		}
 	}
 
 	if p.deliverToReadingTask(input.Player, input.Line) {
@@ -326,8 +338,11 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool) {
 	oob := strings.HasPrefix(line, "#$#")
 	disableOOB := builtins.ConnectionOptionTruthy(player, "disable-oob")
-	if !(oob && !disableOOB) && builtins.HandleHeldInput(player, line, atFront) {
-		return
+	if !(oob && !disableOOB) {
+		handled, _ := builtins.HandleHeldInput(player, line, atFront)
+		if handled {
+			return
+		}
 	}
 
 	if p.deliverToReadingTask(player, line) {

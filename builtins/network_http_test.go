@@ -142,7 +142,7 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 	t.Cleanup(func() { resetHTTPTestState(player) })
 
 	setConnectionOption(player, "hold-input", types.NewInt(1))
-	if !HandleHeldInput(player, "~ZZ~!!", false) {
+	if handled, _ := HandleHeldInput(player, "~ZZ~!!", false); !handled {
 		t.Fatal("expected held input to be intercepted")
 	}
 
@@ -166,7 +166,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	t.Cleanup(func() { resetHTTPTestState(player) })
 
 	setConnectionOption(player, "hold-input", types.NewInt(1))
-	if !HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false) {
+	if handled, _ := HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false); !handled {
 		t.Fatal("expected partial input to be intercepted")
 	}
 
@@ -177,7 +177,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	task.GetManager().SuspendTask(stalled, -1)
 	CancelHTTPReadTask(stalled.ID)
 
-	if !HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false) {
+	if handled, _ := HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {
 		t.Fatal("expected fresh input to be intercepted")
 	}
 
