@@ -72,9 +72,24 @@ func GetTaskLimits(background bool) (int64, float64) {
 	return serverOptionsCache.fgTicks, serverOptionsCache.fgSeconds
 }
 
-func GetMaxStackDepth() int {
+func GetMaxStackDepth(store *dbstore.Store) int {
+	if store != nil {
+		serverOpts, errCode := store.FindProperty(0, "server_options")
+		if errCode == types.E_NONE && serverOpts.Value.Type() == types.TYPE_OBJ {
+			if option, errCode := store.FindProperty(serverOpts.Value.Obj(), "max_stack_depth"); errCode == types.E_NONE {
+				if option.Value.Type() == types.TYPE_INT && option.Value.Int() > defaultMaxStackDepth {
+					return int(option.Value.Int())
+				}
+			}
+		}
+		return defaultMaxStackDepth
+	}
+
 	serverOptionsCache.RLock()
 	defer serverOptionsCache.RUnlock()
+	if serverOptionsCache.maxStackDepth < defaultMaxStackDepth {
+		return defaultMaxStackDepth
+	}
 	return serverOptionsCache.maxStackDepth
 }
 

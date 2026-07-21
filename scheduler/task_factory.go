@@ -25,7 +25,7 @@ func backgroundTaskLimits() (int64, float64) {
 }
 
 func configureVMStackLimit(machine *vm.VM) {
-	machine.MaxStackDepth = builtins.GetMaxStackDepth()
+	machine.MaxStackDepth = builtins.GetMaxStackDepth(machine.Store)
 }
 
 // QueueTask adds a task to the scheduler
