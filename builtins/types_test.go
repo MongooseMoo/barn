@@ -94,3 +94,17 @@ func TestTostrHidesAnonymousObjectIdentity(t *testing.T) {
 		t.Fatalf("tostr(anonymous) = %q, want %q", got, "*anonymous*")
 	}
 }
+
+func TestStrictEqualIgnoresErrorMapInsertionOrder(t *testing.T) {
+	forward := types.NewMap([][2]types.Value{
+		{types.NewErr(types.E_TYPE), types.NewStr("type")},
+		{types.NewErr(types.E_DIV), types.NewStr("div")},
+	})
+	reversed := types.NewMap([][2]types.Value{
+		{types.NewErr(types.E_DIV), types.NewStr("div")},
+		{types.NewErr(types.E_TYPE), types.NewStr("type")},
+	})
+	if !strictEqual(forward, reversed) {
+		t.Fatal("reversed error-key maps are not strictly equal")
+	}
+}

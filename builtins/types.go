@@ -364,6 +364,13 @@ func comparePairKeys(a, b types.Value) int {
 		return 0
 	case types.TYPE_STR:
 		return strings.Compare(a.Str(), b.Str())
+	case types.TYPE_ERR:
+		if a.Code() < b.Code() {
+			return -1
+		} else if a.Code() > b.Code() {
+			return 1
+		}
+		return 0
 	}
 	return 0
 }
