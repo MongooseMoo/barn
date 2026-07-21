@@ -68,6 +68,24 @@ func TestComputedPropertyAssignmentEvaluatesTargetBeforeValue(t *testing.T) {
 	}
 }
 
+func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
+	store := newBytecodeVerbStore()
+	if _, errCode := store.AddVerb(0, dbstore.NewVerb("target", []string{"target"}, 0,
+		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"return args[1];"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+
+	result := runBytecodeProgram(t, `name = "target"; result = #0:(name)((name = "missing")); return {result, name};`, store, nil)
+	if result.Flow != types.FlowReturn {
+		t.Fatalf("call flow = %v error = %v value = %v, want return", result.Flow, result.Error, result.Val)
+	}
+	if got := result.Val.String(); got != `{"missing", "missing"}` {
+		t.Fatalf("call result = %s, want name evaluated before arguments", got)
+	}
+}
+
 func requireInt(t *testing.T, result types.Result, want int64) {
 	t.Helper()
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {

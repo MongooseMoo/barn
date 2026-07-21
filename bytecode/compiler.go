@@ -1531,6 +1531,20 @@ func (c *Compiler) compileVerbCall(n *verb.VerbCallExpr) error {
 		return err
 	}
 
+	// Dynamic verb names are evaluated after the object but before arguments.
+	// Hold the name in a temporary so it can still be placed above the finished
+	// argument stack for OP_CALL_VERB.
+	isDynamic := n.Verb == "" && n.VerbExpr != nil
+	nameVar := -1
+	if isDynamic {
+		if err := c.compileNode(n.VerbExpr); err != nil {
+			return err
+		}
+		nameVar = c.declareVariable(c.tempVar("verbcallname"))
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(nameVar))
+	}
+
 	// Check if any argument is a splice expression
 	hasSplice := hasSpliceArgs(n.Args)
 
@@ -1565,13 +1579,9 @@ func (c *Compiler) compileVerbCall(n *verb.VerbCallExpr) error {
 		}
 	}
 
-	// For dynamic verb names, compile the verb name expression onto the stack
-	// before emitting the opcode (so the VM can pop it)
-	isDynamic := n.Verb == "" && n.VerbExpr != nil
 	if isDynamic {
-		if err := c.compileNode(n.VerbExpr); err != nil {
-			return err
-		}
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(nameVar))
 	}
 
 	// Emit OP_CALL_VERB with verb name index and argument count
