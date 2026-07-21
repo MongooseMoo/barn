@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "moo-conformance", editable = "../../moo-conformance-tests" }]
+requires-dist = [{ name = "moo-conformance", editable = "../moo-conformance-tests" }]
 
 [[package]]
 name = "bcrypt"
@@ -155,7 +155,7 @@ wheels = [
 [[package]]
 name = "moo-conformance"
 version = "0.1.0"
-source = { editable = "../../moo-conformance-tests" }
+source = { editable = "../moo-conformance-tests" }
 dependencies = [
     { name = "moo-interp" },
     { name = "pycparser" },
