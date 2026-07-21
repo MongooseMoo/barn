@@ -48,6 +48,9 @@ func (vm *VM) executeIndex() error {
 		vm.Push(val)
 		return nil
 
+	case types.TYPE_WAIF:
+		return vm.startVerbCall(collection, "_index", []types.Value{index})
+
 	default:
 		return fmt.Errorf("E_TYPE: cannot index %s", collection.Type().String())
 	}
@@ -63,6 +66,13 @@ func (vm *VM) executeIndexSet() error {
 
 	// Read the collection from the variable slot
 	coll := vm.CurrentFrame().Locals[varIdx]
+	if coll.Type() == types.TYPE_WAIF {
+		if err := vm.startVerbCall(coll, "_set_index", []types.Value{index, value}); err != nil {
+			return err
+		}
+		vm.CurrentFrame().DiscardReturn = true
+		return nil
+	}
 
 	// Perform the index assignment using the shared setAtIndex helper
 	newColl, errCode := setAtIndex(coll, index, value)

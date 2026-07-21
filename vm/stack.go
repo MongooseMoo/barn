@@ -116,5 +116,7 @@ func (vm *VM) Return(value types.Value) {
 
 	vm.SP = frame.BasePointer
 	vm.popFrame()
-	vm.Push(value)
+	if !frame.DiscardReturn {
+		vm.Push(value)
+	}
 }

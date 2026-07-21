@@ -67,7 +67,10 @@ func (vm *VM) executeCallVerb() error {
 
 	// Pop the object
 	objVal := vm.Pop()
+	return vm.startVerbCall(objVal, verbName, args)
+}
 
+func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Value) error {
 	// Resolve the object ID from the target value.
 	// Handles ObjValue (including anonymous), WaifValue, and primitive prototypes.
 	var objID types.ObjID

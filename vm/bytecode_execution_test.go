@@ -86,6 +86,49 @@ func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 	}
 }
 
+func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
+	store := newBytecodeVerbStore()
+	class := dbstore.NewObjectBuilder(1)
+	class.SetOwner(0)
+	class.SetParents([]types.ObjID{0})
+	class.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+	if err := store.Add(class.Build()); err != nil {
+		t.Fatalf("store.Add class failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty waif failed: %v", errCode)
+	}
+	if errCode := store.DefineProperty(1, ":last_key", dbstore.NewProperty(types.NewStr(""), 0, 0, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty last_key failed: %v", errCode)
+	}
+	if errCode := store.DefineProperty(1, ":last_value", dbstore.NewProperty(types.NewInt(0), 0, 0, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty last_value failed: %v", errCode)
+	}
+	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_set_index", []string{":_set_index"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{
+			"this.last_key = args[1];",
+			"this.last_value = args[2];",
+			"return this;",
+		})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb _set_index failed: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_index", []string{":_index"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{
+			"return {args[1], this.last_key, this.last_value, typeof(this) == WAIF};",
+		})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb _index failed: %v", errCode)
+	}
+
+	result := runBytecodeProgram(t, `w = #0.waif; w["answer"] = 42; return w["answer"];`, store, nil)
+	requireList(t, result,
+		types.NewStr("answer"),
+		types.NewStr("answer"),
+		types.NewInt(42),
+		types.NewInt(1),
+	)
+}
+
 func TestCaughtErrorDiscardsPartialExpressionOperands(t *testing.T) {
 	code := `return {` +
 		"`max(1, @5) ! E_TYPE => 11'," +
