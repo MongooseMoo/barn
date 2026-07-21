@@ -61,7 +61,15 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		if filterPlayer > 0 && t.Owner != filterPlayer {
 			continue
 		}
-		result = append(result, t.ToQueuedTaskInfo())
+		info := t.ToQueuedTaskInfo()
+		thisValue := info.Get(9)
+		if thisValue.Type() == types.TYPE_ANON && !ctx.IsWizard {
+			owner, errCode := objectOwnerForRead(ctx, thisValue.ID())
+			if errCode != types.E_NONE || owner != ctx.Programmer {
+				continue
+			}
+		}
+		result = append(result, info)
 	}
 
 	if countMode {
