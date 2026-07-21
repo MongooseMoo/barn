@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 
 	"barn/types"
@@ -762,6 +763,46 @@ func TestTransactionDefinePropertyStagesAndPropagatesOnCommit(t *testing.T) {
 	}
 	if childProp.Defined || !childProp.Clear {
 		t.Fatalf("live child property defined=%v clear=%v, want inherited clear slot", childProp.Defined, childProp.Clear)
+	}
+}
+
+func TestTransactionPropertyDefinitionsCommitInInsertionOrder(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	want := make([]string, 64)
+	for i := range want {
+		want[i] = fmt.Sprintf("property_%02d", i)
+		if errCode := tx.DefineProperty(0, want[i], NewProperty(types.NewInt(int64(i)), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("DefineProperty %q failed: %v", want[i], errCode)
+		}
+	}
+
+	staged, errCode := tx.DefinedPropertyNames(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("staged DefinedPropertyNames failed: %v", errCode)
+	}
+	for i := range want {
+		if staged[i] != want[i] {
+			t.Fatalf("staged property %d = %q, want %q", i, staged[i], want[i])
+		}
+	}
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	committed, errCode := store.DefinedPropertyNames(0)
+	if errCode != types.E_NONE {
+		t.Fatalf("committed DefinedPropertyNames failed: %v", errCode)
+	}
+	for i := range want {
+		if committed[i] != want[i] {
+			t.Fatalf("committed property %d = %q, want %q", i, committed[i], want[i])
+		}
 	}
 }
 

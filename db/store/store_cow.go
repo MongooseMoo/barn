@@ -460,8 +460,13 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// applies only to the DEFINER's image (descendant removals are staged as
 	// propertyDeletes by removeInheritedProperty).
 	propDefinesByObj := make(map[types.ObjID][]propertyDefine)
-	for key, def := range tx.propertyDefines {
-		propDefinesByObj[key.objID] = append(propDefinesByObj[key.objID], def)
+	for objID, obj := range tx.objects {
+		for _, name := range obj.propOrder {
+			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
+			if def, ok := tx.propertyDefines[key]; ok {
+				propDefinesByObj[objID] = append(propDefinesByObj[objID], def)
+			}
+		}
 	}
 	propDefDeletesByObj := make(map[types.ObjID][]string)
 	for key, actualName := range tx.propertyDefinitionDeletes {

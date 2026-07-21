@@ -1617,15 +1617,22 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 		remembered[key.objID] = true
 	}
-	for key, def := range tx.propertyDefines {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
+	for objID, obj := range tx.objects {
+		for _, name := range obj.propOrder {
+			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
+			def, ok := tx.propertyDefines[key]
+			if !ok {
+				continue
+			}
+			live := tx.store.liveObjectLocked(objID)
+			if !validLiveObject(live) {
+				return types.E_INVIND
+			}
+			if errCode := tx.store.definePropertyLocked(objID, def.name, def.prop, ts); errCode != types.E_NONE {
+				return errCode
+			}
+			remembered[objID] = true
 		}
-		if errCode := tx.store.definePropertyLocked(key.objID, def.name, def.prop, ts); errCode != types.E_NONE {
-			return errCode
-		}
-		remembered[key.objID] = true
 	}
 	for key, write := range tx.propertyWrites {
 		live := tx.store.liveObjectLocked(key.objID)
