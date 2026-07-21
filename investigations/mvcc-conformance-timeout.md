@@ -120,15 +120,16 @@
 | Focused reversed error-key row, stock WSL Toast, direct deep-equality regression | General map equality versus `equal()` sorting | Ordinary equality already passed; only `strictEqual` retained opposite pair orders until error-code comparison was added | Map storage and operator equality | Deep-equality key sorting treated distinct errors as tied |
 | Focused float-literal row, stock WSL Toast, parser regressions | Parser versus runtime float handling | Barn failed before execution; `.5` and `1.` parser cases were red then green, while exponent forms already worked | Runtime numeric conversion | Lexer numeric scanning required digits on both sides of a decimal point |
 | Focused list-position row, stock WSL Toast, direct builtin regression | Range error versus boundary clamping | Barn returned `E_RANGE` for explicit positions `-5` and `99`; direct and managed tests pass after clamping the append after-position to `[0, len]` | `listinsert` and in-range `listappend` behavior | `listappend` rejected out-of-range explicit positions instead of clamping them |
+| Focused 32-bit integer-key row, stock WSL Toast, direct map regression | Full-width hash identity versus comparator equivalence | Barn retained `0` and `4294967296` as two entries; direct and managed tests pass after hashing integer keys by their signed 32-bit comparator value | Cross-type hashing and floating-point key identity | Integer storage hashes did not implement Toast's modulo-2^32 equality class |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, edge float literal parsing, and explicit list-append boundary rejection. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, edge float literal parsing, explicit list-append boundary rejection, and full-width integer map hashing. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does `int_keys_separated_by_2_to_32_collide_and_replace`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
+- Does `reverse_inserted_bool_key_maps_expose_reverse_topology`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `int_keys_separated_by_2_to_32_collide_and_replace` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `reverse_inserted_bool_key_maps_expose_reverse_topology` alone under the corrected managed runner before any diagnosis or edit.
