@@ -63,6 +63,7 @@
 - `boolean_relational_comparisons_use_default_zero` failed independently because same-type booleans reached the unsupported-type error in relational comparison. Stock WSL Toast treats all booleans as relationally equal, while mixed boolean/integer comparisons remain `E_TYPE`. The direct VM regression, full `vm` tests, and managed run `20260721_131845` pass. Fix commit: `8d39569`.
 - `distinct_boolean_keys_survive_both_insertion_orders` failed independently because VM map assignment rejected boolean keys even though the map's type-tagged hash already distinguishes `false` and `true`. Stock WSL Toast preserves both keys in either insertion order. The direct VM regression, full `types` and `vm` tests, and managed run `20260721_132130` pass. Fix commit: `586e16a`.
 - `boolean_and_equal_integer_mixed_map_reachability` exposed two independent map surfaces. Boolean key output now orders `false` before `true` (`82ca2f2`). For builtin lookup, Toast's red-black-tree rotations and non-antisymmetric boolean comparator make `true` unreachable after inserting `true`, `1`, `false`, `0`; Barn's existing case-aware builtin lookup now reconstructs and searches that topology (`b726e38`). Direct regressions, full `types`, `builtins`, and `vm` tests, and managed run `20260721_132909` pass.
+- `signed_zero_and_adjacent_float_map_identity` matched every equality and map field but rendered negative zero as `-0.0`; stock WSL Toast renders `0.0`. Formatting now canonicalizes zero locally without changing stored bits or identity semantics. The direct `types` regression, full package, and managed run `20260721_133149` pass. Fix commit: `a4ed866`.
 
 ## Theories (plausible)
 
@@ -113,15 +114,16 @@
 | Focused boolean relational row, stock WSL Toast, direct VM regression | Numeric coercion versus same-type default ordering | Both boolean directions compare as zero in Toast; mixed boolean/integer rows remain `E_TYPE`; direct, package, and managed tests pass after adding only same-type handling | Boolean-to-integer coercion | Same-type booleans lacked Toast's default-zero relational case |
 | Focused distinct-boolean-key row, stock WSL Toast, direct VM regression | Hash collision versus key admission | Map storage already hashes `false` and `true` separately; VM assignment rejected each before storage; direct, package, and managed tests pass after admitting `BOOL` keys | Boolean hash collision | `IsValidMapKey` omitted booleans |
 | Focused mixed boolean/integer map row, stock WSL Toast, comparator and builtin regressions | Canonical sorting versus insertion topology | Output ordering converged first; exact builtin lookup remained red only for `true` until Barn reconstructed Toast's red-black lookup tree | Blanket boolean-key rejection or hash collision | Toast's output ordering and topology-dependent builtin lookup are separate surfaces |
+| Focused signed-zero row, stock WSL Toast, direct formatter regression | Float identity versus public literal | All identity fields already matched; only `-0.0` differed; local formatter canonicalization makes direct, package, and managed tests pass | Float equality and map-key hashing | Public literal formatting preserved the IEEE sign bit incorrectly |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, and boolean relational/key/topology defects. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, and negative-zero literal formatting. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does `signed_zero_and_adjacent_float_map_identity`, the next failure from full managed run `20260721_120906`, remain independently red after the completed boolean repairs?
+- Does `reversed_error_key_maps_are_equal`, the next failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `signed_zero_and_adjacent_float_map_identity` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `reversed_error_key_maps_are_equal` alone under the corrected managed runner before any diagnosis or edit.
