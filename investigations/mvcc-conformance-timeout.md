@@ -26,6 +26,8 @@
 - A builtin regression reproduced the conflict. `delete_verb` now calls targeted `AdoptLiveVerbs`; the two-row managed sequence passes. Fix commit: `147c45d`.
 - Managed family run `20260721_112724` passes 19/23. Four independent semantic failures remain: client-disconnected hook, cross-listener reconnection hooks, connect timeout, and flush command.
 - Focused managed run `20260721_112914` independently reproduces `audit_user_client_disconnected_hook` as expected `1`, actual `0`.
+- A direct `rxd` hook regression reproduced the exact bad frame: after player `#2` was removed while player `#3` remained connected, `connection_info(#2)` resolved player `#3` through `resolveConnection`'s fallback.
+- Direct connection lookup is now exact: a missing requested player returns no connection instead of substituting any active session. Affected packages pass, and managed run `20260721_114010` passes the focused disconnect row. Fix commit: `d03f9f1`.
 
 ## Theories (plausible)
 
@@ -52,16 +54,17 @@
 | Focused fork row and minimal ordered selector | Cleanup/order contamination | Fork row passes alone and fails only after simple-hook cleanup; cleanup returns `E_INVARG` | Independent fork scheduling defect | Live mutation self-conflict in cleanup |
 | Red/green `delete_verb` adoption regression and ordered rerun | Targeted live mutation adoption | Conflict reproduced before adoption; ordered managed rows pass 2/2 after fix | Network or scheduler continuation cause | Missing `AdoptLiveVerbs` after deletion |
 | Managed family `20260721_112724` and focused disconnect row | Remaining cascade versus independent failures | Family passes 19/23; disconnect row fails alone with semantic `0` | Global timeout cascade | Four independent lifecycle semantics defects |
+| Direct `rxd` disconnect frame regression and managed rerun | Unrelated connection fallback | Hook recorded `connection_info_succeeds = 1` with another player connected; exact lookup records `0`; managed row passes 1/1 | Disconnect removal timing and hook frame defects | `resolveConnection` substituted an unrelated session |
 
 ## Current Best Theory
 
-The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The next independent failure is the client-disconnected hook's observable frame or removal ordering. Firewall and WSL are not causal for these Windows-managed failures.
+The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The client-disconnected frame failure was unrelated-session substitution and is fixed by `d03f9f1`. The same lookup may explain the first false element in the cross-listener row, but that must be rerun rather than assumed. Firewall and WSL are not causal for these Windows-managed failures.
 
 ## Open Questions
 
-- Does the disconnect hook run, and if so which recorded frame/removal-order field differs from Toast?
-- Does `connection_info(player)` still resolve a connection when `user_client_disconnected` runs?
+- Does the cross-listener row now pass after exact connection lookup?
+- If not, which of its five recorded assertions remains false?
 
 ## Next Action
 
-Add a direct server regression for the exact `user_client_disconnected` frame and connection-removal ordering, establish the actual mismatched value, then fix only the proven root cause.
+Run the cross-listener row alone with the managed harness. If it remains red, isolate its first false assertion in a direct server regression before editing; if it passes, record that the exact-lookup repair resolved the shared cause and move to the connect-timeout row without another source change.
