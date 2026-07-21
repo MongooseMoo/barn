@@ -45,6 +45,9 @@
 - The first semantic mismatch, `audit_server_options_max_stack_depth_runtime`, failed independently as expected recursion count 58, actual 48. Stock WSL Toast passed the unchanged row.
 - Toast reads the live `$server_options.max_stack_depth` property when creating a task and clamps it to at least 50; Barn read a stale `load_server_options()` cache and therefore kept its default 50.
 - A direct scheduler regression was red at 50 with a live property of 60. New VMs now read the live store through the existing `GetMaxStackDepth` path. Full `builtins` and `scheduler` tests pass, and managed run `20260721_121723` passes the focused row. Fix commit: `63a5f45`.
+- The managed runner redirected Barn stderr but did not pass that file as `--moo-log-file`; current `assert_log` steps therefore failed as missing configuration. The runner now supplies its exact per-run stderr path, and managed run `20260721_121942` passes the focused fork-handler row. Fix commit: `82efa7b`.
+- The next full-run failure, `raw_high_bytes_are_not_utf8_case_folded`, failed independently as expected `{0, 1}`, actual `{1, 1}`. Stock WSL Toast passed the unchanged row.
+- Go's Unicode case folding collapses distinct invalid raw bytes to the replacement rune. MOO string equality, map hashing, and map-key ordering now share byte-wise ASCII-only folding. Direct equality/map regressions, full `types` tests, and managed run `20260721_122349` pass. Fix commit: `4fbf70e`.
 
 ## Theories (plausible)
 
@@ -79,15 +82,17 @@
 | Managed lifecycle family `20260721_120729` | Remaining order contamination or independent lifecycle failures | 23/23 pass together | Remaining lifecycle cascade or order dependence | All isolated lifecycle repairs compose correctly |
 | Full managed suite `20260721_120906` | Final conformance gate | 11,334 passed, 159 skipped, 65 failed; failures include both semantic mismatches and missing runner configuration | Full conformance completion | Further one-at-a-time isolation required |
 | Focused stack-depth row, stock WSL Toast, direct scheduler regression | Live task-creation limit versus cached limit | Barn independently got 48; Toast passed at 58; direct VM got stale 50 before and live 60 after repair; focused Barn row passes | Full-suite order contamination and stale expected behavior | Barn incorrectly cached `max_stack_depth` |
+| Focused fork-handler row with managed log path | Missing runner configuration versus Barn panic | Row passes when the existing Barn stderr file is supplied | Fork handler-IP defect | Managed runner omitted `--moo-log-file` |
+| Focused raw-byte row, stock WSL Toast, direct equality/map regressions | Unicode folding versus raw-byte ASCII folding | Barn independently collapsed `0xC0` and `0xE0`; Toast kept them distinct; equality and map tests pass after repair | Full-suite contamination and stale expected behavior | Go Unicode folding violated MOO byte-string semantics |
 
 ## Current Best Theory
 
-The original lifecycle timeout and its six subsequent semantic failures are fixed, and all 23 lifecycle rows pass together. Firewall and WSL were not causal. The unfiltered suite exposed additional current failures outside that family; the first independent semantic failure was stale `max_stack_depth` caching and is fixed by `63a5f45`. Remaining failures must be classified individually because the run also contains harness-configuration failures.
+The original lifecycle timeout and its six subsequent semantic failures are fixed, and all 23 lifecycle rows pass together. Firewall and WSL were not causal. The unfiltered suite exposed additional independent semantic and runner failures: stale live stack depth, missing managed log configuration, and Unicode folding of raw MOO bytes are now fixed. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Which failure is first after the stack-depth repair when the managed runner supplies the configuration required by current tests?
+- Which old full-run failure remains first after the stack-depth, managed-log, and raw-byte fixes?
 
 ## Next Action
 
-Keep the source ledger clean, correct the documented managed runner's missing current-test configuration only if its exact required arguments are already supported, then isolate the next remaining current failure without combining source slices.
+Keep the source ledger clean and run the next old full-run failure alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
