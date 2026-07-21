@@ -23,6 +23,56 @@ func NewStr(s string) Value {
 	return Value{tag: TYPE_STR, ref: unsafe.Pointer(&strRep{val: s})}
 }
 
+func foldASCII(s string) string {
+	firstUpper := -1
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			firstUpper = i
+			break
+		}
+	}
+	if firstUpper < 0 {
+		return s
+	}
+
+	folded := []byte(s)
+	for i := firstUpper; i < len(folded); i++ {
+		if folded[i] >= 'A' && folded[i] <= 'Z' {
+			folded[i] += 'a' - 'A'
+		}
+	}
+	return string(folded)
+}
+
+func compareFoldedASCII(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca < cb {
+			return -1
+		}
+		if ca > cb {
+			return 1
+		}
+	}
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return 1
+	}
+	return 0
+}
+
 // strValue boxes an existing strRep into a Value.
 func strValue(r *strRep) Value {
 	return Value{tag: TYPE_STR, ref: unsafe.Pointer(r)}

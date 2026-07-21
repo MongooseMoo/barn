@@ -245,7 +245,7 @@ func (v Value) Equal(other Value) bool {
 	case TYPE_BOOL:
 		return other.tag == TYPE_BOOL && v.n == other.n
 	case TYPE_STR:
-		return other.tag == TYPE_STR && strings.EqualFold(v.strRep().str(), other.strRep().str())
+		return other.tag == TYPE_STR && compareFoldedASCII(v.strRep().str(), other.strRep().str()) == 0
 	case TYPE_LIST:
 		return other.tag == TYPE_LIST && v.sliceList().equal(other.sliceList())
 	case TYPE_MAP:
@@ -283,7 +283,7 @@ func (v Value) Len() int {
 // These cast the ref word back to its concrete payload pointer. They are the
 // only place unsafe.Pointer is dereferenced; every site is guarded by the tag.
 
-func (v Value) strRep() *strRep     { return (*strRep)(v.ref) }
+func (v Value) strRep() *strRep       { return (*strRep)(v.ref) }
 func (v Value) sliceList() *sliceList { return (*sliceList)(v.ref) }
-func (v Value) goMap() *goMap       { return (*goMap)(v.ref) }
-func (v Value) waifRep() *waifRep   { return (*waifRep)(v.ref) }
+func (v Value) goMap() *goMap         { return (*goMap)(v.ref) }
+func (v Value) waifRep() *waifRep     { return (*waifRep)(v.ref) }

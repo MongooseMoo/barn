@@ -29,7 +29,7 @@ type goMap struct {
 // numeric tag) instead. MOO strings hash case-insensitively.
 func keyHash(v Value) string {
 	if v.Type() == TYPE_STR {
-		return fmt.Sprintf("%d:%s", int(v.Type()), strings.ToLower(v.Str()))
+		return fmt.Sprintf("%d:%s", int(v.Type()), foldASCII(v.Str()))
 	}
 	if v.Type() == TYPE_FLOAT {
 		f := v.Float()
@@ -217,7 +217,7 @@ func CompareMapKeys(a, b Value) int {
 	case TYPE_ERR:
 		return cmpInt64(int64(a.ErrCode()), int64(b.ErrCode()))
 	case TYPE_STR:
-		return strings.Compare(strings.ToLower(a.Str()), strings.ToLower(b.Str()))
+		return compareFoldedASCII(a.Str(), b.Str())
 	}
 	return 0
 }
