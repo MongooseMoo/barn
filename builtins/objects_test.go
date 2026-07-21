@@ -102,6 +102,39 @@ func TestRecycleRequiresObjectControl(t *testing.T) {
 	}
 }
 
+func TestRecyclePropagatesHookErrorAfterDestroyingObject(t *testing.T) {
+	store := dbstore.NewStore()
+	for _, id := range []types.ObjID{0, 2, 4} {
+		builder := dbstore.NewObjectBuilder(id)
+		builder.SetOwner(2)
+		if err := store.Add(builder.Build()); err != nil {
+			t.Fatalf("add object #%d: %v", id, err)
+		}
+	}
+
+	registry := NewRegistry()
+	registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result {
+		if objID != 4 || verbName != "recycle" {
+			t.Fatalf("hook call = #%d:%s, want #4:recycle", objID, verbName)
+		}
+		return types.Err(types.E_DIV)
+	})
+
+	ctx := kernel.NewTaskContext()
+	ctx.Store = store
+	ctx.Registry = registry
+	ctx.Programmer = 2
+	ctx.Player = 2
+
+	result := builtinRecycle(ctx, []types.Value{types.NewObj(4)})
+	if !result.IsError() || result.Error != types.E_DIV {
+		t.Fatalf("recycle result = %+v, want E_DIV", result)
+	}
+	if store.Valid(4) {
+		t.Fatal("recycle hook error left target valid")
+	}
+}
+
 func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {

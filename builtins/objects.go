@@ -382,10 +382,11 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	// Invoke :recycle hook if present. Missing hook and hook errors are ignored.
-	// This matches lifecycle behavior: recycle should proceed even if hook throws.
+	// Invoke :recycle before destroying the object. Recycling still completes if
+	// the hook raises, but the hook exception is returned after cleanup.
+	hookResult := types.Err(types.E_VERBNF)
 	if registry != nil {
-		_ = registry.CallVerb(objID, "recycle", []types.Value{}, ctx)
+		hookResult = registry.CallVerb(objID, "recycle", []types.Value{}, ctx)
 	}
 
 	// Recycle anonymous objects reachable via property values (including nested
@@ -445,6 +446,9 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		_ = cm.RecyclePlayer(objID)
 	}
 	store.NoteVerbCacheClear()
+	if hookResult.IsError() && hookResult.Error != types.E_VERBNF {
+		return hookResult
+	}
 
 	return types.Ok(types.NewInt(0))
 }
