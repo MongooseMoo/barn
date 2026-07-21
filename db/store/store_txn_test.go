@@ -78,6 +78,29 @@ func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {
 	}
 }
 
+func TestTransactionStartedAfterAnonymousRecycleSeesRecycledObject(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	anon, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject anonymous failed: %v", errCode)
+	}
+	if err := store.Recycle(anon); err != nil {
+		t.Fatalf("Recycle anonymous failed: %v", err)
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if tx.Valid(anon) {
+		t.Fatal("post-recycle transaction reports anonymous object valid")
+	}
+	if errCode := tx.ObjectExists(anon); errCode != types.E_INVARG {
+		t.Fatalf("ObjectExists(recycled anonymous) = %v, want E_INVARG", errCode)
+	}
+}
+
 func TestReadOnlyTransactionClonesReturnedContainers(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

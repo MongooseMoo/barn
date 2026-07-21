@@ -176,6 +176,13 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 	if live != nil && objectVersion(live) <= tx.readTS {
 		return cloneObjectForReadTxn(live)
 	}
+	// Anonymous objects live out-of-band in s.anonObjects. Prefer their current
+	// image when it is visible at this transaction's timestamp, including a
+	// recycled image, before consulting older history recorded during mutation.
+	// A transaction that predates the mutation still falls through to history.
+	if anon := tx.store.anonObjects[objID]; anon != nil && objectVersion(anon) <= tx.readTS {
+		return cloneObjectForReadTxn(anon)
+	}
 
 	// The history slice header is read under historyMu: a decentralized COW
 	// committer (holding only store.mu.RLock, which does not exclude this reader's
@@ -192,15 +199,6 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 		}
 	}
 
-	// Anonymous objects live out-of-band in s.anonObjects: they are not in the
-	// numbered slot map and carry no per-id history slice, so the load + history
-	// walk above never finds them. Resolve them here so a read transaction sees a
-	// runtime-created or database-loaded anonymous object the same way the non-tx
-	// path does via liveObjectLocked. They are stamped with a commit version, so
-	// honor the read snapshot exactly as the numbered live image does.
-	if anon := tx.store.anonObjects[objID]; anon != nil && objectVersion(anon) <= tx.readTS {
-		return cloneObjectForReadTxn(anon)
-	}
 	return nil
 }
 
