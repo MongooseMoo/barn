@@ -432,11 +432,14 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// s.load(key.objID) results below are non-nil — do not reorder these checks above it.
 	//
 	// A property DEFINE must not collide with a property already present on the
-	// definer's image (mirrors definePropertyLocked's E_INVARG, store_properties.go:494).
+	// definer's image unless this transaction first deleted that same definition.
+	// The paired delete+define is an ordered replacement.
 	for key := range tx.propertyDefines {
 		live := s.load(key.objID)
 		if _, _, exists := propertyByName(live.properties, key.name); exists {
-			return types.E_INVARG
+			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing {
+				return types.E_INVARG
+			}
 		}
 	}
 	// A property DEFINE-DELETE must target a property defined on the definer's image
@@ -495,14 +498,13 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		if w, ok := tx.relationshipWrites[id]; ok {
 			img = buildImageWithRelationship(img, w, ts)
 		}
-		// Property DEFINE / DEFINITION-DELETE on the definer image first: they
-		// establish/remove the defined slot + propOrder before any inherited-slot
-		// value writes (different property names, so order is independent in practice).
-		for _, def := range propDefinesByObj[id] {
-			img = buildImageWithPropertyDefine(img, def, ts)
-		}
+		// Apply definition deletes before defines so delete-then-redefine of the
+		// same name replaces the live definition and preserves insertion order.
 		for _, actualName := range propDefDeletesByObj[id] {
 			img = buildImageWithPropertyDefinitionDelete(img, actualName, ts)
+		}
+		for _, def := range propDefinesByObj[id] {
+			img = buildImageWithPropertyDefine(img, def, ts)
 		}
 		for _, w := range propWritesByObj[id] {
 			img = buildImageWithPropertyValue(img, w, ts)

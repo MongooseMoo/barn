@@ -1360,7 +1360,9 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 				clear:   true,
 				defined: false,
 			}
-			lazySet(&tx.propertyWrites, propertyWriteKey{objID: childID, name: propertyNameKey(name)}, propertyWrite{
+			key := propertyWriteKey{objID: childID, name: propertyNameKey(name)}
+			delete(tx.propertyDeletes, key)
+			lazySet(&tx.propertyWrites, key, propertyWrite{
 				name:  name,
 				value: prop.value,
 				prop:  child.properties[name],
@@ -1605,22 +1607,22 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 		stampObjectRelationship(live, ts)
 	}
-	for key, def := range tx.propertyDefines {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			return types.E_INVIND
-		}
-		if errCode := tx.store.definePropertyLocked(key.objID, def.name, def.prop, ts); errCode != types.E_NONE {
-			return errCode
-		}
-		remembered[key.objID] = true
-	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
 		if errCode := tx.store.deleteDefinedPropertyLocked(key.objID, actualName, ts); errCode != types.E_NONE {
+			return errCode
+		}
+		remembered[key.objID] = true
+	}
+	for key, def := range tx.propertyDefines {
+		live := tx.store.liveObjectLocked(key.objID)
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if errCode := tx.store.definePropertyLocked(key.objID, def.name, def.prop, ts); errCode != types.E_NONE {
 			return errCode
 		}
 		remembered[key.objID] = true

@@ -1051,6 +1051,72 @@ func TestTransactionDeleteDefinedPropertyStagesAndRemovesInheritedOnCommit(t *te
 	}
 }
 
+func TestTransactionDeleteThenRedefinePropertyCommitsReplacement(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+	child, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(0, "a", NewProperty(types.NewInt(2), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("replacement DefineProperty failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+
+	for _, id := range []types.ObjID{0, child} {
+		value, errCode := store.PropertyValue(id, "a")
+		if errCode != types.E_NONE {
+			t.Fatalf("PropertyValue #%d.a failed: %v", id, errCode)
+		}
+		if got := value.Int(); got != 2 {
+			t.Fatalf("PropertyValue #%d.a = %d, want replacement 2", id, got)
+		}
+	}
+}
+
+func TestTransactionDeleteThenRedefinePropertyCommitsReplacementOnCoarsePath(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "a", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if errCode := tx.DeleteDefinedProperty(0, "a"); errCode != types.E_NONE {
+		t.Fatalf("DeleteDefinedProperty failed: %v", errCode)
+	}
+	if errCode := tx.DefineProperty(0, "a", NewProperty(types.NewInt(2), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("replacement DefineProperty failed: %v", errCode)
+	}
+	tx.MarkLiveMutated()
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	value, errCode := store.PropertyValue(0, "a")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.Int(); got != 2 {
+		t.Fatalf("PropertyValue = %d, want replacement 2", got)
+	}
+}
+
 func TestTransactionDeleteDefinedPropertyConflictsWithConcurrentPropertyWrite(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
