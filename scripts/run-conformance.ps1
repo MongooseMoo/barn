@@ -165,6 +165,7 @@ try {
     $server = Start-Process -FilePath $serverBinary `
         -ArgumentList $serverArgs `
         -WorkingDirectory $runDir `
+        -WindowStyle Hidden `
         -RedirectStandardOutput $serverOutLog `
         -RedirectStandardError $serverErrLog `
         -PassThru
