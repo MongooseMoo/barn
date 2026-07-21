@@ -57,6 +57,33 @@ func TestTointStringOverflowClamps(t *testing.T) {
 	}
 }
 
+func TestToobjStringOverflowClamps(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	tests := []struct {
+		input string
+		want  types.ObjID
+	}{
+		{input: "-9223372036854775807", want: -9223372036854775807},
+		{input: "9223372036854775807", want: 9223372036854775807},
+		{input: "-9223372036854775808", want: -9223372036854775808},
+		{input: "9223372036854775808", want: 9223372036854775807},
+		{input: "-9223372036854775809", want: -9223372036854775808},
+		{input: "9223372036854775809", want: 9223372036854775807},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			result := builtinToobj(ctx, []types.Value{types.NewStr(tc.input)})
+			if result.Flow != types.FlowNormal {
+				t.Fatalf("toobj(%q) flow = %v error = %v, want normal", tc.input, result.Flow, result.Error)
+			}
+			if got := result.Val.Obj(); got != tc.want {
+				t.Fatalf("toobj(%q) = %d, want %d", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	result := builtinToliteral(ctx, []types.Value{types.NewAnon(12)})
