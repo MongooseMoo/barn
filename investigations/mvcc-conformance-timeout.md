@@ -19,6 +19,8 @@
 - Managed connection-lifecycle family run `20260721_111108` passed its first four rows, then `audit_user_connected_hook_on_first_login` returned semantic comparison `0` instead of `1`; later family cases cascaded into timeouts.
 - Focused managed run `20260721_111457` reproduces only the semantic `user_connected` failure in 3.89 seconds.
 - `RunServerVerbTask` assigns `t.Caller = player`, but that assignment predates the current review work. The conformance boolean does not reveal whether the hook write is absent or one recorded frame field differs.
+- Direct server regression recorded `{#0, #2, #2, {#2}, ""}` versus Toast's `{#0, #2, #-1, {#2}, ""}`. Server lifecycle tasks now use `caller = #-1`; focused managed run `20260721_111924` passes. Fix commit: `92bf74f`.
+- Managed family run `20260721_111949` passes the first five rows, then `audit_user_connected_continues_after_zero_delay_fork` times out; later cases cascade. The next active surface is server-hook fork continuation.
 
 ## Theories (plausible)
 
@@ -40,17 +42,18 @@
 | Inspect `StoreTxn.objects` contract and line 1621 | 1 | Missing objects are cached as nil; finding 8 loop dereferences every entry | Unexplained runtime/environment failure | Finding 8 nil handling defect |
 | Red/green cached-miss regressions and managed focused rerun | 1 | Both commit paths no longer panic; focused row passes 1/1 | Firewall/WSL and lane routing as cause of the original timeout | Nil dereference root cause and fix |
 | Managed connection family and focused first-login row | 5, 6 | First four lifecycle rows pass; isolated hook comparison returns 0 | Remaining global transport failure | Hook transaction or frame regression |
+| Direct server hook frame regression | 5, 6 | Write commits with only `caller` wrong (`#2`, want `#-1`) | Terminal transaction release dropping the simple hook write | Server-hook caller defect |
+| Focused hook rerun and next family run | 6 | Simple hook passes; family reaches the zero-delay-fork continuation row then times out | Simple hook frame as remaining cascade source | Separate fork-continuation defect |
 
 ## Current Best Theory
 
-The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. A separate first-login hook semantic regression remains: the hook's recorded frame is absent or differs. Firewall and WSL are not causal for either observed Windows-managed failure.
+The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The next independent failure is a zero-delay-fork continuation timeout in a server hook. Firewall and WSL are not causal for these Windows-managed failures.
 
 ## Open Questions
 
-- Does a direct `callUserHook` test observe the default property or a mismatched frame list?
-- If the write is absent, which transaction lifecycle step discards it?
-- If the frame differs, which field changed relative to the recent green baseline?
+- Which parent/child marker is missing when `user_connected` forks at delay zero?
+- Does terminal transaction release invalidate the suspended parent, or is the child never scheduled/drained?
 
 ## Next Action
 
-Add a direct server regression mirroring the Toast-confirmed `user_connected` frame and inspect the actual recorded property value before changing implementation.
+Run the zero-delay-fork row alone with managed diagnostics, then compare its exact MOO sequence with the existing server fork-resume regression to identify the missing state transition before editing.
