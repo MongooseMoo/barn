@@ -21,6 +21,126 @@ type goMap struct {
 	pairs map[string]mapEntry // key hash -> entry
 }
 
+type toastLookupNode struct {
+	entry mapEntry
+	red   bool
+	link  [2]*toastLookupNode
+}
+
+func toastMapCompare(a, b Value, caseSensitive bool) int {
+	if a.Type() != b.Type() {
+		return int(a.Type()) - int(b.Type())
+	}
+	switch a.Type() {
+	case TYPE_INT:
+		return int(int32(a.Int() - b.Int()))
+	case TYPE_OBJ:
+		return int(int32(a.Obj() - b.Obj()))
+	case TYPE_ERR:
+		return int(a.ErrCode()) - int(b.ErrCode())
+	case TYPE_STR:
+		if caseSensitive {
+			return strings.Compare(a.Str(), b.Str())
+		}
+		return compareFoldedASCII(a.Str(), b.Str())
+	case TYPE_FLOAT:
+		if a.Float() < b.Float() {
+			return -1
+		} else if a.Float() > b.Float() {
+			return 1
+		}
+		return 0
+	case TYPE_WAIF:
+		if a.WaifIdentity() == b.WaifIdentity() {
+			return 0
+		}
+		return 1
+	case TYPE_ANON:
+		if a.ID() == b.ID() {
+			return 0
+		}
+		return 1
+	case TYPE_BOOL:
+		if a.Bool() == b.Bool() {
+			return 0
+		}
+		return 1
+	default:
+		return 0
+	}
+}
+
+func toastLookupRotate(root *toastLookupNode, dir int) *toastLookupNode {
+	save := root.link[1-dir]
+	root.link[1-dir] = save.link[dir]
+	save.link[dir] = root
+	root.red = true
+	save.red = false
+	return save
+}
+
+func toastLookupDoubleRotate(root *toastLookupNode, dir int) *toastLookupNode {
+	root.link[1-dir] = toastLookupRotate(root.link[1-dir], 1-dir)
+	return toastLookupRotate(root, dir)
+}
+
+func toastLookupInsert(root *toastLookupNode, entry mapEntry) *toastLookupNode {
+	if root == nil {
+		return &toastLookupNode{entry: entry}
+	}
+
+	head := &toastLookupNode{}
+	var grandparent, parent *toastLookupNode
+	greatGrandparent := head
+	direction, lastDirection := 0, 0
+	head.link[1] = root
+	current := root
+
+	for {
+		if current == nil {
+			current = &toastLookupNode{entry: entry, red: true}
+			parent.link[direction] = current
+		} else if current.link[0] != nil && current.link[0].red && current.link[1] != nil && current.link[1].red {
+			current.red = true
+			current.link[0].red = false
+			current.link[1].red = false
+		}
+
+		if current.red && parent != nil && parent.red {
+			directionFromGreat := 0
+			if greatGrandparent.link[1] == grandparent {
+				directionFromGreat = 1
+			}
+			if current == parent.link[lastDirection] {
+				greatGrandparent.link[directionFromGreat] = toastLookupRotate(grandparent, 1-lastDirection)
+			} else {
+				greatGrandparent.link[directionFromGreat] = toastLookupDoubleRotate(grandparent, 1-lastDirection)
+			}
+		}
+
+		comparison := toastMapCompare(current.entry.key, entry.key, false)
+		if comparison == 0 {
+			break
+		}
+
+		lastDirection = direction
+		if comparison < 0 {
+			direction = 1
+		} else {
+			direction = 0
+		}
+		if grandparent != nil {
+			greatGrandparent = grandparent
+		}
+		grandparent, parent = parent, current
+		current = current.link[direction]
+	}
+
+	root = head.link[1]
+	root.red = false
+	return root
+}
+
 // keyHash converts a value to a string key for the Go map.
 //
 // LANDMINE: the old representation namespaced keys with %T (the Go dynamic
@@ -258,19 +378,25 @@ func (v Value) Keys() []Value { return v.goMap().keys() }
 // Pairs returns all key-value pairs in insertion order.
 func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
 
-// GetWithCase returns a map value with configurable string-key case handling.
-// Non-string keys always use exact typed lookup semantics.
+// GetWithCase returns a map value using Toast's tree topology and configurable
+// string-key case handling. Map builtins use this path; direct indexing uses MapGet.
 func (v Value) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
-	if key.Type() != TYPE_STR || !caseSensitive {
-		return v.MapGet(key)
+	var root *toastLookupNode
+	for _, hash := range v.goMap().order {
+		root = toastLookupInsert(root, v.goMap().pairs[hash])
 	}
-	want := key.Str()
-	for _, existing := range v.Keys() {
-		if existing.Type() != TYPE_STR {
-			continue
+	for root != nil {
+		comparison := toastMapCompare(root.entry.key, key, caseSensitive)
+		if comparison == 0 {
+			return root.entry.val, true
 		}
-		if existing.Str() == want {
-			return v.MapGet(existing)
+		if caseSensitive {
+			comparison = toastMapCompare(root.entry.key, key, false)
+		}
+		if comparison < 0 {
+			root = root.link[1]
+		} else {
+			root = root.link[0]
 		}
 	}
 	return None, false

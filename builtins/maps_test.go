@@ -50,3 +50,34 @@ func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
 		})
 	}
 }
+
+func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
+	ctx := &kernel.TaskContext{}
+	mapping := types.NewEmptyMap()
+	mapping = mapping.MapSet(types.NewBool(true), types.NewStr("boolean one"))
+	mapping = mapping.MapSet(types.NewInt(1), types.NewStr("integer one"))
+	mapping = mapping.MapSet(types.NewBool(false), types.NewStr("boolean zero"))
+	mapping = mapping.MapSet(types.NewInt(0), types.NewStr("integer zero"))
+
+	tests := []struct {
+		name string
+		key  types.Value
+		want int64
+	}{
+		{name: "true", key: types.NewBool(true), want: 0},
+		{name: "one", key: types.NewInt(1), want: 1},
+		{name: "false", key: types.NewBool(false), want: 1},
+		{name: "zero", key: types.NewInt(0), want: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builtinMaphaskey(ctx, []types.Value{mapping, test.key})
+			if result.IsError() {
+				t.Fatalf("maphaskey: %s", result.Error)
+			}
+			if got := result.Val.Int(); got != test.want {
+				t.Fatalf("maphaskey = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
