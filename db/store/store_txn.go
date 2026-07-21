@@ -1618,6 +1618,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		remembered[key.objID] = true
 	}
 	for objID, obj := range tx.objects {
+		if obj == nil {
+			continue
+		}
 		for _, name := range obj.propOrder {
 			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 			def, ok := tx.propertyDefines[key]

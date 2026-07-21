@@ -461,6 +461,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// propertyDeletes by removeInheritedProperty).
 	propDefinesByObj := make(map[types.ObjID][]propertyDefine)
 	for objID, obj := range tx.objects {
+		if obj == nil {
+			continue
+		}
 		for _, name := range obj.propOrder {
 			key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 			if def, ok := tx.propertyDefines[key]; ok {
