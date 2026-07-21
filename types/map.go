@@ -176,7 +176,7 @@ func sortMapPairsForOutput(pairs [][2]Value) {
 }
 
 // CompareMapKeys compares two map keys in canonical MOO order.
-// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4).
+// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4) < BOOL (5).
 func CompareMapKeys(a, b Value) int {
 	typeOrder := func(v Value) int {
 		switch v.Type() {
@@ -190,8 +190,10 @@ func CompareMapKeys(a, b Value) int {
 			return 3
 		case TYPE_STR:
 			return 4
-		default:
+		case TYPE_BOOL:
 			return 5
+		default:
+			return 6
 		}
 	}
 
@@ -218,6 +220,13 @@ func CompareMapKeys(a, b Value) int {
 		return cmpInt64(int64(a.ErrCode()), int64(b.ErrCode()))
 	case TYPE_STR:
 		return compareFoldedASCII(a.Str(), b.Str())
+	case TYPE_BOOL:
+		if !a.Bool() && b.Bool() {
+			return -1
+		} else if a.Bool() && !b.Bool() {
+			return 1
+		}
+		return 0
 	}
 	return 0
 }
