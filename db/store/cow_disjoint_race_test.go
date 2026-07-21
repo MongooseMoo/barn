@@ -4,9 +4,58 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"barn/types"
 )
+
+func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	a, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject a failed: %v", errCode)
+	}
+	b, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject b failed: %v", errCode)
+	}
+	for _, id := range []types.ObjID{a, b} {
+		if errCode := store.DefineProperty(id, "n", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("DefineProperty #%d.n failed: %v", id, errCode)
+		}
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if _, errCode := tx.PropertyValue(b, "n"); errCode != types.E_NONE {
+		t.Fatalf("read b.n failed: %v", errCode)
+	}
+	if errCode := tx.SetPropertyValue(a, "n", types.NewInt(1)); errCode != types.E_NONE {
+		t.Fatalf("write a.n failed: %v", errCode)
+	}
+
+	readSlot := store.objects[b]
+	readSlot.mu.Lock()
+	done := make(chan types.ErrorCode, 1)
+	go func() {
+		done <- tx.Commit()
+	}()
+
+	select {
+	case errCode := <-done:
+		readSlot.mu.Unlock()
+		t.Fatalf("Commit completed without holding read-set slot: %v", errCode)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	readSlot.mu.Unlock()
+	if errCode := <-done; errCode != types.E_NONE {
+		t.Fatalf("Commit after releasing read-set slot failed: %v", errCode)
+	}
+}
 
 // TestCOWDisjointCommitsRaceFree is the Phase-0 go/no-go race gate.
 //

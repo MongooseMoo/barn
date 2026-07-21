@@ -279,8 +279,10 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 // verb-code writes — and is not tx.liveMutated. It runs under store.mu.RLock so
 // disjoint committers proceed in parallel; per-object slot mutexes (taken in ascending
 // ObjID order, deadlock-free) serialize same-object committers and exclude concurrent
-// publishers of the same slot. Read-set validation reads immutable images via load();
-// on mismatch the whole commit fails with the same contract as the coarse path
+// publishers of the same slot. The union of read-set and write-set slots stays locked
+// through validation and publish, so disjoint writers cannot both validate a
+// write-skew cycle against stale images. On mismatch the whole commit fails with
+// the same contract as the coarse path
 // (E_INVARG + validationFail). For each object in the footprint a SINGLE new immutable
 // image is built applying all of that object's writes (in a fixed kind order), then
 // every image is published atomically per slot.
@@ -341,14 +343,51 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 	sortObjIDs(writeIDs)
 
-	// Lock every written slot (ascending) for the whole validate+build+publish.
-	slots := make([]*objectSlot, 0, len(writeIDs))
+	// Lock the union of read-set and write-set slots (ascending) for the whole
+	// validate+build+publish interval. A read-only object with no numbered slot is
+	// stable under store.mu.RLock and needs no slot lock; a missing write target is
+	// still E_INVIND.
+	lockIDs := append([]types.ObjID(nil), writeIDs...)
+	lockedIDs := make(map[types.ObjID]bool, len(writeIDs))
 	for _, id := range writeIDs {
+		lockedIDs[id] = true
+	}
+	addLockID := func(id types.ObjID) {
+		if !lockedIDs[id] {
+			lockedIDs[id] = true
+			lockIDs = append(lockIDs, id)
+		}
+	}
+	for id := range tx.scalarReads {
+		addLockID(id)
+	}
+	for id := range tx.relationshipReads {
+		addLockID(id)
+	}
+	for key := range tx.propertyReads {
+		addLockID(key.objID)
+	}
+	for id := range tx.propertyScans {
+		addLockID(id)
+	}
+	for key := range tx.verbReads {
+		addLockID(key.objID)
+	}
+	for id := range tx.verbScans {
+		addLockID(id)
+	}
+	sortObjIDs(lockIDs)
+
+	slots := make([]*objectSlot, 0, len(lockIDs))
+	for _, id := range lockIDs {
 		slot := s.objects[id]
 		if slot == nil {
-			// No slot => object never existed. Apply-time contract returns E_INVIND.
-			unlockSlots(slots)
-			return types.E_INVIND
+			if seen[id] {
+				// No slot => written object never existed. Apply-time contract returns E_INVIND.
+				unlockSlots(slots)
+				return types.E_INVIND
+			}
+			continue
 		}
 		slot.mu.Lock()
 		slots = append(slots, slot)
