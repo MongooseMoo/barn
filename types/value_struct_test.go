@@ -104,6 +104,31 @@ func TestMapIntegerKeysCollideAt32BitComparatorBoundary(t *testing.T) {
 	}
 }
 
+func TestMapObjectKeysCollideAt32BitComparatorBoundary(t *testing.T) {
+	small := NewObj(0)
+	large := NewObj(1 << 32)
+	if small.Equal(large) {
+		t.Fatal("full-width object values compare equal outside map storage")
+	}
+	m := NewMap([][2]Value{
+		{small, NewStr("small")},
+		{large, NewStr("large")},
+	})
+
+	if got := m.Len(); got != 1 {
+		t.Fatalf("map length = %d, want 1", got)
+	}
+	for _, key := range []Value{small, large} {
+		if got, ok := m.MapGet(key); !ok || got.Str() != "large" {
+			t.Fatalf("lookup for %v = %v, %v; want large, true", key, got, ok)
+		}
+	}
+	keys := m.Keys()
+	if len(keys) != 1 || keys[0].Type() != TYPE_OBJ || keys[0].Obj() != 1<<32 {
+		t.Fatalf("map keys = %v, want {#4294967296}", keys)
+	}
+}
+
 func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
 	first := NewWaif(1, 2)
 	second := NewWaif(1, 2)

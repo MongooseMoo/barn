@@ -151,6 +151,9 @@ func keyHash(v Value) string {
 	if v.Type() == TYPE_INT {
 		return fmt.Sprintf("%d:%d", int(v.Type()), int32(v.Int()))
 	}
+	if v.Type() == TYPE_OBJ {
+		return fmt.Sprintf("%d:%d", int(v.Type()), int32(v.Obj()))
+	}
 	if v.Type() == TYPE_STR {
 		return fmt.Sprintf("%d:%s", int(v.Type()), foldASCII(v.Str()))
 	}
