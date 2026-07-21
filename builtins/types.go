@@ -197,6 +197,9 @@ func builtinToliteral(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	resultStr := args[0].String()
+	if args[0].Type() == types.TYPE_ANON {
+		resultStr = "*anonymous*"
+	}
 
 	// Check string length limit (update from load_server_options cache first)
 	UpdateContextLimits(ctx)

@@ -310,6 +310,12 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 2; i >= 0; i-- {
 		frame := stack[i]
+		if frame.ThisValue.Type() == types.TYPE_ANON && !ctx.IsWizard {
+			owner, errCode := objectOwnerForRead(ctx, frame.ThisValue.ID())
+			if errCode != types.E_NONE || owner != ctx.Programmer {
+				frame.ThisValue = types.NewAnon(types.ObjNothing)
+			}
+		}
 
 		// At the eval boundary, expose the eval activation the way Toast does:
 		// the eval'd user-code frame followed by the two synthetic eval wrapper

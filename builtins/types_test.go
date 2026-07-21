@@ -56,3 +56,14 @@ func TestTointStringOverflowClamps(t *testing.T) {
 		})
 	}
 }
+
+func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	result := builtinToliteral(ctx, []types.Value{types.NewAnon(12)})
+	if result.IsError() {
+		t.Fatalf("toliteral failed: %v", result.Error)
+	}
+	if got := result.Val.Str(); got != "*anonymous*" {
+		t.Fatalf("toliteral(anonymous) = %q, want %q", got, "*anonymous*")
+	}
+}
