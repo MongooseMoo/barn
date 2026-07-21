@@ -869,6 +869,9 @@ func builtinFileList(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	entries, err := os.ReadDir(resolveFilePath(path))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return types.Ok(types.NewList(nil))
+		}
 		return types.Err(types.E_FILE)
 	}
 	out := make([]types.Value, 0, len(entries))
