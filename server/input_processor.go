@@ -120,7 +120,9 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 			if conn.IsLoggedIn() {
 				_ = deadlineTransport.SetReadDeadline(time.Time{})
 			} else {
-				_ = deadlineTransport.SetReadDeadline(time.Now().Add(connectTimeout))
+				now := time.Now()
+				deadline := time.Unix(now.Unix()+int64(connectTimeout/time.Second)+1, 0)
+				_ = deadlineTransport.SetReadDeadline(deadline)
 			}
 		}
 
