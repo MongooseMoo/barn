@@ -50,6 +50,7 @@
 - Go's Unicode case folding collapses distinct invalid raw bytes to the replacement rune. MOO string equality, map hashing, and map-key ordering now share byte-wise ASCII-only folding. Direct equality/map regressions, full `types` tests, and managed run `20260721_122349` pass. Fix commit: `4fbf70e`.
 - The managed runner previously started Barn in the repository root, exposing unrelated untracked `files/` artifacts to conformance. It now starts the absolute binary and DB in its unique run directory and supplies that directory as `--moo-server-dir`; no user files were deleted. Fix commit: `138c100`.
 - Clean runner isolation exposed the underlying `file_list(".")` mismatch: a missing sandbox directory returned `E_FILE`, while stock WSL Toast returns an empty list. A direct regression, full `builtins` tests, and all six call-shape rows pass after treating only `os.IsNotExist` as empty. Fix commit: `06327b5`.
+- The next failure, `programmer_cannot_recycle_object_owned_by_another_programmer`, failed independently because Barn skipped the `controls2` permission check entirely. A direct regression proved a nonowner programmer could invalidate the target. Barn now checks live wizard status or ownership before hooks/mutation; full `builtins` tests and managed run `20260721_123202` pass. Fix commit: `18d1425`.
 
 ## Theories (plausible)
 
@@ -88,14 +89,15 @@
 | Focused raw-byte row, stock WSL Toast, direct equality/map regressions | Unicode folding versus raw-byte ASCII folding | Barn independently collapsed `0xC0` and `0xE0`; Toast kept them distinct; equality and map tests pass after repair | Full-suite contamination and stale expected behavior | Go Unicode folding violated MOO byte-string semantics |
 | Focused file-list row before/after clean managed cwd | Repository artifact contamination versus builtin semantics | Repository-root run listed unrelated files; isolated run returned `E_FILE`; Toast returned `[]` | Detail-flag type handling as the cause | Runner cwd contamination plus missing-directory mismatch |
 | Direct missing-sandbox regression and six-row managed file-list selector | Missing directory handling | Direct/package tests and 6/6 managed rows pass after repair | General filesystem error suppression | Only `os.IsNotExist` must become an empty list |
+| Focused recycle-control row, stock WSL Toast, direct permission regression | Missing control check | Barn allowed and invalidated the target before; owner/wizard boundary now passes direct and managed tests | Harness contamination and stale expected behavior | Barn's explicit recycle permission TODO |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, missing managed log configuration, Unicode folding of raw MOO bytes, repository-root file contamination, and missing-directory listing semantics. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, two managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, and missing recycle control. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Which old full-run failure remains first after the stack-depth, runner, raw-byte, and file-list fixes?
+- Does the next old full-run recycle-hook failure remain independent after the recycle control repair?
 
 ## Next Action
 
