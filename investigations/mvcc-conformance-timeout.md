@@ -36,6 +36,11 @@
 - Stock WSL Toast at required commit `aecc51e9449c6e7c95272f0f044b5ba38948459e` passed the unchanged focused timeout row 1/1 through `scripts/run_toast_wsl.sh`; WSL was healthy and did not require restart.
 - Toast source stores `last_activity_time` as integer `time_t` and times out only when `now - last_activity_time > connect_timeout`. Barn now schedules the first eligible whole-second boundary rather than the exact duration boundary.
 - Deterministic server regression was red at exactly `3s` and green in Toast's strict-second window `(3s, 4s]`; full server tests pass. Managed Windows run `20260721_115649` passes the unchanged row. Fix commit: `a901dfc`.
+- Focused managed Barn run `20260721_115821` independently reproduced the final lifecycle failure: mixed-case `.FlUsH` emitted no pending-input report.
+- The unchanged flush row passed stock WSL Toast 1/1 through `scripts/run_toast_wsl.sh`. The conformance checkout's Linux-created `.venv/lib64` symlink prevents direct Windows `uv` use there, but Barn's documented `uv` environment loaded that same sibling source and reached WSL successfully; no environment deletion or WSL restart was needed.
+- Direct builtins and server regressions proved Barn compared `flush-command` case-sensitively, queued `.FlUsH` as ordinary input, and exposed no discarded lines to the connection path. Both tests were red before the repair.
+- `HandleHeldInput` now matches the command case-insensitively and returns the queued lines in input order; the originating input connection emits Toast's exact four-line report. Full `builtins` and `server` tests pass. Managed Windows run `20260721_120642` passes the unchanged row. Fix commit: `458bdc8`.
+- Managed lifecycle-family run `20260721_120729` passes all 23 selected rows together, including the four formerly independent failures.
 
 ## Theories (plausible)
 
@@ -66,15 +71,17 @@
 | Focused cross-listener rerun and direct transition regression | Replacement publication timing | Only old disconnect frame remained false; replacement was visible before old hook; delayed publication makes direct and managed tests pass | Shared resolver fallback as the entire cross-listener cause | Reconnection association order defect |
 | Timestamped focused connect-timeout diagnostics | Configuration, deadline, hook commit | Selected timeout is 3s; activity read; deadline fires exactly +3.000s; hook completes; query at +3.005s observes it too early | Missing option, missing hook, lost hook transaction | Timeout boundary differs from Toast-confirmed coarse boundary |
 | Stock WSL Toast row, Toast source, deterministic deadline regression, Windows rerun | Exact timeout boundary | Toast row passes; source uses integer seconds and strict `>`; Barn test red at exact 3s and green after whole-second boundary; Windows row passes | Arbitrary grace period or environment workaround | Source-defined strict-second semantics |
+| Stock WSL Toast flush row, direct regressions, focused Windows rerun | Case matching, queue discard, and observable report | Toast passes; Barn tests were red for queued mixed-case input and empty output, then green after returning discarded lines and reporting them | Firewall, WSL routing, and a conformance expectation error | Case-sensitive silent flush handling |
+| Managed lifecycle family `20260721_120729` | Remaining order contamination or independent lifecycle failures | 23/23 pass together | Remaining lifecycle cascade or order dependence | All isolated lifecycle repairs compose correctly |
 
 ## Current Best Theory
 
-The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The client-disconnected frame failure was unrelated-session substitution and is fixed by `d03f9f1`. The cross-listener frame failure was replacement publication before old-hook completion and is fixed by `4655354`. The connect-timeout boundary is fixed by `a901dfc`. The last known lifecycle failure is flush-command pending-input behavior. Firewall and WSL are not causal for these Windows-managed failures.
+The original timeout was Finding 8's nil dereference and is fixed by `83b54f8`. The simple first-login hook failure was server-hook `caller` and is fixed by `92bf74f`. The ordered fork timeout was a `delete_verb` transaction self-conflict and is fixed by `147c45d`. The client-disconnected frame failure was unrelated-session substitution and is fixed by `d03f9f1`. The cross-listener frame failure was replacement publication before old-hook completion and is fixed by `4655354`. The connect-timeout boundary is fixed by `a901dfc`. The flush-command failure was case-sensitive matching plus a silent queue-clear path and is fixed by `458bdc8`. Firewall and WSL were not causal; all 23 lifecycle rows now pass together.
 
 ## Open Questions
 
-- Does `flush-command` fail to discard held queued events, fail to apply to the active connection, or release already-dispatched input?
+- None for the lifecycle family.
 
 ## Next Action
 
-Run the flush-command row alone with managed diagnostics, trace its held-input queue transitions, and add a direct regression at the proven failing boundary before editing.
+Run the full managed 11,558-test conformance suite required by `review-mvcc-transaction-findings.md`, then complete the remaining checklist gates only from the observed results.
