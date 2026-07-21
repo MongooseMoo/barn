@@ -263,7 +263,11 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 	if !alreadyLoggedIn {
 		conn.SetPlayer(player)
 		conn.ConnectionTime = time.Now()
-		cm.playerConns[player] = conn
+		if reconnection {
+			delete(cm.playerConns, player)
+		} else {
+			cm.playerConns[player] = conn
+		}
 	}
 
 	cm.mu.Unlock()
@@ -295,6 +299,9 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 	if reconnection {
 		existingConn.Send("*** Redirecting connection to new port ***")
 		s.callUserHook(existingConn.ListenerObject(), "user_client_disconnected", player)
+		cm.mu.Lock()
+		cm.playerConns[player] = conn
+		cm.mu.Unlock()
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}

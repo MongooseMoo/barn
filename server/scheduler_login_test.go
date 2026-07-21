@@ -179,6 +179,102 @@ func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
 	}
 }
 
+func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	player := addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	oldHandler := addTestObject(t, store, 10, dbstore.FlagWizard)
+	newHandler := addTestObject(t, store, 11, dbstore.FlagWizard)
+	for _, name := range []string{"old_disconnect_frames", "new_connected_frames", "hook_order"} {
+		if errCode := store.DefineProperty(system, name, dbstore.NewProperty(types.NewList(nil), 2,
+			dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("define %s: %v", name, errCode)
+		}
+	}
+	if _, errCode := store.AddVerb(oldHandler, dbstore.NewVerb("user_client_disconnected", []string{"user_client_disconnected"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{
+			"connection_info_succeeds = 1;",
+			"try",
+			"  connection_info(args[1]);",
+			"except (E_INVARG)",
+			"  connection_info_succeeds = 0;",
+			"endtry",
+			"#0.old_disconnect_frames = {@#0.old_disconnect_frames, {this, player, caller, args, argstr, connection_info_succeeds}};",
+			`#0.hook_order = {@#0.hook_order, "old_client"};`,
+		})); errCode != types.E_NONE {
+		t.Fatalf("add old disconnect hook: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(newHandler, dbstore.NewVerb("user_connected", []string{"user_connected"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{
+			"info = connection_info(args[1]);",
+			`#0.new_connected_frames = {@#0.new_connected_frames, {this, player, caller, args, argstr, info["source_port"]}};`,
+			`#0.hook_order = {@#0.hook_order, "new_connected"};`,
+		})); errCode != types.E_NONE {
+		t.Fatalf("add new connected hook: %v", errCode)
+	}
+
+	rt := runtime.NewScheduler(store)
+	processor := NewInputProcessor(store, rt)
+	cm := NewConnectionManager(7777)
+	processor.SetConnectionManager(cm)
+	rt.Registry().SetConnectionManager(cm)
+
+	oldConn := cm.NewConnectionFromTransport(stubTransport{})
+	oldConn.SetListener(oldHandler, 7788, false)
+	processor.loginPlayer(oldConn, player, false)
+	newConn := cm.NewConnectionFromTransport(stubTransport{})
+	newConn.SetListener(newHandler, 7789, false)
+	processor.loginPlayer(newConn, player, false)
+
+	oldFrames, errCode := store.PropertyValue(system, "old_disconnect_frames")
+	if errCode != types.E_NONE {
+		t.Fatalf("read old_disconnect_frames: %v", errCode)
+	}
+	wantOldFrames := types.NewList([]types.Value{types.NewList([]types.Value{
+		types.NewObj(oldHandler),
+		types.NewObj(player),
+		types.NewObj(types.ObjNothing),
+		types.NewList([]types.Value{types.NewObj(player)}),
+		types.NewStr(""),
+		types.NewInt(0),
+	})})
+	if !oldFrames.Equal(wantOldFrames) {
+		t.Fatalf("old disconnect frames = %s, want %s", oldFrames.String(), wantOldFrames.String())
+	}
+
+	newFrames, errCode := store.PropertyValue(system, "new_connected_frames")
+	if errCode != types.E_NONE {
+		t.Fatalf("read new_connected_frames: %v", errCode)
+	}
+	wantNewFrames := types.NewList([]types.Value{types.NewList([]types.Value{
+		types.NewObj(newHandler),
+		types.NewObj(player),
+		types.NewObj(types.ObjNothing),
+		types.NewList([]types.Value{types.NewObj(player)}),
+		types.NewStr(""),
+		types.NewInt(7789),
+	})})
+	if !newFrames.Equal(wantNewFrames) {
+		t.Fatalf("new connected frames = %s, want %s", newFrames.String(), wantNewFrames.String())
+	}
+
+	order, errCode := store.PropertyValue(system, "hook_order")
+	if errCode != types.E_NONE {
+		t.Fatalf("read hook_order: %v", errCode)
+	}
+	wantOrder := types.NewList([]types.Value{types.NewStr("old_client"), types.NewStr("new_connected")})
+	if !order.Equal(wantOrder) {
+		t.Fatalf("hook order = %s, want %s", order.String(), wantOrder.String())
+	}
+	if got := cm.GetConnection(player); got != newConn {
+		t.Fatalf("active connection = %v, want replacement %v", got, newConn)
+	}
+}
+
 func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
 	resetTaskManager()
 	t.Cleanup(resetTaskManager)
