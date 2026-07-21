@@ -361,6 +361,17 @@ func CheckListLimit(list types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
+func checkListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
+	limit := GetMaxListValueBytes()
+	if pending := pendingServerOptions(ctx); pending != nil {
+		limit = pending.MaxListValueBytes
+	}
+	if limit > 0 && ValueBytes(list) >= limit {
+		return types.E_QUOTA
+	}
+	return types.E_NONE
+}
+
 // CheckMapLimit checks if a map exceeds the max_map_value_bytes limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 func CheckMapLimit(m types.Value) types.ErrorCode {

@@ -73,3 +73,21 @@ func TestListappendClampsExplicitPosition(t *testing.T) {
 		})
 	}
 }
+
+func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	list := types.NewList([]types.Value{types.NewInt(1)})
+	value := types.NewInt(2)
+	limit := ValueBytes(list.Append(value))
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: limit,
+		},
+	}}
+
+	result := builtinSetadd(ctx, []types.Value{list, value})
+	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
+		t.Fatalf("setadd at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+	}
+}

@@ -183,7 +183,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := CheckListLimit(result); err != types.E_NONE {
+	if err := checkListLimitForTask(ctx, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
