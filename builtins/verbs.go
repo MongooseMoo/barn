@@ -534,6 +534,11 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
+	if tx := readTxn(ctx); tx != nil {
+		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+	}
 
 	return types.Ok(types.NewInt(0))
 }

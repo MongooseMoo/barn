@@ -81,6 +81,27 @@ func TestSetVerbInfoRefreshesTransactionVerbView(t *testing.T) {
 	}
 }
 
+func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+
+	if _, _, err := ctx.StoreTxn.FindVerb(0, "look"); err != nil {
+		t.Fatalf("FindVerb failed: %v", err)
+	}
+	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	if result.IsError() {
+		t.Fatalf("delete_verb failed: %v", result.Error)
+	}
+	if errCode := ctx.StoreTxn.SetPropertyValue(0, "marker", types.NewInt(1)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue failed: %v", errCode)
+	}
+	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit failed: %v", errCode)
+	}
+	if _, _, err := store.FindVerb(0, "look"); err == nil {
+		t.Fatal("deleted verb still exists")
+	}
+}
+
 func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 	store := dbstore.NewStore()
 	addTxnObject(t, store, 0, 0, dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagRead, dbstore.FlagWrite)
