@@ -8,6 +8,7 @@ import (
 	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/parser"
 	"barn/types"
 )
 
@@ -323,9 +324,12 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	// Return original source lines
-	// Note: canonical formatting is deferred until the formatter convergence phase.
+	// Toast reconstructs canonical source from the parsed verb program. Preserve
+	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
+	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
+		sourceLines = parser.FormatMOO(program)
+	}
 
 	// Convert source lines to list
 	lines := make([]types.Value, len(sourceLines))

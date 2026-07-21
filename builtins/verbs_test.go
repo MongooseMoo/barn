@@ -20,3 +20,21 @@ func TestVerbInfoNumericIndexPastEndReturnsEVERBNF(t *testing.T) {
 		t.Fatalf("verb_info past final numeric index returned %v; want E_VERBNF", result)
 	}
 }
+
+func TestVerbCodeReturnsCanonicalSource(t *testing.T) {
+	ctx, store := newReviewCtx(t)
+	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
+	mustAddVerb(t, store, obj, "canonical", 0, dbstore.VerbRead)
+	if errCode := store.SetVerbCode(obj, "canonical", []string{"1   ;"}); errCode != types.E_NONE {
+		t.Fatalf("SetVerbCode failed: %v", errCode)
+	}
+
+	result := builtinVerbCode(ctx, []types.Value{types.NewObj(obj), types.NewStr("canonical")})
+	if result.IsError() {
+		t.Fatalf("verb_code failed: %v", result.Error)
+	}
+	want := types.NewList([]types.Value{types.NewStr("1;")})
+	if !result.Val.Equal(want) {
+		t.Fatalf("verb_code = %s, want %s", result.Val.String(), want.String())
+	}
+}
