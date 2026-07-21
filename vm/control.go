@@ -193,10 +193,11 @@ func (vm *VM) executeTryExcept() error {
 		handlerIP := int(uint16(hi)<<8 | uint16(lo))
 
 		handlers[i] = bytecode.Handler{
-			Type:      bytecode.HandlerExcept,
-			HandlerIP: handlerIP,
-			Codes:     codes,
-			VarIndex:  varIndex,
+			Type:       bytecode.HandlerExcept,
+			HandlerIP:  handlerIP,
+			Codes:      codes,
+			VarIndex:   varIndex,
+			StackDepth: vm.SP,
 		}
 	}
 
@@ -237,9 +238,10 @@ func (vm *VM) executeTryFinally() error {
 	finallyIP := int(uint16(hi)<<8 | uint16(lo))
 
 	handler := bytecode.Handler{
-		Type:      bytecode.HandlerFinally,
-		HandlerIP: finallyIP,
-		VarIndex:  -1,
+		Type:       bytecode.HandlerFinally,
+		HandlerIP:  finallyIP,
+		VarIndex:   -1,
+		StackDepth: vm.SP,
 	}
 	frame.ExceptStack = append(frame.ExceptStack, handler)
 

@@ -59,11 +59,12 @@ const (
 
 // Handler represents an exception handler
 type Handler struct {
-	Type      HandlerType       // Except or Finally
-	HandlerIP int               // Handler code location
-	EndIP     int               // End of handler block
-	Codes     []types.ErrorCode // Errors to catch (except)
-	VarIndex  int               // Variable for error (except, -1 if none)
+	Type       HandlerType       // Except or Finally
+	HandlerIP  int               // Handler code location
+	EndIP      int               // End of handler block
+	Codes      []types.ErrorCode // Errors to catch (except)
+	VarIndex   int               // Variable for error (except, -1 if none)
+	StackDepth int               // Operand stack depth to restore on unwind
 }
 
 // ExtractForkBody creates a new sub-program from a bytecode range within an

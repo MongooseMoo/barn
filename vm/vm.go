@@ -770,6 +770,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				frame.ExceptStack = frame.ExceptStack[:i]
 				// Save the pending error so after finally runs, we re-raise it
 				frame.PendingError = err
+				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 				return true, exceptionValue
 			}
@@ -777,6 +778,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			if handler.Type == bytecode.HandlerExcept && handler.Matches(errCode) {
 				// Found matching except handler - jump to it
 				frame.ExceptStack = frame.ExceptStack[:i]
+				vm.SP = handler.StackDepth
 				frame.IP = handler.HandlerIP
 
 				// Store error in variable if specified

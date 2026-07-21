@@ -86,6 +86,21 @@ func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 	}
 }
 
+func TestCaughtErrorDiscardsPartialExpressionOperands(t *testing.T) {
+	code := `return {` +
+		"`max(1, @5) ! E_TYPE => 11'," +
+		"`#0.(max(@5)) ! E_TYPE => 22'," +
+		"{1, @`max(@5) ! E_TYPE => {2, 3}', 4}" +
+		`};`
+	result := runBytecodeProgram(t, code, nil, nil)
+	if result.Flow != types.FlowReturn {
+		t.Fatalf("guarded expression flow = %v error = %v value = %v, want return", result.Flow, result.Error, result.Val)
+	}
+	if got := result.Val.String(); got != `{11, 22, {1, 2, 3, 4}}` {
+		t.Fatalf("guarded expression result = %s, want partial operands discarded", got)
+	}
+}
+
 func requireInt(t *testing.T, result types.Result, want int64) {
 	t.Helper()
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
