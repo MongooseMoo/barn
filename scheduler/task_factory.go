@@ -86,7 +86,7 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 	t.VerbName = verbName
 	t.VerbLoc = defObjID
 	t.This = objID
-	t.Caller = player
+	t.Caller = types.ObjNothing
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 

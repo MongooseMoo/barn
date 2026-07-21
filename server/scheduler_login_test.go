@@ -87,6 +87,36 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	}
 }
 
+func TestUserConnectedUsesServerInitiatedCallerFrame(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, "connected_frame", dbstore.NewProperty(types.NewList(nil), 2,
+		dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define connected_frame: %v", errCode)
+	}
+	addTestVerb(store, system, "user_connected", "#0.connected_frame = {this, player, caller, args, argstr};")
+
+	rt := runtime.NewScheduler(store)
+	processor := NewInputProcessor(store, rt)
+	processor.callUserHook(system, "user_connected", 2)
+
+	got, errCode := store.PropertyValue(system, "connected_frame")
+	if errCode != types.E_NONE {
+		t.Fatalf("read connected_frame: %v", errCode)
+	}
+	want := types.NewList([]types.Value{
+		types.NewObj(system),
+		types.NewObj(2),
+		types.NewObj(types.ObjNothing),
+		types.NewList([]types.Value{types.NewObj(2)}),
+		types.NewStr(""),
+	})
+	if !got.Equal(want) {
+		t.Fatalf("user_connected frame = %s, want %s", got.String(), want.String())
+	}
+}
+
 func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
 	resetTaskManager()
 	t.Cleanup(resetTaskManager)
