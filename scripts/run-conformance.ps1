@@ -98,6 +98,14 @@ $runDir = Join-Path $ReportsRoot $runId
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
 $runDir = [System.IO.Path]::GetFullPath($runDir)
 
+$execFixtureDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\builtins\testdata\exec"))
+if (-not (Test-Path -LiteralPath $execFixtureDir -PathType Container)) {
+    throw "Exec fixture directory not found: $execFixtureDir"
+}
+$runExecDir = Join-Path $runDir "executables"
+New-Item -ItemType Directory -Path $runExecDir -Force | Out-Null
+Copy-Item -Path (Join-Path $execFixtureDir "*") -Destination $runExecDir -Force
+
 $serverOutLog = Join-Path $runDir "server.stdout.log"
 $serverErrLog = Join-Path $runDir "server.stderr.log"
 $pytestLog = Join-Path $runDir "pytest.log"
