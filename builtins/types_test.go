@@ -140,6 +140,31 @@ func TestTostrHidesAnonymousObjectIdentity(t *testing.T) {
 	}
 }
 
+func TestWaifStringAndLiteralForms(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	waif := types.NewWaif(12, 34)
+
+	t.Run("tostr", func(t *testing.T) {
+		result := builtinTostr(ctx, []types.Value{waif})
+		if result.IsError() {
+			t.Fatalf("tostr failed: %v", result.Error)
+		}
+		if got := result.Val.Str(); got != "[[waif]]" {
+			t.Fatalf("tostr(waif) = %q, want %q", got, "[[waif]]")
+		}
+	})
+
+	t.Run("toliteral", func(t *testing.T) {
+		result := builtinToliteral(ctx, []types.Value{waif})
+		if result.IsError() {
+			t.Fatalf("toliteral failed: %v", result.Error)
+		}
+		if got := result.Val.Str(); got != "[[class = #12, owner = #34]]" {
+			t.Fatalf("toliteral(waif) = %q, want %q", got, "[[class = #12, owner = #34]]")
+		}
+	})
+}
+
 func TestStrictEqualIgnoresErrorMapInsertionOrder(t *testing.T) {
 	forward := types.NewMap([][2]types.Value{
 		{types.NewErr(types.E_TYPE), types.NewStr("type")},

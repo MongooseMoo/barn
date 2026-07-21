@@ -65,6 +65,9 @@ func valueToStr(val types.Value) string {
 	case types.TYPE_ANON:
 		return "*anonymous*"
 
+	case types.TYPE_WAIF:
+		return "[[waif]]"
+
 	case types.TYPE_ERR:
 		return val.Code().Message()
 
@@ -214,6 +217,8 @@ func publicLiteral(value types.Value) string {
 	switch value.Type() {
 	case types.TYPE_ANON:
 		return "*anonymous*"
+	case types.TYPE_WAIF:
+		return fmt.Sprintf("[[class = #%d, owner = #%d]]", value.Class(), value.Owner())
 	case types.TYPE_LIST:
 		elements := value.Elements()
 		parts := make([]string, len(elements))
