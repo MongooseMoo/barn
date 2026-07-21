@@ -68,6 +68,42 @@ func TestMapKeepsAdjacentFloatKeysDistinct(t *testing.T) {
 	}
 }
 
+func TestMapIntegerKeysCollideAt32BitComparatorBoundary(t *testing.T) {
+	zero := NewInt(0)
+	wide := NewInt(1 << 32)
+	m := NewMap([][2]Value{
+		{zero, NewStr("zero")},
+		{wide, NewStr("wide")},
+	})
+
+	if got := m.Len(); got != 1 {
+		t.Fatalf("map length = %d, want 1", got)
+	}
+	for _, key := range []Value{zero, wide} {
+		if got, ok := m.MapGet(key); !ok || got.Str() != "wide" {
+			t.Fatalf("lookup for %v = %v, %v; want wide, true", key, got, ok)
+		}
+	}
+	keys := m.Keys()
+	if len(keys) != 1 || keys[0].Type() != TYPE_INT || keys[0].Int() != 1<<32 {
+		t.Fatalf("map keys = %v, want {4294967296}", keys)
+	}
+
+	m = m.MapSet(zero, NewStr("replacement"))
+	if got := m.Len(); got != 1 {
+		t.Fatalf("replacement map length = %d, want 1", got)
+	}
+	for _, key := range []Value{zero, wide} {
+		if got, ok := m.MapGet(key); !ok || got.Str() != "replacement" {
+			t.Fatalf("replacement lookup for %v = %v, %v; want replacement, true", key, got, ok)
+		}
+	}
+	keys = m.Keys()
+	if len(keys) != 1 || keys[0].Type() != TYPE_INT || keys[0].Int() != 0 {
+		t.Fatalf("replacement map keys = %v, want {0}", keys)
+	}
+}
+
 // --- int round-trip + zero-alloc ----------------------------------------
 
 func TestIntRoundTrip(t *testing.T) {

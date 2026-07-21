@@ -148,6 +148,9 @@ func toastLookupInsert(root *toastLookupNode, entry mapEntry) *toastLookupNode {
 // type %T is constant for every value, so it must namespace by v.Type() (the
 // numeric tag) instead. MOO strings hash case-insensitively.
 func keyHash(v Value) string {
+	if v.Type() == TYPE_INT {
+		return fmt.Sprintf("%d:%d", int(v.Type()), int32(v.Int()))
+	}
 	if v.Type() == TYPE_STR {
 		return fmt.Sprintf("%d:%s", int(v.Type()), foldASCII(v.Str()))
 	}
