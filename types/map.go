@@ -280,7 +280,7 @@ func (v Value) KeyPosition(key Value) int64 {
 // IsValidMapKey reports whether a value type is valid as a map key.
 func IsValidMapKey(v Value) bool {
 	t := v.Type()
-	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR
+	return t == TYPE_INT || t == TYPE_FLOAT || t == TYPE_STR || t == TYPE_OBJ || t == TYPE_ANON || t == TYPE_ERR || t == TYPE_BOOL
 }
 
 // IsValidBuiltinMapKey reports whether a value is valid as a key argument to map
