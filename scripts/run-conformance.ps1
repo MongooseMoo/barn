@@ -128,7 +128,15 @@ if (-not $NoFreshDb) {
     throw "Run DB not found and -NoFreshDb set: $RunDb"
 }
 
-$pytestArgs = @("run", "pytest", "--pyargs", $PytestModule, "--moo-port=$Port", "-v")
+$pytestArgs = @(
+    "run",
+    "pytest",
+    "--pyargs",
+    $PytestModule,
+    "--moo-port=$Port",
+    "--moo-log-file=$([System.IO.Path]::GetFullPath($serverErrLog))",
+    "-v"
+)
 if ($K -ne "") {
     $pytestArgs += @("-k", $K)
 }
