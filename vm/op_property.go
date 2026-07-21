@@ -104,6 +104,9 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 		}
 		vm.Push(types.NewObj(classID))
 		return nil
+	case "wizard", "programmer":
+		vm.Push(types.NewInt(0))
+		return nil
 	}
 
 	// Check waif's own properties first
