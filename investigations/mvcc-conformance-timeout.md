@@ -65,6 +65,7 @@
 - `boolean_and_equal_integer_mixed_map_reachability` exposed two independent map surfaces. Boolean key output now orders `false` before `true` (`82ca2f2`). For builtin lookup, Toast's red-black-tree rotations and non-antisymmetric boolean comparator make `true` unreachable after inserting `true`, `1`, `false`, `0`; Barn's existing case-aware builtin lookup now reconstructs and searches that topology (`b726e38`). Direct regressions, full `types`, `builtins`, and `vm` tests, and managed run `20260721_132909` pass.
 - `signed_zero_and_adjacent_float_map_identity` matched every equality and map field but rendered negative zero as `-0.0`; stock WSL Toast renders `0.0`. Formatting now canonicalizes zero locally without changing stored bits or identity semantics. The direct `types` regression, full package, and managed run `20260721_133149` pass. Fix commit: `a4ed866`.
 - `reversed_error_key_maps_are_equal` passed ordinary `==` but failed case-sensitive `equal()` because its deep-equality sorter treated all error keys as tied. Error keys now sort by code. The direct builtin regression, full `builtins` package, and managed run `20260721_133500` pass. Fix commit: `040325b`.
+- `float_literal_forms` failed at parse time because Barn tokenized `.5` as `DOT INT` and `1.` as `INT DOT`. Stock WSL Toast accepts both. Numeric scanning now accepts leading-dot digits and a trailing dot unless it begins `..`. The focused parser regression, full `parser` package, and managed run `20260721_133845` pass. Fix commit: `6d1ded1`.
 
 ## Theories (plausible)
 
@@ -117,15 +118,16 @@
 | Focused mixed boolean/integer map row, stock WSL Toast, comparator and builtin regressions | Canonical sorting versus insertion topology | Output ordering converged first; exact builtin lookup remained red only for `true` until Barn reconstructed Toast's red-black lookup tree | Blanket boolean-key rejection or hash collision | Toast's output ordering and topology-dependent builtin lookup are separate surfaces |
 | Focused signed-zero row, stock WSL Toast, direct formatter regression | Float identity versus public literal | All identity fields already matched; only `-0.0` differed; local formatter canonicalization makes direct, package, and managed tests pass | Float equality and map-key hashing | Public literal formatting preserved the IEEE sign bit incorrectly |
 | Focused reversed error-key row, stock WSL Toast, direct deep-equality regression | General map equality versus `equal()` sorting | Ordinary equality already passed; only `strictEqual` retained opposite pair orders until error-code comparison was added | Map storage and operator equality | Deep-equality key sorting treated distinct errors as tied |
+| Focused float-literal row, stock WSL Toast, parser regressions | Parser versus runtime float handling | Barn failed before execution; `.5` and `1.` parser cases were red then green, while exponent forms already worked | Runtime numeric conversion | Lexer numeric scanning required digits on both sides of a decimal point |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, and error-key deep equality. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, and edge float literal parsing. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does `uncaught_forked_call_function_error_reaches_server_handler`, the next failure from full managed run `20260721_120906`, remain independently red?
+- Does `explicit_append_and_insert_positions_clamp`, the next current failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `uncaught_forked_call_function_error_reaches_server_handler` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `explicit_append_and_insert_positions_clamp` alone under the corrected managed runner before any diagnosis or edit.
