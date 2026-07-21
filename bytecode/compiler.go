@@ -727,6 +727,48 @@ func (c *Compiler) compileTernary(n *verb.TernaryExpr) error {
 
 // compileAssign compiles an assignment expression
 func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
+	if target, ok := n.Target.(*verb.PropertyTarget); ok {
+		// Property targets are evaluated before the assigned value. Capture the
+		// object and dynamic name because compiling the value may mutate either.
+		if err := c.compileNode(target.Object); err != nil {
+			return err
+		}
+		objectVar := c.declareVariable(c.tempVar("propassignobj"))
+		c.emit(OP_SET_VAR)
+		c.emitByte(byte(objectVar))
+
+		nameVar := -1
+		if target.Name == "" {
+			if target.NameExpr == nil {
+				return fmt.Errorf("property expression has neither static name nor dynamic expression")
+			}
+			if err := c.compileNode(target.NameExpr); err != nil {
+				return err
+			}
+			nameVar = c.declareVariable(c.tempVar("propassignname"))
+			c.emit(OP_SET_VAR)
+			c.emitByte(byte(nameVar))
+		}
+
+		if err := c.compileNode(n.Value); err != nil {
+			return err
+		}
+		c.emit(OP_DUP)
+		c.emit(OP_GET_VAR)
+		c.emitByte(byte(objectVar))
+		if target.Name != "" {
+			propIdx := c.addConstant(types.NewStr(target.Name))
+			c.emit(OP_SET_PROP)
+			c.emitByte(byte(propIdx))
+		} else {
+			c.emit(OP_GET_VAR)
+			c.emitByte(byte(nameVar))
+			c.emit(OP_SET_PROP)
+			c.emitByte(0xFF)
+		}
+		return nil
+	}
+
 	// Compile value
 	if err := c.compileNode(n.Value); err != nil {
 		return err
@@ -962,29 +1004,6 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 				c.emitByte(0xFF)
 			}
 			// Stack: [value] (original assigned value remains as expression result)
-		}
-	case *verb.PropertyTarget:
-		// Property assignment: obj.prop = value
-		// Stack currently: [value, value_copy]
-		// Compile the object expression -> [value, value_copy, obj]
-		if err := c.compileNode(target.Object); err != nil {
-			return err
-		}
-
-		if target.Name != "" {
-			// Static property: obj.prop = value
-			propIdx := c.addConstant(types.NewStr(target.Name))
-			c.emit(OP_SET_PROP)
-			c.emitByte(byte(propIdx))
-		} else if target.NameExpr != nil {
-			// Dynamic property: obj.(expr) = value
-			if err := c.compileNode(target.NameExpr); err != nil {
-				return err
-			}
-			c.emit(OP_SET_PROP)
-			c.emitByte(0xFF) // dynamic property name on stack
-		} else {
-			return fmt.Errorf("property expression has neither static name nor dynamic expression")
 		}
 	case *verb.RangeTarget:
 		// Range assignment: coll[start..end] = value

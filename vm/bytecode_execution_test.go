@@ -48,6 +48,26 @@ func runBytecodeExpr(t *testing.T, expr string) types.Result {
 	return runBytecodeProgram(t, "return "+expr+";", nil, nil)
 }
 
+func TestComputedPropertyAssignmentEvaluatesTargetBeforeValue(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagProgrammer)
+	root.SetProperty("first", dbstore.NewProperty(types.NewStr("initial"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("second", dbstore.NewProperty(types.NewStr("unchanged"), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	result := runBytecodeProgram(t, `name = "first"; #0.(name) = (name = "second"); return {#0.first, #0.second, name};`, store, nil)
+	if result.Flow != types.FlowReturn {
+		t.Fatalf("assignment flow = %v error = %v value = %v, want return", result.Flow, result.Error, result.Val)
+	}
+	if got := result.Val.String(); got != `{"second", "unchanged", "second"}` {
+		t.Fatalf("assignment result = %s, want target evaluated before value", got)
+	}
+}
+
 func requireInt(t *testing.T, result types.Result, want int64) {
 	t.Helper()
 	if result.Flow != types.FlowReturn && result.Flow != types.FlowNormal {
