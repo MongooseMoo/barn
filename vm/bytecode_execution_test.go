@@ -457,3 +457,21 @@ func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
 		t.Fatalf("map range assignment = %#v, want %v", assigned, wantAssigned)
 	}
 }
+
+func TestBytecodeMapRangeAcceptsAnonymousKeyEndpoints(t *testing.T) {
+	anon := types.NewAnon(123)
+	mapping := types.NewMap([][2]types.Value{
+		{anon, types.NewStr("value")},
+	})
+	machine := NewVM(nil, nil)
+	machine.Push(mapping)
+	machine.Push(anon)
+	machine.Push(anon)
+
+	if err := machine.executeRange(); err != nil {
+		t.Fatalf("anonymous map range: %v", err)
+	}
+	if got := machine.Pop(); !got.Equal(mapping) {
+		t.Fatalf("anonymous map range = %v, want %v", got, mapping)
+	}
+}

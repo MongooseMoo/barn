@@ -288,12 +288,11 @@ func (vm *VM) executeRange() error {
 	start := vm.Pop()
 	collection := vm.Pop()
 
-	if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
-		return fmt.Errorf("E_TYPE: range indices must be integers")
-	}
-
 	switch collection.Type() {
 	case types.TYPE_LIST:
+		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
+			return fmt.Errorf("E_TYPE: range indices must be integers")
+		}
 		startIdx := start.Int()
 		endIdx := end.Int()
 		length := int64(collection.Len())
@@ -317,6 +316,9 @@ func (vm *VM) executeRange() error {
 		return nil
 
 	case types.TYPE_STR:
+		if start.Type() != types.TYPE_INT || end.Type() != types.TYPE_INT {
+			return fmt.Errorf("E_TYPE: range indices must be integers")
+		}
 		startIdx := start.Int()
 		endIdx := end.Int()
 		s := collection.Str()
@@ -337,8 +339,31 @@ func (vm *VM) executeRange() error {
 		return nil
 
 	case types.TYPE_MAP:
-		startIdx := start.Int()
-		endIdx := end.Int()
+		var startIdx int64
+		if start.Type() == types.TYPE_INT {
+			startIdx = start.Int()
+		} else {
+			if !types.IsValidMapKey(start) {
+				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+			}
+			startIdx = collection.KeyPosition(start)
+			if startIdx == 0 {
+				return fmt.Errorf("E_RANGE: map range start key not found")
+			}
+		}
+
+		var endIdx int64
+		if end.Type() == types.TYPE_INT {
+			endIdx = end.Int()
+		} else {
+			if !types.IsValidMapKey(end) {
+				return fmt.Errorf("E_TYPE: range indices must be integers or map keys")
+			}
+			endIdx = collection.KeyPosition(end)
+			if endIdx == 0 {
+				return fmt.Errorf("E_RANGE: map range end key not found")
+			}
+		}
 		length := int64(collection.Len())
 
 		if startIdx > endIdx {
