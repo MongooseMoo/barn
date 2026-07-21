@@ -122,15 +122,16 @@
 | Focused list-position row, stock WSL Toast, direct builtin regression | Range error versus boundary clamping | Barn returned `E_RANGE` for explicit positions `-5` and `99`; direct and managed tests pass after clamping the append after-position to `[0, len]` | `listinsert` and in-range `listappend` behavior | `listappend` rejected out-of-range explicit positions instead of clamping them |
 | Focused 32-bit integer-key row, stock WSL Toast, direct map regression | Full-width hash identity versus comparator equivalence | Barn retained `0` and `4294967296` as two entries; direct and managed tests pass after hashing integer keys by their signed 32-bit comparator value | Cross-type hashing and floating-point key identity | Integer storage hashes did not implement Toast's modulo-2^32 equality class |
 | Focused reverse-boolean-topology row, stock WSL Toast, direct map regression | Canonical boolean ordering versus tree traversal | Barn forced both maps to `false, true` and treated them as equal; direct and managed tests pass after exposing reconstructed tree traversal and Toast's positive-in-both-directions boolean comparison | Boolean key admission and lookup | Output and equality bypassed Toast's insertion-dependent tree topology |
+| Focused reverse-waif-topology row, stock WSL Toast and source, staged direct map regression | Key rejection versus identity collision | Barn first raised `E_TYPE`; after admission the direct test exposed identical literal-based hashes for distinct waifs; direct, package, and managed tests pass after waif admission plus identity hashing | Shared-waif alias identity and anonymous-key rules | Waifs were omitted from valid scalar keys and hashed by non-unique public literals |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, edge float literal parsing, explicit list-append boundary rejection, full-width integer map hashing, and boolean map traversal topology. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, edge float literal parsing, explicit list-append boundary rejection, full-width integer map hashing, boolean map traversal topology, and waif map-key admission/identity hashing. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does `reverse_inserted_waif_key_maps_expose_reverse_topology`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
+- Does `reverse_inserted_anon_key_maps_expose_reverse_topology`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `reverse_inserted_waif_key_maps_expose_reverse_topology` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `reverse_inserted_anon_key_maps_expose_reverse_topology` alone under the corrected managed runner before any diagnosis or edit.
