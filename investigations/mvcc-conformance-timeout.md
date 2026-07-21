@@ -61,6 +61,7 @@
 - `anon_scalar_truth_identity_relations_conversions_text_and_hash` initially failed with uncaught `E_TYPE`; stock WSL Toast passed the unchanged row. Four isolated repairs matched its pinned semantics: distinct ANON values compare equal only for relational ordering (`1881a10`); `toint`/`toobj`/`tofloat` return `E_TYPE` (`09b796a`); `tostr` returns `*anonymous*` (`b936750`); and `value_hash` hashes that shared public literal (`62cab7c`). Each slice had a red/green direct regression and full package verification; managed run `20260721_131015` passes the complete row.
 - `anon_queries_direct_index_and_map_range_endpoint` failed independently because the VM required integer range endpoints before checking the collection type. Stock WSL Toast accepts an anonymous map key as both range endpoints. Map ranges now resolve valid non-integer keys to their insertion positions while list and string ranges remain integer-only. The direct VM regression, full `vm` tests, and managed run `20260721_131608` pass. Fix commit: `61a04ca`.
 - `boolean_relational_comparisons_use_default_zero` failed independently because same-type booleans reached the unsupported-type error in relational comparison. Stock WSL Toast treats all booleans as relationally equal, while mixed boolean/integer comparisons remain `E_TYPE`. The direct VM regression, full `vm` tests, and managed run `20260721_131845` pass. Fix commit: `8d39569`.
+- `distinct_boolean_keys_survive_both_insertion_orders` failed independently because VM map assignment rejected boolean keys even though the map's type-tagged hash already distinguishes `false` and `true`. Stock WSL Toast preserves both keys in either insertion order. The direct VM regression, full `types` and `vm` tests, and managed run `20260721_132130` pass. Fix commit: `586e16a`.
 
 ## Theories (plausible)
 
@@ -109,15 +110,16 @@
 | Focused anonymous-scalar row, stock WSL Toast, four direct regression slices | Relational order, conversions, public text, and hash identity | Barn raised on ANON ordering, exposed numeric/internal identities, and hashed distinct IDs; the complete authority row now passes | Anonymous query/index behavior | Scalar paths treated ANON as ordinary object IDs or unsupported values |
 | Focused anonymous map-range row, stock WSL Toast, direct VM regression | Unsupported anonymous query versus endpoint dispatch defect | Toast accepts an anonymous key as both range endpoints; Barn rejected it before collection dispatch; direct, package, and managed tests pass after resolving valid map keys by position | `properties(ANON)`, `verbs(ANON)`, and direct ANON indexing as the uncaught error | `executeRange` applied list/string integer rules to maps |
 | Focused boolean relational row, stock WSL Toast, direct VM regression | Numeric coercion versus same-type default ordering | Both boolean directions compare as zero in Toast; mixed boolean/integer rows remain `E_TYPE`; direct, package, and managed tests pass after adding only same-type handling | Boolean-to-integer coercion | Same-type booleans lacked Toast's default-zero relational case |
+| Focused distinct-boolean-key row, stock WSL Toast, direct VM regression | Hash collision versus key admission | Map storage already hashes `false` and `true` separately; VM assignment rejected each before storage; direct, package, and managed tests pass after admitting `BOOL` keys | Boolean hash collision | `IsValidMapKey` omitted booleans |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, and boolean relational ordering. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, and boolean relational/key-admission defects. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does `distinct_boolean_keys_survive_both_insertion_orders`, the next failure from full managed run `20260721_120906`, remain independently red after the relational repair?
+- Does `boolean_and_equal_integer_mixed_map_reachability`, the next failure from full managed run `20260721_120906`, remain independently red after boolean key admission?
 
 ## Next Action
 
-Keep the source ledger clean and run `distinct_boolean_keys_survive_both_insertion_orders` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `boolean_and_equal_integer_mixed_map_reachability` alone under the corrected managed runner before any diagnosis or edit.
