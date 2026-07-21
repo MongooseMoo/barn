@@ -53,6 +53,7 @@
 - The next failure, `programmer_cannot_recycle_object_owned_by_another_programmer`, failed independently because Barn skipped the `controls2` permission check entirely. A direct regression proved a nonowner programmer could invalidate the target. Barn now checks live wizard status or ownership before hooks/mutation; full `builtins` tests and managed run `20260721_123202` pass. Fix commit: `18d1425`.
 - The next failure, `recycle_hook_error_propagates_after_recycling_permanent_object`, failed independently as expected `{1, 0}`, actual `{0, 0}`: Barn destroyed the target but discarded the hook's `E_DIV`. Stock WSL Toast passed the unchanged row. A direct regression proved the same split result. Barn now completes recycle cleanup and then returns a non-`E_VERBNF` hook exception; full `builtins` tests and managed run `20260721_123637` pass. Fix commit: `92ed8cf`.
 - The next failure, `recycled_anonymous_saved_in_verb_becomes_invalid`, failed independently with `E_INVIND` where Toast returns `E_INVARG`; stock WSL Toast passed the unchanged row. A transaction begun after anonymous recycle resurrected the pre-recycle history image because anonymous history was consulted before the current recycled image. Current anonymous images now win when visible at the read timestamp, while older transactions retain historical visibility. The direct store regression, full `db/store` tests, and managed run `20260721_124222` pass. Fix commit: `a728b65`.
+- The next failure, `verb_getters_restore_canonical_source`, failed independently because `verb_code` returned stored whitespace (`"1   ;"`) instead of canonical source (`"1;"`); stock WSL Toast passed the unchanged row. Valid source now passes through the existing parser formatter, while unparseable legacy text retains a raw fallback. The direct builtin regression, full `builtins` and `parser` tests, and managed run `20260721_124540` pass. Fix commit: `d860d26`.
 
 ## Theories (plausible)
 
@@ -94,15 +95,16 @@
 | Focused recycle-control row, stock WSL Toast, direct permission regression | Missing control check | Barn allowed and invalidated the target before; owner/wizard boundary now passes direct and managed tests | Harness contamination and stale expected behavior | Barn's explicit recycle permission TODO |
 | Focused recycle-hook row, stock WSL Toast, direct post-destruction error regression | Hook error propagation after irreversible cleanup | Barn and Toast both destroy the object, but Barn returned success before repair; direct and managed tests now return `E_DIV` with the target invalid | Permission repair and harness contamination | Barn discarded the hook result instead of deferring its exception |
 | Focused recycled-anonymous row, stock WSL Toast, post-recycle transaction regression | Current anonymous image versus older history | A post-recycle transaction reported the anonymous object valid before repair; direct and managed tests now see recycled `E_INVARG` | VM property-read and error-formatting defects | Snapshot resolver ordered old history ahead of the current anonymous image |
+| Focused canonical-verb-source row, stock WSL Toast, direct builtin regression | Stored source versus reconstructed source | Barn returned `"1   ;"`; direct and managed tests now return `"1;"` and restore it through setters | Verb metadata and setter restoration defects | `verb_code` bypassed the existing canonical formatter |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, two managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, missing recycle control, discarded recycle-hook exceptions, and anonymous snapshot resurrection. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, two managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, missing recycle control, discarded recycle-hook exceptions, anonymous snapshot resurrection, and noncanonical verb getters. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does the next old full-run verb-source failure remain independent after the recycle repairs?
+- Does the next old full-run anonymous recycle-hook failure remain independent after the recycle repairs?
 
 ## Next Action
 
-Keep the source ledger clean and run `verb_getters_restore_canonical_source` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
+Keep the source ledger clean and run `anonymous_recycle_hook_runs_once_even_if_it_stashes_self` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
