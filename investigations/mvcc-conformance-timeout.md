@@ -56,6 +56,7 @@
 - The next failure, `verb_getters_restore_canonical_source`, failed independently because `verb_code` returned stored whitespace (`"1   ;"`) instead of canonical source (`"1;"`); stock WSL Toast passed the unchanged row. Valid source now passes through the existing parser formatter, while unparseable legacy text retains a raw fallback. The direct builtin regression, full `builtins` and `parser` tests, and managed run `20260721_124540` pass. Fix commit: `d860d26`.
 - `anonymous_recycle_hook_runs_once_even_if_it_stashes_self` is already green in current repo state; an initial connection-refused attempt was invalid because Barn received an external shutdown signal, and identical managed retry `20260721_124725` passed. No source change was made.
 - `callers_preserves_owner_and_wizard_but_redacts_other_viewer` then failed independently in two stages: `toliteral` exposed the internal `*#12` identity, and unrelated viewers received a live anonymous `this`. Stock WSL Toast passed the unchanged row. Anonymous literals now render as `*anonymous*`, and callers preserves the live value only for its owner or a wizard. Direct regressions, full `builtins` tests, and managed run `20260721_125622` pass. Fix commit: `d2eefab`.
+- `suspended_task_views_preserve_owner_and_wizard_but_hide_from_other` failed independently because `queued_tasks()` exposed a delayed task to its task owner even after the task's anonymous `this` was transferred to another owner; `task_stack()` already returned `E_PERM`. Stock WSL Toast passed the unchanged row. Non-wizards now see anonymous-`this` queued tasks only when they own that anonymous object. The direct regression, full `builtins` tests, and managed run `20260721_125938` pass. Fix commit: `8a41d92`.
 
 ## Theories (plausible)
 
@@ -99,15 +100,16 @@
 | Focused recycled-anonymous row, stock WSL Toast, post-recycle transaction regression | Current anonymous image versus older history | A post-recycle transaction reported the anonymous object valid before repair; direct and managed tests now see recycled `E_INVARG` | VM property-read and error-formatting defects | Snapshot resolver ordered old history ahead of the current anonymous image |
 | Focused canonical-verb-source row, stock WSL Toast, direct builtin regression | Stored source versus reconstructed source | Barn returned `"1   ;"`; direct and managed tests now return `"1;"` and restore it through setters | Verb metadata and setter restoration defects | `verb_code` bypassed the existing canonical formatter |
 | Focused callers authority row, stock WSL Toast, direct literal and frame regressions | Anonymous public identity and viewer authorization | Barn exposed `*#12` and a live ANON to an unrelated viewer; direct and managed tests now return `*anonymous*` and an invalid ANON while preserving owner/wizard visibility | Task-stack and traceback surfaces | `toliteral` used internal IDs and callers had no anonymous-frame redaction |
+| Focused suspended-task authority row, stock WSL Toast, direct queued-task regression | Task ownership versus anonymous-`this` ownership | `task_stack()` denied access but `queued_tasks()` exposed the delayed task; both direct and managed tests now hide it from unrelated non-wizards | General queued-task filtering defects | Queue visibility ignored ownership of anonymous `this` |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, and anonymous caller identity leaks. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, and anonymous task identity/visibility leaks. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does the next old full-run suspended-task authority failure remain independent after callers redaction?
+- Does the next old full-run traceback authority failure remain independent after callers and queue redaction?
 
 ## Next Action
 
-Keep the source ledger clean and run `suspended_task_views_preserve_owner_and_wizard_but_hide_from_other` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
+Keep the source ledger clean and run `error_tracebacks_redact_anon_for_owner_wizard_and_other_viewer` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
