@@ -96,6 +96,7 @@ function Write-Section {
 $runId = Get-Date -Format "yyyyMMdd_HHmmss"
 $runDir = Join-Path $ReportsRoot $runId
 New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+$runDir = [System.IO.Path]::GetFullPath($runDir)
 
 $serverOutLog = Join-Path $runDir "server.stdout.log"
 $serverErrLog = Join-Path $runDir "server.stderr.log"
@@ -135,6 +136,7 @@ $pytestArgs = @(
     $PytestModule,
     "--moo-port=$Port",
     "--moo-log-file=$([System.IO.Path]::GetFullPath($serverErrLog))",
+    "--moo-server-dir=$runDir",
     "-v"
 )
 if ($K -ne "") {
@@ -152,15 +154,17 @@ $pytestExit = 1
 Write-Section "Run"
 Write-Host "Run ID: $runId"
 Write-Host "Run Dir: $runDir"
-$serverArgs = @("-db", $RunDb, "-port", $Port.ToString()) + $ExtraServerArgs
-Write-Host "Server:  $Binary $($serverArgs -join ' ')"
+$serverBinary = [System.IO.Path]::GetFullPath($Binary)
+$serverArgs = @("-db", [System.IO.Path]::GetFullPath($RunDb), "-port", $Port.ToString()) + $ExtraServerArgs
+Write-Host "Server:  $serverBinary $($serverArgs -join ' ')"
 Write-Host "Pytest:  $pytestCmdText"
 
 try {
     Stop-PortListeners -ListenPort $Port
 
-    $server = Start-Process -FilePath $Binary `
+    $server = Start-Process -FilePath $serverBinary `
         -ArgumentList $serverArgs `
+        -WorkingDirectory $runDir `
         -RedirectStandardOutput $serverOutLog `
         -RedirectStandardError $serverErrLog `
         -PassThru
