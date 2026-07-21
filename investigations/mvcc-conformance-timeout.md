@@ -138,6 +138,7 @@
 | Focused waif index-handler row, stock WSL Toast, semantic VM regression | Unsupported receiver versus class-handler dispatch | Barn returned `E_TYPE` for WAIF index set/get; Toast invokes `:_set_index` and `:_index` on the waif class with the waif as `this`; direct, package, and managed run `20260721_145124` pass after reusing native verb-frame startup and discarding only setter returns | List/string/map indexing and ordinary verb calls | WAIF index opcodes had no class-handler route |
 | Focused exec-IO row, stock WSL Toast, managed-run directory inspection | Builtin defect versus missing executable fixtures | Barn returned `E_INVARG`; Toast passed; the isolated Barn run directory lacked `executables/` although committed Windows fixtures existed; managed run `20260721_145545` passes after provisioning them into each run directory | Firewall, WSL routing, command validation, and fixture behavior | Managed runner omitted required exec fixtures from Barn's working directory |
 | Focused setadd list-limit row, stock WSL Toast, direct builtin regression | Missing size check versus stale global limit | Barn built the 91st element despite a same-task staged limit; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_150330` pass after `setadd` consults the latest pending server-options snapshot | Setadd's existing size check and failed-commit cache isolation | List-limit checks could not see same-task `load_server_options()` values |
+| Focused listinsert list-limit row, stock WSL Toast, direct builtin regression | Operation defect versus stale global limit | Barn built the oversized inserted list; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_150709` pass after switching only `listinsert` to the proven task-local limit check | Listinsert position/clamping semantics and global committed cache | Listinsert still used the global-only list-limit path |
 
 ## Current Best Theory
 
@@ -145,8 +146,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does `listinsert_checks_list_max_value_bytes`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
+- Does `listappend_checks_list_max_value_bytes`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `listinsert_checks_list_max_value_bytes` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `listappend_checks_list_max_value_bytes` alone under the corrected managed runner before any diagnosis or edit.
