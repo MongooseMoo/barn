@@ -59,8 +59,11 @@ func valueToStr(val types.Value) string {
 		// ToastStunt-compatible) so tostr() matches value output and toliteral().
 		return val.String()
 
-	case types.TYPE_OBJ, types.TYPE_ANON:
+	case types.TYPE_OBJ:
 		return fmt.Sprintf("#%d", val.ID())
+
+	case types.TYPE_ANON:
+		return "*anonymous*"
 
 	case types.TYPE_ERR:
 		return val.Code().Message()

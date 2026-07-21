@@ -83,3 +83,14 @@ func TestAnonymousObjectNumericConversionsReturnTypeError(t *testing.T) {
 		})
 	}
 }
+
+func TestTostrHidesAnonymousObjectIdentity(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	result := builtinTostr(ctx, []types.Value{types.NewAnon(12)})
+	if result.IsError() {
+		t.Fatalf("tostr failed: %v", result.Error)
+	}
+	if got := result.Val.Str(); got != "*anonymous*" {
+		t.Fatalf("tostr(anonymous) = %q, want %q", got, "*anonymous*")
+	}
+}
