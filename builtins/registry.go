@@ -20,7 +20,7 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 // validate args inline, without routing through a per-call validation closure.
 type builtinEntry struct {
 	name     string
-	fn       BuiltinFunc       // raw builtin; NOT the validation-wrapping closure
+	fn       BuiltinFunc       // builtin plus replay-safety marker; validation stays inline
 	sig      functionSignature // valid only when hasSig is true
 	hasSig   bool
 	lineSync bool
@@ -348,9 +348,18 @@ func NewRegistry() *Registry {
 
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
+	invoke := fn
+	if builtinHasIrreversibleSideEffect(name) {
+		invoke = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+			if ctx != nil {
+				ctx.IrreversibleSideEffect = true
+			}
+			return fn(ctx, args)
+		}
+	}
 	entry := &builtinEntry{
 		name:     name,
-		fn:       fn, // raw; the id-indexed dispatch path validates inline
+		fn:       invoke,
 		lineSync: needsCallStackLineSync(name),
 	}
 
@@ -358,11 +367,11 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	// Get()/Has()/call_function(), which invoke the returned fn directly. The
 	// hot CallByID/CallByName path uses entry.fn + inline validation instead, so
 	// it never pays for the closure indirection.
-	stored := fn
+	stored := invoke
 	if sig, ok := lookupFunctionSignature(name); ok {
 		entry.sig = sig
 		entry.hasSig = true
-		inner := fn
+		inner := invoke
 		stored = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			if err := validateKnownFunctionArgs(name, sig, args); err != types.E_NONE {
 				return types.Err(err)
@@ -375,6 +384,24 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	r.entries = append(r.entries, entry)
 	r.funcs[name] = stored
 	r.nameToID[name] = id
+}
+
+// builtinHasIrreversibleSideEffect reports builtins whose real implementation
+// changes state outside StoreTxn and cannot safely be repeated by whole-task
+// conflict retry. Database mutations use LiveStoreMutated instead; notify,
+// switch_player, boot_player, and load_server_options are buffered until commit.
+func builtinHasIrreversibleSideEffect(name string) bool {
+	switch name {
+	case "reseed_random",
+		"listen", "unlisten", "set_connection_option", "open_network_connection", "read_http", "flush_input", "force_input", "curl",
+		"file_open", "file_close", "file_read", "file_readline", "file_readlines", "file_write", "file_writeline", "file_flush", "file_seek", "file_remove", "file_rename", "file_mkdir", "file_rmdir", "file_chmod",
+		"sqlite_open", "sqlite_close", "sqlite_query", "sqlite_execute", "sqlite_limit", "sqlite_interrupt",
+		"dump_database", "read_stdin", "shutdown", "exec", "server_log", "run_gc", "reset_max_object",
+		"kill_task", "resume":
+		return true
+	default:
+		return false
+	}
 }
 
 func needsCallStackLineSync(name string) bool {

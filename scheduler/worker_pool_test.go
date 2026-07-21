@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"bytes"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -663,6 +665,57 @@ return before;
 	}
 	if got := liveValue.Str(); got != "live" {
 		t.Fatalf("live store value = %q, want live", got)
+	}
+}
+
+func TestRunTaskDoesNotRetryAfterIrreversibleSideEffect(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetName("Root")
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("read_value", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	root.SetProperty("write_value", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+	defer s.Stop()
+	s.registry.Register("mutate_read_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		value, errCode := ctx.Store.PropertyValue(0, "read_value")
+		if errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		if errCode := ctx.Store.SetPropertyValue(0, "read_value", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		return types.Ok(types.NewInt(0))
+	})
+
+	var logs bytes.Buffer
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3005, 0, compileTestProgram(t, s.registry, `
+before = #0.read_value;
+server_log("irreversible-once");
+mutate_read_value();
+#0.write_value = 1;
+return before;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+	queued.Context.Log = slog.New(slog.NewTextHandler(&logs, nil))
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowException || queued.Result.Error != types.E_INVARG {
+		t.Fatalf("result = flow %v err %v, want E_INVARG exception", queued.Result.Flow, queued.Result.Error)
+	}
+	if got := strings.Count(logs.String(), "irreversible-once"); got != 1 {
+		t.Fatalf("server_log executions = %d, want 1", got)
+	}
+	if got := store.CommitRetries(); got != 0 {
+		t.Fatalf("commit retries = %d, want 0", got)
 	}
 }
 

@@ -74,6 +74,12 @@ type TaskContext struct {
 	// body, because the direct mutation cannot be rolled back.
 	LiveStoreMutated bool
 
+	// IrreversibleSideEffect is set after a task begins an immediate external
+	// effect that cannot safely be replayed (logging, input injection, listeners,
+	// outbound I/O, file/SQLite/process operations, and task control). Validation
+	// conflicts after this point must not retry the whole task body.
+	IrreversibleSideEffect bool
+
 	// PendingNotifications holds notify() output until the task's store
 	// transaction commits. Failed commits must not leak user-visible output.
 	PendingNotifications []PendingNotification

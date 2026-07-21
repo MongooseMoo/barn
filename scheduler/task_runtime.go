@@ -80,6 +80,7 @@ retryAttempt:
 	}
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.LiveStoreMutated = false
+	ctx.IrreversibleSideEffect = false
 	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
 
@@ -236,7 +237,7 @@ retryAttempt:
 	committedWrites := false
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && retryState.canRetry && attempt < maxConflictRetryAttempts {
+			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingNotifications(ctx)
 				builtins.DiscardPendingConnectionSwitches(ctx)
