@@ -168,6 +168,14 @@ func (m *goMap) Len() int {
 	return len(m.pairs)
 }
 
+func (m *goMap) toastRoot() *toastLookupNode {
+	var root *toastLookupNode
+	for _, hash := range m.order {
+		root = toastLookupInsert(root, m.pairs[hash])
+	}
+	return root
+}
+
 // get returns the value for a key, or (None, false) if absent.
 func (m *goMap) get(k Value) (Value, bool) {
 	if e, ok := m.pairs[keyHash(k)]; ok {
@@ -221,19 +229,26 @@ func (m *goMap) delete(k Value) *goMap {
 }
 
 func (m *goMap) keys() []Value {
-	keys := make([]Value, 0, len(m.order))
-	for _, h := range m.order {
-		keys = append(keys, m.pairs[h].key)
+	pairs := m.pairsList()
+	keys := make([]Value, len(pairs))
+	for i := range pairs {
+		keys[i] = pairs[i][0]
 	}
 	return keys
 }
 
 func (m *goMap) pairsList() [][2]Value {
 	pairs := make([][2]Value, 0, len(m.order))
-	for _, h := range m.order {
-		e := m.pairs[h]
-		pairs = append(pairs, [2]Value{e.key, e.val})
+	var visit func(*toastLookupNode)
+	visit = func(node *toastLookupNode) {
+		if node == nil {
+			return
+		}
+		visit(node.link[0])
+		pairs = append(pairs, [2]Value{node.entry.key, node.entry.val})
+		visit(node.link[1])
 	}
+	visit(m.toastRoot())
 	return pairs
 }
 
@@ -241,9 +256,10 @@ func (m *goMap) equal(other *goMap) bool {
 	if len(m.pairs) != len(other.pairs) {
 		return false
 	}
-	for _, p := range m.pairsList() {
-		val, exists := other.get(p[0])
-		if !exists || !p[1].Equal(val) {
+	left := m.pairsList()
+	right := other.pairsList()
+	for i := range left {
+		if !left[i][0].Equal(right[i][0]) || !left[i][1].Equal(right[i][1]) {
 			return false
 		}
 	}
@@ -344,12 +360,10 @@ func CompareMapKeys(a, b Value) int {
 	case TYPE_STR:
 		return compareFoldedASCII(a.Str(), b.Str())
 	case TYPE_BOOL:
-		if !a.Bool() && b.Bool() {
-			return -1
-		} else if a.Bool() && !b.Bool() {
-			return 1
+		if a.Bool() == b.Bool() {
+			return 0
 		}
-		return 0
+		return 1
 	}
 	return 0
 }
@@ -384,10 +398,7 @@ func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
 // GetWithCase returns a map value using Toast's tree topology and configurable
 // string-key case handling. Map builtins use this path; direct indexing uses MapGet.
 func (v Value) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
-	var root *toastLookupNode
-	for _, hash := range v.goMap().order {
-		root = toastLookupInsert(root, v.goMap().pairs[hash])
-	}
+	root := v.goMap().toastRoot()
 	for root != nil {
 		comparison := toastMapCompare(root.entry.key, key, caseSensitive)
 		if comparison == 0 {
