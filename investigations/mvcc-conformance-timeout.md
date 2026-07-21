@@ -54,6 +54,8 @@
 - The next failure, `recycle_hook_error_propagates_after_recycling_permanent_object`, failed independently as expected `{1, 0}`, actual `{0, 0}`: Barn destroyed the target but discarded the hook's `E_DIV`. Stock WSL Toast passed the unchanged row. A direct regression proved the same split result. Barn now completes recycle cleanup and then returns a non-`E_VERBNF` hook exception; full `builtins` tests and managed run `20260721_123637` pass. Fix commit: `92ed8cf`.
 - The next failure, `recycled_anonymous_saved_in_verb_becomes_invalid`, failed independently with `E_INVIND` where Toast returns `E_INVARG`; stock WSL Toast passed the unchanged row. A transaction begun after anonymous recycle resurrected the pre-recycle history image because anonymous history was consulted before the current recycled image. Current anonymous images now win when visible at the read timestamp, while older transactions retain historical visibility. The direct store regression, full `db/store` tests, and managed run `20260721_124222` pass. Fix commit: `a728b65`.
 - The next failure, `verb_getters_restore_canonical_source`, failed independently because `verb_code` returned stored whitespace (`"1   ;"`) instead of canonical source (`"1;"`); stock WSL Toast passed the unchanged row. Valid source now passes through the existing parser formatter, while unparseable legacy text retains a raw fallback. The direct builtin regression, full `builtins` and `parser` tests, and managed run `20260721_124540` pass. Fix commit: `d860d26`.
+- `anonymous_recycle_hook_runs_once_even_if_it_stashes_self` is already green in current repo state; an initial connection-refused attempt was invalid because Barn received an external shutdown signal, and identical managed retry `20260721_124725` passed. No source change was made.
+- `callers_preserves_owner_and_wizard_but_redacts_other_viewer` then failed independently in two stages: `toliteral` exposed the internal `*#12` identity, and unrelated viewers received a live anonymous `this`. Stock WSL Toast passed the unchanged row. Anonymous literals now render as `*anonymous*`, and callers preserves the live value only for its owner or a wizard. Direct regressions, full `builtins` tests, and managed run `20260721_125622` pass. Fix commit: `d2eefab`.
 
 ## Theories (plausible)
 
@@ -96,15 +98,16 @@
 | Focused recycle-hook row, stock WSL Toast, direct post-destruction error regression | Hook error propagation after irreversible cleanup | Barn and Toast both destroy the object, but Barn returned success before repair; direct and managed tests now return `E_DIV` with the target invalid | Permission repair and harness contamination | Barn discarded the hook result instead of deferring its exception |
 | Focused recycled-anonymous row, stock WSL Toast, post-recycle transaction regression | Current anonymous image versus older history | A post-recycle transaction reported the anonymous object valid before repair; direct and managed tests now see recycled `E_INVARG` | VM property-read and error-formatting defects | Snapshot resolver ordered old history ahead of the current anonymous image |
 | Focused canonical-verb-source row, stock WSL Toast, direct builtin regression | Stored source versus reconstructed source | Barn returned `"1   ;"`; direct and managed tests now return `"1;"` and restore it through setters | Verb metadata and setter restoration defects | `verb_code` bypassed the existing canonical formatter |
+| Focused callers authority row, stock WSL Toast, direct literal and frame regressions | Anonymous public identity and viewer authorization | Barn exposed `*#12` and a live ANON to an unrelated viewer; direct and managed tests now return `*anonymous*` and an invalid ANON while preserving owner/wizard visibility | Task-stack and traceback surfaces | `toliteral` used internal IDs and callers had no anonymous-frame redaction |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, two managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, missing recycle control, discarded recycle-hook exceptions, anonymous snapshot resurrection, and noncanonical verb getters. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, and anonymous caller identity leaks. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does the next old full-run anonymous recycle-hook failure remain independent after the recycle repairs?
+- Does the next old full-run suspended-task authority failure remain independent after callers redaction?
 
 ## Next Action
 
-Keep the source ledger clean and run `anonymous_recycle_hook_runs_once_even_if_it_stashes_self` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
+Keep the source ledger clean and run `suspended_task_views_preserve_owner_and_wizard_but_hide_from_other` alone under the corrected managed runner; if it remains red, verify its exact behavior against stock WSL Toast before editing.
