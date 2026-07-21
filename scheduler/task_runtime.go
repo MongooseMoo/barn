@@ -258,10 +258,7 @@ retryAttempt:
 	}
 	if committed {
 		t.CreatedForks = nil
-		if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
-			result = types.Err(errCode)
-			t.Result = result
-		}
+		builtins.FlushPendingEffects(ctx)
 	} else {
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(ctx)
@@ -307,10 +304,7 @@ retryAttempt:
 			builtins.DiscardPendingEffects(ctx)
 		} else {
 			t.CreatedForks = nil
-			if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
+			builtins.FlushPendingEffects(ctx)
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
@@ -342,10 +336,7 @@ retryAttempt:
 			// Leaving them on the task would let a later conflict-retry discard forks
 			// that are already durable (yin() suspends mid-verb, so a retry can follow).
 			t.CreatedForks = nil
-			if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
-				result = types.Err(errCode)
-				t.Result = result
-			}
+			builtins.FlushPendingEffects(ctx)
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
@@ -484,10 +475,7 @@ retryAttempt:
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(ctx)
 			} else {
-				if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
-					result = types.Err(errCode)
-					t.Result = result
-				}
+				builtins.FlushPendingEffects(ctx)
 			}
 		}
 

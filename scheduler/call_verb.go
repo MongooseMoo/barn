@@ -262,9 +262,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	}
 	if committed {
 		t.CreatedForks = nil
-		if errCode := builtins.FlushPendingEffects(ctx); errCode != types.E_NONE {
-			result = types.Err(errCode)
-		}
+		builtins.FlushPendingEffects(ctx)
 	} else {
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(ctx)

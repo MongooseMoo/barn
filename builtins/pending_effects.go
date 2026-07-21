@@ -24,10 +24,11 @@ func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions 
 
 // FlushPendingEffects replays commit-deferred effects in their original call order.
 // It continues after an individual effect fails so a host failure cannot silently
-// drop later calls; the first error is returned to the scheduler.
-func FlushPendingEffects(ctx *kernel.TaskContext) types.ErrorCode {
+// drop later calls. The task has already committed, so failures are logged instead
+// of being converted into an uncatchable MOO error after successful completion.
+func FlushPendingEffects(ctx *kernel.TaskContext) {
 	if ctx == nil || len(ctx.PendingEffects) == 0 {
-		return types.E_NONE
+		return
 	}
 	pending := ctx.PendingEffects
 	ctx.PendingEffects = nil
@@ -84,7 +85,9 @@ func FlushPendingEffects(ctx *kernel.TaskContext) types.ErrorCode {
 			}
 		}
 	}
-	return firstErr
+	if firstErr != types.E_NONE {
+		ctx.Logger().Warn("deferred effect flush failed", "error", firstErr.String())
+	}
 }
 
 func DiscardPendingEffects(ctx *kernel.TaskContext) {

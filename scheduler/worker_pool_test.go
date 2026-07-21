@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -784,6 +785,43 @@ func TestRunTaskReleasesTerminalStoreTransaction(t *testing.T) {
 				t.Fatalf("active read transactions after terminal task = %d, want 0", got)
 			}
 		})
+	}
+}
+
+func TestRunTaskDoesNotReplaceResultAfterDeferredEffectFailure(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetFlags(dbstore.FlagRead | dbstore.FlagWrite | dbstore.FlagWizard)
+	root.SetProperty("value", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("store.Add failed: %v", err)
+	}
+
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+	defer s.Stop()
+	conn := &evalCommandStubConn{sendErr: errors.New("send failed")}
+	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: 7, conn: conn})
+	ticks, seconds := foregroundTaskLimits()
+	queued := task.NewTaskFull(3008, 7, compileTestProgram(t, s.registry, `
+#0.value = 1;
+notify(#7, "deferred failure");
+return 42;
+`), ticks, seconds)
+	queued.Context.IsWizard = true
+
+	if err := s.runTask(queued); err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if queued.Result.Flow != types.FlowReturn || queued.Result.Val.Int() != 42 {
+		t.Fatalf("result = flow %v value %v err %v, want return 42", queued.Result.Flow, queued.Result.Val, queued.Result.Error)
+	}
+	value, errCode := store.PropertyValue(0, "value")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue failed: %v", errCode)
+	}
+	if got := value.Int(); got != 1 {
+		t.Fatalf("committed value = %d, want 1", got)
 	}
 }
 

@@ -92,9 +92,7 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingEffects failed: %v", errCode)
-	}
+	FlushPendingEffects(ctx)
 	if len(manager.boots) != 1 || manager.boots[0] != obj {
 		t.Fatalf("boots after flush = %#v, want [%d]", manager.boots, obj)
 	}

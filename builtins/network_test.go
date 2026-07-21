@@ -168,9 +168,7 @@ func TestNotifyDefersOutputUntilTransactionFlush(t *testing.T) {
 		t.Fatalf("pending effects = %#v, want one notification", ctx.PendingEffects)
 	}
 
-	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingEffects failed: %v", errCode)
-	}
+	FlushPendingEffects(ctx)
 	if len(conn.sent) != 1 || conn.sent[0] != "hello" {
 		t.Fatalf("sent after flush = %#v, want hello", conn.sent)
 	}
@@ -228,9 +226,7 @@ func TestNotifyDefersNoFlushBufferUntilTransactionFlush(t *testing.T) {
 		t.Fatalf("buffered before flush = %#v, want none", conn.buffered)
 	}
 
-	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingEffects failed: %v", errCode)
-	}
+	FlushPendingEffects(ctx)
 	if len(conn.sent) != 0 {
 		t.Fatalf("sent after no-flush notify = %#v, want none", conn.sent)
 	}
@@ -285,9 +281,7 @@ func TestBootPlayerDefersUntilAfterNotifications(t *testing.T) {
 		t.Fatalf("boots before flush = %#v, want none", manager.boots)
 	}
 
-	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingEffects failed: %v", errCode)
-	}
+	FlushPendingEffects(ctx)
 	if len(manager.boots) != 1 || manager.boots[0] != 7 {
 		t.Fatalf("boots after flush = %#v, want [7]", manager.boots)
 	}
@@ -314,9 +308,7 @@ func TestSwitchPlayerDefersUntilTransactionFlush(t *testing.T) {
 		t.Fatalf("pending effects = %#v, want one switch", ctx.PendingEffects)
 	}
 
-	if errCode := FlushPendingEffects(ctx); errCode != types.E_NONE {
-		t.Fatalf("FlushPendingEffects failed: %v", errCode)
-	}
+	FlushPendingEffects(ctx)
 	if len(manager.switches) != 1 {
 		t.Fatalf("switches after flush = %#v, want one", manager.switches)
 	}

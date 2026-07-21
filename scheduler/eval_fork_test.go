@@ -16,12 +16,13 @@ import (
 )
 
 type evalCommandStubConn struct {
-	sent []string
+	sent    []string
+	sendErr error
 }
 
 func (c *evalCommandStubConn) Send(message string) error {
 	c.sent = append(c.sent, message)
-	return nil
+	return c.sendErr
 }
 func (c *evalCommandStubConn) Buffer(message string)     {}
 func (c *evalCommandStubConn) Flush() error              { return nil }
