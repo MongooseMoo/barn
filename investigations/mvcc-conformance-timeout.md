@@ -119,15 +119,16 @@
 | Focused signed-zero row, stock WSL Toast, direct formatter regression | Float identity versus public literal | All identity fields already matched; only `-0.0` differed; local formatter canonicalization makes direct, package, and managed tests pass | Float equality and map-key hashing | Public literal formatting preserved the IEEE sign bit incorrectly |
 | Focused reversed error-key row, stock WSL Toast, direct deep-equality regression | General map equality versus `equal()` sorting | Ordinary equality already passed; only `strictEqual` retained opposite pair orders until error-code comparison was added | Map storage and operator equality | Deep-equality key sorting treated distinct errors as tied |
 | Focused float-literal row, stock WSL Toast, parser regressions | Parser versus runtime float handling | Barn failed before execution; `.5` and `1.` parser cases were red then green, while exponent forms already worked | Runtime numeric conversion | Lexer numeric scanning required digits on both sides of a decimal point |
+| Focused list-position row, stock WSL Toast, direct builtin regression | Range error versus boundary clamping | Barn returned `E_RANGE` for explicit positions `-5` and `99`; direct and managed tests pass after clamping the append after-position to `[0, len]` | `listinsert` and in-range `listappend` behavior | `listappend` rejected out-of-range explicit positions instead of clamping them |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, and edge float literal parsing. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
+The original lifecycle failures remain fixed; firewall and WSL were not causal. The unfiltered suite also exposed stale live stack depth, managed-runner omissions, Unicode folding of raw MOO bytes, missing-directory listing semantics, recycle defects, anonymous snapshot resurrection, noncanonical verb getters, anonymous task/traceback/scalar/map-range defects, boolean relational/key/topology defects, negative-zero literal formatting, error-key deep equality, edge float literal parsing, and explicit list-append boundary rejection. Those are fixed with isolated commits. Remaining failures must continue to be classified one at a time.
 
 ## Open Questions
 
-- Does `explicit_append_and_insert_positions_clamp`, the next current failure from full managed run `20260721_120906`, remain independently red?
+- Does `int_keys_separated_by_2_to_32_collide_and_replace`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `explicit_append_and_insert_positions_clamp` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `int_keys_separated_by_2_to_32_collide_and_replace` alone under the corrected managed runner before any diagnosis or edit.
