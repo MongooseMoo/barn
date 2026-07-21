@@ -1551,6 +1551,63 @@ func TestTransactionAdoptLiveVerbsPreservesStagedCode(t *testing.T) {
 	}
 }
 
+func TestTransactionLiveMutationDoesNotRebaseUnrelatedReads(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	other, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if errCode := store.DefineProperty(0, "read", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty read failed: %v", errCode)
+	}
+	if errCode := store.DefineProperty(0, "write", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty write failed: %v", errCode)
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if _, errCode := tx.PropertyValue(0, "read"); errCode != types.E_NONE {
+		t.Fatalf("PropertyValue read failed: %v", errCode)
+	}
+
+	if _, errCode := store.AddVerb(other, NewVerb("live", []string{"live"}, 0, VerbRead|VerbExecute, VerbArgs{}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb failed: %v", errCode)
+	}
+	tx.MarkLiveMutated()
+	if errCode := tx.AdoptLiveVerbs(other); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs failed: %v", errCode)
+	}
+
+	concurrent := store.BeginReadOnly(0)
+	if errCode := concurrent.SetPropertyValue(0, "read", types.NewInt(1)); errCode != types.E_NONE {
+		t.Fatalf("concurrent SetPropertyValue failed: %v", errCode)
+	}
+	if errCode := concurrent.Commit(); errCode != types.E_NONE {
+		t.Fatalf("concurrent Commit failed: %v", errCode)
+	}
+	concurrent.Release()
+
+	if errCode := tx.SetPropertyValue(0, "write", types.NewInt(1)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue write failed: %v", errCode)
+	}
+	if errCode := tx.Commit(); errCode != types.E_INVARG {
+		t.Fatalf("Commit = %v, want E_INVARG conflict", errCode)
+	}
+	if !tx.ValidationFailed() {
+		t.Fatal("transaction did not record validation failure")
+	}
+	value, errCode := store.PropertyValue(0, "write")
+	if errCode != types.E_NONE {
+		t.Fatalf("live PropertyValue write failed: %v", errCode)
+	}
+	if got := value.Int(); got != 0 {
+		t.Fatalf("write property = %d, want unchanged 0", got)
+	}
+}
+
 func TestTransactionForgetObjectDropsStagedVerbCode(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

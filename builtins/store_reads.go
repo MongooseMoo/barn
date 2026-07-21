@@ -16,8 +16,8 @@ func readTxn(ctx *kernel.TaskContext) *dbstore.StoreTxn {
 // markLiveStoreMutated records that this builtin mutated the live Store directly,
 // outside the task's transaction. It flags both the context (so the scheduler will
 // not retry the task — a retry would re-apply the un-rollback-able mutation) and the
-// transaction (so commit re-baselines the read set to live instead of treating the
-// task's own advances as a conflict).
+// transaction (so commit uses the coarse path). Each mutating builtin separately
+// adopts only the object facets changed by its own mutation.
 func markLiveStoreMutated(ctx *kernel.TaskContext) {
 	if ctx == nil {
 		return

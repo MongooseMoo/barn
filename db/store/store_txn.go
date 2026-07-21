@@ -49,12 +49,9 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 }
 
 // MarkLiveMutated records that the owning task has mutated the live Store directly,
-// outside this transaction (create/recycle/chparent/move/add_verb/...). Such a
-// mutation advances live versions past this txn's read snapshot, so at commit the
-// recorded read set is re-baselined to live rather than treated as an external
-// conflict (see adoptLiveReadsLocked). The task that performed the mutation is the
-// only writer responsible for those advances, so this never masks another writer's
-// change in serial execution.
+// outside this transaction (create/recycle/chparent/move/add_verb/...). Callers adopt
+// the specific live object facets changed by their own mutation; unrelated read-set
+// versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil {
 		tx.liveMutated = true
@@ -1552,14 +1549,6 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	tx.store.mu.Lock()
 	defer tx.store.mu.Unlock()
 
-	// A task that mutated the live Store directly advanced live versions past its
-	// own read snapshot. Re-baseline the read set to live so the task does not
-	// conflict with its own un-rollback-able mutations; the mutating task is the
-	// sole writer responsible for those advances in serial execution.
-	if tx.liveMutated {
-		tx.adoptLiveReadsLocked()
-	}
-
 	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
 		tx.validationFail = true
 		return errCode
@@ -1702,65 +1691,6 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
 	return types.E_NONE
-}
-
-// adoptLiveReadsLocked re-baselines every recorded read version to the current live
-// version, so a task that mutated the live Store directly does not flag its own
-// advances as a conflict at commit. Caller holds store.mu. Reads of objects that no
-// longer exist are dropped; the write apply path validates object existence.
-func (tx *StoreTxn) adoptLiveReadsLocked() {
-	for objID := range tx.scalarReads {
-		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
-			tx.scalarReads[objID] = live.scalarVersion
-		} else {
-			delete(tx.scalarReads, objID)
-		}
-	}
-	for objID := range tx.relationshipReads {
-		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
-			tx.relationshipReads[objID] = live.relationshipVersion
-		} else {
-			delete(tx.relationshipReads, objID)
-		}
-	}
-	for key := range tx.propertyReads {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			delete(tx.propertyReads, key)
-			continue
-		}
-		if _, prop, ok := propertyByName(live.properties, key.name); ok {
-			tx.propertyReads[key] = prop.version
-		} else {
-			delete(tx.propertyReads, key)
-		}
-	}
-	for objID := range tx.propertyScans {
-		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
-			tx.propertyScans[objID] = live.propertyVersion
-		} else {
-			delete(tx.propertyScans, objID)
-		}
-	}
-	for key := range tx.verbReads {
-		live := tx.store.liveObjectLocked(key.objID)
-		if !validLiveObject(live) {
-			delete(tx.verbReads, key)
-			continue
-		}
-		if verb := live.verbs[key.name]; verb != nil {
-			tx.verbReads[key] = verb.version
-		} else {
-			delete(tx.verbReads, key)
-		}
-	}
-	for objID := range tx.verbScans {
-		if live := tx.store.liveObjectLocked(objID); validLiveObject(live) {
-			tx.verbScans[objID] = live.verbVersion
-		} else {
-			delete(tx.verbScans, objID)
-		}
-	}
 }
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
