@@ -748,7 +748,15 @@ func (p *Parser) parseLiteralExpr() (*verb.LiteralExpr, error) {
 		val := strings.TrimPrefix(p.current.Value, "#")
 		id, err := strconv.ParseInt(val, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse object ID: %w", err)
+			if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
+				if wrapped, ok := wrapInt64Literal(val); ok {
+					id = wrapped
+				} else {
+					return nil, fmt.Errorf("failed to parse object ID: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("failed to parse object ID: %w", err)
+			}
 		}
 		p.nextToken()
 		return &verb.LiteralExpr{Pos: pos, Kind: verb.LiteralObj, ObjID: id}, nil
