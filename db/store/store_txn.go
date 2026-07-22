@@ -81,6 +81,14 @@ type objectScalarWrite struct {
 type objectRelationshipWrite struct {
 	locationSet bool
 	location    types.ObjID
+	// contentsSet stages a whole new contents list (the inverse relationship edge).
+	// move() stages location on the moved object AND contents on the old and new
+	// locations, so movement commits through the decentralized path instead of the
+	// coarse stop-the-world path. A contents write bumps relationshipVersion, so a
+	// concurrent reader of that room's contents conflicts and retries; two moves
+	// between disjoint rooms touch disjoint slots and commit in parallel.
+	contentsSet bool
+	contents    []types.ObjID
 }
 
 type propertyWriteKey struct {
@@ -851,6 +859,94 @@ func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID
 	write.location = location
 	lazySet(&tx.relationshipWrites, objID, write)
 	return types.E_NONE
+}
+
+// stageContentsWrite stages a whole new contents list for objID (the inverse
+// relationship edge) so the write commits through the decentralized path. The
+// caller is responsible for marking the paired relationship read and for updating
+// the cached image (read-your-writes) via mutableObject.
+func (tx *StoreTxn) stageContentsWrite(objID types.ObjID, contents []types.ObjID) {
+	write := tx.relationshipWrites[objID]
+	write.contentsSet = true
+	write.contents = append([]types.ObjID(nil), contents...)
+	lazySet(&tx.relationshipWrites, objID, write)
+}
+
+// MoveObject stages moving `what` into `where` at `position` through the txn's
+// decentralized write path — what.location plus the contents lists of the old and
+// new locations — instead of the coarse live mutation store.MoveObject performs. It
+// records relationship reads on all three touched objects, so a concurrent move
+// touching the same room conflicts and retries while moves between disjoint rooms
+// commit in parallel. It mutates the txn's cached images for read-your-writes,
+// mirroring SetObjectLocationRaw. Retry-safe: nothing touches the live store.
+//
+// This mirrors store.MoveObject's imperative order (remove from old location, set
+// location, insert into new location) so a same-location move re-orders identically.
+func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) types.ErrorCode {
+	what := tx.object(whatID)
+	if !validLiveObject(what) {
+		return types.E_INVIND
+	}
+	oldLocID := what.location
+	tx.markObjectRelationshipRead(whatID, what)
+
+	// Remove `what` from its old location's contents.
+	if oldLocID != types.ObjNothing {
+		if oldLoc := tx.object(oldLocID); validLiveObject(oldLoc) {
+			tx.markObjectRelationshipRead(oldLocID, oldLoc)
+			m := tx.mutableObject(oldLocID)
+			m.contents = removeObjID(m.contents, whatID)
+			tx.stageContentsWrite(oldLocID, m.contents)
+		}
+	}
+
+	// Set `what`'s location.
+	m := tx.mutableObject(whatID)
+	m.location = whereID
+	locWrite := tx.relationshipWrites[whatID]
+	locWrite.locationSet = true
+	locWrite.location = whereID
+	lazySet(&tx.relationshipWrites, whatID, locWrite)
+
+	// Insert `what` into the new location's contents at the MOO position.
+	if whereID != types.ObjNothing {
+		if where := tx.object(whereID); validLiveObject(where) {
+			tx.markObjectRelationshipRead(whereID, where)
+			mw := tx.mutableObject(whereID)
+			mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
+			tx.stageContentsWrite(whereID, mw.contents)
+		}
+	}
+	return types.E_NONE
+}
+
+// HasContentDescendant reports whether targetID is objID or lies within objID's
+// contents tree, reading through the txn snapshot and recording relationship reads
+// on every object walked so a concurrent move that would change the answer conflicts
+// this txn (preventing two concurrent moves from each creating a containment cycle).
+func (tx *StoreTxn) HasContentDescendant(objID, targetID types.ObjID) bool {
+	if objID == targetID {
+		return true
+	}
+	queue := []types.ObjID{objID}
+	visited := make(map[types.ObjID]bool)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if visited[currentID] {
+			continue
+		}
+		visited[currentID] = true
+		if currentID == targetID {
+			return true
+		}
+		current := tx.object(currentID)
+		if validLiveObject(current) {
+			tx.markObjectRelationshipRead(currentID, current)
+			queue = append(queue, current.contents...)
+		}
+	}
+	return false
 }
 
 func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
@@ -1670,6 +1766,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 		if write.locationSet {
 			live.location = write.location
+		}
+		if write.contentsSet {
+			live.contents = write.contents
 		}
 		stampObjectRelationship(live, ts)
 	}

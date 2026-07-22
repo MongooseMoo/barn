@@ -46,10 +46,27 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if whereVal.ID() != types.ObjNothing && !validForRead(ctx, whereVal.ID()) {
 		return types.Err(types.E_INVARG)
 	}
-	oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
 
-	// Check for recursive move (moving into self or descendant)
-	if store.HasContentDescendant(whatVal.ID(), whereVal.ID()) {
+	tx := readTxn(ctx)
+
+	// Decentralize the move ONLY when the task has not already mutated the live store
+	// directly (via a coarse builtin like create/recycle/renumber earlier in the same
+	// task). A decentralized move only STAGES its writes in the transaction; a coarse
+	// builtin reads and mutates the LIVE store, so mixing the two in one task would let
+	// the coarse builtin see stale live state. Pure-move tasks (the hot path) stay
+	// decentralized; mixed tasks fall back to the coarse move so live stays consistent.
+	decentralized := tx != nil && !ctx.LiveStoreMutated
+
+	// Check for recursive move (moving into self or descendant). Through the txn when
+	// decentralized (records read deps so two concurrent moves cannot each create a
+	// cycle); against the live store on the coarse path (which mutates live in place).
+	var recursive bool
+	if decentralized {
+		recursive = tx.HasContentDescendant(whatVal.ID(), whereVal.ID())
+	} else {
+		recursive = store.HasContentDescendant(whatVal.ID(), whereVal.ID())
+	}
+	if recursive {
 		return types.Err(types.E_RECMOVE)
 	}
 
@@ -64,21 +81,34 @@ func builtinMove(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
-		if oldLocationErr == types.E_NONE {
-			adoptIDs = append(adoptIDs, oldLocation)
-		}
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+	if decentralized {
+		// Stage the move; it commits on the decentralized MVCC path (disjoint-room
+		// moves in parallel; same-room moves conflict and retry).
+		if errCode := tx.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
 			return types.Err(errCode)
+		}
+	} else {
+		// Coarse path: mutate the live store, flag the task live-mutated (so commit
+		// uses the coarse path and does not retry), and adopt the changed relationship
+		// facets into the transaction's cache.
+		oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
+		if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
+		markLiveStoreMutated(ctx)
+		if tx != nil {
+			adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
+			if oldLocationErr == types.E_NONE {
+				adoptIDs = append(adoptIDs, oldLocation)
+			}
+			if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
 		}
 	}
 
-	// TODO: Call exitfunc and enterfunc verbs (Phase 9)
+	// TODO: Call exitfunc and enterfunc verbs (Phase 9) — unimplemented in Toast-Barn
+	// parity terms; no conformance coverage exists for them.
 
 	return types.Ok(types.NewInt(0))
 }

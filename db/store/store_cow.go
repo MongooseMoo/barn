@@ -105,6 +105,12 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 	if w.locationSet {
 		img.location = w.location
 	}
+	if w.contentsSet {
+		// Replace the whole contents slice with the staged one (computed from the
+		// txn's read snapshot). The shallow struct copy shared old.contents; reassigning
+		// img.contents leaves the old image's slice untouched (immutable).
+		img.contents = w.contents
+	}
 	img.relationshipVersion = ts
 	return &img
 }
