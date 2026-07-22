@@ -127,3 +127,21 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 		t.Fatalf("listappend at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }
+
+func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	list := types.NewList([]types.Value{types.NewInt(1)})
+	value := types.NewList([]types.Value{types.NewInt(2)})
+	limit := ValueBytes(list.Set(1, value))
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: limit,
+		},
+	}}
+
+	result := builtinListset(ctx, []types.Value{list, value, types.NewInt(1)})
+	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
+		t.Fatalf("listset at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+	}
+}
