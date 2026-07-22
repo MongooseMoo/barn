@@ -237,7 +237,7 @@ func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		}
 		result := types.NewList(elements)
 		// Check size limit
-		if err := CheckListLimit(result); err != types.E_NONE {
+		if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)

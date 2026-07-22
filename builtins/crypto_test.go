@@ -103,3 +103,19 @@ func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
 		t.Fatalf("distinct anonymous hashes differ: %q != %q", first.Val.Str(), second.Val.Str())
 	}
 }
+
+func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	decoded := types.NewList([]types.Value{types.NewInt(120), types.NewInt(120)})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: ValueBytes(decoded),
+		},
+	}}
+
+	result := builtinDecodeBinary(ctx, []types.Value{types.NewStr("xx"), types.NewInt(1)})
+	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
+		t.Fatalf("fully numeric decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+	}
+}
