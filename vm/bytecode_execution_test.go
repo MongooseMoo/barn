@@ -3,6 +3,7 @@ package vm
 import (
 	"testing"
 
+	"barn/bytecode"
 	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/kernel"
@@ -156,6 +157,33 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 
 	result := runBytecodeProgram(t, `x = [1 -> 0]; x[1] = 1; return x;`, nil, ctx)
 	requireError(t, result, types.E_QUOTA)
+}
+
+func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	initialMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(0)}})
+	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: types.ValueBytes(resultMap),
+			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
+		},
+	}}
+
+	machine := NewVM(nil, nil)
+	machine.Context = ctx
+	machine.pushFrame(&StackFrame{
+		Program: &bytecode.Program{Code: []byte{0}},
+		Locals:  []types.Value{initialMap},
+	})
+	machine.Push(resultMap)
+	machine.Push(types.NewInt(1))
+	machine.Push(types.NewInt(1))
+
+	if err := machine.executeRangeSet(); err == nil || err.Error() != "E_QUOTA: map too large" {
+		t.Fatalf("map range assignment error = %v, want E_QUOTA", err)
+	}
 }
 
 func TestCaughtErrorDiscardsPartialExpressionOperands(t *testing.T) {

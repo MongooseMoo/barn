@@ -282,7 +282,7 @@ func (vm *VM) executeRangeSet() error {
 			return fmt.Errorf("E_QUOTA: string too long")
 		}
 	case types.TYPE_MAP:
-		if errCode := builtins.CheckMapLimit(newColl); errCode != types.E_NONE {
+		if errCode := builtins.CheckListLimitForTask(vm.Context, newColl); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: map too large")
 		}
 	}
