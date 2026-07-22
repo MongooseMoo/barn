@@ -142,6 +142,7 @@
 | Focused listappend list-limit row, stock WSL Toast, direct builtin regression | Operation defect versus stale global limit | Barn built the oversized appended list; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_151129` pass after switching only `listappend` to the proven task-local limit check | Listappend position/clamping semantics and global committed cache | Listappend still used the global-only list-limit path |
 | Focused listset list-limit row, stock WSL Toast, direct builtin regression | Operation defect versus stale global limit | Barn built the oversized replacement list; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_180238` pass after switching only `listset` to the proven task-local limit check | Listset index/range semantics and global committed cache | Listset still used the global-only list-limit path |
 | Focused append-opcode list-limit row, stock WSL Toast, direct VM regression | Opcode defect versus stale global limit | Barn built the oversized list through `{@x, i}`; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_180624` pass after the append opcode consults the existing task-local list-limit check | Splice extension, prepend behavior, and other collection opcodes | The list append opcode still used the global-only list-limit path |
+| Focused fully-numeric decode list-limit row, stock WSL Toast, direct builtin regression | Builtin branch defect versus stale global limit | Barn returned the oversized integer list from `decode_binary(value, 1)`; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_181121` pass after only that branch consults the task-local list-limit check | Grouped decode and `as_str` result branches | Fully-numeric decode still used the global-only list-limit path |
 
 ## Current Best Theory
 
@@ -149,8 +150,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does `rangeset_on_list_checks_max_value_bytes`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
+- Does `mapdelete_uses_list_not_map_max_value_bytes`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `rangeset_on_list_checks_max_value_bytes` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `mapdelete_uses_list_not_map_max_value_bytes` alone under the corrected managed runner before any diagnosis or edit.
