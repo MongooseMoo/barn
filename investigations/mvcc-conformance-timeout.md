@@ -156,15 +156,19 @@
 | Focused missing waif index-handler row, stock WSL Toast, direct VM regression | Generic verb failure versus index-operation error | Barn returned `E_VERBNF` when the waif class lacked `:_index`; Toast returned `E_TYPE`; direct, package, and managed run `20260721_190448` pass after translating only that exact missing-handler result | Ordinary verb-call and handler compile errors | WAIF index dispatch exposed the internal missing-verb result directly |
 | Focused nonwizard-owned waif index row, stock WSL Toast, direct VM boundary regressions | Caller permission versus class-owner authority | Barn dispatched `:_index` from a nonwizard-owned class and returned the key; Toast returned `E_TYPE`; direct, package, and managed run `20260721_191104` pass after requiring the class owner's wizard flag before dispatch | Wizard-owned handler success, missing-handler `E_TYPE`, and invalid-class `E_INVIND` | WAIF index dispatch omitted the class-owner authority check |
 | Full managed rerun `20260721_191328` | Complete convergence versus remaining isolated failures | `11411 passed`, `146 skipped`, `1 failed`; only `connection_lifecycle_toast_oracle::audit_connect_timeout_server_option` remained red | Every persisted failure from full run `20260721_182815` | The final gate is not green; the timeout row must be re-isolated before diagnosis |
+| Focused managed timeout row `20260721_191815` | Independent semantic defect versus order/timing dependence | Passed unchanged in 10.71s | An independently reproducible timeout-row defect | Full-suite order or timing is required for the failure |
+| Second full managed rerun `20260721_191904` | One-off event versus reproducible full-suite condition | `11411 passed`, `146 skipped`, `1 failed`; the same timeout row again observed `audit_timeout_seen == 0` | A one-off full-run event | The failure is reproducible under full-suite conditions |
+| Canonical WSL Toast lifecycle family | Expected family-order behavior | All 23 lifecycle rows passed together, including the timeout row | The conformance expectation or family order being invalid | Barn differs from Toast only under broader full-suite conditions or load |
 
 ## Current Best Theory
 
-Every persisted failure from full managed run `20260721_182815` is green. Full managed run `20260721_191328` exposed one remaining timeout-row failure; its independent current status must be established before deciding whether this is a semantic defect, order dependence, or a non-reproducible full-run event.
+Every persisted failure from full managed run `20260721_182815` is green. The timeout row passes independently but fails as the sole red row in two consecutive full managed runs. Canonical WSL Toast passes the complete lifecycle family in order, so Barn's remaining mismatch requires a broader full-suite condition or scheduling load.
 
 ## Open Questions
 
-- Does `connection_lifecycle_toast_oracle::audit_connect_timeout_server_option` remain independently red after full managed run `20260721_191328`?
+- Does the failing full run miss the timeout deadline entirely, fire it after the final assertion, or complete the hook after the assertion?
+- Which exact earlier event or load condition is necessary to reproduce the full-run timing outside the full suite?
 
 ## Next Action
 
-Keep the source ledger clean and run `.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788 -K 'audit_connect_timeout_server_option'` before any diagnosis or edit.
+Keep the source ledger clean. Compare the exact timeout-row timing and the isolated-green/full-order-red Barn logs before selecting a minimal ordered diagnostic or writing a regression test.
