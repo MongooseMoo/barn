@@ -48,12 +48,13 @@ func (s *Store) rangeAnonymousLocked(fn func(*Object)) {
 			fn(obj)
 		}
 	}
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if validLiveObject(obj) && obj.anonymous {
 			fn(obj)
 		}
-	}
+		return true
+	})
 }
 
 func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
@@ -63,13 +64,10 @@ func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 	reachable := make(map[types.ObjID]struct{})
 	queue := make([]types.ObjID, 0)
 
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !validLiveObject(obj) || obj.anonymous {
-			continue
+		if obj == nil || !validLiveObject(obj) || obj.anonymous {
+			return true
 		}
 		for _, prop := range obj.properties {
 			refs := make(map[types.ObjID]struct{})
@@ -78,7 +76,8 @@ func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {
 				queue = append(queue, id)
 			}
 		}
-	}
+		return true
+	})
 
 	s.expandAnonymousReachabilityLocked(reachable, queue)
 	return reachable
@@ -213,18 +212,16 @@ func (s *Store) PersistentWaifRoots() []types.Value {
 	defer s.mu.RUnlock()
 
 	roots := make([]types.Value, 0)
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !validLiveObject(obj) {
-			continue
+		if obj == nil || !validLiveObject(obj) {
+			return true
 		}
 		for _, prop := range obj.properties {
 			collectWaifsFromValue(prop.value, &roots)
 		}
-	}
+		return true
+	})
 	return roots
 }
 

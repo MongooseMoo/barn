@@ -388,7 +388,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 
 	slots := make([]*objectSlot, 0, len(lockIDs))
 	for _, id := range lockIDs {
-		slot := s.objects[id]
+		slot := s.dir.slot(id)
 		if slot == nil {
 			if seen[id] {
 				// No slot => written object never existed. Apply-time contract returns E_INVIND.
@@ -533,7 +533,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		}
 		// The replaced image is immutable; stash it as the history node (no clone).
 		s.rememberOldImageLocked(old)
-		s.objects[id].ptr.Store(img)
+		s.publishLocked(id, img)
 	}
 
 	// History GC (Phase 4): now that this commit appended a fresh newest version to

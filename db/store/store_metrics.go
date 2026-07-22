@@ -130,10 +130,10 @@ func (s *Store) ResetMaxObject() {
 	maxAny := types.ObjID(-1)
 	maxNonAnon := types.ObjID(-1)
 
-	for id, slot := range s.objects {
+	s.dir.forEach(func(id types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj == nil || obj.recycled {
-			continue
+			return true
 		}
 		if id > maxAny {
 			maxAny = id
@@ -141,7 +141,8 @@ func (s *Store) ResetMaxObject() {
 		if !obj.anonymous && id > maxNonAnon {
 			maxNonAnon = id
 		}
-	}
+		return true
+	})
 
 	s.highWaterID = maxAny
 	s.maxObjID = maxNonAnon

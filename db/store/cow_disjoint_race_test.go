@@ -37,7 +37,7 @@ func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {
 		t.Fatalf("write a.n failed: %v", errCode)
 	}
 
-	readSlot := store.objects[b]
+	readSlot := store.dir.slot(b)
 	readSlot.mu.Lock()
 	done := make(chan types.ErrorCode, 1)
 	go func() {

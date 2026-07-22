@@ -42,8 +42,8 @@ func (s *Store) Snapshot() Snapshot {
 
 	snapshot := Snapshot{
 		MaxObject:            s.maxObjID,
-		Objects:              make(map[types.ObjID]*SnapshotObject, len(s.objects)),
-		PropertyNames:        make(map[types.ObjID][]string, len(s.objects)),
+		Objects:              make(map[types.ObjID]*SnapshotObject, s.dir.len()),
+		PropertyNames:        make(map[types.ObjID][]string, s.dir.len()),
 		PendingFinalizations: cloneValues(s.pendingFinalizations),
 	}
 
@@ -63,20 +63,21 @@ func (s *Store) Snapshot() Snapshot {
 
 	// propertyNames must be computed over the live objects so parent-chain walks
 	// see the full graph; build them keyed by id.
-	for id, slot := range s.objects {
+	s.dir.forEach(func(id types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj == nil {
-			continue
+			return true
 		}
 		so := snapshotObjectValue(obj)
 		plan.rewriteSnapshotObject(so)
 		snapshot.Objects[id] = so
-	}
+		return true
+	})
 
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj == nil {
-			continue
+			return true
 		}
 		so := snapshot.Objects[obj.id]
 		if !obj.recycled && obj.flags.Has(FlagUser) {
@@ -88,7 +89,8 @@ func (s *Store) Snapshot() Snapshot {
 		if validLiveObject(obj) {
 			snapshot.PropertyNames[obj.id] = snapshotPropertyNames(obj)
 		}
-	}
+		return true
+	})
 
 	// Emit reachable anonymous objects with their assigned above-max
 	// serialization ids, in serialization-id order so the dump is deterministic.
@@ -138,13 +140,10 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		seen[id] = struct{}{}
 		queue = append(queue, id)
 	}
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !validLiveObject(obj) || obj.anonymous {
-			continue
+		if obj == nil || !validLiveObject(obj) || obj.anonymous {
+			return true
 		}
 		for _, prop := range obj.properties {
 			refs := make(map[types.ObjID]struct{})
@@ -153,7 +152,8 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 				enqueue(id)
 			}
 		}
-	}
+		return true
+	})
 
 	// Transitively expand through anon objects that actually exist out-of-band,
 	// collecting the reachable-and-present set. References to absent anon ids are

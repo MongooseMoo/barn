@@ -41,7 +41,7 @@ type readTSShard struct {
 
 type Store struct {
 	mu          sync.RWMutex
-	objects     map[types.ObjID]*objectSlot
+	dir         objectDir     // segmented lock-free directory: id -> *objectSlot
 	maxObjID    types.ObjID   // Highest non-anonymous object ID (for max_object())
 	highWaterID types.ObjID   // Highest allocated ID (including anonymous, for NextID())
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
@@ -98,7 +98,6 @@ type Store struct {
 
 func NewStore() *Store {
 	return &Store{
-		objects:     make(map[types.ObjID]*objectSlot),
 		anonObjects: make(map[types.ObjID]*Object),
 		maxObjID:    -1,
 		highWaterID: -1,
@@ -113,21 +112,18 @@ func NewStore() *Store {
 // the read paths hold store.mu.RLock so the map skeleton is stable during the
 // lookup; the atomic Load itself is the acquire barrier that publishes the image.
 func (s *Store) load(id types.ObjID) *Object {
-	if slot := s.objects[id]; slot != nil {
+	if slot := s.dir.slot(id); slot != nil {
 		return slot.ptr.Load()
 	}
 	return nil
 }
 
-// slotFor returns the slot for id, creating it under store.mu if absent. Callers
-// hold store.mu (exclusive) when this may create a slot (map-skeleton mutation).
+// slotFor returns the slot for id, creating it if absent. The directory is a
+// concurrent segmented array, so slot creation is a lock-free CAS and does NOT
+// require store.mu exclusively — which is what lets a decentralized create() publish
+// a new object without a stop-the-world lock.
 func (s *Store) slotFor(id types.ObjID) *objectSlot {
-	slot := s.objects[id]
-	if slot == nil {
-		slot = &objectSlot{}
-		s.objects[id] = slot
-	}
-	return slot
+	return s.dir.getOrCreate(id)
 }
 
 // publishLocked publishes obj into id's slot. Used by the coarse (store.mu-held)
@@ -586,13 +582,10 @@ func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []ty
 	}
 
 	result := make([]types.ObjID, 0)
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !validLiveObject(obj) {
-			continue
+		if obj == nil || !validLiveObject(obj) {
+			return true
 		}
 		name := strings.TrimSpace(obj.name)
 		if !caseSensitive {
@@ -601,7 +594,8 @@ func (s *Store) ObjectIDsByNameSubstring(needle string, caseSensitive bool) []ty
 		if strings.Contains(name, searchNeedle) {
 			result = append(result, obj.id)
 		}
-	}
+		return true
+	})
 	return result
 }
 
@@ -610,15 +604,13 @@ func (s *Store) ObjectsOwnedBy(owner types.ObjID) []types.ObjID {
 	defer s.mu.RUnlock()
 
 	result := make([]types.ObjID, 0)
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if validLiveObject(obj) && obj.owner == owner {
+		if obj != nil && validLiveObject(obj) && obj.owner == owner {
 			result = append(result, obj.id)
 		}
-	}
+		return true
+	})
 	return result
 }
 

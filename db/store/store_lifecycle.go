@@ -327,16 +327,14 @@ func (s *Store) All() []ObjectView {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make([]ObjectView, 0, len(s.objects))
-	for _, slot := range s.objects {
+	result := make([]ObjectView, 0, s.dir.len())
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !obj.recycled {
+		if obj != nil && !obj.recycled {
 			result = append(result, obj.view())
 		}
-	}
+		return true
+	})
 	return result
 }
 
@@ -345,15 +343,13 @@ func (s *Store) Players() []types.ObjID {
 	defer s.mu.RUnlock()
 
 	result := []types.ObjID{}
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
-		if obj == nil {
-			continue
-		}
-		if !obj.recycled && obj.flags.Has(FlagUser) {
+		if obj != nil && !obj.recycled && obj.flags.Has(FlagUser) {
 			result = append(result, obj.id)
 		}
-	}
+		return true
+	})
 	return result
 }
 
@@ -466,10 +462,10 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	}
 
 	// Update all references in ALL objects
-	for _, slot := range s.objects {
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		other := slot.ptr.Load()
 		if other == nil || other.recycled {
-			continue
+			return true
 		}
 
 		// Update Parents
@@ -548,7 +544,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			}
 			stampObjectAll(other, ts)
 		}
-	}
+		return true
+	})
 
 	// Fix references in anonymous objects as well. Before F2 (commit 7318d24)
 	// runtime anonymous objects lived in the numbered s.objects map, so the
