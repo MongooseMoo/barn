@@ -67,7 +67,7 @@ func (vm *VM) executeListAppend() error {
 	// Append (COW). list.Append maintains the cached byte-size incrementally so
 	// the quota check below stays O(1) instead of re-walking the whole list.
 	result := listVal.Append(elem)
-	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
+	if errCode := builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
 

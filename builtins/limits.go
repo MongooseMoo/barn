@@ -361,7 +361,7 @@ func CheckListLimit(list types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
-func checkListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
+func CheckListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
 	limit := GetMaxListValueBytes()
 	if pending := pendingServerOptions(ctx); pending != nil {
 		limit = pending.MaxListValueBytes

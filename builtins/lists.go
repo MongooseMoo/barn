@@ -45,7 +45,7 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 	result := list.InsertAt(index+1, value)
 
 	// Check size limit
-	if err := checkListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -87,7 +87,7 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 	result := list.InsertAt(index, value)
 
 	// Check size limit
-	if err := checkListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -151,7 +151,7 @@ func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result := list.Set(index, value)
 
 	// Check size limit
-	if err := checkListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -183,7 +183,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := checkListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 

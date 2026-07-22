@@ -129,6 +129,20 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	)
 }
 
+func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	resultList := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: types.ValueBytes(resultList),
+		},
+	}}
+
+	result := runBytecodeProgram(t, `x = {1}; return {@x, 2};`, nil, ctx)
+	requireError(t, result, types.E_QUOTA)
+}
+
 func TestCaughtErrorDiscardsPartialExpressionOperands(t *testing.T) {
 	code := `return {` +
 		"`max(1, @5) ! E_TYPE => 11'," +
