@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -45,6 +46,10 @@ func foldASCII(s string) string {
 }
 
 func compareFoldedASCII(a, b string) int {
+	if utf8.ValidString(a) && utf8.ValidString(b) && strings.EqualFold(a, b) {
+		return 0
+	}
+
 	n := len(a)
 	if len(b) < n {
 		n = len(b)

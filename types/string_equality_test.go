@@ -11,6 +11,12 @@ func TestStringEqualityFoldsASCIIWithoutFoldingRawHighBytes(t *testing.T) {
 	}
 }
 
+func TestStringEqualityFoldsValidUTF8Case(t *testing.T) {
+	if !NewStr("À").Equal(NewStr("à")) {
+		t.Fatal("valid UTF-8 case variants should compare equal")
+	}
+}
+
 func TestRawHighByteMapKeysRemainDistinct(t *testing.T) {
 	upper := NewStr(string([]byte{0xC0}))
 	lower := NewStr(string([]byte{0xE0}))
