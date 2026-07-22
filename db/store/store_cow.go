@@ -105,11 +105,13 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 	if w.locationSet {
 		img.location = w.location
 	}
-	if w.contentsSet {
-		// Replace the whole contents slice with the staged one (computed from the
-		// txn's read snapshot). The shallow struct copy shared old.contents; reassigning
-		// img.contents leaves the old image's slice untouched (immutable).
-		img.contents = w.contents
+	if len(w.contentsDeltas) > 0 {
+		// Apply the commutative contents edits to the CURRENT (old) live contents, not
+		// a stale snapshot. applyContentsDeltas returns a fresh slice, so the old
+		// image's contents is untouched (immutable). Because the deltas apply to the
+		// image being superseded under its slot lock, two moves into the same room
+		// each see the other's already-published edit.
+		img.contents = applyContentsDeltas(old.contents, w.contentsDeltas)
 	}
 	img.relationshipVersion = ts
 	return &img

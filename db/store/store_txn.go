@@ -81,14 +81,39 @@ type objectScalarWrite struct {
 type objectRelationshipWrite struct {
 	locationSet bool
 	location    types.ObjID
-	// contentsSet stages a whole new contents list (the inverse relationship edge).
-	// move() stages location on the moved object AND contents on the old and new
-	// locations, so movement commits through the decentralized path instead of the
-	// coarse stop-the-world path. A contents write bumps relationshipVersion, so a
-	// concurrent reader of that room's contents conflicts and retries; two moves
-	// between disjoint rooms touch disjoint slots and commit in parallel.
-	contentsSet bool
-	contents    []types.ObjID
+	// contentsDeltas stages COMMUTATIVE add/remove edits to the inverse relationship
+	// edge (a room's contents), applied IN ORDER to the room's CURRENT live contents
+	// at commit — not a whole-list overwrite computed from a stale snapshot. move()
+	// stages a remove on the old room and an add on the new room this way and does NOT
+	// record a read dep on either room, so two moves into the SAME room both commit
+	// (setadd/setremove commute) and merely serialize on that room's slot mutex instead
+	// of one aborting and re-running the whole verb. The room's relationshipVersion
+	// still bumps, so a task that READ the room's contents and then writes still
+	// conflicts correctly; only blind commutative appenders avoid conflicting.
+	contentsDeltas []contentsDelta
+}
+
+// contentsDelta is one commutative edit to a room's contents list: add id at a MOO
+// position, or remove id (position-independent).
+type contentsDelta struct {
+	add      bool
+	id       types.ObjID
+	position int64 // 1-based MOO insert position for add; ignored for remove
+}
+
+// applyContentsDeltas applies deltas in order to a copy-on-each-op contents slice.
+// removeObjID and insertObjIDAtMOOPosition both return fresh slices, so the input
+// (an immutable published image's contents) is never mutated.
+func applyContentsDeltas(contents []types.ObjID, deltas []contentsDelta) []types.ObjID {
+	result := contents
+	for _, d := range deltas {
+		if d.add {
+			result = insertObjIDAtMOOPosition(result, d.id, d.position)
+		} else {
+			result = removeObjID(result, d.id)
+		}
+	}
+	return result
 }
 
 type propertyWriteKey struct {
@@ -861,27 +886,26 @@ func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID
 	return types.E_NONE
 }
 
-// stageContentsWrite stages a whole new contents list for objID (the inverse
-// relationship edge) so the write commits through the decentralized path. The
-// caller is responsible for marking the paired relationship read and for updating
-// the cached image (read-your-writes) via mutableObject.
-func (tx *StoreTxn) stageContentsWrite(objID types.ObjID, contents []types.ObjID) {
+// stageContentsDelta appends one commutative contents edit for objID (the inverse
+// relationship edge). It does NOT mark a relationship read on objID: a blind
+// add/remove commutes with any other, so two moves touching the same room must not
+// conflict. The caller updates the cached image (read-your-writes) via mutableObject.
+func (tx *StoreTxn) stageContentsDelta(objID types.ObjID, d contentsDelta) {
 	write := tx.relationshipWrites[objID]
-	write.contentsSet = true
-	write.contents = append([]types.ObjID(nil), contents...)
+	write.contentsDeltas = append(write.contentsDeltas, d)
 	lazySet(&tx.relationshipWrites, objID, write)
 }
 
 // MoveObject stages moving `what` into `where` at `position` through the txn's
-// decentralized write path — what.location plus the contents lists of the old and
-// new locations — instead of the coarse live mutation store.MoveObject performs. It
-// records relationship reads on all three touched objects, so a concurrent move
-// touching the same room conflicts and retries while moves between disjoint rooms
-// commit in parallel. It mutates the txn's cached images for read-your-writes,
-// mirroring SetObjectLocationRaw. Retry-safe: nothing touches the live store.
+// decentralized write path: what.location (a scalar edge), plus COMMUTATIVE contents
+// deltas (remove from the old room, add to the new room) on the two rooms. It records
+// a relationship read only on `what` (so two moves of the SAME object conflict), NOT
+// on the rooms — so two moves into the same room both commit and merely serialize on
+// that room's slot mutex at publish time, instead of one aborting and re-running the
+// whole verb. It mutates the txn's cached images for read-your-writes. Retry-safe.
 //
-// This mirrors store.MoveObject's imperative order (remove from old location, set
-// location, insert into new location) so a same-location move re-orders identically.
+// Mirrors store.MoveObject's imperative order (remove from old, set location, insert
+// into new) so a same-location move re-orders identically.
 func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) types.ErrorCode {
 	what := tx.object(whatID)
 	if !validLiveObject(what) {
@@ -890,13 +914,12 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 	oldLocID := what.location
 	tx.markObjectRelationshipRead(whatID, what)
 
-	// Remove `what` from its old location's contents.
+	// Remove `what` from its old location's contents (commutative delta; no room read).
 	if oldLocID != types.ObjNothing {
 		if oldLoc := tx.object(oldLocID); validLiveObject(oldLoc) {
-			tx.markObjectRelationshipRead(oldLocID, oldLoc)
 			m := tx.mutableObject(oldLocID)
 			m.contents = removeObjID(m.contents, whatID)
-			tx.stageContentsWrite(oldLocID, m.contents)
+			tx.stageContentsDelta(oldLocID, contentsDelta{add: false, id: whatID})
 		}
 	}
 
@@ -908,13 +931,13 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 	locWrite.location = whereID
 	lazySet(&tx.relationshipWrites, whatID, locWrite)
 
-	// Insert `what` into the new location's contents at the MOO position.
+	// Insert `what` into the new location's contents at the MOO position (commutative
+	// delta; no room read).
 	if whereID != types.ObjNothing {
 		if where := tx.object(whereID); validLiveObject(where) {
-			tx.markObjectRelationshipRead(whereID, where)
 			mw := tx.mutableObject(whereID)
 			mw.contents = insertObjIDAtMOOPosition(mw.contents, whatID, position)
-			tx.stageContentsWrite(whereID, mw.contents)
+			tx.stageContentsDelta(whereID, contentsDelta{add: true, id: whatID, position: position})
 		}
 	}
 	return types.E_NONE
@@ -1767,8 +1790,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if write.locationSet {
 			live.location = write.location
 		}
-		if write.contentsSet {
-			live.contents = write.contents
+		if len(write.contentsDeltas) > 0 {
+			live.contents = applyContentsDeltas(live.contents, write.contentsDeltas)
 		}
 		stampObjectRelationship(live, ts)
 	}

@@ -91,10 +91,12 @@ func TestTxnMoveDisjointRoomsCommitInParallel(t *testing.T) {
 	}
 }
 
-// TestTxnMoveSameRoomConflicts: two moves INTO the same room, opened at the same
-// snapshot, must conflict — the second committer's read of that room's contents is
-// stale, so the scheduler would retry it (no lost update).
-func TestTxnMoveSameRoomConflicts(t *testing.T) {
+// TestTxnMoveSameRoomCommutes: two moves of DIFFERENT objects INTO the same room,
+// opened at the same snapshot, must BOTH commit — the contents edits are commutative
+// setadds, so neither records a read dep on the room and there is no conflict; both
+// objects end up in the room (no lost update). This is the whole point of the
+// commutative-contents design: same-room moves serialize cheaply instead of aborting.
+func TestTxnMoveSameRoomCommutes(t *testing.T) {
 	s, ids := immutFixture(t, 5)
 	roomA, roomB, dest, x, y := ids[0], ids[1], ids[2], ids[3], ids[4]
 	if ec := commitMove(t, s, x, roomA, 0); ec != types.E_NONE {
@@ -118,11 +120,12 @@ func TestTxnMoveSameRoomConflicts(t *testing.T) {
 	if ec := tx1.Commit(); ec != types.E_NONE {
 		t.Fatalf("tx1 commit: %v", ec)
 	}
-	if ec := tx2.Commit(); ec == types.E_NONE {
-		t.Errorf("tx2 committed into the same room without conflict — lost update risk")
+	if ec := tx2.Commit(); ec != types.E_NONE {
+		t.Errorf("tx2 conflicted on a commutative same-room move: %v (should commute)", ec)
 	}
-	// After tx1 only, dest has x (tx2 correctly rejected).
-	if !containsObjID(s.load(dest).contents, x) {
-		t.Errorf("dest.contents missing x from tx1")
+	// Both objects landed in the room — no lost update.
+	c := s.load(dest).contents
+	if !containsObjID(c, x) || !containsObjID(c, y) {
+		t.Errorf("dest.contents = %v, want both x=%v and y=%v", c, x, y)
 	}
 }
