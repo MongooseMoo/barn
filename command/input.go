@@ -9,5 +9,6 @@ type InputEvent struct {
 	Line         string
 	IsOutOfBand  bool
 	IsDisconnect bool
+	IsTimeout    bool
 	Done         chan struct{}
 }

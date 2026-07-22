@@ -35,6 +35,7 @@ type InputProcessor struct {
 	// concurrently. The main run() loop only demuxes events onto these lanes.
 	workersMu sync.Mutex
 	workers   map[int64]chan command.InputEvent
+	inFlight  sync.WaitGroup
 }
 
 func NewInputProcessor(store *dbstore.Store, runtimeScheduler *runtime.Scheduler) *InputProcessor {
@@ -150,8 +151,17 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 				continue
 			}
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() && !conn.IsLoggedIn() {
-				conn.Send("*** Timed-out waiting for login. ***")
-				p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
+				done := make(chan struct{})
+				p.EnqueueInput(command.InputEvent{
+					ConnID:    conn.ID,
+					Player:    types.ObjID(-conn.ID),
+					IsTimeout: true,
+					Done:      done,
+				})
+				<-done
+				if conn.IsLoggedIn() {
+					continue
+				}
 				return
 			}
 			slog.Warn("read error", slog.Int64("conn_id", conn.ID), slog.Any("err", err))
@@ -212,6 +222,12 @@ func (p *InputProcessor) processSchedulerTick() {
 // read()/login ordering invariants of processInput; cross-connection events run
 // concurrently.
 func (p *InputProcessor) dispatch(input command.InputEvent) {
+	if input.IsTimeout {
+		p.inFlight.Wait()
+		p.processInput(input)
+		return
+	}
+
 	p.workersMu.Lock()
 	ch, ok := p.workers[input.ConnID]
 	if !ok {
@@ -222,9 +238,11 @@ func (p *InputProcessor) dispatch(input command.InputEvent) {
 	}
 	p.workersMu.Unlock()
 
+	p.inFlight.Add(1)
 	select {
 	case ch <- input:
 	case <-p.ctx.Done():
+		p.inFlight.Done()
 	}
 }
 
@@ -233,9 +251,17 @@ func (p *InputProcessor) connectionWorker(connID int64, ch chan command.InputEve
 	for {
 		select {
 		case <-p.ctx.Done():
-			return
+			for {
+				select {
+				case <-ch:
+					p.inFlight.Done()
+				default:
+					return
+				}
+			}
 		case input := <-ch:
 			p.processInput(input)
+			p.inFlight.Done()
 			if input.IsDisconnect {
 				// The connection is gone; retire its lane. A later event for a reused
 				// ConnID will spin up a fresh lane.
@@ -259,6 +285,10 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 
 	if input.IsDisconnect {
 		p.processDisconnect(input)
+		return
+	}
+	if input.IsTimeout {
+		p.processLoginTimeout(input)
 		return
 	}
 
@@ -296,6 +326,19 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	p.processCommand(input)
+}
+
+func (p *InputProcessor) processLoginTimeout(input command.InputEvent) {
+	cm := p.connManager
+	if cm == nil {
+		return
+	}
+	conn := cm.getConnectionByConnID(input.ConnID)
+	if conn == nil || conn.IsLoggedIn() {
+		return
+	}
+	_ = conn.Send("*** Timed-out waiting for login. ***")
+	p.callUserHook(conn.ListenerObject(), "user_disconnected", types.ObjID(-conn.ID))
 }
 
 func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
