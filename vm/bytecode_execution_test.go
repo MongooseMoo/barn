@@ -89,6 +89,9 @@ func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 
 func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	store := newBytecodeVerbStore()
+	if errCode := store.SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
+		t.Fatalf("SetObjectFlag wizard failed: %v", errCode)
+	}
 	class := dbstore.NewObjectBuilder(1)
 	class.SetOwner(0)
 	class.SetParents([]types.ObjID{0})
@@ -132,6 +135,9 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 
 func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
 	store := newBytecodeVerbStore()
+	if errCode := store.SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
+		t.Fatalf("SetObjectFlag wizard failed: %v", errCode)
+	}
 	class := dbstore.NewObjectBuilder(1)
 	class.SetOwner(0)
 	class.SetParents([]types.ObjID{0})
@@ -144,6 +150,28 @@ func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
 	}
 
 	result := runBytecodeProgram(t, `return #0.waif["missing"];`, store, nil)
+	requireError(t, result, types.E_TYPE)
+}
+
+func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
+	store := newBytecodeVerbStore()
+	class := dbstore.NewObjectBuilder(1)
+	class.SetOwner(0)
+	class.SetParents([]types.ObjID{0})
+	class.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+	if err := store.Add(class.Build()); err != nil {
+		t.Fatalf("store.Add class failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty waif failed: %v", errCode)
+	}
+	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
+	if _, errCode := store.AddVerb(1, dbstore.NewVerb(":_index", []string{":_index"}, 0,
+		execPerms, dbstore.VerbArgs{}, []string{"return args[1];"})); errCode != types.E_NONE {
+		t.Fatalf("AddVerb _index failed: %v", errCode)
+	}
+
+	result := runBytecodeProgram(t, `return #0.waif["key"];`, store, nil)
 	requireError(t, result, types.E_TYPE)
 }
 

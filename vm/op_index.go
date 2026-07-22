@@ -3,6 +3,7 @@ package vm
 import (
 	"barn/builtins"
 	"barn/bytecode"
+	dbstore "barn/db/store"
 	"barn/types"
 	"fmt"
 	"sort"
@@ -49,6 +50,27 @@ func (vm *VM) executeIndex() error {
 		return nil
 
 	case types.TYPE_WAIF:
+		if vm.Store == nil {
+			return fmt.Errorf("E_INVIND: no object store available")
+		}
+		txn := vm.storeTxn()
+		var owner types.ObjID
+		var errCode types.ErrorCode
+		if txn != nil {
+			owner, errCode = txn.ObjectOwner(collection.Class())
+		} else {
+			owner, errCode = vm.Store.ObjectOwner(collection.Class())
+		}
+		if errCode != types.E_NONE {
+			return fmt.Errorf("%s: invalid waif class", errCode.String())
+		}
+		ownerIsWizard, errCode := hasObjectFlagForRead(vm.Store, txn, owner, dbstore.FlagWizard)
+		if errCode != types.E_NONE {
+			return fmt.Errorf("%s: invalid waif class owner", errCode.String())
+		}
+		if !ownerIsWizard {
+			return fmt.Errorf("E_TYPE: waif class owner is not a wizard")
+		}
 		err := vm.startVerbCall(collection, "_index", []types.Value{index})
 		if err != nil && err.Error() == "E_VERBNF: verb not found: _index" {
 			return fmt.Errorf("E_TYPE: waif has no _index handler")
