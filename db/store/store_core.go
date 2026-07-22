@@ -41,9 +41,13 @@ type readTSShard struct {
 
 type Store struct {
 	mu          sync.RWMutex
-	dir         objectDir     // segmented lock-free directory: id -> *objectSlot
-	maxObjID    types.ObjID   // Highest non-anonymous object ID (for max_object())
-	highWaterID types.ObjID   // Highest allocated ID (including anonymous, for NextID())
+	dir objectDir // segmented lock-free directory: id -> *objectSlot
+	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
+	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
+	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
+	// exclusive lock. allocateID()/casMaxID() are the only mutators.
+	maxObjID    atomic.Int64
+	highWaterID atomic.Int64
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
 	clock       atomic.Uint64
 	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
@@ -97,12 +101,39 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	return &Store{
+	s := &Store{
 		anonObjects: make(map[types.ObjID]*Object),
-		maxObjID:    -1,
-		highWaterID: -1,
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
+	}
+	s.maxObjID.Store(-1)
+	s.highWaterID.Store(-1)
+	return s
+}
+
+// maxObjectID returns the highest non-anonymous object id, or -1 if none. Lock-free.
+func (s *Store) maxObjectID() types.ObjID { return types.ObjID(s.maxObjID.Load()) }
+
+// highWater returns the highest allocated id (including anonymous), or -1. Lock-free.
+func (s *Store) highWater() types.ObjID { return types.ObjID(s.highWaterID.Load()) }
+
+// allocateID atomically allocates the next unique object id (bumping highWaterID). It
+// is the SINGLE id allocator for numbered, anonymous, and decentralized creates, so
+// no two allocations ever collide even without the store lock.
+func (s *Store) allocateID() types.ObjID { return types.ObjID(s.highWaterID.Add(1)) }
+
+// casMaxID raises *a to v when v is larger — a monotonic max safe under concurrent
+// committers (two decentralized creates may publish out of id order; a plain Store
+// would lose the larger value).
+func casMaxID(a *atomic.Int64, v types.ObjID) {
+	for {
+		cur := a.Load()
+		if int64(v) <= cur {
+			return
+		}
+		if a.CompareAndSwap(cur, int64(v)) {
+			return
+		}
 	}
 }
 
@@ -425,15 +456,12 @@ func (s *Store) AddAnonymous(obj *Object) {
 func (s *Store) insertObjectLocked(obj *Object) {
 	s.publishLocked(obj.id, obj)
 
-	// Update high water ID (tracks all allocations including anonymous)
-	if obj.id > s.highWaterID {
-		s.highWaterID = obj.id
-	}
-
-	// Update max object ID (but NOT for anonymous objects)
-	// Anonymous objects don't affect max_object()
-	if !obj.anonymous && obj.id > s.maxObjID {
-		s.maxObjID = obj.id
+	// High water ID tracks all allocations (including anonymous); max object ID
+	// excludes anonymous. Both are monotonic maxes (CAS) so concurrent decentralized
+	// committers never lose the larger value.
+	casMaxID(&s.highWaterID, obj.id)
+	if !obj.anonymous {
+		casMaxID(&s.maxObjID, obj.id)
 	}
 }
 

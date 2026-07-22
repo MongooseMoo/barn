@@ -41,7 +41,7 @@ func (s *Store) Snapshot() Snapshot {
 	defer s.mu.RUnlock()
 
 	snapshot := Snapshot{
-		MaxObject:            s.maxObjID,
+		MaxObject:            s.maxObjectID(),
 		Objects:              make(map[types.ObjID]*SnapshotObject, s.dir.len()),
 		PropertyNames:        make(map[types.ObjID][]string, s.dir.len()),
 		PendingFinalizations: cloneValues(s.pendingFinalizations),
@@ -184,7 +184,7 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		presentIDs = append(presentIDs, id)
 	}
 	sort.Slice(presentIDs, func(i, j int) bool { return presentIDs[i] < presentIDs[j] })
-	next := s.maxObjID + 1
+	next := s.maxObjectID() + 1
 	for _, id := range presentIDs {
 		plan.rewrite[id] = next
 		plan.order = append(plan.order, anonSerialID{identity: id, serialID: next})

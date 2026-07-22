@@ -12,7 +12,7 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	defer s.mu.Unlock()
 
 	ts := s.bumpClockLocked()
-	newID := s.highWaterID + 1
+	newID := s.allocateID()
 	if owner == types.ObjNothing {
 		owner = newID
 	}
@@ -46,13 +46,10 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 		// scan, and serializer over a single set of anonymous objects, so a
 		// runtime-created anon survives a checkpoint just like a loaded one.
 		//
-		// We still bump highWaterID so the identity id (newID) is never handed
-		// out again to a future allocation, but we do NOT touch maxObjID:
-		// anonymous objects must not affect max_object().
+		// allocateID already bumped highWaterID so the identity id (newID) is never
+		// handed out again; we do NOT touch maxObjID (anonymous objects must not affect
+		// max_object()).
 		s.anonObjects[newID] = obj
-		if newID > s.highWaterID {
-			s.highWaterID = newID
-		}
 	} else {
 		s.insertObjectLocked(obj)
 	}
@@ -64,20 +61,14 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 }
 
 func (s *Store) NextID() types.ObjID {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.highWaterID + 1
+	return s.highWater() + 1
 }
 
 // MaxObject returns the highest allocated object ID
 // Includes recycled objects (high-water mark)
 
 func (s *Store) MaxObject() types.ObjID {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return s.maxObjID
+	return s.maxObjectID()
 }
 
 // Valid checks if an object exists and is not recycled
@@ -92,7 +83,7 @@ func (s *Store) Valid(id types.ObjID) bool {
 	defer s.mu.RUnlock()
 
 	// Check if ID exceeds high water mark (includes anonymous objects)
-	if id > s.highWaterID {
+	if id > s.highWater() {
 		return false
 	}
 
@@ -372,7 +363,8 @@ func (s *Store) LowestFreeID() types.ObjID {
 	}
 
 	// Check for gaps in ID sequence (0 to maxObjID)
-	for id := types.ObjID(0); id <= s.maxObjID; id++ {
+	maxID := s.maxObjectID()
+	for id := types.ObjID(0); id <= maxID; id++ {
 		obj := s.load(id)
 		if obj == nil {
 			return id
@@ -383,7 +375,7 @@ func (s *Store) LowestFreeID() types.ObjID {
 	}
 
 	// No gaps, use next sequential ID
-	return s.maxObjID + 1
+	return maxID + 1
 }
 
 // Renumber moves an object from oldID to newID, updating all references

@@ -179,8 +179,8 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 		// scalarWrites, relationshipWrites, propertyDefines,
 		// propertyDefinitionDeletes, propertyWrites, propertyDeletes, and verbWrites
 		// are left nil and lazily allocated on first stage (see lazySet).
-		maxObjID:    s.maxObjID,
-		highWaterID: s.highWaterID,
+		maxObjID:    s.maxObjectID(),
+		highWaterID: s.highWater(),
 	}
 	runtime.SetFinalizer(tx, finalizeStoreTxnRelease)
 	return tx
