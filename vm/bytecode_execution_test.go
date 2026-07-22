@@ -143,6 +143,21 @@ func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: types.ValueBytes(resultMap),
+			MaxMapValueBytes:  types.ValueBytes(resultMap) + 1,
+		},
+	}}
+
+	result := runBytecodeProgram(t, `x = [1 -> 0]; x[1] = 1; return x;`, nil, ctx)
+	requireError(t, result, types.E_QUOTA)
+}
+
 func TestCaughtErrorDiscardsPartialExpressionOperands(t *testing.T) {
 	code := `return {` +
 		"`max(1, @5) ! E_TYPE => 11'," +

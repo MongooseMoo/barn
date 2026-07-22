@@ -4,6 +4,7 @@ import (
 	"unsafe"
 
 	"barn/builtins"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -15,7 +16,7 @@ func isObjLike(v types.Value) bool {
 	return v.Type() == types.TYPE_OBJ || v.Type() == types.TYPE_ANON
 }
 
-func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
+func setAtIndex(ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
 	switch coll.Type() {
 	case types.TYPE_LIST:
 		if index.Type() != types.TYPE_INT {
@@ -54,7 +55,7 @@ func setAtIndex(coll types.Value, index types.Value, value types.Value) (types.V
 			return types.None, types.E_TYPE
 		}
 		result := coll.MapSet(index, value)
-		if err := builtins.CheckMapLimit(result); err != types.E_NONE {
+		if err := builtins.CheckListLimitForTask(ctx, result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE

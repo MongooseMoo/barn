@@ -75,7 +75,7 @@ func (vm *VM) executeIndexSet() error {
 	}
 
 	// Perform the index assignment using the shared setAtIndex helper
-	newColl, errCode := setAtIndex(coll, index, value)
+	newColl, errCode := setAtIndex(vm.Context, coll, index, value)
 	if errCode != types.E_NONE {
 		// Map error codes to error strings for the VM error handler
 		switch errCode {
