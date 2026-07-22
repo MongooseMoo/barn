@@ -28,12 +28,13 @@ import (
 // registerReadTS records a newly-begun transaction's readTS as live. Returns a
 // token used to deregister it. floorMu guards the multiset.
 func (s *Store) registerReadTS(readTS uint64) {
-	s.floorMu.Lock()
-	if s.activeReadTS == nil {
-		s.activeReadTS = make(map[uint64]int)
+	sh := &s.readTSShards[readTS%readTSShardCount]
+	sh.mu.Lock()
+	if sh.counts == nil {
+		sh.counts = make(map[uint64]int)
 	}
-	s.activeReadTS[readTS]++
-	s.floorMu.Unlock()
+	sh.counts[readTS]++
+	sh.mu.Unlock()
 }
 
 // deregisterReadTS removes one live registration for readTS. Idempotency is the
@@ -41,13 +42,14 @@ func (s *Store) registerReadTS(readTS uint64) {
 // readTS that is not registered is a no-op (defensive — never drives a count
 // negative).
 func (s *Store) deregisterReadTS(readTS uint64) {
-	s.floorMu.Lock()
-	if n := s.activeReadTS[readTS]; n > 1 {
-		s.activeReadTS[readTS] = n - 1
+	sh := &s.readTSShards[readTS%readTSShardCount]
+	sh.mu.Lock()
+	if n := sh.counts[readTS]; n > 1 {
+		sh.counts[readTS] = n - 1
 	} else if n == 1 {
-		delete(s.activeReadTS, readTS)
+		delete(sh.counts, readTS)
 	}
-	s.floorMu.Unlock()
+	sh.mu.Unlock()
 }
 
 // historyFloor returns the minimum readTS of any currently-live transaction, or
@@ -65,16 +67,19 @@ func (s *Store) deregisterReadTS(readTS uint64) {
 // under the same locks the new txn must pass through). In all cases the floor
 // returned is <= the readTS of every txn that can still read.
 func (s *Store) historyFloor() uint64 {
-	s.floorMu.Lock()
 	min := uint64(0)
 	have := false
-	for ts := range s.activeReadTS {
-		if !have || ts < min {
-			min = ts
-			have = true
+	for i := range s.readTSShards {
+		sh := &s.readTSShards[i]
+		sh.mu.Lock()
+		for ts := range sh.counts {
+			if !have || ts < min {
+				min = ts
+				have = true
+			}
 		}
+		sh.mu.Unlock()
 	}
-	s.floorMu.Unlock()
 	if !have {
 		return s.clock.Load()
 	}

@@ -16,9 +16,14 @@ func (s *Store) historyLen(id types.ObjID) int {
 // activeFloorCount returns the number of distinct live readTS registrations
 // (test-only). Used to assert the floor registry is not leaking.
 func (s *Store) activeFloorCount() int {
-	s.floorMu.Lock()
-	defer s.floorMu.Unlock()
-	return len(s.activeReadTS)
+	n := 0
+	for i := range s.readTSShards {
+		sh := &s.readTSShards[i]
+		sh.mu.Lock()
+		n += len(sh.counts)
+		sh.mu.Unlock()
+	}
+	return n
 }
 
 // TestHistoryGCKeepsLongReaderSnapshotThenPrunes is the Phase 4 gate: a long-lived

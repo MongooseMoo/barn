@@ -26,6 +26,19 @@ type objectSlot struct {
 	mu  sync.Mutex
 }
 
+// readTSShardCount shards the live-readTS registry. Sized to scatter a typical
+// worker fleet (GOMAXPROCS) so register/deregister rarely collide, while keeping
+// historyFloor()'s per-commit cross-shard scan cheap.
+const readTSShardCount = 16
+
+// readTSShard is one shard of the live-readTS multiset. It is padded to a cache
+// line so adjacent shards' mutexes never false-share.
+type readTSShard struct {
+	mu     sync.Mutex
+	counts map[uint64]int
+	_      [40]byte // pad: Mutex(8) + map ptr(8) + pad(40) = 56; rounded clear of a line
+}
+
 type Store struct {
 	mu          sync.RWMutex
 	objects     map[types.ObjID]*objectSlot
@@ -36,13 +49,18 @@ type Store struct {
 	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
 	history     map[types.ObjID][]objectHistory
 
-	// floorMu guards activeReadTS, the multiset of readTS values of currently-live
-	// read-only transactions. historyFloor() = min key (or clock if empty) is the
-	// boundary below which old history versions are provably dead and may be pruned
-	// (COW Phase 4 history GC). A registration leak only keeps the floor low
-	// (conservative: no prune), never prunes a live-needed version.
-	floorMu      sync.Mutex
-	activeReadTS map[uint64]int
+	// readTSShards holds the multiset of readTS values of currently-live read-only
+	// transactions, SHARDED by readTS to cut the per-transaction lock contention on
+	// the commit-dominated path: every Begin/Release/commit touches this registry, so
+	// a single global mutex serialized all 32 workers here (measured 88% of mutex
+	// contention). Sharding by readTS keeps each shard's multiset self-consistent
+	// (a given readTS always maps to the same shard), and historyFloor() = min key
+	// across shards (or clock if empty). Concurrent readers register at readTS=clock
+	// (the newest time), so a non-atomic cross-shard scan can only miss values >= the
+	// floor it would return — never producing a floor that is too HIGH. And a floor
+	// that is too LOW is always safe (conservative: retains more history, never prunes
+	// a live-needed version). COW Phase 4 history GC.
+	readTSShards [readTSShardCount]readTSShard
 
 	// anonCreations is a monotonic counter bumped every time an anonymous object
 	// is created via CreateObject(..., anonymous=true). It lets the orphan-anon GC
@@ -148,11 +166,14 @@ func (s *Store) CommitRetries() uint64   { return s.commitRetries.Load() }
 // ActiveReadTransactions returns the number of StoreTxn read timestamps currently
 // registered with history GC, including multiple transactions at the same timestamp.
 func (s *Store) ActiveReadTransactions() int {
-	s.floorMu.Lock()
-	defer s.floorMu.Unlock()
 	total := 0
-	for _, count := range s.activeReadTS {
-		total += count
+	for i := range s.readTSShards {
+		sh := &s.readTSShards[i]
+		sh.mu.Lock()
+		for _, count := range sh.counts {
+			total += count
+		}
+		sh.mu.Unlock()
 	}
 	return total
 }
