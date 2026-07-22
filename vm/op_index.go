@@ -49,7 +49,11 @@ func (vm *VM) executeIndex() error {
 		return nil
 
 	case types.TYPE_WAIF:
-		return vm.startVerbCall(collection, "_index", []types.Value{index})
+		err := vm.startVerbCall(collection, "_index", []types.Value{index})
+		if err != nil && err.Error() == "E_VERBNF: verb not found: _index" {
+			return fmt.Errorf("E_TYPE: waif has no _index handler")
+		}
+		return err
 
 	default:
 		return fmt.Errorf("E_TYPE: cannot index %s", collection.Type().String())

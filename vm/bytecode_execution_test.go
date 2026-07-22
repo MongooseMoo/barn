@@ -130,6 +130,23 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	)
 }
 
+func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
+	store := newBytecodeVerbStore()
+	class := dbstore.NewObjectBuilder(1)
+	class.SetOwner(0)
+	class.SetParents([]types.ObjID{0})
+	class.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+	if err := store.Add(class.Build()); err != nil {
+		t.Fatalf("store.Add class failed: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty waif failed: %v", errCode)
+	}
+
+	result := runBytecodeProgram(t, `return #0.waif["missing"];`, store, nil)
+	requireError(t, result, types.E_TYPE)
+}
+
 func TestListAppendOpcodeUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	resultList := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
