@@ -146,6 +146,7 @@
 | Focused mapdelete list-limit row, stock WSL Toast, direct builtin regression | Wrong limit family versus task-local list limit | Barn accepted the post-delete map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_181517` pass after only single-key mapdelete consults the task-local list-limit check | Multi-key deletion and other map operations | Single-key mapdelete checked `max_map_value_bytes` instead of Toast's `max_list_value_bytes` |
 | Focused map index-assignment list-limit row, stock WSL Toast, direct VM regression | Wrong limit family and missing task context | Barn accepted the updated map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_181940` pass after the existing index helper receives the VM context and only its map branch checks the task-local list limit | List/string index assignment and map range assignment | Map index assignment checked `max_map_value_bytes` without the task's pending options |
 | Focused map range-assignment list-limit row, stock WSL Toast, isolated VM regression | Wrong limit family versus task-local list limit | Barn accepted the range-updated map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_182640` pass after only the map range-result branch checks the task-local list limit | List/string range assignment and map index assignment | Map range assignment checked `max_map_value_bytes` instead of the task's pending list limit |
+| Full managed rerun `20260721_182815` | Complete convergence versus remaining isolated failures | `11399 passed`, `146 skipped`, `13 failed`; the new persisted list begins with `map::toliteral_map` | All prior persisted failures, including every list-limit row | The prior failure inventory is exhausted, but the full gate exposed 13 remaining rows |
 
 ## Current Best Theory
 
@@ -153,8 +154,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does the full managed conformance suite pass after all persisted failures from run `20260721_120906` have been resolved or invalidated?
+- Does `map::toliteral_map`, the first recorded failure from full managed run `20260721_182815`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run the full documented managed conformance command before any further diagnosis or edit.
+Keep the source ledger clean and run `map::toliteral_map` alone under the corrected managed runner before any diagnosis or edit.
