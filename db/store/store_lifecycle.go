@@ -33,7 +33,7 @@ func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous
 	// their children lists, so an in-flight read transaction keeps the pre-create
 	// parent image (COW history).
 	for _, parentID := range obj.parents {
-		s.rememberObjectLocked(s.load(parentID))
+		s.republishForMutation(s.load(parentID))
 	}
 	if anonymous {
 		// Anonymous objects live out-of-band in s.anonObjects, never in the
@@ -148,12 +148,12 @@ func (s *Store) invalidateAnonymousChildrenLocked(rootID types.ObjID) {
 		for _, childID := range current.anonymousChildren {
 			child := s.load(childID)
 			if child != nil && child.anonymous {
-				s.rememberObjectLocked(child)
+				child = s.republishForMutation(child)
 				child.flags = child.flags.Set(FlagInvalid)
 				stampObjectScalar(child, ts)
 			}
 		}
-		s.rememberObjectLocked(current)
+		current = s.republishForMutation(current)
 		current.anonymousChildren = nil
 		stampObjectRelationship(current, ts)
 
@@ -187,7 +187,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	// ToastStunt; they remain valid (property access through a recycled parent
 	// simply raises E_PROPNF). The anon is only invalidated when recycled itself.
 
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	objParents := append([]types.ObjID(nil), obj.parents...)
 	for _, childID := range obj.children {
@@ -213,14 +213,14 @@ func (s *Store) Recycle(id types.ObjID) error {
 				newChildParents = append(newChildParents, pid)
 			}
 		}
-		s.rememberObjectLocked(child)
+		child = s.republishForMutation(child)
 		child.parents = newChildParents
 		stampObjectRelationship(child, ts)
 
 		for _, newParentID := range objParents {
 			newParent := s.load(newParentID)
 			if validLiveObject(newParent) && !slices.Contains(newParent.children, childID) {
-				s.rememberObjectLocked(newParent)
+				newParent = s.republishForMutation(newParent)
 				newParent.children = append(newParent.children, childID)
 				stampObjectRelationship(newParent, ts)
 			}
@@ -230,7 +230,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	for _, contentID := range obj.contents {
 		content := s.load(contentID)
 		if validLiveObject(content) {
-			s.rememberObjectLocked(content)
+			content = s.republishForMutation(content)
 			content.location = types.ObjNothing
 			stampObjectRelationship(content, ts)
 		}
@@ -240,7 +240,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	if obj.location != types.ObjNothing {
 		oldLoc := s.load(obj.location)
 		if validLiveObject(oldLoc) {
-			s.rememberObjectLocked(oldLoc)
+			oldLoc = s.republishForMutation(oldLoc)
 			oldLoc.contents = removeObjID(oldLoc.contents, id)
 			stampObjectRelationship(oldLoc, ts)
 		}
@@ -253,7 +253,7 @@ func (s *Store) Recycle(id types.ObjID) error {
 	for _, parentID := range obj.parents {
 		parent := s.load(parentID)
 		if validLiveObject(parent) {
-			s.rememberObjectLocked(parent)
+			parent = s.republishForMutation(parent)
 			parent.children = removeObjID(parent.children, id)
 			stampObjectRelationship(parent, ts)
 		}
@@ -303,7 +303,7 @@ func (s *Store) Recreate(id types.ObjID, parent types.ObjID, owner types.ObjID) 
 	s.publishLocked(id, newObj)
 	s.recycledID = removeRecycledID(s.recycledID, id)
 	if parent != types.ObjNothing {
-		s.rememberObjectLocked(s.load(parent))
+		s.republishForMutation(s.load(parent))
 		s.attachChildToParentsLocked(id, newObj.parents, false, false)
 		stampObjectRelationship(s.load(parent), ts)
 	}
@@ -429,12 +429,16 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 	tombstone.recycled = true
 	tombstone.flags = tombstone.flags.Set(FlagRecycled | FlagInvalid)
 	stampObjectAll(tombstone, ts)
-	obj.id = newID
-	stampObjectAll(obj, ts)
+	// Publish a FRESH image at newID rather than mutating obj.id in place: a read
+	// transaction that has aliased obj@oldID must never see its id change underfoot.
+	// The old obj is retained immutably in history[oldID] by the remember above.
+	renumbered := cloneObjectForReadTxn(obj)
+	renumbered.id = newID
+	stampObjectAll(renumbered, ts)
 
 	// Move in store
 	s.publishLocked(oldID, tombstone)
-	s.publishLocked(newID, obj)
+	s.publishLocked(newID, renumbered)
 
 	// Update recycledID list - remove newID if present, add oldID
 	newRecycled := []types.ObjID{}
@@ -471,7 +475,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		// Update Parents
 		for i, pid := range other.parents {
 			if pid == oldID {
-				s.rememberObjectLocked(other)
+				other = s.republishForMutation(other)
 				other.parents[i] = newID
 				stampObjectRelationship(other, ts)
 			}
@@ -480,7 +484,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		// Update Children
 		for i, cid := range other.children {
 			if cid == oldID {
-				s.rememberObjectLocked(other)
+				other = s.republishForMutation(other)
 				other.children[i] = newID
 				stampObjectRelationship(other, ts)
 			}
@@ -489,7 +493,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		// Update ChparentChildren
 		if other.chparentChildren != nil {
 			if other.chparentChildren[oldID] {
-				s.rememberObjectLocked(other)
+				other = s.republishForMutation(other)
 				delete(other.chparentChildren, oldID)
 				other.chparentChildren[newID] = true
 				stampObjectRelationship(other, ts)
@@ -498,7 +502,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 
 		// Update Location
 		if other.location == oldID {
-			s.rememberObjectLocked(other)
+			other = s.republishForMutation(other)
 			other.location = newID
 			stampObjectRelationship(other, ts)
 		}
@@ -506,7 +510,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 		// Update Contents
 		for i, cid := range other.contents {
 			if cid == oldID {
-				s.rememberObjectLocked(other)
+				other = s.republishForMutation(other)
 				other.contents[i] = newID
 				stampObjectRelationship(other, ts)
 			}
@@ -533,7 +537,7 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 			}
 		}
 		if ownerTouched {
-			s.rememberObjectLocked(other)
+			other = s.republishForMutation(other)
 			other.owner = rewriteOwner(other.owner)
 			for _, v := range other.verbs {
 				v.owner = rewriteOwner(v.owner)

@@ -28,6 +28,12 @@ type StoreTxn struct {
 	verbWrites                map[verbWriteKey]verbWrite
 	validationFail            bool
 	liveMutated               bool
+	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
+	// than aliases of a shared immutable published image. Reads (tx.object) may cache
+	// an alias; the first staged write to an object must materialize a private copy
+	// (mutableObject, copy-on-write) and mark it owned, so no staging code ever writes
+	// through to a shared image. Left nil until the first write, like the write maps.
+	owned                     map[types.ObjID]bool
 	maxObjID                  types.ObjID
 	highWaterID               types.ObjID
 	// released guards the readTS deregistration (Phase 4 history GC) so the floor
@@ -171,15 +177,58 @@ func (tx *StoreTxn) object(objID types.ObjID) *Object {
 	return obj
 }
 
+// mutableObject returns a txn-PRIVATE, in-place-mutable copy of the cached object,
+// materializing one (copy-on-write) if the cache currently holds a shared alias.
+// Every staging method that mutates the cached *Object in place (name/owner/flags/
+// location, the properties map/propOrder, the verbs map/list, chparentChildren, and
+// the adopt-refresh paths) must obtain the object through this — never through
+// object() — so the aliased published image is never written. Idempotent: once an
+// object is owned, repeat writes reuse the same private copy.
+//
+// While object() still deep-clones on read (pre-flip), this is a harmless second
+// copy; once object() aliases the immutable image, this becomes the sole copy point.
+func (tx *StoreTxn) mutableObject(objID types.ObjID) *Object {
+	obj := tx.object(objID)
+	if obj == nil {
+		return nil
+	}
+	if tx.owned[objID] {
+		return obj
+	}
+	return tx.privatizeCached(objID, obj)
+}
+
+// privatizeCached installs a txn-private clone of base as the cache entry for
+// objID and marks it owned. It takes NO store lock, so callers already holding
+// store.mu (e.g. AdoptLiveRelationships) can use it directly without nesting the
+// RLock. base is the object whose non-refreshed facets are preserved into the
+// private copy (the current cached alias, or the live image when nothing is
+// cached yet).
+func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
+	clone := cloneObjectForReadTxn(base)
+	tx.objects[objID] = clone
+	if tx.owned == nil {
+		tx.owned = make(map[types.ObjID]bool)
+	}
+	tx.owned[objID] = true
+	return clone
+}
+
 func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
+	// Phase 2 read aliasing: numbered published images (and their history entries)
+	// are IMMUTABLE after publish — every runtime mutation goes through
+	// republishForMutation, which supersedes the slot with a fresh image and never
+	// writes the old one. So a read transaction can ALIAS the image pointer directly
+	// instead of deep-cloning the whole object (properties + verbs + code) on every
+	// first touch. The txn-local mutable copy is created only on the first STAGED
+	// WRITE to the object (mutableObject/privatizeCached, true copy-on-write).
 	live := tx.store.load(objID)
 	if live != nil && objectVersion(live) <= tx.readTS {
-		return cloneObjectForReadTxn(live)
+		return live
 	}
-	// Anonymous objects live out-of-band in s.anonObjects. Prefer their current
-	// image when it is visible at this transaction's timestamp, including a
-	// recycled image, before consulting older history recorded during mutation.
-	// A transaction that predates the mutation still falls through to history.
+	// Anonymous objects are the exception: they live out-of-band with no COW slot
+	// and are mutated IN PLACE (republishForMutation returns them unchanged), so a
+	// reader must still deep-clone them. They are rare, so this costs little.
 	if anon := tx.store.anonObjects[objID]; anon != nil && objectVersion(anon) <= tx.readTS {
 		return cloneObjectForReadTxn(anon)
 	}
@@ -195,7 +244,9 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 	tx.store.historyMu.Unlock()
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].ts <= tx.readTS {
-			return cloneObjectForReadTxn(history[i].obj)
+			// History entries are superseded published images (numbered objects only —
+			// anon carry no history) and are immutable, so alias them too.
+			return history[i].obj
 		}
 	}
 
@@ -236,7 +287,10 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	if tx == nil {
 		return types.E_NONE
 	}
-	obj := tx.object(objID)
+	// obj.verbList/obj.verbs are rebuilt in place below, so obj must be a txn-private
+	// copy. mutableObject is called BEFORE the store.mu.RLock, so its own RLock does
+	// not nest.
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -321,10 +375,15 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 			tx.objects[objID] = nil
 			return types.E_INVIND
 		}
+		// obj's relationship facets are overwritten in place below. It must be a
+		// txn-private copy: clone from live when nothing is cached, else privatize the
+		// cached alias. privatizeCached is lock-free, so it is safe under the RLock
+		// held above (mutableObject must NOT be used here — it would nest the RLock).
 		obj := tx.objects[objID]
 		if obj == nil {
-			obj = cloneObjectForReadTxn(live)
-			tx.objects[objID] = obj
+			obj = tx.privatizeCached(objID, live)
+		} else if !tx.owned[objID] {
+			obj = tx.privatizeCached(objID, obj)
 		}
 		obj.location = live.location
 		obj.parents = append([]types.ObjID(nil), live.parents...)
@@ -567,6 +626,11 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 	if !validLiveObject(obj) {
 		return
 	}
+	// obj.properties/propOrder are mutated in place below; privatize first so an
+	// aliased shared image is never written. Lock-free: no store.mu held here.
+	if !tx.owned[objID] {
+		obj = tx.privatizeCached(objID, obj)
+	}
 	for key, def := range tx.propertyDefines {
 		if key.objID != objID {
 			continue
@@ -730,7 +794,7 @@ func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode)
 }
 
 func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -744,7 +808,7 @@ func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCod
 }
 
 func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -758,7 +822,7 @@ func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.E
 }
 
 func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -776,7 +840,7 @@ func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled b
 }
 
 func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1114,7 +1178,7 @@ func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, nam
 }
 
 func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1224,7 +1288,7 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 }
 
 func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1258,7 +1322,7 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 }
 
 func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1291,7 +1355,7 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 }
 
 func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1337,7 +1401,9 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			child := tx.object(childID)
+			// child is mutated in place below (reseed inherited slot), so it must be
+			// a txn-private copy, not a shared alias.
+			child := tx.mutableObject(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -1371,7 +1437,7 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 }
 
 func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1424,7 +1490,7 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 }
 
 func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
-	obj := tx.object(objID)
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}
@@ -1473,7 +1539,9 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 		}
 		tx.markObjectRelationshipRead(currentID, current)
 		for _, childID := range current.children {
-			child := tx.object(childID)
+			// child.properties is mutated in place below when it holds an inherited
+			// (non-defined) slot, so it must be a txn-private copy, not a shared alias.
+			child := tx.mutableObject(childID)
 			if !validLiveObject(child) {
 				continue
 			}
@@ -1576,8 +1644,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !live.anonymous && !remembered[objID] {
-			tx.store.rememberObjectLocked(live)
+		if !remembered[objID] {
+			live = tx.store.republishForMutation(live)
 			remembered[objID] = true
 		}
 		if write.nameSet {
@@ -1596,8 +1664,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !live.anonymous && !remembered[objID] {
-			tx.store.rememberObjectLocked(live)
+		if !remembered[objID] {
+			live = tx.store.republishForMutation(live)
 			remembered[objID] = true
 		}
 		if write.locationSet {
@@ -1640,8 +1708,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !live.anonymous && !remembered[key.objID] {
-			tx.store.rememberObjectLocked(live)
+		if !remembered[key.objID] {
+			live = tx.store.republishForMutation(live)
 			remembered[key.objID] = true
 		}
 		if liveActual, prop, ok := propertyByName(live.properties, write.name); ok {
@@ -1666,8 +1734,8 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		if !live.anonymous && !remembered[key.objID] {
-			tx.store.rememberObjectLocked(live)
+		if !remembered[key.objID] {
+			live = tx.store.republishForMutation(live)
 			remembered[key.objID] = true
 		}
 		if liveActual, _, ok := propertyByName(live.properties, actualName); ok {
@@ -1680,14 +1748,16 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		if !validLiveObject(live) {
 			return types.E_INVIND
 		}
-		verb := live.verbs[key.name]
-		if verb == nil {
+		if live.verbs[key.name] == nil {
 			return types.E_VERBNF
 		}
-		if !live.anonymous && !remembered[key.objID] {
-			tx.store.rememberObjectLocked(live)
+		if !remembered[key.objID] {
+			live = tx.store.republishForMutation(live)
 			remembered[key.objID] = true
 		}
+		// Fetch the verb from the (possibly freshly republished) image so we edit the
+		// fresh node, not the old one now retained immutably in history.
+		verb := live.verbs[key.name]
 		verb.code = append([]string(nil), write.code...)
 		verb.hasProgram = true
 		stampVerb(verb, ts)
@@ -1780,12 +1850,23 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 	if err != nil || verb == nil {
 		return types.E_VERBNF
 	}
+	// stageVerbCode mutates the verb node in place. Privatize the DEFINER object and
+	// re-resolve so the verb node we edit belongs to a txn-private copy, not a shared
+	// alias. findVerb reads through tx.object, so the re-resolve returns the clone's
+	// node once mutableObject has installed it.
+	tx.mutableObject(definer)
+	verb, definer, err = tx.findVerb(objID, name, false)
+	if err != nil || verb == nil {
+		return types.E_VERBNF
+	}
 	tx.stageVerbCode(definer, verb, lines)
 	return types.E_NONE
 }
 
 func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
-	obj := tx.object(objID)
+	// stageVerbCode mutates the verb node in place, so resolve it from a txn-private
+	// copy of the object rather than a shared alias.
+	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
 	}

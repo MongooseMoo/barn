@@ -36,22 +36,20 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 
 	ts := s.bumpClockLocked()
 	if what.location != types.ObjNothing {
-		oldLoc := s.load(what.location)
-		if validLiveObject(oldLoc) {
-			s.rememberObjectLocked(oldLoc)
+		if oldLoc := s.load(what.location); validLiveObject(oldLoc) {
+			oldLoc = s.republishForMutation(oldLoc)
 			oldLoc.contents = removeObjID(oldLoc.contents, whatID)
 			stampObjectRelationship(oldLoc, ts)
 		}
 	}
 
-	s.rememberObjectLocked(what)
+	what = s.republishForMutation(what)
 	what.location = whereID
 	stampObjectRelationship(what, ts)
 
 	if whereID != types.ObjNothing {
-		where := s.load(whereID)
-		if validLiveObject(where) {
-			s.rememberObjectLocked(where)
+		if where := s.load(whereID); validLiveObject(where) {
+			where = s.republishForMutation(where)
 			where.contents = insertObjIDAtMOOPosition(where.contents, whatID, position)
 			stampObjectRelationship(where, ts)
 		}
@@ -290,7 +288,7 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		if !validLiveObject(oldParent) {
 			continue
 		}
-		s.rememberObjectLocked(oldParent)
+		oldParent = s.republishForMutation(oldParent)
 		oldParent.children = removeObjID(oldParent.children, objID)
 		if oldParent.chparentChildren != nil {
 			delete(oldParent.chparentChildren, objID)
@@ -298,10 +296,12 @@ func (s *Store) ChangeParents(objID types.ObjID, newParents []types.ObjID) types
 		stampObjectRelationship(oldParent, ts)
 	}
 
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	obj.parents = append([]types.ObjID(nil), newParents...)
 	for _, parentID := range obj.parents {
-		s.rememberObjectLocked(s.load(parentID))
+		// republish the new parent so attachChildToParentsLocked (which mutates
+		// parent.children via s.load) writes the fresh image, not a shared alias.
+		s.republishForMutation(s.load(parentID))
 	}
 	s.attachChildToParentsLocked(objID, obj.parents, false, true)
 	s.reseedInheritedPropertiesLocked(obj)

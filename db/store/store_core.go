@@ -245,6 +245,48 @@ func (s *Store) rememberObjectLocked(obj *Object) {
 	s.pruneObjectHistory(obj.id, s.historyFloor())
 }
 
+// republishForMutation supersedes old's published image with a fresh, in-place-
+// mutable CLONE and retains the OLD image immutably in history, returning the fresh
+// clone for the caller to mutate. It replaces the rememberObjectLocked(obj) +
+// mutate-obj-in-place pattern at every coarse (store.mu.Lock-held) mutation site.
+//
+// Callers hold s.mu.Lock EXCLUSIVE, so the freshly published image is not yet
+// aliasable by any reader (readers take s.mu.RLock) and may be mutated in place
+// race-free; the OLD image — which pre-existing lock-free read aliases may still
+// hold — is never mutated. This makes published images truly immutable (the
+// objectSlot contract above), which is what lets read transactions ALIAS the
+// published image instead of deep-cloning it on every touch.
+//
+// Callers MUST mutate the RETURNED image, not the object they passed in. Anonymous
+// objects have no COW slot and no history: the fresh image is republished into
+// s.anonObjects and a pre-existing aliaser keeps the old immutable image.
+func (s *Store) republishForMutation(old *Object) *Object {
+	if old == nil {
+		return nil
+	}
+	if old.anonymous {
+		// Anonymous objects are NOT aliased on read — read transactions still
+		// deep-clone them (they are rare, live out-of-band in s.anonObjects with no
+		// COW slot and no history, and may be referenced by direct pointer). So
+		// mutating an anon image in place remains safe: no reader holds an alias of
+		// it. Return it unchanged for the caller to mutate as before.
+		return old
+	}
+	fresh := cloneObjectForReadTxn(old)
+	s.publishLocked(old.id, fresh)
+	// Retain the OLD (now superseded, immutable) image as the history node — no
+	// clone needed, mirroring rememberObjectLocked minus the copy. Touching
+	// s.history directly is safe: the caller holds s.mu.Lock (exclusive), which
+	// excludes the decentralized committers that guard history with historyMu.
+	ts := objectVersion(old)
+	entries := s.history[old.id]
+	if len(entries) == 0 || entries[len(entries)-1].ts != ts {
+		s.history[old.id] = append(entries, objectHistory{ts: ts, obj: old})
+	}
+	s.pruneObjectHistory(old.id, s.historyFloor())
+	return fresh
+}
+
 func stampObjectScalar(obj *Object, ts uint64) {
 	if obj != nil {
 		obj.scalarVersion = ts
@@ -407,7 +449,7 @@ func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	if obj == nil {
 		return types.E_INVIND
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	obj.name = name
 	stampObjectScalar(obj, ts)
@@ -422,7 +464,7 @@ func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	if obj == nil {
 		return types.E_INVIND
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	obj.owner = owner
 	stampObjectScalar(obj, ts)
@@ -437,7 +479,7 @@ func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	if obj == nil {
 		return types.E_INVIND
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	obj.location = location
 	stampObjectRelationship(obj, ts)
@@ -452,7 +494,7 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	if obj == nil {
 		return types.E_INVIND
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	if enabled {
 		obj.flags = obj.flags.Set(flag)

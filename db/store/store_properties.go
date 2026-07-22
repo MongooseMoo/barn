@@ -417,7 +417,7 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 	if !ok {
 		return types.E_PROPNF
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	if owner != nil {
 		prop.owner = *owner
@@ -442,7 +442,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 	if obj == nil {
 		return types.E_INVIND
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	if actualName, prop, ok := propertyByName(obj.properties, name); ok {
 		prop.clear = false
@@ -487,7 +487,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	if _, _, exists := propertyByName(obj.properties, name); exists {
 		return types.E_INVARG
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	if ts == 0 {
 		ts = s.bumpClockLocked()
 	}
@@ -529,7 +529,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 	if !ok || !prop.defined {
 		return types.E_PROPNF
 	}
-	s.rememberObjectLocked(obj)
+	obj = s.republishForMutation(obj)
 	if ts == 0 {
 		ts = s.bumpClockLocked()
 	}
@@ -557,7 +557,7 @@ func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.Erro
 	}
 	actualName, _, ok := propertyByName(obj.properties, name)
 	if ok {
-		s.rememberObjectLocked(obj)
+		obj = s.republishForMutation(obj)
 		ts := s.bumpClockLocked()
 		delete(obj.properties, actualName)
 		stampObjectProperties(obj, ts)
@@ -604,15 +604,24 @@ func (s *Store) ResetInheritedProperties(objID types.ObjID) types.ErrorCode {
 	if obj == nil {
 		return types.E_INVIND
 	}
+	// Read-only scan first: only republish if there is an inherited slot to drop, so
+	// a no-op reset does not needlessly supersede the image. The delete loop then
+	// mutates the fresh copy, never the published image (which pre-existing read
+	// aliases may hold).
 	changed := false
-	for name, prop := range obj.properties {
+	for _, prop := range obj.properties {
 		if !prop.defined {
-			delete(obj.properties, name)
 			changed = true
+			break
 		}
 	}
 	if changed {
-		s.rememberObjectLocked(obj)
+		obj = s.republishForMutation(obj)
+		for name, prop := range obj.properties {
+			if !prop.defined {
+				delete(obj.properties, name)
+			}
+		}
 		stampObjectProperties(obj, s.bumpClockLocked())
 	}
 	return types.E_NONE
@@ -642,10 +651,10 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 					queue = append(queue, childID)
 					continue
 				}
-				s.rememberObjectLocked(child)
+				child = s.republishForMutation(child)
 				delete(child.properties, actualName)
 			} else {
-				s.rememberObjectLocked(child)
+				child = s.republishForMutation(child)
 			}
 			child.properties[name] = Property{
 				value:   prop.value,
@@ -680,7 +689,7 @@ func (s *Store) removeInheritedPropertyLocked(objID types.ObjID, name string, ts
 				continue
 			}
 			if actualName, prop, ok := propertyByName(child.properties, name); ok && !prop.defined {
-				s.rememberObjectLocked(child)
+				child = s.republishForMutation(child)
 				delete(child.properties, actualName)
 				stampObjectProperties(child, ts)
 			}
