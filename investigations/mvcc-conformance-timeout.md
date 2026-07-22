@@ -147,6 +147,7 @@
 | Focused map index-assignment list-limit row, stock WSL Toast, direct VM regression | Wrong limit family and missing task context | Barn accepted the updated map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_181940` pass after the existing index helper receives the VM context and only its map branch checks the task-local list limit | List/string index assignment and map range assignment | Map index assignment checked `max_map_value_bytes` without the task's pending options |
 | Focused map range-assignment list-limit row, stock WSL Toast, isolated VM regression | Wrong limit family versus task-local list limit | Barn accepted the range-updated map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_182640` pass after only the map range-result branch checks the task-local list limit | List/string range assignment and map index assignment | Map range assignment checked `max_map_value_bytes` instead of the task's pending list limit |
 | Full managed rerun `20260721_182815` | Complete convergence versus remaining isolated failures | `11399 passed`, `146 skipped`, `13 failed`; the new persisted list begins with `map::toliteral_map` | All prior persisted failures, including every list-limit row | The prior failure inventory is exhausted, but the full gate exposed 13 remaining rows |
+| Focused canonical map-literal row, stock WSL Toast, direct builtin regression | Insertion/tree order versus canonical key order | Barn rendered float keys after strings; Toast requires `INT < OBJ < FLOAT < ERR < STR`; direct, package, and managed run `20260721_183543` pass after public literal rendering sorts copied pairs with `types.CompareMapKeys` | Anonymous-key public literals and stored map insertion order | `publicLiteral` emitted `Pairs()` without canonical sorting |
 
 ## Current Best Theory
 
@@ -154,8 +155,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does `map::toliteral_map`, the first recorded failure from full managed run `20260721_182815`, remain independently red?
+- Does `equality::string_equality_folds_valid_utf8_case`, the next recorded failure from full managed run `20260721_182815`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `map::toliteral_map` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `equality::string_equality_folds_valid_utf8_case` alone under the corrected managed runner before any diagnosis or edit.
