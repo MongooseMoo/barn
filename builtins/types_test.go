@@ -113,6 +113,25 @@ func TestToliteralHidesNestedAnonymousMapKeyIdentity(t *testing.T) {
 	}
 }
 
+func TestToliteralSortsMixedMapKeysCanonically(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	mapping := types.NewMap([][2]types.Value{
+		{types.NewObj(-1), types.NewObj(-1)},
+		{types.NewStr("2"), types.NewEmptyList()},
+		{types.NewStr("1"), types.NewEmptyList()},
+		{types.NewInt(5), types.NewInt(5)},
+		{types.NewFloat(3.14), types.NewFloat(3.14)},
+	})
+
+	result := builtinToliteral(ctx, []types.Value{mapping})
+	if result.IsError() {
+		t.Fatalf("toliteral failed: %v", result.Error)
+	}
+	if got, want := result.Val.Str(), `[5 -> 5, #-1 -> #-1, 3.14 -> 3.14, "1" -> {}, "2" -> {}]`; got != want {
+		t.Fatalf("toliteral(mixed-key map) = %q, want %q", got, want)
+	}
+}
+
 func TestAnonymousObjectNumericConversionsReturnTypeError(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	for name, convert := range map[string]func(*kernel.TaskContext, []types.Value) types.Result{

@@ -228,6 +228,9 @@ func publicLiteral(value types.Value) string {
 		return "{" + strings.Join(parts, ", ") + "}"
 	case types.TYPE_MAP:
 		pairs := value.Pairs()
+		sort.Slice(pairs, func(i, j int) bool {
+			return types.CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
+		})
 		parts := make([]string, len(pairs))
 		for i := range pairs {
 			parts[i] = publicLiteral(pairs[i][0]) + " -> " + publicLiteral(pairs[i][1])
