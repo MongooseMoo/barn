@@ -48,6 +48,16 @@ func TestFormatMOOPreservesCanonicalBitwiseAndSpelling(t *testing.T) {
 	}
 }
 
+func TestFormatMOOPreservesCanonicalBitwiseOrSpelling(t *testing.T) {
+	program, err := parser.NewParser("1 |. 2;").ParseProgram()
+	if err != nil {
+		t.Fatalf("ParseProgram() error = %v", err)
+	}
+	if got, want := strings.Join(parser.FormatMOO(program), "\n"), "1 |. 2;"; got != want {
+		t.Fatalf("FormatMOO() = %q, want %q", got, want)
+	}
+}
+
 func TestFormatMOOPreservesRepresentativeDatabaseVerbs(t *testing.T) {
 	database, err := dbformat.LoadDatabase("../db/format/testdata/toastcore.db")
 	if err != nil {

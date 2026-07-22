@@ -401,7 +401,7 @@ func unparseBinaryOp(op verb.BinaryOperator) string {
 	case verb.BinaryBitAnd:
 		return "&."
 	case verb.BinaryBitOr:
-		return "|"
+		return "|."
 	case verb.BinaryBitXor:
 		return "^"
 	case verb.BinaryShiftLeft:
