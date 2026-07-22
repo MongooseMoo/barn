@@ -15,6 +15,6 @@ Each finding is resolved in order with a failing regression test, the narrow imp
 
 Final gate:
 
-- [ ] Touched Go packages pass
-- [ ] Full managed conformance suite passes
-- [ ] `git diff --check` passes
+- [x] Touched Go packages pass (`go test ./... -count=1`)
+- [x] Full managed conformance suite passes (run `20260721_194411`: 11,412 passed, 146 skipped)
+- [x] `git diff --check` passes
