@@ -1,0 +1,33 @@
+=== RUN   TestMVCCBaselineCurve
+    mvcc_workload_bench_test.go:442: GOMAXPROCS=32 warmup=500ms measure=2s repeats=5 objsPerRoom=6
+    mvcc_workload_bench_test.go:454: === scenario realistic (mix look/say/move/stamp/build/churn = 40/30/20/7/3/0) ===
+    mvcc_workload_bench_test.go:456: players  rooms      goodput/s   abort%       p50      p99       max  allocs/op  bytes/op    GCs
+    mvcc_workload_bench_test.go:466: 1        4              33597    0.00%    0.00us   537.5us    3.96ms      160.4     28033    279
+    mvcc_workload_bench_test.go:466: 4        4              40500    0.00%    0.00us    1.01ms   14.20ms      165.2     28706    174
+    mvcc_workload_bench_test.go:466: 16       4              37155    0.00%    0.00us    2.67ms   16.85ms      191.7     32680    195
+    mvcc_workload_bench_test.go:466: 32       4              32361    0.00%   546.7us    4.84ms   14.98ms      220.6     37448    128
+    mvcc_workload_bench_test.go:466: 1        16             28975    0.00%    0.00us   545.0us    1.89ms      188.5     33530    151
+    mvcc_workload_bench_test.go:466: 4        16             40476    0.00%    0.00us    1.01ms   15.75ms      192.6     34183    252
+    mvcc_workload_bench_test.go:466: 16       16             41920    0.00%    0.00us    2.69ms    7.42ms      210.3     36747    140
+    mvcc_workload_bench_test.go:466: 32       16             30746    0.00%   540.5us    5.75ms   17.18ms      230.9     39791    198
+    mvcc_workload_bench_test.go:466: 1        64             13689    0.00%    0.00us   710.9us    5.03ms      285.3     51464    151
+    mvcc_workload_bench_test.go:466: 4        64             23521    0.00%    0.00us    1.51ms   14.58ms      286.6     51656    196
+    mvcc_workload_bench_test.go:466: 16       64             23188    0.00%   528.7us    4.22ms    8.27ms      304.1     54460    275
+    mvcc_workload_bench_test.go:466: 32       64             26835    0.00%   538.9us    6.40ms   17.74ms      309.4     55166    275
+    mvcc_workload_bench_test.go:454: === scenario churn-stress (mix look/say/move/stamp/build/churn = 40/30/15/5/0/10) ===
+    mvcc_workload_bench_test.go:456: players  rooms      goodput/s   abort%       p50      p99       max  allocs/op  bytes/op    GCs
+    mvcc_workload_bench_test.go:466: 1        4              32552    0.00%    0.00us   538.4us    7.40ms      156.1     27635    649
+    mvcc_workload_bench_test.go:466: 4        4              40849    5.58%    0.00us   635.3us   15.79ms      162.0     28595    818
+    mvcc_workload_bench_test.go:466: 16       4              34783   19.99%   519.1us    2.16ms   11.17ms      187.9     32707    917
+    mvcc_workload_bench_test.go:466: 32       4              28083   25.68%   583.4us    5.38ms   14.12ms      219.4     37955    664
+    mvcc_workload_bench_test.go:466: 1        16             26743    0.00%    0.00us   543.9us    2.23ms      185.4     33335    613
+    mvcc_workload_bench_test.go:466: 4        16             36217    5.23%    0.00us    1.00ms   13.69ms      188.3     33874    820
+    mvcc_workload_bench_test.go:466: 16       16             33846   18.63%   505.7us    2.16ms   16.61ms      207.7     36918    801
+    mvcc_workload_bench_test.go:466: 32       16             31672   25.10%   542.7us    5.38ms   17.24ms      234.1     41002    671
+    mvcc_workload_bench_test.go:466: 1        64             16415    0.00%    0.00us   935.1us    7.38ms      276.5     50221    476
+    mvcc_workload_bench_test.go:466: 4        64             25322    3.41%    0.00us    1.14ms   16.88ms      288.2     52174    619
+    mvcc_workload_bench_test.go:466: 16       64             27929   15.08%    0.00us    3.09ms   17.07ms      299.9     54161    634
+    mvcc_workload_bench_test.go:466: 32       64             28147   23.53%   539.1us    6.46ms   22.09ms      302.9     54638    568
+--- PASS: TestMVCCBaselineCurve (301.02s)
+PASS
+ok  	barn/scheduler	302.153s
