@@ -163,15 +163,16 @@
 | Green/red timeout connection timestamps | Stable semantic mismatch versus strict-second phase | Green connection lifetime was 5.844s; both red lifetimes were 5.020/5.025s and the control assertion completed about 0.2s after timeout | Missing deadline reset and late hook publication | The earliest whole-second phase lets Barn's timeout hook overtake an already-arrived assertion task |
 | Canonical Toast `server.cc` main loop | Timeout predicate alone versus processing order | Toast calls `network_process_io()`, then `run_ready_tasks()`, then applies the strict-second timeout sweep and notifier | Adding arbitrary timing slack | Ready input tasks must complete before the timeout hook at the same loop boundary |
 | Deterministic timeout-barrier regression and managed row `20260721_194243` | Arbitrary delay versus input ordering | The regression was red with no in-flight accounting, then green after timeout became a barrier event; the existing strict-second test, full `server` package, and managed row pass | Changing the deadline or adding grace time | Commit `85e4d58` restores Toast's input-before-timeout order while preserving the exact deadline |
+| Full managed conformance run `20260721_194411` | Focused-only repair versus complete convergence | `11412 passed`, `146 skipped`, `0 failed` in 190.41s | Remaining order-dependent or isolated conformance failures | The managed conformance gate is complete |
 
 ## Current Best Theory
 
-Every persisted failure from full managed run `20260721_182815` is green. Commit `85e4d58` routes login timeout work through an input barrier, so already-dispatched input completes before `user_disconnected`; the strict-second deadline remains unchanged. Direct and focused gates pass. The remaining decision is the full managed conformance gate that previously exposed the early-boundary race.
+Every persisted failure from full managed run `20260721_182815` is green. Commit `85e4d58` routes login timeout work through an input barrier, so already-dispatched input completes before `user_disconnected`; the strict-second deadline remains unchanged. Full managed run `20260721_194411` passes all 11,412 runnable conformance tests.
 
 ## Open Questions
 
-- Does the full managed suite now pass at the early strict-second phase as well as the focused phase?
+- None for conformance; only the repository-wide Go and diff gates remain.
 
 ## Next Action
 
-Run the documented full managed conformance command once from the clean source ledger and use its persisted summary as the final conformance decision.
+Run `go test ./... -count=1`, then `git diff --check`; if both pass, mark the three checklist gates complete.
