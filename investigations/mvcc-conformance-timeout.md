@@ -140,6 +140,7 @@
 | Focused setadd list-limit row, stock WSL Toast, direct builtin regression | Missing size check versus stale global limit | Barn built the 91st element despite a same-task staged limit; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_150330` pass after `setadd` consults the latest pending server-options snapshot | Setadd's existing size check and failed-commit cache isolation | List-limit checks could not see same-task `load_server_options()` values |
 | Focused listinsert list-limit row, stock WSL Toast, direct builtin regression | Operation defect versus stale global limit | Barn built the oversized inserted list; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_150709` pass after switching only `listinsert` to the proven task-local limit check | Listinsert position/clamping semantics and global committed cache | Listinsert still used the global-only list-limit path |
 | Focused listappend list-limit row, stock WSL Toast, direct builtin regression | Operation defect versus stale global limit | Barn built the oversized appended list; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_151129` pass after switching only `listappend` to the proven task-local limit check | Listappend position/clamping semantics and global committed cache | Listappend still used the global-only list-limit path |
+| Focused listset list-limit row, stock WSL Toast, direct builtin regression | Operation defect versus stale global limit | Barn built the oversized replacement list; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_180238` pass after switching only `listset` to the proven task-local limit check | Listset index/range semantics and global committed cache | Listset still used the global-only list-limit path |
 
 ## Current Best Theory
 
@@ -147,8 +148,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does `listset_fails_if_value_too_large`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
+- Does `appending_to_list_checks_max_value_bytes`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `listset_fails_if_value_too_large` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `appending_to_list_checks_max_value_bytes` alone under the corrected managed runner before any diagnosis or edit.
