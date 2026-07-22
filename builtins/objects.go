@@ -240,6 +240,12 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
+	// NOTE: the decentralized create path (tx.CreateObject) is built and unit-tested
+	// (create_mvcc_test.go) but NOT yet wired here. Activating it requires recycle to
+	// also be decentralized (so create;recycle build tasks stay fully decentralized) and
+	// a flush of staged writes before any still-coarse builtin (renumber/chparent) that
+	// reads the live store mid-task — otherwise create;renumber-style tasks read stale
+	// live state. Until then, create stays coarse.
 	newID, errCode := store.CreateObject(parents, owner, anonymous)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_QUOTA)

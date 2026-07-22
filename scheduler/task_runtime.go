@@ -242,7 +242,15 @@ retryAttempt:
 	committedWrites := false
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-			if errCode == types.E_INVARG && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
+			// A conflict surfaces as E_INVARG (a read-set version moved) OR E_INVIND (a
+			// read-set object was recycled/renumbered out from under us since the
+			// snapshot). Both set validationFail, and only the read-set validators set
+			// it, so gating on ValidationFailed() plus these two codes retries exactly
+			// the conflict cases — never a genuine execution-time E_INVIND (that never
+			// sets validationFail). Re-running reproduces the correct builtin-level
+			// error deterministically. Without the E_INVIND arm, a create-under-P racing
+			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
+			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(ctx)
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)

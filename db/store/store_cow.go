@@ -113,6 +113,9 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 		// each see the other's already-published edit.
 		img.contents = applyContentsDeltas(old.contents, w.contentsDeltas)
 	}
+	if len(w.childrenDeltas) > 0 {
+		img.children = applyChildrenDeltas(old.children, w.childrenDeltas)
+	}
 	img.relationshipVersion = ts
 	return &img
 }
@@ -349,6 +352,11 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for key := range tx.verbWrites {
 		addID(key.objID)
 	}
+	// Newly-created objects are writes too (their slot is published here), even a bare
+	// create with no self-writes on any existing map.
+	for id := range tx.createdObjects {
+		addID(id)
+	}
 	sortObjIDs(writeIDs)
 
 	// Lock the union of read-set and write-set slots (ascending) for the whole
@@ -390,17 +398,32 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for _, id := range lockIDs {
 		slot := s.dir.slot(id)
 		if slot == nil {
-			if seen[id] {
+			if tx.createdObjects[id] != nil {
+				// Newly-created object: materialize (and lock) its empty slot so the
+				// new image can be published into it.
+				slot = s.dir.getOrCreate(id)
+			} else if seen[id] {
 				// No slot => written object never existed. Apply-time contract returns E_INVIND.
 				unlockSlots(slots)
 				return types.E_INVIND
+			} else {
+				continue
 			}
-			continue
 		}
 		slot.mu.Lock()
 		slots = append(slots, slot)
 	}
 	defer unlockSlots(slots)
+
+	// A created id's slot must be EMPTY: if a Renumber-into-gap or ResetMaxObject race
+	// occupied it, treat it as a conflict and retry (which allocates a fresh id) rather
+	// than stomping a live object (Fable P0-3).
+	for id := range tx.createdObjects {
+		if slot := s.dir.slot(id); slot != nil && slot.ptr.Load() != nil {
+			tx.validationFail = true
+			return types.E_INVARG
+		}
+	}
 
 	// Validate the read set against the currently-published immutable images.
 	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
@@ -425,6 +448,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// non-existent/recycled target object (E_INVIND) or missing verb (E_VERBNF)
 	// fails the WHOLE commit atomically with no partial side effect.
 	for _, id := range writeIDs {
+		if tx.createdObjects[id] != nil {
+			continue // created this txn; no published image to be "live" yet
+		}
 		if !validLiveObject(s.load(id)) {
 			return types.E_INVIND
 		}
@@ -506,8 +532,19 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// history. Builders may safely share untouched collections with this unpublished
 	// detached image while composing the final replacement.
 	for _, id := range writeIDs {
-		old := s.load(id)
-		img := cloneObjectForReadTxn(old)
+		created := tx.createdObjects[id]
+		old := s.load(id) // nil for a created id
+		var img *Object
+		if created != nil {
+			// Brand-new object: build from the PRISTINE creation-time base and stamp
+			// every version to the commit ts (it exists entirely at this version). Its
+			// own staged self-writes (o.name=..., etc.) are applied through the same
+			// write-map loop below, so nothing is double-applied.
+			img = cloneObjectForReadTxn(created)
+			stampObjectAll(img, ts)
+		} else {
+			img = cloneObjectForReadTxn(old)
+		}
 		if w, ok := tx.scalarWrites[id]; ok {
 			img = buildImageWithScalar(img, w, ts)
 		}
@@ -531,8 +568,14 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		for _, w := range verbWritesByObj[id] {
 			img = buildImageWithVerbCode(img, w.name, w.code, ts)
 		}
-		// The replaced image is immutable; stash it as the history node (no clone).
-		s.rememberOldImageLocked(old)
+		if created != nil {
+			// No old image to remember; raise max_object (highWaterID was already
+			// bumped at allocation).
+			casMaxID(&s.maxObjID, id)
+		} else {
+			// The replaced image is immutable; stash it as the history node (no clone).
+			s.rememberOldImageLocked(old)
+		}
 		s.publishLocked(id, img)
 	}
 
@@ -558,6 +601,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	tx.propertyWrites = nil
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
+	tx.createdObjects = nil
 	return types.E_NONE
 }
 

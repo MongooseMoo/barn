@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -34,6 +35,14 @@ type StoreTxn struct {
 	// (mutableObject, copy-on-write) and mark it owned, so no staging code ever writes
 	// through to a shared image. Left nil until the first write, like the write maps.
 	owned                     map[types.ObjID]bool
+	// createdObjects holds the PRISTINE creation-time base image of each object created
+	// in this txn (decentralized create). It is separate from the `objects` cache (which
+	// also holds the object for read-your-writes and may accumulate the txn's own
+	// self-writes): commit builds each new image from cloneObjectForReadTxn(base) and
+	// applies that id's staged write maps in the same fixed kind order as every other
+	// object, so published memory never aliases txn state and self-writes are not
+	// double-applied. Left nil until the first create.
+	createdObjects            map[types.ObjID]*Object
 	maxObjID                  types.ObjID
 	highWaterID               types.ObjID
 	// released guards the readTS deregistration (Phase 4 history GC) so the floor
@@ -91,14 +100,38 @@ type objectRelationshipWrite struct {
 	// still bumps, so a task that READ the room's contents and then writes still
 	// conflicts correctly; only blind commutative appenders avoid conflicting.
 	contentsDeltas []contentsDelta
+	// childrenDeltas stages commutative SETADD/setremove edits to the parent-side
+	// `children` edge, used by create (parent.children += newChild) and recycle
+	// (grandparent.children += reparented child). Adds are idempotent (setadd), so two
+	// creates under one parent, or a diamond reparent, never duplicate an entry, and no
+	// read dep is recorded on the parent — so concurrent creates under the same parent
+	// commute. (The child's own `parents` list, by contrast, is a whole-list write with
+	// a read, so two recycles of different parents of one child correctly conflict.)
+	childrenDeltas []contentsDelta
 }
 
-// contentsDelta is one commutative edit to a room's contents list: add id at a MOO
-// position, or remove id (position-independent).
+// contentsDelta is one commutative edit to a relationship list: add id (at a MOO
+// position, for contents) or remove id (position-independent).
 type contentsDelta struct {
 	add      bool
 	id       types.ObjID
-	position int64 // 1-based MOO insert position for add; ignored for remove
+	position int64 // 1-based MOO insert position for contents adds; ignored otherwise
+}
+
+// applyChildrenDeltas applies setadd (idempotent) / setremove children edits to a
+// copy, returning a fresh slice (the input immutable image's slice is never mutated).
+func applyChildrenDeltas(children []types.ObjID, deltas []contentsDelta) []types.ObjID {
+	result := children
+	for _, d := range deltas {
+		if d.add {
+			if !slices.Contains(result, d.id) {
+				result = append(append([]types.ObjID(nil), result...), d.id)
+			}
+		} else {
+			result = removeObjID(result, d.id)
+		}
+	}
+	return result
 }
 
 // applyContentsDeltas applies deltas in order to a copy-on-each-op contents slice.
@@ -508,7 +541,7 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.createdObjects) > 0)
 }
 
 // writeFootprintHasAnon reports whether any staged write targets an anonymous
@@ -894,6 +927,73 @@ func (tx *StoreTxn) stageContentsDelta(objID types.ObjID, d contentsDelta) {
 	write := tx.relationshipWrites[objID]
 	write.contentsDeltas = append(write.contentsDeltas, d)
 	lazySet(&tx.relationshipWrites, objID, write)
+}
+
+func (tx *StoreTxn) stageChildrenDelta(objID types.ObjID, d contentsDelta) {
+	write := tx.relationshipWrites[objID]
+	write.childrenDeltas = append(write.childrenDeltas, d)
+	lazySet(&tx.relationshipWrites, objID, write)
+}
+
+// CreateObject stages creation of a new NUMBERED object as a child of `parents`, owned
+// by `owner`, committing on the decentralized MVCC path. It atomically allocates the id
+// (immediately usable by the rest of the verb), builds the object's inherited-property
+// image THROUGH the txn (recording the ancestor read deps that are its conflict
+// footprint), records a PRISTINE base image in createdObjects (commit rebuilds from a
+// clone + this id's staged self-writes, so published memory never aliases txn state),
+// caches it for read-your-writes, and stages a commutative children-add on each parent.
+// Anonymous creation stays coarse (out-of-band, no slot) — callers must not route it
+// here. Retry-safe: on retry the whole txn is dropped and a fresh id is allocated (the
+// abandoned id is wasted, never a live slot).
+func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID) (types.ObjID, types.ErrorCode) {
+	newID := tx.store.allocateID()
+	if owner == types.ObjNothing {
+		owner = newID
+	}
+
+	obj := NewObject(newID, owner)
+	obj.parents = append([]types.ObjID(nil), parents...)
+	obj.properties = tx.copyInheritedProperties(parents)
+	// Placeholder versions; the commit build re-stamps every version to the commit ts
+	// (a brand-new object is entirely at its creation version).
+	stampObjectAll(obj, tx.readTS)
+
+	if tx.createdObjects == nil {
+		tx.createdObjects = make(map[types.ObjID]*Object)
+	}
+	tx.createdObjects[newID] = cloneObjectForReadTxn(obj)
+	tx.objects[newID] = obj
+	if tx.owned == nil {
+		tx.owned = make(map[types.ObjID]bool)
+	}
+	tx.owned[newID] = true
+
+	// Add the new object to each parent's children (commutative setadd — two creates
+	// under one parent commute; no read dep on the parent beyond copyInheritedProperties'
+	// property-scan). Also update the cached parent for read-your-writes.
+	for _, parentID := range parents {
+		if p := tx.object(parentID); validLiveObject(p) {
+			m := tx.mutableObject(parentID)
+			if !slices.Contains(m.children, newID) {
+				m.children = append(m.children, newID)
+			}
+			tx.stageChildrenDelta(parentID, contentsDelta{add: true, id: newID})
+		}
+	}
+
+	if newID > tx.maxObjID {
+		tx.maxObjID = newID
+	}
+	return newID, types.E_NONE
+}
+
+// MaxObject returns the highest non-anonymous id visible to this txn, including its own
+// staged creates (read-your-writes for max_object()).
+func (tx *StoreTxn) MaxObject() types.ObjID {
+	if tx == nil {
+		return -1
+	}
+	return tx.maxObjID
 }
 
 // MoveObject stages moving `what` into `where` at `position` through the txn's
@@ -1682,7 +1782,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 }
 
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.createdObjects) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -1755,6 +1855,20 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
+
+	// Publish staged creates FIRST (under the exclusive lock) so they are live before
+	// the write-apply loops below run: a created object's own self-writes and its
+	// parents' childrenDeltas are applied by those loops, which resolve through
+	// liveObjectLocked and would fail E_INVIND on an unpublished id. This is the coarse
+	// counterpart of commitDecentralized's created-object publish — reached when a
+	// create-staged task also live-mutated or wrote an anon object (Fable P0-2).
+	for id, base := range tx.createdObjects {
+		img := cloneObjectForReadTxn(base)
+		stampObjectAll(img, ts)
+		tx.store.publishLocked(id, img)
+		casMaxID(&tx.store.maxObjID, id)
+	}
+
 	for objID, write := range tx.scalarWrites {
 		// liveObjectLocked resolves anon ids out-of-band; anon are mutated in place
 		// under this exclusive lock with NO history snapshot (they carry no per-id
@@ -1792,6 +1906,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		}
 		if len(write.contentsDeltas) > 0 {
 			live.contents = applyContentsDeltas(live.contents, write.contentsDeltas)
+		}
+		if len(write.childrenDeltas) > 0 {
+			live.children = applyChildrenDeltas(live.children, write.childrenDeltas)
 		}
 		stampObjectRelationship(live, ts)
 	}
@@ -1892,11 +2009,15 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	tx.propertyWrites = nil
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
+	tx.createdObjects = nil
 	return types.E_NONE
 }
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 	for objID, version := range tx.scalarReads {
+		if tx.createdObjects[objID] != nil {
+			continue // reads of this txn's own new object are always consistent
+		}
 		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
@@ -1910,6 +2031,9 @@ func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 	for objID, version := range tx.relationshipReads {
+		if tx.createdObjects[objID] != nil {
+			continue
+		}
 		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
@@ -1923,6 +2047,9 @@ func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 	for key, version := range tx.propertyReads {
+		if tx.createdObjects[key.objID] != nil {
+			continue
+		}
 		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
@@ -1933,6 +2060,9 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 		}
 	}
 	for objID, version := range tx.propertyScans {
+		if tx.createdObjects[objID] != nil {
+			continue
+		}
 		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
@@ -1946,6 +2076,9 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 
 func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 	for key, version := range tx.verbReads {
+		if tx.createdObjects[key.objID] != nil {
+			continue
+		}
 		live := tx.store.liveObjectLocked(key.objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
@@ -1956,6 +2089,9 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 		}
 	}
 	for objID, version := range tx.verbScans {
+		if tx.createdObjects[objID] != nil {
+			continue
+		}
 		live := tx.store.liveObjectLocked(objID)
 		if !validLiveObject(live) {
 			return types.E_INVIND
