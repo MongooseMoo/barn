@@ -155,15 +155,16 @@
 | Focused bitwise-xor decompile row, stock WSL Toast, direct formatter regression | AST loss versus canonical token spelling | Barn retained the bitwise-xor AST node but formatted `^` instead of `^.`; Toast preserved the dotted spelling; direct, package, and managed run `20260721_185941` pass after changing only that formatter token | Lexer, parser, and runtime bitwise-xor behavior | `unparseBinaryOp` emitted the wrong source spelling for `BinaryBitXor` |
 | Focused missing waif index-handler row, stock WSL Toast, direct VM regression | Generic verb failure versus index-operation error | Barn returned `E_VERBNF` when the waif class lacked `:_index`; Toast returned `E_TYPE`; direct, package, and managed run `20260721_190448` pass after translating only that exact missing-handler result | Ordinary verb-call and handler compile errors | WAIF index dispatch exposed the internal missing-verb result directly |
 | Focused nonwizard-owned waif index row, stock WSL Toast, direct VM boundary regressions | Caller permission versus class-owner authority | Barn dispatched `:_index` from a nonwizard-owned class and returned the key; Toast returned `E_TYPE`; direct, package, and managed run `20260721_191104` pass after requiring the class owner's wizard flag before dispatch | Wizard-owned handler success, missing-handler `E_TYPE`, and invalid-class `E_INVIND` | WAIF index dispatch omitted the class-owner authority check |
+| Full managed rerun `20260721_191328` | Complete convergence versus remaining isolated failures | `11411 passed`, `146 skipped`, `1 failed`; only `connection_lifecycle_toast_oracle::audit_connect_timeout_server_option` remained red | Every persisted failure from full run `20260721_182815` | The final gate is not green; the timeout row must be re-isolated before diagnosis |
 
 ## Current Best Theory
 
-The original lifecycle failures remain fixed; firewall and WSL were not causal. Every persisted failure from full managed run `20260721_182815` has now either been repaired with isolated TDD commits or proved current-green after a preceding repair. The final unfiltered managed suite must determine whether any additional failures remain.
+Every persisted failure from full managed run `20260721_182815` is green. Full managed run `20260721_191328` exposed one remaining timeout-row failure; its independent current status must be established before deciding whether this is a semantic defect, order dependence, or a non-reproducible full-run event.
 
 ## Open Questions
 
-- Does the full documented managed conformance suite pass after exhausting the persisted failure list from run `20260721_182815`?
+- Does `connection_lifecycle_toast_oracle::audit_connect_timeout_server_option` remain independently red after full managed run `20260721_191328`?
 
 ## Next Action
 
-Keep the source ledger clean and run `.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788` without a selector.
+Keep the source ledger clean and run `.\scripts\run-conformance.ps1 -Build -Binary .\barn.exe -SourceDb .\Test_conf.db -RunDb .\Test_run.db -Port 7788 -K 'audit_connect_timeout_server_option'` before any diagnosis or edit.
