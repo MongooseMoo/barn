@@ -399,7 +399,7 @@ func unparseBinaryOp(op verb.BinaryOperator) string {
 	case verb.BinaryOr:
 		return "||"
 	case verb.BinaryBitAnd:
-		return "&"
+		return "&."
 	case verb.BinaryBitOr:
 		return "|"
 	case verb.BinaryBitXor:
