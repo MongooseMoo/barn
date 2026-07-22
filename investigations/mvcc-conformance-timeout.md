@@ -145,6 +145,7 @@
 | Focused fully-numeric decode list-limit row, stock WSL Toast, direct builtin regression | Builtin branch defect versus stale global limit | Barn returned the oversized integer list from `decode_binary(value, 1)`; Toast raised `E_QUOTA`; direct, package, and managed run `20260721_181121` pass after only that branch consults the task-local list-limit check | Grouped decode and `as_str` result branches | Fully-numeric decode still used the global-only list-limit path |
 | Focused mapdelete list-limit row, stock WSL Toast, direct builtin regression | Wrong limit family versus task-local list limit | Barn accepted the post-delete map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_181517` pass after only single-key mapdelete consults the task-local list-limit check | Multi-key deletion and other map operations | Single-key mapdelete checked `max_map_value_bytes` instead of Toast's `max_list_value_bytes` |
 | Focused map index-assignment list-limit row, stock WSL Toast, direct VM regression | Wrong limit family and missing task context | Barn accepted the updated map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_181940` pass after the existing index helper receives the VM context and only its map branch checks the task-local list limit | List/string index assignment and map range assignment | Map index assignment checked `max_map_value_bytes` without the task's pending options |
+| Focused map range-assignment list-limit row, stock WSL Toast, isolated VM regression | Wrong limit family versus task-local list limit | Barn accepted the range-updated map under a permissive map limit; Toast raised `E_QUOTA` at the list limit; direct, package, and managed run `20260721_182640` pass after only the map range-result branch checks the task-local list limit | List/string range assignment and map index assignment | Map range assignment checked `max_map_value_bytes` instead of the task's pending list limit |
 
 ## Current Best Theory
 
@@ -152,8 +153,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does `rangeset_on_map_uses_list_not_map_max_value_bytes`, the next recorded failure from full managed run `20260721_120906`, remain independently red?
+- Does the full managed conformance suite pass after all persisted failures from run `20260721_120906` have been resolved or invalidated?
 
 ## Next Action
 
-Keep the source ledger clean and run `rangeset_on_map_uses_list_not_map_max_value_bytes` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run the full documented managed conformance command before any further diagnosis or edit.
