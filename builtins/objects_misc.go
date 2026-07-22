@@ -9,6 +9,7 @@ import (
 // Reassigns object to lowest available object ID
 // Returns the new object ID
 func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 
 	if len(args) != 1 {
@@ -159,7 +160,7 @@ func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 	if !validForRead(ctx, objID) {
 		// Check if recycled vs never existed
-		if store.IsRecycled(objID) {
+		if isRecycledForRead(ctx, objID) {
 			return types.Err(types.E_INVIND)
 		}
 		return types.Err(types.E_INVARG)

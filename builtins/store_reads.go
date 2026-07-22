@@ -28,6 +28,21 @@ func markLiveStoreMutated(ctx *kernel.TaskContext) {
 	}
 }
 
+// flushStagedBeforeCoarse ensures the live store reflects this task's staged
+// decentralized writes (a prior create/move/recycle) before a COARSE builtin
+// (renumber/chparent/add_verb/...) reads or mutates the live store mid-task, so the
+// coarse builtin never observes stale live state. After it the task is treated as
+// having mutated the live store directly (non-retryable, coarse commit). No-op when
+// nothing is staged.
+func flushStagedBeforeCoarse(ctx *kernel.TaskContext) {
+	tx := readTxn(ctx)
+	if tx == nil || !tx.HasStagedTopology() {
+		return
+	}
+	tx.FlushStagedToLive()
+	markLiveStoreMutated(ctx)
+}
+
 func objectExistsForRead(ctx *kernel.TaskContext, objID types.ObjID) types.ErrorCode {
 	if tx := readTxn(ctx); tx != nil {
 		return tx.ObjectExists(objID)
@@ -40,6 +55,13 @@ func validForRead(ctx *kernel.TaskContext, objID types.ObjID) bool {
 		return tx.Valid(objID)
 	}
 	return ctx.Store.Valid(objID)
+}
+
+func isRecycledForRead(ctx *kernel.TaskContext, objID types.ObjID) bool {
+	if tx := readTxn(ctx); tx != nil {
+		return tx.IsRecycled(objID)
+	}
+	return ctx.Store.IsRecycled(objID)
 }
 
 func objectOwnerForRead(ctx *kernel.TaskContext, objID types.ObjID) (types.ObjID, types.ErrorCode) {

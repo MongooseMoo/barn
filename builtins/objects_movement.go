@@ -181,8 +181,15 @@ func builtinOccupants(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			return false
 		}
 
+		tx := readTxn(ctx)
 		for _, parentID := range parents {
-			if store.HasAncestor(objID, parentID) {
+			hasAncestor := false
+			if tx != nil {
+				hasAncestor = tx.HasAncestor(objID, parentID)
+			} else {
+				hasAncestor = store.HasAncestor(objID, parentID)
+			}
+			if hasAncestor {
 				return true
 			}
 		}

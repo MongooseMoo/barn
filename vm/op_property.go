@@ -94,9 +94,11 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 		return nil
 	case "class":
 		classID := waif.Class()
-		// Check if class object has been recycled
+		// Check if class object still exists — through the txn (read-your-writes) so a
+		// class this task created decentrally (still staged, not yet in live) is seen. A
+		// direct store lookup would miss it and wrongly report the class recycled (#-1).
 		if vm.Store != nil {
-			if errCode := vm.Store.ObjectExists(classID); errCode != types.E_NONE {
+			if errCode := objectExistsForRead(vm.Store, vm.storeTxn(), classID); errCode != types.E_NONE {
 				// Class has been recycled - return #-1
 				vm.Push(types.NewObj(types.ObjNothing))
 				return nil

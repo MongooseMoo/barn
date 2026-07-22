@@ -120,6 +120,23 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 	return &img
 }
 
+// buildImageRecycled returns a NEW recycled-tombstone image of old, mirroring the
+// coarse store.Recycle transformation of the object ITSELF: contents/location cleared,
+// properties and verbs emptied, the recycled + invalid flags set, and every version
+// stamped to ts. The relationship edges on OTHER objects (removing this object from its
+// parents' children and its location's contents) are staged separately as deltas.
+func buildImageRecycled(old *Object, ts uint64) *Object {
+	img := *old
+	img.contents = []types.ObjID{}
+	img.location = types.ObjNothing
+	img.properties = make(map[string]Property)
+	img.verbs = make(map[string]*Verb)
+	img.recycled = true
+	img.flags = img.flags.Set(FlagRecycled | FlagInvalid)
+	stampObjectAll(&img, ts)
+	return &img
+}
+
 // buildImageWithPropertyDelete returns a NEW immutable *Object equal to old except the
 // property named actualName removed and the propertyVersion stamped to ts. Only the
 // properties map is copied (a shallow map copy that SHARES every untouched *Property
@@ -357,6 +374,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for id := range tx.createdObjects {
 		addID(id)
 	}
+	for id := range tx.recycleWrites {
+		addID(id)
+	}
 	sortObjIDs(writeIDs)
 
 	// Lock the union of read-set and write-set slots (ascending) for the whole
@@ -469,7 +489,12 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// definer's image unless this transaction first deleted that same definition.
 	// The paired delete+define is an ordered replacement.
 	for key := range tx.propertyDefines {
+		// A created id has no published image (s.load is nil); its base — the
+		// creation-time inherited property set — is the collision baseline.
 		live := s.load(key.objID)
+		if live == nil {
+			live = tx.createdObjects[key.objID]
+		}
 		if _, _, exists := propertyByName(live.properties, key.name); exists {
 			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing {
 				return types.E_INVARG
@@ -480,6 +505,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	// (mirrors deleteDefinedPropertyLocked's E_PROPNF, store_properties.go:536).
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		live := s.load(key.objID)
+		if live == nil {
+			live = tx.createdObjects[key.objID]
+		}
 		_, prop, ok := propertyByName(live.properties, actualName)
 		if !ok || !prop.defined {
 			return types.E_PROPNF
@@ -568,6 +596,13 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		for _, w := range verbWritesByObj[id] {
 			img = buildImageWithVerbCode(img, w.name, w.code, ts)
 		}
+		if tx.recycleWrites[id] {
+			// Recycle turns the object into a tombstone LAST, overriding any of its own
+			// staged self-writes; the edges on OTHER objects (its location's contents,
+			// its parents' children) were staged as deltas.
+			img = buildImageRecycled(img, ts)
+			s.appendRecycledID(id)
+		}
 		if created != nil {
 			// No old image to remember; raise max_object (highWaterID was already
 			// bumped at allocation).
@@ -602,6 +637,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
 	tx.createdObjects = nil
+	tx.recycleWrites = nil
 	return types.E_NONE
 }
 

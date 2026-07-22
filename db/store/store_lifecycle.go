@@ -351,13 +351,16 @@ func (s *Store) LowestFreeID() types.ObjID {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// First check for recycled slots (lowest first)
+	// First check for recycled slots (lowest first). recycledMu guards against a
+	// concurrent decentralized recycle append (also under store.mu.RLock).
 	lowestRecycled := types.ObjID(-1)
+	s.recycledMu.Lock()
 	for _, id := range s.recycledID {
 		if lowestRecycled == -1 || id < lowestRecycled {
 			lowestRecycled = id
 		}
 	}
+	s.recycledMu.Unlock()
 	if lowestRecycled != -1 {
 		return lowestRecycled
 	}

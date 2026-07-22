@@ -240,24 +240,40 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// NOTE: the decentralized create path (tx.CreateObject) is built and unit-tested
-	// (create_mvcc_test.go) but NOT yet wired here. Activating it requires recycle to
-	// also be decentralized (so create;recycle build tasks stay fully decentralized) and
-	// a flush of staged writes before any still-coarse builtin (renumber/chparent) that
-	// reads the live store mid-task — otherwise create;renumber-style tasks read stale
-	// live state. Until then, create stays coarse.
-	newID, errCode := store.CreateObject(parents, owner, anonymous)
-	if errCode != types.E_NONE {
-		return types.Err(types.E_QUOTA)
-	}
-	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
-			return types.Err(errCode)
+	var newID types.ObjID
+	tx := readTxn(ctx)
+	if tx != nil && !ctx.LiveStoreMutated && !anonymous {
+		// Decentralized create: stage the new NUMBERED object so it commits on the fast
+		// path. No live mutation, no adopt — the staged object is in the txn cache for
+		// read-your-writes (and for :initialize below). A later coarse builtin flushes
+		// staged writes to live first (flushStagedBeforeCoarse), so it never reads stale.
+		var ec types.ErrorCode
+		newID, ec = tx.CreateObject(parents, owner)
+		if ec != types.E_NONE {
+			return types.Err(types.E_QUOTA)
 		}
-		adoptIDs := append([]types.ObjID{newID}, parents...)
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-			return types.Err(errCode)
+	} else {
+		// Coarse create: anonymous objects (out-of-band, no slot), a task that has
+		// already live-mutated, or no transaction. store.CreateObject reads the parents
+		// from LIVE (to copy their inherited properties), so any parent staged by an
+		// earlier decentralized create in this same task must be flushed to live first —
+		// otherwise an anonymous child of a just-created numbered object inherits from a
+		// parent the coarse store cannot see yet (E_INVIND on later property access).
+		flushStagedBeforeCoarse(ctx)
+		var ec types.ErrorCode
+		newID, ec = store.CreateObject(parents, owner, anonymous)
+		if ec != types.E_NONE {
+			return types.Err(types.E_QUOTA)
+		}
+		markLiveStoreMutated(ctx)
+		if tx != nil {
+			if ec := tx.AdoptLiveObject(newID); ec != types.E_NONE {
+				return types.Err(ec)
+			}
+			adoptIDs := append([]types.ObjID{newID}, parents...)
+			if ec := tx.AdoptLiveRelationships(adoptIDs...); ec != types.E_NONE {
+				return types.Err(ec)
+			}
 		}
 	}
 
@@ -431,27 +447,56 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// they remain valid (property access through the recycled parent raises
 	// E_PROPNF).
 
-	// Mark as recycled
-	if err := store.Recycle(objID); err != nil {
-		return types.Err(types.E_INVARG)
-	}
-	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		tx.ForgetObject(objID)
-		adoptIDs := append([]types.ObjID{}, oldParents...)
-		adoptIDs = append(adoptIDs, oldChildren...)
-		adoptIDs = append(adoptIDs, oldContents...)
-		if oldLocation != types.ObjNothing {
-			adoptIDs = append(adoptIDs, oldLocation)
+	// Recycle: decentralized for a SIMPLE, non-player object in a not-yet-live-mutated
+	// task (the common create;recycle build shape); otherwise the coarse store.Recycle,
+	// which reparents children and boots player connections. The anon cascade above
+	// sets liveMutated when it fires, so objects holding anon refs correctly go coarse.
+	tx := readTxn(ctx)
+	isPlayer, _ := hasObjectFlagForRead(ctx, objID, dbstore.FlagUser)
+	isAnon, _ := objectIsAnonymousForRead(ctx, objID)
+	decentralized := false
+	if tx != nil && !ctx.LiveStoreMutated && !isPlayer && !isAnon {
+		// Anonymous objects live out-of-band with no numbered slot, so the decentralized
+		// committer (which publishes into numbered slots) can't tombstone one — they stay
+		// coarse. Players stay coarse too (the connection boot is an irreversible side
+		// effect that must not run on a staged, retryable recycle).
+		handled, ec := tx.RecycleObject(objID)
+		if ec != types.E_NONE {
+			return types.Err(ec)
 		}
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-			return types.Err(errCode)
+		decentralized = handled
+	}
+	if decentralized {
+		// Staged tombstone; invalidate the verb cache. No player boot (non-player), no
+		// ForgetObject — the reads RecycleObject recorded are the conflict guard against
+		// a concurrent move-into/create-under the dying object.
+		store.NoteVerbCacheClear()
+	} else {
+		// Coarse recycle reads/reparents through the LIVE store, so flush any topology this
+		// task staged decentrally first (e.g. a just-created child of the object being
+		// recycled) — otherwise store.Recycle cannot see it. Mirrors the coarse create path.
+		flushStagedBeforeCoarse(ctx)
+		if err := store.Recycle(objID); err != nil {
+			return types.Err(types.E_INVARG)
 		}
+		markLiveStoreMutated(ctx)
+		if tx != nil {
+			tx.ForgetObject(objID)
+			adoptIDs := append([]types.ObjID{}, oldParents...)
+			adoptIDs = append(adoptIDs, oldChildren...)
+			adoptIDs = append(adoptIDs, oldContents...)
+			if oldLocation != types.ObjNothing {
+				adoptIDs = append(adoptIDs, oldLocation)
+			}
+			if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
+		}
+		if cm := hostOf(ctx).ConnManager; cm != nil {
+			_ = cm.RecyclePlayer(objID)
+		}
+		store.NoteVerbCacheClear()
 	}
-	if cm := hostOf(ctx).ConnManager; cm != nil {
-		_ = cm.RecyclePlayer(objID)
-	}
-	store.NoteVerbCacheClear()
 	if hookResult.IsError() && hookResult.Error != types.E_VERBNF {
 		return hookResult
 	}
@@ -495,12 +540,15 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object as an object value.
 func builtinMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 
-	maxID := store.MaxObject()
+	// Read through the transaction so a decentralized create() staged earlier in this
+	// verb is visible to max_object() (read-your-writes).
+	maxID := ctx.Store.MaxObject()
+	if tx := readTxn(ctx); tx != nil {
+		maxID = tx.MaxObject()
+	}
 	return types.Ok(types.NewObj(types.ObjID(maxID)))
 }

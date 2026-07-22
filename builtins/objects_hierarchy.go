@@ -12,8 +12,6 @@ import (
 // builtinParent implements parent(object)
 // Returns the first parent of an object
 func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -31,7 +29,7 @@ func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	parentID, errCode := parentForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if store.IsRecycled(objVal.ID()) {
+		if isRecycledForRead(ctx, objVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
@@ -44,8 +42,6 @@ func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns list of all direct parents
 // Waifs have no parents (E_INVARG)
 func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -68,7 +64,7 @@ func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	parentIDs, errCode := parentsForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if store.IsRecycled(objVal.ID()) {
+		if isRecycledForRead(ctx, objVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
@@ -81,8 +77,6 @@ func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns list of direct children
 // Waifs have no children (E_INVARG)
 func builtinChildren(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -105,7 +99,7 @@ func builtinChildren(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	childIDs, errCode := childrenForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
 		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if store.IsRecycled(objVal.ID()) {
+		if isRecycledForRead(ctx, objVal.ID()) {
 			return types.Err(types.E_INVARG)
 		}
 		return types.Err(types.E_INVIND)
@@ -125,6 +119,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
 func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 
 	// ToastStunt's chparent takes exactly two arguments (function_info reports
@@ -274,6 +269,7 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinChparents implements chparents(object, parents_list)
 // Changes object's parents (multiple inheritance)
 func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -440,7 +436,13 @@ func builtinAncestors(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		includeSelf = args[1].Truthy()
 	}
 
-	ancestorIDs, errCode := store.Ancestors(objVal.ID(), includeSelf)
+	var ancestorIDs []types.ObjID
+	var errCode types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		ancestorIDs, errCode = tx.Ancestors(objVal.ID(), includeSelf)
+	} else {
+		ancestorIDs, errCode = store.Ancestors(objVal.ID(), includeSelf)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -467,7 +469,13 @@ func builtinDescendants(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		includeSelf = args[1].Truthy()
 	}
 
-	descendantIDs, errCode := store.Descendants(objVal.ID(), includeSelf)
+	var descendantIDs []types.ObjID
+	var errCode types.ErrorCode
+	if tx := readTxn(ctx); tx != nil {
+		descendantIDs, errCode = tx.Descendants(objVal.ID(), includeSelf)
+	} else {
+		descendantIDs, errCode = store.Descendants(objVal.ID(), includeSelf)
+	}
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -523,7 +531,13 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			continue
 		}
 
-		if store.HasAncestor(objVal.ID(), ancestorID) {
+		hasAncestor := false
+		if tx := readTxn(ctx); tx != nil {
+			hasAncestor = tx.HasAncestor(objVal.ID(), ancestorID)
+		} else {
+			hasAncestor = store.HasAncestor(objVal.ID(), ancestorID)
+		}
+		if hasAncestor {
 			if returnObject {
 				return types.Ok(types.NewObj(ancestorID))
 			}
@@ -613,8 +627,16 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			if !checkParent && locID == baseID {
 				break
 			}
-			if checkParent && (locID == baseID || store.HasAncestor(locID, baseID)) {
-				break
+			if checkParent {
+				hasAncestor := false
+				if tx := readTxn(ctx); tx != nil {
+					hasAncestor = tx.HasAncestor(locID, baseID)
+				} else {
+					hasAncestor = store.HasAncestor(locID, baseID)
+				}
+				if locID == baseID || hasAncestor {
+					break
+				}
 			}
 		}
 
@@ -638,6 +660,9 @@ func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if !validForRead(ctx, owner.ID()) {
 		return types.Err(types.E_INVIND)
 	}
+	// Scans committed live state; flush staged decentralized creates so an object this task
+	// just created is attributed to its owner. Rare introspection builtin, not a hot path.
+	flushStagedBeforeCoarse(ctx)
 	ownedIDs := store.ObjectsOwnedBy(owner.ID())
 	out := make([]types.Value, 0, len(ownedIDs))
 	for _, id := range ownedIDs {
@@ -655,6 +680,10 @@ func builtinRecycledObjects(ctx *kernel.TaskContext, args []types.Value) types.R
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
+	// This scans committed live state; flush any staged decentralized recycle/create so a
+	// recycle this task just performed is reflected. Rare introspection builtin — the flush
+	// (which makes the task coarse) is not on any hot path.
+	flushStagedBeforeCoarse(ctx)
 	out := make([]types.Value, 0)
 	upper := store.NextID()
 	for id := types.ObjID(0); id < upper; id++ {
@@ -690,6 +719,8 @@ func builtinNextRecycledObject(ctx *kernel.TaskContext, args []types.Value) type
 		}
 	}
 
+	// Scans committed live state; flush any staged decentralized recycle first. Rare.
+	flushStagedBeforeCoarse(ctx)
 	upper := store.NextID()
 	for id := start + 1; id < upper; id++ {
 		if store.IsRecycled(id) {
@@ -700,6 +731,7 @@ func builtinNextRecycledObject(ctx *kernel.TaskContext, args []types.Value) type
 }
 
 func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 	registry, ok := ctx.Registry.(*Registry)
 	if !ok {

@@ -48,6 +48,7 @@ type Store struct {
 	// exclusive lock. allocateID()/casMaxID() are the only mutators.
 	maxObjID    atomic.Int64
 	highWaterID atomic.Int64
+	recycledMu  sync.Mutex    // guards recycledID against concurrent decentralized recyclers
 	recycledID  []types.ObjID // Track recycled IDs (for future reuse via recreate)
 	clock       atomic.Uint64
 	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
@@ -121,6 +122,17 @@ func (s *Store) highWater() types.ObjID { return types.ObjID(s.highWaterID.Load(
 // is the SINGLE id allocator for numbered, anonymous, and decentralized creates, so
 // no two allocations ever collide even without the store lock.
 func (s *Store) allocateID() types.ObjID { return types.ObjID(s.highWaterID.Add(1)) }
+
+// appendRecycledID records id as recycled, guarded by recycledMu so a decentralized
+// recycle committer (holding only store.mu.RLock) does not race LowestFreeID's read.
+// Coarse recyclers append under store.mu.Lock (which excludes RLock committers), so the
+// two never run concurrently; recycledMu serializes concurrent decentralized appends
+// and the RLock read.
+func (s *Store) appendRecycledID(id types.ObjID) {
+	s.recycledMu.Lock()
+	s.recycledID = append(s.recycledID, id)
+	s.recycledMu.Unlock()
+}
 
 // casMaxID raises *a to v when v is larger — a monotonic max safe under concurrent
 // committers (two decentralized creates may publish out of id order; a plain Store

@@ -43,6 +43,10 @@ type StoreTxn struct {
 	// object, so published memory never aliases txn state and self-writes are not
 	// double-applied. Left nil until the first create.
 	createdObjects            map[types.ObjID]*Object
+	// recycleWrites marks numbered objects to be turned into recycled tombstones by
+	// this commit (decentralized recycle of a SIMPLE object — no children, no
+	// contents). The commit build applies buildImageRecycled LAST for these ids.
+	recycleWrites             map[types.ObjID]bool
 	maxObjID                  types.ObjID
 	highWaterID               types.ObjID
 	// released guards the readTS deregistration (Phase 4 history GC) so the floor
@@ -540,8 +544,18 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 	tx.verbScans[objID] = obj.verbVersion
 }
 
+// HasStagedTopology reports whether the txn has staged TOPOLOGY writes that a coarse
+// builtin would read stale from the live store mid-task: created objects (absent from
+// live) or relationship writes (location/contents/children). Property/scalar/verb
+// writes are NOT included — coarse ops that follow them already read live-without-them
+// and apply everything at the coarse commit, and flushing those mid-task would change
+// the observable timing of unrelated staged writes.
+func (tx *StoreTxn) HasStagedTopology() bool {
+	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0)
+}
+
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.createdObjects) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
 }
 
 // writeFootprintHasAnon reports whether any staged write targets an anonymous
@@ -996,6 +1010,55 @@ func (tx *StoreTxn) MaxObject() types.ObjID {
 	return tx.maxObjID
 }
 
+// RecycleObject stages recycling of a SIMPLE numbered object (no children, no contents)
+// on the decentralized path: it removes the object from its location's contents and its
+// parents' children (commutative deltas) and stages the recycled tombstone. It records a
+// relationship read on the object — the conflict guard: a concurrent move-into or
+// create-under it must conflict this recycle (do NOT ForgetObject, Fable P1-1). Returns
+// handled=false for a COMPLEX object (has children or contents), so the caller falls
+// back to the coarse store.Recycle (which reparents children). Anonymous objects are not
+// routed here. recycledID is appended at commit time (under RLock), not here.
+func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorCode) {
+	obj := tx.object(id)
+	if !validLiveObject(obj) {
+		return false, types.E_INVIND
+	}
+	tx.markObjectRelationshipRead(id, obj)
+	if len(obj.children) > 0 || len(obj.contents) > 0 {
+		return false, types.E_NONE // complex: caller uses coarse recycle
+	}
+
+	oldLoc := obj.location
+	if oldLoc != types.ObjNothing {
+		if loc := tx.object(oldLoc); validLiveObject(loc) {
+			m := tx.mutableObject(oldLoc)
+			m.contents = removeObjID(m.contents, id)
+			tx.stageContentsDelta(oldLoc, contentsDelta{add: false, id: id})
+		}
+	}
+	for _, parentID := range obj.parents {
+		if p := tx.object(parentID); validLiveObject(p) {
+			m := tx.mutableObject(parentID)
+			m.children = removeObjID(m.children, id)
+			tx.stageChildrenDelta(parentID, contentsDelta{add: false, id: id})
+		}
+	}
+
+	// Stage the tombstone and reflect it in the cache (read-your-writes).
+	if tx.recycleWrites == nil {
+		tx.recycleWrites = make(map[types.ObjID]bool)
+	}
+	tx.recycleWrites[id] = true
+	m := tx.mutableObject(id)
+	m.contents = []types.ObjID{}
+	m.location = types.ObjNothing
+	m.properties = make(map[string]Property)
+	m.verbs = make(map[string]*Verb)
+	m.recycled = true
+	m.flags = m.flags.Set(FlagRecycled | FlagInvalid)
+	return true, types.E_NONE
+}
+
 // MoveObject stages moving `what` into `where` at `position` through the txn's
 // decentralized write path: what.location (a scalar edge), plus COMMUTATIVE contents
 // deltas (remove from the old room, add to the new room) on the two rooms. It records
@@ -1100,6 +1163,110 @@ func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 	}
 	tx.markObjectRelationshipRead(objID, obj)
 	return append([]types.ObjID(nil), obj.children...), types.E_NONE
+}
+
+// Ancestors returns objID's ancestors in breadth-first parent order, resolving each hop
+// through the txn (read-your-writes) so a chain built by this task's own decentralized
+// creates is visible before commit. Mirrors Store.Ancestors, which walks live only and
+// therefore misses staged creates. An invalid start object is E_INVIND; an ancestor that
+// becomes invalid mid-walk is still listed but not descended through (as in the store).
+func (tx *StoreTxn) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+	parents, ec := tx.Parents(objID)
+	if ec != types.E_NONE {
+		return nil, ec
+	}
+	result := make([]types.ObjID, 0)
+	seen := make(map[types.ObjID]bool)
+	if includeSelf {
+		result = append(result, objID)
+		seen[objID] = true
+	}
+	queue := append([]types.ObjID(nil), parents...)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+		result = append(result, currentID)
+		if p, ec := tx.Parents(currentID); ec == types.E_NONE {
+			queue = append(queue, p...)
+		}
+	}
+	return result, types.E_NONE
+}
+
+// Descendants is the child-direction counterpart of Ancestors (read-your-writes).
+func (tx *StoreTxn) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+	children, ec := tx.Children(objID)
+	if ec != types.E_NONE {
+		return nil, ec
+	}
+	result := make([]types.ObjID, 0)
+	seen := make(map[types.ObjID]bool)
+	if includeSelf {
+		result = append(result, objID)
+		seen[objID] = true
+	}
+	queue := append([]types.ObjID(nil), children...)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+		result = append(result, currentID)
+		if c, ec := tx.Children(currentID); ec == types.E_NONE {
+			queue = append(queue, c...)
+		}
+	}
+	return result, types.E_NONE
+}
+
+// HasAncestor reports whether ancestorID is objID itself or reachable by walking objID's
+// parents through the txn (read-your-writes), so an inheritance chain this task staged with
+// decentralized creates is honored before commit. Mirrors Store.HasAncestor.
+func (tx *StoreTxn) HasAncestor(objID, ancestorID types.ObjID) bool {
+	if !validLiveObject(tx.object(objID)) || !validLiveObject(tx.object(ancestorID)) {
+		return false
+	}
+	if objID == ancestorID {
+		return true
+	}
+	seen := make(map[types.ObjID]bool)
+	parents, ec := tx.Parents(objID)
+	if ec != types.E_NONE {
+		return false
+	}
+	queue := append([]types.ObjID(nil), parents...)
+	for len(queue) > 0 {
+		currentID := queue[0]
+		queue = queue[1:]
+		if seen[currentID] {
+			continue
+		}
+		seen[currentID] = true
+		if currentID == ancestorID {
+			return true
+		}
+		if p, ec := tx.Parents(currentID); ec == types.E_NONE {
+			queue = append(queue, p...)
+		}
+	}
+	return false
+}
+
+// IsRecycled reports whether id resolves to a recycled tombstone in this txn's view —
+// including a recycle this task staged decentrally but has not yet committed. Mirrors
+// Store.IsRecycled, which sees only committed live state.
+func (tx *StoreTxn) IsRecycled(id types.ObjID) bool {
+	if tx.recycleWrites[id] {
+		return true
+	}
+	obj := tx.object(id)
+	return obj != nil && obj.recycled
 }
 
 func (tx *StoreTxn) AnonymousChildren(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
@@ -1782,7 +1949,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 }
 
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.createdObjects) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -1852,7 +2019,17 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		tx.validationFail = true
 		return errCode
 	}
+	return tx.applyStagedToLiveLocked()
+}
 
+// applyStagedToLiveLocked applies all staged writes to the LIVE store in place (the
+// coarse path): it publishes staged creates, then applies scalar, relationship
+// (location/contents/children), property, and verb writes, retaining pre-mutation
+// images in history, and clears the staged maps. It does NOT validate the read set —
+// the coarse Commit validates before calling this, and flushStagedToLive deliberately
+// skips validation (a task about to coarse-mutate is non-isolated, matching Toast's
+// immediate semantics). Caller holds store.mu.Lock.
+func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
 
@@ -2002,6 +2179,27 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		stampVerb(verb, ts)
 		stampObjectVerbs(live, ts)
 	}
+	// Recycle tombstones LAST, so a create-then-recycle of the same object (build task)
+	// publishes a recycled slot. The object's edges on OTHER objects were applied above
+	// as relationship deltas.
+	for id := range tx.recycleWrites {
+		live := tx.store.liveObjectLocked(id)
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if !remembered[id] {
+			live = tx.store.republishForMutation(live)
+			remembered[id] = true
+		}
+		live.contents = []types.ObjID{}
+		live.location = types.ObjNothing
+		live.properties = make(map[string]Property)
+		live.verbs = make(map[string]*Verb)
+		live.recycled = true
+		live.flags = live.flags.Set(FlagRecycled | FlagInvalid)
+		stampObjectAll(live, ts)
+		tx.store.appendRecycledID(id)
+	}
 	tx.scalarWrites = nil
 	tx.relationshipWrites = nil
 	tx.propertyDefines = nil
@@ -2010,7 +2208,79 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
 	tx.createdObjects = nil
+	tx.recycleWrites = nil
 	return types.E_NONE
+}
+
+// flushStagedToLive applies this txn's staged decentralized writes to the LIVE store
+// immediately and clears them, so a subsequent COARSE builtin that reads/mutates the
+// live store mid-task (renumber/chparent/add_verb) sees them instead of stale live
+// state. It also drops the read set: the task has now mutated the live store, so it is
+// non-isolated (Toast-like) and its eventual coarse commit must not conflict on reads
+// taken against the pre-flush snapshot. Reads are NOT validated on the way out (coarse
+// semantics — last-writer-wins, like an immediate mutation); a created object is private
+// and cannot conflict anyway. No-op if nothing is staged.
+func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
+	if tx == nil || !tx.HasWrites() {
+		return types.E_NONE
+	}
+	tx.store.mu.Lock()
+	ec := tx.applyStagedToLiveLocked()
+	tx.store.mu.Unlock()
+
+	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that
+	// triggered the flush still records reads afterward (markVerbScan, etc.), so niling
+	// them would panic on the next read.
+	tx.scalarReads = make(map[types.ObjID]uint64)
+	tx.relationshipReads = make(map[types.ObjID]uint64)
+	tx.propertyReads = make(map[propertyReadKey]uint64)
+	tx.propertyScans = make(map[types.ObjID]uint64)
+	tx.verbReads = make(map[verbReadKey]uint64)
+	tx.verbScans = make(map[types.ObjID]uint64)
+
+	// Drop the object cache too: the flush advanced live (a staged property define bumped
+	// the definer's version), but the cache still holds the pre-flush images. A post-flush
+	// read served from the stale cache would record the OLD version, and the eventual coarse
+	// commit would then validate that stale read against advanced live and self-conflict
+	// (E_INVARG) forever. Re-fetching from live keeps post-flush reads coherent with the
+	// state the task just installed. Staged writes are already applied, so no private
+	// mutation is lost; tx.owned resets with it.
+	// Refresh the object cache from CURRENT live (NOT the readTS snapshot). The flush
+	// advanced live past this txn's readTS: a staged create/define is published at the
+	// flush timestamp, which exceeds readTS. Two failures follow if the cache is left as
+	// is or merely cleared:
+	//   - Left as is, a post-flush read is served the pre-flush image and records the OLD
+	//     version; the coarse commit then validates that stale read against advanced live
+	//     and self-conflicts (E_INVARG) forever.
+	//   - Cleared, a post-flush read re-resolves through objectLocked's readTS gate
+	//     (objectVersion(live) <= readTS), which now MISSES the just-created object — so a
+	//     freshly-created object reads back as invalid mid-task (E_INVIND).
+	// Re-cloning each cached object from current live fixes both: created/written objects
+	// stay visible at their new version, non-flushed objects re-clone at their unchanged
+	// version. The task is already liveMutated (non-isolated), so seeing live as of the
+	// flush is the correct Toast-like semantics. Staged writes are already applied, so no
+	// private mutation is lost; owned resets with the fresh (unowned) copies.
+	tx.store.mu.RLock()
+	for id, cached := range tx.objects {
+		// Anonymous objects live out-of-band in s.anonObjects with NO numbered slot, so
+		// s.load can't resolve them (it walks the numbered directory only). They are also
+		// never part of a decentralized flush — the whole decentralized path routes any
+		// anon-touching commit onto the coarse exclusive path (writeFootprintHasAnon), so
+		// the flush never republished them and their cached snapshot is not stale on its
+		// account. Leave anon entries untouched; refreshing via s.load would wrongly drop
+		// them and make a live anonymous object read as invalid mid-task.
+		if cached != nil && cached.anonymous {
+			continue
+		}
+		if live := tx.store.load(id); validLiveObject(live) {
+			tx.objects[id] = cloneObjectForReadTxn(live)
+		} else {
+			delete(tx.objects, id)
+		}
+	}
+	tx.store.mu.RUnlock()
+	tx.owned = make(map[types.ObjID]bool)
+	return ec
 }
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
