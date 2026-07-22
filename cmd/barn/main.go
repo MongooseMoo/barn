@@ -33,10 +33,14 @@ import (
 )
 
 // defaultGOGCPercent is Barn's on-by-default GC budget. The Go default
-// (GOGC=100) caps concurrent throughput; a measured worker sweep showed
-// GOGC=200 lifts parallel speedup from ~4.1x to ~5.9x with memory bounded
-// relative to the live set.
-const defaultGOGCPercent = 200
+// (GOGC=100) makes the collector the binding constraint on 32-core throughput
+// because the VM heap-boxes values; a measured 32-worker sweep on the realistic
+// verb-call path showed parallel speedup rising with the budget:
+// 100->4.56x, 200->6.78x, 400->8.50x, 800->9.76x, off->11.41x. 400 buys ~8.5x
+// at ~4x heap growth between collections — a balanced default for unknown
+// deployment RAM (operators can push -gogc toward 800 with -gomemlimit-mib as a
+// backstop). The durable fix (unboxing values) is deferred.
+const defaultGOGCPercent = 400
 
 // fatalf logs a fatal startup error and exits. Unlike log.Fatalf it goes
 // through slog, so the failure that killed a run is in the run's log file.
@@ -159,7 +163,7 @@ func main() {
 
 	// Runtime GC tuning (0/-1 leave Go's GOMEMLIMIT/GOGC env honoring intact)
 	gomemlimitMiB := flag.Int("gomemlimit-mib", 0, "Soft memory limit in MiB (0=unset, honor GOMEMLIMIT env)")
-	gogc := flag.Int("gogc", -1, "GC target percentage (-1 = use Barn default 200 or GOGC env)")
+	gogc := flag.Int("gogc", -1, "GC target percentage (-1 = use Barn default 400 or GOGC env)")
 
 	flag.Parse()
 
@@ -176,7 +180,7 @@ func main() {
 		debug.SetMemoryLimit(int64(*gomemlimitMiB) * 1024 * 1024)
 		slog.Info("GC memory limit set", slog.Int("mib", *gomemlimitMiB))
 	}
-	// GC-percent precedence: explicit -gogc flag > GOGC env > Barn default 200.
+	// GC-percent precedence: explicit -gogc flag > GOGC env > Barn default 400.
 	if *gogc >= 0 {
 		// Explicit override wins.
 		debug.SetGCPercent(*gogc)
