@@ -162,15 +162,16 @@
 | Current Barn lifecycle and predecessor selectors `20260721_192842` through `20260721_193434` | Persisted predecessor state versus wall-clock phase | Lifecycle alone, each predecessor group plus lifecycle, and the exact combined prefix all passed | State contamination from `sqlite`, `queued_tasks`, or `command_parser_toast_oracle` | The failure is timing/order-sensitive rather than persisted test contamination |
 | Green/red timeout connection timestamps | Stable semantic mismatch versus strict-second phase | Green connection lifetime was 5.844s; both red lifetimes were 5.020/5.025s and the control assertion completed about 0.2s after timeout | Missing deadline reset and late hook publication | The earliest whole-second phase lets Barn's timeout hook overtake an already-arrived assertion task |
 | Canonical Toast `server.cc` main loop | Timeout predicate alone versus processing order | Toast calls `network_process_io()`, then `run_ready_tasks()`, then applies the strict-second timeout sweep and notifier | Adding arbitrary timing slack | Ready input tasks must complete before the timeout hook at the same loop boundary |
+| Deterministic timeout-barrier regression and managed row `20260721_194243` | Arbitrary delay versus input ordering | The regression was red with no in-flight accounting, then green after timeout became a barrier event; the existing strict-second test, full `server` package, and managed row pass | Changing the deadline or adding grace time | Commit `85e4d58` restores Toast's input-before-timeout order while preserving the exact deadline |
 
 ## Current Best Theory
 
-Every persisted failure from full managed run `20260721_182815` is green. Barn's socket read deadline invokes `user_disconnected` directly from the connection goroutine. At the earliest strict-second phase, that hook can overtake an already-arrived control input. Toast processes network I/O and ready tasks before its timeout sweep, so the control assertion observes the pre-timeout state first. The fix must preserve the strict-second boundary while routing timeout work behind already-dispatched input.
+Every persisted failure from full managed run `20260721_182815` is green. Commit `85e4d58` routes login timeout work through an input barrier, so already-dispatched input completes before `user_disconnected`; the strict-second deadline remains unchanged. Direct and focused gates pass. The remaining decision is the full managed conformance gate that previously exposed the early-boundary race.
 
 ## Open Questions
 
-- Does routing timeout work through an input barrier preserve disconnect cleanup and per-connection lane retirement?
+- Does the full managed suite now pass at the early strict-second phase as well as the focused phase?
 
 ## Next Action
 
-Write a deterministic server regression proving a login-timeout event cannot complete while previously dispatched input work is still active. Run it red before changing production timeout dispatch.
+Run the documented full managed conformance command once from the clean source ledger and use its persisted summary as the final conformance decision.
