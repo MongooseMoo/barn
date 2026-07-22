@@ -38,3 +38,26 @@ func TestVerbCodeReturnsCanonicalSource(t *testing.T) {
 		t.Fatalf("verb_code = %s, want %s", result.Val.String(), want.String())
 	}
 }
+
+func TestVerbCodeReturnsCompoundStatementAsSeparateLines(t *testing.T) {
+	ctx, store := newReviewCtx(t)
+	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
+	mustAddVerb(t, store, obj, "loop", 0, dbstore.VerbRead)
+	source := []string{"for i, i in ({})", "  break i;", "endfor"}
+	if errCode := store.SetVerbCode(obj, "loop", source); errCode != types.E_NONE {
+		t.Fatalf("SetVerbCode failed: %v", errCode)
+	}
+
+	result := builtinVerbCode(ctx, []types.Value{types.NewObj(obj), types.NewStr("loop")})
+	if result.IsError() {
+		t.Fatalf("verb_code failed: %v", result.Error)
+	}
+	want := types.NewList([]types.Value{
+		types.NewStr("for i, i in ({})"),
+		types.NewStr("  break i;"),
+		types.NewStr("endfor"),
+	})
+	if !result.Val.Equal(want) {
+		t.Fatalf("verb_code = %s, want %s", result.Val.String(), want.String())
+	}
+}

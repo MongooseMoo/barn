@@ -36,7 +36,7 @@ func FormatMOO(program *verb.Program) []string {
 	var lines []string
 	for _, stmt := range program.Statements {
 		line := unparseStmt(stmt, 0)
-		lines = append(lines, line)
+		lines = append(lines, strings.Split(line, "\n")...)
 	}
 	return lines
 }
