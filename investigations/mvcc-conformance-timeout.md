@@ -151,6 +151,7 @@
 | Focused valid-UTF-8 equality row, stock WSL Toast, direct string regression | Unicode case folding versus invalid raw-byte preservation | Barn folded ASCII but not `À`/`à`; Toast folded both; direct, package, and managed run `20260721_183948` pass after valid UTF-8 equal-folded strings are recognized before the existing byte-wise comparison | Invalid raw high-byte equality, which remains distinct | The raw-byte compatibility repair omitted valid UTF-8 Unicode case folding |
 | Focused duplicate-variable loop decompile row, stock WSL Toast, direct verb-code regression | Compound formatting versus source-line list boundaries | Barn returned one string containing escaped newlines; Toast returned three source-line strings; direct, package, and managed run `20260721_184603` pass after formatter output flattens rendered compound statements on newline boundaries | Statement rendering and parser semantics | `FormatMOO` appended each multiline top-level statement as one list element |
 | Focused bitwise-and decompile row, stock WSL Toast, direct formatter regression | AST loss versus canonical token spelling | Barn retained the bitwise-and AST node but formatted `&` instead of `&.`; Toast preserved the dotted spelling; direct, package, and managed run `20260721_185226` pass after changing only that formatter token | Lexer, parser, and runtime bitwise-and behavior | `unparseBinaryOp` emitted the wrong source spelling for `BinaryBitAnd` |
+| Focused bitwise-or decompile row, stock WSL Toast, direct formatter regression | AST loss versus canonical token spelling | Barn retained the bitwise-or AST node but formatted `|` instead of `|.`; Toast preserved the dotted spelling; direct, package, and managed run `20260721_185608` pass after changing only that formatter token | Lexer, parser, and runtime bitwise-or behavior | `unparseBinaryOp` emitted the wrong source spelling for `BinaryBitOr` |
 
 ## Current Best Theory
 
@@ -158,8 +159,8 @@ The original lifecycle failures remain fixed; firewall and WSL were not causal. 
 
 ## Open Questions
 
-- Does `moocode_parsing::bitwise_or_decompile`, the next recorded failure from full managed run `20260721_182815`, remain independently red?
+- Does `moocode_parsing::bitwise_xor_decompile`, the next recorded failure from full managed run `20260721_182815`, remain independently red?
 
 ## Next Action
 
-Keep the source ledger clean and run `moocode_parsing::bitwise_or_decompile` alone under the corrected managed runner before any diagnosis or edit.
+Keep the source ledger clean and run `moocode_parsing::bitwise_xor_decompile` alone under the corrected managed runner before any diagnosis or edit.
