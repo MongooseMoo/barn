@@ -112,3 +112,24 @@ func TestMultiKeyMapdeleteRaisesMissingKeyDetail(t *testing.T) {
 		t.Fatalf("exception detail = %v, want 99", got)
 	}
 }
+
+func TestMapdeleteUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	mapping := types.NewMap([][2]types.Value{
+		{types.NewInt(1), types.NewStr("one")},
+		{types.NewInt(2), types.NewStr("two")},
+	})
+	resultMap := mapping.MapDelete(types.NewInt(1))
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: ValueBytes(resultMap),
+			MaxMapValueBytes:  ValueBytes(mapping) + 1,
+		},
+	}}
+
+	result := builtinMapdelete(ctx, []types.Value{mapping, types.NewInt(1)})
+	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
+		t.Fatalf("mapdelete at pending list byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+	}
+}
