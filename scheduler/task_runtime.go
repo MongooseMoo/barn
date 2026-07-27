@@ -29,6 +29,21 @@ import (
 // peer's writes. The bound exists only to prevent livelock under a pathological store.
 const maxConflictRetryAttempts = 64
 
+// escalateAfterAttempts is the optimistic-loss budget before a task stops
+// gambling and re-executes under the store's exclusive commit gate (a
+// guaranteed win against every commit-based writer). With the threshold below
+// maxConflictRetryAttempts, cap exhaustion — which surfaces a conflict-only
+// E_INVARG to the user as a phantom "coding error" no serial execution
+// produces — becomes impossible: the final attempt cannot lose.
+//
+// Tuning data (16p real-mongoose mix, experiments/2026-07-27): at 8 the gate
+// serialized the server (goodput -45%, p50 6ms → 117ms); at 48 it traded
+// ~13% goodput for ~25% max-latency; at 63 (escalate only on the last
+// attempt) throughput and tail match no-gate within noise while keeping the
+// cannot-lose guarantee. Escalation is correctness insurance, not a second
+// commit path.
+const escalateAfterAttempts = 63
+
 var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
@@ -55,8 +70,21 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 		}
 	}()
 	attempt := 0
+	escalated := false
+	// Backstop for every early return (suspend hand-off, deadline, panic): the
+	// gate must never outlive this invocation. The common path releases it
+	// explicitly right after the attempt's commit resolves.
+	defer func() {
+		if escalated {
+			s.store.EscalationUnlock()
+		}
+	}()
 
 retryAttempt:
+	if attempt >= escalateAfterAttempts && !escalated {
+		s.store.EscalationLock()
+		escalated = true
+	}
 	if attempt > 0 {
 		retryState.restore(t)
 	}
@@ -85,6 +113,13 @@ retryAttempt:
 		old.Release()
 	}
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
+	if escalated {
+		// Snapshot taken while holding the gate exclusively: no ordinary commit
+		// can interleave before this attempt's own commit, so it cannot lose
+		// validation to one. The txn must skip the shared gate or it would
+		// deadlock against our own exclusive hold.
+		ctx.StoreTxn.ExemptFromCommitGate()
+	}
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
 	ctx.Registry = s.registry
@@ -285,6 +320,17 @@ retryAttempt:
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginReadOnly(0)
 	}
+	// The escalated attempt's outcome is decided (committed or failed without a
+	// retry); everything past here — zero-delay yields, suspend hand-off — must
+	// take the gate normally, including a failure-path txn that lives on.
+	// Release promptly so the world resumes.
+	if escalated {
+		if ctx.StoreTxn != nil {
+			ctx.StoreTxn.ClearCommitGateExemption()
+		}
+		s.store.EscalationUnlock()
+		escalated = false
+	}
 
 	// Check context deadline
 	select {
@@ -408,6 +454,18 @@ retryAttempt:
 		// task's traceback instead of recursively invoking the same hook.
 		isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
 		if !handled && !isUncaughtHandler {
+			if os.Getenv("BARN_DEBUG_RETRY") != "" {
+				top := ""
+				if len(stack) > 0 {
+					f := stack[len(stack)-1]
+					top = fmt.Sprintf("#%d:%s line %d", f.VerbLoc, f.Verb, f.LineNumber)
+				}
+				slog.Warn("DEBUG-UNCAUGHT",
+					slog.String("error", types.NewErr(result.Error).String()),
+					slog.String("task_verb", t.VerbName),
+					slog.String("top_frame", top),
+					slog.Int("frames", len(stack)))
+			}
 			stackValues := make([]types.Value, 0, len(stack))
 			for i := len(stack) - 1; i >= 0; i-- {
 				stackValues = append(stackValues, stack[i].ToList())

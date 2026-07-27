@@ -94,6 +94,15 @@ type Store struct {
 	commitConflicts atomic.Uint64
 	commitRetries   atomic.Uint64
 
+	// commitGate serializes an escalated commit attempt against all ordinary
+	// commits. Ordinary StoreTxn.Commit holds it shared (outermost, before any
+	// store lock — lock order is commitGate, then s.mu). A task that keeps
+	// losing validation acquires it exclusively via EscalationLock, re-executes,
+	// and commits a txn marked gateExempt: with no ordinary commit able to
+	// interleave between its snapshot and its validation, it cannot lose again.
+	commitGate        sync.RWMutex
+	commitEscalations atomic.Uint64
+
 	waifRegistry    map[types.ObjID]map[unsafe.Pointer]struct{} // Track live waifs by class (keyed on waif identity)
 	verbCacheClears int64
 	verbCacheMisses int64
@@ -221,6 +230,20 @@ func (s *Store) ActiveReadTransactions() int {
 // the only exported mutator; the scheduler lives in another package and cannot
 // touch the unexported counter fields directly.
 func (s *Store) NoteCommitRetry() { s.commitRetries.Add(1) }
+
+func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
+
+// EscalationLock acquires the commit gate exclusively for a bounded-escalation
+// attempt: while held, no ordinary commit can start, so a gateExempt txn
+// snapshotted and committed under it validates against a frozen store. Direct
+// live-store mutations (the LiveStoreMutated paths) bypass the gate; the
+// scheduler's retry cap remains the backstop for that rare interleaving.
+func (s *Store) EscalationLock() {
+	s.commitGate.Lock()
+	s.commitEscalations.Add(1)
+}
+
+func (s *Store) EscalationUnlock() { s.commitGate.Unlock() }
 
 func (s *Store) ReadTimestamp() uint64 {
 	return s.clock.Load()

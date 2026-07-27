@@ -26,6 +26,7 @@ func debugConflict(kind string, objID types.ObjID, name string, want, live uint6
 type StoreTxn struct {
 	readTS                    uint64
 	store                     *Store
+	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the scheduler holds it exclusively)
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -1961,12 +1962,38 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 	}
 }
 
+// ExemptFromCommitGate marks this txn as the escalated attempt's txn: its
+// Commit will not take the shared commit gate. Only the scheduler's bounded-
+// escalation path may call this, and only while holding EscalationLock.
+func (tx *StoreTxn) ExemptFromCommitGate() {
+	if tx != nil {
+		tx.gateExempt = true
+	}
+}
+
+// ClearCommitGateExemption re-arms the shared gate for a txn that outlived its
+// escalated attempt (the scheduler releases the gate but may recommit the same
+// txn on later suspend/yield boundaries).
+func (tx *StoreTxn) ClearCommitGateExemption() {
+	if tx != nil {
+		tx.gateExempt = false
+	}
+}
+
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
 		return types.E_INVARG
+	}
+	// Ordinary commits hold the escalation gate shared for the whole
+	// validate+apply window; an escalated attempt's txn (gateExempt) skips it
+	// because its scheduler already holds the gate exclusively. Outermost by
+	// design: lock order is commitGate, then store locks.
+	if !tx.gateExempt {
+		tx.store.commitGate.RLock()
+		defer tx.store.commitGate.RUnlock()
 	}
 	tx.validationFail = false
 
@@ -1978,8 +2005,18 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// non-conflict apply failures (E_INVIND/E_VERBNF/E_PROPNF) leave it false and
 	// are not counted as conflicts. Observation-only: no control flow changes.
 	tx.store.commitAttempts.Add(1)
+	var debugPropKeys []propertyWriteKey
+	if debugValidation {
+		for key := range tx.propertyWrites {
+			debugPropKeys = append(debugPropKeys, key)
+		}
+	}
 	defer func() {
 		if commitErr == types.E_NONE {
+			for _, key := range debugPropKeys {
+				slog.Warn("DEBUG-PROPWRITE",
+					slog.Int64("obj", int64(key.objID)), slog.String("name", key.name))
+			}
 			tx.store.commitSuccesses.Add(1)
 		} else if tx.validationFail {
 			tx.store.commitConflicts.Add(1)
