@@ -187,6 +187,19 @@ type VerbView struct {
 	HasProgram bool
 }
 
+// mapKey returns the key this verb occupies in Object.verbs: the first alias
+// (builder.go keys the map by names[0]). Verb.name may hold the full
+// space-separated alias string (the loader stores it verbatim for dump
+// round-tripping), so name is NOT a valid map key for multi-alias verbs —
+// transaction read/write sets must key by mapKey or validation can never
+// find the verb again (every commit then fails E_INVARG and retries).
+func (v *Verb) mapKey() string {
+	if len(v.names) > 0 {
+		return v.names[0]
+	}
+	return v.name
+}
+
 // NewVerb builds a Verb value from its fields. It is the only way for external
 // packages (the loader in db/format, builtins, the conformance fixture, and
 // tests) to construct a Verb without touching unexported fields.

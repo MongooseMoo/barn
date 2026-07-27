@@ -2,6 +2,8 @@ package store
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -9,6 +11,17 @@ import (
 
 	"barn/types"
 )
+
+// debugValidation gates temporary conflict-diagnosis logging (BARN_DEBUG_RETRY).
+var debugValidation = os.Getenv("BARN_DEBUG_RETRY") != ""
+
+func debugConflict(kind string, objID types.ObjID, name string, want, live uint64) {
+	if debugValidation {
+		slog.Warn("DEBUG-CONFLICT", slog.String("kind", kind),
+			slog.Int64("obj", int64(objID)), slog.String("name", name),
+			slog.Uint64("want", want), slog.Uint64("live", live))
+	}
+}
 
 type StoreTxn struct {
 	readTS                    uint64
@@ -34,7 +47,7 @@ type StoreTxn struct {
 	// an alias; the first staged write to an object must materialize a private copy
 	// (mutableObject, copy-on-write) and mark it owned, so no staging code ever writes
 	// through to a shared image. Left nil until the first write, like the write maps.
-	owned                     map[types.ObjID]bool
+	owned map[types.ObjID]bool
 	// createdObjects holds the PRISTINE creation-time base image of each object created
 	// in this txn (decentralized create). It is separate from the `objects` cache (which
 	// also holds the object for read-your-writes and may accumulate the txn's own
@@ -42,13 +55,13 @@ type StoreTxn struct {
 	// applies that id's staged write maps in the same fixed kind order as every other
 	// object, so published memory never aliases txn state and self-writes are not
 	// double-applied. Left nil until the first create.
-	createdObjects            map[types.ObjID]*Object
+	createdObjects map[types.ObjID]*Object
 	// recycleWrites marks numbered objects to be turned into recycled tombstones by
 	// this commit (decentralized recycle of a SIMPLE object — no children, no
 	// contents). The commit build applies buildImageRecycled LAST for these ids.
-	recycleWrites             map[types.ObjID]bool
-	maxObjID                  types.ObjID
-	highWaterID               types.ObjID
+	recycleWrites map[types.ObjID]bool
+	maxObjID      types.ObjID
+	highWaterID   types.ObjID
 	// released guards the readTS deregistration (Phase 4 history GC) so the floor
 	// registration is removed exactly once whether by the scheduler's explicit
 	// Release or the runtime-finalizer backstop. See store_history_gc.go.
@@ -531,10 +544,10 @@ func (tx *StoreTxn) markVerbRead(objID types.ObjID, verb *Verb) {
 	if tx == nil || verb == nil {
 		return
 	}
-	if _, staged := tx.verbWrites[verbWriteKey{objID: objID, name: verb.name}]; staged {
+	if _, staged := tx.verbWrites[verbWriteKey{objID: objID, name: verb.mapKey()}]; staged {
 		return
 	}
-	tx.verbReads[verbReadKey{objID: objID, name: verb.name}] = verb.version
+	tx.verbReads[verbReadKey{objID: objID, name: verb.mapKey()}] = verb.version
 }
 
 func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
@@ -2293,6 +2306,7 @@ func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
 			return types.E_INVIND
 		}
 		if live.scalarVersion != version {
+			debugConflict("scalar", objID, "", version, live.scalarVersion)
 			return types.E_INVARG
 		}
 	}
@@ -2309,6 +2323,7 @@ func (tx *StoreTxn) validateObjectRelationshipReadsLocked() types.ErrorCode {
 			return types.E_INVIND
 		}
 		if live.relationshipVersion != version {
+			debugConflict("relationship", objID, "", version, live.relationshipVersion)
 			return types.E_INVARG
 		}
 	}
@@ -2326,6 +2341,11 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 		}
 		_, prop, ok := propertyByName(live.properties, key.name)
 		if !ok || prop.version != version {
+			lv := uint64(0)
+			if ok {
+				lv = prop.version
+			}
+			debugConflict("property", key.objID, key.name, version, lv)
 			return types.E_INVARG
 		}
 	}
@@ -2338,6 +2358,7 @@ func (tx *StoreTxn) validatePropertyReadsLocked() types.ErrorCode {
 			return types.E_INVIND
 		}
 		if live.propertyVersion != version {
+			debugConflict("property-scan", objID, "", version, live.propertyVersion)
 			return types.E_INVARG
 		}
 	}
@@ -2355,6 +2376,11 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 		}
 		verb := live.verbs[key.name]
 		if verb == nil || verb.version != version {
+			lv := uint64(0)
+			if verb != nil {
+				lv = verb.version
+			}
+			debugConflict("verb", key.objID, key.name, version, lv)
 			return types.E_INVARG
 		}
 	}
@@ -2367,6 +2393,7 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 			return types.E_INVIND
 		}
 		if live.verbVersion != version {
+			debugConflict("verb-scan", objID, "", version, live.verbVersion)
 			return types.E_INVARG
 		}
 	}
@@ -2411,7 +2438,7 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string) {
 	verb.code = append([]string(nil), lines...)
 	verb.hasProgram = true
-	lazySet(&tx.verbWrites, verbWriteKey{objID: objID, name: verb.name}, verbWrite{
+	lazySet(&tx.verbWrites, verbWriteKey{objID: objID, name: verb.mapKey()}, verbWrite{
 		code: append([]string(nil), lines...),
 	})
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -254,6 +255,15 @@ retryAttempt:
 				s.discardCreatedForks(t)
 				builtins.DiscardPendingEffects(ctx)
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
+				if os.Getenv("BARN_DEBUG_RETRY") != "" {
+					slog.Warn("DEBUG-RETRY",
+						slog.Int64("task_id", t.ID),
+						slog.String("verb", t.VerbName),
+						slog.Int64("this", int64(t.This)),
+						slog.Int64("player", int64(t.Owner)),
+						slog.Int("attempt", attempt),
+						slog.String("error", types.NewErr(errCode).String()))
+				}
 				attempt++
 				goto retryAttempt
 			}

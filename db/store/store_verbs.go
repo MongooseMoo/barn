@@ -358,7 +358,7 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	verbCopy := verb
 	verbPtr := &verbCopy
 	stampVerb(verbPtr, ts)
-	obj.verbs[verbPtr.name] = verbPtr
+	obj.verbs[verbPtr.mapKey()] = verbPtr
 	obj.verbList = append(obj.verbList, verbPtr)
 	stampObjectVerbs(obj, ts)
 	return len(obj.verbList), types.E_NONE
@@ -409,7 +409,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 	for _, key := range keysToRefresh {
 		for i := len(obj.verbList) - 1; i >= 0; i-- {
 			candidate := obj.verbList[i]
-			if candidate.name == key {
+			if candidate.mapKey() == key {
 				obj.verbs[key] = candidate
 				break
 			}
@@ -443,7 +443,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 		return types.E_VERBNF
 	}
 	ts := s.bumpClockLocked()
-	oldName := verb.name
+	oldKey := verb.mapKey()
 	verb.owner = owner
 	verb.perms = perms
 	verb.names = append([]string(nil), names...)
@@ -452,11 +452,11 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	}
 	stampVerb(verb, ts)
 
-	if oldName != verb.name {
-		if current, ok := obj.verbs[oldName]; ok && current == verb {
-			delete(obj.verbs, oldName)
+	if newKey := verb.mapKey(); oldKey != newKey {
+		if current, ok := obj.verbs[oldKey]; ok && current == verb {
+			delete(obj.verbs, oldKey)
 		}
-		obj.verbs[verb.name] = verb
+		obj.verbs[newKey] = verb
 	}
 	stampObjectVerbs(obj, ts)
 	return types.E_NONE
