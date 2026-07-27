@@ -130,6 +130,15 @@ func runRealCommandLine(s *Scheduler, st *dbstore.Store, player types.ObjID, lin
 	}
 	match := command.FindVerb(st, player, loc, cmd)
 	if match == nil {
+		// Mirror production (input_processor.go:654): no match falls through to
+		// the huh verb. Several mongoose player classes (e.g. parent #410) have
+		// no `home` verb — that is legitimate dispatch, not a failure.
+		if huh := command.FindHuhVerb(st, player, loc, false); huh != nil {
+			if err := s.ExecuteVerbTaskSync(player, huh, cmd, ""); err != nil {
+				return false, "huh-exec:" + err.Error()
+			}
+			return true, ""
+		}
 		return false, "no-verb-match"
 	}
 	if err := s.ExecuteVerbTaskSync(player, match, cmd, ""); err != nil {
@@ -159,6 +168,17 @@ func TestMongooseRealWorkload(t *testing.T) {
 	}
 	store := database.NewStoreFromDatabase()
 	t.Logf("loaded %s in %s", dbPath, time.Since(loadStart))
+
+	// Mirror server boot (server.go LoadServerOptions/LoadProtectedBuiltins):
+	// mongoose protects valid/create/match/... and overrides them with
+	// #0-reachable bf_* wrappers. Skipping this ran the raw builtins and
+	// manufactured E_TYPE storms production Barn never produces.
+	builtins.LoadServerOptionsFromStore(store)
+	builtins.LoadProtectedBuiltinsFromStore(store)
+	t.Cleanup(func() {
+		builtins.LoadServerOptionsFromStore(nil)
+		builtins.LoadProtectedBuiltinsFromStore(nil)
+	})
 
 	// Pick real player objects with a valid location.
 	var candidates []types.ObjID
