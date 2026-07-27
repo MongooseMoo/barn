@@ -225,7 +225,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		ThisValue:       frameThisValue,
 		Player:          player,
 		Programmer:      verb.Owner,
-		Caller:          player, // For server hooks, caller is the player
+		Caller:          types.ObjNothing, // Toast: server-initiated hooks run with caller = #-1
 		Verb:            verbName,
 		VerbLoc:         defObjID,
 		Args:            args,
@@ -241,11 +241,13 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	configureVMStackLimit(bcVM)
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
-	frame := bcVM.PrepareVerbFrame(prog, objID, player, player, verbName, defObjID, args)
+	// Toast sets caller = #-1 in server-initiated hook calls (do_command etc.);
+	// conformance parser::do_command_sees_command_verb_and_argstr pins this.
+	frame := bcVM.PrepareVerbFrame(prog, objID, player, types.ObjNothing, verbName, defObjID, args)
 	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
 	vm.SetLocalByName(frame, prog, "this", thisVal)
 	vm.SetLocalByName(frame, prog, "player", types.NewObj(player))
-	vm.SetLocalByName(frame, prog, "caller", types.NewObj(player))
+	vm.SetLocalByName(frame, prog, "caller", types.NewObj(types.ObjNothing))
 	vm.SetLocalByName(frame, prog, "verb", types.NewStr(verbName))
 	vm.SetLocalByName(frame, prog, "args", types.NewList(args))
 	vm.SetLocalByName(frame, prog, "argstr", types.NewStr(argstr))
