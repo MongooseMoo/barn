@@ -104,7 +104,7 @@ func (b *ObjectBuilder) SetVerbCodeByIndex(index int, code []string) bool {
 // SetProperty stores a property slot under the given name (overwriting any
 // existing slot of that name). The loader uses placeholder names during the
 // first pass and rewrites them once inherited names are resolved. The map is
-// keyed canonically (lowercase); the display case lives in Property.name.
+// keyed canonically (lowercase); display case lives only in propOrder.
 func (b *ObjectBuilder) SetProperty(name string, p Property) {
 	b.obj.properties[propertyNameKey(name)] = p
 }
@@ -121,9 +121,8 @@ func (b *ObjectBuilder) Property(name string) (PropertyView, bool) {
 // ResetProperties replaces the entire property map and property order. Used by
 // the loader's inherited-name resolution pass, which rebuilds both together.
 // Incoming maps are display-keyed; this is the canonicalization boundary. The
-// builder takes ownership of the map and canonicalizes it IN PLACE (stamping
-// each Property's display name and re-keying non-lowercase entries), so the
-// common all-lowercase load stays zero-alloc.
+// builder takes ownership of the map and canonicalizes it IN PLACE (re-keying
+// non-lowercase entries), so the common all-lowercase load stays zero-alloc.
 func (b *ObjectBuilder) ResetProperties(props map[string]Property, order []string) {
 	var rekey []string
 	for name := range props {
