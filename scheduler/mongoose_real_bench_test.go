@@ -19,6 +19,7 @@ package scheduler
 //   BARN_MONGOOSE_PLAYERS     comma list of concurrency levels (default 1,4,16)
 //   BARN_MONGOOSE_WARMUP      warm-up window   (default 2s)
 //   BARN_MONGOOSE_MEASURE     measure window   (default 8s)
+//   BARN_MONGOOSE_PROMOTE     "0" disables PROMOTE_NUMBERS (default ON, as deployed)
 //   BARN_MONGOOSE_CPUPROFILE  write CPU profile of the measure windows
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
 
@@ -214,7 +215,13 @@ func TestMongooseRealWorkload(t *testing.T) {
 		defer pprof.StopCPUProfile()
 	}
 
-	s := newSchedulerWithWorkerCount(store, config.Options{}, runtime.GOMAXPROCS(0))
+	// The Mongoose deployment runs `barn --promote-numbers` (the mongoose
+	// toaststunt fork's PROMOTE_NUMBERS mode; see plans/barn-toast-mongoose-
+	// convergence-workstreams.md line 42 and notes-mongoose-promote-and-login.md).
+	// Strict arithmetic manufactures per-look E_TYPE storms this database's code
+	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
+	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
+	s := newSchedulerWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
 	defer s.Stop()
 
 	totalWeight := 0

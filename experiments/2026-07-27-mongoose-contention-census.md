@@ -53,14 +53,33 @@ through three reversals:
    raw builtins and manufactured an E_TYPE storm production Barn does not
    produce. Harness now mirrors server boot.
 
-After the fix, `#2700:title` errors vanish. Remaining uncaught errors are
-**genuine mongoose db bugs** (E_TYPE: `#10104:hour_of_day` line 3 —
-`day_length_hours` is INT 24 multiplied by 3600.0; `#9501:
-cluster_by_proximity` line 21 — same mixed-arithmetic class; both recently
-authored in-db). Toast-identical by pinned facts: conformance pins mixed
-INT/FLOAT arithmetic as E_TYPE and MOO operators have no override
-mechanism. ~1.3 uncaught errors **per look** feed the #24 handler on the
-live server too.
+After the fix, `#2700:title` errors vanish. The remaining E_TYPE errors
+(`#10104:hour_of_day`, `#9501:cluster_by_proximity` — mixed INT/FLOAT
+arithmetic) were initially misdiagnosed here as "genuine mongoose db bugs."
+
+**CORRECTION (2026-07-28):** they are nothing of the kind. The Mongoose
+deployment runs the mongoose toaststunt fork's **PROMOTE_NUMBERS** mode
+(automatic numeric promotion; second pinned oracle
+`/root/src/toaststunt-mongoose/build-release/moo`, commit 72e3c7f9 — see
+plans/barn-toast-mongoose-convergence-workstreams.md and
+notes-mongoose-promote-and-login.md, which verified this on three engines
+on 2026-06-22 and named `cluster_by_proximity` specifically). That db code
+is intentional promote-mode code. Barn already implements the mode
+(vm/op_arith.go, `--promote-numbers`, default off for stock conformance);
+the harness was running strict — a third fidelity gap, now fixed
+(BARN_MONGOOSE_PROMOTE, default on).
+
+Fully-faithful 16p/15s baseline (protect + huh + promote, gate k=63):
+goodput 82/s, p50 11.2ms, p99 3361ms, abort 67.3%. #24 writes drop
+3,060 → 989 per run. The residual uncaught errors are **E_INVARG, not
+E_TYPE**, and are the next Rule Zero targets against the *mongoose*
+oracle (per-run counts): `say` → `#3882::execute` line 10 (450); `@who` →
+`#55:map_builtin` line 12 — `call_function` of some builtin (104); `look`
+→ `#2700:process_players` line 21 (62); `home` → `#20:regexp_quote` line 5
+— `rmatch` on the legacy `[][$^.*+?%]` class idiom, a likely Barn
+regex-translation divergence (10). Stock-mode conformance arithmetic pins
+(E_TYPE) remain correct for stock mode; promote mode is a separate lane
+with its own oracle.
 
 ## 4. Bounded escalation commit gate
 
@@ -100,10 +119,11 @@ tail latency ever outranks ~13% throughput.
   abort ~68%. The abort rate is now driven by *genuine* Mongoose write
   patterns (global error log fed by genuine in-db bugs; @who alias cache;
   @paranoid stores), not Barn bookkeeping.
-- Biggest remaining lever is not MVCC machinery — it is that **mongoose.db
-  errors ~1.3×/look in recently-authored verbs** (`hour_of_day`,
-  `cluster_by_proximity`), and every error is a global serialized write.
-  Fixing two in-db verbs would cut the #1 conflict source at the origin.
+- ~~Biggest remaining lever: fix two in-db verbs~~ **WRONG — retracted
+  2026-07-28** (see PROMOTE_NUMBERS correction above). The lever is running
+  the Mongoose workload in promote mode, as the deployment does; done. The
+  remaining error traffic is four E_INVARG classes that are suspected
+  *Barn* divergences to chase via the mongoose oracle.
 - Barn-side levers, profile-ranked, still open: GC/alloc wall (~31% CPU),
   verb-dispatch ToLower/matchVerbName (~25%), regexp cache for match(),
   CompileMOO sourceKey rehash, callstack snapshot allocs.
