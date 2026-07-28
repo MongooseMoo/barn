@@ -210,7 +210,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Va
 		return
 	}
 
-	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
 		return
 	}

@@ -66,7 +66,7 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
 		return types.Result{}, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
@@ -127,7 +127,7 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
 		return 0, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}

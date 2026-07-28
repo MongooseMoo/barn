@@ -8,6 +8,7 @@ import (
 
 	"barn/bytecode"
 	"barn/parser"
+	"barn/sourcekey"
 	"barn/verb"
 )
 
@@ -35,8 +36,24 @@ func (d Diagnostic) Error() string {
 }
 
 // CompileMOO parses, lowers, source-attaches, and caches one MOO verb body.
+// It hashes the full source to find the cache entry; callers on the verb-call
+// hot path should hold a precomputed key and use CompileMOOWithKey instead.
 func CompileMOO(sourceLines []string, registry bytecode.Registry) (*bytecode.Program, []Diagnostic) {
-	key := sourceKey(sourceLines)
+	return CompileMOOWithKey(sourceLines, sourcekey.Of(sourceLines), registry)
+}
+
+// CompileMOOWithKey is CompileMOO for callers that already hold the content key
+// of these exact source lines (db/store carries one on every verb, refreshed by
+// every code write). An unset key is computed here, so callers with source that
+// has no stored key — eval strings, sources built from MOO values — may pass the
+// zero Key.
+//
+// The key MUST be the key of sourceLines: it is the sole cache identity, so a
+// key that describes different source serves that other source's program.
+func CompileMOOWithKey(sourceLines []string, key sourcekey.Key, registry bytecode.Registry) (*bytecode.Program, []Diagnostic) {
+	if !key.IsSet() {
+		key = sourcekey.Of(sourceLines)
+	}
 	if program, ok := mooProgramCache.get(key); ok {
 		return program, nil
 	}

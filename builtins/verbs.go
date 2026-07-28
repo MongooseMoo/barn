@@ -930,7 +930,7 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	registry, _ := ctx.Registry.(*Registry)
-	program, diagnostics := compiler.CompileMOO(verb.Code, registry)
+	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, registry)
 	if len(diagnostics) > 0 {
 		return types.Err(types.E_INVARG)
 	}

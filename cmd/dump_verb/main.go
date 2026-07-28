@@ -69,7 +69,7 @@ func main() {
 	}
 
 	if os.Getenv("DISASM") == "1" {
-		prog, diagnostics := compiler.CompileMOO(view.Code, builtins.NewRegistry())
+		prog, diagnostics := compiler.CompileMOOWithKey(view.Code, view.CodeKey, builtins.NewRegistry())
 		if len(diagnostics) > 0 {
 			fmt.Printf("\n[disasm] compile error: %s\n", diagnostics[0].Error())
 			return

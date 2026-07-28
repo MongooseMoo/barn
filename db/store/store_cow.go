@@ -256,8 +256,7 @@ func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) 
 	// Build the replacement node once; substitute it for `target` everywhere the
 	// old object aliased that pointer (the map key plus its slot in verbList).
 	updated := *target
-	updated.code = append([]string(nil), code...)
-	updated.hasProgram = true
+	updated.setCodeCopy(code)
 	updated.version = ts
 
 	newVerbs := make(map[string]*Verb, len(old.verbs))

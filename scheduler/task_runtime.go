@@ -753,7 +753,7 @@ func (s *Scheduler) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) t
 
 // ExecuteVerbTaskSync creates and immediately runs a command verb task on the scheduler goroutine.
 func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
-	program, diagnostics := compiler.CompileMOO(match.Verb.Code, s.registry)
+	program, diagnostics := compiler.CompileMOOWithKey(match.Verb.Code, match.Verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("Verb compile error: %s", diagnostics[0].Error())
 	}
