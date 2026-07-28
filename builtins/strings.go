@@ -886,7 +886,29 @@ func buildMatchResult(subject string, loc []int) types.Value {
 func mooPatternToGoRegex(pattern string) (string, error) {
 	var result strings.Builder
 	i := 0
+	inClass := false     // inside [...] — MOO gives '%' no special meaning there
+	classStart := -1     // index of the first member position (after '[' or '[^')
 	for i < len(pattern) {
+		if inClass {
+			c := pattern[i]
+			switch {
+			case c == ']' && i == classStart:
+				// ']' immediately after '[' or '[^' is a literal member.
+				result.WriteString("\\]")
+			case c == ']':
+				inClass = false
+				result.WriteByte(']')
+			case c == '\\':
+				// Literal backslash member; Go would read it as an escape.
+				result.WriteString("\\\\")
+			default:
+				// Everything else — including '%' — is a literal or has
+				// identical class semantics ('^' '-') in MOO and Go.
+				result.WriteByte(c)
+			}
+			i++
+			continue
+		}
 		if pattern[i] == '%' && i+1 < len(pattern) {
 			// MOO regex (ToastStunt's Spencer "rx") uses '%' as the escape
 			// character. Only a small set of '% + char' sequences are special;
@@ -928,6 +950,13 @@ func mooPatternToGoRegex(pattern string) (string, error) {
 			// ^ $ [ ] are passed through (anchors and character classes)
 			// . + * ? also pass through (they work the same in MOO and Go)
 			c := pattern[i]
+			if c == '[' {
+				inClass = true
+				classStart = i + 1
+				if i+1 < len(pattern) && pattern[i+1] == '^' {
+					classStart = i + 2
+				}
+			}
 			if strings.ContainsRune("{}()|\\", rune(c)) {
 				result.WriteByte('\\')
 			}
