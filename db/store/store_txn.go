@@ -67,6 +67,15 @@ type StoreTxn struct {
 	// registration is removed exactly once whether by the scheduler's explicit
 	// Release or the runtime-finalizer backstop. See store_history_gc.go.
 	released atomic.Bool
+
+	// Ancestry-walk scratch and the per-transaction verb/property resolution
+	// memo. All of it is single-goroutine state, like every other field here.
+	// See store_resolve_cache.go for the correctness argument.
+	verbWalk    verbScratch
+	propWalk    propScratch
+	parentWalk  plainScratch
+	verbResolve map[verbResolveKey]verbResolveEntry
+	propResolve map[propResolveKey]propResolveEntry
 }
 
 // lazySet inserts into a possibly-nil map, allocating it on first insert. The
@@ -88,6 +97,9 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 func (tx *StoreTxn) MarkLiveMutated() {
 	if tx != nil {
 		tx.liveMutated = true
+		// The task mutated the store outside this txn; anything memoized from
+		// the pre-mutation view must not be replayed.
+		tx.invalidateResolveCaches()
 	}
 }
 
@@ -289,6 +301,11 @@ func (tx *StoreTxn) mutableObject(objID types.ObjID) *Object {
 // private copy (the current cached alias, or the live image when nothing is
 // cached yet).
 func (tx *StoreTxn) privatizeCached(objID types.ObjID, base *Object) *Object {
+	// The txn's binding for objID changes and becomes in-place mutable; every
+	// memoized resolution that walked it is now unsafe to replay. (This also
+	// permanently disables the memo, since `owned` never shrinks — see
+	// resolveCacheActive.)
+	tx.invalidateResolveCaches()
 	clone := cloneObjectForReadTxn(base)
 	tx.objects[objID] = clone
 	if tx.owned == nil {
@@ -341,6 +358,8 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 	if tx == nil {
 		return types.E_NONE
 	}
+	// Replaces the txn's binding for objID without marking it owned.
+	tx.invalidateResolveCaches()
 	if tx.store == nil {
 		tx.objects[objID] = nil
 		return types.E_INVIND
@@ -371,6 +390,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 	if tx == nil {
 		return types.E_NONE
 	}
+	tx.invalidateResolveCaches()
 	// obj.verbList/obj.verbs are rebuilt in place below, so obj must be a txn-private
 	// copy. mutableObject is called BEFORE the store.mu.RLock, so its own RLock does
 	// not nest.
@@ -438,6 +458,7 @@ func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCod
 	if tx == nil {
 		return types.E_NONE
 	}
+	tx.invalidateResolveCaches()
 	if tx.store == nil {
 		return types.E_INVARG
 	}
@@ -629,6 +650,8 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 	if tx == nil {
 		return
 	}
+	// Rebinds tx.objects[objID] and drops read marks without marking it owned.
+	tx.invalidateResolveCaches()
 	tx.objects[objID] = nil
 	delete(tx.scalarReads, objID)
 	delete(tx.scalarWrites, objID)
@@ -677,6 +700,7 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 	if tx == nil || oldID == newID {
 		return
 	}
+	tx.invalidateResolveCaches()
 	for key, prop := range tx.propertyDefines {
 		if key.objID != oldID {
 			continue
@@ -715,6 +739,7 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 	if tx == nil {
 		return
 	}
+	tx.invalidateResolveCaches()
 	obj := tx.objects[objID]
 	if !validLiveObject(obj) {
 		return
@@ -1324,26 +1349,62 @@ func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, 
 }
 
 func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode) {
+	cacheable := tx.resolveCacheActive()
+	key := propResolveKey{objID: objID, name: name}
+	if cacheable {
+		if entry, ok := tx.propResolve[key]; ok && tx.propStepsCurrent(entry.steps) {
+			tx.replayPropSteps(entry.steps)
+			return entry.prop, entry.name, entry.ec
+		}
+	}
+
+	prop, actualName, ec, steps := tx.walkProperty(objID, name)
+	if cacheable {
+		tx.storePropResolve(key, steps, prop, actualName, ec)
+	}
+	return prop, actualName, ec
+}
+
+// walkProperty is the ancestry BFS behind findProperty. It returns the
+// resolution plus the ordered record of every object it visited (which the memo
+// stores so a later hit can reproduce the identical read set). The scratch it
+// walks on is reused across calls; a (currently impossible) reentrant call
+// falls back to a private scratch rather than corrupting the outer walk.
+func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, string, types.ErrorCode, []propWalkStep) {
+	sc := &tx.propWalk
+	if sc.inUse {
+		sc = &propScratch{}
+	}
+	sc.inUse = true
+	sc.visited.reset()
+	sc.steps = sc.steps[:0]
+	queue := append(sc.queue[:0], objID)
+
 	var targetProp Property
 	var targetName string
 	haveTarget := false
-	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
 
-	for len(queue) > 0 {
-		currentID := queue[0]
-		queue = queue[1:]
-		if visited[currentID] {
+	resultProp := Property{}
+	resultName := ""
+	resultErr := types.E_PROPNF
+
+	for head := 0; head < len(queue); head++ {
+		currentID := queue[head]
+		if !sc.visited.add(currentID) {
 			continue
 		}
-		visited[currentID] = true
 
 		current := tx.object(currentID)
 		if !validLiveObject(current) {
+			sc.steps = append(sc.steps, propWalkStep{id: currentID, obj: current})
 			continue
 		}
 
 		if actualName, prop, ok := propertyByName(current.properties, name); ok {
+			sc.steps = append(sc.steps, propWalkStep{
+				id: currentID, obj: current, valid: true,
+				found: true, actualName: actualName, prop: prop,
+			})
 			tx.markPropertyRead(currentID, actualName, prop)
 			firstFound := !haveTarget
 			if !haveTarget {
@@ -1356,17 +1417,22 @@ func (tx *StoreTxn) findProperty(objID types.ObjID, name string) (Property, stri
 					result := targetProp
 					result.value = prop.value
 					result.clear = false
-					return result, targetName, types.E_NONE
+					resultProp, resultName, resultErr = result, targetName, types.E_NONE
+				} else {
+					resultProp, resultName, resultErr = prop, actualName, types.E_NONE
 				}
-				return prop, actualName, types.E_NONE
+				break
 			}
 		} else {
+			sc.steps = append(sc.steps, propWalkStep{id: currentID, obj: current, valid: true})
 			tx.markPropertyScan(currentID, current)
 		}
 		queue = append(queue, current.parents...)
 	}
 
-	return Property{}, "", types.E_PROPNF
+	sc.queue = queue[:0]
+	sc.inUse = false
+	return resultProp, resultName, resultErr, sc.steps
 }
 
 func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
@@ -1994,6 +2060,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx.store == nil {
 		return types.E_INVARG
 	}
+	// Belt and braces: staged writes already disabled the memo (they privatize),
+	// but publishing them changes the world the memo described.
+	tx.invalidateResolveCaches()
 	// Ordinary commits hold the escalation gate shared for the whole
 	// validate+apply window; an escalated attempt's txn (gateExempt) skips it
 	// because its scheduler already holds the gate exclusively. Outermost by
@@ -2280,6 +2349,11 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	if tx == nil || !tx.HasWrites() {
 		return types.E_NONE
 	}
+	// This method republishes staged writes, drops the read set, re-clones every
+	// cached object from CURRENT live, and resets tx.owned — i.e. it rebuilds the
+	// txn's whole view and re-enables the resolution memo. Everything memoized
+	// against the pre-flush view must go.
+	tx.invalidateResolveCaches()
 	tx.store.mu.Lock()
 	ec := tx.applyStagedToLiveLocked()
 	tx.store.mu.Unlock()
@@ -2506,48 +2580,97 @@ func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbVi
 }
 
 func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
-	visited := make(map[types.ObjID]bool)
-	queue := []types.ObjID{objID}
-	searchLower := strings.ToLower(verbName)
+	cacheable := tx.resolveCacheActive()
+	key := verbResolveKey{objID: objID, name: verbName, requireExecute: requireExecute}
+	if cacheable {
+		if entry, ok := tx.verbResolve[key]; ok && tx.verbStepsCurrent(entry.steps) {
+			tx.replayVerbSteps(entry.steps)
+			if entry.verb == nil {
+				return nil, types.ObjNothing, entry.err
+			}
+			// The read mark on the resolved verb is part of the read set the
+			// original walk produced and must be re-registered on every hit.
+			tx.markVerbRead(entry.definer, entry.verb)
+			return entry.verb, entry.definer, nil
+		}
+	}
 
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if visited[current] {
+	verb, definer, steps := tx.walkVerb(objID, verbName, requireExecute)
+	var err error
+	if verb == nil {
+		definer = types.ObjNothing
+		err = fmt.Errorf("verb not found: %s", verbName)
+	}
+	if cacheable {
+		tx.storeVerbResolve(key, steps, verb, definer, err)
+	}
+	return verb, definer, err
+}
+
+// walkVerb is the ancestry BFS behind findVerb. It returns the resolved verb
+// (nil when not found), its definer, and the ordered record of every object it
+// visited, which the memo stores so a hit reproduces the identical read set.
+func (tx *StoreTxn) walkVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, []verbWalkStep) {
+	sc := &tx.verbWalk
+	if sc.inUse {
+		sc = &verbScratch{}
+	}
+	sc.inUse = true
+	sc.visited.reset()
+	sc.steps = sc.steps[:0]
+	queue := append(sc.queue[:0], objID)
+
+	searchLower := strings.ToLower(verbName)
+	hasWildcard := strings.Contains(verbName, "*")
+
+	var found *Verb
+	definer := types.ObjNothing
+
+walk:
+	for head := 0; head < len(queue); head++ {
+		current := queue[head]
+		if !sc.visited.add(current) {
 			continue
 		}
-		visited[current] = true
 
 		obj := tx.object(current)
 		if obj == nil || obj.recycled {
+			sc.steps = append(sc.steps, verbWalkStep{id: current, obj: obj})
 			continue
 		}
+		sc.steps = append(sc.steps, verbWalkStep{id: current, obj: obj, scanned: true})
 		tx.markVerbScan(current, obj)
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.lowerNames {
 				if matchVerbNameLowered(alias, searchLower) {
 					if !requireExecute || verb.perms.Has(VerbExecute) {
-						tx.markVerbRead(current, verb)
-						return verb, current, nil
+						found, definer = verb, current
+						break walk
 					}
 				}
 			}
 		}
-		if !strings.Contains(verbName, "*") {
+		if !hasWildcard {
 			if verb, ok := obj.verbs[verbName]; ok && (!requireExecute || verb.perms.Has(VerbExecute)) {
-				tx.markVerbRead(current, verb)
-				return verb, current, nil
+				found, definer = verb, current
+				break walk
 			}
 			if !requireExecute {
 				if verb, ok := obj.verbs[":"+verbName]; ok {
-					tx.markVerbRead(current, verb)
-					return verb, current, nil
+					found, definer = verb, current
+					break walk
 				}
 			}
 		}
 		queue = append(queue, obj.parents...)
 	}
-	return nil, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
+
+	sc.queue = queue[:0]
+	sc.inUse = false
+	if found != nil {
+		tx.markVerbRead(definer, found)
+	}
+	return found, definer, sc.steps
 }
 
 func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
@@ -2620,15 +2743,24 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 		return VerbView{}, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)
 	}
 
-	visited := make(map[types.ObjID]bool)
-	queue := append([]types.ObjID(nil), verbLocObj.parents...)
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		if visited[current] {
+	// Reusable walk scratch (see store_resolve_cache.go): pass() dispatch is hot
+	// enough that the per-call queue slice and visited map were pure waste.
+	sc := &tx.parentWalk
+	if sc.inUse {
+		sc = &plainScratch{}
+	}
+	sc.inUse = true
+	sc.visited.reset()
+	queue := append(sc.queue[:0], verbLocObj.parents...)
+
+	var found *Verb
+	definer := types.ObjNothing
+walk:
+	for head := 0; head < len(queue); head++ {
+		current := queue[head]
+		if !sc.visited.add(current) {
 			continue
 		}
-		visited[current] = true
 
 		obj := tx.object(current)
 		if !validLiveObject(obj) {
@@ -2639,18 +2771,25 @@ func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbVi
 		// permission so it never shadows an executable verb further up the chain,
 		// matching Store.FindParentVerb's callable walk.
 		if verb, ok := obj.verbs[verbName]; ok && verb.perms.Has(VerbExecute) {
-			tx.markVerbRead(current, verb)
-			return verb.View(), current, nil
+			found, definer = verb, current
+			break walk
 		}
 		for _, verb := range obj.verbList {
 			for _, alias := range verb.names {
 				if alias == verbName && verb.perms.Has(VerbExecute) {
-					tx.markVerbRead(current, verb)
-					return verb.View(), current, nil
+					found, definer = verb, current
+					break walk
 				}
 			}
 		}
 		queue = append(queue, obj.parents...)
+	}
+	sc.queue = queue[:0]
+	sc.inUse = false
+
+	if found != nil {
+		tx.markVerbRead(definer, found)
+		return found.View(), definer, nil
 	}
 	return VerbView{}, types.ObjNothing, fmt.Errorf("verb not found: %s", verbName)
 }
