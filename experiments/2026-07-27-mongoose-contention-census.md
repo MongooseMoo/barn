@@ -128,9 +128,39 @@ tail latency ever outranks ~13% throughput.
   verb-dispatch ToLower/matchVerbName (~25%), regexp cache for match(),
   CompileMOO sourceKey rehash, callstack snapshot allocs.
 
+## 2026-07-28 follow-up: the four E_INVARG classes, resolved
+
+| class | symptom | verdict | evidence |
+|-------|---------|---------|----------|
+| regex | `home`/`@who` chains: `rmatch(s, "[][$^.*+?%].*")` → E_INVARG | **Barn bug — fixed** (a91809f; conformance 8fcd84b) | Toast `{6,11,...}`, Barn E_INVARG; translator had no class state (`[%]` → unterminated Go class) |
+| idle render | `look` → `#2700:process_players:21` `idle_seconds()` | **harness artifact — fixed** | stub ConnManager returned nil connections → E_INVARG (network.go:1150); benchConnection now models idle/connected times |
+| @who cohort | `#410:@who:11` → `map_builtin` → E_PROPNF | **genuine db state** | protected `call_function` → `#1584:bf_call_function` → `bf_idle_seconds` reads `.cloaked` on wizard targets; wizard #36 lacks it; Toast: `#36.cloaked` → `*Aborted*` (quoted) |
+| sqlite | `say` → `#2585:length:7` → "This database is not open" | **genuine db state** | `#2585.sql` is waif index 4035 in the dump; `$sql_utils.databases` = 6277–6279 (lambdamoo-db-py) — the registry was rebuilt and the sound handler kept an orphan. Any server booted from this snapshot errors on `say` until re-registered |
+
+Harness fidelity added along the way: prod-mode listener shape (so
+`$prod()` = 1 and `#0:server_started` activates services), `#0:server_started`
+boot invocation, repo-root cwd (fileio/sqlite sandbox is cwd-relative), and
+real-enough per-player connections. An earlier oracle identity probe ran on
+`mongoose_fresh2.db` — wrong fixture (it still had the waifs shared); the
+exact-fixture dump analysis is the decisive evidence, with the slow
+exact-fixture oracle boot pending as belt-and-suspenders.
+
+Fully-faithful 16p/15s baseline after all of it: goodput 77/s, p50 9.9ms,
+p99 5530ms, abort 62.7%, zero command failures. The remaining uncaught-error
+traffic (~500/run feeding `#24`) is the snapshot's own two genuine error
+classes, which the production deployment presumably also pays after any
+restart from this state.
+
+**Actionable for Mongoose (db-side, not Barn):** re-register the sound
+handler's SQLite waif (`#2585.sql`) with `$sql_utils`, and give wizard #36 a
+`.cloaked` property. Both would cut most of the remaining `#24` global-log
+contention at its origin.
+
 ## Kept observability (env `BARN_DEBUG_RETRY=1`)
 
 - DEBUG-RETRY (retry loop), DEBUG-CONFLICT (validator mismatch detail) —
   from the previous arc.
 - DEBUG-PROPWRITE (committed property-write keys, Commit success path).
-- DEBUG-UNCAUGHT (error + top frame at handle_uncaught_error invocation).
+- DEBUG-UNCAUGHT (error, message, top + caller frame at
+  handle_uncaught_error invocation; full traceback for E_PROPNF).
+- DEBUG-CALLFN (call_function name + error on exception results).

@@ -460,7 +460,25 @@ retryAttempt:
 					f := stack[len(stack)-1]
 					top = fmt.Sprintf("#%d:%s line %d", f.VerbLoc, f.Verb, f.LineNumber)
 				}
+				caller := ""
+				if len(stack) > 1 {
+					f := stack[len(stack)-2]
+					caller = fmt.Sprintf("#%d:%s line %d (this=%d)", f.VerbLoc, f.Verb, f.LineNumber, f.This)
+				}
+				msg := result.Error.Message()
+				if result.Val.Type() == types.TYPE_LIST && result.Val.Len() >= 3 {
+					if m := result.Val.Get(2); m.Type() == types.TYPE_STR {
+						msg = m.Str()
+					}
+				}
+				full := ""
+				if result.Error == types.E_PROPNF {
+					full = strings.Join(task.FormatTraceback(stack, result.Error), " || ")
+				}
 				slog.Warn("DEBUG-UNCAUGHT",
+					slog.String("msg", msg),
+					slog.String("full", full),
+					slog.String("caller_frame", caller),
 					slog.String("error", types.NewErr(result.Error).String()),
 					slog.String("task_verb", t.VerbName),
 					slog.String("top_frame", top),

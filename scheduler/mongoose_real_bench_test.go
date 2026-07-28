@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,21 +46,80 @@ import (
 
 // --- stub connection manager ------------------------------------------------
 
-type benchConnManager struct {
-	players []types.ObjID
+// benchConnection is a real-enough Connection for the simulated players:
+// output sinks to nowhere, but idle/connected times behave like production so
+// db code calling idle_seconds()/connected_seconds() (@who, room renders) gets
+// answers instead of E_INVARG (network.go resolveConnection nil → E_INVARG).
+type benchConnection struct {
+	connectedAt time.Time
+	lastActive  atomic.Int64 // unix seconds
 }
 
-func (m *benchConnManager) GetConnection(types.ObjID) builtins.Connection { return nil }
-func (m *benchConnManager) ConnectedPlayers(bool) []types.ObjID           { return m.players }
-func (m *benchConnManager) BootPlayer(types.ObjID) error                  { return fmt.Errorf("bench: no boot") }
-func (m *benchConnManager) RecyclePlayer(types.ObjID) error               { return nil }
+func (c *benchConnection) Send(string) error         { return nil }
+func (c *benchConnection) Buffer(string)             {}
+func (c *benchConnection) Flush() error              { return nil }
+func (c *benchConnection) RemoteAddr() string        { return "bench-harness" }
+func (c *benchConnection) GetOutputPrefix() string   { return "" }
+func (c *benchConnection) GetOutputSuffix() string   { return "" }
+func (c *benchConnection) BufferedOutputLength() int { return 0 }
+func (c *benchConnection) ConnectedSeconds() int64 {
+	return int64(time.Since(c.connectedAt).Seconds())
+}
+func (c *benchConnection) IdleSeconds() int64 {
+	idle := time.Now().Unix() - c.lastActive.Load()
+	if idle < 0 {
+		idle = 0
+	}
+	return idle
+}
+func (c *benchConnection) GetResolvedName() string { return "bench-harness" }
+func (c *benchConnection) ListenerPort() int64     { return 7777 }
+
+func (c *benchConnection) touch() { c.lastActive.Store(time.Now().Unix()) }
+
+type benchConnManager struct {
+	players []types.ObjID
+	conns   map[types.ObjID]*benchConnection
+}
+
+func newBenchConnManager(players []types.ObjID) *benchConnManager {
+	m := &benchConnManager{players: players, conns: make(map[types.ObjID]*benchConnection, len(players))}
+	now := time.Now()
+	for _, p := range players {
+		c := &benchConnection{connectedAt: now}
+		c.touch()
+		m.conns[p] = c
+	}
+	return m
+}
+
+func (m *benchConnManager) GetConnection(p types.ObjID) builtins.Connection {
+	if c, ok := m.conns[p]; ok {
+		return c
+	}
+	return nil
+}
+func (m *benchConnManager) ConnectedPlayers(bool) []types.ObjID { return m.players }
+func (m *benchConnManager) BootPlayer(types.ObjID) error        { return fmt.Errorf("bench: no boot") }
+func (m *benchConnManager) RecyclePlayer(types.ObjID) error     { return nil }
 func (m *benchConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
 	return nil
 }
-func (m *benchConnManager) GetListenPort() int                     { return 7777 }
-func (m *benchConnManager) ListenerInfos() []builtins.ListenerInfo { return nil }
-func (m *benchConnManager) AddListener(builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
-	return builtins.ListenerDescriptor{}, fmt.Errorf("bench: no listeners")
+func (m *benchConnManager) GetListenPort() int { return 7777 }
+
+// ListenerInfos reports #0 listening on $network.port (7777) so mongoose's
+// $prod() — "#0 in slice(listeners($network.port), \"object\")" — sees the
+// prod deployment shape and #0:server_started activates $sql_utils (which
+// opens the SQLite handles `say` depends on).
+func (m *benchConnManager) ListenerInfos() []builtins.ListenerInfo {
+	return []builtins.ListenerInfo{{Object: 0, Port: 7777, PrintMessages: true}}
+}
+
+// AddListener accepts silently: server_started's prod branch calls
+// listen(#0, $network.alternate_port) OUTSIDE any try — an error here would
+// kill the whole boot verb before services start.
+func (m *benchConnManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
+	return builtins.ListenerDescriptor{Port: spec.Port}, nil
 }
 func (m *benchConnManager) RemoveListener(builtins.ListenerDescriptor) error { return nil }
 func (m *benchConnManager) OpenNetworkConnection(string, int64) (types.ObjID, error) {
@@ -222,6 +282,33 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
 	s := newSchedulerWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
+
+	// Mirror server boot's #0:server_started (server.go callServerStarted) —
+	// it activates services including $sql_utils, which opens the SQLite
+	// handles ($sound_handler etc.). Without it, every `say` raises
+	// "This database is not open" through #3882::execute, an error the
+	// production server only sees in the restart window. The boot conn
+	// manager must be installed FIRST: $prod() checks listeners().
+	// SQLite/fileio confine paths to a CWD-relative files/ sandbox, so run
+	// from the repo root like the production server does.
+	if err := os.Chdir(".."); err != nil {
+		t.Fatalf("chdir to repo root: %v", err)
+	}
+	s.Registry().SetConnectionManager(newBenchConnManager(nil))
+	if store.HasLocalVerb(0, "server_started") {
+		if _, err := s.RunServerVerbTask(0, "server_started", nil, 0); err != nil {
+			t.Logf("#0:server_started failed: %v", err)
+		}
+		// Services start via fork(0); give them a moment to open their dbs.
+		time.Sleep(2 * time.Second)
+	}
+	// Known genuine errors from this snapshot, reproduced faithfully (see
+	// experiments/2026-07-27-mongoose-contention-census.md): `say` raises
+	// "This database is not open" (#2585.sql is a waif orphaned from the
+	// $sql_utils registry IN THE DUMP — waif indices 4035 vs 6277-6279), and
+	// #410-cohort @who raises E_PROPNF (wizard #36 lacks .cloaked; Toast
+	// raises identically). Both feed #0:handle_uncaught_error, exactly as on
+	// a production server booted from this snapshot.
 	defer s.Stop()
 
 	totalWeight := 0
@@ -234,7 +321,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 
 	for _, active := range levels {
 		players := candidates[:active]
-		cm := &benchConnManager{players: players}
+		cm := newBenchConnManager(players)
 		s.Registry().SetConnectionManager(cm)
 
 		type shapeStat struct {
@@ -279,6 +366,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 						// as an aggregate approximation.
 						c0 := sampleCommitCounters(store)
 						t0 := time.Now()
+						if conn := cm.conns[players[idx]]; conn != nil {
+							conn.touch() // typing a command resets idle, as in production
+						}
 						ok, failure := runRealCommandLine(s, store, players[idx], realShapes[sh].line)
 						lat := time.Since(t0)
 						cd := sampleCommitCounters(store).sub(c0)

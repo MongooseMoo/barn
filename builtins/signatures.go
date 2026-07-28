@@ -158,6 +158,10 @@ func builtinFunctionInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	return types.Ok(functionInfoEntry(name, signatureForFunction(name)))
 }
 
+// debugCallFunction gates temporary call_function failure logging (shares the
+// BARN_DEBUG_RETRY diagnosis env with the store/scheduler instrumentation).
+var debugCallFunction = os.Getenv("BARN_DEBUG_RETRY") != ""
+
 func builtinCallFunction(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	r, ok := ctx.Registry.(*Registry)
 	if !ok {
@@ -176,6 +180,11 @@ func builtinCallFunction(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_INVARG)
 	}
 	result := fn(ctx, args[1:])
+	if debugCallFunction && result.Flow == types.FlowException {
+		slog.Warn("DEBUG-CALLFN", slog.String("fn", name),
+			slog.String("error", types.NewErr(result.Error).String()),
+			slog.Int("nargs", len(args)-1))
+	}
 	if name == "max_object" && result.IsNormal() {
 		if result.Val.Type() == types.TYPE_INT {
 			return types.Ok(types.NewObj(types.ObjID(result.Val.Int())))
