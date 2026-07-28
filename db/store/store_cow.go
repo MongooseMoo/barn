@@ -67,7 +67,7 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 		np := w.prop
 		np.value = w.value
 		np.version = ts
-		newProps[w.name] = np
+		newProps[propertyNameKey(w.name)] = np
 	}
 
 	img.properties = newProps
@@ -182,13 +182,13 @@ func buildImageWithPropertyDefine(old *Object, def propertyDefine, ts uint64) *O
 		newProps[name] = p
 	}
 
-	// Mirror definePropertyLocked: stamp the defined property and add it under its
-	// original-case name.
+	// Mirror definePropertyLocked: stamp the defined property; the map key is
+	// canonical while def.name (display) goes into propOrder below.
 	prop := def.prop
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
-	newProps[def.name] = prop
+	newProps[propertyNameKey(def.name)] = prop
 
 	// Insert the new name into propOrder at the propDefsCount position (mirrors the
 	// coarse path's insertion order). Copy the slice so the old image's propOrder is
@@ -223,17 +223,17 @@ func buildImageWithPropertyDefinitionDelete(old *Object, actualName string, ts u
 	img := *old // shallow struct copy
 
 	newProps := make(map[string]Property, len(old.properties))
-	liveActual := actualName
 	for name, p := range old.properties {
 		newProps[name] = p
 	}
+	// propOrder holds the display name while the map key is canonical; remove
+	// the order entry case-insensitively.
 	if la, _, ok := propertyByName(newProps, actualName); ok {
-		liveActual = la
-		delete(newProps, liveActual)
+		delete(newProps, la)
 	}
 
 	img.properties = newProps
-	img.propOrder = removeString(old.propOrder, liveActual)
+	img.propOrder = removeStringFold(old.propOrder, actualName)
 	if old.propDefsCount > 0 {
 		img.propDefsCount = old.propDefsCount - 1
 	}

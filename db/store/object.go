@@ -103,6 +103,15 @@ type Property struct {
 	version uint64
 }
 
+// Object.properties is keyed by the CANONICAL lowercase name (propertyNameKey)
+// so case-insensitive lookup is a single map hit — the old fallback (an
+// EqualFold scan over the whole map on any case mismatch or absent name) was
+// 15% of total CPU on the real-mongoose workload. Display case is NOT stored
+// per Property (that would grow the most-cloned struct past its 48-byte
+// budget); it lives only in propOrder, which is sufficient because the dump
+// serializes names solely for locally-defined properties, and those are
+// exactly the leading propOrder entries.
+
 // PropertyView is a flat, read-only snapshot of a Property. It is a value (a
 // copy): field access is a plain load with no allocation and no locking, so it
 // is safe to read on the execution hot path.

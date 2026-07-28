@@ -316,10 +316,14 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 // case while preserving the load-time ordering.
 func snapshotPropertyNames(obj *Object) []string {
 	// Capacity: propOrder entries + any extra properties not in propOrder.
+	// propOrder holds display-case names; the properties map is keyed
+	// canonically (lowercase), so the seen-set tracks canonical keys and
+	// extras are emitted in their stored display case.
 	names := make([]string, 0, len(obj.propOrder)+len(obj.properties))
 	seen := make(map[string]bool, len(obj.propOrder)+len(obj.properties))
 	for _, name := range obj.propOrder {
-		if seen[name] {
+		key := propertyNameKey(name)
+		if seen[key] {
 			continue
 		}
 		// Include propOrder entries even when the backing property slot is absent
@@ -327,16 +331,20 @@ func snapshotPropertyNames(obj *Object) []string {
 		// those slots, which round-trips correctly. Skipping them here would shift
 		// all subsequent property values on reload and corrupt the database.
 		names = append(names, name)
-		seen[name] = true
+		seen[key] = true
 	}
 
 	// Append any property not represented in propOrder (e.g. runtime-inherited
 	// slots added by propagatePropertyToDescendantsLocked) so no propval is dropped.
+	// Extras are keyed canonically; the canonical form is fine here because
+	// these names are never serialized (only locally-defined names — the
+	// leading propOrder entries — are written to the dump; extras only
+	// position propvals, and the writer looks values up by canonical key).
 	var extra []string
-	for name := range obj.properties {
-		if !seen[name] {
-			extra = append(extra, name)
-			seen[name] = true
+	for key := range obj.properties {
+		if !seen[key] {
+			extra = append(extra, key)
+			seen[key] = true
 		}
 	}
 	sort.Strings(extra)

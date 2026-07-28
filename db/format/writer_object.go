@@ -226,9 +226,10 @@ func (w *Writer) writeProperties(obj *store.SnapshotObject) error {
 		return err
 	}
 
-	// Write all property values in parent-chain order
+	// Write all property values in parent-chain order. The name list carries
+	// display case (from propOrder); the snapshot map is keyed canonically.
 	for _, name := range propNames {
-		prop, ok := obj.Properties[name]
+		prop, ok := obj.Properties[store.PropertyNameKey(name)]
 		if !ok {
 			// Missing property - write as clear
 			if err := w.writeInt(TypeClear); err != nil {

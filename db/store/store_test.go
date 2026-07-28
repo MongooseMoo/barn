@@ -285,8 +285,14 @@ func TestPropertyNamesAreCaseInsensitiveForLookup(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("FindProperty() failed: %v", errCode)
 	}
-	if prop.Name != "CaseProbe" {
-		t.Fatalf("FindProperty() name = %q, want CaseProbe", prop.Name)
+	// The properties map is keyed canonically (lowercase); FindProperty
+	// reports the canonical key. Display case is preserved where Toast
+	// surfaces it — the defined-name listing (propOrder) — asserted below.
+	if prop.Name != "caseprobe" {
+		t.Fatalf("FindProperty() name = %q, want canonical caseprobe", prop.Name)
+	}
+	if names, errCode := store.DefinedPropertyNames(0); errCode != types.E_NONE || len(names) != 1 || names[0] != "CaseProbe" {
+		t.Fatalf("DefinedPropertyNames() = %v (err=%v), want [CaseProbe]", names, errCode)
 	}
 	if got := prop.Value.Int(); prop.Value.Type() != types.TYPE_INT || got != 42 {
 		t.Fatalf("FindProperty() value = %d, want 42", got)

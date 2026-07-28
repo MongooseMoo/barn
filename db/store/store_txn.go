@@ -732,7 +732,7 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 		if actualName, _, ok := propertyByName(obj.properties, def.name); ok {
 			delete(obj.properties, actualName)
 		}
-		obj.properties[def.name] = def.prop
+		obj.properties[propertyNameKey(def.name)] = def.prop
 		foundOrder := false
 		for _, name := range obj.propOrder {
 			if strings.EqualFold(name, def.name) {
@@ -755,7 +755,7 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 		if key.objID != objID {
 			continue
 		}
-		obj.properties[write.name] = write.prop
+		obj.properties[propertyNameKey(write.name)] = write.prop
 	}
 	for key, actualName := range tx.propertyDefinitionDeletes {
 		if key.objID != objID {
@@ -1413,7 +1413,7 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 
 	names := make([]string, 0, len(obj.properties))
 	for _, name := range obj.propOrder {
-		if prop, ok := obj.properties[name]; ok && prop.defined {
+		if prop, ok := obj.properties[propertyNameKey(name)]; ok && prop.defined {
 			names = append(names, name)
 		}
 	}
@@ -1770,10 +1770,11 @@ func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property
 
 	prop.defined = true
 	prop.clear = false
+
 	key := propertyWriteKey{objID: objID, name: propertyNameKey(name)}
 	delete(tx.propertyDeletes, key)
 	lazySet(&tx.propertyDefines, key, propertyDefine{name: name, prop: prop})
-	obj.properties[name] = prop
+	obj.properties[propertyNameKey(name)] = prop
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -1820,19 +1821,20 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 			} else {
 				tx.markPropertyScan(childID, child)
 			}
-			child.properties[name] = Property{
+			override := Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
 				clear:   true,
 				defined: false,
 			}
+			child.properties[propertyNameKey(name)] = override
 			key := propertyWriteKey{objID: childID, name: propertyNameKey(name)}
 			delete(tx.propertyDeletes, key)
 			lazySet(&tx.propertyWrites, key, propertyWrite{
 				name:  name,
 				value: prop.value,
-				prop:  child.properties[name],
+				prop:  override,
 			})
 			queue = append(queue, childID)
 		}
@@ -2194,7 +2196,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 			prop.value = write.value
 			prop.clear = false
 			prop.version = ts
-			live.properties[write.name] = prop
+			live.properties[propertyNameKey(write.name)] = prop
 		}
 		stampObjectProperties(live, ts)
 	}

@@ -23,7 +23,8 @@ func (s *Store) copyInheritedPropertiesLocked(parents []types.ObjID) map[string]
 			continue
 		}
 		for name, prop := range current.properties {
-			if _, _, exists := propertyByName(result, name); exists {
+			// Keys are canonical on every object, so a direct hit suffices.
+			if _, exists := result[name]; exists {
 				continue
 			}
 			result[name] = Property{
@@ -44,13 +45,26 @@ func propertyNameKey(name string) string {
 	return strings.ToLower(name)
 }
 
+// PropertyNameKey exposes the canonical property-map key form for external
+// consumers that index snapshot property maps (the dump writer resolves
+// display-cased names from the ordered name list against canonical keys).
+func PropertyNameKey(name string) string {
+	return propertyNameKey(name)
+}
+
+// propertyByName resolves a property slot by case-insensitive name. The map is
+// keyed canonically (propertyNameKey), so this is at most two map hits: one
+// with the name as given (the common all-lowercase case — strings.ToLower
+// returns its input unchanged, so key == name and the second hit is skipped)
+// and one with the lowered form. The returned string is the CANONICAL map key;
+// display case lives only in propOrder (see the note on Object.properties).
 func propertyByName(properties map[string]Property, name string) (string, Property, bool) {
 	if prop, ok := properties[name]; ok {
 		return name, prop, true
 	}
-	for propName, prop := range properties {
-		if strings.EqualFold(propName, name) {
-			return propName, prop, true
+	if key := propertyNameKey(name); key != name {
+		if prop, ok := properties[key]; ok {
+			return key, prop, true
 		}
 	}
 	return "", Property{}, false
@@ -141,7 +155,7 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 
 	names := make([]string, 0, len(obj.properties))
 	for _, name := range obj.propOrder {
-		prop := obj.properties[name]
+		prop := obj.properties[propertyNameKey(name)]
 		if prop.defined {
 			names = append(names, name)
 		}
@@ -309,6 +323,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 	seenObjects := make(map[types.ObjID]bool)
 	decidedNames := make(map[string]bool)
 	queue := []types.ObjID{objID}
+	prefixLower := strings.ToLower(prefix)
 
 	for len(queue) > 0 {
 		currentID := queue[0]
@@ -323,7 +338,8 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 			continue
 		}
 		for propName, prop := range current.properties {
-			if !strings.HasPrefix(strings.ToLower(propName), strings.ToLower(prefix)) {
+			// Map keys are canonical lowercase; lower the prefix once.
+			if !strings.HasPrefix(propName, prefixLower) {
 				continue
 			}
 			name := propName[len(prefix):]
@@ -494,7 +510,8 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 	prop.defined = true
 	prop.clear = false
 	prop.version = ts
-	obj.properties[name] = prop
+
+	obj.properties[propertyNameKey(name)] = prop
 
 	pos := obj.propDefsCount
 	if pos > len(obj.propOrder) {
@@ -535,7 +552,9 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 	}
 
 	delete(obj.properties, actualName)
-	obj.propOrder = removeString(obj.propOrder, actualName)
+	// propOrder keeps display case while actualName is the canonical map key,
+	// so the order entry is removed case-insensitively.
+	obj.propOrder = removeStringFold(obj.propOrder, actualName)
 	if obj.propDefsCount > 0 {
 		obj.propDefsCount--
 	}
@@ -656,7 +675,7 @@ func (s *Store) propagatePropertyToDescendantsLocked(objID types.ObjID, name str
 			} else {
 				child = s.republishForMutation(child)
 			}
-			child.properties[name] = Property{
+			child.properties[propertyNameKey(name)] = Property{
 				value:   prop.value,
 				owner:   prop.owner,
 				perms:   prop.perms,
@@ -702,6 +721,19 @@ func removeString(items []string, value string) []string {
 	result := make([]string, 0, len(items))
 	for _, item := range items {
 		if item != value {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// removeStringFold removes entries matching value case-insensitively. Used for
+// propOrder maintenance, where entries keep display case but callers hold the
+// canonical (lowercase) property key.
+func removeStringFold(items []string, value string) []string {
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		if !strings.EqualFold(item, value) {
 			result = append(result, item)
 		}
 	}
