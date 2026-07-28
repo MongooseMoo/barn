@@ -4,7 +4,6 @@ import (
 	"barn/builtins"
 	"barn/types"
 	"math"
-	"sort"
 	"strings"
 )
 
@@ -441,7 +440,6 @@ func inOp(left, right types.Value) types.Result {
 		// (ismember case_matters=0). See executeIn for full citations. Do NOT
 		// change to key search — review finding F27 mis-claimed key semantics.
 		pairs := right.Pairs()
-		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {
 			if pair[1].Equal(left) {
 				return types.Ok(types.NewInt(int64(i + 1)))
@@ -658,20 +656,4 @@ func compare(left, right types.Value) (int, types.ErrorCode) {
 
 	// Type mismatch
 	return 0, types.E_TYPE
-}
-
-// sortMapKeysForIn sorts map keys in MOO canonical order:
-// integers < floats < objects < errors < strings
-// Within each type, sorted by value
-func sortMapKeysForIn(keys []types.Value) {
-	sort.Slice(keys, func(i, j int) bool {
-		return types.CompareMapKeys(keys[i], keys[j]) < 0
-	})
-}
-
-// sortMapPairsForIn sorts map pairs by their keys in MOO canonical order
-func sortMapPairsForIn(pairs [][2]types.Value) {
-	sort.Slice(pairs, func(i, j int) bool {
-		return types.CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
-	})
 }

@@ -1,8 +1,6 @@
 package builtins
 
 import (
-	"sort"
-
 	"barn/kernel"
 	"barn/types"
 )
@@ -11,10 +9,11 @@ import (
 // LAYER 7.5: MAP BUILTINS
 // ============================================================================
 
-// builtinMapkeys returns a list of all keys in the map, sorted
+// builtinMapkeys returns a list of all keys in the map in tree order.
 // mapkeys(map) -> list
-// Sorting order: integers (by value), floats (by value), objects (by ID),
-// errors (by code), strings (case-insensitive alphabetical)
+// Toast walks the rbtree (mapforeach) with NO separate sort; Keys() is that
+// traversal, so re-sorting here would diverge (CompareMapKeys ranks err/float
+// and bool/str opposite Toast's runtime type ordinals).
 func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -23,27 +22,7 @@ func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if args[0].Type() != types.TYPE_MAP {
 		return types.Err(types.E_TYPE)
 	}
-	m := args[0]
-
-	keys := m.Keys()
-	sortMapKeys(keys)
-	return types.Ok(types.NewList(keys))
-}
-
-// sortMapKeys sorts map keys in MOO canonical order:
-// integers < floats < objects < errors < strings
-// Within each type, sorted by value
-func sortMapKeys(keys []types.Value) {
-	sort.Slice(keys, func(i, j int) bool {
-		return types.CompareMapKeys(keys[i], keys[j]) < 0
-	})
-}
-
-// sortMapPairs sorts map pairs by their keys in MOO canonical order
-func sortMapPairs(pairs [][2]types.Value) {
-	sort.Slice(pairs, func(i, j int) bool {
-		return types.CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
-	})
+	return types.Ok(types.NewList(args[0].Keys()))
 }
 
 // builtinMapvalues returns a list of all values in the map, sorted by key order
@@ -73,15 +52,11 @@ func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Ok(types.NewList(values))
 	}
 
-	// Get sorted keys first
-	keys := m.Keys()
-	sortMapKeys(keys)
-
-	// Extract values in sorted key order
-	values := make([]types.Value, len(keys))
-	for i, key := range keys {
-		val, _ := m.MapGet(key)
-		values[i] = val
+	// Values in tree order, matching mapkeys.
+	pairs := m.Pairs()
+	values := make([]types.Value, len(pairs))
+	for i := range pairs {
+		values[i] = pairs[i][1]
 	}
 
 	return types.Ok(types.NewList(values))

@@ -339,8 +339,24 @@ func getTypeCode(v types.Value) int {
 // writeWaif writes a waif value
 // First write of a waif is a definition ("c N"), subsequent writes are references ("r N")
 func (w *Writer) writeWaif(waif types.Value) error {
+	// Waifs have REFERENCE semantics: every later occurrence of the same waif
+	// must serialize as a reference to the first, or aliases reload as
+	// independent copies (conformance waif_dump_persistence pins this; the
+	// reader resolves "r {index}" against write order). A waif Value is
+	// comparable and two aliases carry the same underlying pointer, so the
+	// Value itself is the identity key.
+	if idx, ok := w.waifIndex[waif]; ok {
+		if err := w.writeString(fmt.Sprintf("r %d", idx)); err != nil {
+			return err
+		}
+		return w.writeString(".")
+	}
 	idx := w.nextWaifID
 	w.nextWaifID++
+	// Register BEFORE writing properties: a waif can reference itself (or a
+	// cycle of waifs) through its own property values, mirroring the reader's
+	// register-then-read order.
+	w.waifIndex[waif] = idx
 
 	// Definition format: "c {index}\n" then class, owner, propdefs_length, props, -1, ".\n"
 	if err := w.writeString(fmt.Sprintf("c %d", idx)); err != nil {

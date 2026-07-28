@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"barn/builtins"
 )
 
 // Telnet protocol constants (RFC 854, RFC 855)
@@ -187,8 +189,11 @@ func (t *TCPTransport) ReadInput() (string, bool, error) {
 	}
 }
 
+// formatTelnetCommand renders a captured telnet IAC sequence as a MOO
+// binary string ("~FF~F1"), matching Toast: OOB command dispatch sees the
+// encoded text, never raw protocol bytes (gap_followups_toast_oracle pins).
 func formatTelnetCommand(command []byte) string {
-	return string(command)
+	return builtins.EncodeRawToBinary(command)
 }
 
 func (t *TCPTransport) ReadChunk() (string, error) {

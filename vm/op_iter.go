@@ -42,9 +42,8 @@ func (vm *VM) executeIterPrep() error {
 		}
 
 	case types.TYPE_MAP:
-		// Sort pairs by key in MOO canonical order, produce {value, key} pairs
+		// Tree order (Toast iterates the rbtree; no re-sort), {value, key} pairs
 		pairs := container.Pairs()
-		sortMapPairsForIn(pairs)
 		elements := make([]types.Value, len(pairs))
 		for i, pair := range pairs {
 			// pair[0] = key, pair[1] = value

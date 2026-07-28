@@ -87,7 +87,7 @@ func (s *Store) Snapshot() Snapshot {
 			snapshot.AllObjects = append(snapshot.AllObjects, so)
 		}
 		if validLiveObject(obj) {
-			snapshot.PropertyNames[obj.id] = snapshotPropertyNames(obj)
+			snapshot.PropertyNames[obj.id] = s.snapshotPropertyNamesLocked(obj)
 		}
 		return true
 	})
@@ -103,7 +103,7 @@ func (s *Store) Snapshot() Snapshot {
 		so.ID = ser.serialID
 		plan.rewriteSnapshotObject(so)
 		snapshot.AnonymousObjects = append(snapshot.AnonymousObjects, so)
-		snapshot.PropertyNames[ser.serialID] = snapshotPropertyNames(obj)
+		snapshot.PropertyNames[ser.serialID] = s.snapshotPropertyNamesLocked(obj)
 	}
 
 	return snapshot
@@ -254,7 +254,10 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 		}
 		return types.NewList(out), true
 	case types.TYPE_MAP:
-		pairs := v.Pairs()
+		// Insertion order, NOT traversal order: rebuilding from Pairs() would
+		// reverse waif/anon/bool-keyed topology (Pairs is reversed insertion
+		// for those types) and cancel the reversal dump/reload itself performs.
+		pairs := v.PairsInInsertionOrder()
 		out := make([][2]types.Value, len(pairs))
 		changed := false
 		for i, pr := range pairs {
@@ -299,47 +302,46 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 	return so
 }
 
-// snapshotPropertyNames returns the full, ordered list of an object's property
-// names for the writer. It MUST cover every property in obj.properties: the
-// writer emits one (value, owner, perms) triple per name, so a short list
-// silently drops propvals and corrupts the dump (a value loss Toast never does).
-//
-// The authoritative per-object order is obj.propOrder, established at load time
-// (local definitions first, then inherited slots in self-first ancestry order)
-// and maintained by DefineProperty/DeleteDefinedProperty. However, runtime
-// property inheritance (propagatePropertyToDescendantsLocked) adds an inherited
-// slot to a descendant's properties map WITHOUT extending its propOrder, so the
-// map can hold names that propOrder does not list. We therefore start from
-// propOrder (correct order, full count for loaded objects) and append any
-// remaining property names not already covered, in sorted order for a
-// deterministic dump. This guarantees len(names) == len(obj.properties) in every
-// case while preserving the load-time ordering.
-func snapshotPropertyNames(obj *Object) []string {
-	// Capacity: propOrder entries + any extra properties not in propOrder.
-	// propOrder holds display-case names; the properties map is keyed
-	// canonically (lowercase), so the seen-set tracks canonical keys and
-	// extras are emitted in their stored display case.
+// snapshotPropertyNamesLocked returns the writer's ordered name list in the
+// LOADER's canonical order: this object's own propdefs, then each ancestor's,
+// depth-first self-first — exactly db/format's propertyNamesSelfFirst. The
+// dump stores propvals positionally against that ancestry order, so a
+// runtime-added inherited slot (present in the map, absent from propOrder)
+// must be emitted at its ancestry position, not appended at the end — the
+// old propOrder+extras order silently shifted such values on reload
+// (conformance dump_persistence::inherited_override_survives_dump_and_restart).
+// Map-only names with no ancestry position are still appended (sorted) as a
+// no-value-loss backstop; the reader keeps placeholder names for them.
+func (s *Store) snapshotPropertyNamesLocked(obj *Object) []string {
 	names := make([]string, 0, len(obj.propOrder)+len(obj.properties))
 	seen := make(map[string]bool, len(obj.propOrder)+len(obj.properties))
-	for _, name := range obj.propOrder {
-		key := propertyNameKey(name)
-		if seen[key] {
-			continue
+	visited := make(map[types.ObjID]bool)
+	var walk func(o *Object)
+	walk = func(o *Object) {
+		if o == nil || visited[o.id] {
+			return
 		}
-		// Include propOrder entries even when the backing property slot is absent
-		// (e.g. cleared via ClearPropertyOverride). The writer emits TypeClear for
-		// those slots, which round-trips correctly. Skipping them here would shift
-		// all subsequent property values on reload and corrupt the database.
-		names = append(names, name)
-		seen[key] = true
+		visited[o.id] = true
+		localCount := o.propDefsCount
+		if localCount > len(o.propOrder) {
+			localCount = len(o.propOrder)
+		}
+		for i := 0; i < localCount; i++ {
+			name := o.propOrder[i]
+			key := propertyNameKey(name)
+			if !seen[key] {
+				names = append(names, name)
+				seen[key] = true
+			}
+		}
+		for _, parentID := range o.parents {
+			walk(s.liveObjectLocked(parentID))
+		}
 	}
+	walk(obj)
 
-	// Append any property not represented in propOrder (e.g. runtime-inherited
-	// slots added by propagatePropertyToDescendantsLocked) so no propval is dropped.
-	// Extras are keyed canonically; the canonical form is fine here because
-	// these names are never serialized (only locally-defined names — the
-	// leading propOrder entries — are written to the dump; extras only
-	// position propvals, and the writer looks values up by canonical key).
+	// Backstop: any map slot with no ancestry position still gets its value
+	// emitted (the reader pairs it with a placeholder name).
 	var extra []string
 	for key := range obj.properties {
 		if !seen[key] {
@@ -350,6 +352,9 @@ func snapshotPropertyNames(obj *Object) []string {
 	sort.Strings(extra)
 	names = append(names, extra...)
 
+	// propOrder entries whose slot AND ancestry position are both gone (e.g.
+	// a cleared override of a since-deleted definition) are intentionally NOT
+	// emitted: with no backing definition the reader has no slot for them.
 	return names
 }
 

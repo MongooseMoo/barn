@@ -3,11 +3,11 @@ package types
 import "testing"
 
 func TestReverseInsertedBooleanMapKeysExposeReverseTopology(t *testing.T) {
-	if got := CompareMapKeys(NewBool(false), NewBool(true)); got <= 0 {
-		t.Fatalf("CompareMapKeys(false, true) = %d, want positive", got)
+	if got := toastMapCompare(NewBool(false), NewBool(true), false); got <= 0 {
+		t.Fatalf("toastMapCompare(false, true) = %d, want positive", got)
 	}
-	if got := CompareMapKeys(NewBool(true), NewBool(false)); got <= 0 {
-		t.Fatalf("CompareMapKeys(true, false) = %d, want positive", got)
+	if got := toastMapCompare(NewBool(true), NewBool(false), false); got <= 0 {
+		t.Fatalf("toastMapCompare(true, false) = %d, want positive", got)
 	}
 
 	falseFirst := NewMap([][2]Value{

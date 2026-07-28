@@ -282,11 +282,11 @@ func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	case types.TYPE_MAP:
 		collection := args[1]
-		// For maps, is_member searches for a VALUE and returns the position
-		// of its key in the sorted key list (1-based), or 0 if not found
+		// For maps, is_member searches for a VALUE and returns the 1-based
+		// tree-order position of its key, or 0 if not found (Toast ismember
+		// iterates the rbtree; no separate sort exists there).
 		// This is case-SENSITIVE for string values (uses strictEqual)
 		pairs := collection.Pairs()
-		sortMapPairs(pairs)
 		for i, pair := range pairs {
 			if eq, handled := promoteMemberEqual(ctx, value, pair[1]); handled {
 				if eq {

@@ -187,6 +187,15 @@ func encodeBinaryBytes(data []byte) string {
 	return b.String()
 }
 
+// EncodeRawToBinary converts raw bytes to MOO binary-string text (~XX for
+// non-printables, ~7E for '~'), Toast's raw_bytes_to_binary. Capture
+// boundaries that hand raw external bytes to MOO code (telnet OOB commands,
+// exec output) must encode with this — MOO strings store the ENCODED text;
+// toliteral emits string bytes raw and must not re-encode.
+func EncodeRawToBinary(data []byte) string {
+	return encodeBinaryBytes(data)
+}
+
 func builtinFileOpen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"barn/kernel"
@@ -139,12 +138,9 @@ func mooToJSON(v types.Value, embeddedTypes bool, isKey bool) (interface{}, type
 		return arr, types.E_NONE
 
 	case types.TYPE_MAP:
-		// Use orderedMap to preserve MOO key ordering
-		pairs := v.Pairs()
-		// Sort pairs by MOO key order (int < float < obj < err < str)
-		sortedPairs := make([][2]types.Value, len(pairs))
-		copy(sortedPairs, pairs)
-		sortMapPairsForJSON(sortedPairs)
+		// Tree order — Toast's generate_json iterates the rbtree (mapforeach)
+		// with no re-sort, and Pairs() is that traversal.
+		sortedPairs := v.Pairs()
 
 		om := &orderedMap{entries: make([]orderedMapEntry, len(sortedPairs))}
 		for i, pair := range sortedPairs {
@@ -476,76 +472,4 @@ func (om *orderedMap) MarshalJSON() ([]byte, error) {
 	}
 	buf.WriteByte('}')
 	return []byte(buf.String()), nil
-}
-
-// sortMapPairsForJSON sorts map pairs by MOO key order for JSON output
-// Order: INT < FLOAT < OBJ < ERR < STR
-func sortMapPairsForJSON(pairs [][2]types.Value) {
-	sort.Slice(pairs, func(i, j int) bool {
-		return compareJSONKeys(pairs[i][0], pairs[j][0]) < 0
-	})
-}
-
-// compareJSONKeys compares two MOO values for JSON key ordering
-// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4)
-// This matches MOO/ToastStunt map key ordering
-func compareJSONKeys(a, b types.Value) int {
-	typeOrder := func(v types.Value) int {
-		switch v.Type() {
-		case types.TYPE_INT:
-			return 0
-		case types.TYPE_OBJ, types.TYPE_ANON:
-			return 1
-		case types.TYPE_FLOAT:
-			return 2
-		case types.TYPE_ERR:
-			return 3
-		case types.TYPE_STR:
-			return 4
-		default:
-			return 5
-		}
-	}
-
-	aOrder := typeOrder(a)
-	bOrder := typeOrder(b)
-	if aOrder != bOrder {
-		return aOrder - bOrder
-	}
-
-	// Same type, compare values
-	switch a.Type() {
-	case types.TYPE_INT:
-		if a.Int() < b.Int() {
-			return -1
-		} else if a.Int() > b.Int() {
-			return 1
-		}
-		return 0
-	case types.TYPE_FLOAT:
-		if a.Float() < b.Float() {
-			return -1
-		} else if a.Float() > b.Float() {
-			return 1
-		}
-		return 0
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		if a.ID() < b.ID() {
-			return -1
-		} else if a.ID() > b.ID() {
-			return 1
-		}
-		return 0
-	case types.TYPE_ERR:
-		if a.Code() < b.Code() {
-			return -1
-		} else if a.Code() > b.Code() {
-			return 1
-		}
-		return 0
-	case types.TYPE_STR:
-		// Case-insensitive comparison for strings
-		return strings.Compare(strings.ToLower(a.Str()), strings.ToLower(b.Str()))
-	}
-	return 0
 }

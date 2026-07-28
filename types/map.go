@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 	"unsafe"
 )
@@ -27,9 +26,41 @@ type toastLookupNode struct {
 	link  [2]*toastLookupNode
 }
 
+// toastTypeOrdinal returns Toast's RUNTIME type value for cross-type map key
+// comparison (structures.h var_type: pointer-carrying types have
+// TYPE_COMPLEX_FLAG 0x80 OR'd in, floats and bools do not). Barn's own tag
+// ordinals differ (STR=2 sorts before ERR/FLOAT here but after in Toast), so
+// the tree comparator must translate.
+func toastTypeOrdinal(t TypeCode) int {
+	switch t {
+	case TYPE_INT:
+		return 0
+	case TYPE_OBJ:
+		return 1
+	case TYPE_ERR:
+		return 3
+	case TYPE_FLOAT:
+		return 9
+	case TYPE_BOOL:
+		return 14
+	case TYPE_STR:
+		return 2 | 0x80
+	case TYPE_LIST:
+		return 4 | 0x80
+	case TYPE_MAP:
+		return 10 | 0x80
+	case TYPE_ANON:
+		return 12 | 0x80
+	case TYPE_WAIF:
+		return 13 | 0x80
+	default:
+		return int(t)
+	}
+}
+
 func toastMapCompare(a, b Value, caseSensitive bool) int {
 	if a.Type() != b.Type() {
-		return int(a.Type()) - int(b.Type())
+		return toastTypeOrdinal(a.Type()) - toastTypeOrdinal(b.Type())
 	}
 	switch a.Type() {
 	case TYPE_INT:
@@ -272,14 +303,13 @@ func (m *goMap) equal(other *goMap) bool {
 	return true
 }
 
-// literal returns the MOO literal representation. Keys are sorted in MOO
-// canonical order: INT < OBJ < FLOAT < ERR < STR.
+// literal returns the MOO literal representation in tree-traversal order —
+// Toast's unparse walks the rbtree with no separate sort.
 func (m *goMap) literal() string {
 	pairs := m.pairsList()
 	if len(pairs) == 0 {
 		return "[]"
 	}
-	sortMapPairsForOutput(pairs)
 	parts := make([]string, 0, len(pairs))
 	for _, p := range pairs {
 		parts = append(parts, fmt.Sprintf("%s -> %s", p[0].String(), p[1].String()))
@@ -313,81 +343,6 @@ func NewEmptyMap() Value {
 	return mapValue(&goMap{order: nil, pairs: make(map[string]mapEntry)})
 }
 
-// sortMapPairsForOutput sorts pairs by key in MOO order.
-func sortMapPairsForOutput(pairs [][2]Value) {
-	sort.Slice(pairs, func(i, j int) bool {
-		return CompareMapKeys(pairs[i][0], pairs[j][0]) < 0
-	})
-}
-
-// CompareMapKeys compares two map keys in canonical MOO order.
-// Order: INT (0) < OBJ (1) < FLOAT (2) < ERR (3) < STR (4) < BOOL (5).
-func CompareMapKeys(a, b Value) int {
-	typeOrder := func(v Value) int {
-		switch v.Type() {
-		case TYPE_INT:
-			return 0
-		case TYPE_OBJ, TYPE_ANON:
-			return 1
-		case TYPE_FLOAT:
-			return 2
-		case TYPE_ERR:
-			return 3
-		case TYPE_STR:
-			return 4
-		case TYPE_BOOL:
-			return 5
-		default:
-			return 6
-		}
-	}
-
-	aOrder := typeOrder(a)
-	bOrder := typeOrder(b)
-	if aOrder != bOrder {
-		return aOrder - bOrder
-	}
-
-	switch a.Type() {
-	case TYPE_INT:
-		return cmpInt64(a.Int(), b.Int())
-	case TYPE_OBJ:
-		return cmpInt64(int64(a.Obj()), int64(b.Obj()))
-	case TYPE_ANON:
-		if a.ID() == b.ID() {
-			return 0
-		}
-		return 1
-	case TYPE_FLOAT:
-		af, bf := a.Float(), b.Float()
-		if af < bf {
-			return -1
-		} else if af > bf {
-			return 1
-		}
-		return 0
-	case TYPE_ERR:
-		return cmpInt64(int64(a.ErrCode()), int64(b.ErrCode()))
-	case TYPE_STR:
-		return compareFoldedASCII(a.Str(), b.Str())
-	case TYPE_BOOL:
-		if a.Bool() == b.Bool() {
-			return 0
-		}
-		return 1
-	}
-	return 0
-}
-
-func cmpInt64(a, b int64) int {
-	if a < b {
-		return -1
-	} else if a > b {
-		return 1
-	}
-	return 0
-}
-
 // ---- Value-level map API (map-typed accessors are Map-prefixed to avoid
 // colliding with the list Get/Set/Delete of the same Value type) ----------
 
@@ -405,6 +360,23 @@ func (v Value) Keys() []Value { return v.goMap().keys() }
 
 // Pairs returns all key-value pairs in insertion order.
 func (v Value) Pairs() [][2]Value { return v.goMap().pairsList() }
+
+// PairsInInsertionOrder returns all key-value pairs in raw insertion order,
+// NOT tree-traversal order. Feeding these to NewMap reproduces the source
+// map's topology exactly. In-memory rebuilds (e.g. the snapshot anon-id
+// rewrite) must use this: Pairs() traversal order is REVERSED insertion order
+// for non-totally-ordered key types (waif/anon/bool), so a Pairs()->NewMap
+// round trip would flip those keys and cancel the Toast-pinned reversal that
+// dump/reload itself performs.
+func (v Value) PairsInInsertionOrder() [][2]Value {
+	m := v.goMap()
+	pairs := make([][2]Value, 0, len(m.order))
+	for _, hash := range m.order {
+		e := m.pairs[hash]
+		pairs = append(pairs, [2]Value{e.key, e.val})
+	}
+	return pairs
+}
 
 // GetWithCase returns a map value using Toast's tree topology and configurable
 // string-key case handling. Map builtins use this path; direct indexing uses MapGet.

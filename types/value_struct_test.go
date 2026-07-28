@@ -167,11 +167,11 @@ func TestReverseInsertedAnonymousMapKeysExposeReverseTopology(t *testing.T) {
 	if !IsValidMapKey(first) || IsValidBuiltinMapKey(first) {
 		t.Fatal("anonymous map-key admission does not match Toast")
 	}
-	if got := CompareMapKeys(first, second); got <= 0 {
-		t.Fatalf("CompareMapKeys(first, second) = %d, want positive", got)
+	if got := toastMapCompare(first, second, false); got <= 0 {
+		t.Fatalf("toastMapCompare(first, second) = %d, want positive", got)
 	}
-	if got := CompareMapKeys(second, first); got <= 0 {
-		t.Fatalf("CompareMapKeys(second, first) = %d, want positive", got)
+	if got := toastMapCompare(second, first, false); got <= 0 {
+		t.Fatalf("toastMapCompare(second, first) = %d, want positive", got)
 	}
 
 	firstFirst := NewMap([][2]Value{

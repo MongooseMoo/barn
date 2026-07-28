@@ -1,7 +1,6 @@
 package types
 
 import (
-	"fmt"
 	"strings"
 	"unicode/utf8"
 	"unsafe"
@@ -149,8 +148,10 @@ func (s *strRep) appendRep(other *strRep) *strRep {
 	return &strRep{data: buf, watermark: &wm}
 }
 
-// literal returns the MOO literal representation with binary encoding:
-// non-printable bytes (< 32 or > 126) are encoded as ~XX.
+// literal returns the MOO literal representation. Toast (list.cc
+// unparse_value, TYPE_STR) escapes ONLY '"' and '\'; every other byte —
+// including control and high bytes — passes through raw. ~XX encoding belongs
+// exclusively to binary-mode network/file I/O, never to toliteral.
 func (s *strRep) literal() string {
 	var result strings.Builder
 	result.WriteByte('"')
@@ -162,19 +163,10 @@ func (s *strRep) literal() string {
 		} else {
 			b = s.val[i]
 		}
-		switch {
-		case b == '"':
-			result.WriteString("\\\"")
-		case b == '\\':
-			result.WriteString("\\\\")
-		case b == '\t':
-			// Preserve tabs as literal tabs for protocol compatibility.
-			result.WriteByte(b)
-		case b >= 32 && b <= 126:
-			result.WriteByte(b)
-		default:
-			result.WriteString(fmt.Sprintf("~%02X", b))
+		if b == '"' || b == '\\' {
+			result.WriteByte('\\')
 		}
+		result.WriteByte(b)
 	}
 	result.WriteByte('"')
 	return result.String()

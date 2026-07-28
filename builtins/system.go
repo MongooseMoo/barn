@@ -453,10 +453,12 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 		}
 	}
 
-	// Normalize line endings to Unix format (LF only)
-	// MOO expects \n, but Windows produces \r\n
-	stdoutStr := strings.ReplaceAll(stdout.String(), "\r\n", "\n")
-	stderrStr := strings.ReplaceAll(stderr.String(), "\r\n", "\n")
+	// Normalize line endings to Unix format (LF only; Windows-only nicety —
+	// Toast's Linux children never emit \r\n), then binary-encode: Toast
+	// returns exec output through raw_bytes_to_binary, so the MOO strings
+	// contain "~0A" text, not raw newlines (conformance exec_with_sleep_works).
+	stdoutStr := encodeBinaryBytes([]byte(strings.ReplaceAll(stdout.String(), "\r\n", "\n")))
+	stderrStr := encodeBinaryBytes([]byte(strings.ReplaceAll(stderr.String(), "\r\n", "\n")))
 
 	// Return {exit_code, stdout, stderr}
 	result := []types.Value{

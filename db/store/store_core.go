@@ -471,11 +471,16 @@ func (s *Store) addLoadedObject(obj *Object) {
 }
 
 // AddAnonymous ingests an anonymous object loaded from the database into the
-// store's out-of-band anonymous collection. The object is keyed by the identity
-// id it was loaded with; this id is NOT a regular numbered-object id and never
-// enters the objects map, maxObjID, or highWaterID. Anonymous objects only ever
-// surface as _TYPE_ANON values; the dump path assigns them above-max
-// serialization ids.
+// store's out-of-band anonymous collection. The object is keyed by the
+// above-max serialization id it was loaded with; this id never enters the
+// objects map or maxObjID (max_object() excludes anons). It MUST raise
+// highWaterID, though: a Barn anon's identity id is permanent (values are
+// NewAnon(id), unlike Toast's pointer identity), so if allocateID later handed
+// the same id to a regular object, every loaded _TYPE_ANON reference would
+// silently resolve to that object — recycle(loaded_anon) then recycles (and
+// boots!) an unrelated player. Conformance map_dump_persistence caught exactly
+// that: Test.db's per-connect login create() took the first anon's serial id
+// after restart.
 func (s *Store) AddAnonymous(obj *Object) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -486,6 +491,7 @@ func (s *Store) AddAnonymous(obj *Object) {
 	ts := s.bumpClockLocked()
 	stampObjectAll(obj, ts)
 	s.anonObjects[obj.id] = obj
+	casMaxID(&s.highWaterID, obj.id)
 }
 
 func (s *Store) insertObjectLocked(obj *Object) {

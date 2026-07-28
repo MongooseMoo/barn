@@ -6,7 +6,6 @@ import (
 	dbstore "barn/db/store"
 	"barn/types"
 	"fmt"
-	"sort"
 )
 
 func (vm *VM) executeIndex() error {
@@ -478,10 +477,7 @@ func (vm *VM) executeIndexMarker() error {
 			return nil
 		}
 
-		sort.Slice(keys, func(i, j int) bool {
-			return types.CompareMapKeys(keys[i], keys[j]) < 0
-		})
-
+		// Keys() is already rbtree traversal order (Toast's first/last).
 		if marker == bytecode.IndexMarkerFirst {
 			vm.Push(keys[0])
 		} else if marker == bytecode.IndexMarkerLast {

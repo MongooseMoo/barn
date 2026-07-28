@@ -181,7 +181,6 @@ func (vm *VM) executeIn() error {
 		// keys: conformance map.yaml is_member("FOO",["FOO"->"BAR"]) == 0 proves
 		// keys are not searched. (Review finding F27 mis-claimed key search.)
 		pairs := collection.Pairs()
-		sortMapPairsForIn(pairs)
 		for i, pair := range pairs {
 			// PROMOTE_NUMBERS: mixed int/float values also match (see LIST case).
 			if eq, handled := vm.promoteNumericEqual(element, pair[1]); handled {

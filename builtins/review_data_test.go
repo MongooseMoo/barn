@@ -219,9 +219,11 @@ func TestReview_Data_CapitalizeDeprecatedTitle(t *testing.T) {
 	}
 }
 
-// MEDIUM: mapvalues comment says "INT < FLOAT < OBJ < ERR < STR" but
-// CompareMapKeys actually implements "INT < OBJ < FLOAT < ERR < STR".
-// Validate the ACTUAL ordering (not the comment) to catch future regressions.
+// mapkeys returns rbtree-traversal order, which sorts cross-type keys by
+// Toast's RUNTIME var_type values (structures.h: pointer-carrying types have
+// 0x80 OR'd in, floats/bools do not): INT(0) < OBJ(1) < ERR(3) < FLOAT(9) <
+// STR(0x82). Pinned by conformance map_dump_persistence (expected keys
+// {2, #1, E_TYPE, 1.5, "tail"}).
 func TestReview_Data_MapkeysActualOrder(t *testing.T) {
 	ctx := reviewDataCtx()
 	// Build map with int, obj, float, err, str keys.
@@ -240,20 +242,14 @@ func TestReview_Data_MapkeysActualOrder(t *testing.T) {
 	if keys.Len() != 5 {
 		t.Fatalf("mapkeys returned %d keys, want 5", keys.Len())
 	}
-	// Actual code order: INT(0) < OBJ(1) < FLOAT(2) < ERR(3) < STR(4)
-	// Comment claims: INT < FLOAT < OBJ < ERR < STR — if comment is right, test fails
 	isInt := keys.Get(1).Type() == types.TYPE_INT
 	isObj := keys.Get(2).Type() == types.TYPE_OBJ
-	isFloat := keys.Get(3).Type() == types.TYPE_FLOAT
-	isErr := keys.Get(4).Type() == types.TYPE_ERR
+	isErr := keys.Get(3).Type() == types.TYPE_ERR
+	isFloat := keys.Get(4).Type() == types.TYPE_FLOAT
 	isStr := keys.Get(5).Type() == types.TYPE_STR
-	if !(isInt && isObj && isFloat && isErr && isStr) {
-		// Document the discrepancy: the mapkeys comment says INT<FLOAT<OBJ<ERR<STR
-		// but the code (CompareMapKeys) does INT<OBJ<FLOAT<ERR<STR.
-		// This test verifies what the CODE actually does; if Toast says otherwise,
-		// the implementation order is the bug.
-		t.Logf("mapkeys order: [1]=%T [2]=%T [3]=%T [4]=%T [5]=%T",
+	if !(isInt && isObj && isErr && isFloat && isStr) {
+		t.Logf("mapkeys order: [1]=%v [2]=%v [3]=%v [4]=%v [5]=%v",
 			keys.Get(1), keys.Get(2), keys.Get(3), keys.Get(4), keys.Get(5))
-		t.Errorf("mapkeys ordering does not match INT<OBJ<FLOAT<ERR<STR (as implemented in CompareMapKeys)")
+		t.Errorf("mapkeys ordering does not match Toast INT<OBJ<ERR<FLOAT<STR")
 	}
 }
