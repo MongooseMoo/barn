@@ -519,9 +519,9 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 		return types.E_VERBNF
 	}
 	ts := s.bumpClockLocked()
-	verb.code = append([]string(nil), lines...)
-	// set_verb_code installs a program (even an empty one) on the verb.
-	verb.hasProgram = true
+	// set_verb_code installs a program (even an empty one) on the verb, and
+	// setCodeCopy refreshes the content key with it.
+	verb.setCodeCopy(lines)
 	stampVerb(verb, ts)
 	stampObjectVerbs(s.load(objID), ts)
 	return types.E_NONE
@@ -541,9 +541,9 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	verb := obj.verbList[index]
-	verb.code = append([]string(nil), lines...)
-	// set_verb_code installs a program (even an empty one) on the verb.
-	verb.hasProgram = true
+	// set_verb_code installs a program (even an empty one) on the verb, and
+	// setCodeCopy refreshes the content key with it.
+	verb.setCodeCopy(lines)
 	stampVerb(verb, ts)
 	stampObjectVerbs(obj, ts)
 	return types.E_NONE

@@ -43,7 +43,7 @@ func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args [
 		return types.Err(types.E_VERBNF)
 	}
 
-	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
 		slog.Error("verb compile error",
 			slog.String("verb", verbName),
@@ -180,8 +180,8 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		return result
 	}
 
-	// Compile verb to bytecode
-	prog, diagnostics := compiler.CompileMOO(verb.Code, s.registry)
+	// Compile verb to bytecode, keyed by the store's content key.
+	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
 		slog.Error("verb failed to compile",
 			slog.String("verb", verbName),

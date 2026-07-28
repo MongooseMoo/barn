@@ -417,8 +417,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 		if verb == nil {
 			continue
 		}
-		verb.code = append([]string(nil), write.code...)
-		verb.hasProgram = true
+		verb.setCodeCopy(write.code)
 	}
 	obj.verbVersion = live.verbVersion
 	tx.verbScans[objID] = live.verbVersion
@@ -827,6 +826,9 @@ func cloneVerbForReadTxn(verb *Verb) *Verb {
 	// lowerNames is immutable once built (renames build a fresh slice), so the
 	// clone can share the backing array instead of copying.
 	clone.lowerNames = verb.lowerNames
+	// codeKey rides along in the struct copy: the clone's code is byte-identical
+	// to the original's, so the key still describes it. A later write to the
+	// clone goes through setCodeOwned/setCodeCopy, which refresh both together.
 	clone.code = append([]string(nil), verb.code...)
 	return &clone
 }
@@ -2229,8 +2231,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		// Fetch the verb from the (possibly freshly republished) image so we edit the
 		// fresh node, not the old one now retained immutably in history.
 		verb := live.verbs[key.name]
-		verb.code = append([]string(nil), write.code...)
-		verb.hasProgram = true
+		verb.setCodeCopy(write.code)
 		stampVerb(verb, ts)
 		stampObjectVerbs(live, ts)
 	}
@@ -2478,8 +2479,7 @@ func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []str
 }
 
 func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string) {
-	verb.code = append([]string(nil), lines...)
-	verb.hasProgram = true
+	verb.setCodeCopy(lines)
 	lazySet(&tx.verbWrites, verbWriteKey{objID: objID, name: verb.mapKey()}, verbWrite{
 		code: append([]string(nil), lines...),
 	})

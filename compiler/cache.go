@@ -2,11 +2,10 @@ package compiler
 
 import (
 	"container/list"
-	"crypto/sha256"
-	"encoding/binary"
 	"sync"
 
 	"barn/bytecode"
+	"barn/sourcekey"
 )
 
 const mooCacheCapacity = 8192
@@ -14,24 +13,24 @@ const mooCacheCapacity = 8192
 type programCache struct {
 	mu       sync.Mutex
 	capacity int
-	entries  map[[sha256.Size]byte]*list.Element
+	entries  map[sourcekey.Key]*list.Element
 	lru      *list.List
 }
 
 type cacheEntry struct {
-	key     [sha256.Size]byte
+	key     sourcekey.Key
 	program *bytecode.Program
 }
 
 func newProgramCache(capacity int) *programCache {
 	return &programCache{
 		capacity: capacity,
-		entries:  make(map[[sha256.Size]byte]*list.Element),
+		entries:  make(map[sourcekey.Key]*list.Element),
 		lru:      list.New(),
 	}
 }
 
-func (c *programCache) get(key [sha256.Size]byte) (*bytecode.Program, bool) {
+func (c *programCache) get(key sourcekey.Key) (*bytecode.Program, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	element, ok := c.entries[key]
@@ -42,7 +41,7 @@ func (c *programCache) get(key [sha256.Size]byte) (*bytecode.Program, bool) {
 	return element.Value.(*cacheEntry).program, true
 }
 
-func (c *programCache) put(key [sha256.Size]byte, program *bytecode.Program) {
+func (c *programCache) put(key sourcekey.Key, program *bytecode.Program) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if element, ok := c.entries[key]; ok {
@@ -57,19 +56,6 @@ func (c *programCache) put(key [sha256.Size]byte, program *bytecode.Program) {
 		c.lru.Remove(oldest)
 		delete(c.entries, oldest.Value.(*cacheEntry).key)
 	}
-}
-
-func sourceKey(lines []string) [sha256.Size]byte {
-	hash := sha256.New()
-	var length [8]byte
-	for _, line := range lines {
-		binary.LittleEndian.PutUint64(length[:], uint64(len(line)))
-		hash.Write(length[:])
-		hash.Write([]byte(line))
-	}
-	var key [sha256.Size]byte
-	copy(key[:], hash.Sum(nil))
-	return key
 }
 
 var mooProgramCache = newProgramCache(mooCacheCapacity)

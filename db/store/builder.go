@@ -92,10 +92,10 @@ func (b *ObjectBuilder) SetVerbCodeByIndex(index int, code []string) bool {
 	if index < 0 || index >= len(b.obj.verbList) {
 		return false
 	}
-	b.obj.verbList[index].code = code
-	// A verb-code entry exists for this verb in the database (even if its source
-	// is empty), so it must be re-emitted on write. See Verb.hasProgram.
-	b.obj.verbList[index].hasProgram = true
+	// setCodeOwned also refreshes the verb's content key and marks it as having a
+	// verb-code entry in the database (even if its source is empty), so it must
+	// be re-emitted on write. See Verb.hasProgram.
+	b.obj.verbList[index].setCodeOwned(code)
 	return true
 }
 

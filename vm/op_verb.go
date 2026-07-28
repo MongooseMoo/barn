@@ -129,8 +129,9 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		return fmt.Errorf("E_VERBNF: verb not found: %s", verbName)
 	}
 
-	// Try to compile verb to bytecode
-	prog, diagnostics := compiler.CompileMOO(verb.Code, vm.Builtins)
+	// Try to compile verb to bytecode. The store carries the verb's content key,
+	// so the cache lookup on this hot path does not rehash the source.
+	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, vm.Builtins)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("E_VERBNF: compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
@@ -360,8 +361,8 @@ func (vm *VM) executePass() error {
 		return fmt.Errorf("E_VERBNF: no parent verb for pass()")
 	}
 
-	// Compile the parent verb to bytecode
-	prog, diagnostics := compiler.CompileMOO(verb.Code, vm.Builtins)
+	// Compile the parent verb to bytecode, keyed by the store's content key.
+	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, vm.Builtins)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}

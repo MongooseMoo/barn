@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 
+	"barn/sourcekey"
 	"barn/types"
 )
 
@@ -169,7 +170,15 @@ type Verb struct {
 	perms      VerbPerms
 	argSpec    VerbArgs
 	code       []string // Source lines
-	version    uint64
+	// codeKey is the content key of code, carried so the verb-call hot path can
+	// look up the compiler's program cache without rehashing the whole source on
+	// every call (profile: the per-call sha256 was 1.2% of total CPU and 1.5GB of
+	// allocations per 28s on the real-mongoose workload). It is an INVARIANT that
+	// codeKey == sourcekey.Of(code): every write to code must go through
+	// setCodeOwned/setCodeCopy, which refresh it. A stale key would serve the
+	// program compiled from the OLD source.
+	codeKey sourcekey.Key
+	version uint64
 
 	// hasProgram records whether this verb has a compiled program in the
 	// database's verb-code section, independent of whether its source is empty.
@@ -198,6 +207,9 @@ type VerbView struct {
 	Perms   VerbPerms
 	ArgSpec VerbArgs
 	Code    []string
+	// CodeKey is the content key of Code, precomputed by the store. Compile
+	// callers pass it to compiler.CompileMOOWithKey instead of rehashing Code.
+	CodeKey sourcekey.Key
 	// HasProgram mirrors Verb.hasProgram: true when the verb has a program in
 	// the verb-code section (even if its source is empty). The DB writer emits a
 	// verb-program entry for exactly the verbs with HasProgram set.
@@ -229,6 +241,7 @@ func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, ar
 		perms:      perms,
 		argSpec:    argSpec,
 		code:       code,
+		codeKey:    sourcekey.Of(code),
 		// A verb constructed with non-empty source already has a program. An
 		// empty/nil code slice means "no program yet" (add_verb, or the loader's
 		// metadata pass before the verb-code section is read); SetCode promotes
@@ -251,10 +264,26 @@ func loweredNames(names []string) []string {
 // and must fill in the source on an already-constructed verb. Production verb
 // edits go through the store's SetVerbCode/SetVerbCodeByIndex methods.
 func (v *Verb) SetCode(lines []string) {
+	v.setCodeOwned(lines)
+}
+
+// setCodeOwned installs lines as the verb's source, taking ownership of the
+// slice, and refreshes the content key. EVERY write to Verb.code must go
+// through this (or setCodeCopy): the code/codeKey pair must be updated
+// together or the compiler serves a program built from the old source.
+func (v *Verb) setCodeOwned(lines []string) {
 	v.code = lines
-	// Reading a verb-code entry (even an empty program) means this verb has a
+	v.codeKey = sourcekey.Of(lines)
+	// Installing a verb-code entry (even an empty program) means this verb has a
 	// program and must be re-emitted in the verb-code section on write.
 	v.hasProgram = true
+}
+
+// setCodeCopy is setCodeOwned for callers handing over a slice they (or another
+// image) still reference: published verb images must never alias a caller's
+// backing array.
+func (v *Verb) setCodeCopy(lines []string) {
+	v.setCodeOwned(append([]string(nil), lines...))
 }
 
 // View returns a flat read-only snapshot of the verb.
@@ -266,6 +295,7 @@ func (v *Verb) View() VerbView {
 		Perms:      v.perms,
 		ArgSpec:    v.argSpec,
 		Code:       v.code,
+		CodeKey:    v.codeKey,
 		HasProgram: v.hasProgram,
 	}
 }
