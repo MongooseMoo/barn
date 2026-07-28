@@ -82,14 +82,14 @@ type StackFrame struct {
 // NewVM creates a new virtual machine
 func NewVM(store *dbstore.Store, registry *builtins.Registry) *VM {
 	return &VM{
-		Stack:         make([]types.Value, 0, 256),
+		Stack:         make([]types.Value, 0, initialStackCap),
 		SP:            0,
-		Frames:        make([]*StackFrame, 0, 16),
+		Frames:        make([]*StackFrame, 0, initialFramesCap),
 		FP:            0,
 		Store:         store,
 		Builtins:      registry,
-		TickLimit:     30000,
-		MaxStackDepth: 50,
+		TickLimit:     defaultTickLimit,
+		MaxStackDepth: defaultMaxStackDepth,
 		Ticks:         0,
 	}
 }

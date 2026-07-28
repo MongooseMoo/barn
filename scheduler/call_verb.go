@@ -100,7 +100,12 @@ func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args [
 		})
 	}
 
-	bcVM := vm.NewVM(s.store, s.registry)
+	// Pooled: nothing outlives this call. The VM is never handed to the task
+	// (SetBytecodeVM is not called here), a FlowSuspend from a nested hook is
+	// returned to the caller and the VM dropped, and ReleaseVM itself declines to
+	// pool a still-yielded VM. Release happens after drainForks, which resumes on
+	// this same VM.
+	bcVM := vm.AcquireVM(s.store, s.registry)
 	bcVM.Context = parentCtx
 	ticks, _ := foregroundTaskLimits()
 	bcVM.TickLimit = ticks
@@ -131,6 +136,7 @@ func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args [
 	if parentTask != nil {
 		result = s.drainForks(parentTask, bcVM, result)
 	}
+	vm.ReleaseVM(bcVM)
 	if result.Flow == types.FlowException {
 		trace.Exception(objID, verbName, result.Error)
 	} else {
@@ -233,8 +239,11 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		ServerInitiated: true,
 	})
 
-	// Create bytecode VM and set up initial frame variables
-	bcVM := vm.NewVM(s.store, s.registry)
+	// Create bytecode VM and set up initial frame variables. Pooled for the same
+	// reason as CallVerbInContext: this VM is never stored on the task, and the
+	// only post-execution uses (commit, effect flush, traceback) read the task and
+	// the context, never the VM.
+	bcVM := vm.AcquireVM(s.store, s.registry)
 	bcVM.Context = ctx
 	ticks, _ := foregroundTaskLimits()
 	bcVM.TickLimit = ticks
@@ -255,6 +264,7 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 
 	// Handle fork yields: create child tasks and resume parent
 	result = s.drainForks(t, bcVM, result)
+	vm.ReleaseVM(bcVM)
 	committed := true
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
