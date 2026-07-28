@@ -103,8 +103,10 @@ func TestReadInputReturnsIACCommandOutOfBand(t *testing.T) {
 	if !isOOB {
 		t.Fatalf("expected out-of-band telnet command")
 	}
-	if line != string([]byte{0xFF, 0xFB, 0x01}) {
-		t.Errorf("expected raw IAC command bytes, got %q", line)
+	// Telnet commands are delivered binary-encoded (Toast raw_bytes_to_binary),
+	// never as raw protocol bytes (conformance gap_followups_toast_oracle pins).
+	if line != "~FF~FB~01" {
+		t.Errorf("expected binary-encoded IAC command, got %q", line)
 	}
 
 	line, isOOB, err = transport.ReadInput()
