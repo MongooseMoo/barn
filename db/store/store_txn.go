@@ -824,6 +824,9 @@ func cloneVerbForReadTxn(verb *Verb) *Verb {
 	}
 	clone := *verb
 	clone.names = append([]string(nil), verb.names...)
+	// lowerNames is immutable once built (renames build a fresh slice), so the
+	// clone can share the backing array instead of copying.
+	clone.lowerNames = verb.lowerNames
 	clone.code = append([]string(nil), verb.code...)
 	return &clone
 }
@@ -2503,6 +2506,7 @@ func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbVi
 func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
+	searchLower := strings.ToLower(verbName)
 
 	for len(queue) > 0 {
 		current := queue[0]
@@ -2518,8 +2522,8 @@ func (tx *StoreTxn) findVerb(objID types.ObjID, verbName string, requireExecute 
 		}
 		tx.markVerbScan(current, obj)
 		for _, verb := range obj.verbList {
-			for _, alias := range verb.names {
-				if matchVerbName(alias, verbName) {
+			for _, alias := range verb.lowerNames {
+				if matchVerbNameLowered(alias, searchLower) {
 					if !requireExecute || verb.perms.Has(VerbExecute) {
 						tx.markVerbRead(current, verb)
 						return verb, current, nil
@@ -2558,9 +2562,10 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 		return nil, fmt.Errorf("verb not found: %s", verbName)
 	}
 	tx.markVerbScan(objID, obj)
+	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
-		for _, alias := range verb.names {
-			if matchVerbName(alias, verbName) {
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
 				tx.markVerbRead(objID, verb)
 				return verb, nil
 			}

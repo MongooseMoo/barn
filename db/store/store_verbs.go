@@ -8,8 +8,13 @@ import (
 
 func matchVerbName(verbPattern, searchName string) bool {
 	// Case-insensitive matching
-	pattern := strings.ToLower(verbPattern)
-	search := strings.ToLower(searchName)
+	return matchVerbNameLowered(strings.ToLower(verbPattern), strings.ToLower(searchName))
+}
+
+// matchVerbNameLowered is matchVerbName with both sides already lowercased.
+// Dispatch pre-lowers the search once and matches against Verb.lowerNames,
+// keeping the per-alias hot loop free of ToLower allocations.
+func matchVerbNameLowered(pattern, search string) bool {
 
 	// Strip leading colon from the pattern when present.
 	// Waif verb names are stored with a ":" prefix (e.g. ":abbrev*iation").
@@ -93,6 +98,7 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 
 	visited := make(map[types.ObjID]bool)
 	queue := []types.ObjID{objID}
+	searchLower := strings.ToLower(name)
 	for len(queue) > 0 {
 		currentID := queue[0]
 		queue = queue[1:]
@@ -106,8 +112,8 @@ func (s *Store) HasVerbNameInAncestry(objID types.ObjID, name string) bool {
 			continue
 		}
 		for _, verb := range obj.verbs {
-			for _, alias := range verb.names {
-				if matchVerbName(alias, name) {
+			for _, alias := range verb.lowerNames {
+				if matchVerbNameLowered(alias, searchLower) {
 					return true
 				}
 			}
@@ -208,6 +214,7 @@ func (s *Store) findVerbWalkLocked(objID types.ObjID, verbName string, requireEx
 func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string, requireExecute bool) (*Verb, types.ObjID, error) {
 	// Track visited objects to prevent infinite loops
 	visited := make(map[types.ObjID]bool)
+	searchLower := strings.ToLower(verbName)
 
 	for len(queue) > 0 {
 		// Pop from front (FIFO for breadth-first)
@@ -233,8 +240,8 @@ func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string
 		// order (the first-declared verb wins), so iterate the ordered VerbList
 		// rather than the unordered Verbs map.
 		for _, verb := range obj.verbList {
-			for _, alias := range verb.names {
-				if matchVerbName(alias, verbName) {
+			for _, alias := range verb.lowerNames {
+				if matchVerbNameLowered(alias, searchLower) {
 					if !requireExecute || verb.perms.Has(VerbExecute) {
 						return verb, current, nil
 					}
@@ -288,9 +295,10 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 
 	// Definition-order scan (see FindVerb) so colliding aliases resolve to the
 	// first-declared verb.
+	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
-		for _, alias := range verb.names {
-			if matchVerbName(alias, verbName) {
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
 				return verb, nil
 			}
 		}
@@ -447,6 +455,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	verb.owner = owner
 	verb.perms = perms
 	verb.names = append([]string(nil), names...)
+	verb.lowerNames = loweredNames(verb.names)
 	if len(verb.names) > 0 {
 		verb.name = verb.names[0]
 	}
@@ -584,9 +593,10 @@ func (s *Store) FindLocalVerbForProgramming(objID types.ObjID, verbName string) 
 	if _, ok := obj.verbs[":"+verbName]; ok {
 		return true
 	}
+	searchLower := strings.ToLower(verbName)
 	for _, verb := range obj.verbList {
-		for _, alias := range verb.names {
-			if matchVerbName(alias, verbName) {
+		for _, alias := range verb.lowerNames {
+			if matchVerbNameLowered(alias, searchLower) {
 				return true
 			}
 		}

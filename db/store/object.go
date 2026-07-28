@@ -1,6 +1,8 @@
 package store
 
 import (
+	"strings"
+
 	"barn/types"
 )
 
@@ -146,13 +148,19 @@ func (p Property) View(name string) PropertyView {
 // obtained from an Object's VerbList) and construct verbs through NewVerb. A
 // direct field write to Verb from outside db/store is a compile error.
 type Verb struct {
-	name    string
-	names   []string // All verb names (aliases) - first is primary
-	owner   types.ObjID
-	perms   VerbPerms
-	argSpec VerbArgs
-	code    []string // Source lines
-	version uint64
+	name  string
+	names []string // All verb names (aliases) - first is primary
+	// lowerNames mirrors names, pre-lowercased for dispatch. Verb-name matching
+	// is case-insensitive and runs per-alias per-candidate on every verb call;
+	// lowering here once (profile: strings.ToLower was 8.7% of total CPU on the
+	// real-mongoose workload) keeps the hot path allocation-free. The slice is
+	// immutable once built — renames build a fresh one — so clones share it.
+	lowerNames []string
+	owner      types.ObjID
+	perms      VerbPerms
+	argSpec    VerbArgs
+	code       []string // Source lines
+	version    uint64
 
 	// hasProgram records whether this verb has a compiled program in the
 	// database's verb-code section, independent of whether its source is empty.
@@ -205,18 +213,28 @@ func (v *Verb) mapKey() string {
 // tests) to construct a Verb without touching unexported fields.
 func NewVerb(name string, names []string, owner types.ObjID, perms VerbPerms, argSpec VerbArgs, code []string) Verb {
 	return Verb{
-		name:    name,
-		names:   names,
-		owner:   owner,
-		perms:   perms,
-		argSpec: argSpec,
-		code:    code,
+		name:       name,
+		names:      names,
+		lowerNames: loweredNames(names),
+		owner:      owner,
+		perms:      perms,
+		argSpec:    argSpec,
+		code:       code,
 		// A verb constructed with non-empty source already has a program. An
 		// empty/nil code slice means "no program yet" (add_verb, or the loader's
 		// metadata pass before the verb-code section is read); SetCode promotes
 		// it to hasProgram=true when a program entry is actually present.
 		hasProgram: len(code) > 0,
 	}
+}
+
+// loweredNames returns the pre-lowercased alias list for dispatch matching.
+func loweredNames(names []string) []string {
+	lower := make([]string, len(names))
+	for i, n := range names {
+		lower[i] = strings.ToLower(n)
+	}
+	return lower
 }
 
 // SetCode replaces the verb's source lines. It exists for the loader in
