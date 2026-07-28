@@ -33,9 +33,9 @@ type dirSegment struct {
 }
 
 type objectDir struct {
-	growMu   sync.Mutex                     // serializes segment-list growth only
-	segments atomic.Pointer[[]*dirSegment]  // grown copy-on-write; entries never change once set
-	count    atomic.Int64                   // number of live slots, for len()
+	growMu   sync.Mutex                    // serializes segment-list growth only
+	segments atomic.Pointer[[]*dirSegment] // grown copy-on-write; entries never change once set
+	count    atomic.Int64                  // number of live slots, for len()
 }
 
 func (d *objectDir) segs() []*dirSegment {

@@ -40,7 +40,7 @@ type readTSShard struct {
 }
 
 type Store struct {
-	mu          sync.RWMutex
+	mu  sync.RWMutex
 	dir objectDir // segmented lock-free directory: id -> *objectSlot
 	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
