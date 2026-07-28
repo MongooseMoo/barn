@@ -1,0 +1,96 @@
+package builtins
+
+import (
+	"regexp"
+	"sync"
+)
+
+// MOO code calls match()/rmatch() with a small recurring set of patterns
+// ($string_utils:regexp_quote alone runs rmatch(s, "[][$^.*+?%].*") on every
+// call), so re-translating and re-compiling per call dominated allocation on
+// the Mongoose workload (~3.9GB per 28s profile in regexp/syntax).
+//
+// The cache is bounded: MOO code can synthesize unlimited distinct patterns, so
+// the map is dropped wholesale once it exceeds regexpCacheCap rather than grown.
+// Wholesale eviction keeps the hit path a single RLock + map read; entries in
+// flight stay valid because *regexp.Regexp is immutable and callers hold their
+// own reference.
+const regexpCacheCap = 1024
+
+// regexpCacheKey must capture every input to the compiled pattern. Case and
+// anchoring are folded into the Go pattern by the callers, not into the MOO
+// pattern, so both flags are part of the key.
+type regexpCacheKey struct {
+	pattern       string
+	caseSensitive bool
+	anchored      bool
+}
+
+// regexpCacheEntry also memoizes failures: an invalid pattern costs the same
+// translate+compile work as a valid one and is equally repeatable from MOO.
+type regexpCacheEntry struct {
+	re  *regexp.Regexp
+	err error
+}
+
+var (
+	regexpCacheMu sync.RWMutex
+	regexpCache   = make(map[regexpCacheKey]regexpCacheEntry)
+)
+
+// cachedMOOPattern returns the compiled Go regexp for a MOO pattern.
+// caseSensitive=false prefixes "(?i)"; anchored=true wraps the result in
+// "^(?:...)" for rmatch's left-anchored scan. Results and errors are identical
+// to translating and compiling on every call.
+func cachedMOOPattern(pattern string, caseSensitive, anchored bool) (*regexp.Regexp, error) {
+	key := regexpCacheKey{pattern: pattern, caseSensitive: caseSensitive, anchored: anchored}
+
+	regexpCacheMu.RLock()
+	entry, ok := regexpCache[key]
+	regexpCacheMu.RUnlock()
+	if ok {
+		return entry.re, entry.err
+	}
+
+	entry = compileMOOPattern(pattern, caseSensitive, anchored)
+
+	regexpCacheMu.Lock()
+	if len(regexpCache) >= regexpCacheCap {
+		regexpCache = make(map[regexpCacheKey]regexpCacheEntry, regexpCacheCap)
+	}
+	regexpCache[key] = entry
+	regexpCacheMu.Unlock()
+
+	return entry.re, entry.err
+}
+
+func compileMOOPattern(pattern string, caseSensitive, anchored bool) regexpCacheEntry {
+	goPattern, err := mooPatternToGoRegex(pattern)
+	if err != nil {
+		return regexpCacheEntry{err: err}
+	}
+	pat := goPattern
+	if !caseSensitive {
+		pat = "(?i)" + pat
+	}
+	if anchored {
+		pat = "^(?:" + pat + ")"
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return regexpCacheEntry{err: err}
+	}
+	return regexpCacheEntry{re: re}
+}
+
+func resetRegexpCacheForTest() {
+	regexpCacheMu.Lock()
+	regexpCache = make(map[regexpCacheKey]regexpCacheEntry)
+	regexpCacheMu.Unlock()
+}
+
+func regexpCacheLenForTest() int {
+	regexpCacheMu.RLock()
+	defer regexpCacheMu.RUnlock()
+	return len(regexpCache)
+}

@@ -648,17 +648,7 @@ func builtinMatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		caseSensitive = args[2].Truthy()
 	}
 
-	// Convert MOO pattern to Go regex
-	goPattern, err := mooPatternToGoRegex(pattern)
-	if err != nil {
-		return types.Err(types.E_INVARG)
-	}
-
-	pat := goPattern
-	if !caseSensitive {
-		pat = "(?i)" + goPattern
-	}
-	re, err := regexp.Compile(pat)
+	re, err := cachedMOOPattern(pattern, caseSensitive, false)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -695,17 +685,7 @@ func builtinRmatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		caseSensitive = args[2].Truthy()
 	}
 
-	// Convert MOO pattern to Go regex
-	goPattern, err := mooPatternToGoRegex(pattern)
-	if err != nil {
-		return types.Err(types.E_INVARG)
-	}
-
-	pat := goPattern
-	if !caseSensitive {
-		pat = "(?i)" + goPattern
-	}
-	re, err := regexp.Compile("^(?:" + pat + ")")
+	re, err := cachedMOOPattern(pattern, caseSensitive, true)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -886,8 +866,8 @@ func buildMatchResult(subject string, loc []int) types.Value {
 func mooPatternToGoRegex(pattern string) (string, error) {
 	var result strings.Builder
 	i := 0
-	inClass := false     // inside [...] — MOO gives '%' no special meaning there
-	classStart := -1     // index of the first member position (after '[' or '[^')
+	inClass := false // inside [...] — MOO gives '%' no special meaning there
+	classStart := -1 // index of the first member position (after '[' or '[^')
 	for i < len(pattern) {
 		if inClass {
 			c := pattern[i]
