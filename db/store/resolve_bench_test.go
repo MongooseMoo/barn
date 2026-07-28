@@ -72,6 +72,45 @@ func BenchmarkTxnFindVerbMissing(b *testing.B) {
 	}
 }
 
+// The *NoMemo variants privatize an object first, which is what every writing
+// task does and what permanently disables the resolution memo. They therefore
+// measure the reusable-scratch change on its own, with no memoization at all —
+// the pessimistic case, and directly comparable to the same benchmark run
+// against master.
+func BenchmarkTxnFindVerbAncestryNoMemo(b *testing.B) {
+	const depth = 6
+	s := benchChainStore(b, depth, 8)
+	leaf := types.ObjID(depth - 1)
+	tx := s.BeginReadOnly(0)
+	defer tx.Release()
+	tx.mutableObject(leaf)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, err := tx.findVerb(leaf, "target", true); err != nil {
+			b.Fatalf("findVerb: %v", err)
+		}
+	}
+}
+
+func BenchmarkTxnFindPropertyAncestryNoMemo(b *testing.B) {
+	const depth = 6
+	s := benchChainStore(b, depth, 8)
+	leaf := types.ObjID(depth - 1)
+	tx := s.BeginReadOnly(0)
+	defer tx.Release()
+	tx.mutableObject(leaf)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, _, ec := tx.findProperty(leaf, "targetprop"); ec != types.E_NONE {
+			b.Fatalf("findProperty: %v", ec)
+		}
+	}
+}
+
 func BenchmarkTxnFindPropertyAncestry(b *testing.B) {
 	const depth = 6
 	s := benchChainStore(b, depth, 8)
