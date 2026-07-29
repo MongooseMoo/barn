@@ -38,7 +38,7 @@ func (w *Writer) writeQueuedTasks() error {
 // writeQueuedTask writes a single queued (forked) task
 // Format:
 //
-//	Header: "{unused} {firstLineno} {id} {st}"
+//	Header: "{unused} {firstLineno} {st} {id}"
 //	ActivationAsPI
 //	RtEnv: "{count} variables" + name/value pairs
 //	Code: lines ending with "."
@@ -47,7 +47,7 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 		return fmt.Errorf("task has no ForkInfo")
 	}
 
-	// Header: {unused} {firstLineno} {id} {st}
+	// Header: {unused} {firstLineno} {st} {id}
 	// unused = 0, firstLineno = 1, id = task ID, st = queue time unix
 	firstLineno := 1
 	if len(t.CallStack) > 0 {
@@ -55,7 +55,7 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 	}
 	st := t.StartTime.Unix()
 
-	if _, err := fmt.Fprintf(w.w, "0 %d %d %d\n", firstLineno, t.ID, st); err != nil {
+	if _, err := fmt.Fprintf(w.w, "0 %d %d %d\n", firstLineno, st, t.ID); err != nil {
 		return err
 	}
 

@@ -48,7 +48,9 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 	got := buf.String()
 	for _, want := range []string{
 		"1 queued tasks\n",
-		"0 9 5 123\n",
+		// Toast tasks.cc::write_forked_task writes the rounded start time
+		// before the task id: "0 <line> <start> <id>".
+		"0 9 123 5\n",
 		"1 variables\nx\n0\n1\n",
 		"x = 1;\n.\n",
 	} {
