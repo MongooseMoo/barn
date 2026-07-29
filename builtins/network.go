@@ -1431,6 +1431,7 @@ func builtinReadHTTP(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(value)
 	}
 
+	t.IsHTTPReadSuspended = true
 	task.GetManager().SuspendTask(t, -1)
 	return types.Suspend(-1)
 }

@@ -356,6 +356,23 @@ func TestInterruptedExecTaskWriterReaderQueuesEIntrptContinuation(t *testing.T) 
 	}
 }
 
+func TestHTTPReadingTaskUsesInterruptedSection(t *testing.T) {
+	writer := NewWriter(&bytes.Buffer{}, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots(nil, []task.Snapshot{{
+		ID:                  37,
+		ReadingPlayer:       types.ObjNothing,
+		IsHTTPReadSuspended: true,
+	}})
+
+	if len(writer.suspendedTasks) != 0 || len(writer.interruptedTasks) != 1 {
+		t.Fatalf(
+			"task sections = %d suspended, %d interrupted; want 0, 1",
+			len(writer.suspendedTasks),
+			len(writer.interruptedTasks),
+		)
+	}
+}
+
 func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	queued := task.NewTask(31, 2, 100, 1)
 	queued.StartTime = time.Unix(123, 0)

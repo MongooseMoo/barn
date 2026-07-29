@@ -124,12 +124,13 @@ type Task struct {
 	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
-	WakeTime        time.Time
-	QueueSeq        int64       // Monotonic enqueue order for deterministic same-time scheduling
-	WakeValue       types.Value // Value to return when resumed
-	IsExecSuspended bool        // True if suspended by exec() (can't resume, only kill)
-	ExecCommandName string      // Toast-style executable label while suspended by exec()
-	ReadingPlayer   types.ObjID // Player this task is read()ing from (ObjNothing = not reading)
+	WakeTime            time.Time
+	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
+	WakeValue           types.Value // Value to return when resumed
+	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
+	ExecCommandName     string      // Toast-style executable label while suspended by exec()
+	IsHTTPReadSuspended bool        // True while suspended by read_http()
+	ReadingPlayer       types.ObjID // Player this task is read()ing from (ObjNothing = not reading)
 
 	// For forked tasks
 	ForkInfo     *types.ForkInfo // Fork information (only for forked tasks)
@@ -438,6 +439,7 @@ func (t *Task) Resume(value types.Value) bool {
 	}
 	t.State = TaskQueued
 	t.WakeValue = value
+	t.IsHTTPReadSuspended = false
 	// An indefinitely-suspended task carries the far-future
 	// IndefiniteSuspendStartTime sentinel so it sorts last in queued_tasks().
 	// Once explicitly resumed it must become runnable now, but the scheduler's
@@ -489,6 +491,7 @@ func (t *Task) Kill() {
 	}
 	t.IsExecSuspended = false
 	t.ExecCommandName = ""
+	t.IsHTTPReadSuspended = false
 }
 
 // ToQueuedTaskInfo returns task info for queued_tasks().

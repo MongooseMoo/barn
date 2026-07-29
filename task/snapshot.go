@@ -17,22 +17,23 @@ type ForkSnapshot struct {
 
 // Snapshot is an immutable copy of the task fields the database writer needs.
 type Snapshot struct {
-	ID              int64
-	Owner           types.ObjID
-	State           TaskState
-	StartTime       time.Time
-	WakeValue       types.Value
-	TaskLocal       types.Value
-	CallStack       []ActivationFrame
-	Fork            *ForkSnapshot
-	Programmer      types.ObjID
-	VerbLoc         types.ObjID
-	VerbName        string
-	This            types.ObjID
-	ReadingPlayer   types.ObjID
-	IsExecSuspended bool
-	ExecCommandName string
-	VM              *VMSnapshot
+	ID                  int64
+	Owner               types.ObjID
+	State               TaskState
+	StartTime           time.Time
+	WakeValue           types.Value
+	TaskLocal           types.Value
+	CallStack           []ActivationFrame
+	Fork                *ForkSnapshot
+	Programmer          types.ObjID
+	VerbLoc             types.ObjID
+	VerbName            string
+	This                types.ObjID
+	ReadingPlayer       types.ObjID
+	IsExecSuspended     bool
+	ExecCommandName     string
+	IsHTTPReadSuspended bool
+	VM                  *VMSnapshot
 }
 
 // VMSnapshot is the complete resumable state of a yielded bytecode VM.
@@ -86,20 +87,21 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 	defer t.mu.RUnlock()
 
 	snapshot := Snapshot{
-		ID:              t.ID,
-		Owner:           t.Owner,
-		State:           t.State,
-		StartTime:       t.StartTime,
-		WakeValue:       t.WakeValue,
-		TaskLocal:       t.TaskLocal,
-		CallStack:       cloneActivationFrames(t.CallStack),
-		Programmer:      t.Programmer,
-		VerbLoc:         t.VerbLoc,
-		VerbName:        t.VerbName,
-		This:            t.This,
-		ReadingPlayer:   t.ReadingPlayer,
-		IsExecSuspended: t.IsExecSuspended,
-		ExecCommandName: t.ExecCommandName,
+		ID:                  t.ID,
+		Owner:               t.Owner,
+		State:               t.State,
+		StartTime:           t.StartTime,
+		WakeValue:           t.WakeValue,
+		TaskLocal:           t.TaskLocal,
+		CallStack:           cloneActivationFrames(t.CallStack),
+		Programmer:          t.Programmer,
+		VerbLoc:             t.VerbLoc,
+		VerbName:            t.VerbName,
+		This:                t.This,
+		ReadingPlayer:       t.ReadingPlayer,
+		IsExecSuspended:     t.IsExecSuspended,
+		ExecCommandName:     t.ExecCommandName,
+		IsHTTPReadSuspended: t.IsHTTPReadSuspended,
 	}
 	if t.ForkInfo != nil {
 		var variableNames []string

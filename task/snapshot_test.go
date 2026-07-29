@@ -13,6 +13,7 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 	task.SetState(TaskQueued)
 	task.IsExecSuspended = true
 	task.ExecCommandName = "executables/sleep"
+	task.IsHTTPReadSuspended = true
 	task.ForkInfo = &types.ForkInfo{
 		Variables: map[string]types.Value{
 			"x": types.NewInt(1),
@@ -47,6 +48,9 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 	}
 	if !snapshot.IsExecSuspended || snapshot.ExecCommandName != "executables/sleep" {
 		t.Errorf("snapshot exec state = %t %q", snapshot.IsExecSuspended, snapshot.ExecCommandName)
+	}
+	if !snapshot.IsHTTPReadSuspended {
+		t.Error("snapshot lost HTTP read suspension state")
 	}
 
 	snapshot.Fork.Variables["x"] = types.NewInt(3)
