@@ -11,6 +11,8 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 	task := NewTaskFull(42, 7, nil, 100, 1)
 	task.StartTime = time.Unix(123, 0)
 	task.SetState(TaskQueued)
+	task.IsExecSuspended = true
+	task.ExecCommandName = "executables/sleep"
 	task.ForkInfo = &types.ForkInfo{
 		Variables: map[string]types.Value{
 			"x": types.NewInt(1),
@@ -42,6 +44,9 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 	}
 	if got, want := snapshot.CallStack[0].Args[0].String(), types.NewInt(2).String(); got != want {
 		t.Errorf("snapshot call stack arg = %s, want %s", got, want)
+	}
+	if !snapshot.IsExecSuspended || snapshot.ExecCommandName != "executables/sleep" {
+		t.Errorf("snapshot exec state = %t %q", snapshot.IsExecSuspended, snapshot.ExecCommandName)
 	}
 
 	snapshot.Fork.Variables["x"] = types.NewInt(3)

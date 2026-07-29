@@ -13,7 +13,7 @@ func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
 	w.suspendedTasks = w.suspendedTasks[:0]
 	w.interruptedTasks = w.interruptedTasks[:0]
 	for _, snapshot := range suspended {
-		if snapshot.ReadingPlayer != types.ObjNothing {
+		if snapshot.ReadingPlayer != types.ObjNothing || snapshot.IsExecSuspended {
 			w.interruptedTasks = append(w.interruptedTasks, snapshot)
 		} else {
 			w.suspendedTasks = append(w.suspendedTasks, snapshot)
@@ -118,7 +118,14 @@ func (w *Writer) writeInterruptedTasks() error {
 		return err
 	}
 	for _, interrupted := range w.interruptedTasks {
-		if err := w.writeString(fmt.Sprintf("%d interrupted reading task", interrupted.ID)); err != nil {
+		status := "interrupted reading task"
+		if interrupted.IsExecSuspended {
+			if interrupted.ExecCommandName == "" {
+				return fmt.Errorf("interrupted exec task %d has no command name", interrupted.ID)
+			}
+			status = interrupted.ExecCommandName
+		}
+		if err := w.writeString(fmt.Sprintf("%d %s", interrupted.ID, status)); err != nil {
 			return err
 		}
 		if err := w.writeValue(interrupted.TaskLocal); err != nil {

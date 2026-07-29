@@ -480,11 +480,11 @@ func (database *Database) readInterruptedTask(r *bufio.Reader) (*SuspendedTask, 
 	if err != nil {
 		return nil, fmt.Errorf("read task header: %w", err)
 	}
-	fields := strings.Fields(header)
-	if len(fields) != 4 || strings.Join(fields[1:], " ") != "interrupted reading task" {
+	idText, status, found := strings.Cut(header, " ")
+	if !found || strings.TrimSpace(status) == "" {
 		return nil, fmt.Errorf("parse interrupted task header %q", header)
 	}
-	id, err := strconv.ParseInt(fields[0], 10, 64)
+	id, err := strconv.ParseInt(idText, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("parse interrupted task id: %w", err)
 	}
