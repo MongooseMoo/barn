@@ -23,21 +23,23 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
-	filterPlayer := types.ObjID(0)
-	if len(args) >= 1 {
-		target, ok := parseConnectionTarget(args[0])
-		if !ok {
+	includeVariables := false
+	if len(args) == 1 {
+		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		filterPlayer = target
+		includeVariables = args[0].Truthy()
 	}
 
 	countMode := false
 	if len(args) == 2 {
+		if args[0].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
 		if args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
-		countMode = args[1].Int() != 0
+		countMode = args[1].Truthy()
 	}
 
 	mgr := task.GetManager()
@@ -58,10 +60,10 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 	result := make([]types.Value, 0, len(tasks))
 	for _, t := range tasks {
-		if filterPlayer > 0 && t.Owner != filterPlayer {
+		info := t.ToQueuedTaskInfo(includeVariables)
+		if !ctx.IsWizard && info.Get(5).Obj() != ctx.Programmer {
 			continue
 		}
-		info := t.ToQueuedTaskInfo()
 		thisValue := info.Get(9)
 		if thisValue.Type() == types.TYPE_ANON && !ctx.IsWizard {
 			owner, errCode := objectOwnerForRead(ctx, thisValue.ID())

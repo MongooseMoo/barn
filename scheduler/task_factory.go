@@ -198,6 +198,10 @@ func (s *Scheduler) Fork(ctx *kernel.TaskContext, program *bytecode.Program, del
 // Implements task.ForkCreator interface.
 func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) int64 {
 	taskID := s.newTaskID()
+	programmer := parent.Programmer
+	if parent.Context != nil {
+		programmer = parent.Context.Programmer
+	}
 
 	var t *task.Task
 
@@ -247,7 +251,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Kind = task.TaskForked
 	t.IsForked = true
 	t.ForkInfo = forkInfo
-	t.Programmer = parent.Programmer // Inherit permissions
+	t.Programmer = programmer
 	t.This = forkInfo.ThisObj
 	t.Caller = forkInfo.Caller
 	t.VerbName = forkInfo.Verb
@@ -259,9 +263,9 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	t.Context.ThisObj = forkInfo.ThisObj
 	t.Context.ThisValue = forkInfo.ThisValue
 	t.Context.Player = forkInfo.Player
-	t.Context.Programmer = parent.Programmer
+	t.Context.Programmer = programmer
 	t.Context.Verb = forkInfo.Verb
-	t.Context.IsWizard = s.isWizard(parent.Programmer)
+	t.Context.IsWizard = s.isWizard(programmer)
 	t.Context.Task = t // Attach task to context for task_local access
 
 	// Push initial activation frame for the fork body.
@@ -271,7 +275,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		This:       forkInfo.ThisObj,
 		ThisValue:  forkInfo.ThisValue,
 		Player:     forkInfo.Player,
-		Programmer: parent.Programmer,
+		Programmer: programmer,
 		Caller:     forkInfo.Caller,
 		Verb:       forkInfo.Verb,
 		VerbLoc:    forkInfo.VerbLoc,

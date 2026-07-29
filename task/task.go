@@ -480,10 +480,11 @@ func (t *Task) Kill() {
 	t.ExecCommandName = ""
 }
 
-// ToQueuedTaskInfo returns task info for queued_tasks()
-// Format: {task_id, start_time, clock_id, bg_ticks, programmer, verb_loc, verb_name, line, this, bytes}
+// ToQueuedTaskInfo returns task info for queued_tasks().
+// The optional final map is present when queued_tasks(1) requests variables.
+// Format: {task_id, start_time, clock_id, bg_ticks, programmer, verb_loc, verb_name, line, this, bytes[, variables]}
 // Note: For primitive prototype calls, 'this' is #-1 (matching Toast).
-func (t *Task) ToQueuedTaskInfo() types.Value {
+func (t *Task) ToQueuedTaskInfo(includeVariables bool) types.Value {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
@@ -508,7 +509,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		verbName = t.VerbName
 		verbLoc = t.VerbLoc
 		lineNumber = 1
-		programmer = t.Owner
+		programmer = t.Programmer
 		thisObj = t.This
 	}
 	if thisVal.IsNone() {
@@ -523,7 +524,7 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		startValue = types.NewStr(t.ExecCommandName)
 	}
 
-	return types.NewList([]types.Value{
+	values := []types.Value{
 		types.NewInt(t.ID),              // [1] task_id
 		startValue,                      // [2] start_time or exec executable label
 		types.NewInt(0),                 // [3] obsolete clock ID
@@ -534,5 +535,19 @@ func (t *Task) ToQueuedTaskInfo() types.Value {
 		types.NewInt(int64(lineNumber)), // [8] line_number
 		thisVal,                         // [9] this
 		types.NewInt(bytes),             // [10] bytes
-	})
+	}
+	if includeVariables {
+		var variablePairs [][2]types.Value
+		if t.ForkInfo != nil {
+			variablePairs = make([][2]types.Value, 0, len(t.ForkInfo.Variables))
+			for name, value := range t.ForkInfo.Variables {
+				variablePairs = append(variablePairs, [2]types.Value{
+					types.NewStr(name),
+					value,
+				})
+			}
+		}
+		values = append(values, types.NewMap(variablePairs))
+	}
+	return types.NewList(values)
 }

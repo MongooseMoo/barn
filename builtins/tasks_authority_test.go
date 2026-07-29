@@ -98,3 +98,123 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		}
 	}
 }
+
+func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
+	const programmerTwoTaskID = int64(91873)
+	const programmerThreeTaskID = int64(91874)
+
+	programmerTwoTask := task.NewTask(programmerTwoTaskID, 3, 1000, 1)
+	programmerTwoTask.VerbName = "programmer_two_delayed"
+	programmerTwoTask.ForkInfo = &types.ForkInfo{
+		Variables: map[string]types.Value{
+			"marker": types.NewStr("programmer-two"),
+		},
+	}
+	programmerTwoTask.PushFrame(task.ActivationFrame{
+		This:       0,
+		ThisValue:  types.NewObj(0),
+		Programmer: 2,
+		Verb:       "programmer_two_delayed",
+		VerbLoc:    0,
+		Player:     3,
+	})
+	programmerTwoTask.SetState(task.TaskQueued)
+
+	programmerThreeTask := task.NewTask(programmerThreeTaskID, 2, 1000, 1)
+	programmerThreeTask.VerbName = "programmer_three_delayed"
+	programmerThreeTask.ForkInfo = &types.ForkInfo{
+		Variables: map[string]types.Value{
+			"marker": types.NewStr("programmer-three"),
+		},
+	}
+	programmerThreeTask.PushFrame(task.ActivationFrame{
+		This:       0,
+		ThisValue:  types.NewObj(0),
+		Programmer: 3,
+		Verb:       "programmer_three_delayed",
+		VerbLoc:    0,
+		Player:     2,
+	})
+	programmerThreeTask.SetState(task.TaskQueued)
+
+	manager := task.GetManager()
+	manager.RegisterTask(programmerTwoTask)
+	manager.RegisterTask(programmerThreeTask)
+	defer manager.RemoveTask(programmerTwoTaskID)
+	defer manager.RemoveTask(programmerThreeTaskID)
+
+	wizard := kernel.NewTaskContext()
+	wizard.Programmer = 99
+	wizard.IsWizard = true
+
+	plainResult := builtinQueuedTasks(wizard, nil)
+	if plainResult.IsError() {
+		t.Fatalf("queued_tasks() failed: %v", plainResult.Error)
+	}
+	plainFound := false
+	for _, entry := range plainResult.Val.Elements() {
+		if entry.Get(1).Int() != programmerTwoTaskID {
+			continue
+		}
+		plainFound = true
+		if entry.Len() != 10 {
+			t.Fatalf("queued_tasks() entry length = %d, want 10", entry.Len())
+		}
+	}
+	if !plainFound {
+		t.Fatal("wizard queued_tasks() did not expose another programmer's task")
+	}
+
+	extendedResult := builtinQueuedTasks(wizard, []types.Value{types.NewInt(1)})
+	if extendedResult.IsError() {
+		t.Fatalf("queued_tasks(1) failed: %v", extendedResult.Error)
+	}
+	extendedFound := false
+	for _, entry := range extendedResult.Val.Elements() {
+		if entry.Get(1).Int() != programmerTwoTaskID {
+			continue
+		}
+		extendedFound = true
+		if entry.Len() != 11 {
+			t.Fatalf("queued_tasks(1) entry length = %d, want 11", entry.Len())
+		}
+		marker, ok := entry.Get(11).MapGet(types.NewStr("marker"))
+		if !ok || marker.Str() != "programmer-two" {
+			t.Fatalf("queued_tasks(1) marker = %v, %v; want programmer-two, true", marker, ok)
+		}
+	}
+	if !extendedFound {
+		t.Fatal("wizard queued_tasks(1) did not expose another programmer's task")
+	}
+
+	programmer := kernel.NewTaskContext()
+	programmer.Programmer = 2
+
+	visibleResult := builtinQueuedTasks(programmer, nil)
+	if visibleResult.IsError() {
+		t.Fatalf("programmer queued_tasks() failed: %v", visibleResult.Error)
+	}
+	sawOwnProgrammer := false
+	for _, entry := range visibleResult.Val.Elements() {
+		switch entry.Get(1).Int() {
+		case programmerTwoTaskID:
+			sawOwnProgrammer = true
+		case programmerThreeTaskID:
+			t.Fatal("nonwizard queued_tasks() exposed another programmer's task")
+		}
+	}
+	if !sawOwnProgrammer {
+		t.Fatal("nonwizard queued_tasks() omitted its own programmer task")
+	}
+
+	countResult := builtinQueuedTasks(
+		programmer,
+		[]types.Value{types.NewInt(0), types.NewInt(1)},
+	)
+	if countResult.IsError() {
+		t.Fatalf("queued_tasks(0, 1) failed: %v", countResult.Error)
+	}
+	if got, want := countResult.Val.Int(), int64(visibleResult.Val.Len()); got != want {
+		t.Fatalf("queued_tasks(0, 1) = %d, want visible count %d", got, want)
+	}
+}

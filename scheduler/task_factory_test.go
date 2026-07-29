@@ -5,6 +5,7 @@ import (
 
 	"barn/builtins"
 	dbstore "barn/db/store"
+	"barn/task"
 	"barn/types"
 	"barn/vm"
 )
@@ -33,5 +34,41 @@ func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {
 	configureVMStackLimit(machine)
 	if machine.MaxStackDepth != 60 {
 		t.Fatalf("VM max stack depth = %d, want live $server_options value 60", machine.MaxStackDepth)
+	}
+}
+
+func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewScheduler(store)
+	defer s.Stop()
+
+	program := compileTestProgram(t, s.registry, "return 1;")
+	parent := task.NewTaskFull(6101, 3, program, 1000, 1)
+	parent.Programmer = 3
+	parent.Context.Programmer = 2
+
+	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
+		Body:      [3]interface{}{program, 0, len(program.Code)},
+		ThisObj:   0,
+		ThisValue: types.NewObj(0),
+		Player:    3,
+		Caller:    3,
+		Verb:      "delayed",
+		VerbLoc:   0,
+		Variables: map[string]types.Value{
+			"marker": types.NewStr("current-programmer"),
+		},
+	})
+	defer task.GetManager().RemoveTask(forkID)
+
+	forked := task.GetManager().GetTask(forkID)
+	if forked == nil {
+		t.Fatalf("forked task %d was not registered", forkID)
+	}
+	if got, want := forked.Programmer, types.ObjID(2); got != want {
+		t.Fatalf("forked task programmer = #%d, want current task programmer #%d", got, want)
+	}
+	if got, want := forked.ToQueuedTaskInfo(false).Get(5).Obj(), types.ObjID(2); got != want {
+		t.Fatalf("queued task programmer = #%d, want current task programmer #%d", got, want)
 	}
 }
