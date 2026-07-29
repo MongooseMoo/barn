@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	"barn/types"
 	"bufio"
 	"crypto/tls"
 	"net"
@@ -287,6 +288,28 @@ func (t *recordingTransport) isClosed() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.closed
+}
+
+func TestCheckpointConnectionsPreservesPlayerListenerPairs(t *testing.T) {
+	cm := NewConnectionManager(7777)
+
+	unlogged := cm.NewConnectionFromTransport(newRecordingTransport("unlogged"))
+	unlogged.SetListener(4, 7777, true)
+
+	loggedIn := cm.NewConnectionFromTransport(newRecordingTransport("logged-in"))
+	loggedIn.SetListener(5, 8888, false)
+	loggedIn.SetPlayer(9)
+
+	got := cm.CheckpointConnections()
+	if len(got) != 2 {
+		t.Fatalf("checkpoint connection count = %d, want 2", len(got))
+	}
+	if got[0].Player != types.ObjID(-unlogged.ID) || got[0].Listener != 4 {
+		t.Fatalf("unlogged checkpoint connection = %#v, want player %d listener 4", got[0], -unlogged.ID)
+	}
+	if got[1].Player != 9 || got[1].Listener != 5 {
+		t.Fatalf("logged-in checkpoint connection = %#v, want player 9 listener 5", got[1])
+	}
 }
 
 func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {

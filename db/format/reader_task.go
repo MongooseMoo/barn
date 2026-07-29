@@ -553,11 +553,28 @@ func (database *Database) readActiveConnections(r *bufio.Reader) error {
 		return fmt.Errorf("parse active connections count from %q: %w", line, err)
 	}
 
-	// Skip connection data lines (one per connection)
+	withListeners := strings.Contains(line, "with listeners")
+	database.ActiveConnections = make([]ActiveConnection, 0, count)
 	for i := 0; i < count; i++ {
-		if _, err := r.ReadString('\n'); err != nil {
+		connectionLine, err := r.ReadString('\n')
+		if err != nil {
 			return fmt.Errorf("read connection %d: %w", i, err)
 		}
+
+		var player, listener int64
+		if withListeners {
+			if _, err := fmt.Sscanf(connectionLine, "%d %d", &player, &listener); err != nil {
+				return fmt.Errorf("parse connection %d from %q: %w", i, connectionLine, err)
+			}
+		} else {
+			if _, err := fmt.Sscanf(connectionLine, "%d", &player); err != nil {
+				return fmt.Errorf("parse connection %d from %q: %w", i, connectionLine, err)
+			}
+		}
+		database.ActiveConnections = append(database.ActiveConnections, ActiveConnection{
+			Player:   types.ObjID(player),
+			Listener: types.ObjID(listener),
+		})
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package server
 
 import (
 	"barn/builtins"
+	dbformat "barn/db/format"
 	"barn/types"
 	"crypto/tls"
 	"errors"
@@ -400,6 +401,34 @@ func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Co
 	cm.mu.Unlock()
 
 	return conn
+}
+
+// CheckpointConnections returns the active player/listener pairs in connection
+// creation order. Unlogged connections use their public negative connection ID.
+func (cm *ConnectionManager) CheckpointConnections() []dbformat.ActiveConnection {
+	cm.mu.Lock()
+	connections := make([]*Connection, 0, len(cm.connections))
+	for _, conn := range cm.connections {
+		connections = append(connections, conn)
+	}
+	cm.mu.Unlock()
+
+	sort.Slice(connections, func(i, j int) bool {
+		return connections[i].ID < connections[j].ID
+	})
+
+	result := make([]dbformat.ActiveConnection, 0, len(connections))
+	for _, conn := range connections {
+		player := types.ObjID(-conn.ID)
+		if conn.IsLoggedIn() {
+			player = conn.GetPlayer()
+		}
+		result = append(result, dbformat.ActiveConnection{
+			Player:   player,
+			Listener: conn.ListenerObject(),
+		})
+	}
+	return result
 }
 
 // listContainsString checks if a MOO list contains a string value.

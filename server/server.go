@@ -29,6 +29,7 @@ type Server struct {
 	scheduler          *runtime.Scheduler
 	input              *InputProcessor
 	connManager        *ConnectionManager
+	checkpointedConns  []dbformat.ActiveConnection
 	dbPath             string
 	listenerSpecs      []builtins.ListenerSpec
 	checkpointInterval time.Duration
@@ -82,6 +83,7 @@ func (s *Server) LoadDatabase() error {
 	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.options)
 	s.input = NewInputProcessor(s.store, s.scheduler)
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
+	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
 
 	// Counters are incremented where the events happen; these two are read on
 	// demand because "how many right now" is a question about live state.
@@ -210,6 +212,8 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen failed: %w", err)
 	}
 
+	s.callCheckpointedConnectionHooks()
+
 	// Call #0:server_started()
 	if err := s.callServerStarted(); err != nil {
 		slog.Warn("#0:server_started() failed", slog.Any("err", err))
@@ -294,7 +298,8 @@ func (s *Server) checkpoint() error {
 	start := time.Now()
 
 	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
-	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.Snapshot(), queuedTasks, suspendedTasks); err != nil {
+	activeConnections := s.connManager.CheckpointConnections()
+	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.Snapshot(), queuedTasks, suspendedTasks, activeConnections); err != nil {
 		s.callCheckpointFinished(false)
 		return err
 	}
@@ -388,6 +393,15 @@ func (s *Server) Panic(message string) error {
 	s.mu.Unlock()
 	s.cancel()
 	return err
+}
+
+// callCheckpointedConnectionHooks reports connections present at checkpoint
+// time as disconnected before the server_started hook runs.
+func (s *Server) callCheckpointedConnectionHooks() {
+	for _, connection := range s.checkpointedConns {
+		s.input.callUserHook(connection.Listener, "user_disconnected", connection.Player)
+	}
+	s.checkpointedConns = nil
 }
 
 // callServerStarted calls #0:server_started()

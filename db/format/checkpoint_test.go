@@ -13,7 +13,7 @@ func TestWriteCheckpointWritesOnlyToNewFile(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "checkpoint.db")
-	if err := WriteCheckpoint(path, loaded.NewStoreFromDatabase().Snapshot(), nil, nil); err != nil {
+	if err := WriteCheckpoint(path, loaded.NewStoreFromDatabase().Snapshot(), nil, nil, nil); err != nil {
 		t.Fatalf("WriteCheckpoint failed: %v", err)
 	}
 

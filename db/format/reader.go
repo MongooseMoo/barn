@@ -21,6 +21,7 @@ type Database struct {
 	PendingFinalizations []types.Value
 	QueuedTasks          []*QueuedTask
 	SuspendedTasks       []*SuspendedTask
+	ActiveConnections    []ActiveConnection
 	startupRepairLogs    []string
 
 	// savedWaifs tracks WAIFs during loading for reference resolution.
@@ -70,6 +71,12 @@ type QueuedTask struct {
 // SuspendedTask represents a suspended task
 type SuspendedTask struct {
 	Snapshot task.Snapshot
+}
+
+// ActiveConnection is a player/listener pair saved at checkpoint time.
+type ActiveConnection struct {
+	Player   types.ObjID
+	Listener types.ObjID
 }
 
 // LoadDatabase reads a MOO database from file

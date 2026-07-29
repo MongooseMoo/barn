@@ -29,13 +29,14 @@ const (
 
 // Writer handles serialization of MOO databases to v17 format
 type Writer struct {
-	w                *bufio.Writer
-	snapshot         store.Snapshot
-	waifIndex        map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
-	nextWaifID       int
-	queuedTasks      []task.Snapshot
-	suspendedTasks   []task.Snapshot
-	interruptedTasks []task.Snapshot
+	w                 *bufio.Writer
+	snapshot          store.Snapshot
+	waifIndex         map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
+	nextWaifID        int
+	queuedTasks       []task.Snapshot
+	suspendedTasks    []task.Snapshot
+	interruptedTasks  []task.Snapshot
+	activeConnections []ActiveConnection
 }
 
 // NewWriter creates a writer for database serialization
@@ -95,8 +96,8 @@ func (w *Writer) WriteDatabase() error {
 		return fmt.Errorf("write interrupted tasks: %w", err)
 	}
 
-	// 8. Active connections (always 0 on save)
-	if err := w.writeString("0 active connections with listeners"); err != nil {
+	// 8. Active connections
+	if err := w.writeActiveConnections(); err != nil {
 		return fmt.Errorf("write connections: %w", err)
 	}
 

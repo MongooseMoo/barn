@@ -9,7 +9,12 @@ import (
 )
 
 // WriteCheckpoint writes a database checkpoint to path+".new", never modifying path.
-func WriteCheckpoint(path string, snapshot store.Snapshot, queuedTasks, suspendedTasks []task.Snapshot) error {
+func WriteCheckpoint(
+	path string,
+	snapshot store.Snapshot,
+	queuedTasks, suspendedTasks []task.Snapshot,
+	activeConnections []ActiveConnection,
+) error {
 	outPath := path + ".new"
 	tempPath := path + ".tmp"
 	tempFile, err := os.Create(tempPath)
@@ -19,6 +24,7 @@ func WriteCheckpoint(path string, snapshot store.Snapshot, queuedTasks, suspende
 
 	writer := NewWriter(tempFile, snapshot)
 	writer.SetTaskSnapshots(queuedTasks, suspendedTasks)
+	writer.SetActiveConnections(activeConnections)
 	if err := writer.WriteDatabase(); err != nil {
 		tempFile.Close()
 		os.Remove(tempPath)

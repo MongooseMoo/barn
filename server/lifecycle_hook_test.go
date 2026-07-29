@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"barn/builtins"
+	dbformat "barn/db/format"
 	dbstore "barn/db/store"
 	runtime "barn/scheduler"
 	"barn/types"
@@ -38,6 +39,58 @@ func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	}
 	if value.Type() != types.TYPE_INT || value.Int() != 1 {
 		t.Fatalf("started = %v, want 1 before callServerStarted returns", value)
+	}
+}
+
+func TestCheckpointedConnectionsDisconnectBeforeServerStarted(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, "events", dbstore.NewProperty(types.NewList(nil), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define events: %v", errCode)
+	}
+	addTestVerb(store, system, "user_disconnected",
+		`#0.events = {@#0.events, {"disconnected", player, args[1], this}};`,
+	)
+	addTestVerb(store, system, "server_started",
+		`#0.events = {@#0.events, {"started", player, this}};`,
+	)
+
+	scheduler := runtime.NewScheduler(store)
+	s := &Server{
+		store:     store,
+		scheduler: scheduler,
+		input:     NewInputProcessor(store, scheduler),
+		checkpointedConns: []dbformat.ActiveConnection{{
+			Player:   -7,
+			Listener: 0,
+		}},
+	}
+
+	s.callCheckpointedConnectionHooks()
+	if err := s.callServerStarted(); err != nil {
+		t.Fatalf("call server_started: %v", err)
+	}
+
+	got, errCode := store.PropertyValue(system, "events")
+	if errCode != types.E_NONE {
+		t.Fatalf("read events: %v", errCode)
+	}
+	want := types.NewList([]types.Value{
+		types.NewList([]types.Value{
+			types.NewStr("disconnected"),
+			types.NewObj(-7),
+			types.NewObj(-7),
+			types.NewObj(0),
+		}),
+		types.NewList([]types.Value{
+			types.NewStr("started"),
+			types.NewObj(0),
+			types.NewObj(0),
+		}),
+	})
+	if !got.Equal(want) {
+		t.Fatalf("startup events = %s, want %s", got.String(), want.String())
 	}
 }
 
