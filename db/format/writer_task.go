@@ -117,6 +117,7 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 	vloc := t.VerbLoc
 	verb := t.VerbName
 	verbname := t.VerbName
+	thisValue := types.NewObj(thisObj)
 
 	if len(t.CallStack) > 0 {
 		frame := t.CallStack[0]
@@ -129,6 +130,9 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 		if verbname == "" {
 			verbname = verb
 		}
+		if !frame.ThisValue.IsNone() {
+			thisValue = frame.ThisValue
+		}
 	}
 
 	// Compatibility sentinel written by Toast's write_activ_as_pi.
@@ -136,8 +140,8 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 		return err
 	}
 
-	// temp_this (typed)
-	if err := w.writeValue(types.NewObj(thisObj)); err != nil {
+	// _this (typed)
+	if err := w.writeValue(thisValue); err != nil {
 		return err
 	}
 
