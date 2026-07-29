@@ -78,3 +78,15 @@ func TestWriteQueuedTasksRejectsUnserializableSnapshot(t *testing.T) {
 		t.Fatal("writeQueuedTasks succeeded after silently dropping task 17")
 	}
 }
+
+func TestWriteSuspendedTasksRejectsLossyCheckpoint(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots(nil, []task.Snapshot{{
+		ID: 23,
+	}})
+
+	if err := writer.writeSuspendedTasks(); err == nil {
+		t.Fatal("writeSuspendedTasks succeeded after silently dropping task 23")
+	}
+}

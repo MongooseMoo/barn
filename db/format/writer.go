@@ -241,37 +241,6 @@ func (w *Writer) writeValue(v types.Value) error {
 	}
 }
 
-// writeValueRaw writes a value without type tag (just the raw data)
-// Used for suspended task values where type is in header
-func (w *Writer) writeValueRaw(v types.Value) error {
-	if v.IsNone() {
-		return nil // CLEAR/NONE have no value
-	}
-
-	switch v.Type() {
-	case types.TYPE_INT:
-		return w.writeInt64(v.Int())
-	case types.TYPE_OBJ, types.TYPE_ANON:
-		return w.writeObjID(v.Obj())
-	case types.TYPE_STR:
-		return w.writeString(v.Str())
-	case types.TYPE_ERR:
-		return w.writeInt(int(v.Code()))
-	case types.TYPE_LIST:
-		return w.writeListContents(v)
-	case types.TYPE_FLOAT:
-		return w.writeFloat(v.Float())
-	case types.TYPE_MAP:
-		return w.writeMapContents(v)
-	case types.TYPE_BOOL:
-		return w.writeBool(v.Bool())
-	case types.TYPE_WAIF:
-		return w.writeWaif(v)
-	default:
-		return nil
-	}
-}
-
 // writeListContents writes list contents without type tag (count + items)
 func (w *Writer) writeListContents(l types.Value) error {
 	length := l.Len()
@@ -301,39 +270,6 @@ func (w *Writer) writeMapContents(m types.Value) error {
 		}
 	}
 	return nil
-}
-
-// getTypeCode returns the type code for a value
-func getTypeCode(v types.Value) int {
-	// None (de-boxed nil) is CLEAR. Check before the Type() switch because
-	// None.Type() reports TYPE_INT.
-	if v.IsNone() {
-		return TypeClear
-	}
-	switch v.Type() {
-	case types.TYPE_INT:
-		return TypeInt
-	case types.TYPE_OBJ:
-		return TypeObj
-	case types.TYPE_ANON:
-		return TypeAnon
-	case types.TYPE_STR:
-		return TypeStr
-	case types.TYPE_ERR:
-		return TypeErr
-	case types.TYPE_LIST:
-		return TypeList
-	case types.TYPE_FLOAT:
-		return TypeFloat
-	case types.TYPE_MAP:
-		return TypeMap
-	case types.TYPE_BOOL:
-		return TypeBool
-	case types.TYPE_WAIF:
-		return TypeWaif
-	default:
-		return TypeNone
-	}
 }
 
 // writeWaif writes a waif value
