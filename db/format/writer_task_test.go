@@ -17,7 +17,7 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 	writer.SetTaskSnapshots([]task.Snapshot{{
 		ID:         5,
 		Owner:      2,
-		StartTime:  time.Unix(123, 0),
+		StartTime:  time.Unix(123, 600_000_000),
 		Programmer: 3,
 		VerbLoc:    6,
 		VerbName:   "tick",
@@ -51,9 +51,9 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		"1 queued tasks\n",
 		// Toast tasks.cc::write_forked_task writes the rounded start time
 		// before the task id: "0 <line> <start> <id>".
-		"0 9 123 5\n",
+		"0 9 124 5\n",
 		// Toast execute.cc::write_activ_as_pi starts with typed INT -111.
-		"0 9 123 5\n0\n-111\n",
+		"0 9 124 5\n0\n-111\n",
 		// Toast preserves the historical activation-header sentinels.
 		"4 -7 -8 2 -9 3 6 -10 0\n",
 		// Toast persists the invoked verb and stored verb name separately.

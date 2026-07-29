@@ -4,6 +4,7 @@ import (
 	"barn/task"
 	"barn/types"
 	"fmt"
+	"time"
 )
 
 // SetTaskSnapshots sets queued and suspended task snapshots for serialization.
@@ -51,7 +52,7 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 	if len(t.CallStack) > 0 {
 		firstLineno = t.CallStack[0].LineNumber
 	}
-	st := t.StartTime.Unix()
+	st := t.StartTime.Add(500 * time.Millisecond).Unix()
 
 	if _, err := fmt.Fprintf(w.w, "0 %d %d %d\n", firstLineno, st, t.ID); err != nil {
 		return err
