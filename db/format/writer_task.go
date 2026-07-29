@@ -64,7 +64,7 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 	}
 
 	// RtEnv: variables from ForkInfo
-	if err := w.writeRtEnv(t.Fork.Variables); err != nil {
+	if err := w.writeRtEnv(t.Fork.VariableNames, t.Fork.Variables); err != nil {
 		return fmt.Errorf("write rtenv: %w", err)
 	}
 
@@ -184,12 +184,19 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 }
 
 // writeRtEnv writes runtime environment variables
-func (w *Writer) writeRtEnv(vars map[string]types.Value) error {
-	if err := w.writeString(fmt.Sprintf("%d variables", len(vars))); err != nil {
+func (w *Writer) writeRtEnv(names []string, vars map[string]types.Value) error {
+	if len(names) != len(vars) {
+		return fmt.Errorf("runtime environment has %d names for %d values", len(names), len(vars))
+	}
+	if err := w.writeString(fmt.Sprintf("%d variables", len(names))); err != nil {
 		return err
 	}
 
-	for name, val := range vars {
+	for _, name := range names {
+		val, ok := vars[name]
+		if !ok {
+			return fmt.Errorf("runtime environment is missing variable %q", name)
+		}
 		if err := w.writeString(name); err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package format
 
 import (
+	"barn/bytecode"
 	"bytes"
 	"strings"
 	"testing"
@@ -32,6 +33,7 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 			LineNumber: 9,
 		}},
 		Fork: &task.ForkSnapshot{
+			VariableNames: []string{"x"},
 			Variables: map[string]types.Value{
 				"x": types.NewInt(1),
 			},
@@ -88,5 +90,47 @@ func TestWriteSuspendedTasksRejectsLossyCheckpoint(t *testing.T) {
 
 	if err := writer.writeSuspendedTasks(); err == nil {
 		t.Fatal("writeSuspendedTasks succeeded after silently dropping task 23")
+	}
+}
+
+func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
+	queued := task.NewTask(31, 2, 100, 1)
+	queued.StartTime = time.Unix(123, 0)
+	queued.Programmer = 3
+	queued.This = 4
+	queued.VerbLoc = 6
+	queued.VerbName = "tick"
+	queued.PushFrame(task.ActivationFrame{
+		This:       4,
+		Player:     2,
+		Programmer: 3,
+		VerbLoc:    6,
+		Verb:       "tick",
+	})
+	queued.ForkInfo = &types.ForkInfo{
+		Body: [3]interface{}{&bytecode.Program{
+			VarNames: []string{"z", "a"},
+		}, 0, 0},
+		Variables: map[string]types.Value{
+			"z": types.NewInt(1),
+			"a": types.NewInt(2),
+		},
+		SourceLines: []string{"return z;"},
+	}
+
+	const orderedEnvironment = "2 variables\nz\n0\n1\na\n0\n2\n"
+	for i := 0; i < 64; i++ {
+		var buf bytes.Buffer
+		writer := NewWriter(&buf, store.NewStore().Snapshot())
+		writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+		if err := writer.writeQueuedTasks(); err != nil {
+			t.Fatalf("writeQueuedTasks iteration %d: %v", i, err)
+		}
+		if err := writer.Flush(); err != nil {
+			t.Fatalf("Flush iteration %d: %v", i, err)
+		}
+		if !strings.Contains(buf.String(), orderedEnvironment) {
+			t.Fatalf("iteration %d runtime environment is not in program order:\n%s", i, buf.String())
+		}
 	}
 }

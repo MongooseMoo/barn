@@ -3,13 +3,15 @@ package task
 import (
 	"time"
 
+	"barn/bytecode"
 	"barn/types"
 )
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.
 type ForkSnapshot struct {
-	Variables   map[string]types.Value
-	SourceLines []string
+	Variables     map[string]types.Value
+	VariableNames []string
+	SourceLines   []string
 }
 
 // Snapshot is an immutable copy of the task fields the database writer needs.
@@ -50,9 +52,18 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		ReadingPlayer: t.ReadingPlayer,
 	}
 	if t.ForkInfo != nil {
+		var variableNames []string
+		if t.Program != nil {
+			variableNames = append(variableNames, t.Program.VarNames...)
+		} else if body, ok := t.ForkInfo.Body.([3]interface{}); ok {
+			if program, ok := body[0].(*bytecode.Program); ok {
+				variableNames = append(variableNames, program.VarNames...)
+			}
+		}
 		snapshot.Fork = &ForkSnapshot{
-			Variables:   cloneValueMap(t.ForkInfo.Variables),
-			SourceLines: append([]string(nil), t.ForkInfo.SourceLines...),
+			Variables:     cloneValueMap(t.ForkInfo.Variables),
+			VariableNames: variableNames,
+			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 		}
 	}
 	return snapshot
