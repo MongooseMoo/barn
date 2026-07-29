@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"barn/builtins"
+	"barn/bytecode"
 	dbstore "barn/db/store"
 	"barn/task"
 	"barn/types"
@@ -70,5 +71,39 @@ func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
 	}
 	if got, want := forked.ToQueuedTaskInfo(false).Get(5).Obj(), types.ObjID(2); got != want {
 		t.Fatalf("queued task programmer = #%d, want current task programmer #%d", got, want)
+	}
+}
+
+func TestCreateForkedTaskReportsParentSourceLine(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewScheduler(store)
+	defer s.Stop()
+
+	program := &bytecode.Program{
+		Code: []byte{byte(bytecode.OP_RETURN_NONE)},
+		LineInfo: []bytecode.LineEntry{{
+			StartIP: 0,
+			Line:    6,
+		}},
+	}
+	parent := task.NewTaskFull(6102, 3, program, 1000, 1)
+
+	forkID := s.CreateForkedTask(parent, &types.ForkInfo{
+		Body:      [3]interface{}{program, 0, len(program.Code)},
+		ThisObj:   0,
+		ThisValue: types.NewObj(0),
+		Player:    3,
+		Caller:    3,
+		Verb:      "delayed",
+		VerbLoc:   0,
+	})
+	defer task.GetManager().RemoveTask(forkID)
+
+	forked := task.GetManager().GetTask(forkID)
+	if forked == nil {
+		t.Fatalf("forked task %d was not registered", forkID)
+	}
+	if got, want := forked.ToQueuedTaskInfo(false).Get(8).Int(), int64(6); got != want {
+		t.Fatalf("queued task line = %d, want fork body source line %d", got, want)
 	}
 }

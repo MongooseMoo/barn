@@ -204,6 +204,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 	}
 
 	var t *task.Task
+	firstLine := 1
 
 	if bcFork, ok := forkInfo.Body.([3]interface{}); ok {
 		parentProg, ok1 := bcFork[0].(*bytecode.Program)
@@ -215,6 +216,9 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 
 		// Extract the fork body as a sub-program
 		forkProg := parentProg.ExtractForkBody(bodyIP, bodyLen)
+		if line := forkProg.LineForIP(0); line > 0 {
+			firstLine = line
+		}
 
 		ticks, seconds := backgroundTaskLimits()
 		t = task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
@@ -279,7 +283,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		Caller:     forkInfo.Caller,
 		Verb:       forkInfo.Verb,
 		VerbLoc:    forkInfo.VerbLoc,
-		LineNumber: 1,
+		LineNumber: firstLine,
 	})
 
 	childID := s.QueueTask(t)
