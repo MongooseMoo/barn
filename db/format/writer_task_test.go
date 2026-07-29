@@ -53,6 +53,8 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		"0 9 123 5\n",
 		// Toast execute.cc::write_activ_as_pi starts with typed INT -111.
 		"0 9 123 5\n0\n-111\n",
+		// Toast preserves the historical activation-header sentinels.
+		"4 -7 -8 2 -9 3 6 -10 0\n",
 		"1 variables\nx\n0\n1\n",
 		"x = 1;\n.\n",
 	} {

@@ -192,7 +192,7 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 
 	// Header: {this} {unused1} {unused2} {player} {unused3} {programmer} {vloc} {unused4} {debug}
 	debug := 0
-	if _, err := fmt.Fprintf(w.w, "%d 0 0 %d 0 %d %d 0 %d\n",
+	if _, err := fmt.Fprintf(w.w, "%d -7 -8 %d -9 %d %d -10 %d\n",
 		thisObj, player, programmer, vloc, debug); err != nil {
 		return err
 	}
