@@ -320,20 +320,13 @@ func (w *Writer) writeWaif(waif types.Value) error {
 		return err
 	}
 
-	// Build name→index map for lookup.
-	nameToIdx := make(map[string]int, len(waifPropNames))
-	for i, name := range waifPropNames {
-		// Strip ":" prefix — WaifValue stores names without prefix.
-		nameToIdx[name[1:]] = i
-	}
-
-	// Write non-clear properties as index→value pairs.
-	for _, propName := range waif.PropertyNames() {
-		idx, ok := nameToIdx[propName]
+	// Write non-clear properties as index→value pairs in class propdef order.
+	for idx, classPropName := range waifPropNames {
+		propName := classPropName[1:]
+		val, ok := waif.GetProperty(propName)
 		if !ok {
 			continue
 		}
-		val, _ := waif.GetProperty(propName)
 		if err := w.writeInt(idx); err != nil {
 			return err
 		}
