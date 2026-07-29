@@ -1,11 +1,13 @@
 package format
 
 import (
+	"barn/task"
 	"barn/types"
 	"bufio"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // readFinalizations reads pending finalizations (v17)
@@ -461,50 +463,80 @@ func (database *Database) readInterruptedTasks(r *bufio.Reader) error {
 		return fmt.Errorf("parse interrupted tasks count: %w", err)
 	}
 
-	// Skip interrupted task data
 	for i := 0; i < count; i++ {
-		if err := database.skipInterruptedTask(r); err != nil {
-			return fmt.Errorf("skip interrupted task %d: %w", i, err)
+		interrupted, err := database.readInterruptedTask(r)
+		if err != nil {
+			return fmt.Errorf("read interrupted task %d: %w", i, err)
 		}
+		database.SuspendedTasks = append(database.SuspendedTasks, interrupted)
 	}
 	return nil
 }
 
-// skipInterruptedTask skips over a complete interrupted task.
+// readInterruptedTask reads a complete interrupted reading task.
 // Format: "<task_id> <status_string>\n" followed by a VM.
-func (database *Database) skipInterruptedTask(r *bufio.Reader) error {
-	// Task header: "<task_id> <status_string>"
-	// e.g., "1638619699 interrupted reading task"
-	if _, err := r.ReadString('\n'); err != nil {
-		return fmt.Errorf("read task header: %w", err)
-	}
-
-	// Read VM (same as suspended task VM, but no suspend value)
-	// VM local var
-	if _, err := database.readValue(r); err != nil {
-		return fmt.Errorf("read VM local: %w", err)
-	}
-
-	// VM header
-	line, err := r.ReadString('\n')
+func (database *Database) readInterruptedTask(r *bufio.Reader) (*SuspendedTask, error) {
+	header, err := readLine(r)
 	if err != nil {
-		return fmt.Errorf("read VM header: %w", err)
+		return nil, fmt.Errorf("read task header: %w", err)
+	}
+	fields := strings.Fields(header)
+	if len(fields) != 4 || strings.Join(fields[1:], " ") != "interrupted reading task" {
+		return nil, fmt.Errorf("parse interrupted task header %q", header)
+	}
+	id, err := strconv.ParseInt(fields[0], 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse interrupted task id: %w", err)
 	}
 
-	var topActivStack int
-	if n, _ := fmt.Sscanf(line, "%d", &topActivStack); n < 1 {
-		return fmt.Errorf("parse VM header from %q", line)
+	taskLocal, err := database.readValue(r)
+	if err != nil {
+		return nil, fmt.Errorf("read task-local value: %w", err)
 	}
 
-	// Read activations
-	numActivations := topActivStack + 1
-	for a := 0; a < numActivations; a++ {
-		if err := database.skipActivation(r); err != nil {
-			return fmt.Errorf("skip activation %d: %w", a, err)
+	vmHeader, err := readLine(r)
+	if err != nil {
+		return nil, fmt.Errorf("read VM header: %w", err)
+	}
+	var top, rootVector, functionID, maxStack int
+	if n, scanErr := fmt.Sscanf(vmHeader, "%d %d %d %d", &top, &rootVector, &functionID, &maxStack); scanErr != nil || n != 4 {
+		return nil, fmt.Errorf("parse interrupted VM header %q", vmHeader)
+	}
+	_ = rootVector
+	_ = functionID
+	if top < 0 {
+		return nil, fmt.Errorf("invalid interrupted top activation %d", top)
+	}
+
+	vmSnapshot := &task.VMSnapshot{
+		MaxStackDepth: maxStack,
+		Frames:        make([]task.VMFrameSnapshot, 0, top+1),
+	}
+	callStack := make([]task.ActivationFrame, 0, top+1)
+	for i := 0; i <= top; i++ {
+		frame, activation, err := database.readVMFrame(r)
+		if err != nil {
+			return nil, fmt.Errorf("read activation %d: %w", i, err)
 		}
+		vmSnapshot.Frames = append(vmSnapshot.Frames, frame)
+		callStack = append(callStack, activation)
 	}
 
-	return nil
+	root := callStack[0]
+	return &SuspendedTask{Snapshot: task.Snapshot{
+		ID:         id,
+		Owner:      root.Player,
+		State:      task.TaskQueued,
+		StartTime:  time.Unix(0, 0),
+		WakeValue:  types.NewErr(types.E_INTRPT),
+		TaskLocal:  taskLocal,
+		CallStack:  callStack,
+		Programmer: root.Programmer,
+		VerbLoc:    root.VerbLoc,
+		VerbName:   root.Verb,
+		This:       root.This,
+		VM:         vmSnapshot,
+	}}, nil
 }
 
 // readActiveConnections reads active connections

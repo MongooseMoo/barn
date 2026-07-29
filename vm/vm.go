@@ -29,6 +29,7 @@ type VM struct {
 	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
+	resumeError types.ErrorCode
 }
 
 // pushFrame appends a call frame and updates the cached current-frame pointer.
@@ -222,6 +223,28 @@ func (vm *VM) IsYielded() bool {
 func (vm *VM) Resume() types.Result {
 	vm.yielded = false
 	vm.yieldResult = types.Result{}
+	if vm.resumeError != types.E_NONE {
+		errCode := vm.resumeError
+		vm.resumeError = types.E_NONE
+		frame := vm.CurrentFrame()
+		if frame != nil && !frame.VerbDebug {
+			if vm.SP > 0 {
+				vm.Stack[vm.SP-1] = types.NewErr(errCode)
+			}
+			return vm.executeLoop()
+		}
+		handled, exceptionValue := vm.HandleError(VMException{
+			Code:  errCode,
+			Value: types.None,
+		})
+		if !handled {
+			return types.Result{
+				Flow:  types.FlowException,
+				Error: errCode,
+				Val:   exceptionValue,
+			}
+		}
+	}
 	return vm.executeLoop()
 }
 
@@ -230,6 +253,11 @@ func (vm *VM) Resume() types.Result {
 // suspend()), but read() needs to deliver the input line string. Call this
 // before Resume().
 func (vm *VM) SetResumeValue(val types.Value) {
+	if val.Type() == types.TYPE_ERR {
+		vm.resumeError = val.ErrCode()
+		return
+	}
+	vm.resumeError = types.E_NONE
 	if vm.SP > 0 {
 		vm.Stack[vm.SP-1] = val
 	}

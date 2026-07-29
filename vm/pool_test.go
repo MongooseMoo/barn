@@ -30,6 +30,7 @@ func dirtyVM(machine *VM) {
 	machine.frame = machine.Frames[0]
 	machine.yielded = true
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
+	machine.resumeError = types.E_INTRPT
 }
 
 func TestDirtyVMTouchesEveryField(t *testing.T) {
@@ -97,6 +98,9 @@ func TestResetClearsUnexportedFields(t *testing.T) {
 	}
 	if machine.yieldResult.Flow != (types.Result{}).Flow || machine.yieldResult.ForkInfo != nil {
 		t.Errorf("yieldResult not cleared: %#v", machine.yieldResult)
+	}
+	if machine.resumeError != types.E_NONE {
+		t.Errorf("resumeError not cleared: %v", machine.resumeError)
 	}
 }
 

@@ -88,7 +88,8 @@ func TestWriteSuspendedTasksRejectsLossyCheckpoint(t *testing.T) {
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
 	writer.SetTaskSnapshots(nil, []task.Snapshot{{
-		ID: 23,
+		ID:            23,
+		ReadingPlayer: types.ObjNothing,
 	}})
 
 	if err := writer.writeSuspendedTasks(); err == nil {
@@ -100,10 +101,11 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
 	writer.SetTaskSnapshots(nil, []task.Snapshot{{
-		ID:        23,
-		Owner:     2,
-		State:     task.TaskQueued,
-		StartTime: time.Unix(456, 600*time.Millisecond.Nanoseconds()),
+		ID:            23,
+		Owner:         2,
+		State:         task.TaskQueued,
+		ReadingPlayer: types.ObjNothing,
+		StartTime:     time.Unix(456, 600*time.Millisecond.Nanoseconds()),
 		WakeValue: types.NewMap([][2]types.Value{{
 			types.NewStr("resume-kind"),
 			types.NewList([]types.Value{types.NewStr("typed"), types.NewErr(types.E_RANGE)}),
@@ -195,6 +197,83 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 	}
 	if frame.SavedVerb != "outer" || frame.SavedProgrammer != 4 || !frame.SavedIsWizard {
 		t.Fatalf("saved context = %#v", frame)
+	}
+}
+
+func TestInterruptedReadingTaskWriterReaderQueuesEIntrptContinuation(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots(nil, []task.Snapshot{{
+		ID:            29,
+		Owner:         2,
+		State:         task.TaskSuspended,
+		ReadingPlayer: -7,
+		TaskLocal:     types.NewStr("read-local"),
+		CallStack: []task.ActivationFrame{{
+			This:       7,
+			ThisValue:  types.NewObj(7),
+			Player:     2,
+			Programmer: 3,
+			VerbLoc:    7,
+			Verb:       "blocked_read",
+			StoredVerb: "blocked_read",
+		}},
+		VM: &task.VMSnapshot{
+			MaxStackDepth: 41,
+			Frames: []task.VMFrameSnapshot{{
+				Program: bytecode.Program{
+					Code:     []byte{byte(bytecode.OP_RETURN_NONE)},
+					Source:   []string{"return;"},
+					LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 1}},
+				},
+				This:       7,
+				ThisValue:  types.NewObj(7),
+				Player:     2,
+				Verb:       "blocked_read",
+				StoredVerb: "blocked_read",
+				VerbLoc:    7,
+			}},
+		},
+	}})
+
+	if err := writer.writeSuspendedTasks(); err != nil {
+		t.Fatalf("writeSuspendedTasks: %v", err)
+	}
+	if err := writer.writeInterruptedTasks(); err != nil {
+		t.Fatalf("writeInterruptedTasks: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.HasPrefix(output, "0 suspended tasks\n1 interrupted tasks\n29 interrupted reading task\n") {
+		t.Fatalf("task section headers = %q", output)
+	}
+
+	database := &Database{Version: 17}
+	reader := bufio.NewReader(bytes.NewReader(buf.Bytes()))
+	if err := database.readSuspendedTasks(reader); err != nil {
+		t.Fatalf("readSuspendedTasks: %v", err)
+	}
+	if err := database.readInterruptedTasks(reader); err != nil {
+		t.Fatalf("readInterruptedTasks: %v", err)
+	}
+	if len(database.SuspendedTasks) != 1 {
+		t.Fatalf("restored interrupted task count = %d, want 1", len(database.SuspendedTasks))
+	}
+	got := database.SuspendedTasks[0].Snapshot
+	if got.ID != 29 || got.State != task.TaskQueued {
+		t.Fatalf("restored task header = id %d state %v", got.ID, got.State)
+	}
+	if !got.WakeValue.Equal(types.NewErr(types.E_INTRPT)) {
+		t.Fatalf("wake value = %v, want E_INTRPT", got.WakeValue)
+	}
+	if !got.TaskLocal.Equal(types.NewStr("read-local")) {
+		t.Fatalf("task local = %v", got.TaskLocal)
+	}
+	if got.VM == nil || got.VM.MaxStackDepth != 41 || len(got.VM.Frames) != 1 {
+		t.Fatalf("restored VM = %#v", got.VM)
 	}
 }
 

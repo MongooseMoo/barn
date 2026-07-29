@@ -633,6 +633,37 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 	requireInt(t, runBytecodeProgram(t, `suspend(0); return 9;`, nil, nil), 9)
 }
 
+func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
+	store := dbstore.NewStore()
+	registry := BuildVMRegistry()
+	ctx := kernel.NewTaskContext()
+	ctx.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	ctx.Store = store
+	ctx.Registry = registry
+	program, diagnostics := compiler.CompileMOO([]string{`
+		try
+			suspend();
+			return "returned";
+		except error (E_INTRPT)
+			return error[1];
+		endtry
+	`}, registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
+	}
+
+	machine := NewVM(store, registry)
+	machine.Context = ctx
+	if result := machine.Run(program); result.Flow != types.FlowSuspend {
+		t.Fatalf("initial result = %#v, want suspend", result)
+	}
+	machine.SetResumeValue(types.NewErr(types.E_INTRPT))
+	result := machine.Resume()
+	if result.Flow != types.FlowReturn || !result.Val.Equal(types.NewErr(types.E_INTRPT)) {
+		t.Fatalf("error resume result = %#v, want caught E_INTRPT", result)
+	}
+}
+
 func TestBytecodeMapRangeBoundariesRemainPositional(t *testing.T) {
 	read := runBytecodeExpr(t, `["b" -> 2, "a" -> 1][^..$]`)
 	wantRead := types.NewMap([][2]types.Value{

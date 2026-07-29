@@ -10,7 +10,15 @@ import (
 // SetTaskSnapshots sets queued and suspended task snapshots for serialization.
 func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
 	w.queuedTasks = append([]task.Snapshot(nil), queued...)
-	w.suspendedTasks = append([]task.Snapshot(nil), suspended...)
+	w.suspendedTasks = w.suspendedTasks[:0]
+	w.interruptedTasks = w.interruptedTasks[:0]
+	for _, snapshot := range suspended {
+		if snapshot.ReadingPlayer != types.ObjNothing {
+			w.interruptedTasks = append(w.interruptedTasks, snapshot)
+		} else {
+			w.suspendedTasks = append(w.suspendedTasks, snapshot)
+		}
+	}
 }
 
 // writeQueuedTasks writes all queued (forked) tasks
@@ -99,10 +107,49 @@ func (w *Writer) writeSuspendedTasks() error {
 	return nil
 }
 
-// writeInterruptedTasks writes all interrupted tasks (always 0 for now)
+// writeInterruptedTasks writes tasks blocked in read().
 func (w *Writer) writeInterruptedTasks() error {
-	// Interrupted tasks are rare edge cases - write 0 for now
-	return w.writeString("0 interrupted tasks")
+	for _, interrupted := range w.interruptedTasks {
+		if interrupted.VM == nil || len(interrupted.VM.Frames) == 0 {
+			return fmt.Errorf("interrupted task %d has no serializable VM state", interrupted.ID)
+		}
+	}
+	if err := w.writeString(fmt.Sprintf("%d interrupted tasks", len(w.interruptedTasks))); err != nil {
+		return err
+	}
+	for _, interrupted := range w.interruptedTasks {
+		if err := w.writeString(fmt.Sprintf("%d interrupted reading task", interrupted.ID)); err != nil {
+			return err
+		}
+		if err := w.writeValue(interrupted.TaskLocal); err != nil {
+			return fmt.Errorf("write interrupted task-local value: %w", err)
+		}
+		machine := interrupted.VM
+		if _, err := fmt.Fprintf(w.w, "%d -1 0 %d\n", len(machine.Frames)-1, machine.MaxStackDepth); err != nil {
+			return err
+		}
+		for i, frame := range machine.Frames {
+			var activation task.ActivationFrame
+			if i < len(interrupted.CallStack) {
+				activation = interrupted.CallStack[i]
+			} else {
+				activation = task.ActivationFrame{
+					This:       frame.This,
+					ThisValue:  frame.ThisValue,
+					Player:     frame.Player,
+					Programmer: interrupted.Programmer,
+					Caller:     frame.Caller,
+					Verb:       frame.Verb,
+					StoredVerb: frame.StoredVerb,
+					VerbLoc:    frame.VerbLoc,
+				}
+			}
+			if err := w.writeVMFrame(frame, activation); err != nil {
+				return fmt.Errorf("write interrupted activation %d: %w", i, err)
+			}
+		}
+	}
+	return nil
 }
 
 // writeActivationAsPI writes activation in Program Info format

@@ -29,12 +29,13 @@ const (
 
 // Writer handles serialization of MOO databases to v17 format
 type Writer struct {
-	w              *bufio.Writer
-	snapshot       store.Snapshot
-	waifIndex      map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
-	nextWaifID     int
-	queuedTasks    []task.Snapshot
-	suspendedTasks []task.Snapshot
+	w                *bufio.Writer
+	snapshot         store.Snapshot
+	waifIndex        map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
+	nextWaifID       int
+	queuedTasks      []task.Snapshot
+	suspendedTasks   []task.Snapshot
+	interruptedTasks []task.Snapshot
 }
 
 // NewWriter creates a writer for database serialization
