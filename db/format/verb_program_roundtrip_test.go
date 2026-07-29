@@ -3,7 +3,9 @@ package format
 import (
 	"barn/db/store"
 	"barn/types"
+	"bytes"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +119,31 @@ func TestRoundTripPreservesEmptyVerbCodeSection(t *testing.T) {
 	if !rObj.VerbList[0].HasProgram || len(rObj.VerbList[0].Code) != 1 || rObj.VerbList[0].Code[0] != "return 1;" {
 		t.Fatalf("reloaded with_code: HasProgram=%v Code=%v, want true {return 1;}",
 			rObj.VerbList[0].HasProgram, rObj.VerbList[0].Code)
+	}
+}
+
+func TestWriteVerbCodeSectionsIncludesAnonymousObjects(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.Snapshot{
+		AnonymousObjects: []*store.SnapshotObject{{
+			ID:        41,
+			Anonymous: true,
+			VerbList: []store.VerbView{{
+				Code:       []string{"return 1;"},
+				HasProgram: true,
+			}},
+		}},
+	})
+
+	if err := writer.writeVerbCodeSections(); err != nil {
+		t.Fatalf("writeVerbCodeSections: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	const want = "1\n#41:0\nreturn 1;\n.\n"
+	if got := buf.String(); !strings.Contains(got, want) {
+		t.Fatalf("anonymous verb program missing from output:\n%s", got)
 	}
 }

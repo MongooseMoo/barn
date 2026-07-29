@@ -284,8 +284,12 @@ func (w *Writer) writeVerbCodeSections() error {
 	}
 	var verbs []verbRef
 
-	// Iterate all objects to collect verbs
-	for _, obj := range w.snapshot.AllObjects {
+	objects := make([]*store.SnapshotObject, 0, len(w.snapshot.AllObjects)+len(w.snapshot.AnonymousObjects))
+	objects = append(objects, w.snapshot.AllObjects...)
+	objects = append(objects, w.snapshot.AnonymousObjects...)
+
+	// Iterate permanent and anonymous objects to collect verbs.
+	for _, obj := range objects {
 		if obj == nil || obj.Recycled {
 			continue
 		}
