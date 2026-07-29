@@ -479,12 +479,15 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_PERM)
 	}
 
-	// Optional args are TYPE_ANY in Toast. Barn currently uses the second flag
-	// for line-number inclusion; the third stack-vars flag is accepted for
-	// signature parity but does not change the existing frame shape.
+	// Optional args are TYPE_ANY in Toast. The second flag includes line
+	// numbers; the third includes each frame's bound runtime variables.
 	includeLineNumbers := false
 	if len(args) >= 2 {
 		includeLineNumbers = args[1].Truthy()
+	}
+	includeVariables := false
+	if len(args) >= 3 {
+		includeVariables = args[2].Truthy()
 	}
 
 	// Get call stack
@@ -495,17 +498,24 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	result := make([]types.Value, 0, len(callStack))
 	for i := len(callStack) - 1; i >= 0; i-- {
 		frame := callStack[i]
+		frameList := frame.ToList()
+		values := make([]types.Value, 0, 7)
 		if includeLineNumbers {
-			result = append(result, frame.ToList())
+			values = append(values, frameList.Elements()...)
 		} else {
 			// Omit line number (6th element) → 5-element list
-			frameList := frame.ToList()
-			truncated := make([]types.Value, frameList.Len()-1)
 			for j := 0; j < frameList.Len()-1; j++ {
-				truncated[j] = frameList.Get(j + 1)
+				values = append(values, frameList.Get(j+1))
 			}
-			result = append(result, types.NewList(truncated))
 		}
+		if includeVariables {
+			runtimeVariables := frame.RuntimeVariables
+			if runtimeVariables.Type() != types.TYPE_MAP {
+				runtimeVariables = types.NewEmptyMap()
+			}
+			values = append(values, runtimeVariables)
+		}
+		result = append(result, types.NewList(values))
 	}
 
 	return types.Ok(types.NewList(result))

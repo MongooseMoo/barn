@@ -218,3 +218,91 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 		t.Fatalf("queued_tasks(0, 1) = %d, want visible count %d", got, want)
 	}
 }
+
+func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
+	const taskID = int64(91875)
+	runtimeVariables := types.NewMap([][2]types.Value{
+		{types.NewStr("zeta"), types.NewInt(1)},
+		{types.NewStr("alpha"), types.NewInt(2)},
+	})
+	taskValue := task.NewTask(taskID, 2, 1000, 1)
+	taskValue.PushFrame(task.ActivationFrame{
+		This:             7,
+		ThisValue:        types.NewObj(7),
+		Programmer:       2,
+		Verb:             "suspended",
+		VerbLoc:          8,
+		Player:           3,
+		LineNumber:       14,
+		RuntimeVariables: runtimeVariables,
+	})
+	taskValue.SetState(task.TaskSuspended)
+
+	manager := task.GetManager()
+	manager.RegisterTask(taskValue)
+	defer manager.RemoveTask(taskID)
+
+	ctx := kernel.NewTaskContext()
+	ctx.TaskID = 1
+	ctx.Programmer = 2
+
+	withLines := builtinTaskStack(ctx, []types.Value{
+		types.NewInt(taskID),
+		types.NewInt(1),
+		types.NewInt(1),
+	})
+	if withLines.IsError() {
+		t.Fatalf("task_stack(id, 1, 1) failed: %v", withLines.Error)
+	}
+	frame := withLines.Val.Get(1)
+	if got, want := frame.Len(), 7; got != want {
+		t.Fatalf("task_stack(id, 1, 1) frame length = %d, want %d", got, want)
+	}
+	if got, want := frame.Get(6).Int(), int64(14); got != want {
+		t.Fatalf("task_stack(id, 1, 1) line = %d, want %d", got, want)
+	}
+	keys := frame.Get(7).Keys()
+	if len(keys) != 2 || keys[0].Str() != "alpha" || keys[1].Str() != "zeta" {
+		t.Fatalf("task_stack(id, 1, 1) variable keys = %v, want [alpha zeta]", keys)
+	}
+	zeta, ok := frame.Get(7).MapGet(types.NewStr("zeta"))
+	if !ok || zeta.Int() != 1 {
+		t.Fatalf("task_stack(id, 1, 1) zeta = %v, %v; want 1, true", zeta, ok)
+	}
+	alpha, ok := frame.Get(7).MapGet(types.NewStr("alpha"))
+	if !ok || alpha.Int() != 2 {
+		t.Fatalf("task_stack(id, 1, 1) alpha = %v, %v; want 2, true", alpha, ok)
+	}
+
+	withoutLines := builtinTaskStack(ctx, []types.Value{
+		types.NewInt(taskID),
+		types.NewInt(0),
+		types.NewInt(1),
+	})
+	if withoutLines.IsError() {
+		t.Fatalf("task_stack(id, 0, 1) failed: %v", withoutLines.Error)
+	}
+	frame = withoutLines.Val.Get(1)
+	if got, want := frame.Len(), 6; got != want {
+		t.Fatalf("task_stack(id, 0, 1) frame length = %d, want %d", got, want)
+	}
+	if got := frame.Get(6); !got.Equal(runtimeVariables) {
+		t.Fatalf("task_stack(id, 0, 1) variables = %v, want %v", got, runtimeVariables)
+	}
+
+	withoutVariables := builtinTaskStack(ctx, []types.Value{
+		types.NewInt(taskID),
+		types.NewInt(1),
+		types.NewInt(0),
+	})
+	if withoutVariables.IsError() {
+		t.Fatalf("task_stack(id, 1, 0) failed: %v", withoutVariables.Error)
+	}
+	frame = withoutVariables.Val.Get(1)
+	if got, want := frame.Len(), 6; got != want {
+		t.Fatalf("task_stack(id, 1, 0) frame length = %d, want %d", got, want)
+	}
+	if got, want := frame.Get(6).Int(), int64(14); got != want {
+		t.Fatalf("task_stack(id, 1, 0) line = %d, want %d", got, want)
+	}
+}

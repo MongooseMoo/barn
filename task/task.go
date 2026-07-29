@@ -59,19 +59,20 @@ func (s TaskState) String() string {
 // ActivationFrame represents a single verb call on the call stack
 // This is what callers() returns
 type ActivationFrame struct {
-	This            types.ObjID   // Object this verb is called on (prototype for primitives)
-	ThisValue       types.Value   // For primitive prototype calls: the actual primitive value
-	Player          types.ObjID   // Player who initiated this task
-	Programmer      types.ObjID   // Programmer (for permissions)
-	Caller          types.ObjID   // Object that called this verb
-	Verb            string        // Verb name as invoked (callers()/task_stack())
-	StoredVerb      string        // Verb's stored name spec incl. wildcards; used by printed tracebacks
-	VerbLoc         types.ObjID   // Object where verb is defined
-	Args            []types.Value // Arguments passed to verb
-	LineNumber      int           // Current line number in verb
-	SourceLine      string        // Source text at LineNumber (best-effort, for debugging/logging)
-	ServerInitiated bool          // True if this is a server-invoked call (do_login_command, etc.)
-	IsEvalFrame     bool          // True if this is an eval() infrastructure frame (excluded from tracebacks)
+	This             types.ObjID   // Object this verb is called on (prototype for primitives)
+	ThisValue        types.Value   // For primitive prototype calls: the actual primitive value
+	Player           types.ObjID   // Player who initiated this task
+	Programmer       types.ObjID   // Programmer (for permissions)
+	Caller           types.ObjID   // Object that called this verb
+	Verb             string        // Verb name as invoked (callers()/task_stack())
+	StoredVerb       string        // Verb's stored name spec incl. wildcards; used by printed tracebacks
+	VerbLoc          types.ObjID   // Object where verb is defined
+	Args             []types.Value // Arguments passed to verb
+	LineNumber       int           // Current line number in verb
+	RuntimeVariables types.Value   // Bound runtime variables in declaration order
+	SourceLine       string        // Source text at LineNumber (best-effort, for debugging/logging)
+	ServerInitiated  bool          // True if this is a server-invoked call (do_login_command, etc.)
+	IsEvalFrame      bool          // True if this is an eval() infrastructure frame (excluded from tracebacks)
 }
 
 // ToList converts an activation frame to a MOO list for callers()
@@ -321,6 +322,16 @@ func (t *Task) UpdateCallStackLineNumbers(lineNumbers []int) {
 	defer t.mu.Unlock()
 	for i := 0; i < len(lineNumbers) && i < len(t.CallStack); i++ {
 		t.CallStack[i].LineNumber = lineNumbers[i]
+	}
+}
+
+// UpdateCallStackRuntimeVariables bulk-updates the runtime-variable map for
+// each activation frame. variables[0] corresponds to CallStack[0].
+func (t *Task) UpdateCallStackRuntimeVariables(variables []types.Value) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := 0; i < len(variables) && i < len(t.CallStack); i++ {
+		t.CallStack[i].RuntimeVariables = variables[i]
 	}
 }
 

@@ -383,6 +383,7 @@ func (vm *VM) syncTaskLineNumbers() {
 	// VM frames map 1:1 to task CallStack entries (the initial frame pushed
 	// by the scheduler is both VM frame 0 and CallStack entry 0).
 	var lineNumbers []int
+	var runtimeVariables []types.Value
 	for _, frame := range vm.Frames {
 		line := 1
 		if frame.Program != nil {
@@ -396,8 +397,24 @@ func (vm *VM) syncTaskLineNumbers() {
 			line = 1
 		}
 		lineNumbers = append(lineNumbers, line)
+
+		variablePairs := make([][2]types.Value, 0)
+		if frame.Program != nil {
+			variablePairs = make([][2]types.Value, 0, len(frame.Program.VarNames))
+			for i, name := range frame.Program.VarNames {
+				if i >= len(frame.Locals) || frame.Locals[i].IsUnbound() {
+					continue
+				}
+				variablePairs = append(variablePairs, [2]types.Value{
+					types.NewStr(name),
+					frame.Locals[i],
+				})
+			}
+		}
+		runtimeVariables = append(runtimeVariables, types.NewMap(variablePairs))
 	}
 	t.UpdateCallStackLineNumbers(lineNumbers)
+	t.UpdateCallStackRuntimeVariables(runtimeVariables)
 }
 
 // Step executes a single instruction
