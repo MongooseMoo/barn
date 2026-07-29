@@ -455,6 +455,13 @@ func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Sn
 
 	for _, t := range s.tasks {
 		snapshot := t.PersistenceSnapshot()
+		if snapshot.VM != nil {
+			if snapshot.State == task.TaskSuspended && !t.WakeTime.IsZero() {
+				snapshot.StartTime = t.WakeTime
+			}
+			suspended = append(suspended, snapshot)
+			continue
+		}
 		switch snapshot.State {
 		case task.TaskQueued:
 			queued = append(queued, snapshot)

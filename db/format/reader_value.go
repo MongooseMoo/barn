@@ -10,12 +10,15 @@ import (
 
 // readValue reads a MOO value from database format
 func (database *Database) readValue(r *bufio.Reader) (types.Value, error) {
-	version := database.Version
 	typeCode, err := readInt(r)
 	if err != nil {
 		return types.None, err
 	}
+	return database.readValueAfterType(r, typeCode)
+}
 
+func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (types.Value, error) {
+	version := database.Version
 	switch typeCode {
 	case 0: // INT
 		val, err := readInt(r)

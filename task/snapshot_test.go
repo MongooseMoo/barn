@@ -58,3 +58,20 @@ func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 		t.Errorf("mutating snapshot changed task call stack: got %q, want %q", got, want)
 	}
 }
+
+func TestQueuedTaskInfoRoundsStartTimeLikeCheckpoint(t *testing.T) {
+	taskValue := NewTask(72, 2, 1000, 1)
+	taskValue.StartTime = time.Unix(100, 600*time.Millisecond.Nanoseconds())
+	taskValue.PushFrame(ActivationFrame{
+		This:       4,
+		Player:     2,
+		Programmer: 2,
+		Verb:       "delayed",
+		VerbLoc:    4,
+	})
+
+	info := taskValue.ToQueuedTaskInfo(false)
+	if got, want := info.Get(2).Int(), int64(101); got != want {
+		t.Fatalf("queued start time = %d, want rounded %d", got, want)
+	}
+}

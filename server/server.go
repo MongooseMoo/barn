@@ -132,8 +132,9 @@ func (s *Server) LoadDatabase() error {
 	reg.SetTaskYielder(s.scheduler)
 	reg.SetProcessStdin(builtins.NewProcessStdin(os.Stdin))
 
-	// Wire dump_database() builtin to request a server-loop checkpoint.
-	reg.SetDumpFunc(func() error { return s.requestCheckpoint() })
+	// dump_database() does not report success until the requested checkpoint is
+	// durable and available for managed restart adoption.
+	reg.SetDumpFunc(func() error { return s.checkpoint() })
 	reg.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
 		if ctx != nil {
 			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
@@ -169,6 +170,7 @@ func (s *Server) LoadDatabase() error {
 	builtins.LoadProtectedBuiltinsFromStore(s.store)
 
 	s.scheduler.LoadQueuedTasks(database.QueuedTasks)
+	s.scheduler.LoadSuspendedTasks(database.SuspendedTasks)
 
 	slog.Info("database loaded",
 		slog.Int("version", database.Version),

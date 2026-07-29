@@ -2,6 +2,7 @@ package format
 
 import (
 	"barn/db/store"
+	"barn/task"
 	"barn/types"
 	"bufio"
 	"fmt"
@@ -68,8 +69,7 @@ type QueuedTask struct {
 
 // SuspendedTask represents a suspended task
 type SuspendedTask struct {
-	ID        int64
-	StartTime int64
+	Snapshot task.Snapshot
 }
 
 // LoadDatabase reads a MOO database from file

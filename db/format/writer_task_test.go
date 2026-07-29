@@ -2,6 +2,7 @@ package format
 
 import (
 	"barn/bytecode"
+	"bufio"
 	"bytes"
 	"strings"
 	"testing"
@@ -92,6 +93,105 @@ func TestWriteSuspendedTasksRejectsLossyCheckpoint(t *testing.T) {
 
 	if err := writer.writeSuspendedTasks(); err == nil {
 		t.Fatal("writeSuspendedTasks succeeded after silently dropping task 23")
+	}
+}
+
+func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots(nil, []task.Snapshot{{
+		ID:        23,
+		Owner:     2,
+		State:     task.TaskQueued,
+		StartTime: time.Unix(456, 0),
+		WakeValue: types.NewMap([][2]types.Value{{
+			types.NewStr("resume-kind"),
+			types.NewList([]types.Value{types.NewStr("typed"), types.NewErr(types.E_RANGE)}),
+		}}),
+		TaskLocal: types.NewStr("task-local"),
+		CallStack: []task.ActivationFrame{{
+			This:       7,
+			ThisValue:  types.NewObj(7),
+			Player:     2,
+			Programmer: 3,
+			Caller:     8,
+			Verb:       "inner",
+			StoredVerb: "inner",
+			VerbLoc:    7,
+		}},
+		VM: &task.VMSnapshot{
+			MaxStackDepth: 77,
+			Frames: []task.VMFrameSnapshot{{
+				Program: bytecode.Program{
+					Code:      []byte{byte(bytecode.OP_RETURN_NONE)},
+					Constants: []types.Value{types.NewInt(91)},
+					VarNames:  []string{"zeta", "alpha"},
+					LineInfo:  []bytecode.LineEntry{{StartIP: 0, Line: 4}},
+					NumLocals: 2,
+					Source:    []string{"return;"},
+				},
+				IP:         0,
+				Locals:     []types.Value{types.NewInt(1), types.Unbound},
+				Stack:      []types.Value{types.NewStr("operand")},
+				This:       7,
+				ThisValue:  types.NewObj(7),
+				Player:     2,
+				Verb:       "inner",
+				StoredVerb: "inner",
+				Caller:     8,
+				VerbLoc:    7,
+				Args:       []types.Value{types.NewInt(5)},
+				ExceptStack: []bytecode.Handler{{
+					Type:       bytecode.HandlerExcept,
+					HandlerIP:  0,
+					Codes:      []types.ErrorCode{types.E_DIV},
+					VarIndex:   1,
+					StackDepth: 1,
+				}},
+				VerbDebug:       true,
+				IsVerbCall:      true,
+				SavedThisObj:    9,
+				SavedThisValue:  types.NewObj(9),
+				SavedVerb:       "outer",
+				SavedProgrammer: 4,
+				SavedIsWizard:   true,
+			}},
+		},
+	}})
+
+	if err := writer.writeSuspendedTasks(); err != nil {
+		t.Fatalf("writeSuspendedTasks: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	database := &Database{Version: 17}
+	if err := database.readSuspendedTasks(bufio.NewReader(bytes.NewReader(buf.Bytes()))); err != nil {
+		t.Fatalf("readSuspendedTasks: %v", err)
+	}
+	if len(database.SuspendedTasks) != 1 {
+		t.Fatalf("suspended task count = %d, want 1", len(database.SuspendedTasks))
+	}
+	got := database.SuspendedTasks[0].Snapshot
+	if got.ID != 23 || got.State != task.TaskQueued || got.VM.MaxStackDepth != 77 {
+		t.Fatalf("restored task header = id %d state %v max %d", got.ID, got.State, got.VM.MaxStackDepth)
+	}
+	if !got.WakeValue.Equal(types.NewMap([][2]types.Value{{
+		types.NewStr("resume-kind"),
+		types.NewList([]types.Value{types.NewStr("typed"), types.NewErr(types.E_RANGE)}),
+	}})) {
+		t.Fatalf("wake value = %v", got.WakeValue)
+	}
+	frame := got.VM.Frames[0]
+	if frame.Program.VarNames[0] != "zeta" || !frame.Locals[1].IsUnbound() {
+		t.Fatalf("locals = %#v, names = %#v", frame.Locals, frame.Program.VarNames)
+	}
+	if frame.Stack[0].Str() != "operand" || len(frame.ExceptStack) != 1 {
+		t.Fatalf("stack/handlers = %#v / %#v", frame.Stack, frame.ExceptStack)
+	}
+	if frame.SavedVerb != "outer" || frame.SavedProgrammer != 4 || !frame.SavedIsWizard {
+		t.Fatalf("saved context = %#v", frame)
 	}
 }
 

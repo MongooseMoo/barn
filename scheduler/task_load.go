@@ -29,6 +29,79 @@ func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
 	}
 }
 
+func (s *Scheduler) LoadSuspendedTasks(suspended []*dbformat.SuspendedTask) {
+	for _, saved := range suspended {
+		if saved == nil || saved.Snapshot.ID <= 0 || saved.Snapshot.VM == nil {
+			continue
+		}
+		if err := s.loadSuspendedTask(saved.Snapshot); err != nil {
+			slog.Warn("failed to restore suspended task",
+				slog.Int64("task_id", saved.Snapshot.ID),
+				slog.Any("err", err))
+		}
+	}
+}
+
+func (s *Scheduler) loadSuspendedTask(saved task.Snapshot) error {
+	if len(saved.VM.Frames) == 0 {
+		return fmt.Errorf("VM has no activations")
+	}
+	rootProgram := saved.VM.Frames[0].Program
+	ticks, seconds := backgroundTaskLimits()
+	t := task.NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
+	s.populateTaskContextDependencies(t.Context)
+	t.StartTime = saved.StartTime
+	t.QueueTime = saved.StartTime
+	t.WakeValue = saved.WakeValue
+	t.TaskLocal = saved.TaskLocal
+	t.Kind = task.TaskSuspendedTask
+	t.IsForked = true
+	t.Programmer = saved.Programmer
+	t.This = saved.This
+	t.VerbName = saved.VerbName
+	t.VerbLoc = saved.VerbLoc
+	t.ForkCreator = s
+	for _, frame := range saved.CallStack {
+		t.PushFrame(frame)
+	}
+
+	top := saved.CallStack[len(saved.CallStack)-1]
+	t.Context.ThisObj = top.This
+	t.Context.ThisValue = top.ThisValue
+	t.Context.Player = top.Player
+	t.Context.Programmer = top.Programmer
+	t.Context.Verb = top.Verb
+	t.Context.IsWizard = s.isWizard(top.Programmer)
+	t.Context.Task = t
+
+	machine, err := vm.RestoreVMSnapshot(saved.VM, s.store, s.registry, t.Context)
+	if err != nil {
+		return err
+	}
+	t.SetBytecodeVM(machine)
+
+	if saved.State == task.TaskQueued {
+		s.QueueTask(t)
+	} else {
+		t.SetState(task.TaskSuspended)
+		t.WakeTime = saved.StartTime
+		s.mu.Lock()
+		s.tasks[t.ID] = t
+		s.mu.Unlock()
+		task.GetManager().RegisterTask(t)
+	}
+	for {
+		current := atomic.LoadInt64(&s.nextTaskID)
+		if current >= saved.ID {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&s.nextTaskID, current, saved.ID) {
+			break
+		}
+	}
+	return nil
+}
+
 func (s *Scheduler) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	prog, diagnostics := compiler.CompileMOO(saved.Code, s.registry)
 	if len(diagnostics) > 0 {

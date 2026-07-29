@@ -30,6 +30,51 @@ type Snapshot struct {
 	VerbName      string
 	This          types.ObjID
 	ReadingPlayer types.ObjID
+	VM            *VMSnapshot
+}
+
+// VMSnapshot is the complete resumable state of a yielded bytecode VM.
+type VMSnapshot struct {
+	MaxStackDepth int
+	Frames        []VMFrameSnapshot
+}
+
+// VMFrameSnapshot is one activation and its operand-stack segment.
+type VMFrameSnapshot struct {
+	Program         bytecode.Program
+	IP              int
+	Locals          []types.Value
+	Stack           []types.Value
+	This            types.ObjID
+	ThisValue       types.Value
+	Player          types.ObjID
+	Verb            string
+	StoredVerb      string
+	Caller          types.ObjID
+	VerbLoc         types.ObjID
+	Args            []types.Value
+	ExceptStack     []bytecode.Handler
+	PendingError    VMErrorSnapshot
+	VerbDebug       bool
+	DiscardReturn   bool
+	IsVerbCall      bool
+	IsEvalFrame     bool
+	SavedThisObj    types.ObjID
+	SavedThisValue  types.Value
+	SavedVerb       string
+	SavedProgrammer types.ObjID
+	SavedIsWizard   bool
+}
+
+// VMErrorSnapshot is an error held while a finally block is executing.
+type VMErrorSnapshot struct {
+	Present bool
+	Code    types.ErrorCode
+	Value   types.Value
+}
+
+type vmSnapshotter interface {
+	PersistenceVMSnapshot() *VMSnapshot
 }
 
 // PersistenceSnapshot copies the task fields needed for checkpoint output while
@@ -72,6 +117,9 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
 			FirstLine:     firstLine,
 		}
+	}
+	if machine, ok := t.BytecodeVM.(vmSnapshotter); ok && machine != nil {
+		snapshot.VM = machine.PersistenceVMSnapshot()
 	}
 	return snapshot
 }

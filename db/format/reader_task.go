@@ -206,9 +206,11 @@ func (database *Database) readSuspendedTasks(r *bufio.Reader) error {
 
 	database.SuspendedTasks = make([]*SuspendedTask, 0, count)
 	for i := 0; i < count; i++ {
-		if err := database.skipSuspendedTask(r); err != nil {
-			return fmt.Errorf("skip suspended task %d: %w", i, err)
+		suspended, err := database.readSuspendedTask(r)
+		if err != nil {
+			return fmt.Errorf("read suspended task %d: %w", i, err)
 		}
+		database.SuspendedTasks = append(database.SuspendedTasks, suspended)
 	}
 	return nil
 }

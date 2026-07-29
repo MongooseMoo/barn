@@ -83,10 +83,20 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 
 // writeSuspendedTasks writes all suspended tasks
 func (w *Writer) writeSuspendedTasks() error {
-	if len(w.suspendedTasks) != 0 {
-		return fmt.Errorf("cannot serialize %d suspended tasks without complete VM state", len(w.suspendedTasks))
+	for _, suspended := range w.suspendedTasks {
+		if suspended.VM == nil || len(suspended.VM.Frames) == 0 {
+			return fmt.Errorf("suspended task %d has no serializable VM state", suspended.ID)
+		}
 	}
-	return w.writeString("0 suspended tasks")
+	if err := w.writeString(fmt.Sprintf("%d suspended tasks", len(w.suspendedTasks))); err != nil {
+		return err
+	}
+	for _, suspended := range w.suspendedTasks {
+		if err := w.writeSuspendedTask(suspended); err != nil {
+			return fmt.Errorf("write suspended task %d: %w", suspended.ID, err)
+		}
+	}
+	return nil
 }
 
 // writeInterruptedTasks writes all interrupted tasks (always 0 for now)
