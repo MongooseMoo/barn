@@ -81,7 +81,7 @@ func (database *Database) readQueuedTask(r *bufio.Reader) (*QueuedTask, error) {
 
 	var unused, firstLine int
 	task := &QueuedTask{Variables: make(map[string]types.Value)}
-	if _, err := fmt.Sscanf(header, "%d %d %d %d", &unused, &firstLine, &task.ID, &task.StartTime); err != nil {
+	if _, err := fmt.Sscanf(header, "%d %d %d %d", &unused, &firstLine, &task.StartTime, &task.ID); err != nil {
 		return nil, fmt.Errorf("parse queued task header %q: %w", strings.TrimSpace(header), err)
 	}
 	_ = unused
