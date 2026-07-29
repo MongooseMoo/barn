@@ -50,3 +50,22 @@ func TestWriteWaifPropertiesFollowClassIndexOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestWriteWaifWithMissingClassAsInvalid(t *testing.T) {
+	waif := types.NewWaif(99, 2)
+	waif = waif.SetProperty("stale", types.NewInt(1))
+
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.Snapshot{})
+	if err := writer.writeWaif(waif); err != nil {
+		t.Fatalf("writeWaif: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	const want = "c 0\n-1\n2\n0\n-1\n.\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("invalid WAIF output:\n%s\nwant:\n%s", got, want)
+	}
+}

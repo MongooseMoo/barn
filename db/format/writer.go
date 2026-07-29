@@ -298,7 +298,13 @@ func (w *Writer) writeWaif(waif types.Value) error {
 	if err := w.writeString(fmt.Sprintf("c %d", idx)); err != nil {
 		return err
 	}
-	if err := w.writeObjID(waif.Class()); err != nil {
+	classID := waif.Class()
+	classObj := w.snapshot.Objects[classID]
+	if classObj == nil || classObj.Recycled || classObj.Flags.Has(store.FlagInvalid) {
+		classID = types.ObjNothing
+		classObj = nil
+	}
+	if err := w.writeObjID(classID); err != nil {
 		return err
 	}
 	if err := w.writeObjID(waif.Owner()); err != nil {
@@ -307,8 +313,7 @@ func (w *Writer) writeWaif(waif types.Value) error {
 
 	// Build WAIF propdef list from the class object's ":" prefixed properties.
 	var waifPropNames []string
-	classObj := w.snapshot.Objects[waif.Class()]
-	if classObj != nil && !classObj.Recycled && !classObj.Flags.Has(store.FlagInvalid) {
+	if classObj != nil {
 		for _, name := range w.snapshot.PropertyNames[classObj.ID] {
 			if len(name) > 0 && name[0] == ':' {
 				waifPropNames = append(waifPropNames, name)
