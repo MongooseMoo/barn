@@ -25,6 +25,7 @@ type ObjectBuilder struct {
 func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 	return &ObjectBuilder{obj: &Object{
 		id:         id,
+		lastMove:   types.NewEmptyMap(),
 		properties: make(map[string]Property),
 		verbs:      make(map[string]*Verb),
 	}}
@@ -36,6 +37,9 @@ func (b *ObjectBuilder) SetName(name string)         { b.obj.name = name }
 func (b *ObjectBuilder) SetOwner(owner types.ObjID)  { b.obj.owner = owner }
 func (b *ObjectBuilder) SetFlags(flags ObjectFlags)  { b.obj.flags = flags }
 func (b *ObjectBuilder) SetLocation(loc types.ObjID) { b.obj.location = loc }
+func (b *ObjectBuilder) SetLastMove(value types.Value) {
+	b.obj.lastMove = value
+}
 func (b *ObjectBuilder) SetAnonymous(anonymous bool) { b.obj.anonymous = anonymous }
 func (b *ObjectBuilder) SetPropDefsCount(count int)  { b.obj.propDefsCount = count }
 func (b *ObjectBuilder) SetParents(p []types.ObjID)  { b.obj.parents = p }

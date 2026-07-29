@@ -111,8 +111,8 @@ func (w *Writer) writeObject(obj *store.SnapshotObject) error {
 		return err
 	}
 
-	// last_move (empty map for now - we don't track this)
-	if err := w.writeValue(types.NewEmptyMap()); err != nil {
+	// last_move
+	if err := w.writeValue(obj.LastMove); err != nil {
 		return err
 	}
 

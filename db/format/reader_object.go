@@ -94,11 +94,11 @@ func (database *Database) readObjectCommon(r *bufio.Reader, hasLastMove bool) (*
 	}
 
 	if hasLastMove {
-		// Read last_move (skip value, not used)
-		_, err = database.readValue(r)
+		lastMove, err := database.readValue(r)
 		if err != nil {
 			return nil, err
 		}
+		obj.SetLastMove(lastMove)
 	}
 
 	// Read contents

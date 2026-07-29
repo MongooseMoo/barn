@@ -389,9 +389,19 @@ func getBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 		}
 		return types.NewList(objIDsToValues(contentsIDs)), true
 	case "last_move":
-		// Barn does not yet track per-object move history; last_move is reported
-		// as an empty map (ToastStunt seeds a fresh object's last_move to []).
-		return types.NewMap(nil), true
+		var (
+			lastMove types.Value
+			errCode  types.ErrorCode
+		)
+		if txn != nil {
+			lastMove, errCode = txn.LastMove(objID)
+		} else {
+			lastMove, errCode = store.LastMove(objID)
+		}
+		if errCode != types.E_NONE {
+			return types.None, false
+		}
+		return lastMove, true
 	case "programmer":
 		return boolPropertyValue(store, txn, objID, dbstore.FlagProgrammer)
 	case "wizard":

@@ -6,7 +6,58 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestRoundTripPreservesLastMove(t *testing.T) {
+	loaded, err := LoadDatabase(filepath.Join("..", "..", "Test_fresh2.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+
+	objectStore := loaded.NewStoreFromDatabase()
+	const movedObject = types.ObjID(0)
+	source, locationErr := objectStore.Location(movedObject)
+	if locationErr != types.E_NONE {
+		t.Fatalf("Location failed: %v", locationErr)
+	}
+	const destination = types.ObjID(1)
+	before := time.Now().Unix()
+	if errCode := objectStore.MoveObject(movedObject, destination, 0); errCode != types.E_NONE {
+		t.Fatalf("MoveObject failed: %v", errCode)
+	}
+	after := time.Now().Unix()
+
+	tmpFile, err := os.CreateTemp(t.TempDir(), "last-move-*.db")
+	if err != nil {
+		t.Fatalf("CreateTemp failed: %v", err)
+	}
+	defer tmpFile.Close()
+
+	if err := NewWriter(tmpFile, objectStore.Snapshot()).WriteDatabase(); err != nil {
+		t.Fatalf("WriteDatabase failed: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reloaded, err := LoadDatabase(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+	lastMove, errCode := reloaded.NewStoreFromDatabase().LastMove(movedObject)
+	if errCode != types.E_NONE {
+		t.Fatalf("LastMove failed: %v", errCode)
+	}
+	gotSource, ok := lastMove.MapGet(types.NewStr("source"))
+	if !ok || gotSource.Type() != types.TYPE_OBJ || gotSource.Obj() != source {
+		t.Fatalf("last_move source = %v, want #%d", gotSource, source)
+	}
+	gotTime, ok := lastMove.MapGet(types.NewStr("time"))
+	if !ok || gotTime.Type() != types.TYPE_INT || gotTime.Int() < before || gotTime.Int() > after {
+		t.Fatalf("last_move time = %v, want in [%d, %d]", gotTime, before, after)
+	}
+}
 
 func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	loaded, err := LoadDatabase(filepath.Join("..", "..", "Test_fresh2.db"))

@@ -105,6 +105,9 @@ func buildImageWithRelationship(old *Object, w objectRelationshipWrite, ts uint6
 	if w.locationSet {
 		img.location = w.location
 	}
+	if w.lastMoveSet {
+		img.lastMove = w.lastMove
+	}
 	if len(w.contentsDeltas) > 0 {
 		// Apply the commutative contents edits to the CURRENT (old) live contents, not
 		// a stale snapshot. applyContentsDeltas returns a fresh slice, so the old

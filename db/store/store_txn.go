@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"barn/types"
 )
@@ -120,6 +121,8 @@ type objectScalarWrite struct {
 type objectRelationshipWrite struct {
 	locationSet bool
 	location    types.ObjID
+	lastMoveSet bool
+	lastMove    types.Value
 	// contentsDeltas stages COMMUTATIVE add/remove edits to the inverse relationship
 	// edge (a room's contents), applied IN ORDER to the room's CURRENT live contents
 	// at commit — not a whole-list overwrite computed from a stale snapshot. move()
@@ -1133,9 +1136,16 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 	// Set `what`'s location.
 	m := tx.mutableObject(whatID)
 	m.location = whereID
+	lastMove := types.NewMap([][2]types.Value{
+		{types.NewStr("time"), types.NewInt(time.Now().Unix())},
+		{types.NewStr("source"), types.NewObj(oldLocID)},
+	})
+	m.lastMove = lastMove
 	locWrite := tx.relationshipWrites[whatID]
 	locWrite.locationSet = true
 	locWrite.location = whereID
+	locWrite.lastMoveSet = true
+	locWrite.lastMove = lastMove
 	lazySet(&tx.relationshipWrites, whatID, locWrite)
 
 	// Insert `what` into the new location's contents at the MOO position (commutative
@@ -1338,6 +1348,15 @@ func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	}
 	tx.markObjectRelationshipRead(objID, obj)
 	return obj.location, types.E_NONE
+}
+
+func (tx *StoreTxn) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.None, types.E_INVIND
+	}
+	tx.markObjectRelationshipRead(objID, obj)
+	return obj.lastMove, types.E_NONE
 }
 
 func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
@@ -2206,6 +2225,9 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		}
 		if write.locationSet {
 			live.location = write.location
+		}
+		if write.lastMoveSet {
+			live.lastMove = write.lastMove
 		}
 		if len(write.contentsDeltas) > 0 {
 			live.contents = applyContentsDeltas(live.contents, write.contentsDeltas)

@@ -25,6 +25,7 @@ type Object struct {
 	parents  []types.ObjID // NOT []*Object
 	children []types.ObjID // NOT []*Object
 	location types.ObjID   // NOT *Object
+	lastMove types.Value
 	contents []types.ObjID // NOT []*Object
 	flags    ObjectFlags
 
@@ -408,6 +409,7 @@ func NewObject(id types.ObjID, owner types.ObjID) *Object {
 		children:         []types.ObjID{},
 		contents:         []types.ObjID{},
 		location:         types.ObjNothing,
+		lastMove:         types.NewEmptyMap(),
 		properties:       make(map[string]Property),
 		verbs:            make(map[string]*Verb),
 		flags:            0, // Default: not readable or writable (MOO semantics)

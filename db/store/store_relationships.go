@@ -1,6 +1,10 @@
 package store
 
-import "barn/types"
+import (
+	"time"
+
+	"barn/types"
+)
 
 func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.ObjID, anonymous bool, chparent bool) {
 	for _, parentID := range parents {
@@ -35,8 +39,9 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	}
 
 	ts := s.bumpClockLocked()
-	if what.location != types.ObjNothing {
-		if oldLoc := s.load(what.location); validLiveObject(oldLoc) {
+	oldLocation := what.location
+	if oldLocation != types.ObjNothing {
+		if oldLoc := s.load(oldLocation); validLiveObject(oldLoc) {
 			oldLoc = s.republishForMutation(oldLoc)
 			oldLoc.contents = removeObjID(oldLoc.contents, whatID)
 			stampObjectRelationship(oldLoc, ts)
@@ -45,6 +50,10 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 
 	what = s.republishForMutation(what)
 	what.location = whereID
+	what.lastMove = types.NewMap([][2]types.Value{
+		{types.NewStr("time"), types.NewInt(time.Now().Unix())},
+		{types.NewStr("source"), types.NewObj(oldLocation)},
+	})
 	stampObjectRelationship(what, ts)
 
 	if whereID != types.ObjNothing {
@@ -113,6 +122,17 @@ func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 		return types.ObjNothing, types.E_INVIND
 	}
 	return obj.location, types.E_NONE
+}
+
+func (s *Store) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
+		return types.None, types.E_INVIND
+	}
+	return obj.lastMove, types.E_NONE
 }
 
 func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {

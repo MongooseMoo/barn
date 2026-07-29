@@ -15,6 +15,7 @@ type SnapshotObject struct {
 	Name          string
 	Owner         types.ObjID
 	Location      types.ObjID
+	LastMove      types.Value
 	Flags         ObjectFlags
 	Recycled      bool
 	Anonymous     bool
@@ -206,6 +207,9 @@ func (p *anonSerializationPlan) rewriteSnapshotObject(so *SnapshotObject) {
 	if so == nil || len(p.rewrite) == 0 {
 		return
 	}
+	if rewritten, changed := p.rewriteValue(so.LastMove); changed {
+		so.LastMove = rewritten
+	}
 	for name, pv := range so.Properties {
 		if pv.Value.IsNone() {
 			continue
@@ -281,6 +285,7 @@ func snapshotObjectValue(obj *Object) *SnapshotObject {
 		Name:          obj.name,
 		Owner:         obj.owner,
 		Location:      obj.location,
+		LastMove:      obj.lastMove,
 		Flags:         obj.flags,
 		Recycled:      obj.recycled,
 		Anonymous:     obj.anonymous,
