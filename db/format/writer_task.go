@@ -14,19 +14,17 @@ func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
 
 // writeQueuedTasks writes all queued (forked) tasks
 func (w *Writer) writeQueuedTasks() error {
-	// Filter to only tasks that have source lines available
-	var serializableTasks []task.Snapshot
 	for _, t := range w.queuedTasks {
-		if t.Fork != nil && len(t.Fork.SourceLines) > 0 {
-			serializableTasks = append(serializableTasks, t)
+		if t.Fork == nil || len(t.Fork.SourceLines) == 0 {
+			return fmt.Errorf("queued task %d has no serializable fork program", t.ID)
 		}
 	}
 
-	if err := w.writeString(fmt.Sprintf("%d queued tasks", len(serializableTasks))); err != nil {
+	if err := w.writeString(fmt.Sprintf("%d queued tasks", len(w.queuedTasks))); err != nil {
 		return err
 	}
 
-	for _, t := range serializableTasks {
+	for _, t := range w.queuedTasks {
 		if err := w.writeQueuedTask(t); err != nil {
 			return fmt.Errorf("write queued task %d: %w", t.ID, err)
 		}
