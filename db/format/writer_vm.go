@@ -16,7 +16,7 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	if start.IsZero() {
 		start = time.Now()
 	}
-	if _, err := fmt.Fprintf(w.w, "%d %d ", start.Unix(), snapshot.ID); err != nil {
+	if _, err := fmt.Fprintf(w.w, "%d %d ", start.Add(500*time.Millisecond).Unix(), snapshot.ID); err != nil {
 		return err
 	}
 	if err := w.writeValue(snapshot.WakeValue); err != nil {

@@ -103,7 +103,7 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 		ID:        23,
 		Owner:     2,
 		State:     task.TaskQueued,
-		StartTime: time.Unix(456, 0),
+		StartTime: time.Unix(456, 600*time.Millisecond.Nanoseconds()),
 		WakeValue: types.NewMap([][2]types.Value{{
 			types.NewStr("resume-kind"),
 			types.NewList([]types.Value{types.NewStr("typed"), types.NewErr(types.E_RANGE)}),
@@ -176,6 +176,9 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 	got := database.SuspendedTasks[0].Snapshot
 	if got.ID != 23 || got.State != task.TaskQueued || got.VM.MaxStackDepth != 77 {
 		t.Fatalf("restored task header = id %d state %v max %d", got.ID, got.State, got.VM.MaxStackDepth)
+	}
+	if got.StartTime.Unix() != 457 {
+		t.Fatalf("restored suspended start time = %d, want rounded 457", got.StartTime.Unix())
 	}
 	if !got.WakeValue.Equal(types.NewMap([][2]types.Value{{
 		types.NewStr("resume-kind"),

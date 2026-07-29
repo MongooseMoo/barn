@@ -530,7 +530,11 @@ func (t *Task) ToQueuedTaskInfo(includeVariables bool) types.Value {
 	// Estimate bytes (0 for now, can be calculated later if needed)
 	bytes := int64(0)
 
-	startValue := types.NewInt(t.StartTime.Add(500 * time.Millisecond).Unix())
+	reportedStart := t.StartTime
+	if t.State == TaskSuspended && !t.WakeTime.IsZero() {
+		reportedStart = t.WakeTime
+	}
+	startValue := types.NewInt(reportedStart.Add(500 * time.Millisecond).Unix())
 	if t.IsExecSuspended && t.ExecCommandName != "" {
 		startValue = types.NewStr(t.ExecCommandName)
 	}

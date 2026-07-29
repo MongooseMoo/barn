@@ -74,4 +74,11 @@ func TestQueuedTaskInfoRoundsStartTimeLikeCheckpoint(t *testing.T) {
 	if got, want := info.Get(2).Int(), int64(101); got != want {
 		t.Fatalf("queued start time = %d, want rounded %d", got, want)
 	}
+
+	taskValue.State = TaskSuspended
+	taskValue.WakeTime = time.Unix(200, 600*time.Millisecond.Nanoseconds())
+	info = taskValue.ToQueuedTaskInfo(false)
+	if got, want := info.Get(2).Int(), int64(201); got != want {
+		t.Fatalf("suspended wake time = %d, want rounded %d", got, want)
+	}
 }
