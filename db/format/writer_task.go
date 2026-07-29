@@ -160,6 +160,7 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 	programmer := t.Programmer
 	vloc := t.VerbLoc
 	verb := t.VerbName
+	verbname := t.VerbName
 
 	if len(t.CallStack) > 0 {
 		frame := t.CallStack[0]
@@ -168,6 +169,10 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 		programmer = frame.Programmer
 		vloc = frame.VerbLoc
 		verb = frame.Verb
+		verbname = frame.StoredVerb
+		if verbname == "" {
+			verbname = verb
+		}
 	}
 
 	// Compatibility sentinel written by Toast's write_activ_as_pi.
@@ -215,7 +220,7 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 	if err := w.writeString(verb); err != nil {
 		return err
 	}
-	if err := w.writeString(verb); err != nil {
+	if err := w.writeString(verbname); err != nil {
 		return err
 	}
 

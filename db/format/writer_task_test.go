@@ -28,6 +28,7 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 			Programmer: 3,
 			VerbLoc:    6,
 			Verb:       "tick",
+			StoredVerb: "t*ick",
 			LineNumber: 9,
 		}},
 		Fork: &task.ForkSnapshot{
@@ -55,6 +56,8 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		"0 9 123 5\n0\n-111\n",
 		// Toast preserves the historical activation-header sentinels.
 		"4 -7 -8 2 -9 3 6 -10 0\n",
+		// Toast persists the invoked verb and stored verb name separately.
+		"No\nMore\nParse\nInfos\ntick\nt*ick\n",
 		"1 variables\nx\n0\n1\n",
 		"x = 1;\n.\n",
 	} {
