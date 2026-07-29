@@ -78,6 +78,67 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	}
 }
 
+func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
+	loaded, err := LoadDatabase(filepath.Join("..", "..", "Test_fresh2.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+
+	objectStore := loaded.NewStoreFromDatabase()
+	const classID = types.ObjID(0)
+	if ec := objectStore.DefineProperty(classID, "anon_marker", store.NewProperty(types.NewStr("class-marker"), 3, 0, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty anon_marker: %v", ec)
+	}
+	if ec := objectStore.DefineProperty(classID, "saved_anon", store.NewProperty(types.NewInt(0), 3, 0, false, true)); ec != types.E_NONE {
+		t.Fatalf("DefineProperty saved_anon: %v", ec)
+	}
+
+	anonID, ec := objectStore.CreateObject([]types.ObjID{classID}, 3, true)
+	if ec != types.E_NONE {
+		t.Fatalf("CreateObject anonymous: %v", ec)
+	}
+	if ec := objectStore.SetPropertyValue(anonID, "anon_marker", types.NewStr("anonymous-marker")); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue anonymous override: %v", ec)
+	}
+	if ec := objectStore.SetPropertyValue(classID, "saved_anon", types.NewAnon(anonID)); ec != types.E_NONE {
+		t.Fatalf("SetPropertyValue saved_anon: %v", ec)
+	}
+
+	tmpFile, err := os.CreateTemp(t.TempDir(), "anonymous-override-*.db")
+	if err != nil {
+		t.Fatalf("CreateTemp failed: %v", err)
+	}
+	defer tmpFile.Close()
+
+	if err := NewWriter(tmpFile, objectStore.Snapshot()).WriteDatabase(); err != nil {
+		t.Fatalf("WriteDatabase failed: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reloaded, err := LoadDatabase(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+	reloadedStore := reloaded.NewStoreFromDatabase()
+	anonRef, ok, propErr := reloadedStore.LocalProperty(classID, "saved_anon")
+	if propErr != types.E_NONE || !ok {
+		t.Fatalf("reloaded saved_anon missing: ok=%v err=%v", ok, propErr)
+	}
+	if anonRef.Value.Type() != types.TYPE_ANON || !reloadedStore.Valid(anonRef.Value.ID()) {
+		t.Fatalf("reloaded saved_anon = %v, want valid anonymous object", anonRef.Value)
+	}
+
+	override, ok, propErr := reloadedStore.LocalProperty(anonRef.Value.ID(), "anon_marker")
+	if propErr != types.E_NONE || !ok {
+		t.Fatalf("reloaded anonymous override missing: ok=%v err=%v", ok, propErr)
+	}
+	if override.Clear || override.Value.Type() != types.TYPE_STR || override.Value.Str() != "anonymous-marker" {
+		t.Fatalf("anonymous override = %#v, want anonymous-marker", override)
+	}
+}
+
 // TestRoundTripPreservesSiblingAfterClear checks that clearing an inherited
 // property override on an object does not corrupt sibling property values in
 // the checkpoint. Before the fix, ClearPropertyOverride removed the slot from

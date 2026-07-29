@@ -130,11 +130,18 @@ func (database *Database) resolvePropertyNames() {
 		propOrder  []string
 	}
 
-	// Build resolved names for every object first, then apply them in a second pass.
-	// This avoids parent-order nondeterminism from map iteration.
-	resolvedByID := make(map[types.ObjID]resolvedProps, len(database.Objects))
+	// Build resolved names for every regular and anonymous object first, then
+	// apply them in a second pass. This avoids parent-order nondeterminism from
+	// map iteration and ensures anonymous inherited slots do not retain their
+	// temporary _inherited_N names.
+	objects := make([]*store.ObjectBuilder, 0, len(database.Objects)+len(database.AnonymousObjs))
+	for _, obj := range database.Objects {
+		objects = append(objects, obj)
+	}
+	objects = append(objects, database.AnonymousObjs...)
+	resolvedByObject := make(map[*store.ObjectBuilder]resolvedProps, len(objects))
 
-	for id, obj := range database.Objects {
+	for _, obj := range objects {
 		if obj == nil {
 			continue
 		}
@@ -164,17 +171,17 @@ func (database *Database) resolvePropertyNames() {
 			newPropOrder = append(newPropOrder, newName)
 		}
 
-		resolvedByID[id] = resolvedProps{
+		resolvedByObject[obj] = resolvedProps{
 			properties: newProperties,
 			propOrder:  newPropOrder,
 		}
 	}
 
-	for id, obj := range database.Objects {
+	for _, obj := range objects {
 		if obj == nil {
 			continue
 		}
-		resolved, ok := resolvedByID[id]
+		resolved, ok := resolvedByObject[obj]
 		if !ok {
 			continue
 		}
