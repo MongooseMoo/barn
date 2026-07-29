@@ -170,8 +170,8 @@ func (w *Writer) writeActivationAsPI(t task.Snapshot) error {
 		verb = frame.Verb
 	}
 
-	// temp_value (typed) - typically 0
-	if err := w.writeValue(types.NewInt(0)); err != nil {
+	// Compatibility sentinel written by Toast's write_activ_as_pi.
+	if err := w.writeValue(types.NewInt(-111)); err != nil {
 		return err
 	}
 

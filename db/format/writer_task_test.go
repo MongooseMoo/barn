@@ -51,6 +51,8 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		// Toast tasks.cc::write_forked_task writes the rounded start time
 		// before the task id: "0 <line> <start> <id>".
 		"0 9 123 5\n",
+		// Toast execute.cc::write_activ_as_pi starts with typed INT -111.
+		"0 9 123 5\n0\n-111\n",
 		"1 variables\nx\n0\n1\n",
 		"x = 1;\n.\n",
 	} {
