@@ -12,6 +12,7 @@ type ForkSnapshot struct {
 	Variables     map[string]types.Value
 	VariableNames []string
 	SourceLines   []string
+	FirstLine     int
 }
 
 // Snapshot is an immutable copy of the task fields the database writer needs.
@@ -53,17 +54,23 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 	}
 	if t.ForkInfo != nil {
 		var variableNames []string
+		firstLine := 0
 		if t.Program != nil {
 			variableNames = append(variableNames, t.Program.VarNames...)
+			firstLine = t.Program.LineForIP(0)
 		} else if body, ok := t.ForkInfo.Body.([3]interface{}); ok {
 			if program, ok := body[0].(*bytecode.Program); ok {
 				variableNames = append(variableNames, program.VarNames...)
+				if bodyIP, ok := body[1].(int); ok {
+					firstLine = program.LineForIP(bodyIP)
+				}
 			}
 		}
 		snapshot.Fork = &ForkSnapshot{
 			Variables:     cloneValueMap(t.ForkInfo.Variables),
 			VariableNames: variableNames,
 			SourceLines:   append([]string(nil), t.ForkInfo.SourceLines...),
+			FirstLine:     firstLine,
 		}
 	}
 	return snapshot

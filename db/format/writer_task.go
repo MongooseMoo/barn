@@ -48,9 +48,9 @@ func (w *Writer) writeQueuedTask(t task.Snapshot) error {
 
 	// Header: {unused} {firstLineno} {st} {id}
 	// unused = 0, firstLineno = 1, id = task ID, st = queue time unix
-	firstLineno := 1
-	if len(t.CallStack) > 0 {
-		firstLineno = t.CallStack[0].LineNumber
+	firstLineno := t.Fork.FirstLine
+	if firstLineno <= 0 {
+		return fmt.Errorf("task has no fork program first line")
 	}
 	st := t.StartTime.Add(500 * time.Millisecond).Unix()
 

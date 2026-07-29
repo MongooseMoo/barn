@@ -35,6 +35,7 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		}},
 		Fork: &task.ForkSnapshot{
 			VariableNames: []string{"x"},
+			FirstLine:     9,
 			Variables: map[string]types.Value{
 				"x": types.NewInt(1),
 			},
@@ -112,6 +113,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	queued.ForkInfo = &types.ForkInfo{
 		Body: [3]interface{}{&bytecode.Program{
 			VarNames: []string{"z", "a"},
+			LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 1}},
 		}, 0, 0},
 		Variables: map[string]types.Value{
 			"z": types.NewInt(1),
@@ -153,7 +155,9 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 		Verb:       "tick",
 	})
 	queued.ForkInfo = &types.ForkInfo{
-		Body:        [3]interface{}{&bytecode.Program{}, 0, 0},
+		Body: [3]interface{}{&bytecode.Program{
+			LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 1}},
+		}, 0, 0},
 		SourceLines: []string{"return this;"},
 		ThisObj:     4,
 		ThisValue:   types.NewAnon(44),
@@ -171,5 +175,43 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 
 	if got := buf.String(); !strings.Contains(got, "0\n-111\n12\n44\n") {
 		t.Fatalf("queued task lost anonymous this value:\n%s", got)
+	}
+}
+
+func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
+	queued := task.NewTask(43, 2, 100, 1)
+	queued.StartTime = time.Unix(123, 0)
+	queued.Programmer = 3
+	queued.This = 4
+	queued.VerbLoc = 6
+	queued.VerbName = "tick"
+	queued.PushFrame(task.ActivationFrame{
+		This:       4,
+		ThisValue:  types.None,
+		Player:     2,
+		Programmer: 3,
+		VerbLoc:    6,
+		Verb:       "tick",
+		LineNumber: 99,
+	})
+	queued.ForkInfo = &types.ForkInfo{
+		Body: [3]interface{}{&bytecode.Program{
+			LineInfo: []bytecode.LineEntry{{StartIP: 0, Line: 17}},
+		}, 0, 1},
+		SourceLines: []string{"return 1;"},
+	}
+
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	writer.SetTaskSnapshots([]task.Snapshot{queued.PersistenceSnapshot()}, nil)
+	if err := writer.writeQueuedTasks(); err != nil {
+		t.Fatalf("writeQueuedTasks: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	if got := buf.String(); !strings.Contains(got, "0 17 123 43\n") {
+		t.Fatalf("queued task header does not use fork program first line:\n%s", got)
 	}
 }
