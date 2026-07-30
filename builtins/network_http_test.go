@@ -160,6 +160,24 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 	}
 }
 
+func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
+	player := types.ObjID(8)
+	resetHTTPTestState(player)
+	t.Cleanup(func() { resetHTTPTestState(player) })
+
+	pending := task.NewTask(101, player, 1000, 5)
+	if value, complete := prepareHTTPRead(player, "request", pending); complete {
+		t.Fatalf("expected incomplete request to suspend, got %v", value)
+	}
+	task.GetManager().SuspendTask(pending, -1)
+
+	CloseHeldHTTPInput(player)
+
+	if got := pending.GetState(); got != task.TaskKilled {
+		t.Fatalf("disconnected HTTP read state = %s, want killed", got)
+	}
+}
+
 func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	player := types.ObjID(8)
 	resetHTTPTestState(player)
