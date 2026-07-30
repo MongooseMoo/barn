@@ -1,2 +1,0 @@
-connect wizard
-; return 1 + 1;
