@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -119,7 +120,7 @@ func main() {
 	}
 
 	// Connect to MOO server
-	address := fmt.Sprintf("%s:%d", host, port)
+	address := net.JoinHostPort(host, strconv.Itoa(port))
 	fmt.Fprintf(os.Stderr, "Connecting to %s...\n", address)
 	events.record(clientEvent{Event: "connect_start"}, time.Now())
 

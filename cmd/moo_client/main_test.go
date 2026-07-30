@@ -3,12 +3,58 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func TestMooClientConnectsToIPv6Host(t *testing.T) {
+	if os.Getenv("MOO_CLIENT_IPV6_HELPER") == "1" {
+		flag.CommandLine = flag.NewFlagSet("moo_client", flag.ExitOnError)
+		os.Args = []string{
+			"moo_client",
+			"-host", "::1",
+			"-port", os.Getenv("MOO_CLIENT_IPV6_PORT"),
+			"-timeout", "1",
+		}
+		main()
+		return
+	}
+
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			err = conn.Close()
+		}
+		accepted <- err
+	}()
+
+	port := listener.Addr().(*net.TCPAddr).Port
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMooClientConnectsToIPv6Host$")
+	cmd.Env = append(os.Environ(),
+		"MOO_CLIENT_IPV6_HELPER=1",
+		"MOO_CLIENT_IPV6_PORT="+strconv.Itoa(port),
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("moo_client failed to connect to IPv6 host: %v\n%s", err, output)
+	}
+	if err := <-accepted; err != nil {
+		t.Fatalf("accept IPv6 connection: %v", err)
+	}
+}
 
 func TestEventLogRecordsTimingWithoutCommandText(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
