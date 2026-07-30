@@ -74,6 +74,42 @@ func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
 	}
 }
 
+func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewScheduler(store)
+	defer s.Stop()
+
+	ticks, seconds := backgroundTaskLimits()
+	killed := task.NewTaskFull(
+		6200,
+		3,
+		compileTestProgram(t, s.registry, "suspend(100);"),
+		ticks,
+		seconds,
+	)
+	s.populateTaskContextDependencies(killed.Context)
+	killed.IsForked = true
+	killed.ForkCreator = s
+	s.QueueTask(killed)
+	defer task.GetManager().RemoveTask(killed.ID)
+
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("scheduler pass ran %d tasks, want 1", got)
+	}
+	if got := killed.GetState(); got != task.TaskSuspended {
+		t.Fatalf("task state = %s, want suspended", got)
+	}
+	if killed.BytecodeVMValue() == nil {
+		t.Fatal("suspended task has no saved VM")
+	}
+
+	killed.Kill()
+	queued, suspended := s.TaskSnapshots()
+	if len(queued) != 0 || len(suspended) != 0 {
+		t.Fatalf("checkpoint captured killed task: queued=%d suspended=%d", len(queued), len(suspended))
+	}
+}
+
 func TestCreateForkedTaskReportsParentSourceLine(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
