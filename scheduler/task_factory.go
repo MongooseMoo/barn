@@ -455,6 +455,9 @@ func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Sn
 
 	for _, t := range s.tasks {
 		snapshot := t.PersistenceSnapshot()
+		if snapshot.State == task.TaskCompleted || snapshot.State == task.TaskKilled {
+			continue
+		}
 		if snapshot.VM != nil {
 			if snapshot.State == task.TaskSuspended && !t.WakeTime.IsZero() {
 				snapshot.StartTime = t.WakeTime

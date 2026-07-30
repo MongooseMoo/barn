@@ -173,8 +173,9 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 		// Inject wake value before resuming (read() sets WakeValue to
 		// the input string; default suspend uses 0).
 		if !t.WakeValue.IsNone() {
-			bcVM.SetResumeValue(t.WakeValue)
+			bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
 			t.WakeValue = types.None // Consume — don't leak into future suspends
+			t.WakeErrorAsValue = false
 		}
 		result = bcVM.Resume()
 	}

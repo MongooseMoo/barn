@@ -657,7 +657,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	if result := machine.Run(program); result.Flow != types.FlowSuspend {
 		t.Fatalf("initial result = %#v, want suspend", result)
 	}
-	machine.SetResumeValue(types.NewErr(types.E_INTRPT))
+	machine.SetResumeValue(types.NewErr(types.E_INTRPT), false)
 	result := machine.Resume()
 	if result.Flow != types.FlowReturn || !result.Val.Equal(types.NewErr(types.E_INTRPT)) {
 		t.Fatalf("error resume result = %#v, want caught E_INTRPT", result)

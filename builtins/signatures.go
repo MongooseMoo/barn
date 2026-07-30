@@ -868,6 +868,7 @@ func builtinReadStdin(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if stdin == nil {
 		return types.Err(types.E_INVARG)
 	}
+	t.WakeErrorAsValue = true
 	task.GetManager().SuspendTask(t, -1)
 	if !stdin.ReadLineAsync(t) {
 		return types.Err(types.E_INVARG)
