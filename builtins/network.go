@@ -708,7 +708,7 @@ func CloseHeldHTTPInput(player types.ObjID) {
 
 	for _, waiter := range waiters {
 		if waiter.task != nil {
-			waiter.task.Resume(types.NewInt(0))
+			waiter.task.Kill()
 		}
 	}
 }
