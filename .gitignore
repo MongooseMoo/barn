@@ -16,8 +16,20 @@ manual_*.sh
 login_test.txt
 manual_test_output.txt
 .tmp_collect.txt
+/test_*.txt
+/toast_*.txt
+/*_look_*.txt
+/tmp_*.txt
 
-# Scratch databases (keep the Test*.db conformance fixtures tracked)
+# Scratch databases (keep the named conformance fixtures tracked)
+/*.db
+!/Test.db
+!/Test_conf.db
+!/Test_fresh.db
+!/Test_fresh2.db
+!/Test_full.db
+!/Test_waif.db
+!/toastcore.db
 mongoose*.db
 conf_*.db
 *_snapshot.db
