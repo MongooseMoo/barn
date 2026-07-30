@@ -109,6 +109,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	result := bcVM.ExecuteLoop()
 
 	// Handle yielded control flow (fork/suspend) until the eval completes.
+resumeLoop:
 	for result.Flow == types.FlowFork || result.Flow == types.FlowSuspend {
 		result = s.drainForks(t, bcVM, result)
 
@@ -140,7 +141,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 			}
 			if t.GetState() != task.TaskQueued {
 				result = types.Result{Flow: types.FlowException, Error: types.E_INVARG, Val: types.None}
-				break
+				break resumeLoop
 			}
 		case seconds == 0:
 			// Process immediate ready tasks before resuming. Nested zero-delay
