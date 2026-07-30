@@ -251,9 +251,10 @@ func (vm *VM) Resume() types.Result {
 // SetResumeValue replaces the top-of-stack value that was pushed when a
 // builtin returned FlowSuspend. By default the VM pushes 0 (correct for
 // suspend()), but read() needs to deliver the input line string. Call this
-// before Resume().
-func (vm *VM) SetResumeValue(val types.Value) {
-	if val.Type() == types.TYPE_ERR {
+// before Resume(). Error values normally resume as exceptions; extension
+// builtins such as read_stdin can instead return them as literal values.
+func (vm *VM) SetResumeValue(val types.Value, errorAsValue bool) {
+	if val.Type() == types.TYPE_ERR && !errorAsValue {
 		vm.resumeError = val.ErrCode()
 		return
 	}

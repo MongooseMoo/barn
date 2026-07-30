@@ -180,8 +180,9 @@ retryAttempt:
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
-				bcVM.SetResumeValue(t.WakeValue)
+				bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
 				t.WakeValue = types.None // Consume — don't leak into future suspends
+				t.WakeErrorAsValue = false
 			}
 			// Resume after suspend
 			result = bcVM.Resume()
@@ -349,8 +350,9 @@ retryAttempt:
 	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
 		t.SetBytecodeVM(bcVM)
 		if !t.WakeValue.IsNone() {
-			bcVM.SetResumeValue(t.WakeValue)
+			bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
 			t.WakeValue = types.None
+			t.WakeErrorAsValue = false
 		}
 		result = bcVM.Resume()
 		t.Result = result

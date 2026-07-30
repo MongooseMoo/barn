@@ -127,6 +127,7 @@ type Task struct {
 	WakeTime            time.Time
 	QueueSeq            int64       // Monotonic enqueue order for deterministic same-time scheduling
 	WakeValue           types.Value // Value to return when resumed
+	WakeErrorAsValue    bool        // Return an error-typed wake value instead of raising it
 	IsExecSuspended     bool        // True if suspended by exec() (can't resume, only kill)
 	ExecCommandName     string      // Toast-style executable label while suspended by exec()
 	IsHTTPReadSuspended bool        // True while suspended by read_http()

@@ -1,10 +1,12 @@
 package scheduler
 
 import (
+	"io"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"barn/builtins"
 	"barn/compiler"
 	dbstore "barn/db/store"
 	"barn/task"
@@ -110,6 +112,60 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	s.ProcessReadyTasks()
 	if got := tk.GetState(); got != task.TaskCompleted {
 		t.Fatalf("after resume + ProcessReadyTasks: state = %v, want TaskCompleted", got)
+	}
+}
+
+func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewScheduler(store)
+
+	reader, writer := io.Pipe()
+	t.Cleanup(func() {
+		_ = reader.Close()
+		_ = writer.Close()
+	})
+	s.registry.SetProcessStdin(builtins.NewProcessStdin(reader))
+
+	program, diagnostics := compiler.CompileMOO([]string{"return read_stdin();"}, s.registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
+	}
+
+	taskID := s.CreateForegroundTask(types.ObjNothing, program)
+	t.Cleanup(func() {
+		task.GetManager().RemoveTask(taskID)
+		s.mu.Lock()
+		delete(s.tasks, taskID)
+		s.mu.Unlock()
+	})
+	readTask := s.tasks[taskID]
+
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("initial scheduler pass ran %d tasks, want 1", got)
+	}
+	if got := readTask.GetState(); got != task.TaskSuspended {
+		t.Fatalf("read_stdin task state = %v, want TaskSuspended", got)
+	}
+
+	if _, err := io.WriteString(writer, "a-prefixed input\n"); err != nil {
+		t.Fatalf("WriteString failed: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for readTask.GetState() == task.TaskSuspended && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := readTask.GetState(); got != task.TaskQueued {
+		t.Fatalf("read_stdin task state after input = %v, want TaskQueued", got)
+	}
+
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("resume scheduler pass ran %d tasks, want 1", got)
+	}
+	if got := readTask.Result.Flow; got != types.FlowReturn {
+		t.Fatalf("read_stdin result flow = %v, want FlowReturn (result=%v)", got, readTask.Result.Val)
+	}
+	if got := readTask.Result.Val; got.Type() != types.TYPE_ERR || got.ErrCode() != types.E_NACC {
+		t.Fatalf("read_stdin result = %v, want literal E_NACC", got)
 	}
 }
 
