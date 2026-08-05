@@ -486,6 +486,113 @@ func TestRuntimeListenerZeroRejectsDuplicateDescriptorAndClosesDuplicate(t *test
 	}
 }
 
+func TestRuntimeWebSocketListenerZeroLifecycle(t *testing.T) {
+	cm := NewConnectionManager(0)
+	t.Cleanup(cm.CloseListeners)
+	spec := builtins.ListenerSpec{
+		Protocol:  builtins.ListenerProtocolWebSocket,
+		Object:    5,
+		Port:      0,
+		Interface: "127.0.0.1",
+		Path:      "/moo",
+	}
+	want := builtins.ListenerDescriptor{
+		Protocol: builtins.ListenerProtocolWebSocket,
+		Port:     0,
+		Path:     "/moo",
+	}
+
+	desc, err := cm.AddListener(spec)
+	if err != nil {
+		t.Fatalf("AddListener(WebSocket port 0): %v", err)
+	}
+	if desc != want {
+		t.Errorf("AddListener(WebSocket port 0) descriptor = %+v, want %+v", desc, want)
+	}
+
+	infos := cm.ListenerInfos()
+	if len(infos) != 1 {
+		t.Fatalf("ListenerInfos() count = %d, want 1", len(infos))
+	}
+	if infos[0].Protocol != want.Protocol || infos[0].Port != want.Port || infos[0].Path != want.Path {
+		t.Errorf("ListenerInfos()[0] descriptor = %s://:%d%s, want %s://:%d%s",
+			infos[0].Protocol, infos[0].Port, infos[0].Path,
+			want.Protocol, want.Port, want.Path)
+	}
+
+	boundAddr := runtimeListenerBoundAddress(t, cm, desc)
+	waitForWebSocketListener(t, boundAddr, want.Path)
+
+	duplicateDesc, err := cm.AddListener(spec)
+	if err == nil {
+		t.Errorf("AddListener(duplicate WebSocket descriptor 0) = %+v, want error", duplicateDesc)
+		duplicateAddr := runtimeListenerBoundAddress(t, cm, duplicateDesc)
+		waitForWebSocketListener(t, duplicateAddr, want.Path)
+		if cleanupErr := cm.RemoveListener(duplicateDesc); cleanupErr != nil {
+			t.Fatalf("remove unexpectedly accepted duplicate WebSocket listener: %v", cleanupErr)
+		}
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 1 {
+		t.Errorf("ListenerInfos() count after duplicate = %d, want 1", len(infos))
+	}
+
+	if err := cm.RemoveListener(want); err != nil {
+		t.Errorf("RemoveListener(WebSocket descriptor 0): %v", err)
+		if cleanupErr := cm.RemoveListener(desc); cleanupErr != nil {
+			t.Fatalf("remove actual WebSocket descriptor %+v after failed descriptor-0 removal: %v", desc, cleanupErr)
+		}
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 0 {
+		t.Errorf("ListenerInfos() after WebSocket removal = %+v, want none", infos)
+	}
+
+	rebound, err := net.Listen("tcp4", boundAddr)
+	if err != nil {
+		t.Fatalf("bind released runtime WebSocket socket %s: %v", boundAddr, err)
+	}
+	if err := rebound.Close(); err != nil {
+		t.Fatalf("close rebound WebSocket socket: %v", err)
+	}
+}
+
+func runtimeListenerBoundAddress(t *testing.T, cm *ConnectionManager, desc builtins.ListenerDescriptor) string {
+	t.Helper()
+	cm.mu.Lock()
+	record := cm.listeners[listenerKeyFromDescriptor(desc)]
+	cm.mu.Unlock()
+	if record == nil {
+		t.Fatalf("listener record for descriptor %+v is missing", desc)
+	}
+	boundAddr := record.listener.Addr().String()
+	_, boundPort, err := net.SplitHostPort(boundAddr)
+	if err != nil || boundPort == "0" {
+		t.Fatalf("listener bound address = %q, want nonzero OS port", boundAddr)
+	}
+	return boundAddr
+}
+
+func waitForWebSocketListener(t *testing.T, boundAddr, path string) {
+	t.Helper()
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 250 * time.Millisecond}
+	deadline := time.Now().Add(2 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		response, err := client.Get("http://" + boundAddr + path)
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusUpgradeRequired {
+				t.Fatalf("GET WebSocket listener status = %d, want %d", response.StatusCode, http.StatusUpgradeRequired)
+			}
+			return
+		}
+		lastErr = err
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("WebSocket listener %s%s did not become ready: %v", boundAddr, path, lastErr)
+}
+
 func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 	cm := NewConnectionManager(0)
 	err := cm.BindListeners([]builtins.ListenerSpec{

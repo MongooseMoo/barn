@@ -61,6 +61,71 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 }
 
+func TestRuntimeTLSListenerZeroLifecycle(t *testing.T) {
+	certPath, keyPath := writeSelfSignedCertificate(t)
+	cm := NewConnectionManager(0)
+	t.Cleanup(cm.CloseListeners)
+	spec := builtins.ListenerSpec{
+		Protocol:           builtins.ListenerProtocolTLS,
+		Port:               0,
+		Interface:          "127.0.0.1",
+		TLSCertificatePath: certPath,
+		TLSKeyPath:         keyPath,
+	}
+	want := builtins.ListenerDescriptor{
+		Protocol: builtins.ListenerProtocolTLS,
+		Port:     0,
+	}
+
+	desc, err := cm.AddListener(spec)
+	if err != nil {
+		t.Fatalf("AddListener(TLS port 0): %v", err)
+	}
+	if desc != want {
+		t.Errorf("AddListener(TLS port 0) descriptor = %+v, want %+v", desc, want)
+	}
+
+	infos := cm.ListenerInfos()
+	if len(infos) != 1 {
+		t.Fatalf("ListenerInfos() count = %d, want 1", len(infos))
+	}
+	if infos[0].Protocol != want.Protocol || infos[0].Port != want.Port {
+		t.Errorf("ListenerInfos()[0] descriptor = %s://:%d, want %s://:%d",
+			infos[0].Protocol, infos[0].Port, want.Protocol, want.Port)
+	}
+
+	boundAddr := runtimeListenerBoundAddress(t, cm, desc)
+
+	duplicateDesc, err := cm.AddListener(spec)
+	if err == nil {
+		t.Errorf("AddListener(duplicate TLS descriptor 0) = %+v, want error", duplicateDesc)
+		if cleanupErr := cm.RemoveListener(duplicateDesc); cleanupErr != nil {
+			t.Fatalf("remove unexpectedly accepted duplicate TLS listener: %v", cleanupErr)
+		}
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 1 {
+		t.Errorf("ListenerInfos() count after TLS duplicate = %d, want 1", len(infos))
+	}
+
+	if err := cm.RemoveListener(want); err != nil {
+		t.Errorf("RemoveListener(TLS descriptor 0): %v", err)
+		if cleanupErr := cm.RemoveListener(desc); cleanupErr != nil {
+			t.Fatalf("remove actual TLS descriptor %+v after failed descriptor-0 removal: %v", desc, cleanupErr)
+		}
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 0 {
+		t.Errorf("ListenerInfos() after TLS removal = %+v, want none", infos)
+	}
+
+	rebound, err := net.Listen("tcp4", boundAddr)
+	if err != nil {
+		t.Fatalf("bind released runtime TLS socket %s: %v", boundAddr, err)
+	}
+	if err := rebound.Close(); err != nil {
+		t.Fatalf("close rebound TLS socket: %v", err)
+	}
+}
+
 func TestAddTLSListenerRequiresCertificateAndKey(t *testing.T) {
 	cm := NewConnectionManager(0)
 	_, err := cm.AddListener(builtins.ListenerSpec{
