@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,9 +12,78 @@ import (
 	"barn/builtins"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	runtime "barn/scheduler"
 	"barn/types"
+	"barn/vm"
 )
+
+func TestShutdownHostCallbackUsesSchedulerBoundaryWhenNotRunningAndOnPanic(t *testing.T) {
+	tests := []struct {
+		name    string
+		unclean bool
+		want    int
+	}{
+		{name: "not running", want: 1},
+		{name: "panic", unclean: true, want: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "Test_fresh2.db"))
+			if err != nil {
+				t.Fatalf("read source database: %v", err)
+			}
+			dbPath := filepath.Join(t.TempDir(), "callback.db")
+			if err := os.WriteFile(dbPath, source, 0o600); err != nil {
+				t.Fatalf("write test database: %v", err)
+			}
+			s, err := NewServer(dbPath, []builtins.ListenerSpec{{Protocol: builtins.ListenerProtocolTCP, Port: 7777}}, 0)
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			if err := s.LoadDatabase(); err != nil {
+				t.Fatalf("LoadDatabase: %v", err)
+			}
+			t.Cleanup(s.scheduler.Stop)
+
+			anonID, errCode := s.store.CreateObject([]types.ObjID{0}, 2, true)
+			if errCode != types.E_NONE {
+				t.Fatalf("create caller anonymous object: %v", errCode)
+			}
+			callerVM := vm.NewVM(s.store, s.scheduler.Registry())
+			callerVM.PendingFinalizations = []types.Value{types.NewAnon(anonID)}
+			var handedOff []types.Value
+			s.scheduler.SetPendingFinalizationSink(func(values []types.Value) {
+				handedOff = append(handedOff, values...)
+			})
+
+			ctx := kernel.NewTaskContext()
+			ctx.IsWizard = true
+			ctx.Programmer = 2
+			ctx.Registry = s.scheduler.Registry()
+			ctx.CallerVM = callerVM
+			shutdown, ok := s.scheduler.Registry().Get("shutdown")
+			if !ok {
+				t.Fatal("shutdown builtin is not registered")
+			}
+			result := shutdown(ctx, []types.Value{types.NewStr("test"), types.NewInt(boolInt(tc.unclean))})
+			if !result.IsNormal() {
+				t.Fatalf("shutdown result = %#v, want normal", result)
+			}
+
+			if got := len(handedOff); got != tc.want {
+				t.Fatalf("scheduler handoff roots = %v, want %d via canonical boundary", handedOff, tc.want)
+			}
+		})
+	}
+}
+
+func boolInt(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
 
 func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	store := dbstore.NewStore()

@@ -88,9 +88,15 @@ func (s *Scheduler) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.V
 		vm.CollectWaifsFromVM(ownVM, &ownRefs)
 	}
 	s.pendingWaifMu.Lock()
-	if s.isShuttingDown() {
+	if s.shutdownRequested {
+		published := s.isShuttingDown()
+		if !published {
+			s.pendingShutdownRoots = append(s.pendingShutdownRoots, pending...)
+		}
 		s.pendingWaifMu.Unlock()
-		s.appendPendingFinalizations(pending)
+		if published {
+			s.appendPendingFinalizations(pending)
+		}
 		return
 	}
 	for _, waif := range pending {
@@ -117,10 +123,16 @@ func (s *Scheduler) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownV
 		vm.CollectAnonymousRefsFromVM(ownVM, ownRefs)
 	}
 	s.pendingWaifMu.Lock()
-	if s.isShuttingDown() {
+	if s.shutdownRequested {
 		values := s.anonymousRequestRootValues(vm.AnonGCRequest{MinID: minID, OwnRefs: ownRefs})
+		published := s.isShuttingDown()
+		if !published {
+			s.pendingShutdownRoots = append(s.pendingShutdownRoots, values...)
+		}
 		s.pendingWaifMu.Unlock()
-		s.appendPendingFinalizations(values)
+		if published {
+			s.appendPendingFinalizations(values)
+		}
 		return
 	}
 	s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs})
@@ -145,9 +157,15 @@ func (s *Scheduler) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, ex
 	}
 
 	s.pendingWaifMu.Lock()
-	if s.isShuttingDown() {
+	if s.shutdownRequested {
+		published := s.isShuttingDown()
+		if !published {
+			s.pendingShutdownRoots = append(s.pendingShutdownRoots, shutdownRoots...)
+		}
 		s.pendingWaifMu.Unlock()
-		s.appendPendingFinalizations(shutdownRoots)
+		if published {
+			s.appendPendingFinalizations(shutdownRoots)
+		}
 		return true
 	}
 	for _, waif := range pendingWaifs {
@@ -195,7 +213,7 @@ func (s *Scheduler) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskCon
 // while sweeps stay cheap, on gcSweepInterval once they become expensive.
 func (s *Scheduler) flushDeferredGC() {
 	s.pendingWaifMu.Lock()
-	if s.isShuttingDown() {
+	if s.shutdownRequested || s.gcRunning {
 		s.pendingWaifMu.Unlock()
 		return
 	}
@@ -223,7 +241,7 @@ func (s *Scheduler) flushDeferredGC() {
 	// BeginShutdown and this drain are the ownership linearization point. If
 	// shutdown won, it already transferred the queued roots; if this drain wins,
 	// the local batch belongs to ordinary GC before shutdown can be published.
-	if s.isShuttingDown() {
+	if s.shutdownRequested || s.gcRunning || (len(s.pendingWaifBatch) == 0 && len(s.pendingAnonGC) == 0) {
 		s.pendingWaifMu.Unlock()
 		return
 	}
@@ -232,9 +250,20 @@ func (s *Scheduler) flushDeferredGC() {
 	s.pendingWaifBatch = nil
 	s.pendingAnonGC = nil
 	s.lastGCSweep = time.Now()
+	s.gcRunning = true
 	s.pendingWaifMu.Unlock()
 
 	sweepStart := time.Now()
+	defer func() {
+		cost := time.Since(sweepStart)
+		metrics.GCSweeps.Add(1)
+		metrics.GCSweepLastMs.Set(cost.Milliseconds())
+		s.pendingWaifMu.Lock()
+		s.lastGCCost = cost
+		s.gcRunning = false
+		s.shutdownCond.Broadcast()
+		s.pendingWaifMu.Unlock()
+	}()
 
 	if len(waifBatch) > 0 {
 		roots := append([]types.Value(nil), siblingWaifs...)
@@ -252,13 +281,6 @@ func (s *Scheduler) flushDeferredGC() {
 
 	vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, siblingAnon)
 
-	cost := time.Since(sweepStart)
-	metrics.GCSweeps.Add(1)
-	metrics.GCSweepLastMs.Set(cost.Milliseconds())
-
-	s.pendingWaifMu.Lock()
-	s.lastGCCost = cost
-	s.pendingWaifMu.Unlock()
 }
 
 func anonymousRootValues(refs map[types.ObjID]struct{}) []types.Value {
@@ -275,7 +297,7 @@ func anonymousRootValues(refs map[types.ObjID]struct{}) []types.Value {
 }
 
 // takeDeferredFinalizationRootsLocked transfers queued GC ownership to the
-// checkpoint domain. Caller holds pendingWaifMu and has published shutdown.
+// checkpoint domain. Caller holds pendingWaifMu after closing GC admission.
 func (s *Scheduler) takeDeferredFinalizationRootsLocked() []types.Value {
 	refs := make(map[types.ObjID]struct{})
 	for _, request := range s.pendingAnonGC {

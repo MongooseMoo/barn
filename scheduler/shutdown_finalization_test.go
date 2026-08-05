@@ -2,7 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"barn/compiler"
 	dbstore "barn/db/store"
@@ -11,6 +13,72 @@ import (
 	"barn/types"
 	"barn/vm"
 )
+
+func TestBeginShutdownWaitsForClaimedDeferredGCBeforePublishing(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	anonID, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous object: %v", errCode)
+	}
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	scheduler.registry.Register("recycle", func(*kernel.TaskContext, []types.Value) types.Result {
+		close(entered)
+		<-release
+		return types.Ok(types.None)
+	})
+	scheduler.pendingAnonGC = []vm.AnonGCRequest{{
+		Ctx:   kernel.NewTaskContext(),
+		MinID: anonID,
+	}}
+
+	flushDone := make(chan struct{})
+	go func() {
+		scheduler.flushDeferredGC()
+		close(flushDone)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("deferred GC did not claim the queued anonymous request")
+	}
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		scheduler.BeginShutdown(nil)
+		close(shutdownDone)
+	}()
+	select {
+	case <-shutdownDone:
+		t.Fatal("BeginShutdown published while claimed deferred GC was still executing")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if scheduler.isShuttingDown() {
+		t.Fatal("shutdown state published before the claimed deferred GC completed")
+	}
+
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case <-flushDone:
+	case <-time.After(time.Second):
+		t.Fatal("deferred GC did not finish after release")
+	}
+	select {
+	case <-shutdownDone:
+	case <-time.After(time.Second):
+		t.Fatal("BeginShutdown did not publish after deferred GC finished")
+	}
+	if !scheduler.isShuttingDown() {
+		t.Fatal("shutdown state was not published after deferred GC finished")
+	}
+}
 
 func TestOrdinaryCompletionRecyclesPoppedWaifDespiteShutdownOnlyRoots(t *testing.T) {
 	resetServerVerbTaskManager(t)
@@ -64,7 +132,7 @@ func TestBeginShutdownTransfersPreexistingDeferredFinalizations(t *testing.T) {
 		OwnRefs: map[types.ObjID]struct{}{anonID: {}},
 	}}
 
-	scheduler.BeginShutdown()
+	scheduler.BeginShutdown(nil)
 	scheduler.flushDeferredGC()
 	if len(handedOff) != 2 || !handedOff[0].Equal(types.NewAnon(anonID)) || !handedOff[1].Equal(waif) {
 		t.Fatalf("handoff = %v, want anonymous root then WAIF identity %p", handedOff, waif.WaifIdentity())
@@ -92,6 +160,9 @@ func TestCanceledSchedulerContextDoesNotInferShutdownHandoff(t *testing.T) {
 	}
 	if len(handedOff) != 0 {
 		t.Fatalf("generic cancellation handed off roots %v without BeginShutdown", handedOff)
+	}
+	if store.HasAnonymousAtOrAbove(1) {
+		t.Fatal("generic cancellation left its anonymous creation live instead of running ordinary cleanup")
 	}
 }
 
@@ -137,7 +208,7 @@ func TestShutdownCompletionPreservesAnonymousRootsForCheckpoint(t *testing.T) {
 			scheduler := NewScheduler(store)
 			t.Cleanup(scheduler.Stop)
 			scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
-			scheduler.BeginShutdown()
+			scheduler.BeginShutdown(nil)
 			if _, err := scheduler.RunServerVerbTask(0, "shutdown_started", nil, 0); err != nil {
 				t.Fatalf("run shutdown_started: %v", err)
 			}
@@ -167,7 +238,7 @@ func TestShutdownCompletionPreservesTaskLocalWaif(t *testing.T) {
 	scheduler := NewScheduler(store)
 	t.Cleanup(scheduler.Stop)
 	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
-	scheduler.BeginShutdown()
+	scheduler.BeginShutdown(nil)
 	if _, err := scheduler.RunServerVerbTask(0, "shutdown_started", nil, 0); err != nil {
 		t.Fatalf("run shutdown_started: %v", err)
 	}

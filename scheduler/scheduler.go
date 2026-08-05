@@ -44,11 +44,15 @@ type Scheduler struct {
 	// Deferred GC: task completion/suspend enqueue their pending waifs and
 	// orphan-anonymous collection requests here instead of paying a full-db
 	// sweep per task; flushDeferredGC settles both batches on an interval.
-	pendingWaifMu    sync.Mutex
-	pendingWaifBatch []pendingWaifEntry
-	pendingAnonGC    []vm.AnonGCRequest
-	lastGCSweep      time.Time
-	lastGCCost       time.Duration
+	pendingWaifMu        sync.Mutex
+	shutdownCond         *sync.Cond
+	shutdownRequested    bool
+	gcRunning            bool
+	pendingShutdownRoots []types.Value
+	pendingWaifBatch     []pendingWaifEntry
+	pendingAnonGC        []vm.AnonGCRequest
+	lastGCSweep          time.Time
+	lastGCCost           time.Duration
 }
 
 type taskWorkItem struct {
@@ -89,6 +93,7 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 		ctx:         ctx,
 		cancel:      cancel,
 	}
+	s.shutdownCond = sync.NewCond(&s.pendingWaifMu)
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
 		if tc != nil && tc.StoreTxn != nil && tc.Task != nil {
@@ -172,20 +177,53 @@ func (s *Scheduler) Stop() {
 	s.workersWG.Wait()
 }
 
-// BeginShutdown marks the pre-checkpoint shutdown phase. It is intentionally
-// separate from Stop: shutdown hooks and already-running tasks must be allowed
-// to complete, but their finalizable VM roots must be handed to the checkpoint
-// instead of passing through ordinary orphan collection.
-func (s *Scheduler) BeginShutdown() {
+// BeginShutdown closes ordinary-GC admission, waits for any batch that already
+// owns the execution barrier, then publishes shutdown and hands every queued
+// root to the checkpoint sink before returning. exec is the VM that invoked the
+// host shutdown callback when shutdown originates inside MOO code. It remains
+// separate from Stop so shutdown hooks and running tasks can finish while their
+// finalizable roots belong to the checkpoint rather than ordinary collection.
+func (s *Scheduler) BeginShutdown(exec *vm.VM) {
+	var callerRoots []types.Value
+	if exec != nil {
+		callerRoots = vm.CollectPendingFinalizationValues(s.store, exec)
+	}
 	s.pendingWaifMu.Lock()
 	if s.shuttingDown.Load() {
 		s.pendingWaifMu.Unlock()
+		s.appendPendingFinalizations(callerRoots)
 		return
 	}
-	s.shuttingDown.Store(true)
-	pending := s.takeDeferredFinalizationRootsLocked()
-	s.pendingWaifMu.Unlock()
-	s.appendPendingFinalizations(pending)
+	s.pendingShutdownRoots = append(s.pendingShutdownRoots, callerRoots...)
+	if s.shutdownRequested {
+		for !s.shuttingDown.Load() {
+			s.shutdownCond.Wait()
+		}
+		s.pendingWaifMu.Unlock()
+		return
+	}
+	s.shutdownRequested = true
+	for s.gcRunning {
+		s.shutdownCond.Wait()
+	}
+	for {
+		pending := s.takeDeferredFinalizationRootsLocked()
+		pending = append(pending, s.pendingShutdownRoots...)
+		s.pendingShutdownRoots = nil
+		s.pendingWaifMu.Unlock()
+		s.appendPendingFinalizations(pending)
+		s.pendingWaifMu.Lock()
+		// Roots can arrive from tasks completing while the sink runs. Drain them
+		// before publication; once this lock observes an empty queue, publication
+		// and the empty observation are atomic with respect to every producer.
+		if len(s.pendingShutdownRoots) != 0 || len(s.pendingWaifBatch) != 0 || len(s.pendingAnonGC) != 0 {
+			continue
+		}
+		s.shuttingDown.Store(true)
+		s.shutdownCond.Broadcast()
+		s.pendingWaifMu.Unlock()
+		return
+	}
 }
 
 func (s *Scheduler) isShuttingDown() bool {
@@ -199,19 +237,6 @@ func (s *Scheduler) SetPendingFinalizationSink(sink func([]types.Value)) {
 func (s *Scheduler) appendPendingFinalizations(values []types.Value) {
 	if len(values) > 0 && s.pendingFinalizationSink != nil {
 		s.pendingFinalizationSink(values)
-	}
-}
-
-func (s *Scheduler) handoffCanceledVMIfShuttingDown(exec *vm.VM) {
-	if exec == nil {
-		return
-	}
-	values := vm.CollectPendingFinalizationValues(s.store, exec)
-	s.pendingWaifMu.Lock()
-	shutdownOwns := s.isShuttingDown()
-	s.pendingWaifMu.Unlock()
-	if shutdownOwns {
-		s.appendPendingFinalizations(values)
 	}
 }
 

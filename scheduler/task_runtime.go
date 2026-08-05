@@ -336,11 +336,12 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		if taskCtx.Err() == context.Canceled {
-			s.handoffCanceledVMIfShuttingDown(bcVM)
-		}
+		shutdownOwns := s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
 		t.SetState(task.TaskKilled)
 		t.SetBytecodeVM(nil)
+		if !shutdownOwns {
+			s.flushDeferredGC()
+		}
 		return taskCtx.Err()
 	default:
 	}

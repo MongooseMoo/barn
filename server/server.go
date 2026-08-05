@@ -138,10 +138,9 @@ func (s *Server) LoadDatabase() error {
 	// durable and available for managed restart adoption.
 	reg.SetDumpFunc(func() error { return s.checkpoint() })
 	reg.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+		var callerVM *vm.VM
 		if ctx != nil {
-			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
-				s.store.AppendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
-			}
+			callerVM, _ = ctx.CallerVM.(*vm.VM)
 		}
 		shutdownMessage := "Server shutdown"
 		if ctx != nil {
@@ -156,6 +155,7 @@ func (s *Server) LoadDatabase() error {
 		} else if message != "" {
 			shutdownMessage = message
 		}
+		s.scheduler.BeginShutdown(callerVM)
 		if unclean {
 			s.Panic(shutdownMessage)
 			return nil
@@ -319,6 +319,7 @@ func (s *Server) checkpoint() error {
 
 // Shutdown initiates graceful shutdown.
 func (s *Server) Shutdown(message string) {
+	s.scheduler.BeginShutdown(nil)
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
@@ -327,10 +328,6 @@ func (s *Server) Shutdown(message string) {
 	s.shutdownMessage = message
 	s.mu.Unlock()
 
-	// Publish scheduler shutdown state before canceling the server loop. Tasks
-	// that complete from this point through the final checkpoint preserve their
-	// finalizable roots instead of running ordinary orphan collection.
-	s.scheduler.BeginShutdown()
 	slog.Info("initiating shutdown", slog.String("message", message))
 	s.cancel()
 }
@@ -338,7 +335,7 @@ func (s *Server) Shutdown(message string) {
 // shutdown performs the actual shutdown sequence
 func (s *Server) shutdown() error {
 	slog.Info("shutting down")
-	s.scheduler.BeginShutdown()
+	s.scheduler.BeginShutdown(nil)
 
 	s.mu.Lock()
 	message := s.shutdownMessage
@@ -381,7 +378,7 @@ func (s *Server) shutdown() error {
 func (s *Server) Panic(message string) error {
 	// Emergency checkpoints obey the same finalization ownership boundary as
 	// graceful shutdown: publish it before checkpoint hooks can hand off roots.
-	s.scheduler.BeginShutdown()
+	s.scheduler.BeginShutdown(nil)
 	// The Go stack is the only record of where the server actually tripped;
 	// the message alone says that it died, not why.
 	slog.Error("server panic",
