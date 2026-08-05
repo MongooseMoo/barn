@@ -54,7 +54,7 @@ func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *tes
 	}
 }
 
-func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing.T) {
+func TestCollectPendingFinalizationValuesRetainsDirectRefsEvenWhenCurrentlyPersistent(t *testing.T) {
 	store := dbstore.NewStore()
 
 	root := testObject(0, false)
@@ -81,12 +81,12 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 	}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	if len(got) != 0 {
-		t.Fatalf("len(got) = %d, want 0", len(got))
+	if len(got) != 1 || !got[0].Equal(types.NewAnon(5)) {
+		t.Fatalf("pending roots = %v, want direct VM root %s", got, types.NewAnon(5).String())
 	}
 }
 
-func TestCollectPendingFinalizationValuesKeepsOneRootForCyclicBareAnonymousLocals(t *testing.T) {
+func TestCollectPendingFinalizationValuesKeepsEveryCyclicBareAnonymousLocalDeterministically(t *testing.T) {
 	store := dbstore.NewStore()
 
 	root := testObject(0, false)
@@ -116,15 +116,18 @@ func TestCollectPendingFinalizationValuesKeepsOneRootForCyclicBareAnonymousLocal
 	}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	if len(got) != 1 {
-		t.Fatalf("len(got) = %d, want one root for the anonymous cycle", len(got))
+	want := []types.Value{types.NewAnon(4), types.NewAnon(5)}
+	if len(got) != len(want) {
+		t.Fatalf("pending roots = %v, want %v", got, want)
 	}
-	if !got[0].Equal(types.NewAnon(4)) {
-		t.Fatalf("got[0] = %s, want cycle root %s", got[0].String(), types.NewAnon(4).String())
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Fatalf("pending roots = %v, want identity order %v", got, want)
+		}
 	}
 }
 
-func TestCollectPendingFinalizationValuesChoosesReachabilityRootBeforeLowerIDLeaf(t *testing.T) {
+func TestCollectPendingFinalizationValuesRetainsDirectRootAndReachableLeaf(t *testing.T) {
 	store := dbstore.NewStore()
 	for _, obj := range []*dbstore.Object{
 		testObject(0, false),
@@ -145,7 +148,58 @@ func TestCollectPendingFinalizationValuesChoosesReachabilityRootBeforeLowerIDLea
 	}}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	if len(got) != 1 || !got[0].Equal(types.NewAnon(5)) {
-		t.Fatalf("pending roots = %v, want only reachability root %s", got, types.NewAnon(5).String())
+	want := []types.Value{types.NewAnon(4), types.NewAnon(5)}
+	if len(got) != len(want) || !got[0].Equal(want[0]) || !got[1].Equal(want[1]) {
+		t.Fatalf("pending roots = %v, want every direct root in identity order %v", got, want)
+	}
+}
+
+func TestCollectPendingFinalizationValuesSurvivesStagedEdgeRemovalBeforeSnapshot(t *testing.T) {
+	store := dbstore.NewStore()
+	for _, obj := range []*dbstore.Object{
+		testObject(0, false),
+		testObject(4, true),
+		testObject(5, true),
+	} {
+		if err := store.Add(obj); err != nil {
+			t.Fatalf("add object: %v", err)
+		}
+	}
+	if errCode := store.DefineProperty(4, "next", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define A.next: %v", errCode)
+	}
+
+	// Stage removal of the live A -> B edge. Until commit, a collector that
+	// minimizes roots against the live graph sees B as covered by A. The VM,
+	// however, directly holds both roots and disappears before the checkpoint.
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if errCode := tx.SetPropertyValue(4, "next", types.NewInt(0)); errCode != types.E_NONE {
+		t.Fatalf("stage A.next removal: %v", errCode)
+	}
+
+	exec := NewVM(store, nil)
+	exec.Frames = []*StackFrame{{
+		Locals: []types.Value{types.NewList([]types.Value{
+			types.NewAnon(5),
+			types.NewAnon(4),
+		})},
+	}}
+	pending := CollectPendingFinalizationValues(store, exec)
+	want := []types.Value{types.NewAnon(4), types.NewAnon(5)}
+	if len(pending) != len(want) || !pending[0].Equal(want[0]) || !pending[1].Equal(want[1]) {
+		t.Fatalf("pending roots = %v, want every direct root in identity order %v", pending, want)
+	}
+	store.AppendPendingFinalizations(pending)
+
+	if errCode := tx.Commit(); errCode != types.E_NONE {
+		t.Fatalf("commit A.next removal: %v", errCode)
+	}
+	snapshot := store.Snapshot()
+	if got := len(snapshot.AnonymousObjects); got != 2 {
+		t.Fatalf("anonymous objects after staged edge removal = %d, want 2", got)
+	}
+	if got := len(snapshot.PendingFinalizations); got != 2 {
+		t.Fatalf("pending finalizations after staged edge removal = %d, want 2", got)
 	}
 }

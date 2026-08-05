@@ -59,13 +59,22 @@ func buildPersistentAnonymousReachability(store *dbstore.Store) map[types.ObjID]
 	return store.PersistentAnonymousReachability()
 }
 
-func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct{}) []types.Value {
-	if len(refs) == 0 || store == nil {
+func pendingFinalizationValues(refs map[types.ObjID]struct{}) []types.Value {
+	if len(refs) == 0 {
 		return nil
 	}
 
-	reachable := buildPersistentAnonymousReachability(store)
-	return store.UnreachableAnonymousValues(reachable, refs)
+	ids := make([]types.ObjID, 0, len(refs))
+	for id := range refs {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	values := make([]types.Value, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, types.NewAnon(id))
+	}
+	return values
 }
 
 func expandAnonymousReachability(store *dbstore.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
@@ -75,10 +84,11 @@ func expandAnonymousReachability(store *dbstore.Store, reachable map[types.ObjID
 }
 
 // CollectPendingFinalizationValues snapshots anonymous-object references held by
-// a live VM and returns one bare anonymous root for each still-unreachable graph
-// that must survive shutdown finalization. A single root retains its complete
-// anonymous-object component for serialization; emitting every local in a cycle
-// would duplicate the same pending finalization graph.
+// a live VM. Every directly referenced identity is retained in deterministic
+// order, including references nested in lists and maps. Collection deliberately
+// does not inspect the Store graph: callers can commit staged edge removals after
+// this function returns, and concurrent workers can mutate that graph. The Store
+// snapshot later traverses all pending roots and their descendants under one lock.
 func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Value {
 	if store == nil || exec == nil {
 		return nil
@@ -97,45 +107,7 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 		collectAnonymousRefsForGC(exec.Stack[i], refs)
 	}
 
-	candidates := pendingFinalizationValues(store, refs)
-	if len(candidates) == 0 {
-		return nil
-	}
-
-	type candidateRoot struct {
-		value   types.Value
-		closure map[types.ObjID]struct{}
-	}
-	ordered := make([]candidateRoot, 0, len(candidates))
-	for _, candidate := range candidates {
-		closure := make(map[types.ObjID]struct{})
-		store.ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
-			candidate.ID(): {},
-		})
-		ordered = append(ordered, candidateRoot{value: candidate, closure: closure})
-	}
-	// A root that reaches another candidate must be considered first. Closure
-	// size provides a deterministic topological order for acyclic reachability;
-	// equal closures are the same cycle, so identity order chooses one member.
-	sort.Slice(ordered, func(i, j int) bool {
-		if len(ordered[i].closure) != len(ordered[j].closure) {
-			return len(ordered[i].closure) > len(ordered[j].closure)
-		}
-		return ordered[i].value.ID() < ordered[j].value.ID()
-	})
-
-	covered := buildPersistentAnonymousReachability(store)
-	roots := make([]types.Value, 0, len(ordered))
-	for _, candidate := range ordered {
-		if _, seen := covered[candidate.value.ID()]; seen {
-			continue
-		}
-		roots = append(roots, candidate.value)
-		for id := range candidate.closure {
-			covered[id] = struct{}{}
-		}
-	}
-	return roots
+	return pendingFinalizationValues(refs)
 }
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
