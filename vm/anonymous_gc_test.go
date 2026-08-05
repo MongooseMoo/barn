@@ -86,7 +86,7 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 	}
 }
 
-func TestCollectPendingFinalizationValuesSkipsBareAnonymousLocals(t *testing.T) {
+func TestCollectPendingFinalizationValuesKeepsOneRootForCyclicBareAnonymousLocals(t *testing.T) {
 	store := dbstore.NewStore()
 
 	root := testObject(0, false)
@@ -97,6 +97,12 @@ func TestCollectPendingFinalizationValuesSkipsBareAnonymousLocals(t *testing.T) 
 		if err := store.Add(obj); err != nil {
 			t.Fatalf("add object: %v", err)
 		}
+	}
+	if errCode := store.DefineProperty(4, "next", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define A.next: %v", errCode)
+	}
+	if errCode := store.DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define B.next: %v", errCode)
 	}
 
 	exec := NewVM(store, nil)
@@ -110,7 +116,36 @@ func TestCollectPendingFinalizationValuesSkipsBareAnonymousLocals(t *testing.T) 
 	}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	if len(got) != 0 {
-		t.Fatalf("len(got) = %d, want 0", len(got))
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want one root for the anonymous cycle", len(got))
+	}
+	if !got[0].Equal(types.NewAnon(4)) {
+		t.Fatalf("got[0] = %s, want cycle root %s", got[0].String(), types.NewAnon(4).String())
+	}
+}
+
+func TestCollectPendingFinalizationValuesChoosesReachabilityRootBeforeLowerIDLeaf(t *testing.T) {
+	store := dbstore.NewStore()
+	for _, obj := range []*dbstore.Object{
+		testObject(0, false),
+		testObject(4, true),
+		testObject(5, true),
+	} {
+		if err := store.Add(obj); err != nil {
+			t.Fatalf("add object: %v", err)
+		}
+	}
+	if errCode := store.DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define root.next: %v", errCode)
+	}
+
+	exec := NewVM(store, nil)
+	exec.Frames = []*StackFrame{{
+		Locals: []types.Value{types.NewAnon(4), types.NewAnon(5)},
+	}}
+
+	got := CollectPendingFinalizationValues(store, exec)
+	if len(got) != 1 || !got[0].Equal(types.NewAnon(5)) {
+		t.Fatalf("pending roots = %v, want only reachability root %s", got, types.NewAnon(5).String())
 	}
 }

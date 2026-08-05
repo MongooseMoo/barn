@@ -163,6 +163,14 @@ func TestRecreateWithNothingParentReusesRecycledSlot(t *testing.T) {
 
 func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	store := NewStore()
+	if err := store.Add(NewObject(9, 9)); err != nil {
+		t.Fatalf("add numbered object: %v", err)
+	}
+	for _, id := range []types.ObjID{10, 12} {
+		builder := NewObjectBuilder(id)
+		builder.SetAnonymous(true)
+		store.AddAnonymous(builder.Build())
+	}
 
 	loaded := []types.Value{types.NewAnon(10)}
 	store.SetPendingFinalizations(loaded)
@@ -180,7 +188,7 @@ func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	if got, want := snapshot.PendingFinalizations[0].String(), types.NewAnon(10).String(); got != want {
 		t.Errorf("PendingFinalizations[0] = %s, want %s", got, want)
 	}
-	if got, want := snapshot.PendingFinalizations[1].String(), types.NewAnon(12).String(); got != want {
+	if got, want := snapshot.PendingFinalizations[1].String(), types.NewAnon(11).String(); got != want {
 		t.Errorf("PendingFinalizations[1] = %s, want %s", got, want)
 	}
 
