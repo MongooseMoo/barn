@@ -15,15 +15,47 @@ func runtimeOptionCtx(options config.Options) *kernel.TaskContext {
 	return ctx
 }
 
-func TestServerVersionReportsOutboundNetworkOption(t *testing.T) {
-	ctx := runtimeOptionCtx(config.Options{OutboundNetwork: false})
-
-	result := builtinServerVersion(ctx, []types.Value{types.NewStr("options.OUTBOUND_NETWORK")})
-	if !result.IsNormal() {
-		t.Fatalf("server_version returned error: %s", result.Error)
+func TestServerVersionReportsBooleanOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		options config.Options
+		key     string
+		want    string
+	}{
+		{name: "outbound dot disabled", key: "options.OUTBOUND_NETWORK", want: "OFF"},
+		{name: "outbound slash disabled", key: "options/OUTBOUND_NETWORK", want: "OFF"},
+		{name: "outbound dot enabled", options: config.Options{OutboundNetwork: true}, key: "options.OUTBOUND_NETWORK", want: "ON"},
+		{name: "outbound slash enabled", options: config.Options{OutboundNetwork: true}, key: "options/OUTBOUND_NETWORK", want: "ON"},
+		{name: "promote dot disabled", key: "options.PROMOTE_NUMBERS", want: "OFF"},
+		{name: "promote slash disabled", key: "options/PROMOTE_NUMBERS", want: "OFF"},
+		{name: "promote dot enabled", options: config.Options{PromoteNumbers: true}, key: "options.PROMOTE_NUMBERS", want: "ON"},
+		{name: "promote slash enabled", options: config.Options{PromoteNumbers: true}, key: "options/PROMOTE_NUMBERS", want: "ON"},
 	}
-	if got := result.Val.Int(); got != 0 {
-		t.Fatalf("OUTBOUND_NETWORK = %d, want 0", got)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := builtinServerVersion(runtimeOptionCtx(test.options), []types.Value{types.NewStr(test.key)})
+			if !result.IsNormal() {
+				t.Fatalf("server_version(%q) returned error: %s", test.key, result.Error)
+			}
+			if got := result.Val.Type(); got != types.TYPE_STR {
+				t.Fatalf("server_version(%q) type = %s, want STR", test.key, got)
+			}
+			if got := result.Val.Str(); got != test.want {
+				t.Errorf("server_version(%q) = %q, want %q", test.key, got, test.want)
+			}
+		})
+	}
+}
+
+func TestServerVersionRejectsUnknownOption(t *testing.T) {
+	for _, key := range []string{"options.UNKNOWN", "options/UNKNOWN"} {
+		t.Run(key, func(t *testing.T) {
+			result := builtinServerVersion(runtimeOptionCtx(config.Options{}), []types.Value{types.NewStr(key)})
+			if result.Flow != types.FlowException || result.Error != types.E_INVARG {
+				t.Errorf("server_version(%q) = flow %v error %s, want E_INVARG", key, result.Flow, result.Error)
+			}
+		})
 	}
 }
 
