@@ -319,7 +319,7 @@ func hexValue(c byte) int {
 // - MD5 ($1$)
 // - SHA256 ($5$)
 // - SHA512 ($6$)
-// - bcrypt ($2a$, $2y$)
+// - bcrypt ($2a$, $2x$, $2y$)
 func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -360,7 +360,7 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
 func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.ErrorCode) {
 	// Parse algorithm and parameters from salt
-	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2y$") {
+	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, bcrypt2xPrefix) || strings.HasPrefix(salt, "$2y$") {
 		// bcrypt - first validate cost range, then check permissions
 		cost, err := parseBcryptPrefixCost(salt)
 		if err != nil {
@@ -370,7 +370,12 @@ func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.
 		if !isWizard && cost != 5 {
 			return "", types.E_PERM
 		}
-		result, err := cryptBcrypt(password, salt)
+		var result string
+		if strings.HasPrefix(salt, bcrypt2xPrefix) {
+			result, err = cryptBcrypt2x(password, salt)
+		} else {
+			result, err = cryptBcrypt(password, salt)
+		}
 		if err != nil {
 			return "", types.E_INVARG
 		}
