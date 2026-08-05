@@ -143,6 +143,13 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	names, errCode := verbNamesForRead(ctx, objID)
 	if errCode != types.E_NONE {
@@ -522,7 +529,13 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	var name string
 	switch descVal.Type() {

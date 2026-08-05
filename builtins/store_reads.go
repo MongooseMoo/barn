@@ -85,6 +85,20 @@ func hasObjectFlagForRead(ctx *kernel.TaskContext, objID types.ObjID, flag dbsto
 	return ctx.Store.HasObjectFlag(objID, flag)
 }
 
+func objectAllowsForRead(ctx *kernel.TaskContext, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
+	if ctx.IsWizard {
+		return true, types.E_NONE
+	}
+	owner, errCode := objectOwnerForRead(ctx, objID)
+	if errCode != types.E_NONE {
+		return false, errCode
+	}
+	if owner == ctx.Programmer {
+		return true, types.E_NONE
+	}
+	return hasObjectFlagForRead(ctx, objID, flag)
+}
+
 func parentForRead(ctx *kernel.TaskContext, objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if tx := readTxn(ctx); tx != nil {
 		return tx.Parent(objID)
