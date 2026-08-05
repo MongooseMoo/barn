@@ -53,7 +53,7 @@ func (s *Scheduler) loadSuspendedTask(saved task.Snapshot) error {
 	t.StartTime = saved.StartTime
 	t.QueueTime = saved.StartTime
 	t.WakeValue = saved.WakeValue
-	t.TaskLocal = saved.TaskLocal
+	t.SetTaskLocal(saved.TaskLocal)
 	t.Kind = task.TaskSuspendedTask
 	t.IsForked = true
 	t.Programmer = saved.Programmer

@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"unsafe"
 )
 
 // Type codes for MOO database format v17
@@ -31,7 +32,7 @@ const (
 type Writer struct {
 	w                 *bufio.Writer
 	snapshot          store.Snapshot
-	waifIndex         map[interface{}]int // Track waif write order (use interface{} since WaifValue not yet defined)
+	waifIndex         map[unsafe.Pointer]int // Track WAIF write order by instance identity.
 	nextWaifID        int
 	queuedTasks       []task.Snapshot
 	suspendedTasks    []task.Snapshot
@@ -44,7 +45,7 @@ func NewWriter(w io.Writer, snapshot store.Snapshot) *Writer {
 	return &Writer{
 		w:          bufio.NewWriter(w),
 		snapshot:   snapshot,
-		waifIndex:  make(map[interface{}]int),
+		waifIndex:  make(map[unsafe.Pointer]int),
 		nextWaifID: 0,
 	}
 }
@@ -283,7 +284,8 @@ func (w *Writer) writeWaif(waif types.Value) error {
 	// reader resolves "r {index}" against write order). A waif Value is
 	// comparable and two aliases carry the same underlying pointer, so the
 	// Value itself is the identity key.
-	if idx, ok := w.waifIndex[waif]; ok {
+	identity := waif.WaifIdentity()
+	if idx, ok := w.waifIndex[identity]; ok {
 		if err := w.writeString(fmt.Sprintf("r %d", idx)); err != nil {
 			return err
 		}
@@ -294,7 +296,7 @@ func (w *Writer) writeWaif(waif types.Value) error {
 	// Register BEFORE writing properties: a waif can reference itself (or a
 	// cycle of waifs) through its own property values, mirroring the reader's
 	// register-then-read order.
-	w.waifIndex[waif] = idx
+	w.waifIndex[identity] = idx
 
 	// Definition format: "c {index}\n" then class, owner, propdefs_length, props, -1, ".\n"
 	if err := w.writeString(fmt.Sprintf("c %d", idx)); err != nil {

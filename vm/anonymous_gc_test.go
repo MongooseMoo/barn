@@ -5,6 +5,7 @@ import (
 
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/task"
 	"barn/types"
 )
 
@@ -52,6 +53,34 @@ func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *tes
 	}
 	if got[0].String() != types.NewAnon(4).String() {
 		t.Fatalf("got[0] = %s, want %s", got[0].String(), types.NewAnon(4).String())
+	}
+}
+
+func TestCollectPendingFinalizationValuesReadsCanonicalTaskLocal(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(testObject(0, false)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	if err := store.Add(testObject(4, true)); err != nil {
+		t.Fatalf("add anonymous object: %v", err)
+	}
+
+	tk := task.NewTask(1, 0, 100, 1)
+	waif := types.NewWaif(0, 0)
+	tk.SetTaskLocal(types.NewList([]types.Value{types.NewAnon(4), waif}))
+	exec := NewVM(store, nil)
+	exec.Context = kernel.NewTaskContext()
+	exec.Context.Task = tk
+
+	got := CollectPendingFinalizationValues(store, exec)
+	if len(got) != 2 {
+		t.Fatalf("pending values = %v, want anonymous and WAIF task-local roots", got)
+	}
+	if !got[0].Equal(types.NewAnon(4)) {
+		t.Errorf("pending[0] = %v, want %v", got[0], types.NewAnon(4))
+	}
+	if !got[1].Equal(waif) {
+		t.Errorf("pending[1] = %v, want task-local WAIF identity %p", got[1], waif.WaifIdentity())
 	}
 }
 
@@ -320,10 +349,10 @@ func TestCollectPendingFinalizationValuesCapturesAllLiveVMValueFields(t *testing
 		ThisValue:   types.NewAnon(10),
 		MapFirstKey: types.NewAnon(11),
 		MapLastKey:  types.NewList([]types.Value{types.NewAnon(12)}),
-		TaskLocal: types.NewMap([][2]types.Value{
-			{types.NewStr("task"), types.NewAnon(13)},
-		}),
 	}
+	tk := task.NewTask(1, 0, 100, 1)
+	tk.SetTaskLocal(types.NewMap([][2]types.Value{{types.NewStr("task"), types.NewAnon(13)}}))
+	exec.Context.Task = tk
 	exec.PendingWaifs = []types.Value{types.NewList([]types.Value{types.NewAnon(14)})}
 	exec.yieldResult = types.Result{
 		Val: types.NewAnon(15),

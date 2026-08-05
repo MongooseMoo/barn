@@ -31,9 +31,6 @@ type TaskContext struct {
 	MapFirstKey types.Value
 	MapLastKey  types.Value
 
-	// TaskLocal stores task-local data (set via set_task_local, read via task_local)
-	TaskLocal types.Value
-
 	// TaskID is the unique identifier for this task
 	TaskID int64
 

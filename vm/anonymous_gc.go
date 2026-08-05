@@ -6,23 +6,42 @@ import (
 	"barn/kernel"
 	"barn/types"
 	"sort"
+	"unsafe"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
 func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
+	collectAnonymousRefsForGCVisited(v, out, nil)
+}
+
+func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{}, visitedWaifs map[unsafe.Pointer]struct{}) {
 	switch v.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if v.IsAnonymous() {
 			out[v.ID()] = struct{}{}
 		}
+	case types.TYPE_WAIF:
+		identity := v.WaifIdentity()
+		if _, seen := visitedWaifs[identity]; seen {
+			return
+		}
+		if visitedWaifs == nil {
+			visitedWaifs = make(map[unsafe.Pointer]struct{})
+		}
+		visitedWaifs[identity] = struct{}{}
+		for _, name := range v.PropertyNames() {
+			if prop, ok := v.GetProperty(name); ok {
+				collectAnonymousRefsForGCVisited(prop, out, visitedWaifs)
+			}
+		}
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
-			collectAnonymousRefsForGC(elem, out)
+			collectAnonymousRefsForGCVisited(elem, out, visitedWaifs)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range v.Pairs() {
-			collectAnonymousRefsForGC(pair[0], out)
-			collectAnonymousRefsForGC(pair[1], out)
+			collectAnonymousRefsForGCVisited(pair[0], out, visitedWaifs)
+			collectAnonymousRefsForGCVisited(pair[1], out, visitedWaifs)
 		}
 	}
 }
@@ -59,6 +78,9 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	for _, value := range exec.PendingWaifs {
 		collectAnonymousRefsForGC(value, out)
 	}
+	for _, value := range exec.PendingFinalizations {
+		collectAnonymousRefsForGC(value, out)
+	}
 	collectAnonymousRefsForGC(exec.yieldResult.Val, out)
 	if fork := exec.yieldResult.ForkInfo; fork != nil {
 		collectAnonymousRefsForGC(fork.ThisValue, out)
@@ -70,8 +92,25 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 		collectAnonymousRefsForGC(exec.Context.ThisValue, out)
 		collectAnonymousRefsForGC(exec.Context.MapFirstKey, out)
 		collectAnonymousRefsForGC(exec.Context.MapLastKey, out)
-		collectAnonymousRefsForGC(exec.Context.TaskLocal, out)
+		if taskLocal, ok := taskLocalFromContext(exec.Context); ok {
+			collectAnonymousRefsForGC(taskLocal, out)
+		}
 	}
+}
+
+type taskLocalReader interface {
+	GetTaskLocal() types.Value
+}
+
+func taskLocalFromContext(ctx *kernel.TaskContext) (types.Value, bool) {
+	if ctx == nil {
+		return types.None, false
+	}
+	owner, ok := ctx.Task.(taskLocalReader)
+	if !ok || owner == nil {
+		return types.None, false
+	}
+	return owner.GetTaskLocal(), true
 }
 
 func collectAnonymousRefsFromPendingError(err error, out map[types.ObjID]struct{}) {
@@ -98,8 +137,8 @@ func buildPersistentAnonymousReachability(store *dbstore.Store) map[types.ObjID]
 	return store.PersistentAnonymousReachability()
 }
 
-func pendingFinalizationValues(refs map[types.ObjID]struct{}) []types.Value {
-	if len(refs) == 0 {
+func pendingFinalizationValues(refs map[types.ObjID]struct{}, waifs []types.Value) []types.Value {
+	if len(refs) == 0 && len(waifs) == 0 {
 		return nil
 	}
 
@@ -109,10 +148,11 @@ func pendingFinalizationValues(refs map[types.ObjID]struct{}) []types.Value {
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	values := make([]types.Value, 0, len(ids))
+	values := make([]types.Value, 0, len(ids)+len(waifs))
 	for _, id := range ids {
 		values = append(values, types.NewAnon(id))
 	}
+	values = append(values, waifs...)
 	return values
 }
 
@@ -135,7 +175,73 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 
 	refs := make(map[types.ObjID]struct{})
 	collectAnonymousRefsFromVM(exec, refs)
-	return pendingFinalizationValues(refs)
+	var waifs []types.Value
+	CollectWaifsFromVM(exec, &waifs)
+	return pendingFinalizationValues(refs, waifs)
+}
+
+// TakePendingFinalizationValues returns the finalizable identities retained at
+// frame-pop boundaries plus identities still live in the VM/task-local owner.
+// It is used by terminal shutdown handoff, after the last activation may already
+// have been removed from Frames.
+func (vm *VM) TakePendingFinalizationValues() []types.Value {
+	if vm == nil {
+		return nil
+	}
+	values := CollectPendingFinalizationValues(vm.Store, vm)
+	vm.PendingFinalizations = nil
+	return values
+}
+
+func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
+	if frame == nil {
+		return
+	}
+	refs := make(map[types.ObjID]struct{})
+	var waifs []types.Value
+	collect := func(value types.Value) {
+		collectAnonymousRefsForGC(value, refs)
+		collectWaifsForGC(value, &waifs)
+	}
+	for _, value := range frame.Locals {
+		collect(value)
+	}
+	collect(frame.ThisValue)
+	for _, value := range frame.Args {
+		collect(value)
+	}
+	collect(frame.SavedThisValue)
+	collectAnonymousRefsFromPendingError(frame.PendingError, refs)
+	collectWaifsFromPendingError(frame.PendingError, &waifs)
+
+	for _, value := range pendingFinalizationValues(refs, waifs) {
+		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
+		}
+	}
+}
+
+func pendingFinalizationValueInList(needle types.Value, values []types.Value) bool {
+	for _, candidate := range values {
+		if needle.Type() != candidate.Type() {
+			continue
+		}
+		switch needle.Type() {
+		case types.TYPE_ANON:
+			if needle.ID() == candidate.ID() {
+				return true
+			}
+		case types.TYPE_WAIF:
+			if needle.WaifIdentity() == candidate.WaifIdentity() {
+				return true
+			}
+		default:
+			if needle.Equal(candidate) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable

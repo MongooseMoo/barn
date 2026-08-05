@@ -121,7 +121,7 @@ type Task struct {
 	SecondsUsed  float64
 	SecondsLimit float64
 	CallStack    []ActivationFrame
-	TaskLocal    types.Value // Task-local storage (set_task_local/task_local)
+	taskLocal    types.Value // Canonical task-local storage (set_task_local/task_local)
 
 	// For suspension/resumption
 	WakeTime            time.Time
@@ -208,7 +208,7 @@ func NewTask(id int64, owner types.ObjID, tickLimit int64, secondsLimit float64)
 		SecondsUsed:   0,
 		SecondsLimit:  secondsLimit,
 		CallStack:     make([]ActivationFrame, 0),
-		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
+		taskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
 		WakeValue:     types.NewInt(0),     // Default wake value is 0 (matches LambdaMOO)
 		ReadingPlayer: types.ObjNothing,
 		Dobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
@@ -237,7 +237,7 @@ func NewTaskFull(id int64, owner types.ObjID, program *bytecode.Program, tickLim
 		SecondsUsed:   0,
 		SecondsLimit:  secondsLimit,
 		CallStack:     make([]ActivationFrame, 0),
-		TaskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
+		taskLocal:     types.NewEmptyMap(), // Default task_local is empty map (matches ToastStunt)
 		WakeValue:     types.NewInt(0),
 		ReadingPlayer: types.ObjNothing,
 		Dobj:          types.ObjNothing, // Default to #-1 (NOTHING), matching Toast
@@ -363,14 +363,14 @@ func (t *Task) ConsumeTick() bool {
 func (t *Task) GetTaskLocal() types.Value {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.TaskLocal
+	return t.taskLocal
 }
 
 // SetTaskLocal sets the task-local value
 func (t *Task) SetTaskLocal(val types.Value) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.TaskLocal = val
+	t.taskLocal = val
 }
 
 // BytecodeVMValue returns the saved bytecode VM handle (thread-safe).

@@ -327,6 +327,10 @@ func (s *Server) Shutdown(message string) {
 	s.shutdownMessage = message
 	s.mu.Unlock()
 
+	// Publish scheduler shutdown state before canceling the server loop. Tasks
+	// that complete from this point through the final checkpoint preserve their
+	// finalizable roots instead of running ordinary orphan collection.
+	s.scheduler.BeginShutdown()
 	slog.Info("initiating shutdown", slog.String("message", message))
 	s.cancel()
 }
@@ -334,6 +338,7 @@ func (s *Server) Shutdown(message string) {
 // shutdown performs the actual shutdown sequence
 func (s *Server) shutdown() error {
 	slog.Info("shutting down")
+	s.scheduler.BeginShutdown()
 
 	s.mu.Lock()
 	message := s.shutdownMessage

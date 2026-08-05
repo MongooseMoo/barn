@@ -231,6 +231,47 @@ func TestStoreSnapshotNormalizesCompositePendingCandidates(t *testing.T) {
 	}
 }
 
+func TestStoreSnapshotPreservesDistinctSameClassPendingWaifs(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("add class object: %v", err)
+	}
+
+	first := types.NewWaif(0, 0)
+	second := types.NewWaif(0, 0)
+	store.SetPendingFinalizations([]types.Value{first})
+	store.AppendPendingFinalizations([]types.Value{first, second})
+
+	snapshot := store.Snapshot()
+	if got := len(snapshot.PendingFinalizations); got != 2 {
+		t.Fatalf("pending WAIF roots = %v, want two distinct same-class identities", snapshot.PendingFinalizations)
+	}
+	if !snapshot.PendingFinalizations[0].Equal(first) || !snapshot.PendingFinalizations[1].Equal(second) {
+		t.Fatalf("pending WAIF roots = %v, want identities %p and %p", snapshot.PendingFinalizations, first.WaifIdentity(), second.WaifIdentity())
+	}
+}
+
+func TestStoreSnapshotFiltersOnlyPersistentlyReachableWaifIdentity(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("add class object: %v", err)
+	}
+	persistent := types.NewWaif(0, 0)
+	pending := types.NewWaif(0, 0)
+	if errCode := store.DefineProperty(0, "keep", NewProperty(persistent, 0, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define persistent WAIF property: %v", errCode)
+	}
+	store.SetPendingFinalizations([]types.Value{persistent, pending})
+
+	snapshot := store.Snapshot()
+	if got := len(snapshot.PendingFinalizations); got != 1 {
+		t.Fatalf("pending WAIF roots = %v, want only unreachable identity", snapshot.PendingFinalizations)
+	}
+	if !snapshot.PendingFinalizations[0].Equal(pending) {
+		t.Fatalf("pending WAIF root identity = %p, want %p", snapshot.PendingFinalizations[0].WaifIdentity(), pending.WaifIdentity())
+	}
+}
+
 func TestNewObject(t *testing.T) {
 	obj := NewObject(5, 10)
 

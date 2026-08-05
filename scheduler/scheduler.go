@@ -39,6 +39,7 @@ type Scheduler struct {
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
+	shuttingDown            atomic.Bool
 
 	// Deferred GC: task completion/suspend enqueue their pending waifs and
 	// orphan-anonymous collection requests here instead of paying a full-db
@@ -169,6 +170,18 @@ func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 func (s *Scheduler) Stop() {
 	s.cancel()
 	s.workersWG.Wait()
+}
+
+// BeginShutdown marks the pre-checkpoint shutdown phase. It is intentionally
+// separate from Stop: shutdown hooks and already-running tasks must be allowed
+// to complete, but their finalizable VM roots must be handed to the checkpoint
+// instead of passing through ordinary orphan collection.
+func (s *Scheduler) BeginShutdown() {
+	s.shuttingDown.Store(true)
+}
+
+func (s *Scheduler) isShuttingDown() bool {
+	return s.shuttingDown.Load()
 }
 
 func (s *Scheduler) SetPendingFinalizationSink(sink func([]types.Value)) {

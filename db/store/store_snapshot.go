@@ -2,6 +2,7 @@ package store
 
 import (
 	"sort"
+	"unsafe"
 
 	"barn/types"
 )
@@ -132,8 +133,9 @@ type anonSerialID struct {
 type anonSerializationPlan struct {
 	// rewrite maps an anonymous object's identity id to the value it must be
 	// rewritten to: a positive above-max serialization id (reachable) or NOTHING.
-	rewrite map[types.ObjID]types.ObjID
-	order   []anonSerialID
+	rewrite     map[types.ObjID]types.ObjID
+	order       []anonSerialID
+	waifRewrite map[unsafe.Pointer]types.Value
 }
 
 // planAnonymousSerializationLocked computes persistent reachability, normalizes
@@ -142,12 +144,16 @@ type anonSerializationPlan struct {
 // The returned pending roots are the exact roots used to seed serialization;
 // s.pendingFinalizations remains the lossless live candidate queue.
 func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []types.Value) {
-	plan := &anonSerializationPlan{rewrite: make(map[types.ObjID]types.ObjID)}
+	plan := &anonSerializationPlan{
+		rewrite:     make(map[types.ObjID]types.ObjID),
+		waifRewrite: make(map[unsafe.Pointer]types.Value),
+	}
 
 	// First compute persistent reachability from the same frozen graph that will
 	// be serialized. A candidate reachable here must not be written as pending:
 	// restart finalization recycles every pending value.
 	persistentSeeds := make(map[types.ObjID]struct{})
+	var persistentWaifs []types.Value
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj == nil || !validLiveObject(obj) || obj.anonymous {
@@ -155,6 +161,7 @@ func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []ty
 		}
 		for _, prop := range obj.properties {
 			collectAnonymousObjectRefs(prop.value, persistentSeeds)
+			collectWaifsFromValue(prop.value, &persistentWaifs)
 		}
 		return true
 	})
@@ -165,7 +172,7 @@ func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []ty
 	}
 	s.expandAnonymousReachabilityLocked(persistentReachable, persistentQueue)
 
-	pendingFinalizations := s.normalizePendingFinalizationsLocked(persistentReachable)
+	pendingFinalizations := s.normalizePendingFinalizationsLocked(persistentReachable, persistentWaifs)
 
 	// Seed serialization with the persistent references and the exact normalized
 	// pending roots returned above. Raw live candidates are deliberately excluded.
@@ -182,7 +189,11 @@ func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []ty
 		enqueue(id)
 	}
 	for _, value := range pendingFinalizations {
-		enqueue(value.ID())
+		refs := make(map[types.ObjID]struct{})
+		collectAnonymousObjectRefs(value, refs)
+		for id := range refs {
+			enqueue(id)
+		}
 	}
 
 	// Transitively expand through anon objects that actually exist out-of-band,
@@ -238,10 +249,19 @@ type pendingCandidateRoot struct {
 // normalizePendingFinalizationsLocked filters the lossless live candidate queue
 // against frozen persistent reachability and then chooses one deterministic root
 // per still-unreachable component. Callers hold s.mu.
-func (s *Store) normalizePendingFinalizationsLocked(persistentReachable map[types.ObjID]struct{}) []types.Value {
+func (s *Store) normalizePendingFinalizationsLocked(persistentReachable map[types.ObjID]struct{}, persistentWaifs []types.Value) []types.Value {
 	candidateSet := make(map[types.ObjID]struct{})
+	pendingWaifs := make([]types.Value, 0)
 	for _, value := range s.pendingFinalizations {
-		collectAnonymousObjectRefs(value, candidateSet)
+		collectDirectAnonymousObjectRefs(value, candidateSet)
+		var values []types.Value
+		collectWaifsFromValue(value, &values)
+		for _, waif := range values {
+			if finalizationValueInList(waif, persistentWaifs) || finalizationValueInList(waif, pendingWaifs) {
+				continue
+			}
+			pendingWaifs = append(pendingWaifs, waif)
+		}
 	}
 
 	candidates := make([]pendingCandidateRoot, 0, len(candidateSet))
@@ -270,7 +290,8 @@ func (s *Store) normalizePendingFinalizationsLocked(persistentReachable map[type
 	for id := range persistentReachable {
 		covered[id] = struct{}{}
 	}
-	roots := make([]types.Value, 0, len(candidates))
+	roots := make([]types.Value, 0, len(pendingWaifs)+len(candidates))
+	roots = append(roots, pendingWaifs...)
 	for _, candidate := range candidates {
 		if _, seen := covered[candidate.id]; seen {
 			continue
@@ -321,6 +342,29 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 			return types.NewAnon(types.ObjNothing), true
 		}
 		return types.NewAnon(target), true
+	case types.TYPE_WAIF:
+		identity := v.WaifIdentity()
+		if rewritten, ok := p.waifRewrite[identity]; ok {
+			return rewritten, true
+		}
+		if !p.valueNeedsAnonymousRewrite(v, nil) {
+			return v, false
+		}
+		rewritten := types.NewWaif(v.Class(), v.Owner())
+		p.waifRewrite[identity] = rewritten
+		names := v.PropertyNames()
+		sort.Strings(names)
+		for _, name := range names {
+			prop, ok := v.GetProperty(name)
+			if !ok {
+				continue
+			}
+			if value, changed := p.rewriteValue(prop); changed {
+				prop = value
+			}
+			rewritten.SetProperty(name, prop)
+		}
+		return rewritten, true
 	case types.TYPE_LIST:
 		elems := v.Elements()
 		var out []types.Value
@@ -359,6 +403,44 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 	default:
 		return v, false
 	}
+}
+
+func (p *anonSerializationPlan) valueNeedsAnonymousRewrite(v types.Value, visitedWaifs map[unsafe.Pointer]struct{}) bool {
+	switch v.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if !v.IsAnonymous() {
+			return false
+		}
+		_, ok := p.rewrite[v.ID()]
+		return ok
+	case types.TYPE_WAIF:
+		identity := v.WaifIdentity()
+		if _, seen := visitedWaifs[identity]; seen {
+			return false
+		}
+		if visitedWaifs == nil {
+			visitedWaifs = make(map[unsafe.Pointer]struct{})
+		}
+		visitedWaifs[identity] = struct{}{}
+		for _, name := range v.PropertyNames() {
+			if prop, ok := v.GetProperty(name); ok && p.valueNeedsAnonymousRewrite(prop, visitedWaifs) {
+				return true
+			}
+		}
+	case types.TYPE_LIST:
+		for _, elem := range v.Elements() {
+			if p.valueNeedsAnonymousRewrite(elem, visitedWaifs) {
+				return true
+			}
+		}
+	case types.TYPE_MAP:
+		for _, pair := range v.Pairs() {
+			if p.valueNeedsAnonymousRewrite(pair[0], visitedWaifs) || p.valueNeedsAnonymousRewrite(pair[1], visitedWaifs) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func snapshotObjectValue(obj *Object) *SnapshotObject {

@@ -1,8 +1,16 @@
 package vm
 
-import "barn/types"
+import (
+	"unsafe"
+
+	"barn/types"
+)
 
 func collectWaifsForGC(v types.Value, out *[]types.Value) {
+	collectWaifsForGCVisited(v, out, nil)
+}
+
+func collectWaifsForGCVisited(v types.Value, out *[]types.Value, visited map[unsafe.Pointer]struct{}) {
 	switch v.Type() {
 	case types.TYPE_WAIF:
 		for _, existing := range *out {
@@ -11,14 +19,27 @@ func collectWaifsForGC(v types.Value, out *[]types.Value) {
 			}
 		}
 		*out = append(*out, v)
+		identity := v.WaifIdentity()
+		if _, seen := visited[identity]; seen {
+			return
+		}
+		if visited == nil {
+			visited = make(map[unsafe.Pointer]struct{})
+		}
+		visited[identity] = struct{}{}
+		for _, name := range v.PropertyNames() {
+			if prop, ok := v.GetProperty(name); ok {
+				collectWaifsForGCVisited(prop, out, visited)
+			}
+		}
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
-			collectWaifsForGC(elem, out)
+			collectWaifsForGCVisited(elem, out, visited)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range v.Pairs() {
-			collectWaifsForGC(pair[0], out)
-			collectWaifsForGC(pair[1], out)
+			collectWaifsForGCVisited(pair[0], out, visited)
+			collectWaifsForGCVisited(pair[1], out, visited)
 		}
 	}
 }
@@ -59,8 +80,52 @@ func CollectWaifsFromVM(exec *VM, out *[]types.Value) {
 		for _, value := range frame.Locals {
 			collectWaifsForGC(value, out)
 		}
+		collectWaifsForGC(frame.ThisValue, out)
+		for _, value := range frame.Args {
+			collectWaifsForGC(value, out)
+		}
+		collectWaifsForGC(frame.SavedThisValue, out)
+		collectWaifsFromPendingError(frame.PendingError, out)
 	}
 	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
 		collectWaifsForGC(exec.Stack[i], out)
+	}
+	for _, value := range exec.PendingWaifs {
+		collectWaifsForGC(value, out)
+	}
+	for _, value := range exec.PendingFinalizations {
+		collectWaifsForGC(value, out)
+	}
+	collectWaifsForGC(exec.yieldResult.Val, out)
+	if fork := exec.yieldResult.ForkInfo; fork != nil {
+		collectWaifsForGC(fork.ThisValue, out)
+		for _, value := range fork.Variables {
+			collectWaifsForGC(value, out)
+		}
+	}
+	if exec.Context != nil {
+		collectWaifsForGC(exec.Context.ThisValue, out)
+		collectWaifsForGC(exec.Context.MapFirstKey, out)
+		collectWaifsForGC(exec.Context.MapLastKey, out)
+		if taskLocal, ok := taskLocalFromContext(exec.Context); ok {
+			collectWaifsForGC(taskLocal, out)
+		}
+	}
+}
+
+func collectWaifsFromPendingError(err error, out *[]types.Value) {
+	for err != nil {
+		switch pending := err.(type) {
+		case VMException:
+			collectWaifsForGC(pending.Value, out)
+			return
+		case *VMException:
+			collectWaifsForGC(pending.Value, out)
+			return
+		case interface{ Unwrap() error }:
+			err = pending.Unwrap()
+		default:
+			return
+		}
 	}
 }

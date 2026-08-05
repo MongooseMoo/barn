@@ -169,9 +169,9 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		Owner:       player,
 		Programmer:  player, // Will be updated to verb owner if verb found
 		CallStack:   make([]task.ActivationFrame, 0),
-		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
-		ForkCreator: s,                   // Enable fork support in server hooks
+		ForkCreator: s, // Enable fork support in server hooks
 	}
+	t.SetTaskLocal(types.NewEmptyMap())
 
 	// Look up the verb to get its owner for programmer permissions
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)

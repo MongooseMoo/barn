@@ -542,9 +542,9 @@ retryAttempt:
 	// values that still carry anonymous references so the final checkpoint can
 	// serialize them as pending finalization values. Outside shutdown, completed
 	// tasks still trigger orphan-anonymous collection.
-	if s.ctx.Err() != nil {
+	if s.isShuttingDown() {
 		if s.pendingFinalizationSink != nil && bcVM != nil {
-			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
+			if pending := bcVM.TakePendingFinalizationValues(); len(pending) > 0 {
 				s.pendingFinalizationSink(pending)
 			}
 		}
@@ -623,7 +623,7 @@ func captureTaskRetryState(t *task.Task) taskRetryState {
 		canRetry:     taskIsConflictRetryable(t),
 		context:      cloneTaskContextForRetry(t.Context),
 		callStack:    cloneActivationFramesForRetry(t.CallStack),
-		taskLocal:    t.TaskLocal,
+		taskLocal:    t.GetTaskLocal(),
 		wakeValue:    t.WakeValue,
 		ticksLimit:   t.TicksLimit,
 		secondsLimit: t.SecondsLimit,
@@ -638,7 +638,7 @@ func (state taskRetryState) restore(t *task.Task) {
 	t.SetBytecodeVM(nil)
 	t.Result = types.Result{}
 	t.CallStack = cloneActivationFramesForRetry(state.callStack)
-	t.TaskLocal = state.taskLocal
+	t.SetTaskLocal(state.taskLocal)
 	t.WakeValue = state.wakeValue
 	t.CreatedForks = nil
 	t.TicksLimit = state.ticksLimit

@@ -92,7 +92,7 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 		State:               t.State,
 		StartTime:           t.StartTime,
 		WakeValue:           t.WakeValue,
-		TaskLocal:           t.TaskLocal,
+		TaskLocal:           t.taskLocal,
 		CallStack:           cloneActivationFrames(t.CallStack),
 		Programmer:          t.Programmer,
 		VerbLoc:             t.VerbLoc,
