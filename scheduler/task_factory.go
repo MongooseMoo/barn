@@ -31,6 +31,12 @@ func configureVMStackLimit(machine *vm.VM) {
 
 // QueueTask adds a task to the scheduler
 func (s *Scheduler) QueueTask(t *task.Task) int64 {
+	s.pendingWaifMu.Lock()
+	defer s.pendingWaifMu.Unlock()
+	if s.shutdownRequested || s.shuttingDown.Load() {
+		t.Kill()
+		return 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -44,6 +50,25 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 	task.GetManager().RegisterTask(t)
 
 	return t.ID
+}
+
+func (s *Scheduler) registerImmediateTask(t *task.Task) bool {
+	s.pendingWaifMu.Lock()
+	defer s.pendingWaifMu.Unlock()
+	if s.shutdownRequested || s.shuttingDown.Load() {
+		t.Kill()
+		return false
+	}
+	s.registerAdmittedTask(t)
+	return true
+}
+
+func (s *Scheduler) registerAdmittedTask(t *task.Task) {
+	t.SetState(task.TaskQueued)
+	s.mu.Lock()
+	s.tasks[t.ID] = t
+	s.mu.Unlock()
+	task.GetManager().RegisterTask(t)
 }
 
 // CreateForegroundTask creates a foreground task (user command)
@@ -62,6 +87,18 @@ func (s *Scheduler) CreateForegroundTask(player types.ObjID, program *bytecode.P
 // RunServerVerbTask runs a server-initiated hook verb through the normal
 // scheduler/task machinery until it completes or reaches its first suspend.
 func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
+	return s.runServerVerbTask(objID, verbName, args, player, false)
+}
+
+// RunLifecycleVerbTask runs a host-owned shutdown/checkpoint lifecycle hook.
+// These hooks are part of the already established host transition, not new
+// ordinary task admission; their roots are handed directly to the closed
+// finalization boundary by normal task settlement.
+func (s *Scheduler) RunLifecycleVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
+	return s.runServerVerbTask(objID, verbName, args, player, true)
+}
+
+func (s *Scheduler) runServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, lifecycle bool) (types.Result, error) {
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)
 	if err != nil {
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
@@ -91,14 +128,20 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 
-	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	if lifecycle {
+		s.registerAdmittedTask(t)
+	} else if !s.registerImmediateTask(t) {
+		return t.Result, ErrSchedulerShuttingDown
+	}
 
-	if err := s.runTask(t); err != nil {
-		return t.Result, err
+	var runErr error
+	if lifecycle {
+		runErr = s.runTaskAdmitted(t)
+	} else {
+		runErr = s.runTask(t)
+	}
+	if runErr != nil {
+		return t.Result, runErr
 	}
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
@@ -161,11 +204,9 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 	// here — rather than queuing for the ticker — ensures the login state is
 	// settled before the I/O loop reads the next line, matching ToastStunt's
 	// run-to-suspend-or-completion login semantics.
-	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	if !s.registerImmediateTask(t) {
+		return t.ID, ErrSchedulerShuttingDown
+	}
 
 	if onStart != nil {
 		onStart(t.ID)

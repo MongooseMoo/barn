@@ -473,8 +473,9 @@ func builtinBackgroundTest(ctx *kernel.TaskContext, args []types.Value) types.Re
 		return types.Ok(args[0])
 	}
 	result := args[0]
-	t.IsExecSuspended = true
-	task.GetManager().SuspendTask(t, -1)
+	if !t.RequestExecSuspend(-1, nil, "") {
+		return types.Err(types.E_INVARG)
+	}
 	go func() {
 		time.Sleep(time.Duration(delay) * time.Second)
 		t.CompleteExec(result)

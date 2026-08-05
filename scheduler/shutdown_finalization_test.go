@@ -2,17 +2,113 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"barn/compiler"
+	"barn/config"
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/task"
 	"barn/types"
 	"barn/vm"
 )
+
+func TestShutdownRequestRejectsNewTaskExecutionAndScheduling(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+	t.Cleanup(s.Stop)
+	var executions atomic.Int64
+	s.registry.Register("late_execution", func(*kernel.TaskContext, []types.Value) types.Result {
+		executions.Add(1)
+		return types.Ok(types.None)
+	})
+	program := compileTestProgram(t, s.registry, "a = create(#0, #0, 1); late_execution();")
+
+	<-s.BeginShutdown(nil)
+	direct := task.NewTaskFull(95001, 0, program, 1<<50, 1e9)
+	direct.Context.IsWizard = true
+	if err := s.runTask(direct); !errors.Is(err, ErrSchedulerShuttingDown) {
+		t.Fatalf("runTask error = %v, want ErrSchedulerShuttingDown", err)
+	}
+	if direct.GetState() != task.TaskKilled {
+		t.Fatalf("rejected direct task state = %s, want killed", direct.GetState())
+	}
+
+	queued := task.NewTaskFull(95002, 0, program, 1<<50, 1e9)
+	queued.Context.IsWizard = true
+	if id := s.QueueTask(queued); id != 0 {
+		t.Fatalf("QueueTask after shutdown = %d, want rejection id 0", id)
+	}
+	if got := s.ProcessReadyTasks(); got != 0 {
+		t.Fatalf("ProcessReadyTasks after shutdown = %d, want 0", got)
+	}
+	if got := executions.Load(); got != 0 {
+		t.Fatalf("post-boundary executions = %d, want 0", got)
+	}
+	if store.HasAnonymousAtOrAbove(1) {
+		t.Fatal("rejected tasks created an anonymous object")
+	}
+}
+
+func TestShutdownReadyDoesNotStarveUnderContinuousRejectedActivity(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+	t.Cleanup(s.Stop)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	s.registry.Register("admitted_gate", func(*kernel.TaskContext, []types.Value) types.Result {
+		close(entered)
+		<-release
+		return types.Ok(types.None)
+	})
+	admitted := task.NewTaskFull(95100, 0, compileTestProgram(t, s.registry, "admitted_gate();"), 1<<50, 1e9)
+	admitted.Context.IsWizard = true
+	runDone := make(chan error, 1)
+	go func() { runDone <- s.runTask(admitted) }()
+	<-entered
+
+	ready := s.BeginShutdown(nil)
+	var lateExecutions atomic.Int64
+	s.registry.Register("must_not_run", func(*kernel.TaskContext, []types.Value) types.Result {
+		lateExecutions.Add(1)
+		return types.Ok(types.None)
+	})
+	lateProgram := compileTestProgram(t, s.registry, "must_not_run();")
+	for i := int64(0); i < 500; i++ {
+		tk := task.NewTaskFull(95200+i, 0, lateProgram, 1<<50, 1e9)
+		if i%2 == 0 {
+			if id := s.QueueTask(tk); id != 0 {
+				t.Fatalf("late QueueTask %d admitted as %d", i, id)
+			}
+		} else if err := s.runTask(tk); !errors.Is(err, ErrSchedulerShuttingDown) {
+			t.Fatalf("late runTask %d error = %v", i, err)
+		}
+	}
+	select {
+	case <-ready:
+		t.Fatal("shutdown published before pre-boundary task completed")
+	default:
+	}
+	close(release)
+	if err := <-runDone; err != nil {
+		t.Fatalf("admitted task failed: %v", err)
+	}
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown starved behind continuously rejected activity")
+	}
+	if got := lateExecutions.Load(); got != 0 {
+		t.Fatalf("late executions = %d, want 0", got)
+	}
+}
 
 func TestBeginShutdownReturnsBoundaryForClaimedDeferredGC(t *testing.T) {
 	store := dbstore.NewStore()
@@ -221,7 +317,7 @@ func TestShutdownReadyWaitsForAdmittedLateProducerAndItsSink(t *testing.T) {
 	}
 }
 
-func TestShutdownSinkCannotPublishAcrossProducerAdmittedWhileSinkRuns(t *testing.T) {
+func TestShutdownRequestRejectsProducerWhileSinkRuns(t *testing.T) {
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("add root: %v", err)
@@ -229,7 +325,6 @@ func TestShutdownSinkCannotPublishAcrossProducerAdmittedWhileSinkRuns(t *testing
 	s := NewScheduler(store)
 	t.Cleanup(s.Stop)
 	initial := types.NewWaif(0, 0)
-	late := types.NewWaif(0, 0)
 	s.pendingWaifBatch = []pendingWaifEntry{{waif: initial, ctx: kernel.NewTaskContext()}}
 	entered := make(chan struct{})
 	release := make(chan struct{})
@@ -253,30 +348,20 @@ func TestShutdownSinkCannotPublishAcrossProducerAdmittedWhileSinkRuns(t *testing
 	case <-time.After(time.Second):
 		t.Fatal("shutdown sink did not block")
 	}
-	if !s.beginFinalizationProducer() {
-		t.Fatal("producer was not admitted while shutdown sink was running")
+	if s.beginFinalizationProducer() {
+		t.Fatal("producer admitted after shutdown request while sink was running")
 	}
 	close(release)
 	ready := <-readyResult
 	select {
 	case <-ready:
-		t.Fatal("shutdown published across producer admitted during sink")
-	default:
-	}
-
-	s.pendingWaifMu.Lock()
-	s.pendingShutdownRoots = append(s.pendingShutdownRoots, late)
-	s.pendingWaifMu.Unlock()
-	s.finishFinalizationProducer()
-	select {
-	case <-ready:
 	case <-time.After(time.Second):
-		t.Fatal("shutdown did not publish after late producer and sink completed")
+		t.Fatal("shutdown did not publish after the admitted sink completed")
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(handedOff) != 2 || !handedOff[0].Equal(initial) || !handedOff[1].Equal(late) {
-		t.Fatalf("shutdown handoff = %v, want initial then late root", handedOff)
+	if len(handedOff) != 1 || !handedOff[0].Equal(initial) {
+		t.Fatalf("shutdown handoff = %v, want only pre-boundary root", handedOff)
 	}
 }
 
@@ -488,6 +573,36 @@ func TestBeginShutdownLeavesSuspendedTaskAnonymousRootsTaskOwned(t *testing.T) {
 	}
 }
 
+func TestBeginShutdownPromotesKilledSuspendedTaskRoots(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	s := newSchedulerWithWorkerCount(store, config.Options{}, 1)
+	t.Cleanup(s.Stop)
+	s.SetPendingFinalizationSink(store.AppendPendingFinalizations)
+
+	tk := task.NewTaskFull(96001, 0, compileTestProgram(t, s.registry, `
+a = create(#0, #0, 1);
+suspend();
+`), 1<<50, 1e9)
+	tk.Context.IsWizard = true
+	if err := s.runTask(tk); err != nil {
+		t.Fatalf("run suspended task: %v", err)
+	}
+	if tk.GetState() != task.TaskSuspended || tk.BytecodeVMValue() == nil {
+		t.Fatalf("pre-kill task = state %s VM %T", tk.GetState(), tk.BytecodeVMValue())
+	}
+	tk.Kill()
+	<-s.BeginShutdown(nil)
+
+	snapshot := store.Snapshot()
+	if len(snapshot.PendingFinalizations) != 1 || snapshot.PendingFinalizations[0].Type() != types.TYPE_ANON {
+		t.Fatalf("killed task pending roots = %v, want one anonymous root", snapshot.PendingFinalizations)
+	}
+	if len(snapshot.AnonymousObjects) != 1 {
+		t.Fatalf("killed task anonymous objects = %d, want 1", len(snapshot.AnonymousObjects))
+	}
+}
+
 func TestCanceledSchedulerContextDoesNotInferShutdownHandoff(t *testing.T) {
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
@@ -555,7 +670,7 @@ func TestShutdownCompletionPreservesAnonymousRootsForCheckpoint(t *testing.T) {
 			t.Cleanup(scheduler.Stop)
 			scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
 			scheduler.BeginShutdown(nil)
-			if _, err := scheduler.RunServerVerbTask(0, "shutdown_started", nil, 0); err != nil {
+			if _, err := scheduler.RunLifecycleVerbTask(0, "shutdown_started", nil, 0); err != nil {
 				t.Fatalf("run shutdown_started: %v", err)
 			}
 
@@ -585,7 +700,7 @@ func TestShutdownCompletionPreservesTaskLocalWaif(t *testing.T) {
 	t.Cleanup(scheduler.Stop)
 	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
 	scheduler.BeginShutdown(nil)
-	if _, err := scheduler.RunServerVerbTask(0, "shutdown_started", nil, 0); err != nil {
+	if _, err := scheduler.RunLifecycleVerbTask(0, "shutdown_started", nil, 0); err != nil {
 		t.Fatalf("run shutdown_started: %v", err)
 	}
 

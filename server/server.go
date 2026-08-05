@@ -187,6 +187,7 @@ func (s *Server) LoadDatabase() error {
 
 	s.scheduler.LoadQueuedTasks(database.QueuedTasks)
 	s.scheduler.LoadSuspendedTasks(database.SuspendedTasks)
+	s.scheduler.QueueStartupPendingFinalizations(s.store.TakePendingFinalizations())
 
 	slog.Info("database loaded",
 		slog.Int("version", database.Version),
@@ -209,25 +210,6 @@ func (s *Server) Start() error {
 	s.running = true
 	s.mu.Unlock()
 
-	// Resume checkpointed finalization work before any queued input task or
-	// listener can expose the service. A recycle hook may request shutdown; its
-	// task is allowed to return and the normal main loop then performs the clean
-	// checkpoint/exit path without ever binding a listener.
-	if err := s.scheduler.RunStartupPendingFinalizations(); err != nil {
-		s.scheduler.Stop()
-		s.backgroundWG.Wait()
-		s.mu.Lock()
-		s.running = false
-		s.mu.Unlock()
-		return fmt.Errorf("startup pending finalizations: %w", err)
-	}
-	if s.scheduler.ShutdownRequested() {
-		return s.mainLoop()
-	}
-
-	// Start scheduler input after startup finalization has fully settled.
-	s.input.Start()
-
 	// Bind listener sockets before server_started so MOO code can inspect
 	// listeners(), but do not accept connections until the hook returns.
 	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
@@ -248,6 +230,26 @@ func (s *Server) Start() error {
 	if err := s.callServerStarted(); err != nil {
 		slog.Warn("#0:server_started() failed", slog.Any("err", err))
 	}
+
+	// Toast enters the main loop's two startup collectors only after the
+	// checkpointed disconnect lifecycle and #0:server_started have completed.
+	if err := s.scheduler.RunStartupPendingFinalizations(); err != nil {
+		if !errors.Is(err, runtime.ErrSchedulerShuttingDown) {
+			s.connManager.CloseListeners()
+			s.scheduler.Stop()
+			s.backgroundWG.Wait()
+			s.mu.Lock()
+			s.running = false
+			s.mu.Unlock()
+			return fmt.Errorf("startup pending finalizations: %w", err)
+		}
+	}
+	if s.scheduler.ShutdownRequested() {
+		return s.mainLoop()
+	}
+
+	// Start scheduler input only after startup lifecycle and finalization settle.
+	s.input.Start()
 
 	// Start listening for connections
 	s.connManager.StartAccepting()
@@ -460,7 +462,7 @@ func (s *Server) callCheckpointStarted() error {
 	if !s.store.HasLocalVerb(0, "checkpoint_started") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_started", nil, 0)
+	_, err := s.scheduler.RunLifecycleVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
@@ -469,7 +471,7 @@ func (s *Server) callCheckpointFinished(success bool) error {
 	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
+	_, err := s.scheduler.RunLifecycleVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 
@@ -478,7 +480,7 @@ func (s *Server) callShutdownStarted(message string) error {
 	if !s.store.HasLocalVerb(0, "shutdown_started") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
+	_, err := s.scheduler.RunLifecycleVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
 	return err
 }
 

@@ -48,13 +48,21 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
+	if !s.beginFinalizationProducer() {
+		t.Kill()
+		return ErrSchedulerShuttingDown
+	}
+	defer s.finishFinalizationProducer()
+	return s.runTaskAdmitted(t)
+}
+
+// runTaskAdmitted executes under producer ownership acquired by the caller.
+// Startup finalization owns one batch admission so a :recycle-triggered
+// shutdown cannot reject the remaining roots that preceded the boundary.
+func (s *Scheduler) runTaskAdmitted(t *task.Task) (retErr error) {
 	var bcVM *vm.VM
 	var anonGCFloor types.ObjID
 	var anonFloor uint64
-	producer := s.beginFinalizationProducer()
-	if producer {
-		defer s.finishFinalizationProducer()
-	}
 	defer func() {
 		s.mu.Lock()
 		delete(s.runningTasks, t.ID)
@@ -113,8 +121,14 @@ retryAttempt:
 	// touches the VM below — closing the popped-but-not-yet-running race window.
 	s.mu.Lock()
 	s.runningTasks[t.ID] = struct{}{}
-	t.SetState(task.TaskRunning)
+	started := t.BeginRun()
+	if !started {
+		delete(s.runningTasks, t.ID)
+	}
 	s.mu.Unlock()
+	if !started {
+		return nil
+	}
 
 	ctx := t.Context
 	if ctx == nil {
@@ -439,20 +453,25 @@ retryAttempt:
 		// before the VM exists, and checkpoints cannot read a partial suspension.
 		s.pendingWaifMu.Lock()
 		s.mu.Lock()
-		if anonymousCreated && !s.shutdownRequested {
-			s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{
-				Ctx:       s.gcRecycleContext(ctx),
-				MinID:     anonGCFloor,
-				TaskOwned: true,
-			})
-		}
+		state := t.PublishRequestedSuspension(
+			bcVM,
+			func() {
+				if s.taskLifecycleObserver != nil {
+					s.taskLifecycleObserver("suspend_during_publish", t)
+				}
+			},
+			func(published task.TaskState) {
+				if anonymousCreated && !s.shutdownRequested && published != task.TaskKilled {
+					s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{
+						Ctx:       s.gcRecycleContext(ctx),
+						MinID:     anonGCFloor,
+						TaskOwned: true,
+					})
+				}
+			},
+		)
 		if s.taskLifecycleObserver != nil {
-			s.taskLifecycleObserver("suspend_after_task_owned", t)
-		}
-		t.SetBytecodeVM(bcVM)
-		state := t.PublishRequestedSuspension()
-		if s.taskLifecycleObserver != nil {
-			s.taskLifecycleObserver("suspend_after_vm", t)
+			s.taskLifecycleObserver("suspend_after_publish", t)
 		}
 		if state == task.TaskQueued {
 			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
@@ -469,6 +488,13 @@ retryAttempt:
 		}
 		s.mu.Unlock()
 		s.pendingWaifMu.Unlock()
+		if state == task.TaskKilled {
+			shutdownOwns := s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, anonymousCreated)
+			t.SetBytecodeVM(nil)
+			if !shutdownOwns {
+				s.flushDeferredGC()
+			}
+		}
 		// The task manager has already been notified via builtinSuspend
 		// Just return without setting state to Completed
 		return nil
@@ -817,11 +843,9 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	t.ForkCreator = s
 
 	// Register task
-	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	if !s.registerImmediateTask(t) {
+		return ErrSchedulerShuttingDown
+	}
 
 	// Run synchronously on the scheduler goroutine
 	err := s.runTask(t)
@@ -837,5 +861,5 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 	}
-	return nil
+	return err
 }

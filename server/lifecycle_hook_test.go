@@ -597,11 +597,11 @@ func TestShutdownPublishesFinalizationHandoffBeforeCancel(t *testing.T) {
 	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
 
 	s.Shutdown("test")
-	if _, err := scheduler.RunServerVerbTask(0, "after_shutdown", nil, 0); err != nil {
-		t.Fatalf("run task after Shutdown: %v", err)
+	if _, err := scheduler.RunServerVerbTask(0, "after_shutdown", nil, 0); !errors.Is(err, runtime.ErrSchedulerShuttingDown) {
+		t.Fatalf("run task after Shutdown error = %v, want ErrSchedulerShuttingDown", err)
 	}
-	if got := len(store.Snapshot().PendingFinalizations); got != 1 {
-		t.Fatalf("pending roots after Shutdown = %d, want 1", got)
+	if got := len(store.Snapshot().PendingFinalizations); got != 0 {
+		t.Fatalf("pending roots after rejected task = %d, want 0", got)
 	}
 }
 

@@ -11,19 +11,51 @@ import (
 	"barn/types"
 )
 
-// RunStartupPendingFinalizations resumes the finalization queue loaded from a
-// checkpoint before the host opens listeners. Each root runs as a registered
-// scheduler task, so lifecycle builtins use the same task and shutdown
-// semantics as ordinary MOO execution.
+// QueueStartupPendingFinalizations transfers checkpoint roots into Toast's two
+// startup queues. Anonymous objects are pushed onto a stack (reverse encounter
+// order); WAIFs retain their encounter order in their separate queue.
+func (s *Scheduler) QueueStartupPendingFinalizations(roots []types.Value) {
+	s.pendingWaifMu.Lock()
+	defer s.pendingWaifMu.Unlock()
+	for _, root := range roots {
+		switch root.Type() {
+		case types.TYPE_ANON:
+			s.startupPendingAnons = append([]types.Value{root}, s.startupPendingAnons...)
+		case types.TYPE_WAIF:
+			s.startupPendingWaifs = append(s.startupPendingWaifs, root)
+		}
+	}
+}
+
+// RunStartupPendingFinalizations drains anonymous roots before WAIF roots,
+// matching Toast's distinct startup collectors. The whole drain owns one
+// producer admission so a :recycle may request shutdown and still return
+// without stranding roots that were admitted with the same loaded batch.
 func (s *Scheduler) RunStartupPendingFinalizations() error {
-	roots := s.store.TakePendingFinalizations()
+	s.pendingWaifMu.Lock()
+	roots := append([]types.Value(nil), s.startupPendingAnons...)
+	roots = append(roots, s.startupPendingWaifs...)
 	if len(roots) == 0 {
+		s.pendingWaifMu.Unlock()
 		return nil
 	}
-	if !s.beginFinalizationProducer() {
-		s.store.AppendPendingFinalizations(roots)
-		return fmt.Errorf("shutdown already published before startup finalization")
+	if s.shutdownRequested || s.shuttingDown.Load() {
+		s.startupPendingAnons = nil
+		s.startupPendingWaifs = nil
+		published := s.shuttingDown.Load()
+		if !published {
+			s.pendingShutdownRoots = append(s.pendingShutdownRoots, roots...)
+		}
+		s.pendingWaifMu.Unlock()
+		if published {
+			s.appendPendingFinalizations(roots)
+		}
+		return ErrSchedulerShuttingDown
 	}
+	s.activeFinalizationProducers++
+	s.startupPendingAnons = nil
+	s.startupPendingWaifs = nil
+	s.pendingWaifMu.Unlock()
 	defer s.finishFinalizationProducer()
 
 	for i, root := range roots {
@@ -99,13 +131,9 @@ func (s *Scheduler) runStartupFinalization(root types.Value) error {
 	tk.Caller = types.ObjNothing
 	tk.ForkCreator = s
 
-	tk.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[tk.ID] = tk
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(tk)
+	s.registerAdmittedTask(tk)
 
-	if err := s.runTask(tk); err != nil {
+	if err := s.runTaskAdmitted(tk); err != nil {
 		return fmt.Errorf("run startup finalization %s: %w", root.String(), err)
 	}
 	if tk.Result.Flow == types.FlowSuspend {

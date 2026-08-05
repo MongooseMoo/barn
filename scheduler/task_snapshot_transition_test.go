@@ -61,7 +61,7 @@ suspend();
 	}
 	release <- struct{}{}
 
-	wantStage("suspend_after_task_owned")
+	wantStage("suspend_during_publish")
 	if s.mu.TryLock() {
 		s.mu.Unlock()
 		t.Fatal("task-owned GC request became visible without scheduler ownership")
@@ -70,12 +70,11 @@ suspend();
 		s.pendingWaifMu.Unlock()
 		t.Fatal("task-owned GC request became visible without finalization ownership")
 	}
-	if tk.GetState() != task.TaskRunning || tk.BytecodeVMValue() != nil {
-		t.Fatalf("task-owned stage = state %s VM %T, want unpublished running state", tk.GetState(), tk.BytecodeVMValue())
-	}
+	// The observer runs inside the task lock after VM installation. Inspecting
+	// task fields here would block, which is the transition guarantee under test.
 	release <- struct{}{}
 
-	wantStage("suspend_after_vm")
+	wantStage("suspend_after_publish")
 	if s.mu.TryLock() {
 		s.mu.Unlock()
 		t.Fatal("suspended VM/state became visible without scheduler ownership")

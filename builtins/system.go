@@ -238,14 +238,11 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// Create a cancellable context for the subprocess
 	execCtx, execCancel := context.WithTimeout(context.Background(), 30*time.Second)
 
-	// Mark task as exec-suspended and store cancel func
-	t.IsExecSuspended = true
-	t.ExecCommandName = filepath.ToSlash(filepath.Join("executables", program))
-	t.ExecCancelFunc = execCancel
-
-	// Suspend the task indefinitely (will be resumed by goroutine)
-	mgr := task.GetManager()
-	mgr.SuspendTask(t, -1)
+	// Establish exec suspension ownership before launching the callback.
+	if !t.RequestExecSuspend(-1, execCancel, filepath.ToSlash(filepath.Join("executables", program))) {
+		execCancel()
+		return types.Err(types.E_INVARG)
+	}
 
 	// Launch subprocess in background goroutine
 	go func() {

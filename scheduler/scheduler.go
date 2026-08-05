@@ -55,6 +55,8 @@ type Scheduler struct {
 	pendingShutdownRoots        []types.Value
 	pendingWaifBatch            []pendingWaifEntry
 	pendingAnonGC               []vm.AnonGCRequest
+	startupPendingAnons         []types.Value
+	startupPendingWaifs         []types.Value
 	lastGCSweep                 time.Time
 	lastGCCost                  time.Duration
 }
@@ -68,6 +70,8 @@ type taskRunResult struct {
 	task *task.Task
 	err  error
 }
+
+var ErrSchedulerShuttingDown = errors.New("scheduler shutdown has been requested")
 
 // NewScheduler creates a task scheduler with default runtime options.
 func NewScheduler(store *dbstore.Store) *Scheduler {
@@ -222,7 +226,7 @@ func (s *Scheduler) BeginShutdown(exec *vm.VM) <-chan struct{} {
 func (s *Scheduler) beginFinalizationProducer() bool {
 	s.pendingWaifMu.Lock()
 	defer s.pendingWaifMu.Unlock()
-	if s.shuttingDown.Load() {
+	if s.shutdownRequested || s.shuttingDown.Load() {
 		return false
 	}
 	s.activeFinalizationProducers++
@@ -333,6 +337,11 @@ func (s *Scheduler) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 // draining an arbitrarily large ready snapshot first. A single MOO task still
 // runs atomically until completion or suspension.
 func (s *Scheduler) ProcessReadyTasks() int {
+	s.pendingWaifMu.Lock()
+	if s.shutdownRequested {
+		s.pendingWaifMu.Unlock()
+		return 0
+	}
 	s.mu.Lock()
 
 	now := time.Now()
@@ -375,6 +384,7 @@ func (s *Scheduler) ProcessReadyTasks() int {
 	}
 
 	s.mu.Unlock()
+	s.pendingWaifMu.Unlock()
 
 	s.runReadyTasks(readyTasks)
 	// Every task in the pass has joined by now (runTaskBatch waits on all of them),

@@ -8,6 +8,7 @@ import (
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/metrics"
+	"barn/task"
 	"barn/types"
 	"barn/vm"
 )
@@ -343,8 +344,25 @@ func anonymousRootValues(refs map[types.ObjID]struct{}) []types.Value {
 // checkpoint domain. Caller holds pendingWaifMu after closing GC admission.
 func (s *Scheduler) takeDeferredFinalizationRootsLocked() []types.Value {
 	refs := make(map[types.ObjID]struct{})
+	var taskWaifs []types.Value
+	startupRoots := append([]types.Value(nil), s.startupPendingAnons...)
+	startupRoots = append(startupRoots, s.startupPendingWaifs...)
+	s.startupPendingAnons = nil
+	s.startupPendingWaifs = nil
 	for _, request := range s.pendingAnonGC {
 		if request.TaskOwned {
+			tk, _ := request.Ctx.Task.(*task.Task)
+			if tk == nil || tk.GetState() != task.TaskKilled {
+				continue
+			}
+			exec, _ := tk.BytecodeVMValue().(*vm.VM)
+			for _, value := range vm.CollectPendingFinalizationValues(s.store, exec) {
+				if value.Type() == types.TYPE_ANON {
+					refs[value.ID()] = struct{}{}
+				} else if value.Type() == types.TYPE_WAIF && !waifInList(value, taskWaifs) {
+					taskWaifs = append(taskWaifs, value)
+				}
+			}
 			continue
 		}
 		for _, value := range s.anonymousRequestRootValues(request) {
@@ -353,6 +371,8 @@ func (s *Scheduler) takeDeferredFinalizationRootsLocked() []types.Value {
 		}
 	}
 	values := anonymousRootValues(refs)
+	values = append(values, taskWaifs...)
+	values = append(values, startupRoots...)
 	for _, entry := range s.pendingWaifBatch {
 		if !waifInList(entry.waif, values) {
 			values = append(values, entry.waif)

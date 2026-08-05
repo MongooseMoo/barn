@@ -32,6 +32,21 @@ const (
 	TaskSuspendedTask                 // Suspended task (for resume)
 )
 
+type suspensionPhase uint8
+
+const (
+	suspensionIdle suspensionPhase = iota
+	suspensionRequested
+)
+
+type suspensionCompletion uint8
+
+const (
+	suspensionCompletionNone suspensionCompletion = iota
+	suspensionCompletionResume
+	suspensionCompletionExec
+)
+
 // ForkCreator interface allows tasks to create forked children without importing server
 type ForkCreator interface {
 	CreateForkedTask(parent *Task, info *types.ForkInfo) int64
@@ -139,16 +154,18 @@ type Task struct {
 	CreatedForks []int64         // Forked task IDs created during the current execution slice
 
 	// Execution fields
-	Program        *bytecode.Program   // Compiled program ready for execution
-	BytecodeVM     interface{}         // *vm.VM - bytecode VM for execution (saved across suspend/resume)
-	Context        *kernel.TaskContext // Task execution context
-	Result         types.Result        // Last execution result
-	ForkCreator    ForkCreator         // For creating forked tasks
-	CancelFunc     context.CancelFunc  // For cancellation (exported for scheduler)
-	ExecCancelFunc context.CancelFunc  // For cancelling an exec() subprocess
-	StmtIndex      int                 // Current statement index (for suspend/resume)
-	pendingSuspend bool
-	pendingSeconds float64
+	Program              *bytecode.Program   // Compiled program ready for execution
+	BytecodeVM           interface{}         // *vm.VM - bytecode VM for execution (saved across suspend/resume)
+	Context              *kernel.TaskContext // Task execution context
+	Result               types.Result        // Last execution result
+	ForkCreator          ForkCreator         // For creating forked tasks
+	CancelFunc           context.CancelFunc  // For cancellation (exported for scheduler)
+	ExecCancelFunc       context.CancelFunc  // For cancelling an exec() subprocess
+	StmtIndex            int                 // Current statement index (for suspend/resume)
+	suspensionPhase      suspensionPhase
+	suspensionSeconds    float64
+	suspensionCompletion suspensionCompletion
+	suspensionValue      types.Value
 
 	// Verb context (set for verb tasks)
 	VerbName            string
@@ -266,12 +283,26 @@ func (t *Task) GetState() TaskState {
 func (t *Task) SetState(state TaskState) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.State == TaskKilled && state != TaskKilled {
+		return
+	}
 	// Count the transition, not the assignment: a task can be marked killed more
 	// than once as an error unwinds, and it only died once.
 	if state == TaskKilled && t.State != TaskKilled {
 		metrics.TasksKilled.Add(1)
 	}
 	t.State = state
+}
+
+// BeginRun makes a queued task running unless a terminal kill already won.
+func (t *Task) BeginRun() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State == TaskKilled || t.State == TaskCompleted {
+		return false
+	}
+	t.State = TaskRunning
+	return true
 }
 
 // PushFrame pushes an activation frame onto the call stack
@@ -435,24 +466,70 @@ func (t *Task) SuspendIndefinite() {
 func (t *Task) RequestSuspend(seconds float64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.State == TaskKilled || t.State == TaskCompleted {
+		return false
+	}
 	if t.State != TaskRunning {
 		t.applySuspensionLocked(seconds)
 		return false
 	}
-	t.pendingSuspend = true
-	t.pendingSeconds = seconds
+	if t.suspensionPhase != suspensionIdle {
+		return false
+	}
+	t.suspensionPhase = suspensionRequested
+	t.suspensionSeconds = seconds
+	t.suspensionCompletion = suspensionCompletionNone
+	t.suspensionValue = types.None
 	return true
 }
 
-// PublishRequestedSuspension atomically makes a running VM's suspension
-// visible. The scheduler calls this while it owns task-map snapshot access.
-func (t *Task) PublishRequestedSuspension() TaskState {
+// RequestExecSuspend establishes the suspension transition and its exec-only
+// callback authority in one task-locked operation, before the async producer
+// can be launched.
+func (t *Task) RequestExecSuspend(seconds float64, cancel context.CancelFunc, command string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.pendingSuspend {
-		t.applySuspensionLocked(t.pendingSeconds)
-		t.pendingSuspend = false
-		t.pendingSeconds = 0
+	if t.State != TaskRunning || t.suspensionPhase != suspensionIdle {
+		return false
+	}
+	t.IsExecSuspended = true
+	t.ExecCancelFunc = cancel
+	t.ExecCommandName = command
+	t.suspensionPhase = suspensionRequested
+	t.suspensionSeconds = seconds
+	t.suspensionCompletion = suspensionCompletionNone
+	t.suspensionValue = types.None
+	return true
+}
+
+// PublishRequestedSuspension installs the resumable VM and publishes the
+// requested state as one task-locked transition. during runs after VM install
+// while the task lock is held; publishOwned runs before unlock so scheduler
+// root ownership is established before Kill/Resume can linearize afterward.
+func (t *Task) PublishRequestedSuspension(machine interface{}, during func(), publishOwned func(TaskState)) TaskState {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State == TaskKilled || t.suspensionPhase != suspensionRequested {
+		t.clearSuspensionLocked()
+		if publishOwned != nil {
+			publishOwned(t.State)
+		}
+		return t.State
+	}
+
+	t.BytecodeVM = machine
+	if during != nil {
+		during()
+	}
+	t.applySuspensionLocked(t.suspensionSeconds)
+	completion := t.suspensionCompletion
+	value := t.suspensionValue
+	t.clearSuspensionLocked()
+	if completion != suspensionCompletionNone {
+		t.applyCompletionLocked(completion, value)
+	}
+	if publishOwned != nil {
+		publishOwned(t.State)
 	}
 	return t.State
 }
@@ -463,13 +540,25 @@ func (t *Task) PublishRequestedSuspension() TaskState {
 func (t *Task) ConsumeZeroDelaySuspend() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.pendingSuspend || t.pendingSeconds != 0 {
+	if t.State == TaskKilled || t.suspensionPhase != suspensionRequested || t.suspensionSeconds != 0 {
 		return false
 	}
-	t.pendingSuspend = false
-	t.pendingSeconds = 0
-	t.WakeValue = types.NewInt(0)
+	completion := t.suspensionCompletion
+	value := t.suspensionValue
+	t.clearSuspensionLocked()
+	if completion == suspensionCompletionNone {
+		t.WakeValue = types.NewInt(0)
+	} else {
+		t.applyCompletionLocked(completion, value)
+	}
 	return true
+}
+
+func (t *Task) clearSuspensionLocked() {
+	t.suspensionPhase = suspensionIdle
+	t.suspensionSeconds = 0
+	t.suspensionCompletion = suspensionCompletionNone
+	t.suspensionValue = types.None
 }
 
 func (t *Task) applySuspensionLocked(seconds float64) {
@@ -493,12 +582,30 @@ func (t *Task) applySuspensionLocked(seconds float64) {
 func (t *Task) Resume(value types.Value) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.State == TaskRunning && t.suspensionPhase == suspensionRequested && !t.IsExecSuspended {
+		if t.suspensionCompletion != suspensionCompletionNone {
+			return false
+		}
+		t.suspensionCompletion = suspensionCompletionResume
+		t.suspensionValue = value
+		return true
+	}
 	if t.State != TaskSuspended {
 		return false
 	}
 	// Can't resume exec-suspended tasks - they must complete on their own or be killed
 	if t.IsExecSuspended {
 		return false
+	}
+	t.applyCompletionLocked(suspensionCompletionResume, value)
+	return true
+}
+
+func (t *Task) applyCompletionLocked(completion suspensionCompletion, value types.Value) {
+	if completion == suspensionCompletionExec {
+		t.IsExecSuspended = false
+		t.ExecCancelFunc = nil
+		t.ExecCommandName = ""
 	}
 	t.State = TaskQueued
 	t.WakeValue = value
@@ -512,7 +619,6 @@ func (t *Task) Resume(value types.Value) bool {
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
 		t.StartTime = time.Now()
 	}
-	return true
 }
 
 // CompleteExec resumes an exec-suspended task with the subprocess result.
@@ -521,17 +627,21 @@ func (t *Task) Resume(value types.Value) bool {
 func (t *Task) CompleteExec(value types.Value) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.State == TaskRunning && t.suspensionPhase == suspensionRequested && t.IsExecSuspended {
+		if t.suspensionCompletion != suspensionCompletionNone {
+			return false
+		}
+		t.suspensionCompletion = suspensionCompletionExec
+		t.suspensionValue = value
+		return true
+	}
 	if t.State != TaskSuspended {
 		return false
 	}
-	t.IsExecSuspended = false
-	t.ExecCancelFunc = nil
-	t.ExecCommandName = ""
-	t.State = TaskQueued
-	t.WakeValue = value
-	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
-		t.StartTime = time.Now()
+	if !t.IsExecSuspended {
+		return false
 	}
+	t.applyCompletionLocked(suspensionCompletionExec, value)
 	return true
 }
 
@@ -547,6 +657,7 @@ func (t *Task) Kill() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.State = TaskKilled
+	t.clearSuspensionLocked()
 	// If the task is exec-suspended, cancel the subprocess
 	if t.ExecCancelFunc != nil {
 		t.ExecCancelFunc()
