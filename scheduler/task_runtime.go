@@ -48,6 +48,18 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
+	var bcVM *vm.VM
+	var anonGCFloor types.ObjID
+	var anonFloor uint64
+	producer := s.beginFinalizationProducer()
+	if producer {
+		defer s.finishFinalizationProducer()
+	}
+	defer func() {
+		s.mu.Lock()
+		delete(s.runningTasks, t.ID)
+		s.mu.Unlock()
+	}()
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -59,6 +71,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 				slog.String("panic", fmt.Sprint(r)),
 				slog.String("go_stack", string(debug.Stack())))
 			t.SetState(task.TaskKilled)
+			if bcVM != nil {
+				shutdownOwns := s.settleCompletedTaskFinalizations(t.Context, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
+				t.SetBytecodeVM(nil)
+				if !shutdownOwns {
+					s.flushDeferredGC()
+				}
+			}
 			retErr = fmt.Errorf("internal panic: %v", r)
 		}
 	}()
@@ -93,6 +112,7 @@ retryAttempt:
 	// sees this task as Running (and skips its VM) or blocks here before this goroutine
 	// touches the VM below — closing the popped-but-not-yet-running race window.
 	s.mu.Lock()
+	s.runningTasks[t.ID] = struct{}{}
 	t.SetState(task.TaskRunning)
 	s.mu.Unlock()
 
@@ -160,13 +180,11 @@ retryAttempt:
 	defer cancel()
 
 	var result types.Result
-	var bcVM *vm.VM
-	anonGCFloor := s.store.NextID()
+	anonGCFloor = s.store.NextID()
 	// Sample the global anon-creation counter at the SAME point as anonGCFloor so
 	// the two are consistent. If it is unchanged at task end, no anonymous object
 	// was created since the floor and the orphan-anon GC sweep can be skipped.
-	anonFloor := s.store.AnonCreationCount()
-
+	anonFloor = s.store.AnonCreationCount()
 	if savedVM := t.BytecodeVMValue(); savedVM != nil {
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
 		var ok bool
@@ -198,18 +216,26 @@ retryAttempt:
 			return errors.New("task has no compiled program")
 		}
 
+		thisValue := types.NewObj(t.This)
+		frameThisValue := types.None
+		if t.ThisValue.Type() == types.TYPE_WAIF || t.ThisValue.Type() == types.TYPE_ANON {
+			thisValue = t.ThisValue
+			frameThisValue = t.ThisValue
+		}
+
 		// Update TaskContext for permissions and builtins
 		if t.VerbName != "" {
 			ctx.Player = t.Owner
 			ctx.Programmer = t.Programmer
 			ctx.IsWizard = s.isWizard(t.Programmer)
 			ctx.ThisObj = t.This
+			ctx.ThisValue = frameThisValue
 			ctx.Verb = t.VerbName
 
 			// Push initial activation frame for traceback support
 			t.PushFrame(task.ActivationFrame{
 				This:       t.This,
-				ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
+				ThisValue:  frameThisValue,
 				Player:     t.Owner,
 				Programmer: t.Programmer,
 				Caller:     t.Caller,
@@ -238,6 +264,7 @@ retryAttempt:
 
 			// Prepare frame first, then set ALL variables before execution
 			frame := bcVM.PrepareVerbFrame(prog, t.This, t.Owner, t.Caller, t.VerbName, t.VerbLoc, argList)
+			frame.ThisValue = frameThisValue
 
 			// Set verb debug flag from the actual verb permissions, and record the
 			// verb's stored name spec (incl. wildcards) for printed tracebacks.
@@ -247,7 +274,7 @@ retryAttempt:
 			}
 
 			// Set verb context variables
-			vm.SetLocalByName(frame, prog, "this", types.NewObj(t.This))
+			vm.SetLocalByName(frame, prog, "this", thisValue)
 			vm.SetLocalByName(frame, prog, "player", types.NewObj(t.Owner))
 			vm.SetLocalByName(frame, prog, "caller", types.NewObj(t.Caller))
 			vm.SetLocalByName(frame, prog, "verb", types.NewStr(t.VerbName))
@@ -346,7 +373,7 @@ retryAttempt:
 	default:
 	}
 
-	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && t.GetState() == task.TaskQueued && zeroDelayYields < 16; zeroDelayYields++ {
+	for zeroDelayYields := 0; result.Flow == types.FlowSuspend && t.IsForked && zeroDelayYields < 16 && t.ConsumeZeroDelaySuspend(); zeroDelayYields++ {
 		t.SetBytecodeVM(bcVM)
 		if !t.WakeValue.IsNone() {
 			bcVM.SetResumeValue(t.WakeValue, t.WakeErrorAsValue)
@@ -384,9 +411,7 @@ retryAttempt:
 		// Fast path retained: if no anonymous object was created since this task's
 		// floor, the candidate set (anon ids >= floor) is provably empty and there is
 		// nothing to enqueue.
-		if s.store.AnonCreationCount() != anonFloor {
-			s.deferAnonGC(ctx, anonGCFloor, nil)
-		}
+		anonymousCreated := s.store.AnonCreationCount() != anonFloor
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
@@ -406,14 +431,30 @@ retryAttempt:
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
 
-		// Save VM state for later Resume() via the thread-safe setter, so a
-		// concurrently running sibling scanning saved VMs for orphan GC never races
-		// the write. The s.mu critical section additionally guards the suspend(0)-
-		// style heap re-queue below; lock order is s.mu then the task lock taken
-		// inside SetBytecodeVM, matching collectSiblingGCRefs's read path.
+		if s.taskLifecycleObserver != nil {
+			s.taskLifecycleObserver("suspend_before_publish", t)
+		}
+		// Publish the deferred request, resumable VM, and visible task state as
+		// one scheduler-owned transition. Shutdown cannot drain task-owned roots
+		// before the VM exists, and checkpoints cannot read a partial suspension.
+		s.pendingWaifMu.Lock()
 		s.mu.Lock()
+		if anonymousCreated && !s.shutdownRequested {
+			s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{
+				Ctx:       s.gcRecycleContext(ctx),
+				MinID:     anonGCFloor,
+				TaskOwned: true,
+			})
+		}
+		if s.taskLifecycleObserver != nil {
+			s.taskLifecycleObserver("suspend_after_task_owned", t)
+		}
 		t.SetBytecodeVM(bcVM)
-		if t.GetState() == task.TaskQueued {
+		state := t.PublishRequestedSuspension()
+		if s.taskLifecycleObserver != nil {
+			s.taskLifecycleObserver("suspend_after_vm", t)
+		}
+		if state == task.TaskQueued {
 			// A suspend(0) re-queue carries no wake delay, so WakeTime is unset.
 			// Stamp it with the suspend moment so the task's ready time reflects
 			// when it yielded — otherwise it sorts by its original StartTime and
@@ -427,6 +468,7 @@ retryAttempt:
 			heap.Push(s.waiting, t)
 		}
 		s.mu.Unlock()
+		s.pendingWaifMu.Unlock()
 		// The task manager has already been notified via builtinSuspend
 		// Just return without setting state to Completed
 		return nil

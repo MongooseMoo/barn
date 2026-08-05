@@ -118,6 +118,27 @@ func TestCollectPendingFinalizationValuesKeepsNestedAnonUnderSingleWaifRoot(t *t
 	}
 }
 
+func TestReturnFramePopKeepsNestedWaifUnderOneDirectRoot(t *testing.T) {
+	inner := types.NewWaif(0, 0)
+	outer := types.NewWaif(0, 0)
+	outer.SetProperty("nested", inner)
+	exec := NewVM(nil, nil)
+	frame := &StackFrame{
+		Locals:        []types.Value{types.NewList([]types.Value{outer})},
+		DiscardReturn: true,
+	}
+	exec.Frames = []*StackFrame{frame}
+	exec.frame = frame
+
+	exec.Return(types.None)
+	if got := exec.TakePendingWaifs(); len(got) != 1 || !got[0].Equal(outer) {
+		t.Fatalf("frame-pop pending WAIF roots = %v, want exactly outer identity %p", got, outer.WaifIdentity())
+	}
+	if got := exec.PendingFinalizations; len(got) != 1 || !got[0].Equal(outer) {
+		t.Fatalf("frame-pop pending finalization roots = %v, want exactly outer identity %p", got, outer.WaifIdentity())
+	}
+}
+
 func TestCollectPendingFinalizationValuesRetainsDirectRefsEvenWhenCurrentlyPersistent(t *testing.T) {
 	store := dbstore.NewStore()
 

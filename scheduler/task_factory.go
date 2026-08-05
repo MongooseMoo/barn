@@ -455,6 +455,9 @@ func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Sn
 	defer s.mu.Unlock()
 
 	for _, t := range s.tasks {
+		if _, running := s.runningTasks[t.ID]; running {
+			continue
+		}
 		snapshot := t.PersistenceSnapshot()
 		if snapshot.State == task.TaskCompleted || snapshot.State == task.TaskKilled {
 			continue

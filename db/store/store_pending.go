@@ -10,6 +10,19 @@ func (s *Store) SetPendingFinalizations(values []types.Value) {
 	s.pendingFinalizations = cloneValues(values)
 }
 
+// TakePendingFinalizations transfers the startup finalization queue to its
+// executor. The queue is cleared in the same critical section as the copy, so
+// a checkpoint can never serialize both an executing root and its stale queue
+// entry.
+func (s *Store) TakePendingFinalizations() []types.Value {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	values := cloneValues(s.pendingFinalizations)
+	s.pendingFinalizations = nil
+	return values
+}
+
 // AppendPendingFinalizations records pending finalization values. Finalizable
 // references are deduplicated by semantic identity: anonymous object id or WAIF
 // instance pointer. In particular, two distinct WAIFs of the same class have the

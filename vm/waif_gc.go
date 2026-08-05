@@ -10,6 +10,27 @@ func collectWaifsForGC(v types.Value, out *[]types.Value) {
 	collectWaifsForGCVisited(v, out, nil)
 }
 
+func collectDirectWaifsForGC(v types.Value, out *[]types.Value) {
+	switch v.Type() {
+	case types.TYPE_WAIF:
+		for _, existing := range *out {
+			if existing.Equal(v) {
+				return
+			}
+		}
+		*out = append(*out, v)
+	case types.TYPE_LIST:
+		for _, elem := range v.Elements() {
+			collectDirectWaifsForGC(elem, out)
+		}
+	case types.TYPE_MAP:
+		for _, pair := range v.Pairs() {
+			collectDirectWaifsForGC(pair[0], out)
+			collectDirectWaifsForGC(pair[1], out)
+		}
+	}
+}
+
 func collectWaifsForGCVisited(v types.Value, out *[]types.Value, visited map[unsafe.Pointer]struct{}) {
 	switch v.Type() {
 	case types.TYPE_WAIF:
@@ -54,7 +75,7 @@ func (vm *VM) collectPendingWaifsFromFrame(frame *StackFrame) {
 		return
 	}
 	for _, value := range frame.Locals {
-		collectWaifsForGC(value, &vm.PendingWaifs)
+		collectDirectWaifsForGC(value, &vm.PendingWaifs)
 	}
 }
 

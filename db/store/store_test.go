@@ -209,6 +209,24 @@ func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	}
 }
 
+func TestTakePendingFinalizationsTransfersAndClearsQueue(t *testing.T) {
+	store := NewStore()
+	waif := types.NewWaif(9, 2)
+	store.SetPendingFinalizations([]types.Value{types.NewAnon(10), waif})
+
+	taken := store.TakePendingFinalizations()
+	if len(taken) != 2 || taken[0].ID() != 10 || taken[1].WaifIdentity() != waif.WaifIdentity() {
+		t.Fatalf("taken roots = %v, want anonymous then exact WAIF", taken)
+	}
+	if got := store.Snapshot().PendingFinalizations; len(got) != 0 {
+		t.Fatalf("pending roots after transfer = %v, want empty", got)
+	}
+	taken[0] = types.NewAnon(99)
+	if got := store.Snapshot().PendingFinalizations; len(got) != 0 {
+		t.Fatalf("mutating transferred slice restored store queue: %v", got)
+	}
+}
+
 func TestStoreSnapshotNormalizesCompositePendingCandidates(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

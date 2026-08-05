@@ -32,6 +32,7 @@ type Scheduler struct {
 	taskLineSender          func(types.ObjID, string)
 	tracebackSender         func(types.ObjID, types.ErrorCode, []task.ActivationFrame)
 	taskOutputFlusher       func(types.ObjID, string)
+	taskLifecycleObserver   func(string, *task.Task)
 	options                 config.Options
 	taskWork                chan taskWorkItem
 	workersWG               sync.WaitGroup
@@ -40,20 +41,22 @@ type Scheduler struct {
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 	shuttingDown            atomic.Bool
+	runningTasks            map[int64]struct{}
 
 	// Deferred GC: task completion/suspend enqueue their pending waifs and
 	// orphan-anonymous collection requests here instead of paying a full-db
 	// sweep per task; flushDeferredGC settles both batches on an interval.
-	pendingWaifMu        sync.Mutex
-	shutdownRequested    bool
-	shutdownPublishing   bool
-	shutdownReady        chan struct{}
-	gcRunning            bool
-	pendingShutdownRoots []types.Value
-	pendingWaifBatch     []pendingWaifEntry
-	pendingAnonGC        []vm.AnonGCRequest
-	lastGCSweep          time.Time
-	lastGCCost           time.Duration
+	pendingWaifMu               sync.Mutex
+	shutdownRequested           bool
+	shutdownPublishing          bool
+	shutdownReady               chan struct{}
+	activeFinalizationProducers int
+	gcRunning                   bool
+	pendingShutdownRoots        []types.Value
+	pendingWaifBatch            []pendingWaifEntry
+	pendingAnonGC               []vm.AnonGCRequest
+	lastGCSweep                 time.Time
+	lastGCCost                  time.Duration
 }
 
 type taskWorkItem struct {
@@ -84,6 +87,7 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 
 	s := &Scheduler{
 		tasks:         make(map[int64]*task.Task),
+		runningTasks:  make(map[int64]struct{}),
 		waiting:       NewTaskQueue(),
 		nextTaskID:    1,
 		registry:      vm.BuildVMRegistry(),
@@ -186,6 +190,9 @@ func (s *Scheduler) BeginShutdown(exec *vm.VM) <-chan struct{} {
 	var callerRoots []types.Value
 	if exec != nil && (exec.Context == nil || !exec.Context.DeferredGC) {
 		callerRoots = vm.CollectPendingFinalizationValues(s.store, exec)
+		if exec.Context != nil && isFinalizationRoot(exec.Context.FinalizingValue) {
+			callerRoots = withoutFinalizationRoot(callerRoots, exec.Context.FinalizingValue)
+		}
 	}
 	s.pendingWaifMu.Lock()
 	ready := s.shutdownReady
@@ -197,7 +204,7 @@ func (s *Scheduler) BeginShutdown(exec *vm.VM) <-chan struct{} {
 	s.pendingShutdownRoots = append(s.pendingShutdownRoots, callerRoots...)
 	s.shutdownRequested = true
 	publish := false
-	if !s.gcRunning && !s.shutdownPublishing {
+	if s.canPublishShutdownLocked() {
 		s.shutdownPublishing = true
 		publish = true
 	}
@@ -208,13 +215,52 @@ func (s *Scheduler) BeginShutdown(exec *vm.VM) <-chan struct{} {
 	return ready
 }
 
+// beginFinalizationProducer admits one task execution slice into the shutdown
+// ownership boundary. A producer admitted before publication must either hand
+// roots to shutdown or publish a complete task-owned suspended state before the
+// boundary can become ready.
+func (s *Scheduler) beginFinalizationProducer() bool {
+	s.pendingWaifMu.Lock()
+	defer s.pendingWaifMu.Unlock()
+	if s.shuttingDown.Load() {
+		return false
+	}
+	s.activeFinalizationProducers++
+	return true
+}
+
+func (s *Scheduler) finishFinalizationProducer() {
+	s.pendingWaifMu.Lock()
+	if s.activeFinalizationProducers <= 0 {
+		s.pendingWaifMu.Unlock()
+		panic("scheduler finalization producer underflow")
+	}
+	s.activeFinalizationProducers--
+	publish := s.canPublishShutdownLocked()
+	if publish {
+		s.shutdownPublishing = true
+	}
+	s.pendingWaifMu.Unlock()
+	if publish {
+		s.publishShutdown()
+	}
+}
+
+func (s *Scheduler) canPublishShutdownLocked() bool {
+	return s.shutdownRequested &&
+		!s.shutdownPublishing &&
+		!s.shuttingDown.Load() &&
+		!s.gcRunning &&
+		s.activeFinalizationProducers == 0
+}
+
 // publishShutdown is the single publisher for the shutdown boundary. It calls
 // the sink outside pendingWaifMu, then rechecks under the producer lock so roots
 // arriving while the sink runs are included before ready is closed.
 func (s *Scheduler) publishShutdown() {
 	for {
 		s.pendingWaifMu.Lock()
-		if s.gcRunning {
+		if s.gcRunning || s.activeFinalizationProducers != 0 {
 			s.shutdownPublishing = false
 			s.pendingWaifMu.Unlock()
 			return
@@ -232,6 +278,11 @@ func (s *Scheduler) publishShutdown() {
 			s.pendingWaifMu.Unlock()
 			continue
 		}
+		if s.gcRunning || s.activeFinalizationProducers != 0 {
+			s.shutdownPublishing = false
+			s.pendingWaifMu.Unlock()
+			return
+		}
 		s.shuttingDown.Store(true)
 		s.shutdownPublishing = false
 		close(s.shutdownReady)
@@ -242,6 +293,15 @@ func (s *Scheduler) publishShutdown() {
 
 func (s *Scheduler) isShuttingDown() bool {
 	return s.shuttingDown.Load()
+}
+
+// ShutdownRequested reports whether a lifecycle task has requested shutdown,
+// including the interval while admitted finalization producers are still
+// completing and publication is intentionally blocked.
+func (s *Scheduler) ShutdownRequested() bool {
+	s.pendingWaifMu.Lock()
+	defer s.pendingWaifMu.Unlock()
+	return s.shutdownRequested
 }
 
 func (s *Scheduler) SetPendingFinalizationSink(sink func([]types.Value)) {

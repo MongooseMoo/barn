@@ -147,11 +147,14 @@ type Task struct {
 	CancelFunc     context.CancelFunc  // For cancellation (exported for scheduler)
 	ExecCancelFunc context.CancelFunc  // For cancelling an exec() subprocess
 	StmtIndex      int                 // Current statement index (for suspend/resume)
+	pendingSuspend bool
+	pendingSeconds float64
 
 	// Verb context (set for verb tasks)
 	VerbName            string
 	VerbLoc             types.ObjID   // Object where verb is defined (for traceback)
 	This                types.ObjID   // Object this verb is called on
+	ThisValue           types.Value   // Actual WAIF/anonymous receiver for internal tasks
 	Caller              types.ObjID   // Object that invoked the verb
 	Argstr              string        // Full argument string
 	Args                []string      // Arguments as word list
@@ -424,6 +427,65 @@ func (t *Task) SuspendIndefinite() {
 	defer t.mu.Unlock()
 	t.State = TaskSuspended
 	t.StartTime = IndefiniteSuspendStartTime
+}
+
+// RequestSuspend records a running VM's requested suspension without exposing
+// TaskSuspended before the scheduler has installed its resumable VM. Direct
+// task-manager uses on non-running tasks retain their immediate behavior.
+func (t *Task) RequestSuspend(seconds float64) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskRunning {
+		t.applySuspensionLocked(seconds)
+		return false
+	}
+	t.pendingSuspend = true
+	t.pendingSeconds = seconds
+	return true
+}
+
+// PublishRequestedSuspension atomically makes a running VM's suspension
+// visible. The scheduler calls this while it owns task-map snapshot access.
+func (t *Task) PublishRequestedSuspension() TaskState {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.pendingSuspend {
+		t.applySuspensionLocked(t.pendingSeconds)
+		t.pendingSuspend = false
+		t.pendingSeconds = 0
+	}
+	return t.State
+}
+
+// ConsumeZeroDelaySuspend keeps a forked task's suspend(0) yield internal to
+// its current scheduler slice. The request is consumed without publishing a
+// queued state, because the scheduler resumes the VM immediately.
+func (t *Task) ConsumeZeroDelaySuspend() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.pendingSuspend || t.pendingSeconds != 0 {
+		return false
+	}
+	t.pendingSuspend = false
+	t.pendingSeconds = 0
+	t.WakeValue = types.NewInt(0)
+	return true
+}
+
+func (t *Task) applySuspensionLocked(seconds float64) {
+	switch {
+	case seconds < 0:
+		t.State = TaskSuspended
+		t.StartTime = IndefiniteSuspendStartTime
+		t.WakeTime = time.Time{}
+	case seconds == 0:
+		t.State = TaskQueued
+		t.WakeTime = time.Time{}
+		t.WakeValue = types.NewInt(0)
+	default:
+		t.State = TaskSuspended
+		t.WakeTime = time.Now().Add(time.Duration(seconds * float64(time.Second)))
+	}
 }
 
 // Resume resumes the task with a value

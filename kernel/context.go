@@ -82,6 +82,11 @@ type TaskContext struct {
 	// collector goroutine that is executing them.
 	DeferredGC bool
 
+	// FinalizingValue is the root whose persisted finalization is being resumed
+	// at startup. Frame-pop discovery must not put this exact identity back into
+	// the shutdown queue while its recycle hook is executing.
+	FinalizingValue types.Value
+
 	// PendingEffects holds commit-deferred external effects in source call order.
 	// Failed commits discard the log; successful commits replay it sequentially.
 	PendingEffects []PendingEffect

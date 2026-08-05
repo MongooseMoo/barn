@@ -152,6 +152,10 @@ func (s *Scheduler) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, ex
 	}
 	shutdownRoots := exec.TakePendingFinalizationValues()
 	pendingWaifs := exec.TakePendingWaifs()
+	if ctx != nil && isFinalizationRoot(ctx.FinalizingValue) {
+		shutdownRoots = withoutFinalizationRoot(shutdownRoots, ctx.FinalizingValue)
+		pendingWaifs = withoutFinalizationRoot(pendingWaifs, ctx.FinalizingValue)
+	}
 	var ownWaifs []types.Value
 	vm.CollectWaifsFromVM(exec, &ownWaifs)
 	var ownAnons map[types.ObjID]struct{}
@@ -184,6 +188,34 @@ func (s *Scheduler) settleCompletedTaskFinalizations(ctx *kernel.TaskContext, ex
 	}
 	s.pendingWaifMu.Unlock()
 	return false
+}
+
+func isFinalizationRoot(value types.Value) bool {
+	return value.Type() == types.TYPE_ANON || value.Type() == types.TYPE_WAIF
+}
+
+func sameFinalizationRoot(a, b types.Value) bool {
+	if a.Type() != b.Type() {
+		return false
+	}
+	switch a.Type() {
+	case types.TYPE_ANON:
+		return a.ID() == b.ID()
+	case types.TYPE_WAIF:
+		return a.WaifIdentity() == b.WaifIdentity()
+	default:
+		return false
+	}
+}
+
+func withoutFinalizationRoot(values []types.Value, root types.Value) []types.Value {
+	kept := values[:0]
+	for _, value := range values {
+		if !sameFinalizationRoot(value, root) {
+			kept = append(kept, value)
+		}
+	}
+	return kept
 }
 
 // gcRecycleContext derives the context an orphan's :recycle runs under at flush
@@ -266,7 +298,7 @@ func (s *Scheduler) flushDeferredGC() {
 		s.pendingWaifMu.Lock()
 		s.lastGCCost = cost
 		s.gcRunning = false
-		publish := s.shutdownRequested && !s.shutdownPublishing && !s.shuttingDown.Load()
+		publish := s.canPublishShutdownLocked()
 		if publish {
 			s.shutdownPublishing = true
 		}

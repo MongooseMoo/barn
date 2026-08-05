@@ -3,7 +3,6 @@ package task
 import (
 	"barn/types"
 	"sync"
-	"time"
 )
 
 // Manager is a global singleton that manages all tasks
@@ -131,22 +130,7 @@ func (m *Manager) ResumeTask(taskID int64, value types.Value, resumerID types.Ob
 
 // SuspendTask suspends a task for a duration
 func (m *Manager) SuspendTask(task *Task, seconds float64) {
-	switch {
-	case seconds < 0:
-		// Indefinite suspension (requires explicit resume()). Stamp a
-		// far-future StartTime sentinel so the task sorts LAST in
-		// queued_tasks(), mirroring ToastStunt's INTNUM_MAX start_tv for an
-		// indefinite suspend (tasks.cc:1306-1307). WakeTime stays zero so it
-		// never auto-wakes — only an explicit resume() wakes it.
-		task.SuspendIndefinite()
-	case seconds == 0:
-		// suspend(0) is a scheduler yield point; queue immediately.
-		task.Suspend(0)
-		_ = task.Resume(types.NewInt(0))
-	default:
-		duration := time.Duration(seconds * float64(time.Second))
-		task.Suspend(duration)
-	}
+	task.RequestSuspend(seconds)
 }
 
 // FindReadingTask returns a suspended task that is read()ing from the given player.

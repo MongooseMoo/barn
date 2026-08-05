@@ -156,7 +156,7 @@ func (s *Server) LoadDatabase() error {
 			shutdownMessage = message
 		}
 		ready := s.scheduler.BeginShutdown(callerVM)
-		if ctx != nil && ctx.DeferredGC {
+		if ctx != nil && (ctx.DeferredGC || ctx.Task != nil) {
 			s.backgroundWG.Add(1)
 			go func() {
 				defer s.backgroundWG.Done()
@@ -209,7 +209,23 @@ func (s *Server) Start() error {
 	s.running = true
 	s.mu.Unlock()
 
-	// Start scheduler
+	// Resume checkpointed finalization work before any queued input task or
+	// listener can expose the service. A recycle hook may request shutdown; its
+	// task is allowed to return and the normal main loop then performs the clean
+	// checkpoint/exit path without ever binding a listener.
+	if err := s.scheduler.RunStartupPendingFinalizations(); err != nil {
+		s.scheduler.Stop()
+		s.backgroundWG.Wait()
+		s.mu.Lock()
+		s.running = false
+		s.mu.Unlock()
+		return fmt.Errorf("startup pending finalizations: %w", err)
+	}
+	if s.scheduler.ShutdownRequested() {
+		return s.mainLoop()
+	}
+
+	// Start scheduler input after startup finalization has fully settled.
 	s.input.Start()
 
 	// Bind listener sockets before server_started so MOO code can inspect

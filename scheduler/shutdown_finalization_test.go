@@ -169,6 +169,185 @@ func TestShutdownPublisherDrainsRootsArrivingDuringSink(t *testing.T) {
 	}
 }
 
+func TestShutdownReadyWaitsForAdmittedLateProducerAndItsSink(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	producer := scheduler.beginFinalizationProducer()
+	if !producer {
+		t.Fatal("new scheduler rejected finalization producer admission")
+	}
+
+	root := types.NewWaif(0, 0)
+	sinkEntered := make(chan struct{})
+	sinkRelease := make(chan struct{})
+	scheduler.SetPendingFinalizationSink(func(values []types.Value) {
+		if len(values) != 1 || !values[0].Equal(root) {
+			return
+		}
+		close(sinkEntered)
+		<-sinkRelease
+	})
+	ready := scheduler.BeginShutdown(nil)
+	select {
+	case <-ready:
+		t.Fatal("shutdown became ready before the admitted producer transferred ownership")
+	default:
+	}
+
+	scheduler.pendingWaifMu.Lock()
+	scheduler.pendingShutdownRoots = append(scheduler.pendingShutdownRoots, root)
+	scheduler.pendingWaifMu.Unlock()
+	producerDone := make(chan struct{})
+	go func() {
+		scheduler.finishFinalizationProducer()
+		close(producerDone)
+	}()
+	<-sinkEntered
+	select {
+	case <-ready:
+		t.Fatal("shutdown became ready before the late producer's sink call returned")
+	default:
+	}
+	close(sinkRelease)
+	<-producerDone
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not become ready after the producer and sink completed")
+	}
+}
+
+func TestShutdownSinkCannotPublishAcrossProducerAdmittedWhileSinkRuns(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	s := NewScheduler(store)
+	t.Cleanup(s.Stop)
+	initial := types.NewWaif(0, 0)
+	late := types.NewWaif(0, 0)
+	s.pendingWaifBatch = []pendingWaifEntry{{waif: initial, ctx: kernel.NewTaskContext()}}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var handedOff []types.Value
+	s.SetPendingFinalizationSink(func(values []types.Value) {
+		mu.Lock()
+		first := len(handedOff) == 0
+		handedOff = append(handedOff, values...)
+		mu.Unlock()
+		if first {
+			close(entered)
+			<-release
+		}
+	})
+
+	readyResult := make(chan (<-chan struct{}), 1)
+	go func() { readyResult <- s.BeginShutdown(nil) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown sink did not block")
+	}
+	if !s.beginFinalizationProducer() {
+		t.Fatal("producer was not admitted while shutdown sink was running")
+	}
+	close(release)
+	ready := <-readyResult
+	select {
+	case <-ready:
+		t.Fatal("shutdown published across producer admitted during sink")
+	default:
+	}
+
+	s.pendingWaifMu.Lock()
+	s.pendingShutdownRoots = append(s.pendingShutdownRoots, late)
+	s.pendingWaifMu.Unlock()
+	s.finishFinalizationProducer()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not publish after late producer and sink completed")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(handedOff) != 2 || !handedOff[0].Equal(initial) || !handedOff[1].Equal(late) {
+		t.Fatalf("shutdown handoff = %v, want initial then late root", handedOff)
+	}
+}
+
+func TestShutdownWaitsForLateTaskRootSettlementIncludingPanic(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		panicTask bool
+	}{
+		{name: "return"},
+		{name: "panic", panicTask: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := dbstore.NewStore()
+			addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+			s := NewScheduler(store)
+			t.Cleanup(s.Stop)
+
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			s.registry.Register("late_task_gate", func(*kernel.TaskContext, []types.Value) types.Result {
+				close(entered)
+				<-release
+				if tc.panicTask {
+					panic("late task panic")
+				}
+				return types.Ok(types.None)
+			})
+			var handedOff []types.Value
+			s.SetPendingFinalizationSink(func(values []types.Value) {
+				handedOff = append(handedOff, values...)
+			})
+
+			tk := task.NewTaskFull(93001, 0, compileTestProgram(t, s.registry, `
+a = create(#0, #0, 1);
+late_task_gate();
+`), 1<<50, 1e9)
+			tk.Context.IsWizard = true
+			runDone := make(chan error, 1)
+			go func() { runDone <- s.runTask(tk) }()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("late task did not reach gate")
+			}
+
+			ready := s.BeginShutdown(nil)
+			select {
+			case <-ready:
+				t.Fatal("shutdown published while admitted task was still running")
+			default:
+			}
+			close(release)
+			err := <-runDone
+			if tc.panicTask && err == nil {
+				t.Fatal("panicking task returned no error")
+			}
+			if !tc.panicTask && err != nil {
+				t.Fatalf("returning task failed: %v", err)
+			}
+			select {
+			case <-ready:
+			case <-time.After(time.Second):
+				t.Fatal("shutdown did not publish after task root settlement")
+			}
+			if len(handedOff) != 1 || handedOff[0].Type() != types.TYPE_ANON {
+				t.Fatalf("shutdown handoff = %v, want task anonymous root", handedOff)
+			}
+		})
+	}
+}
+
 func TestConcurrentDeferredGCFlushesClaimBatchOnce(t *testing.T) {
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
