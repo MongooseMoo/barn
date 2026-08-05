@@ -196,3 +196,41 @@ func TestObjectMetadataBuiltinsAllowOwnerObjectFlagAndWizard(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteVerbPreservesNotFoundPrecedenceForUnauthorizedProgrammer(t *testing.T) {
+	for _, descriptor := range []types.Value{types.NewStr("missing"), types.NewInt(99)} {
+		f := newMetadataPermissionFixture(t, 0)
+		result := builtinDeleteVerb(f.ctx, []types.Value{
+			types.NewObj(f.target),
+			descriptor,
+		})
+		if !result.IsError() || result.Error != types.E_VERBNF {
+			t.Fatalf("missing descriptor %v = %+v, want E_VERBNF", descriptor, result)
+		}
+	}
+}
+
+func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
+	f := newMetadataPermissionFixture(t, 0)
+	staged, errCode := f.ctx.StoreTxn.CreateObject(
+		[]types.ObjID{types.ObjNothing},
+		f.intruder,
+	)
+	if errCode != types.E_NONE {
+		t.Fatalf("stage CreateObject: %s", errCode)
+	}
+	if f.store.Valid(staged) {
+		t.Fatalf("staged object #%d unexpectedly exists in live store before denial", staged)
+	}
+
+	result := builtinDeleteVerb(f.ctx, []types.Value{
+		types.NewObj(f.target),
+		types.NewStr("existing"),
+	})
+	if !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("unauthorized delete_verb = %+v, want E_PERM", result)
+	}
+	if f.store.Valid(staged) {
+		t.Fatalf("denied delete_verb flushed staged object #%d to live store", staged)
+	}
+}
