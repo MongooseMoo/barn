@@ -18,10 +18,10 @@ func TestEvalBareSuspendTimeoutReturnsInvalidArgument(t *testing.T) {
 	s := NewScheduler(store)
 	defer s.Stop()
 
-	lines := s.EvalCommandOutput(0, "suspend();", "", "")
+	line := s.EvalCommandOutput(0, "suspend();")
 
 	const want = `{2, {E_INVARG, "Invalid argument", 0}}`
-	if len(lines) != 1 || lines[0] != want {
-		t.Fatalf("lines = %#v, want %q", lines, want)
+	if line != want {
+		t.Fatalf("line = %q, want %q", line, want)
 	}
 }
