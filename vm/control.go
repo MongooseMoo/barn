@@ -22,7 +22,7 @@ import (
 // The fork variable is NOT set here — it is set by SetForkResult() with the
 // actual child task ID assigned by the scheduler.
 func (vm *VM) executeFork() error {
-	varIdx := int(vm.ReadByte())
+	varIdx := int(vm.FetchByte())
 	bodyLen := vm.ReadShort()
 
 	// Pop and validate the delay value
@@ -173,17 +173,17 @@ func oneLineForkBody(source string) string {
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
 func (vm *VM) executeTryExcept() error {
 	frame := vm.CurrentFrame()
-	numClauses := int(vm.ReadByte())
+	numClauses := int(vm.FetchByte())
 	handlers := make([]bytecode.Handler, numClauses)
 
 	for i := 0; i < numClauses; i++ {
-		numCodes := int(vm.ReadByte())
+		numCodes := int(vm.FetchByte())
 		codes := make([]types.ErrorCode, numCodes)
 		for j := 0; j < numCodes; j++ {
-			codes[j] = types.ErrorCode(vm.ReadByte())
+			codes[j] = types.ErrorCode(vm.FetchByte())
 		}
 
-		varByte := vm.ReadByte()
+		varByte := vm.FetchByte()
 		varIndex := int(varByte) - 1 // 0 = no variable -> -1
 
 		// Read handler IP (absolute)
@@ -219,7 +219,7 @@ func (vm *VM) executeTryExcept() error {
 // HandlerExcept-typed with nothing else distinguishing them.
 func (vm *VM) executeEndExcept() error {
 	frame := vm.CurrentFrame()
-	numClauses := int(vm.ReadByte())
+	numClauses := int(vm.FetchByte())
 	if numClauses > len(frame.ExceptStack) {
 		return fmt.Errorf("internal error: END_EXCEPT wants to pop %d handlers from stack of %d", numClauses, len(frame.ExceptStack))
 	}

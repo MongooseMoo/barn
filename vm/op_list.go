@@ -7,7 +7,7 @@ import (
 )
 
 func (vm *VM) executeMakeList() error {
-	count := vm.ReadByte()
+	count := vm.FetchByte()
 	elements := vm.PopN(int(count))
 	result := types.NewList(elements)
 	if errCode := builtins.CheckListLimit(result); errCode != types.E_NONE {
@@ -18,7 +18,7 @@ func (vm *VM) executeMakeList() error {
 }
 
 func (vm *VM) executeMakeMap() error {
-	count := vm.ReadByte()
+	count := vm.FetchByte()
 	pairs := make([][2]types.Value, count)
 
 	for i := int(count) - 1; i >= 0; i-- {
