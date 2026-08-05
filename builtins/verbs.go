@@ -507,7 +507,6 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -529,6 +528,22 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
+	var name string
+	switch descVal.Type() {
+	case types.TYPE_STR:
+		verb, err := findVerbOnObjectForRead(ctx, objID, descVal.Str())
+		if err != nil {
+			return types.Err(types.E_VERBNF)
+		}
+		name = verb.Name
+	case types.TYPE_INT:
+		verb, errCode := verbByIndexForRead(ctx, objID, int(descVal.Int())-1)
+		if errCode != types.E_NONE {
+			return types.Err(types.E_VERBNF)
+		}
+		name = verb.Name
+	}
+
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
@@ -537,17 +552,7 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_PERM)
 	}
 
-	var name string
-	switch descVal.Type() {
-	case types.TYPE_STR:
-		name = descVal.Str()
-	case types.TYPE_INT:
-		verb, errCode := store.VerbByIndex(objID, int(descVal.Int())-1)
-		if errCode != types.E_NONE {
-			return types.Err(types.E_VERBNF)
-		}
-		name = verb.Name
-	}
+	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 
 	if errCode := store.DeleteVerb(objID, name); errCode != types.E_NONE {
 		return types.Err(errCode)
