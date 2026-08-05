@@ -319,7 +319,7 @@ func hexValue(c byte) int {
 // - MD5 ($1$)
 // - SHA256 ($5$)
 // - SHA512 ($6$)
-// - bcrypt ($2a$, $2b$)
+// - bcrypt ($2a$, $2x$, $2y$)
 func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -360,7 +360,7 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
 func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.ErrorCode) {
 	// Parse algorithm and parameters from salt
-	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2b$") || strings.HasPrefix(salt, "$2y$") {
+	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2x$") || strings.HasPrefix(salt, "$2y$") {
 		// bcrypt - first validate cost range, then check permissions
 		if len(salt) >= 7 {
 			cost := 0
@@ -763,7 +763,7 @@ func shaCryptDigest(newHash func() hash.Hash, key, saltB []byte, rounds int) []b
 	return sumA
 }
 
-// cryptBcrypt implements bcrypt ($2a$, $2b$, $2y$)
+// cryptBcrypt implements bcrypt ($2a$, $2x$, $2y$)
 func cryptBcrypt(password, salt string) (string, error) {
 	// bcrypt format: $2a$NN$<salt>
 	// Salt can be either 16 raw bytes or 22 base64-encoded chars
@@ -815,8 +815,8 @@ func cryptBcrypt(password, salt string) (string, error) {
 	}
 
 	hashStr := string(hash)
-	// Preserve requested variant prefix when caller used 2b/2y.
-	if (prefix == "$2b$" || prefix == "$2y$") && strings.HasPrefix(hashStr, "$2a$") {
+	// Preserve the Toast-supported variant prefix requested by the caller.
+	if (prefix == "$2x$" || prefix == "$2y$") && strings.HasPrefix(hashStr, "$2a$") {
 		hashStr = prefix + hashStr[4:]
 	}
 	return hashStr, nil
@@ -1372,7 +1372,7 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			result = "$6$" + roundsPrefix + string(salt)
 		}
 
-	case strings.HasPrefix(prefixStr, "$2a$") || strings.HasPrefix(prefixStr, "$2b$"):
+	case strings.HasPrefix(prefixStr, "$2a$") || strings.HasPrefix(prefixStr, "$2x$") || strings.HasPrefix(prefixStr, "$2y$"):
 		// bcrypt - needs 16 bytes
 		if len(randomBytes) < 16 {
 			return types.Err(types.E_INVARG)
@@ -1400,7 +1400,7 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 		// Encode using bcrypt's radix64 encoding
 		salt := bcryptBase64Encode(randomBytes[:16])
-		result = "$2a$" + costStr + "$" + salt
+		result = prefixStr[:4] + costStr + "$" + salt
 
 	default:
 		return types.Err(types.E_INVARG)
