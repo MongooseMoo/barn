@@ -404,6 +404,88 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 	}
 }
 
+func TestRuntimeListenerZeroPreservesMOODescriptorAndReleasesBoundSocket(t *testing.T) {
+	cm := NewConnectionManager(0)
+	t.Cleanup(cm.CloseListeners)
+
+	desc, err := cm.AddListener(builtins.ListenerSpec{
+		Protocol:  builtins.ListenerProtocolTCP,
+		Object:    5,
+		Port:      0,
+		Interface: "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("AddListener(port 0): %v", err)
+	}
+	if desc.Port != 0 {
+		t.Errorf("AddListener(port 0) descriptor port = %d, want 0", desc.Port)
+	}
+
+	infos := cm.ListenerInfos()
+	if len(infos) != 1 {
+		t.Fatalf("ListenerInfos() count = %d, want 1", len(infos))
+	}
+	if infos[0].Port != 0 {
+		t.Errorf("ListenerInfos()[0].Port = %d, want descriptor 0", infos[0].Port)
+	}
+
+	cm.mu.Lock()
+	var boundAddr string
+	for _, record := range cm.listeners {
+		boundAddr = record.listener.Addr().String()
+	}
+	cm.mu.Unlock()
+	_, boundPort, err := net.SplitHostPort(boundAddr)
+	if err != nil || boundPort == "0" {
+		t.Fatalf("runtime listener bound address = %q, want nonzero OS port", boundAddr)
+	}
+
+	if err := cm.RemoveListener(builtins.ListenerDescriptor{
+		Protocol: builtins.ListenerProtocolTCP,
+		Port:     0,
+	}); err != nil {
+		t.Fatalf("RemoveListener(descriptor 0): %v", err)
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 0 {
+		t.Fatalf("ListenerInfos() after unlisten = %+v, want none", infos)
+	}
+
+	rebound, err := net.Listen("tcp4", boundAddr)
+	if err != nil {
+		t.Fatalf("bind released runtime socket %s: %v", boundAddr, err)
+	}
+	if err := rebound.Close(); err != nil {
+		t.Fatalf("close rebound socket: %v", err)
+	}
+}
+
+func TestRuntimeListenerZeroRejectsDuplicateDescriptorAndClosesDuplicate(t *testing.T) {
+	cm := NewConnectionManager(0)
+	first := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41001}}
+	duplicate := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41002}}
+	spec := builtins.ListenerSpec{
+		Protocol: builtins.ListenerProtocolTCP,
+		Object:   5,
+		Port:     0,
+	}
+
+	desc, err := cm.registerListener(first, spec, false, nil)
+	if err != nil {
+		t.Fatalf("register first descriptor 0: %v", err)
+	}
+	t.Cleanup(func() { _ = cm.RemoveListener(desc) })
+
+	if _, err := cm.registerListener(duplicate, spec, false, nil); err == nil {
+		t.Fatalf("register duplicate descriptor 0 succeeded")
+	}
+	if !duplicate.closed {
+		t.Errorf("duplicate descriptor socket was not closed")
+	}
+	if first.closed {
+		t.Errorf("duplicate registration closed the original socket")
+	}
+}
+
 func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 	cm := NewConnectionManager(0)
 	err := cm.BindListeners([]builtins.ListenerSpec{
@@ -414,6 +496,9 @@ func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 		t.Fatalf("bind listeners: %v", err)
 	}
 	defer cm.CloseListeners()
+	if got := cm.GetListenPort(); got <= 0 {
+		t.Fatalf("GetListenPort() = %d for startup port 0, want bound OS port", got)
+	}
 
 	infos := cm.ListenerInfos()
 	if len(infos) != 2 {

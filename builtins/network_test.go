@@ -458,6 +458,59 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 	}
 }
 
+func TestRuntimeListenerZeroDescriptorFlowsThroughBuiltins(t *testing.T) {
+	manager := &stubConnManager{
+		infos: []ListenerInfo{{
+			Object:   42,
+			Port:     0,
+			Protocol: ListenerProtocolTCP,
+		}},
+	}
+	ctx := ctxWithConnManager(manager)
+	ctx.IsWizard = true
+
+	t.Run("listen returns requested descriptor", func(t *testing.T) {
+		res := builtinListen(ctx, []types.Value{
+			types.NewObj(42),
+			types.NewInt(0),
+			types.NewMap([][2]types.Value{{
+				types.NewStr("interface"), types.NewStr("127.0.0.1"),
+			}}),
+		})
+		if res.IsError() {
+			t.Fatalf("listen(player, 0, options): %v", res.Error)
+		}
+		if res.Val.Type() != types.TYPE_INT || res.Val.Int() != 0 {
+			t.Errorf("listen(player, 0, options) = %v, want descriptor 0", res.Val)
+		}
+	})
+
+	t.Run("listeners exposes requested descriptor", func(t *testing.T) {
+		res := builtinListeners(ctx, []types.Value{types.NewInt(0)})
+		if res.IsError() {
+			t.Fatalf("listeners(0): %v", res.Error)
+		}
+		if res.Val.Type() != types.TYPE_LIST || res.Val.Len() != 1 {
+			t.Fatalf("listeners(0) = %v, want one entry", res.Val)
+		}
+		port, ok := res.Val.Get(1).MapGet(types.NewStr("port"))
+		if !ok || port.Int() != 0 {
+			t.Errorf("listeners(0) port = %v, want 0", port)
+		}
+	})
+
+	t.Run("unlisten accepts requested descriptor", func(t *testing.T) {
+		res := builtinUnlisten(ctx, []types.Value{types.NewInt(0)})
+		if res.IsError() {
+			t.Fatalf("unlisten(0): %v", res.Error)
+		}
+		want := ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: 0}
+		if !listenerDescriptorEqual(manager.removed, want) {
+			t.Errorf("unlisten(0) removed %+v, want %+v", manager.removed, want)
+		}
+	})
+}
+
 func TestListenBuildsIPv6ListenerSpec(t *testing.T) {
 	manager := &stubConnManager{}
 
