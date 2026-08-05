@@ -234,3 +234,113 @@ func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 		t.Fatalf("denied delete_verb flushed staged object #%d to live store", staged)
 	}
 }
+
+func addMetadataTestVerb(t *testing.T, f metadataPermissionFixture, name string, names []string) int {
+	t.Helper()
+	verb := dbstore.NewVerb(
+		name,
+		names,
+		f.owner,
+		dbstore.VerbRead|dbstore.VerbWrite|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "none", Prep: "none", That: "none"},
+		nil,
+	)
+	index, errCode := f.store.AddVerb(f.target, verb)
+	if errCode != types.E_NONE {
+		t.Fatalf("AddVerb(%q): %s", name, errCode)
+	}
+	if errCode := f.ctx.StoreTxn.AdoptLiveVerbs(f.target); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs(%q): %s", name, errCode)
+	}
+	return index
+}
+
+func TestDeleteVerbDeletesLoadedMultiAliasByResolvedDescriptor(t *testing.T) {
+	tests := []struct {
+		name       string
+		descriptor func(int) types.Value
+	}{
+		{
+			name: "string",
+			descriptor: func(_ int) types.Value {
+				return types.NewStr("glance")
+			},
+		},
+		{
+			name: "index",
+			descriptor: func(index int) types.Value {
+				return types.NewInt(int64(index))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := newMetadataPermissionFixture(t, 0)
+			f.ctx.Programmer = f.owner
+			f.ctx.Player = f.owner
+
+			// The database loader retains the complete, space-separated names
+			// field as Verb.Name while also storing each alias in Verb.Names.
+			index := addMetadataTestVerb(t, f, "look l*ook glance", []string{"look", "l*ook", "glance"})
+			result := builtinDeleteVerb(f.ctx, []types.Value{
+				types.NewObj(f.target),
+				test.descriptor(index),
+			})
+			if !result.IsNormal() {
+				t.Fatalf("delete_verb loaded multi-alias by %s = %+v, want success", test.name, result)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "glance"); err == nil {
+				t.Fatal("delete_verb left the resolved loaded multi-alias verb in the store")
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err != nil {
+				t.Fatalf("delete_verb removed the wrong verb: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteVerbDeletesExactResolvedVerbWhenAliasesOverlap(t *testing.T) {
+	tests := []struct {
+		name       string
+		descriptor func(int) types.Value
+	}{
+		{
+			name: "string",
+			descriptor: func(_ int) types.Value {
+				return types.NewStr("peek")
+			},
+		},
+		{
+			name: "index",
+			descriptor: func(index int) types.Value {
+				return types.NewInt(int64(index))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := newMetadataPermissionFixture(t, 0)
+			f.ctx.Programmer = f.owner
+			f.ctx.Player = f.owner
+
+			addMetadataTestVerb(t, f, "look", []string{"look", "glance"})
+			targetIndex := addMetadataTestVerb(t, f, "glance", []string{"glance", "peek"})
+
+			result := builtinDeleteVerb(f.ctx, []types.Value{
+				types.NewObj(f.target),
+				test.descriptor(targetIndex),
+			})
+			if !result.IsNormal() {
+				t.Fatalf("delete_verb overlapping alias by %s = %+v, want success", test.name, result)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "look"); err != nil {
+				t.Fatalf("delete_verb removed the earlier overlapping verb: %v", err)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "peek"); err == nil {
+				t.Fatal("delete_verb left the exactly resolved verb in the store")
+			}
+		})
+	}
+}
