@@ -319,7 +319,7 @@ func hexValue(c byte) int {
 // - MD5 ($1$)
 // - SHA256 ($5$)
 // - SHA512 ($6$)
-// - bcrypt ($2a$, $2b$)
+// - bcrypt ($2a$, $2b$, $2x$, $2y$)
 func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -360,7 +360,27 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
 func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.ErrorCode) {
 	// Parse algorithm and parameters from salt
-	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2b$") || strings.HasPrefix(salt, "$2y$") {
+	if strings.HasPrefix(salt, bcrypt2xPrefix) {
+		// Toast parses a variable-width numeric cost and validates its range
+		// before checking permissions. The 2x backend then enforces the exact
+		// two-digit field required by bcrypt's setting format.
+		costEnd := 4
+		for costEnd < len(salt) && salt[costEnd] >= '0' && salt[costEnd] <= '9' {
+			costEnd++
+		}
+		cost, err := strconv.Atoi(salt[4:costEnd])
+		if err != nil || cost < 4 || cost > 31 {
+			return "", types.E_INVARG
+		}
+		if !isWizard && cost != 5 {
+			return "", types.E_PERM
+		}
+		result, err := cryptBcrypt2x(password, salt)
+		if err != nil {
+			return "", types.E_INVARG
+		}
+		return result, 0
+	} else if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2b$") || strings.HasPrefix(salt, "$2y$") {
 		// bcrypt - first validate cost range, then check permissions
 		if len(salt) >= 7 {
 			cost := 0
