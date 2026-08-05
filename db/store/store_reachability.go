@@ -65,37 +65,23 @@ func collectDirectAnonymousObjectRefs(value types.Value, out map[types.ObjID]str
 }
 
 // lookupAnonymousLocked returns the live anonymous object with the given
-// identity id, regardless of which backing map holds it. Runtime-created and
-// database-loaded anonymous objects live in s.anonObjects; some test fixtures
-// (and any object added via Add with the anonymous flag) live in s.objects.
-// Anon scanning subsystems must consider both so the planner, GC candidate scan,
-// and serializer all operate over one consistent set of anonymous objects.
+// identity id. Runtime-created and database-loaded anonymous objects live only
+// in s.anonObjects.
 // Caller holds s.mu.
 func (s *Store) lookupAnonymousLocked(id types.ObjID) *Object {
 	if obj := s.anonObjects[id]; validLiveObject(obj) && obj.anonymous {
 		return obj
 	}
-	if obj := s.load(id); validLiveObject(obj) && obj.anonymous {
-		return obj
-	}
 	return nil
 }
 
-// rangeAnonymousLocked invokes fn for every live anonymous object across both
-// backing maps. Caller holds s.mu.
+// rangeAnonymousLocked invokes fn for every live anonymous object. Caller holds s.mu.
 func (s *Store) rangeAnonymousLocked(fn func(*Object)) {
 	for _, obj := range s.anonObjects {
 		if validLiveObject(obj) && obj.anonymous {
 			fn(obj)
 		}
 	}
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if validLiveObject(obj) && obj.anonymous {
-			fn(obj)
-		}
-		return true
-	})
 }
 
 func (s *Store) PersistentAnonymousReachability() map[types.ObjID]struct{} {

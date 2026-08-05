@@ -4,6 +4,7 @@ import (
 	"barn/builtins"
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/task"
 	"barn/types"
 	"sort"
 	"unsafe"
@@ -78,9 +79,6 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	for _, value := range exec.PendingWaifs {
 		collectAnonymousRefsForGC(value, out)
 	}
-	for _, value := range exec.PendingFinalizations {
-		collectAnonymousRefsForGC(value, out)
-	}
 	collectAnonymousRefsForGC(exec.yieldResult.Val, out)
 	if fork := exec.yieldResult.ForkInfo; fork != nil {
 		collectAnonymousRefsForGC(fork.ThisValue, out)
@@ -98,19 +96,99 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	}
 }
 
-type taskLocalReader interface {
-	GetTaskLocal() types.Value
-}
-
 func taskLocalFromContext(ctx *kernel.TaskContext) (types.Value, bool) {
 	if ctx == nil {
 		return types.None, false
 	}
-	owner, ok := ctx.Task.(taskLocalReader)
+	owner, ok := ctx.Task.(*task.Task)
 	if !ok || owner == nil {
 		return types.None, false
 	}
 	return owner.GetTaskLocal(), true
+}
+
+func collectDirectFinalizationRoots(value types.Value, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
+	switch value.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if value.IsAnonymous() {
+			refs[value.ID()] = struct{}{}
+		}
+	case types.TYPE_WAIF:
+		if !pendingFinalizationValueInList(value, *waifs) {
+			*waifs = append(*waifs, value)
+		}
+	case types.TYPE_LIST:
+		for _, elem := range value.Elements() {
+			collectDirectFinalizationRoots(elem, refs, waifs)
+		}
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
+			collectDirectFinalizationRoots(pair[0], refs, waifs)
+			collectDirectFinalizationRoots(pair[1], refs, waifs)
+		}
+	}
+}
+
+func collectDirectFinalizationRootsFromVM(exec *VM, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
+	if exec == nil {
+		return
+	}
+	collect := func(value types.Value) { collectDirectFinalizationRoots(value, refs, waifs) }
+	for _, frame := range exec.Frames {
+		if frame == nil {
+			continue
+		}
+		for _, value := range frame.Locals {
+			collect(value)
+		}
+		collect(frame.ThisValue)
+		for _, value := range frame.Args {
+			collect(value)
+		}
+		collect(frame.SavedThisValue)
+		collectDirectFinalizationRootsFromPendingError(frame.PendingError, refs, waifs)
+	}
+	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
+		collect(exec.Stack[i])
+	}
+	for _, value := range exec.PendingWaifs {
+		collect(value)
+	}
+	for _, value := range exec.PendingFinalizations {
+		collect(value)
+	}
+	collect(exec.yieldResult.Val)
+	if fork := exec.yieldResult.ForkInfo; fork != nil {
+		collect(fork.ThisValue)
+		for _, value := range fork.Variables {
+			collect(value)
+		}
+	}
+	if exec.Context != nil {
+		collect(exec.Context.ThisValue)
+		collect(exec.Context.MapFirstKey)
+		collect(exec.Context.MapLastKey)
+		if taskLocal, ok := taskLocalFromContext(exec.Context); ok {
+			collect(taskLocal)
+		}
+	}
+}
+
+func collectDirectFinalizationRootsFromPendingError(err error, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
+	for err != nil {
+		switch pending := err.(type) {
+		case VMException:
+			collectDirectFinalizationRoots(pending.Value, refs, waifs)
+			return
+		case *VMException:
+			collectDirectFinalizationRoots(pending.Value, refs, waifs)
+			return
+		case interface{ Unwrap() error }:
+			err = pending.Unwrap()
+		default:
+			return
+		}
+	}
 }
 
 func collectAnonymousRefsFromPendingError(err error, out map[types.ObjID]struct{}) {
@@ -174,9 +252,8 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 	}
 
 	refs := make(map[types.ObjID]struct{})
-	collectAnonymousRefsFromVM(exec, refs)
 	var waifs []types.Value
-	CollectWaifsFromVM(exec, &waifs)
+	collectDirectFinalizationRootsFromVM(exec, refs, &waifs)
 	return pendingFinalizationValues(refs, waifs)
 }
 
@@ -199,10 +276,7 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 	}
 	refs := make(map[types.ObjID]struct{})
 	var waifs []types.Value
-	collect := func(value types.Value) {
-		collectAnonymousRefsForGC(value, refs)
-		collectWaifsForGC(value, &waifs)
-	}
+	collect := func(value types.Value) { collectDirectFinalizationRoots(value, refs, &waifs) }
 	for _, value := range frame.Locals {
 		collect(value)
 	}
@@ -211,8 +285,7 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 		collect(value)
 	}
 	collect(frame.SavedThisValue)
-	collectAnonymousRefsFromPendingError(frame.PendingError, refs)
-	collectWaifsFromPendingError(frame.PendingError, &waifs)
+	collectDirectFinalizationRootsFromPendingError(frame.PendingError, refs, &waifs)
 
 	for _, value := range pendingFinalizationValues(refs, waifs) {
 		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {

@@ -450,6 +450,9 @@ func (s *Store) GetUnsafe(id types.ObjID) (ObjectView, bool) {
 func (s *Store) Add(obj *Object) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if obj.anonymous {
+		return fmt.Errorf("anonymous object #%d must use anonymous storage", obj.id)
+	}
 
 	if s.load(obj.id) != nil {
 		return fmt.Errorf("object #%d already exists", obj.id)

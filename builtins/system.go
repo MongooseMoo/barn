@@ -72,19 +72,11 @@ func builtinTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		return types.Err(types.E_PERM)
 	}
 
-	// ctx.Task must be set for task_local to work
-	if ctx.Task == nil {
-		// This should never happen in normal execution - return empty map as safe fallback
-		return types.Ok(types.NewEmptyMap())
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Err(types.E_INVARG)
 	}
-
-	// Get task-local from task
-	if t, ok := ctx.Task.(*task.Task); ok {
-		return types.Ok(t.GetTaskLocal())
-	}
-
-	// Should never reach here - return empty map
-	return types.Ok(types.NewEmptyMap())
+	return types.Ok(t.GetTaskLocal())
 }
 
 // builtinSetTaskLocal implements set_task_local(value)
@@ -100,19 +92,11 @@ func builtinSetTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		return types.Err(types.E_PERM)
 	}
 
-	// ctx.Task must be set for set_task_local to work
-	if ctx.Task == nil {
-		// This should never happen in normal execution - return success silently
-		return types.Ok(types.NewInt(0))
+	t, ok := ctx.Task.(*task.Task)
+	if !ok || t == nil {
+		return types.Err(types.E_INVARG)
 	}
-
-	// Set task-local in task
-	if t, ok := ctx.Task.(*task.Task); ok {
-		t.SetTaskLocal(args[0])
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Should never reach here
+	t.SetTaskLocal(args[0])
 	return types.Ok(types.NewInt(0))
 }
 

@@ -5,8 +5,45 @@ import (
 
 	dbstore "barn/db/store"
 	"barn/kernel"
+	"barn/task"
 	"barn/types"
 )
+
+func TestTaskLocalBuiltinsRequireCanonicalTaskOwner(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*kernel.TaskContext) types.Result
+	}{
+		{name: "task_local", call: func(ctx *kernel.TaskContext) types.Result { return builtinTaskLocal(ctx, nil) }},
+		{name: "set_task_local", call: func(ctx *kernel.TaskContext) types.Result {
+			return builtinSetTaskLocal(ctx, []types.Value{types.NewInt(7)})
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, owner := range []interface{}{nil, &nonCanonicalTaskOwner{}} {
+				ctx := kernel.NewTaskContext()
+				ctx.IsWizard = true
+				ctx.Task = owner
+				if got := tc.call(ctx); got.Error != types.E_INVARG {
+					t.Fatalf("owner %T result = %#v, want E_INVARG", owner, got)
+				}
+			}
+
+			ctx := kernel.NewTaskContext()
+			ctx.IsWizard = true
+			ctx.Task = task.NewTask(1, 0, 100, 1)
+			if got := tc.call(ctx); got.Error != types.E_NONE {
+				t.Fatalf("canonical owner result = %#v, want success", got)
+			}
+		})
+	}
+}
+
+type nonCanonicalTaskOwner struct{}
+
+func (*nonCanonicalTaskOwner) GetTaskLocal() types.Value { return types.NewInt(99) }
+func (*nonCanonicalTaskOwner) SetTaskLocal(types.Value)  {}
 
 func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing.T) {
 	store := dbstore.NewStore()

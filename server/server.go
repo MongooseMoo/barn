@@ -379,6 +379,9 @@ func (s *Server) shutdown() error {
 
 // Panic performs emergency shutdown
 func (s *Server) Panic(message string) error {
+	// Emergency checkpoints obey the same finalization ownership boundary as
+	// graceful shutdown: publish it before checkpoint hooks can hand off roots.
+	s.scheduler.BeginShutdown()
 	// The Go stack is the only record of where the server actually tripped;
 	// the message alone says that it died, not why.
 	slog.Error("server panic",

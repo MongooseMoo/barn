@@ -1,11 +1,99 @@
 package scheduler
 
 import (
+	"context"
 	"testing"
 
+	"barn/compiler"
 	dbstore "barn/db/store"
+	"barn/kernel"
+	"barn/task"
 	"barn/types"
+	"barn/vm"
 )
+
+func TestOrdinaryCompletionRecyclesPoppedWaifDespiteShutdownOnlyRoots(t *testing.T) {
+	resetServerVerbTaskManager(t)
+	t.Cleanup(func() { resetServerVerbTaskManager(t) })
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(0, "recycled", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define recycle marker: %v", errCode)
+	}
+	store.AddVerb(0, dbstore.NewVerb(":recycle", []string{":recycle"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"#0.recycled = #0.recycled + 1;"}))
+	store.AddVerb(0, dbstore.NewVerb("ordinary", []string{"ordinary"}, 2,
+		dbstore.VerbRead|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"w = new_waif();"}))
+
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	if _, err := scheduler.RunServerVerbTask(0, "ordinary", nil, 0); err != nil {
+		t.Fatalf("run ordinary task: %v", err)
+	}
+	got, errCode := store.PropertyValue(0, "recycled")
+	if errCode != types.E_NONE || got.Type() != types.TYPE_INT || got.Int() != 1 {
+		t.Fatalf("recycle marker = %v, err=%v, want 1", got, errCode)
+	}
+}
+
+func TestBeginShutdownTransfersPreexistingDeferredFinalizations(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	anonID, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous object: %v", errCode)
+	}
+	waif := types.NewWaif(0, 0)
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	var handedOff []types.Value
+	scheduler.SetPendingFinalizationSink(func(values []types.Value) {
+		handedOff = append(handedOff, values...)
+	})
+	scheduler.pendingWaifBatch = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	scheduler.pendingAnonGC = []vm.AnonGCRequest{{
+		Ctx:     kernel.NewTaskContext(),
+		MinID:   anonID,
+		OwnRefs: map[types.ObjID]struct{}{anonID: {}},
+	}}
+
+	scheduler.BeginShutdown()
+	scheduler.flushDeferredGC()
+	if len(handedOff) != 2 || !handedOff[0].Equal(types.NewAnon(anonID)) || !handedOff[1].Equal(waif) {
+		t.Fatalf("handoff = %v, want anonymous root then WAIF identity %p", handedOff, waif.WaifIdentity())
+	}
+	if len(scheduler.pendingWaifBatch) != 0 || len(scheduler.pendingAnonGC) != 0 {
+		t.Fatalf("deferred batches remain after shutdown handoff: waifs=%d anons=%d", len(scheduler.pendingWaifBatch), len(scheduler.pendingAnonGC))
+	}
+}
+
+func TestCanceledSchedulerContextDoesNotInferShutdownHandoff(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	program, diagnostics := compiler.CompileMOO([]string{"a = create(#0, #0, 1);"}, vm.BuildVMRegistry())
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile: %v", diagnostics)
+	}
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	var handedOff []types.Value
+	scheduler.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
+	tk := task.NewTaskFull(1, 0, program, 100000, 1)
+	scheduler.cancel()
+	if err := scheduler.runTask(tk); err != context.Canceled {
+		t.Fatalf("runTask error = %v, want context.Canceled", err)
+	}
+	if len(handedOff) != 0 {
+		t.Fatalf("generic cancellation handed off roots %v without BeginShutdown", handedOff)
+	}
+}
 
 func TestShutdownCompletionPreservesAnonymousRootsForCheckpoint(t *testing.T) {
 	tests := []struct {

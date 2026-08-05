@@ -109,6 +109,16 @@ func TestStoreRecycle(t *testing.T) {
 	}
 }
 
+func TestStoreAddRejectsAnonymousObjectsFromNumberedStorage(t *testing.T) {
+	store := NewStore()
+	builder := NewObjectBuilder(4)
+	builder.SetAnonymous(true)
+	builder.SetFlags(FlagAnonymous)
+	if err := store.Add(builder.Build()); err == nil {
+		t.Fatal("Store.Add accepted anonymous object into numbered storage; use CreateObject(..., true) or AddAnonymous for loading")
+	}
+}
+
 func TestStoreMaxObjectAfterRecycle(t *testing.T) {
 	store := NewStore()
 

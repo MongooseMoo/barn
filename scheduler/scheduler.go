@@ -177,7 +177,15 @@ func (s *Scheduler) Stop() {
 // to complete, but their finalizable VM roots must be handed to the checkpoint
 // instead of passing through ordinary orphan collection.
 func (s *Scheduler) BeginShutdown() {
+	s.pendingWaifMu.Lock()
+	if s.shuttingDown.Load() {
+		s.pendingWaifMu.Unlock()
+		return
+	}
 	s.shuttingDown.Store(true)
+	pending := s.takeDeferredFinalizationRootsLocked()
+	s.pendingWaifMu.Unlock()
+	s.appendPendingFinalizations(pending)
 }
 
 func (s *Scheduler) isShuttingDown() bool {
@@ -186,6 +194,25 @@ func (s *Scheduler) isShuttingDown() bool {
 
 func (s *Scheduler) SetPendingFinalizationSink(sink func([]types.Value)) {
 	s.pendingFinalizationSink = sink
+}
+
+func (s *Scheduler) appendPendingFinalizations(values []types.Value) {
+	if len(values) > 0 && s.pendingFinalizationSink != nil {
+		s.pendingFinalizationSink(values)
+	}
+}
+
+func (s *Scheduler) handoffCanceledVMIfShuttingDown(exec *vm.VM) {
+	if exec == nil {
+		return
+	}
+	values := vm.CollectPendingFinalizationValues(s.store, exec)
+	s.pendingWaifMu.Lock()
+	shutdownOwns := s.isShuttingDown()
+	s.pendingWaifMu.Unlock()
+	if shutdownOwns {
+		s.appendPendingFinalizations(values)
+	}
 }
 
 func (s *Scheduler) SetTaskLineSender(sender func(types.ObjID, string)) {

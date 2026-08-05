@@ -93,9 +93,6 @@ func CollectWaifsFromVM(exec *VM, out *[]types.Value) {
 	for _, value := range exec.PendingWaifs {
 		collectWaifsForGC(value, out)
 	}
-	for _, value := range exec.PendingFinalizations {
-		collectWaifsForGC(value, out)
-	}
 	collectWaifsForGC(exec.yieldResult.Val, out)
 	if fork := exec.yieldResult.ForkInfo; fork != nil {
 		collectWaifsForGC(fork.ThisValue, out)

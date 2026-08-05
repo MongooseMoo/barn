@@ -9,41 +9,40 @@ import (
 	"barn/types"
 )
 
-func testObject(id types.ObjID, anonymous bool) *dbstore.Object {
-	flags := dbstore.FlagRead
-	if anonymous {
-		flags = flags.Set(dbstore.FlagAnonymous)
-	}
+func testObject(id types.ObjID) *dbstore.Object {
 	b := dbstore.NewObjectBuilder(id)
 	b.SetOwner(0)
-	b.SetFlags(flags)
-	b.SetAnonymous(anonymous)
+	b.SetFlags(dbstore.FlagRead)
 	return b.Build()
+}
+
+func createAnonymousTestObject(t *testing.T, store *dbstore.Store, parents ...types.ObjID) types.ObjID {
+	t.Helper()
+	id, errCode := store.CreateObject(parents, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject(..., true): %v", errCode)
+	}
+	return id
 }
 
 func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *testing.T) {
 	store := dbstore.NewStore()
 
-	root := testObject(0, false)
-	anon := testObject(4, true)
-
-	if err := store.Add(root); err != nil {
+	if err := store.Add(testObject(0)); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	if err := store.Add(anon); err != nil {
-		t.Fatalf("add anon: %v", err)
-	}
+	anonID := createAnonymousTestObject(t, store, 0)
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{
 		{
 			Locals: []types.Value{
-				types.NewList([]types.Value{types.NewInt(1), types.NewAnon(4)}),
+				types.NewList([]types.Value{types.NewInt(1), types.NewAnon(anonID)}),
 			},
 		},
 	}
 	exec.Stack = []types.Value{types.NewMap([][2]types.Value{
-		{types.NewStr("x"), types.NewAnon(4)},
+		{types.NewStr("x"), types.NewAnon(anonID)},
 	})}
 	exec.SP = 1
 
@@ -51,23 +50,21 @@ func TestCollectPendingFinalizationValuesCapturesUnreachableAnonymousRefs(t *tes
 	if len(got) != 1 {
 		t.Fatalf("len(got) = %d, want 1", len(got))
 	}
-	if got[0].String() != types.NewAnon(4).String() {
-		t.Fatalf("got[0] = %s, want %s", got[0].String(), types.NewAnon(4).String())
+	if got[0].String() != types.NewAnon(anonID).String() {
+		t.Fatalf("got[0] = %s, want %s", got[0].String(), types.NewAnon(anonID).String())
 	}
 }
 
 func TestCollectPendingFinalizationValuesReadsCanonicalTaskLocal(t *testing.T) {
 	store := dbstore.NewStore()
-	if err := store.Add(testObject(0, false)); err != nil {
+	if err := store.Add(testObject(0)); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	if err := store.Add(testObject(4, true)); err != nil {
-		t.Fatalf("add anonymous object: %v", err)
-	}
+	anonID := createAnonymousTestObject(t, store, 0)
 
 	tk := task.NewTask(1, 0, 100, 1)
 	waif := types.NewWaif(0, 0)
-	tk.SetTaskLocal(types.NewList([]types.Value{types.NewAnon(4), waif}))
+	tk.SetTaskLocal(types.NewList([]types.Value{types.NewAnon(anonID), waif}))
 	exec := NewVM(store, nil)
 	exec.Context = kernel.NewTaskContext()
 	exec.Context.Task = tk
@@ -76,43 +73,77 @@ func TestCollectPendingFinalizationValuesReadsCanonicalTaskLocal(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("pending values = %v, want anonymous and WAIF task-local roots", got)
 	}
-	if !got[0].Equal(types.NewAnon(4)) {
-		t.Errorf("pending[0] = %v, want %v", got[0], types.NewAnon(4))
+	if !got[0].Equal(types.NewAnon(anonID)) {
+		t.Errorf("pending[0] = %v, want %v", got[0], types.NewAnon(anonID))
 	}
 	if !got[1].Equal(waif) {
 		t.Errorf("pending[1] = %v, want task-local WAIF identity %p", got[1], waif.WaifIdentity())
 	}
 }
 
+type nonTaskLocalOwner struct {
+	value types.Value
+}
+
+func (o *nonTaskLocalOwner) GetTaskLocal() types.Value { return o.value }
+
+func TestCollectPendingFinalizationValuesRejectsNonTaskTaskLocalOwner(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(testObject(0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	exec := NewVM(store, nil)
+	exec.Context = kernel.NewTaskContext()
+	exec.Context.Task = &nonTaskLocalOwner{value: types.NewAnon(4)}
+
+	if got := CollectPendingFinalizationValues(store, exec); len(got) != 0 {
+		t.Fatalf("pending values = %v, want no roots from non-*task.Task owner", got)
+	}
+}
+
+func TestCollectPendingFinalizationValuesKeepsNestedAnonUnderSingleWaifRoot(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(testObject(0)); err != nil {
+		t.Fatalf("add WAIF class: %v", err)
+	}
+	anonID := createAnonymousTestObject(t, store, 0)
+	waif := types.NewWaif(0, 0)
+	waif.SetProperty("anon", types.NewAnon(anonID))
+	exec := NewVM(store, nil)
+	exec.PendingFinalizations = []types.Value{waif}
+
+	got := CollectPendingFinalizationValues(store, exec)
+	if len(got) != 1 || !got[0].Equal(waif) {
+		t.Fatalf("pending roots = %v, want exactly WAIF identity %p", got, waif.WaifIdentity())
+	}
+}
+
 func TestCollectPendingFinalizationValuesRetainsDirectRefsEvenWhenCurrentlyPersistent(t *testing.T) {
 	store := dbstore.NewStore()
 
-	root := testObject(0, false)
-	holder := testObject(4, false)
-	anon := testObject(5, true)
-
-	for _, obj := range []*dbstore.Object{root, holder, anon} {
+	for _, obj := range []*dbstore.Object{testObject(0), testObject(4)} {
 		if err := store.Add(obj); err != nil {
 			t.Fatalf("add object: %v", err)
 		}
 	}
+	anonID := createAnonymousTestObject(t, store, 0)
 
-	store.DefineProperty(4, "two", dbstore.NewProperty(types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(4, "two", dbstore.NewProperty(types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(anonID)}}), 0, dbstore.PropRead, false, false))
 	store.DefineProperty(0, "one", dbstore.NewProperty(types.NewObj(4), 0, dbstore.PropRead, false, false))
-	store.DefineProperty(5, "foo", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, false))
+	store.DefineProperty(anonID, "foo", dbstore.NewProperty(types.NewAnon(anonID), 0, dbstore.PropRead, false, false))
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{
 		{
 			Locals: []types.Value{
-				types.NewList([]types.Value{types.NewAnon(5)}),
+				types.NewList([]types.Value{types.NewAnon(anonID)}),
 			},
 		},
 	}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	if len(got) != 1 || !got[0].Equal(types.NewAnon(5)) {
-		t.Fatalf("pending candidates = %v, want direct VM root %s", got, types.NewAnon(5).String())
+	if len(got) != 1 || !got[0].Equal(types.NewAnon(anonID)) {
+		t.Fatalf("pending candidates = %v, want direct VM root %s", got, types.NewAnon(anonID).String())
 	}
 	store.AppendPendingFinalizations(got)
 
@@ -128,19 +159,15 @@ func TestCollectPendingFinalizationValuesRetainsDirectRefsEvenWhenCurrentlyPersi
 func TestCollectPendingFinalizationValuesKeepsEveryCyclicBareAnonymousLocalDeterministically(t *testing.T) {
 	store := dbstore.NewStore()
 
-	root := testObject(0, false)
-	anonA := testObject(4, true)
-	anonB := testObject(5, true)
-
-	for _, obj := range []*dbstore.Object{root, anonA, anonB} {
-		if err := store.Add(obj); err != nil {
-			t.Fatalf("add object: %v", err)
-		}
+	if err := store.Add(testObject(0)); err != nil {
+		t.Fatalf("add root: %v", err)
 	}
-	if errCode := store.DefineProperty(4, "next", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	anonA := createAnonymousTestObject(t, store, 0)
+	anonB := createAnonymousTestObject(t, store, 0)
+	if errCode := store.DefineProperty(anonA, "next", dbstore.NewProperty(types.NewAnon(anonB), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define A.next: %v", errCode)
 	}
-	if errCode := store.DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(anonB, "next", dbstore.NewProperty(types.NewAnon(anonA), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define B.next: %v", errCode)
 	}
 
@@ -148,14 +175,14 @@ func TestCollectPendingFinalizationValuesKeepsEveryCyclicBareAnonymousLocalDeter
 	exec.Frames = []*StackFrame{
 		{
 			Locals: []types.Value{
-				types.NewAnon(4),
-				types.NewAnon(5),
+				types.NewAnon(anonA),
+				types.NewAnon(anonB),
 			},
 		},
 	}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	want := []types.Value{types.NewAnon(4), types.NewAnon(5)}
+	want := []types.Value{types.NewAnon(anonA), types.NewAnon(anonB)}
 	if len(got) != len(want) {
 		t.Fatalf("pending roots = %v, want %v", got, want)
 	}
@@ -180,10 +207,10 @@ func TestCollectPendingFinalizationValuesKeepsEveryCyclicBareAnonymousLocalDeter
 	// Snapshot normalization must not discard candidates from the live queue.
 	// If the frozen graph later separates the cycle, both original VM roots are
 	// needed and must reappear in the next snapshot.
-	if errCode := store.SetPropertyValue(4, "next", types.NewInt(0)); errCode != types.E_NONE {
+	if errCode := store.SetPropertyValue(anonA, "next", types.NewInt(0)); errCode != types.E_NONE {
 		t.Fatalf("remove A.next after snapshot: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(5, "next", types.NewInt(0)); errCode != types.E_NONE {
+	if errCode := store.SetPropertyValue(anonB, "next", types.NewInt(0)); errCode != types.E_NONE {
 		t.Fatalf("remove B.next after snapshot: %v", errCode)
 	}
 	nextSnapshot := store.Snapshot()
@@ -194,26 +221,22 @@ func TestCollectPendingFinalizationValuesKeepsEveryCyclicBareAnonymousLocalDeter
 
 func TestCollectPendingFinalizationValuesRetainsDirectRootAndReachableLeaf(t *testing.T) {
 	store := dbstore.NewStore()
-	for _, obj := range []*dbstore.Object{
-		testObject(0, false),
-		testObject(4, true),
-		testObject(5, true),
-	} {
-		if err := store.Add(obj); err != nil {
-			t.Fatalf("add object: %v", err)
-		}
+	if err := store.Add(testObject(0)); err != nil {
+		t.Fatalf("add root: %v", err)
 	}
-	if errCode := store.DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	leafID := createAnonymousTestObject(t, store, 0)
+	rootID := createAnonymousTestObject(t, store, 0)
+	if errCode := store.DefineProperty(rootID, "next", dbstore.NewProperty(types.NewAnon(leafID), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define root.next: %v", errCode)
 	}
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{{
-		Locals: []types.Value{types.NewAnon(4), types.NewAnon(5)},
+		Locals: []types.Value{types.NewAnon(leafID), types.NewAnon(rootID)},
 	}}
 
 	got := CollectPendingFinalizationValues(store, exec)
-	want := []types.Value{types.NewAnon(4), types.NewAnon(5)}
+	want := []types.Value{types.NewAnon(leafID), types.NewAnon(rootID)}
 	if len(got) != len(want) || !got[0].Equal(want[0]) || !got[1].Equal(want[1]) {
 		t.Fatalf("pending roots = %v, want every direct root in identity order %v", got, want)
 	}
@@ -234,16 +257,12 @@ func TestCollectPendingFinalizationValuesRetainsDirectRootAndReachableLeaf(t *te
 
 func TestCollectPendingFinalizationValuesSurvivesStagedEdgeRemovalBeforeSnapshot(t *testing.T) {
 	store := dbstore.NewStore()
-	for _, obj := range []*dbstore.Object{
-		testObject(0, false),
-		testObject(4, true),
-		testObject(5, true),
-	} {
-		if err := store.Add(obj); err != nil {
-			t.Fatalf("add object: %v", err)
-		}
+	if err := store.Add(testObject(0)); err != nil {
+		t.Fatalf("add root: %v", err)
 	}
-	if errCode := store.DefineProperty(4, "next", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	anonA := createAnonymousTestObject(t, store, 0)
+	anonB := createAnonymousTestObject(t, store, 0)
+	if errCode := store.DefineProperty(anonA, "next", dbstore.NewProperty(types.NewAnon(anonB), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define A.next: %v", errCode)
 	}
 
@@ -252,19 +271,19 @@ func TestCollectPendingFinalizationValuesSurvivesStagedEdgeRemovalBeforeSnapshot
 	// however, directly holds both roots and disappears before the checkpoint.
 	tx := store.BeginReadOnly(0)
 	defer tx.Release()
-	if errCode := tx.SetPropertyValue(4, "next", types.NewInt(0)); errCode != types.E_NONE {
+	if errCode := tx.SetPropertyValue(anonA, "next", types.NewInt(0)); errCode != types.E_NONE {
 		t.Fatalf("stage A.next removal: %v", errCode)
 	}
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{{
 		Locals: []types.Value{types.NewList([]types.Value{
-			types.NewAnon(5),
-			types.NewAnon(4),
+			types.NewAnon(anonB),
+			types.NewAnon(anonA),
 		})},
 	}}
 	pending := CollectPendingFinalizationValues(store, exec)
-	want := []types.Value{types.NewAnon(4), types.NewAnon(5)}
+	want := []types.Value{types.NewAnon(anonA), types.NewAnon(anonB)}
 	if len(pending) != len(want) || !pending[0].Equal(want[0]) || !pending[1].Equal(want[1]) {
 		t.Fatalf("pending roots = %v, want every direct root in identity order %v", pending, want)
 	}
@@ -284,14 +303,10 @@ func TestCollectPendingFinalizationValuesSurvivesStagedEdgeRemovalBeforeSnapshot
 
 func TestCollectPendingFinalizationValuesExcludesStagedPersistentEdgeAtSnapshot(t *testing.T) {
 	store := dbstore.NewStore()
-	for _, obj := range []*dbstore.Object{
-		testObject(0, false),
-		testObject(5, true),
-	} {
-		if err := store.Add(obj); err != nil {
-			t.Fatalf("add object: %v", err)
-		}
+	if err := store.Add(testObject(0)); err != nil {
+		t.Fatalf("add root: %v", err)
 	}
+	anonID := createAnonymousTestObject(t, store, 0)
 	if errCode := store.DefineProperty(0, "keep", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define #0.keep: %v", errCode)
 	}
@@ -301,15 +316,15 @@ func TestCollectPendingFinalizationValuesExcludesStagedPersistentEdgeAtSnapshot(
 	// persistent, so it is serialized but not scheduled for restart recycling.
 	tx := store.BeginReadOnly(0)
 	defer tx.Release()
-	if errCode := tx.SetPropertyValue(0, "keep", types.NewAnon(5)); errCode != types.E_NONE {
+	if errCode := tx.SetPropertyValue(0, "keep", types.NewAnon(anonID)); errCode != types.E_NONE {
 		t.Fatalf("stage #0.keep addition: %v", errCode)
 	}
 
 	exec := NewVM(store, nil)
-	exec.Frames = []*StackFrame{{Locals: []types.Value{types.NewAnon(5)}}}
+	exec.Frames = []*StackFrame{{Locals: []types.Value{types.NewAnon(anonID)}}}
 	pending := CollectPendingFinalizationValues(store, exec)
-	if len(pending) != 1 || !pending[0].Equal(types.NewAnon(5)) {
-		t.Fatalf("pending candidates = %v, want staged-persistent candidate %v", pending, types.NewAnon(5))
+	if len(pending) != 1 || !pending[0].Equal(types.NewAnon(anonID)) {
+		t.Fatalf("pending candidates = %v, want staged-persistent candidate %v", pending, types.NewAnon(anonID))
 	}
 	store.AppendPendingFinalizations(pending)
 

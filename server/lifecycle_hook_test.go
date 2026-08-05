@@ -398,11 +398,12 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	if errCode := store.DefineProperty(system, "shutdown_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define shutdown_started property: %v", errCode)
 	}
-	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
+	addTestVerb(store, system, "checkpoint_started", "pending = create(#0, #2, 1); #0.checkpoint_started = 1;")
 	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = args[1];")
 	addTestVerb(store, system, "shutdown_started", "#0.shutdown_started = 1;")
 
 	scheduler := runtime.NewScheduler(store)
+	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &Server{
@@ -445,6 +446,41 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	}
 	if shutdownStarted.Type() != types.TYPE_INT || shutdownStarted.Int() != 0 {
 		t.Fatalf("shutdown_started = %v, want 0", shutdownStarted)
+	}
+
+	reloaded, err := dbformat.LoadDatabase(s.dbPath + ".new")
+	if err != nil {
+		t.Fatalf("load emergency checkpoint: %v", err)
+	}
+	if got := len(reloaded.PendingFinalizations); got != 1 {
+		t.Fatalf("emergency checkpoint pending roots = %v, want checkpoint_started local preserved after Panic publishes shutdown", reloaded.PendingFinalizations)
+	}
+}
+
+func TestShutdownPublishesFinalizationHandoffBeforeCancel(t *testing.T) {
+	store := dbstore.NewStore()
+	addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	addTestVerb(store, 0, "after_shutdown", "pending = create(#0, #2, 1);")
+	scheduler := runtime.NewScheduler(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s := &Server{
+		store:       store,
+		scheduler:   scheduler,
+		running:     true,
+		ctx:         ctx,
+		cancel:      cancel,
+		connManager: NewConnectionManager(7777),
+	}
+	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
+
+	s.Shutdown("test")
+	if _, err := scheduler.RunServerVerbTask(0, "after_shutdown", nil, 0); err != nil {
+		t.Fatalf("run task after Shutdown: %v", err)
+	}
+	if got := len(store.Snapshot().PendingFinalizations); got != 1 {
+		t.Fatalf("pending roots after Shutdown = %d, want 1", got)
 	}
 }
 

@@ -336,10 +336,8 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		if taskCtx.Err() == context.Canceled && bcVM != nil && s.pendingFinalizationSink != nil {
-			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
-				s.pendingFinalizationSink(pending)
-			}
+		if taskCtx.Err() == context.Canceled {
+			s.handoffCanceledVMIfShuttingDown(bcVM)
 		}
 		t.SetState(task.TaskKilled)
 		t.SetBytecodeVM(nil)
@@ -542,13 +540,7 @@ retryAttempt:
 	// values that still carry anonymous references so the final checkpoint can
 	// serialize them as pending finalization values. Outside shutdown, completed
 	// tasks still trigger orphan-anonymous collection.
-	if s.isShuttingDown() {
-		if s.pendingFinalizationSink != nil && bcVM != nil {
-			if pending := bcVM.TakePendingFinalizationValues(); len(pending) > 0 {
-				s.pendingFinalizationSink(pending)
-			}
-		}
-	} else {
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards
@@ -557,12 +549,6 @@ retryAttempt:
 		//
 		// This task's VM is released below, so its references are snapshotted now,
 		// on the goroutine that owns it, rather than walked at flush time.
-		if bcVM != nil {
-			s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), bcVM)
-		}
-		if s.store.AnonCreationCount() != anonFloor {
-			s.deferAnonGC(ctx, anonGCFloor, bcVM)
-		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)

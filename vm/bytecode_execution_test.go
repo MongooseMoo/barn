@@ -551,15 +551,11 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 
 func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	store := newBytecodeVerbStore()
-	anon := dbstore.NewObjectBuilder(1)
-	anon.SetOwner(0)
-	anon.SetFlags(dbstore.FlagRead | dbstore.FlagAnonymous)
-	anon.SetAnonymous(true)
-	anon.SetParents([]types.ObjID{0})
-	if err := store.Add(anon.Build()); err != nil {
-		t.Fatalf("add anonymous object: %v", err)
+	anonID, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous object: %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(anonID), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define anonymous reference: %s", errCode)
 	}
 
@@ -581,7 +577,7 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 		types.NewInt(1), types.NewInt(1), types.NewInt(1))
 
 	staleContext := kernel.NewTaskContext()
-	staleContext.ThisValue = types.NewAnon(1)
+	staleContext.ThisValue = types.NewAnon(anonID)
 	requireInt(t, runBytecodeProgram(t, "return #0:caller_type();", store, staleContext), int64(types.TYPE_OBJ))
 }
 
