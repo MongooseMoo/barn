@@ -14,7 +14,7 @@ import (
 	"barn/vm"
 )
 
-func TestBeginShutdownWaitsForClaimedDeferredGCBeforePublishing(t *testing.T) {
+func TestBeginShutdownReturnsBoundaryForClaimedDeferredGC(t *testing.T) {
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("add root: %v", err)
@@ -50,15 +50,20 @@ func TestBeginShutdownWaitsForClaimedDeferredGCBeforePublishing(t *testing.T) {
 		t.Fatal("deferred GC did not claim the queued anonymous request")
 	}
 
-	shutdownDone := make(chan struct{})
+	shutdownReturned := make(chan (<-chan struct{}), 1)
 	go func() {
-		scheduler.BeginShutdown(nil)
-		close(shutdownDone)
+		shutdownReturned <- scheduler.BeginShutdown(nil)
 	}()
+	var ready <-chan struct{}
 	select {
-	case <-shutdownDone:
-		t.Fatal("BeginShutdown published while claimed deferred GC was still executing")
-	case <-time.After(20 * time.Millisecond):
+	case ready = <-shutdownReturned:
+	case <-time.After(time.Second):
+		t.Fatal("BeginShutdown blocked behind the claimed deferred GC")
+	}
+	select {
+	case <-ready:
+		t.Fatal("shutdown boundary published while claimed deferred GC was still executing")
+	default:
 	}
 	if scheduler.isShuttingDown() {
 		t.Fatal("shutdown state published before the claimed deferred GC completed")
@@ -71,12 +76,146 @@ func TestBeginShutdownWaitsForClaimedDeferredGCBeforePublishing(t *testing.T) {
 		t.Fatal("deferred GC did not finish after release")
 	}
 	select {
-	case <-shutdownDone:
+	case <-ready:
 	case <-time.After(time.Second):
-		t.Fatal("BeginShutdown did not publish after deferred GC finished")
+		t.Fatal("shutdown boundary did not publish after deferred GC finished")
 	}
 	if !scheduler.isShuttingDown() {
 		t.Fatal("shutdown state was not published after deferred GC finished")
+	}
+}
+
+func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
+	store := dbstore.NewStore()
+	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
+	store.AddVerb(0, dbstore.NewVerb(":recycle", []string{":recycle"}, 0,
+		dbstore.VerbRead|dbstore.VerbExecute,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},
+		[]string{"shutdown(); recycle_returned();"}))
+
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	returned := make(chan struct{})
+	var returnedOnce sync.Once
+	scheduler.registry.Register("recycle_returned", func(*kernel.TaskContext, []types.Value) types.Result {
+		returnedOnce.Do(func() { close(returned) })
+		return types.Ok(types.None)
+	})
+	var ready <-chan struct{}
+	scheduler.registry.SetShutdownFunc(func(ctx *kernel.TaskContext, _ string, _ bool) error {
+		exec, _ := ctx.CallerVM.(*vm.VM)
+		ready = scheduler.BeginShutdown(exec)
+		return nil
+	})
+	var handedOff []types.Value
+	scheduler.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
+	scheduler.pendingWaifBatch = []pendingWaifEntry{{waif: types.NewWaif(0, 0), ctx: kernel.NewTaskContext()}}
+
+	scheduler.flushDeferredGC()
+	select {
+	case <-returned:
+	default:
+		t.Fatal(":recycle did not continue after shutdown() returned")
+	}
+	if ready == nil {
+		t.Fatal("shutdown hook did not return a publication boundary")
+	}
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown boundary did not publish after recycle completed")
+	}
+	if len(handedOff) != 0 {
+		t.Fatalf("recycle-owned roots handed off as pending finalizations: %v", handedOff)
+	}
+}
+
+func TestShutdownPublisherDrainsRootsArrivingDuringSink(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	first := types.NewWaif(0, 0)
+	second := types.NewWaif(0, 0)
+	scheduler.pendingWaifBatch = []pendingWaifEntry{{waif: first, ctx: kernel.NewTaskContext()}}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var batches [][]types.Value
+	scheduler.SetPendingFinalizationSink(func(values []types.Value) {
+		mu.Lock()
+		batches = append(batches, append([]types.Value(nil), values...))
+		call := len(batches)
+		mu.Unlock()
+		if call == 1 {
+			close(entered)
+			<-release
+		}
+	})
+
+	readyResult := make(chan (<-chan struct{}), 1)
+	go func() { readyResult <- scheduler.BeginShutdown(nil) }()
+	<-entered
+	scheduler.deferPendingWaifs(kernel.NewTaskContext(), []types.Value{second}, nil)
+	close(release)
+	ready := <-readyResult
+	<-ready
+	mu.Lock()
+	defer mu.Unlock()
+	if len(batches) != 2 || len(batches[0]) != 1 || !batches[0][0].Equal(first) || len(batches[1]) != 1 || !batches[1][0].Equal(second) {
+		t.Fatalf("sink batches = %v, want first root then arriving root", batches)
+	}
+}
+
+func TestConcurrentDeferredGCFlushesClaimBatchOnce(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	anonID, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous object: %v", errCode)
+	}
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	calls := 0
+	scheduler.registry.Register("recycle", func(*kernel.TaskContext, []types.Value) types.Result {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		close(entered)
+		<-release
+		return types.Ok(types.None)
+	})
+	scheduler.pendingAnonGC = []vm.AnonGCRequest{{Ctx: kernel.NewTaskContext(), MinID: anonID}}
+
+	firstDone := make(chan struct{})
+	go func() {
+		scheduler.flushDeferredGC()
+		close(firstDone)
+	}()
+	<-entered
+	secondDone := make(chan struct{})
+	go func() {
+		scheduler.flushDeferredGC()
+		close(secondDone)
+	}()
+	select {
+	case <-secondDone:
+	case <-time.After(time.Second):
+		t.Fatal("second flush blocked instead of observing the claimed batch")
+	}
+	close(release)
+	<-firstDone
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("recycle calls = %d, want exactly one", calls)
 	}
 }
 
@@ -139,6 +278,34 @@ func TestBeginShutdownTransfersPreexistingDeferredFinalizations(t *testing.T) {
 	}
 	if len(scheduler.pendingWaifBatch) != 0 || len(scheduler.pendingAnonGC) != 0 {
 		t.Fatalf("deferred batches remain after shutdown handoff: waifs=%d anons=%d", len(scheduler.pendingWaifBatch), len(scheduler.pendingAnonGC))
+	}
+}
+
+func TestBeginShutdownLeavesSuspendedTaskAnonymousRootsTaskOwned(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	anonID, errCode := store.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous object: %v", errCode)
+	}
+	scheduler := NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	var handedOff []types.Value
+	scheduler.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
+	scheduler.pendingAnonGC = []vm.AnonGCRequest{{
+		Ctx:       kernel.NewTaskContext(),
+		MinID:     anonID,
+		TaskOwned: true,
+	}}
+
+	<-scheduler.BeginShutdown(nil)
+	if len(handedOff) != 0 {
+		t.Fatalf("suspended task anonymous roots were promoted to pending finalizations: %v", handedOff)
+	}
+	if len(scheduler.pendingAnonGC) != 0 {
+		t.Fatalf("task-owned deferred request remains after shutdown: %v", scheduler.pendingAnonGC)
 	}
 }
 

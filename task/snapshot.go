@@ -1,6 +1,7 @@
 package task
 
 import (
+	"sort"
 	"time"
 
 	"barn/bytecode"
@@ -13,6 +14,50 @@ type ForkSnapshot struct {
 	VariableNames []string
 	SourceLines   []string
 	FirstLine     int
+}
+
+// RootValues returns every value owned by this persisted task. Checkpointing
+// uses these as serialization-only roots: anonymous objects reachable solely
+// from a suspended or queued task must be emitted, but must not be promoted to
+// the database's pending-finalization list.
+func (s Snapshot) RootValues() []types.Value {
+	var values []types.Value
+	if s.Fork != nil {
+		if len(s.CallStack) > 0 {
+			values = append(values, s.CallStack[0].ThisValue)
+		}
+		seen := make(map[string]struct{}, len(s.Fork.VariableNames))
+		for _, name := range s.Fork.VariableNames {
+			seen[name] = struct{}{}
+			if value, ok := s.Fork.Variables[name]; ok {
+				values = append(values, value)
+			}
+		}
+		extra := make([]string, 0)
+		for name := range s.Fork.Variables {
+			if _, ok := seen[name]; !ok {
+				extra = append(extra, name)
+			}
+		}
+		sort.Strings(extra)
+		for _, name := range extra {
+			values = append(values, s.Fork.Variables[name])
+		}
+	}
+	if s.VM != nil {
+		values = append(values, s.TaskLocal)
+		if s.ReadingPlayer == types.ObjNothing && !s.IsExecSuspended && !s.IsHTTPReadSuspended {
+			values = append(values, s.WakeValue)
+		}
+		for _, frame := range s.VM.Frames {
+			values = append(values, frame.Locals...)
+			values = append(values, frame.Stack...)
+			values = append(values, frame.ThisValue, frame.SavedThisValue, frame.PendingError.Value)
+			values = append(values, frame.Args...)
+			values = append(values, frame.Program.Constants...)
+		}
+	}
+	return values
 }
 
 // Snapshot is an immutable copy of the task fields the database writer needs.

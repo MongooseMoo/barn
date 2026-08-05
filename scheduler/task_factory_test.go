@@ -110,6 +110,30 @@ func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
 	}
 }
 
+func TestTaskSnapshotsAreOrderedByTaskID(t *testing.T) {
+	s := NewScheduler(dbstore.NewStore())
+	defer s.Stop()
+	for _, id := range []int64{9, 2, 6} {
+		queued := task.NewTaskFull(id, 0, nil, 1000, 1)
+		queued.SetState(task.TaskQueued)
+		s.tasks[id] = queued
+	}
+
+	queued, suspended := s.TaskSnapshots()
+	if len(suspended) != 0 {
+		t.Fatalf("suspended snapshots = %d, want none", len(suspended))
+	}
+	want := []int64{2, 6, 9}
+	if len(queued) != len(want) {
+		t.Fatalf("queued snapshots = %d, want %d", len(queued), len(want))
+	}
+	for i, id := range want {
+		if queued[i].ID != id {
+			t.Fatalf("queued snapshot ids = %v, want %v", []int64{queued[0].ID, queued[1].ID, queued[2].ID}, want)
+		}
+	}
+}
+
 func TestCreateForkedTaskReportsParentSourceLine(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewScheduler(store)

@@ -64,6 +64,28 @@ func collectDirectAnonymousObjectRefs(value types.Value, out map[types.ObjID]str
 	}
 }
 
+// collectDirectWaifs finds pending WAIF roots in ordinary containers while
+// deliberately stopping at each WAIF boundary. A WAIF nested inside another
+// pending WAIF is part of the outer WAIF's serialized topology, not another
+// top-level finalization root.
+func collectDirectWaifs(value types.Value, out *[]types.Value) {
+	switch value.Type() {
+	case types.TYPE_WAIF:
+		if !finalizationValueInList(value, *out) {
+			*out = append(*out, value)
+		}
+	case types.TYPE_LIST:
+		for _, elem := range value.Elements() {
+			collectDirectWaifs(elem, out)
+		}
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
+			collectDirectWaifs(pair[0], out)
+			collectDirectWaifs(pair[1], out)
+		}
+	}
+}
+
 // lookupAnonymousLocked returns the live anonymous object with the given
 // identity id. Runtime-created and database-loaded anonymous objects live only
 // in s.anonObjects.

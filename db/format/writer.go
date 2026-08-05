@@ -38,6 +38,7 @@ type Writer struct {
 	suspendedTasks    []task.Snapshot
 	interruptedTasks  []task.Snapshot
 	activeConnections []ActiveConnection
+	rewriteTaskValues bool
 }
 
 // NewWriter creates a writer for database serialization
@@ -83,6 +84,7 @@ func (w *Writer) WriteDatabase() error {
 	}
 
 	// 5. Queued tasks
+	w.rewriteTaskValues = true
 	if err := w.writeQueuedTasks(); err != nil {
 		return fmt.Errorf("write queued tasks: %w", err)
 	}
@@ -96,6 +98,7 @@ func (w *Writer) WriteDatabase() error {
 	if err := w.writeInterruptedTasks(); err != nil {
 		return fmt.Errorf("write interrupted tasks: %w", err)
 	}
+	w.rewriteTaskValues = false
 
 	// 8. Active connections
 	if err := w.writeActiveConnections(); err != nil {
@@ -170,6 +173,9 @@ func (w *Writer) writeBool(b bool) error {
 
 // writeValue writes a type-tagged value (type code on its own line, then value)
 func (w *Writer) writeValue(v types.Value) error {
+	if w.rewriteTaskValues {
+		v = w.snapshot.RewriteTaskValue(v)
+	}
 	// None (the de-boxed nil sentinel) represents CLEAR (for clear properties).
 	// IsNone MUST be checked before the Type() switch: None.Type() reports
 	// TYPE_INT, so a tag switch alone would mis-serialize it as integer 0.

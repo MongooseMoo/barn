@@ -527,6 +527,57 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	}
 }
 
+func TestPanicCheckpointKeepsSuspendedWaifAndAnonymousRootsTaskOwned(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, "held", dbstore.NewProperty(types.None, 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define held property: %v", errCode)
+	}
+	addTestVerb(store, system, "hold", "w = new_waif(); a = create(#0, #2, 1); w.held = a; suspend();")
+
+	scheduler := runtime.NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
+	if _, err := scheduler.RunServerVerbTask(system, "hold", nil, 2); err != nil {
+		t.Fatalf("run suspended root holder: %v", err)
+	}
+	queued, suspended := scheduler.TaskSnapshots()
+	if len(queued) != 0 || len(suspended) != 1 {
+		t.Fatalf("task snapshots before panic: queued=%d suspended=%d, want 0 and 1", len(queued), len(suspended))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		store:          store,
+		scheduler:      scheduler,
+		input:          NewInputProcessor(store, scheduler),
+		connManager:    NewConnectionManager(7777),
+		dbPath:         filepath.Join(t.TempDir(), "panic-live-roots.db"),
+		checkpointChan: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	if err := s.Panic("live roots"); !errors.Is(err, ErrPanicShutdown) {
+		t.Fatalf("Panic error = %v, want ErrPanicShutdown", err)
+	}
+	reloaded, err := dbformat.LoadDatabase(s.dbPath + ".new")
+	if err != nil {
+		t.Fatalf("load emergency checkpoint: %v", err)
+	}
+	if got := len(reloaded.PendingFinalizations); got != 0 {
+		t.Fatalf("emergency checkpoint pending roots = %v, want none", reloaded.PendingFinalizations)
+	}
+	if got := len(reloaded.SuspendedTasks); got != 1 {
+		t.Fatalf("emergency checkpoint suspended tasks = %d, want one", got)
+	}
+	if got := len(reloaded.AnonymousObjs); got != 1 {
+		t.Fatalf("emergency checkpoint anonymous objects = %d, want one task-owned object", got)
+	}
+}
+
 func TestShutdownPublishesFinalizationHandoffBeforeCancel(t *testing.T) {
 	store := dbstore.NewStore()
 	addTestObject(t, store, 0, dbstore.FlagWizard)

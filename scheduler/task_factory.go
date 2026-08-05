@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"barn/builtins"
@@ -472,5 +473,7 @@ func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Sn
 			suspended = append(suspended, snapshot)
 		}
 	}
+	sort.Slice(queued, func(i, j int) bool { return queued[i].ID < queued[j].ID })
+	sort.Slice(suspended, func(i, j int) bool { return suspended[i].ID < suspended[j].ID })
 	return queued, suspended
 }

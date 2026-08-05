@@ -36,9 +36,18 @@ type Snapshot struct {
 	AllObjects           []*SnapshotObject
 	PropertyNames        map[types.ObjID][]string
 	PendingFinalizations []types.Value
+	serializationPlan    *anonSerializationPlan
 }
 
 func (s *Store) Snapshot() Snapshot {
+	return s.SnapshotWithRoots(nil)
+}
+
+// SnapshotWithRoots snapshots the database while treating extraRoots as
+// serialization-only reachability. This is used for queued and suspended task
+// state: their anonymous objects must be emitted and references rewritten, but
+// the task values remain task-owned rather than pending finalizations.
+func (s *Store) SnapshotWithRoots(extraRoots []types.Value) Snapshot {
 	// Snapshot is the persistence linearization point. Decentralized commits
 	// publish immutable object images while holding s.mu.RLock, so another read
 	// lock would not freeze the property graph across pending-root normalization
@@ -65,7 +74,8 @@ func (s *Store) Snapshot() Snapshot {
 	//     unreachable/missing -> NOTHING (-1), matching Toast's db_write_anonymous
 	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
 	//     no slot and passing VALIDATE).
-	plan, pendingFinalizations := s.planAnonymousSerializationLocked()
+	plan, pendingFinalizations := s.planAnonymousSerializationLocked(extraRoots)
+	snapshot.serializationPlan = plan
 	snapshot.PendingFinalizations = pendingFinalizations
 	for i, value := range snapshot.PendingFinalizations {
 		if rewritten, changed := plan.rewriteValue(value); changed {
@@ -143,7 +153,7 @@ type anonSerializationPlan struct {
 // above-max serialization ids. Callers hold s.mu for the complete operation.
 // The returned pending roots are the exact roots used to seed serialization;
 // s.pendingFinalizations remains the lossless live candidate queue.
-func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []types.Value) {
+func (s *Store) planAnonymousSerializationLocked(extraRoots []types.Value) (*anonSerializationPlan, []types.Value) {
 	plan := &anonSerializationPlan{
 		rewrite:     make(map[types.ObjID]types.ObjID),
 		waifRewrite: make(map[unsafe.Pointer]types.Value),
@@ -177,7 +187,7 @@ func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []ty
 	// Seed serialization with the persistent references and the exact normalized
 	// pending roots returned above. Raw live candidates are deliberately excluded.
 	seen := make(map[types.ObjID]struct{})
-	queue := make([]types.ObjID, 0, len(persistentSeeds)+len(pendingFinalizations))
+	queue := make([]types.ObjID, 0, len(persistentSeeds)+len(pendingFinalizations)+len(extraRoots))
 	enqueue := func(id types.ObjID) {
 		if _, ok := seen[id]; ok {
 			return
@@ -189,6 +199,13 @@ func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []ty
 		enqueue(id)
 	}
 	for _, value := range pendingFinalizations {
+		refs := make(map[types.ObjID]struct{})
+		collectAnonymousObjectRefs(value, refs)
+		for id := range refs {
+			enqueue(id)
+		}
+	}
+	for _, value := range extraRoots {
 		refs := make(map[types.ObjID]struct{})
 		collectAnonymousObjectRefs(value, refs)
 		for id := range refs {
@@ -241,6 +258,18 @@ func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []ty
 	return plan, pendingFinalizations
 }
 
+// RewriteTaskValue applies this snapshot's anonymous-object serialization map
+// to a value held by a persisted task.
+func (s Snapshot) RewriteTaskValue(value types.Value) types.Value {
+	if s.serializationPlan == nil {
+		return value
+	}
+	if rewritten, changed := s.serializationPlan.rewriteValue(value); changed {
+		return rewritten
+	}
+	return value
+}
+
 type pendingCandidateRoot struct {
 	id      types.ObjID
 	closure map[types.ObjID]struct{}
@@ -255,7 +284,7 @@ func (s *Store) normalizePendingFinalizationsLocked(persistentReachable map[type
 	for _, value := range s.pendingFinalizations {
 		collectDirectAnonymousObjectRefs(value, candidateSet)
 		var values []types.Value
-		collectWaifsFromValue(value, &values)
+		collectDirectWaifs(value, &values)
 		for _, waif := range values {
 			if finalizationValueInList(waif, persistentWaifs) || finalizationValueInList(waif, pendingWaifs) {
 				continue

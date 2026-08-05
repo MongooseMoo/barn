@@ -124,6 +124,10 @@ func (s *Scheduler) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownV
 	}
 	s.pendingWaifMu.Lock()
 	if s.shutdownRequested {
+		if ownVM == nil {
+			s.pendingWaifMu.Unlock()
+			return
+		}
 		values := s.anonymousRequestRootValues(vm.AnonGCRequest{MinID: minID, OwnRefs: ownRefs})
 		published := s.isShuttingDown()
 		if !published {
@@ -135,7 +139,7 @@ func (s *Scheduler) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownV
 		}
 		return
 	}
-	s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs})
+	s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs, TaskOwned: ownVM == nil})
 	s.pendingWaifMu.Unlock()
 }
 
@@ -203,6 +207,7 @@ func (s *Scheduler) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskCon
 	gcCtx.Store = s.store
 	gcCtx.Registry = s.registry
 	gcCtx.RuntimeOptions = s.options
+	gcCtx.DeferredGC = true
 	return gcCtx
 }
 
@@ -261,8 +266,14 @@ func (s *Scheduler) flushDeferredGC() {
 		s.pendingWaifMu.Lock()
 		s.lastGCCost = cost
 		s.gcRunning = false
-		s.shutdownCond.Broadcast()
+		publish := s.shutdownRequested && !s.shutdownPublishing && !s.shuttingDown.Load()
+		if publish {
+			s.shutdownPublishing = true
+		}
 		s.pendingWaifMu.Unlock()
+		if publish {
+			s.publishShutdown()
+		}
 	}()
 
 	if len(waifBatch) > 0 {
@@ -301,6 +312,9 @@ func anonymousRootValues(refs map[types.ObjID]struct{}) []types.Value {
 func (s *Scheduler) takeDeferredFinalizationRootsLocked() []types.Value {
 	refs := make(map[types.ObjID]struct{})
 	for _, request := range s.pendingAnonGC {
+		if request.TaskOwned {
+			continue
+		}
 		for _, value := range s.anonymousRequestRootValues(request) {
 			id := value.ID()
 			refs[id] = struct{}{}
@@ -358,6 +372,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Va
 	recycleCtx.Store = s.store
 	recycleCtx.Registry = s.registry
 	recycleCtx.RuntimeOptions = s.options
+	recycleCtx.DeferredGC = true
 
 	recycleVM := vm.NewVM(s.store, s.registry)
 	recycleVM.Context = recycleCtx

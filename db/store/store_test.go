@@ -261,6 +261,32 @@ func TestStoreSnapshotPreservesDistinctSameClassPendingWaifs(t *testing.T) {
 	}
 }
 
+func TestStoreSnapshotPreservesNestedWaifAsOneTopLevelPendingRoot(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("add class object: %v", err)
+	}
+
+	inner := types.NewWaif(0, 0)
+	inner.SetProperty("marker", types.NewInt(17))
+	outer := types.NewWaif(0, 0)
+	outer.SetProperty("nested", inner)
+	store.SetPendingFinalizations([]types.Value{outer})
+
+	pending := store.Snapshot().PendingFinalizations
+	if got := len(pending); got != 1 {
+		t.Fatalf("pending WAIF roots = %v, want one outer root", pending)
+	}
+	nested, ok := pending[0].GetProperty("nested")
+	if !ok || !nested.Equal(inner) {
+		t.Fatalf("nested WAIF = %v, %t, want identity %p", nested, ok, inner.WaifIdentity())
+	}
+	marker, ok := nested.GetProperty("marker")
+	if !ok || marker.Int() != 17 {
+		t.Fatalf("nested marker = %v, %t, want 17", marker, ok)
+	}
+}
+
 func TestStoreSnapshotFiltersOnlyPersistentlyReachableWaifIdentity(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {

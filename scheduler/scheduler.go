@@ -45,8 +45,9 @@ type Scheduler struct {
 	// orphan-anonymous collection requests here instead of paying a full-db
 	// sweep per task; flushDeferredGC settles both batches on an interval.
 	pendingWaifMu        sync.Mutex
-	shutdownCond         *sync.Cond
 	shutdownRequested    bool
+	shutdownPublishing   bool
+	shutdownReady        chan struct{}
 	gcRunning            bool
 	pendingShutdownRoots []types.Value
 	pendingWaifBatch     []pendingWaifEntry
@@ -82,19 +83,18 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
-		tasks:       make(map[int64]*task.Task),
-		waiting:     NewTaskQueue(),
-		nextTaskID:  1,
-		registry:    vm.BuildVMRegistry(),
-		store:       store,
-		options:     options,
-		taskWork:    make(chan taskWorkItem),
-		workerCount: workerCount,
-		ctx:         ctx,
-		cancel:      cancel,
+		tasks:         make(map[int64]*task.Task),
+		waiting:       NewTaskQueue(),
+		nextTaskID:    1,
+		registry:      vm.BuildVMRegistry(),
+		store:         store,
+		options:       options,
+		taskWork:      make(chan taskWorkItem),
+		workerCount:   workerCount,
+		shutdownReady: make(chan struct{}),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
-	s.shutdownCond = sync.NewCond(&s.pendingWaifMu)
-
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
 		if tc != nil && tc.StoreTxn != nil && tc.Task != nil {
 			return s.CallVerbInContext(objID, verbName, args, tc)
@@ -177,36 +177,48 @@ func (s *Scheduler) Stop() {
 	s.workersWG.Wait()
 }
 
-// BeginShutdown closes ordinary-GC admission, waits for any batch that already
-// owns the execution barrier, then publishes shutdown and hands every queued
-// root to the checkpoint sink before returning. exec is the VM that invoked the
-// host shutdown callback when shutdown originates inside MOO code. It remains
-// separate from Stop so shutdown hooks and running tasks can finish while their
-// finalizable roots belong to the checkpoint rather than ordinary collection.
-func (s *Scheduler) BeginShutdown(exec *vm.VM) {
+// BeginShutdown closes ordinary-GC admission and returns a channel that closes
+// once the GC owner has completed and every queued root has reached the
+// checkpoint sink. A normal caller completes publication synchronously. A
+// deferred-GC :recycle caller receives the still-open channel without waiting
+// on itself; the collector publishes after the hook returns and its sweep ends.
+func (s *Scheduler) BeginShutdown(exec *vm.VM) <-chan struct{} {
 	var callerRoots []types.Value
-	if exec != nil {
+	if exec != nil && (exec.Context == nil || !exec.Context.DeferredGC) {
 		callerRoots = vm.CollectPendingFinalizationValues(s.store, exec)
 	}
 	s.pendingWaifMu.Lock()
+	ready := s.shutdownReady
 	if s.shuttingDown.Load() {
 		s.pendingWaifMu.Unlock()
 		s.appendPendingFinalizations(callerRoots)
-		return
+		return ready
 	}
 	s.pendingShutdownRoots = append(s.pendingShutdownRoots, callerRoots...)
-	if s.shutdownRequested {
-		for !s.shuttingDown.Load() {
-			s.shutdownCond.Wait()
-		}
-		s.pendingWaifMu.Unlock()
-		return
-	}
 	s.shutdownRequested = true
-	for s.gcRunning {
-		s.shutdownCond.Wait()
+	publish := false
+	if !s.gcRunning && !s.shutdownPublishing {
+		s.shutdownPublishing = true
+		publish = true
 	}
+	s.pendingWaifMu.Unlock()
+	if publish {
+		s.publishShutdown()
+	}
+	return ready
+}
+
+// publishShutdown is the single publisher for the shutdown boundary. It calls
+// the sink outside pendingWaifMu, then rechecks under the producer lock so roots
+// arriving while the sink runs are included before ready is closed.
+func (s *Scheduler) publishShutdown() {
 	for {
+		s.pendingWaifMu.Lock()
+		if s.gcRunning {
+			s.shutdownPublishing = false
+			s.pendingWaifMu.Unlock()
+			return
+		}
 		pending := s.takeDeferredFinalizationRootsLocked()
 		pending = append(pending, s.pendingShutdownRoots...)
 		s.pendingShutdownRoots = nil
@@ -217,10 +229,12 @@ func (s *Scheduler) BeginShutdown(exec *vm.VM) {
 		// before publication; once this lock observes an empty queue, publication
 		// and the empty observation are atomic with respect to every producer.
 		if len(s.pendingShutdownRoots) != 0 || len(s.pendingWaifBatch) != 0 || len(s.pendingAnonGC) != 0 {
+			s.pendingWaifMu.Unlock()
 			continue
 		}
 		s.shuttingDown.Store(true)
-		s.shutdownCond.Broadcast()
+		s.shutdownPublishing = false
+		close(s.shutdownReady)
 		s.pendingWaifMu.Unlock()
 		return
 	}

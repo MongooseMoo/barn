@@ -155,9 +155,23 @@ func (s *Server) LoadDatabase() error {
 		} else if message != "" {
 			shutdownMessage = message
 		}
-		s.scheduler.BeginShutdown(callerVM)
+		ready := s.scheduler.BeginShutdown(callerVM)
+		if ctx != nil && ctx.DeferredGC {
+			s.backgroundWG.Add(1)
+			go func() {
+				defer s.backgroundWG.Done()
+				<-ready
+				if unclean {
+					_ = s.Panic(shutdownMessage)
+					return
+				}
+				s.Shutdown(shutdownMessage)
+			}()
+			return nil
+		}
+		<-ready
 		if unclean {
-			s.Panic(shutdownMessage)
+			_ = s.Panic(shutdownMessage)
 			return nil
 		}
 		s.Shutdown(shutdownMessage)
@@ -298,8 +312,15 @@ func (s *Server) checkpoint() error {
 	start := time.Now()
 
 	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
+	taskRoots := make([]types.Value, 0)
+	for _, snapshot := range queuedTasks {
+		taskRoots = append(taskRoots, snapshot.RootValues()...)
+	}
+	for _, snapshot := range suspendedTasks {
+		taskRoots = append(taskRoots, snapshot.RootValues()...)
+	}
 	activeConnections := s.connManager.CheckpointConnections()
-	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.Snapshot(), queuedTasks, suspendedTasks, activeConnections); err != nil {
+	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.SnapshotWithRoots(taskRoots), queuedTasks, suspendedTasks, activeConnections); err != nil {
 		s.callCheckpointFinished(false)
 		return err
 	}
@@ -319,7 +340,7 @@ func (s *Server) checkpoint() error {
 
 // Shutdown initiates graceful shutdown.
 func (s *Server) Shutdown(message string) {
-	s.scheduler.BeginShutdown(nil)
+	<-s.scheduler.BeginShutdown(nil)
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
@@ -335,7 +356,7 @@ func (s *Server) Shutdown(message string) {
 // shutdown performs the actual shutdown sequence
 func (s *Server) shutdown() error {
 	slog.Info("shutting down")
-	s.scheduler.BeginShutdown(nil)
+	<-s.scheduler.BeginShutdown(nil)
 
 	s.mu.Lock()
 	message := s.shutdownMessage
@@ -378,7 +399,7 @@ func (s *Server) shutdown() error {
 func (s *Server) Panic(message string) error {
 	// Emergency checkpoints obey the same finalization ownership boundary as
 	// graceful shutdown: publish it before checkpoint hooks can hand off roots.
-	s.scheduler.BeginShutdown(nil)
+	<-s.scheduler.BeginShutdown(nil)
 	// The Go stack is the only record of where the server actually tripped;
 	// the message alone says that it died, not why.
 	slog.Error("server panic",

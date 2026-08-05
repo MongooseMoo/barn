@@ -331,9 +331,10 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Reg
 // walked then; capturing the ids up front keeps them as roots without retaining
 // the *VM (which a concurrent flush must never touch).
 type AnonGCRequest struct {
-	Ctx     *kernel.TaskContext
-	MinID   types.ObjID
-	OwnRefs map[types.ObjID]struct{}
+	Ctx       *kernel.TaskContext
+	MinID     types.ObjID
+	OwnRefs   map[types.ObjID]struct{}
+	TaskOwned bool
 }
 
 // RecycleOrphanAnonymousBatch settles several deferred collection requests
