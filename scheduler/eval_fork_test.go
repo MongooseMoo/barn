@@ -124,7 +124,7 @@ func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 	s := NewScheduler(store)
 	defer s.Stop()
 
-	lines := s.EvalCommandOutput(3, fmt.Sprintf(
+	line := s.EvalCommandOutput(3, fmt.Sprintf(
 		"fork id (0) "+
 			"#%d:suspender(); "+
 			"endfork "+
@@ -133,13 +133,10 @@ func TestEvalForkedSuspenderCanBeInspectedWithTaskStack(t *testing.T) {
 			"kill_task(id);\n"+
 			"return typeof(s);\n",
 		obj,
-	), "-=!-^-!=-", "-=!-v-!=-")
+	))
 
-	if len(lines) != 3 {
-		t.Fatalf("lines = %#v, want prefix/result/suffix", lines)
-	}
-	if lines[1] != "{1, 4}" {
-		t.Fatalf("eval result = %q, want {1, 4}", lines[1])
+	if line != "{1, 4}" {
+		t.Fatalf("eval result = %q, want {1, 4}", line)
 	}
 }
 
@@ -208,7 +205,7 @@ func TestMoveAcceptUsesCurrentTaskTransaction(t *testing.T) {
 
 	s := NewScheduler(store)
 	defer s.Stop()
-	lines := s.EvalCommandOutput(player, `
+	line := s.EvalCommandOutput(player, `
 try
   add_property(#0, "audit_move_accept_seen", $nothing, {#0, "rw"});
 except (E_INVARG)
@@ -226,10 +223,10 @@ recycle(thing);
 recycle(dest);
 delete_property(#0, "audit_move_accept_seen");
 return result;
-`, "", "")
+`)
 
-	if len(lines) != 1 || lines[0] != "{1, {1, 1}}" {
-		t.Fatalf("lines = %#v, want {1, {1, 1}}", lines)
+	if line != "{1, {1, 1}}" {
+		t.Fatalf("line = %q, want {1, {1, 1}}", line)
 	}
 }
 

@@ -707,9 +707,7 @@ func (p *InputProcessor) executeAfterVerbMissIntrinsic(conn *Connection, player 
 	case command.IntrinsicEval:
 		code := strings.TrimSpace(cmd.Argstr)
 		if code != "" {
-			for _, line := range p.runtime.EvalCommandOutput(player, code, conn.GetOutputPrefix(), conn.GetOutputSuffix()) {
-				_ = conn.Send(line)
-			}
+			_ = conn.Send(p.runtime.EvalCommandOutput(player, code))
 		}
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)
