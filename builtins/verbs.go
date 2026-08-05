@@ -528,20 +528,24 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	var resolved dbstore.ResolvedVerb
-	switch descVal.Type() {
-	case types.TYPE_STR:
-		var err error
-		resolved, err = resolveVerbOnObjectForRead(ctx, objID, descVal.Str())
-		if err != nil {
-			return types.Err(types.E_VERBNF)
+	resolveDescriptor := func() (dbstore.ResolvedVerb, bool) {
+		switch descVal.Type() {
+		case types.TYPE_STR:
+			resolved, err := resolveVerbOnObjectForRead(ctx, objID, descVal.Str())
+			return resolved, err == nil
+		case types.TYPE_INT:
+			resolved, errCode := resolveVerbByIndexForRead(ctx, objID, int(descVal.Int())-1)
+			return resolved, errCode == types.E_NONE
+		default:
+			return dbstore.ResolvedVerb{}, false
 		}
-	case types.TYPE_INT:
-		var errCode types.ErrorCode
-		resolved, errCode = resolveVerbByIndexForRead(ctx, objID, int(descVal.Int())-1)
-		if errCode != types.E_NONE {
-			return types.Err(types.E_VERBNF)
-		}
+	}
+	// Resolve before checking authority to preserve delete_verb's E_VERBNF-before-
+	// E_PERM precedence. This reference is validation-only: an authorized coarse
+	// flush below can publish this task's staged verb writes and advance the verb
+	// list generation.
+	if _, ok := resolveDescriptor(); !ok {
+		return types.Err(types.E_VERBNF)
 	}
 
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
@@ -554,6 +558,13 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 
+	// Mint the mutation reference from the post-flush view. DeleteResolvedVerb
+	// still validates this generation under the store lock, so an external
+	// mutation between this resolution and deletion fails without retargeting.
+	resolved, ok := resolveDescriptor()
+	if !ok {
+		return types.Err(types.E_VERBNF)
+	}
 	if errCode := store.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}

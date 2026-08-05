@@ -255,6 +255,60 @@ func addMetadataTestVerb(t *testing.T, f metadataPermissionFixture, name string,
 	return index
 }
 
+func TestAuthorizedDeleteVerbRefreshesResolvedIdentityAfterSelfFlush(t *testing.T) {
+	tests := []struct {
+		name       string
+		descriptor types.Value
+	}{
+		{name: "string", descriptor: types.NewStr("existing")},
+		{name: "index", descriptor: types.NewInt(1)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := newMetadataPermissionFixture(t, 0)
+			f.ctx.Programmer = f.owner
+			f.ctx.Player = f.owner
+			addMetadataTestVerb(t, f, "survivor", []string{"survivor"})
+
+			if errCode := f.ctx.StoreTxn.SetVerbCode(f.target, "survivor", []string{"return 2;"}); errCode != types.E_NONE {
+				t.Fatalf("stage SetVerbCode: %s", errCode)
+			}
+			staged, errCode := f.ctx.StoreTxn.CreateObject(
+				[]types.ObjID{types.ObjNothing},
+				f.owner,
+			)
+			if errCode != types.E_NONE {
+				t.Fatalf("stage CreateObject: %s", errCode)
+			}
+			if f.store.Valid(staged) {
+				t.Fatalf("staged object #%d unexpectedly exists in live store before delete_verb", staged)
+			}
+
+			result := builtinDeleteVerb(f.ctx, []types.Value{
+				types.NewObj(f.target),
+				test.descriptor,
+			})
+			if !result.IsNormal() {
+				t.Fatalf("authorized delete_verb after self-flush = %+v, want success", result)
+			}
+			if !f.store.Valid(staged) {
+				t.Fatalf("delete_verb did not preserve flushed object #%d", staged)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err == nil {
+				t.Fatal("delete_verb left the resolved target in the store")
+			}
+			survivor, err := f.store.FindVerbOnObject(f.target, "survivor")
+			if err != nil {
+				t.Fatalf("FindVerbOnObject(survivor): %v", err)
+			}
+			if len(survivor.Code) != 1 || survivor.Code[0] != "return 2;" {
+				t.Fatalf("flushed survivor code = %v, want [return 2;]", survivor.Code)
+			}
+		})
+	}
+}
+
 func TestDeleteVerbDeletesLoadedMultiAliasByResolvedDescriptor(t *testing.T) {
 	tests := []struct {
 		name       string
