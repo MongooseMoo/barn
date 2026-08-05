@@ -319,7 +319,7 @@ func hexValue(c byte) int {
 // - MD5 ($1$)
 // - SHA256 ($5$)
 // - SHA512 ($6$)
-// - bcrypt ($2a$, $2b$, $2x$, $2y$)
+// - bcrypt ($2a$, $2x$, $2y$)
 func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -360,43 +360,22 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
 func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.ErrorCode) {
 	// Parse algorithm and parameters from salt
-	if strings.HasPrefix(salt, bcrypt2xPrefix) {
-		// Toast parses a variable-width numeric cost and validates its range
-		// before checking permissions. The 2x backend then enforces the exact
-		// two-digit field required by bcrypt's setting format.
-		costEnd := 4
-		for costEnd < len(salt) && salt[costEnd] >= '0' && salt[costEnd] <= '9' {
-			costEnd++
-		}
-		cost, err := strconv.Atoi(salt[4:costEnd])
-		if err != nil || cost < 4 || cost > 31 {
-			return "", types.E_INVARG
-		}
-		if !isWizard && cost != 5 {
-			return "", types.E_PERM
-		}
-		result, err := cryptBcrypt2x(password, salt)
+	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, bcrypt2xPrefix) || strings.HasPrefix(salt, "$2y$") {
+		// bcrypt - first validate cost range, then check permissions
+		cost, err := parseBcryptPrefixCost(salt)
 		if err != nil {
 			return "", types.E_INVARG
 		}
-		return result, 0
-	} else if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2b$") || strings.HasPrefix(salt, "$2y$") {
-		// bcrypt - first validate cost range, then check permissions
-		if len(salt) >= 7 {
-			cost := 0
-			for i := 4; i < len(salt) && salt[i] >= '0' && salt[i] <= '9'; i++ {
-				cost = cost*10 + int(salt[i]-'0')
-			}
-			// Validate cost range (4-31) first
-			if cost < 4 || cost > 31 {
-				return "", types.E_INVARG
-			}
-			// Then check permissions - non-wizards can only use cost 5
-			if !isWizard && cost != 5 {
-				return "", types.E_PERM
-			}
+		// Non-wizards can only use Toast's default cost after validation.
+		if !isWizard && cost != 5 {
+			return "", types.E_PERM
 		}
-		result, err := cryptBcrypt(password, salt)
+		var result string
+		if strings.HasPrefix(salt, bcrypt2xPrefix) {
+			result, err = cryptBcrypt2x(password, salt)
+		} else {
+			result, err = cryptBcrypt(password, salt)
+		}
 		if err != nil {
 			return "", types.E_INVARG
 		}
@@ -783,7 +762,41 @@ func shaCryptDigest(newHash func() hash.Hash, key, saltB []byte, rounds int) []b
 	return sumA
 }
 
-// cryptBcrypt implements bcrypt ($2a$, $2b$, $2y$)
+func parseBcryptPrefixCost(salt string) (int, error) {
+	separator := strings.LastIndexByte(salt[4:], '$')
+	if separator < 0 {
+		return 0, nil
+	}
+	separator += 4
+	if len(salt) < 7 || separator == 4 {
+		return 0, fmt.Errorf("invalid bcrypt cost")
+	}
+	cost := 0
+	for _, digit := range salt[4:separator] {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("invalid bcrypt cost")
+		}
+		cost = cost*10 + int(digit-'0')
+	}
+	if cost < 4 || cost > 31 {
+		return 0, fmt.Errorf("invalid bcrypt cost: must be 4-31")
+	}
+	return cost, nil
+}
+
+func parseBcryptCost(salt string) (int, error) {
+	if len(salt) < 7 || salt[4] < '0' || salt[4] > '9' ||
+		salt[5] < '0' || salt[5] > '9' || salt[6] != '$' {
+		return 0, fmt.Errorf("invalid bcrypt cost: expected exactly two digits")
+	}
+	cost := int(salt[4]-'0')*10 + int(salt[5]-'0')
+	if cost < 4 || cost > 31 {
+		return 0, fmt.Errorf("invalid bcrypt cost: must be 4-31")
+	}
+	return cost, nil
+}
+
+// cryptBcrypt implements bcrypt ($2a$, $2y$)
 func cryptBcrypt(password, salt string) (string, error) {
 	// bcrypt format: $2a$NN$<salt>
 	// Salt can be either 16 raw bytes or 22 base64-encoded chars
@@ -792,27 +805,13 @@ func cryptBcrypt(password, salt string) (string, error) {
 	}
 	prefix := salt[:4]
 
-	// Parse cost factor (2 digits after prefix)
-	cost := 0
-	i := 4
-	for i < len(salt) && salt[i] >= '0' && salt[i] <= '9' {
-		cost = cost*10 + int(salt[i]-'0')
-		i++
+	cost, err := parseBcryptCost(salt)
+	if err != nil {
+		return "", err
 	}
-
-	// Validate cost range (4-31)
-	if cost < 4 || cost > 31 {
-		return "", fmt.Errorf("invalid bcrypt cost: must be 4-31")
-	}
-
-	// After cost should be a $
-	if i >= len(salt) || salt[i] != '$' {
-		return "", fmt.Errorf("invalid bcrypt salt: missing $ after cost")
-	}
-	i++
 
 	// Salt portion - can be 16 raw bytes or 22 base64 chars
-	saltPortion := salt[i:]
+	saltPortion := salt[7:]
 	var saltEncoded string
 	if len(saltPortion) == 16 {
 		// Raw 16 bytes - encode to 22 base64 chars
@@ -835,8 +834,8 @@ func cryptBcrypt(password, salt string) (string, error) {
 	}
 
 	hashStr := string(hash)
-	// Preserve requested variant prefix when caller used 2b/2y.
-	if (prefix == "$2b$" || prefix == "$2y$") && strings.HasPrefix(hashStr, "$2a$") {
+	// $2y$ uses the corrected bcrypt algorithm and differs only in its marker.
+	if prefix == "$2y$" && strings.HasPrefix(hashStr, "$2a$") {
 		hashStr = prefix + hashStr[4:]
 	}
 	return hashStr, nil
@@ -1392,7 +1391,7 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 			result = "$6$" + roundsPrefix + string(salt)
 		}
 
-	case strings.HasPrefix(prefixStr, "$2a$") || strings.HasPrefix(prefixStr, "$2b$"):
+	case strings.HasPrefix(prefixStr, "$2a$") || strings.HasPrefix(prefixStr, "$2y$"):
 		// bcrypt - needs 16 bytes
 		if len(randomBytes) < 16 {
 			return types.Err(types.E_INVARG)
@@ -1402,25 +1401,28 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if len(prefixStr) > 4 {
 			parts := strings.SplitN(prefixStr, "$", 4)
 			if len(parts) >= 3 {
-				if len(parts[2]) == 0 || len(parts[2]) != 2 {
+				costToken := parts[2]
+				if len(costToken) < 2 {
 					return types.Err(types.E_INVARG)
 				}
-				costStr = parts[2]
-				cost := 0
-				for _, c := range costStr {
+				for _, c := range costToken {
 					if c < '0' || c > '9' {
 						return types.Err(types.E_INVARG)
 					}
-					cost = cost*10 + int(c-'0')
+				}
+				cost, err := strconv.Atoi(costToken)
+				if err != nil {
+					return types.Err(types.E_INVARG)
 				}
 				if cost < 4 || cost > 31 {
 					return types.Err(types.E_INVARG)
 				}
+				costStr = fmt.Sprintf("%02d", cost)
 			}
 		}
 		// Encode using bcrypt's radix64 encoding
 		salt := bcryptBase64Encode(randomBytes[:16])
-		result = "$2a$" + costStr + "$" + salt
+		result = prefixStr[:4] + costStr + "$" + salt
 
 	default:
 		return types.Err(types.E_INVARG)

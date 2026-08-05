@@ -144,6 +144,8 @@ func TestCryptBcrypt2xParserAndPermissionOrdering(t *testing.T) {
 		{name: "one digit programmer", setting: "$2x$4$" + bcrypt2xTestSalt, wantErr: types.E_PERM},
 		{name: "three digits wizard", setting: "$2x$004$" + bcrypt2xTestSalt, isWizard: true, wantErr: types.E_INVARG},
 		{name: "three digits programmer", setting: "$2x$004$" + bcrypt2xTestSalt, wantErr: types.E_PERM},
+		{name: "nondigit in cost programmer", setting: "$2x$04x$" + bcrypt2xTestSalt, wantErr: types.E_INVARG},
+		{name: "missing cost separator programmer", setting: "$2x$05", wantErr: types.E_PERM},
 		{name: "exact 05 programmer", setting: "$2x$05$" + bcrypt2xTestSalt},
 		{name: "out of range before permission", setting: "$2x$03$" + bcrypt2xTestSalt, wantErr: types.E_INVARG},
 	}
