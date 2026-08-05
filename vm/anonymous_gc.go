@@ -46,9 +46,48 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 		for _, value := range frame.Locals {
 			collectAnonymousRefsForGC(value, out)
 		}
+		collectAnonymousRefsForGC(frame.ThisValue, out)
+		for _, value := range frame.Args {
+			collectAnonymousRefsForGC(value, out)
+		}
+		collectAnonymousRefsForGC(frame.SavedThisValue, out)
+		collectAnonymousRefsFromPendingError(frame.PendingError, out)
 	}
 	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
 		collectAnonymousRefsForGC(exec.Stack[i], out)
+	}
+	for _, value := range exec.PendingWaifs {
+		collectAnonymousRefsForGC(value, out)
+	}
+	collectAnonymousRefsForGC(exec.yieldResult.Val, out)
+	if fork := exec.yieldResult.ForkInfo; fork != nil {
+		collectAnonymousRefsForGC(fork.ThisValue, out)
+		for _, value := range fork.Variables {
+			collectAnonymousRefsForGC(value, out)
+		}
+	}
+	if exec.Context != nil {
+		collectAnonymousRefsForGC(exec.Context.ThisValue, out)
+		collectAnonymousRefsForGC(exec.Context.MapFirstKey, out)
+		collectAnonymousRefsForGC(exec.Context.MapLastKey, out)
+		collectAnonymousRefsForGC(exec.Context.TaskLocal, out)
+	}
+}
+
+func collectAnonymousRefsFromPendingError(err error, out map[types.ObjID]struct{}) {
+	for err != nil {
+		switch pending := err.(type) {
+		case VMException:
+			collectAnonymousRefsForGC(pending.Value, out)
+			return
+		case *VMException:
+			collectAnonymousRefsForGC(pending.Value, out)
+			return
+		case interface{ Unwrap() error }:
+			err = pending.Unwrap()
+		default:
+			return
+		}
 	}
 }
 
@@ -95,18 +134,7 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 	}
 
 	refs := make(map[types.ObjID]struct{})
-	for _, frame := range exec.Frames {
-		if frame == nil {
-			continue
-		}
-		for _, value := range frame.Locals {
-			collectAnonymousRefsForGC(value, refs)
-		}
-	}
-	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collectAnonymousRefsForGC(exec.Stack[i], refs)
-	}
-
+	collectAnonymousRefsFromVM(exec, refs)
 	return pendingFinalizationValues(refs)
 }
 

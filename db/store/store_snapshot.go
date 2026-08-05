@@ -38,14 +38,18 @@ type Snapshot struct {
 }
 
 func (s *Store) Snapshot() Snapshot {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// Snapshot is the persistence linearization point. Decentralized commits
+	// publish immutable object images while holding s.mu.RLock, so another read
+	// lock would not freeze the property graph across pending-root normalization
+	// and object copying. The exclusive lock makes the complete snapshot one
+	// coherent graph without changing commit or shutdown ordering.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	snapshot := Snapshot{
-		MaxObject:            s.maxObjectID(),
-		Objects:              make(map[types.ObjID]*SnapshotObject, s.dir.len()),
-		PropertyNames:        make(map[types.ObjID][]string, s.dir.len()),
-		PendingFinalizations: cloneValues(s.pendingFinalizations),
+		MaxObject:     s.maxObjectID(),
+		Objects:       make(map[types.ObjID]*SnapshotObject, s.dir.len()),
+		PropertyNames: make(map[types.ObjID][]string, s.dir.len()),
 	}
 
 	// Build the anonymous-object serialization plan. Anonymous objects live
@@ -60,7 +64,8 @@ func (s *Store) Snapshot() Snapshot {
 	//     unreachable/missing -> NOTHING (-1), matching Toast's db_write_anonymous
 	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
 	//     no slot and passing VALIDATE).
-	plan := s.planAnonymousSerializationLocked()
+	plan, pendingFinalizations := s.planAnonymousSerializationLocked()
+	snapshot.PendingFinalizations = pendingFinalizations
 	for i, value := range snapshot.PendingFinalizations {
 		if rewritten, changed := plan.rewriteValue(value); changed {
 			snapshot.PendingFinalizations[i] = rewritten
@@ -131,17 +136,41 @@ type anonSerializationPlan struct {
 	order   []anonSerialID
 }
 
-// planAnonymousSerializationLocked computes reachability over the out-of-band
-// anonymous objects and assigns above-max serialization ids. Callers hold s.mu.
-func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
+// planAnonymousSerializationLocked computes persistent reachability, normalizes
+// pending-finalization candidates against that frozen graph, and assigns
+// above-max serialization ids. Callers hold s.mu for the complete operation.
+// The returned pending roots are the exact roots used to seed serialization;
+// s.pendingFinalizations remains the lossless live candidate queue.
+func (s *Store) planAnonymousSerializationLocked() (*anonSerializationPlan, []types.Value) {
 	plan := &anonSerializationPlan{rewrite: make(map[types.ObjID]types.ObjID)}
 
-	// Seed: every anon id referenced by a non-anonymous live object's properties
-	// or by the pending-finalization queue. Pending roots are deliberately not
-	// persistent properties, but their complete anonymous graphs must survive the
-	// checkpoint so finalization can resume after restart.
+	// First compute persistent reachability from the same frozen graph that will
+	// be serialized. A candidate reachable here must not be written as pending:
+	// restart finalization recycles every pending value.
+	persistentSeeds := make(map[types.ObjID]struct{})
+	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
+		obj := slot.ptr.Load()
+		if obj == nil || !validLiveObject(obj) || obj.anonymous {
+			return true
+		}
+		for _, prop := range obj.properties {
+			collectAnonymousObjectRefs(prop.value, persistentSeeds)
+		}
+		return true
+	})
+	persistentReachable := make(map[types.ObjID]struct{})
+	persistentQueue := make([]types.ObjID, 0, len(persistentSeeds))
+	for id := range persistentSeeds {
+		persistentQueue = append(persistentQueue, id)
+	}
+	s.expandAnonymousReachabilityLocked(persistentReachable, persistentQueue)
+
+	pendingFinalizations := s.normalizePendingFinalizationsLocked(persistentReachable)
+
+	// Seed serialization with the persistent references and the exact normalized
+	// pending roots returned above. Raw live candidates are deliberately excluded.
 	seen := make(map[types.ObjID]struct{})
-	queue := make([]types.ObjID, 0)
+	queue := make([]types.ObjID, 0, len(persistentSeeds)+len(pendingFinalizations))
 	enqueue := func(id types.ObjID) {
 		if _, ok := seen[id]; ok {
 			return
@@ -149,26 +178,11 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		seen[id] = struct{}{}
 		queue = append(queue, id)
 	}
-	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
-		obj := slot.ptr.Load()
-		if obj == nil || !validLiveObject(obj) || obj.anonymous {
-			return true
-		}
-		for _, prop := range obj.properties {
-			refs := make(map[types.ObjID]struct{})
-			collectAnonymousObjectRefs(prop.value, refs)
-			for id := range refs {
-				enqueue(id)
-			}
-		}
-		return true
-	})
-	for _, value := range s.pendingFinalizations {
-		refs := make(map[types.ObjID]struct{})
-		collectAnonymousObjectRefs(value, refs)
-		for id := range refs {
-			enqueue(id)
-		}
+	for id := range persistentSeeds {
+		enqueue(id)
+	}
+	for _, value := range pendingFinalizations {
+		enqueue(value.ID())
 	}
 
 	// Transitively expand through anon objects that actually exist out-of-band,
@@ -213,7 +227,60 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		}
 	}
 
-	return plan
+	return plan, pendingFinalizations
+}
+
+type pendingCandidateRoot struct {
+	id      types.ObjID
+	closure map[types.ObjID]struct{}
+}
+
+// normalizePendingFinalizationsLocked filters the lossless live candidate queue
+// against frozen persistent reachability and then chooses one deterministic root
+// per still-unreachable component. Callers hold s.mu.
+func (s *Store) normalizePendingFinalizationsLocked(persistentReachable map[types.ObjID]struct{}) []types.Value {
+	candidateSet := make(map[types.ObjID]struct{})
+	for _, value := range s.pendingFinalizations {
+		collectAnonymousObjectRefs(value, candidateSet)
+	}
+
+	candidates := make([]pendingCandidateRoot, 0, len(candidateSet))
+	for id := range candidateSet {
+		if _, persistent := persistentReachable[id]; persistent {
+			continue
+		}
+		if s.lookupAnonymousLocked(id) == nil {
+			continue
+		}
+		closure := make(map[types.ObjID]struct{})
+		s.expandAnonymousReachabilityLocked(closure, []types.ObjID{id})
+		candidates = append(candidates, pendingCandidateRoot{id: id, closure: closure})
+	}
+
+	// If A reaches B, A's closure contains B's closure and is considered first.
+	// Equal closures are one cycle, where identity order chooses its canonical root.
+	sort.Slice(candidates, func(i, j int) bool {
+		if len(candidates[i].closure) != len(candidates[j].closure) {
+			return len(candidates[i].closure) > len(candidates[j].closure)
+		}
+		return candidates[i].id < candidates[j].id
+	})
+
+	covered := make(map[types.ObjID]struct{}, len(persistentReachable))
+	for id := range persistentReachable {
+		covered[id] = struct{}{}
+	}
+	roots := make([]types.Value, 0, len(candidates))
+	for _, candidate := range candidates {
+		if _, seen := covered[candidate.id]; seen {
+			continue
+		}
+		roots = append(roots, types.NewAnon(candidate.id))
+		for id := range candidate.closure {
+			covered[id] = struct{}{}
+		}
+	}
+	return roots
 }
 
 // rewriteSnapshotObject rewrites every _TYPE_ANON reference in a snapshot
