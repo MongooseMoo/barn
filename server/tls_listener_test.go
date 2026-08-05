@@ -38,7 +38,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	defer func() { _ = cm.RemoveListener(desc) }()
 
-	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port <= 0 {
+	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port != 0 {
 		t.Fatalf("unexpected descriptor: %+v", desc)
 	}
 
@@ -48,10 +48,16 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	info := infos[0]
 	if info.Protocol != builtins.ListenerProtocolTLS ||
-		info.Port != desc.Port ||
+		info.Port != 0 ||
 		!info.TLS ||
 		info.Interface != "127.0.0.1" {
 		t.Fatalf("unexpected listener info: %+v", info)
+	}
+	cm.mu.Lock()
+	boundPort := cm.listeners[listenerKeyFromDescriptor(desc)].boundPort
+	cm.mu.Unlock()
+	if boundPort <= 0 {
+		t.Fatalf("runtime TLS bound port = %d, want nonzero OS port", boundPort)
 	}
 }
 
