@@ -110,3 +110,35 @@ func TestSaltBcryptPrefixesMatchToast(t *testing.T) {
 		})
 	}
 }
+
+func TestSaltBcryptCostWidthMatchesToast(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	const randomData = "1234567890123456"
+	const encodedSalt = "KRGxLBS0Lxe3KBCwKxOzLe"
+
+	for _, prefix := range []string{"$2a$", "$2y$"} {
+		t.Run(prefix+"leading_zero", func(t *testing.T) {
+			result := builtinSalt(ctx, []types.Value{
+				types.NewStr(prefix + "004$"),
+				types.NewStr(randomData),
+			})
+			if !result.IsNormal() {
+				t.Fatalf("salt prefix %q returned %+v", prefix+"004$", result)
+			}
+			want := prefix + "04$" + encodedSalt
+			if got := result.Val.Str(); got != want {
+				t.Fatalf("salt prefix %q = %q, want %q", prefix+"004$", got, want)
+			}
+		})
+
+		t.Run(prefix+"one_digit", func(t *testing.T) {
+			result := builtinSalt(ctx, []types.Value{
+				types.NewStr(prefix + "4$"),
+				types.NewStr(randomData),
+			})
+			if !result.IsError() || result.Error != types.E_INVARG {
+				t.Fatalf("salt prefix %q = %+v, want E_INVARG", prefix+"4$", result)
+			}
+		})
+	}
+}

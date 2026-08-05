@@ -1396,20 +1396,23 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if len(prefixStr) > 4 {
 			parts := strings.SplitN(prefixStr, "$", 4)
 			if len(parts) >= 3 {
-				if len(parts[2]) == 0 || len(parts[2]) != 2 {
+				costToken := parts[2]
+				if len(costToken) < 2 {
 					return types.Err(types.E_INVARG)
 				}
-				costStr = parts[2]
-				cost := 0
-				for _, c := range costStr {
+				for _, c := range costToken {
 					if c < '0' || c > '9' {
 						return types.Err(types.E_INVARG)
 					}
-					cost = cost*10 + int(c-'0')
+				}
+				cost, err := strconv.Atoi(costToken)
+				if err != nil {
+					return types.Err(types.E_INVARG)
 				}
 				if cost < 4 || cost > 31 {
 					return types.Err(types.E_INVARG)
 				}
+				costStr = fmt.Sprintf("%02d", cost)
 			}
 		}
 		// Encode using bcrypt's radix64 encoding
