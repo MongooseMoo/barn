@@ -49,7 +49,10 @@ func TestReview_UnparseForWithIndexVar(t *testing.T) {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
 
-	lines := FormatMOO(stmts)
+	lines, err := FormatMOO(stmts)
+	if err != nil {
+		t.Fatalf("FormatMOO() error = %v", err)
+	}
 	got := strings.Join(lines, "\n")
 
 	// The unparser must emit the `for value, index in (container)` surface
@@ -64,7 +67,11 @@ func TestReview_UnparseForWithIndexVar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BUG: unparsed for-with-index source failed to re-parse: %v\nsource:\n%s", err, got)
 	}
-	got2 := strings.Join(FormatMOO(stmts2), "\n")
+	lines2, err := FormatMOO(stmts2)
+	if err != nil {
+		t.Fatalf("second FormatMOO() error = %v", err)
+	}
+	got2 := strings.Join(lines2, "\n")
 	if got != got2 {
 		t.Fatalf("BUG: for-with-index round-trip not stable:\nfirst:\n%s\nsecond:\n%s", got, got2)
 	}

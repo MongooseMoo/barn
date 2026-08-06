@@ -43,7 +43,11 @@ func TestFormatMOOPreservesCanonicalBitwiseAndSpelling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseProgram() error = %v", err)
 	}
-	if got, want := strings.Join(parser.FormatMOO(program), "\n"), "1 &. 2;"; got != want {
+	lines, err := parser.FormatMOO(program)
+	if err != nil {
+		t.Fatalf("FormatMOO() error = %v", err)
+	}
+	if got, want := strings.Join(lines, "\n"), "1 &. 2;"; got != want {
 		t.Fatalf("FormatMOO() = %q, want %q", got, want)
 	}
 }
@@ -53,7 +57,11 @@ func TestFormatMOOPreservesCanonicalBitwiseOrSpelling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseProgram() error = %v", err)
 	}
-	if got, want := strings.Join(parser.FormatMOO(program), "\n"), "1 |. 2;"; got != want {
+	lines, err := parser.FormatMOO(program)
+	if err != nil {
+		t.Fatalf("FormatMOO() error = %v", err)
+	}
+	if got, want := strings.Join(lines, "\n"), "1 |. 2;"; got != want {
 		t.Fatalf("FormatMOO() = %q, want %q", got, want)
 	}
 }
@@ -63,7 +71,11 @@ func TestFormatMOOPreservesCanonicalBitwiseXorSpelling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseProgram() error = %v", err)
 	}
-	if got, want := strings.Join(parser.FormatMOO(program), "\n"), "1 ^. 2;"; got != want {
+	lines, err := parser.FormatMOO(program)
+	if err != nil {
+		t.Fatalf("FormatMOO() error = %v", err)
+	}
+	if got, want := strings.Join(lines, "\n"), "1 ^. 2;"; got != want {
 		t.Fatalf("FormatMOO() = %q, want %q", got, want)
 	}
 }
@@ -106,7 +118,11 @@ func assertCanonicalRoundTrip(t *testing.T, source string) {
 	if err != nil {
 		t.Fatalf("initial parse error = %v\nsource:\n%s", err, source)
 	}
-	formatted := strings.Join(parser.FormatMOO(original), "\n")
+	formattedLines, err := parser.FormatMOO(original)
+	if err != nil {
+		t.Fatalf("FormatMOO() error = %v", err)
+	}
+	formatted := strings.Join(formattedLines, "\n")
 	reparsed, err := parser.NewParser(formatted).ParseProgram()
 	if err != nil {
 		t.Fatalf("formatted parse error = %v\nformatted:\n%s", err, formatted)
@@ -114,7 +130,11 @@ func assertCanonicalRoundTrip(t *testing.T, source string) {
 	if !reflect.DeepEqual(withoutPositions(reflect.ValueOf(original)).Interface(), withoutPositions(reflect.ValueOf(reparsed)).Interface()) {
 		t.Fatalf("semantic IR changed\nsource:\n%s\nformatted:\n%s", source, formatted)
 	}
-	formattedAgain := strings.Join(parser.FormatMOO(reparsed), "\n")
+	formattedAgainLines, err := parser.FormatMOO(reparsed)
+	if err != nil {
+		t.Fatalf("second FormatMOO() error = %v", err)
+	}
+	formattedAgain := strings.Join(formattedAgainLines, "\n")
 	if formattedAgain != formatted {
 		t.Fatalf("formatter is unstable\nfirst:\n%s\nsecond:\n%s", formatted, formattedAgain)
 	}
