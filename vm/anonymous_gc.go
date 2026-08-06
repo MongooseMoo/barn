@@ -74,9 +74,15 @@ func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct
 	return store.UnreachableAnonymousValues(reachable, refs)
 }
 
-func expandAnonymousReachability(store *dbstore.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+func expandAnonymousReachability(store *dbstore.Store, tx *dbstore.StoreTxn, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if store != nil {
 		store.ExpandAnonymousReachability(reachable, refs)
+	}
+	if tx != nil {
+		// Add the owning task's in-flight property graph without replacing the
+		// live expansion: refs from sibling VMs may postdate this transaction's
+		// snapshot and must remain protected by the live-store walk.
+		tx.ExpandAnonymousReachability(reachable, refs)
 	}
 }
 
@@ -160,7 +166,7 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 			liveRefs[id] = struct{}{}
 		}
 	}
-	expandAnonymousReachability(store, reachable, liveRefs)
+	expandAnonymousReachability(store, nil, reachable, liveRefs)
 
 	recycleFn, ok := registry.Get("recycle")
 	if !ok {
@@ -215,7 +221,7 @@ func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Re
 	for _, exec := range localVMs {
 		collectAnonymousRefsFromVM(exec, liveRefs)
 	}
-	expandAnonymousReachability(store, reachable, liveRefs)
+	expandAnonymousReachability(store, ctx.StoreTxn, reachable, liveRefs)
 
 	candidates := store.AnonymousRecycleCandidates(reachable, minID)
 	if len(candidates) == 0 {
