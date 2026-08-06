@@ -94,8 +94,11 @@ func TestCryptBcrypt2xPasswordBoundaries(t *testing.T) {
 		return got
 	}
 
-	t.Run("empty password succeeds", func(t *testing.T) {
-		hash2x(t, "")
+	t.Run("empty password known answer", func(t *testing.T) {
+		const want = "$2x$05$CCCCCCCCCCCCCCCCCCCCC.7uG0VCzI2bS7j6ymqJi9CdcdxiRTWNy"
+		if got := hash2x(t, ""); got != want {
+			t.Errorf("empty-password hash = %q, want %q", got, want)
+		}
 	})
 
 	t.Run("embedded NUL terminates password", func(t *testing.T) {
