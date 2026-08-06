@@ -27,6 +27,13 @@ func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	names, err := definedPropertyNamesForRead(ctx, objID)
 	if err != types.E_NONE {
@@ -328,6 +335,13 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	if !isWizard && owner != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	prop := dbstore.NewProperty(value, owner, perms, false, true)
 	var defineErr types.ErrorCode
@@ -379,8 +393,13 @@ func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Re
 	if !ok || !prop.Defined {
 		return types.Err(types.E_PROPNF)
 	}
-
-	// TODO: Check permissions (owner or wizard)
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	var deleteErr types.ErrorCode
 	if tx := readTxn(ctx); tx != nil {

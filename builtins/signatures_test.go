@@ -81,3 +81,49 @@ func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
 		t.Fatalf("dump_database did not call checkpoint request function")
 	}
 }
+
+func TestBuiltinFinishedTasksPermissionAndValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		isWizard  bool
+		args      []types.Value
+		wantError types.ErrorCode
+		wantList  bool
+	}{
+		{
+			name:      "non_wizard_denied",
+			wantError: types.E_PERM,
+		},
+		{
+			name:      "arity_precedes_permission",
+			args:      []types.Value{types.NewInt(1)},
+			wantError: types.E_ARGS,
+		},
+		{
+			name:     "wizard_receives_list",
+			isWizard: true,
+			wantList: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := kernel.NewTaskContext()
+			ctx.IsWizard = tc.isWizard
+
+			result := builtinFinishedTasks(ctx, tc.args)
+			if tc.wantError != types.E_NONE {
+				if !result.IsError() || result.Error != tc.wantError {
+					t.Fatalf("finished_tasks result = %+v, want %s", result, tc.wantError)
+				}
+				return
+			}
+			if !result.IsNormal() {
+				t.Fatalf("finished_tasks result = %+v, want normal", result)
+			}
+			if tc.wantList && result.Val.Type() != types.TYPE_LIST {
+				t.Fatalf("finished_tasks result type = %s, want LIST", result.Val.Type())
+			}
+		})
+	}
+}
