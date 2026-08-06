@@ -72,3 +72,49 @@ func TestExplicitRunGCPreservesAnonymousCycleHeldBySuspendedSiblingVMs(t *testin
 		}
 	}
 }
+
+func TestExplicitRunGCSkipsSweepWhileSiblingVMIsRunning(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetLocation(types.ObjNothing)
+	root.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+
+	held, errCode := store.CreateObject(nil, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous object: %v", errCode)
+	}
+	if errCode := store.DefineProperty(0, "hold_running", dbstore.NewProperty(types.NewAnon(held), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define #0.hold_running: %v", errCode)
+	}
+
+	scheduler := NewScheduler(store)
+	defer scheduler.Stop()
+	defer removeTasksForOwner(scheduler, 0)
+	program := compileTestProgram(t, scheduler.registry, "held = #0.hold_running; suspend(); return held;")
+	taskID := scheduler.CreateBackgroundTask(0, program, 0)
+	if got := scheduler.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("processed tasks = %d, want one holder", got)
+	}
+	holder := scheduler.GetTask(taskID)
+	if state := holder.GetState(); state != task.TaskSuspended {
+		t.Fatalf("task %d state = %v, want suspended before marking running", taskID, state)
+	}
+	if holder.BytecodeVMValue() == nil {
+		t.Fatalf("task %d has no saved VM", taskID)
+	}
+	holder.SetState(task.TaskRunning)
+	if errCode := store.DeleteDefinedProperty(0, "hold_running"); errCode != types.E_NONE {
+		t.Fatalf("delete #0.hold_running: %v", errCode)
+	}
+
+	if lines := scheduler.EvalCommandOutput(0, "run_gc(); return 1;", "", ""); len(lines) != 1 || lines[0] != "{1, 1}" {
+		t.Fatalf("run_gc eval output = %v, want successful return", lines)
+	}
+	if !store.Valid(held) {
+		t.Fatalf("running sibling's anonymous object #%d was recycled by explicit run_gc", held)
+	}
+}

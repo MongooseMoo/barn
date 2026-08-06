@@ -107,7 +107,10 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 		if ctx != nil {
 			current, _ = ctx.Task.(*task.Task)
 		}
-		siblingAnon, _ := s.collectSiblingGCRefs(current)
+		siblingAnon, ok := s.collectExplicitGlobalGCSiblingRefs(current)
+		if !ok {
+			return nil
+		}
 		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, ctx, 0, siblingAnon)
 		return nil
 	})
@@ -425,6 +428,33 @@ func (s *Scheduler) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifR
 		}
 	}
 	return anonRefs, waifRefs, true
+}
+
+// collectExplicitGlobalGCSiblingRefs snapshots the anonymous references held by
+// every live task other than the run_gc() caller. A global sweep cannot safely
+// inspect a running sibling's mutating VM, and unlike per-task floor GC it also
+// cannot prove that the sibling has no reference to an existing candidate. It
+// therefore fails closed when any other live task is running.
+func (s *Scheduler) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	anonRefs = make(map[types.ObjID]struct{})
+	for _, sibling := range s.tasks {
+		if sibling == nil || (exclude != nil && sibling.ID == exclude.ID) {
+			continue
+		}
+		switch sibling.GetState() {
+		case task.TaskCompleted, task.TaskKilled:
+			continue
+		case task.TaskRunning:
+			return nil, false
+		}
+		if exec, isVM := sibling.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
+		}
+	}
+	return anonRefs, true
 }
 
 // collectSiblingGCRefs snapshots the anonymous-object and waif references held by
