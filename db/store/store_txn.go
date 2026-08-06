@@ -2072,6 +2072,35 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 	}
 }
 
+// CommitAndRenew publishes this transaction's staged writes through the ordinary
+// validated commit path, then replaces it with a fresh transaction at the store's
+// current clock. It is used at coarse runtime boundaries that must expose all prior
+// task writes to a live-store operation and give subsequent callbacks a current
+// read view. A failed commit leaves this transaction, its writes, and its read view
+// intact. The replacement preserves an escalation-gate exemption held by the
+// caller's current scheduler attempt.
+func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
+	if tx == nil || tx.store == nil {
+		return tx, false, types.E_INVARG
+	}
+
+	publishedWrites = tx.HasWrites()
+	if publishedWrites {
+		if errCode := tx.Commit(); errCode != types.E_NONE {
+			return tx, false, errCode
+		}
+	}
+
+	store := tx.store
+	gateExempt := tx.gateExempt
+	tx.Release()
+	next = store.BeginReadOnly(0)
+	if gateExempt {
+		next.ExemptFromCommitGate()
+	}
+	return next, publishedWrites, types.E_NONE
+}
+
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
 		return types.E_NONE
@@ -2703,6 +2732,22 @@ func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbVi
 	return verb.View(), nil
 }
 
+// ResolveVerbOnObject resolves verbName against the transaction's object
+// snapshot and returns an opaque reference for Store.DeleteResolvedVerb.
+func (tx *StoreTxn) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
+	verb, err := tx.findVerbOnObject(objID, verbName)
+	if err != nil {
+		return ResolvedVerb{}, err
+	}
+	obj := tx.object(objID)
+	for index, candidate := range obj.verbList {
+		if candidate == verb {
+			return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, nil
+		}
+	}
+	return ResolvedVerb{}, fmt.Errorf("verb not found: %s", verbName)
+}
+
 func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb, error) {
 	obj := tx.object(objID)
 	if obj == nil || obj.recycled {
@@ -2757,6 +2802,22 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 	verb := obj.verbList[index]
 	tx.markVerbRead(objID, verb)
 	return verb.View(), types.E_NONE
+}
+
+// ResolveVerbByIndex resolves an index against the transaction's object
+// snapshot and returns an opaque reference for Store.DeleteResolvedVerb.
+func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return ResolvedVerb{}, types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.verbList) {
+		return ResolvedVerb{}, types.E_RANGE
+	}
+	tx.markVerbScan(objID, obj)
+	verb := obj.verbList[index]
+	tx.markVerbRead(objID, verb)
+	return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, types.E_NONE
 }
 
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {

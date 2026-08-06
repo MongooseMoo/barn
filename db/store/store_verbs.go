@@ -81,6 +81,17 @@ type VerbCandidate struct {
 	Verb    VerbView
 }
 
+// ResolvedVerb is an opaque reference to one verb definition in one version of
+// an object's ordered verb list. It lets a caller resolve a string or index
+// descriptor once, perform permission checks, and then delete that exact verb
+// without a second name lookup that could select a different overlapping alias.
+type ResolvedVerb struct {
+	store       *Store
+	objID       types.ObjID
+	index       int
+	listVersion uint64
+}
+
 func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -287,6 +298,25 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, 
 	return verb.View(), nil
 }
 
+// ResolveVerbOnObject resolves verbName on objID itself and returns an opaque
+// reference suitable for DeleteResolvedVerb.
+func (s *Store) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	verb, err := s.findVerbOnObjectLocked(objID, verbName)
+	if err != nil {
+		return ResolvedVerb{}, err
+	}
+	for index, candidate := range obj.verbList {
+		if candidate == verb {
+			return ResolvedVerb{store: s, objID: objID, index: index, listVersion: obj.verbVersion}, nil
+		}
+	}
+	return ResolvedVerb{}, fmt.Errorf("verb not found: %s", verbName)
+}
+
 func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Verb, error) {
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
@@ -347,6 +377,22 @@ func (s *Store) VerbByIndex(objID types.ObjID, index int) (VerbView, types.Error
 	return obj.verbList[index].View(), types.E_NONE
 }
 
+// ResolveVerbByIndex resolves an index on objID to an opaque reference suitable
+// for DeleteResolvedVerb.
+func (s *Store) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
+		return ResolvedVerb{}, types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.verbList) {
+		return ResolvedVerb{}, types.E_RANGE
+	}
+	return ResolvedVerb{store: s, objID: objID, index: index, listVersion: obj.verbVersion}, types.E_NONE
+}
+
 func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -391,13 +437,43 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 	if err != nil || verb == nil {
 		return types.E_VERBNF
 	}
+	for index, candidate := range obj.verbList {
+		if candidate == verb {
+			return s.deleteResolvedVerbLocked(ResolvedVerb{
+				store:       s,
+				objID:       objID,
+				index:       index,
+				listVersion: obj.verbVersion,
+			})
+		}
+	}
+	return types.E_VERBNF
+}
 
-	obj = s.republishForMutation(obj)
-	// verb was resolved from the old image; re-resolve from the fresh image so the
-	// pointer-identity delete below matches the fresh verb node.
-	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
+// DeleteResolvedVerb deletes exactly the definition previously selected by a
+// ResolveVerb call. If the object's verb list changed after resolution, it
+// fails without mutation instead of applying a stale index to another verb.
+func (s *Store) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.deleteResolvedVerbLocked(resolved)
+}
+
+func (s *Store) deleteResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode {
+	if resolved.store != s {
 		return types.E_VERBNF
 	}
+	obj := s.liveObjectLocked(resolved.objID)
+	if obj == nil {
+		return types.E_INVIND
+	}
+	if obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
+		return types.E_VERBNF
+	}
+
+	obj = s.republishForMutation(obj)
+	verb := obj.verbList[resolved.index]
 	ts := s.bumpClockLocked()
 	keysToRefresh := make([]string, 0, 1)
 	for key, entry := range obj.verbs {

@@ -29,18 +29,19 @@ type Connection struct {
 	// connection's host (real remote port preserved), matching ToastStunt's
 	// proxy_rewrite: connection_name and the trusted-proxy check both see the
 	// announced client address from then on.
-	proxiedIP      string
-	connectedAt    time.Time
-	ConnectionTime time.Time // Set when login completes (zero means not yet logged in)
-	lastInput      time.Time
-	outputCounter  int
-	programming    *programmingMode
-	listenerObject types.ObjID
-	listenerPort   int64
-	printMessages  bool
-	outbound       bool
-	outboundSource string
-	outboundDest   string
+	proxiedIP       string
+	connectedAt     time.Time
+	ConnectionTime  time.Time // Set when login completes (zero means not yet logged in)
+	lastInput       time.Time
+	outputCounter   int
+	programming     *programmingMode
+	listenerObject  types.ObjID
+	listenerPort    int64
+	listenerPortSet bool
+	printMessages   bool
+	outbound        bool
+	outboundSource  string
+	outboundDest    string
 	// loginTaskID is the scheduler task ID of an in-flight login-hook task for
 	// this (not-yet-logged-in) connection, or 0 if none. Used to (a) avoid
 	// spawning a parallel do_login_command while one is already running/reading
@@ -249,6 +250,7 @@ func (c *Connection) SetListener(object types.ObjID, port int64, printMessages b
 	defer c.mu.Unlock()
 	c.listenerObject = object
 	c.listenerPort = port
+	c.listenerPortSet = true
 	c.printMessages = printMessages
 }
 
@@ -258,10 +260,10 @@ func (c *Connection) ListenerObject() types.ObjID {
 	return c.listenerObject
 }
 
-func (c *Connection) ListenerPort() int64 {
+func (c *Connection) ListenerPort() (int64, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.listenerPort
+	return c.listenerPort, c.listenerPortSet
 }
 
 func (c *Connection) PrintMessages() bool {

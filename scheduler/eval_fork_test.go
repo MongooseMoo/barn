@@ -33,7 +33,9 @@ func (c *evalCommandStubConn) BufferedOutputLength() int { return 0 }
 func (c *evalCommandStubConn) ConnectedSeconds() int64   { return 0 }
 func (c *evalCommandStubConn) IdleSeconds() int64        { return 0 }
 func (c *evalCommandStubConn) GetResolvedName() string   { return "" }
-func (c *evalCommandStubConn) ListenerPort() int64       { return 0 }
+func (c *evalCommandStubConn) ListenerPort() (int64, bool) {
+	return 0, false
+}
 
 type evalCommandStubConnManager struct {
 	player           types.ObjID
@@ -284,6 +286,75 @@ return {pi[1] == b && pi[2] == "", c.foo == "foo"};
 		if conn.sent[i] != want[i] {
 			t.Fatalf("sent = %#v, want %#v", conn.sent, want)
 		}
+	}
+}
+
+func TestCommandEvalRunGCCyclicAnonymousChainCompletes(t *testing.T) {
+	for _, length := range []int{3, 5, 6} {
+		t.Run(fmt.Sprintf("length_%d", length), func(t *testing.T) {
+			database, err := dbformat.LoadDatabase(filepath.Join("..", "Test_conf.db"))
+			if err != nil {
+				t.Fatalf("LoadDatabase failed: %v", err)
+			}
+			store := database.NewStoreFromDatabase()
+			s := NewScheduler(store)
+			defer s.Stop()
+
+			conn := &evalCommandStubConn{}
+			s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: 3, conn: conn})
+			source := fmt.Sprintf(`
+c = head = tail = #-1;
+try
+  c = create($nothing);
+  add_property(c, "next", 0, {player, ""});
+  x = y = create(c, 1);
+  head = tail = x;
+  for i in [1..%d]
+    x.next = create(c, 1);
+    x = x.next;
+    tail = x;
+  endfor
+  x.next = y;
+  run_gc();
+  recycle(y);
+  x = y = 0;
+  head = tail = #-1;
+  run_gc();
+  recycle(c);
+  run_gc();
+  return 1;
+finally
+  if (valid(tail))
+    recycle(tail);
+  endif
+  if (valid(head))
+    recycle(head);
+  endif
+  if (valid(c))
+    recycle(c);
+  endif
+endtry
+`, length)
+			code := strings.Join(strings.FieldsFunc(source, func(r rune) bool {
+				return r == '\n' || r == '\r'
+			}), " ")
+			cmd := command.ParseCommand("eval " + code)
+			match := command.FindVerb(store, 3, 2, cmd)
+			if match == nil {
+				t.Fatal("FindVerb eval returned nil")
+			}
+			s.ExecuteVerbTaskSync(3, match, cmd, "")
+
+			want := []string{"-=!-^-!=-", "{1, 1}", "-=!-v-!=-"}
+			if len(conn.sent) != len(want) {
+				t.Fatalf("sent = %#v, want %#v", conn.sent, want)
+			}
+			for i := range want {
+				if conn.sent[i] != want[i] {
+					t.Fatalf("sent = %#v, want %#v", conn.sent, want)
+				}
+			}
+		})
 	}
 }
 

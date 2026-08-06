@@ -299,7 +299,7 @@ func (s *Server) checkpoint() error {
 
 	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
 	activeConnections := s.connManager.CheckpointConnections()
-	if err := dbformat.WriteCheckpoint(s.dbPath, s.store.Snapshot(), queuedTasks, suspendedTasks, activeConnections); err != nil {
+	if err := dbformat.WriteCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 		s.callCheckpointFinished(false)
 		return err
 	}

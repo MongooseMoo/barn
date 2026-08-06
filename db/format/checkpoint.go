@@ -6,15 +6,39 @@ import (
 
 	"barn/db/store"
 	"barn/task"
+	"barn/types"
 )
 
 // WriteCheckpoint writes a database checkpoint to path+".new", never modifying path.
 func WriteCheckpoint(
 	path string,
-	snapshot store.Snapshot,
+	objectStore *store.Store,
 	queuedTasks, suspendedTasks []task.Snapshot,
 	activeConnections []ActiveConnection,
 ) error {
+	if objectStore == nil {
+		return fmt.Errorf("snapshot store is nil")
+	}
+
+	taskRoots := make([]types.Value, 0)
+	collectRoot := func(value types.Value) types.Value {
+		taskRoots = append(taskRoots, value)
+		return value
+	}
+	for index := range queuedTasks {
+		queuedTasks[index].TransformPersistenceValues(collectRoot)
+	}
+	for index := range suspendedTasks {
+		suspendedTasks[index].TransformPersistenceValues(collectRoot)
+	}
+	snapshot, rewriter := objectStore.SnapshotWithRoots(taskRoots)
+	for index := range queuedTasks {
+		queuedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
+	}
+	for index := range suspendedTasks {
+		suspendedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
+	}
+
 	outPath := path + ".new"
 	tempPath := path + ".tmp"
 	tempFile, err := os.Create(tempPath)
