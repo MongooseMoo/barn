@@ -67,8 +67,8 @@ func TestExplicitRunGCPreservesAnonymousCycleHeldBySuspendedSiblingVMs(t *testin
 		}
 	}
 
-	if lines := scheduler.EvalCommandOutput(0, "run_gc(); return 1;", "", ""); len(lines) != 1 || lines[0] != "{1, 1}" {
-		t.Fatalf("run_gc eval output = %v, want successful return", lines)
+	if line := scheduler.EvalCommandOutput(0, "run_gc(); return 1;"); line != "{1, 1}" {
+		t.Fatalf("run_gc eval output = %q, want successful return", line)
 	}
 	for _, id := range []types.ObjID{anonA, anonB} {
 		if !store.Valid(id) {
@@ -165,8 +165,8 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		}
 	}
 
-	if lines := scheduler.EvalCommandOutput(0, "run_gc(); return 1;", "", ""); len(lines) != 1 || lines[0] != "{1, 1}" {
-		t.Fatalf("run_gc eval output = %v, want successful return", lines)
+	if line := scheduler.EvalCommandOutput(0, "run_gc(); return 1;"); line != "{1, 1}" {
+		t.Fatalf("run_gc eval output = %q, want successful return", line)
 	}
 	for _, id := range []types.ObjID{held, orphan} {
 		if !store.Valid(id) {
@@ -190,8 +190,8 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		t.Fatalf("task %d saved VM after handoff = %p, want resumed VM %p", taskID, savedAfter, savedBeforeResume)
 	}
 
-	if lines := scheduler.EvalCommandOutput(0, "run_gc(); return 1;", "", ""); len(lines) != 1 || lines[0] != "{1, 1}" {
-		t.Fatalf("post-handoff run_gc eval output = %v, want successful return", lines)
+	if line := scheduler.EvalCommandOutput(0, "run_gc(); return 1;"); line != "{1, 1}" {
+		t.Fatalf("post-handoff run_gc eval output = %q, want successful return", line)
 	}
 	if !store.Valid(held) {
 		t.Fatalf("saved suspended VM's anonymous object #%d was recycled", held)
@@ -397,8 +397,8 @@ func TestNestedEvalInitializeRunGCFailsClosedOverOuterVMRoots(t *testing.T) {
 	scheduler := NewScheduler(store)
 	defer scheduler.Stop()
 	code := fmt.Sprintf("held = create(#0, 1); created = create(#%d); return valid(held);", prototype)
-	if lines := scheduler.EvalCommandOutput(0, code, "", ""); len(lines) != 1 || lines[0] != "{1, 1}" {
-		t.Fatalf("nested eval run_gc output = %v, want outer anonymous root to remain valid", lines)
+	if line := scheduler.EvalCommandOutput(0, code); line != "{1, 1}" {
+		t.Fatalf("nested eval run_gc output = %q, want outer anonymous root to remain valid", line)
 	}
 }
 

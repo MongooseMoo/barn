@@ -15,20 +15,15 @@ import (
 	"barn/vm"
 )
 
-// EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command.
-func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix string) (lines []string) {
+// EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command
+// and returns its single result record. The server input boundary owns framing.
+func (s *Scheduler) EvalCommandOutput(player types.ObjID, code string) (line string) {
 	var executionTask *task.Task
 	var executionCtx *kernel.TaskContext
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			if prefix != "" {
-				lines = append(lines, prefix)
-			}
-			lines = append(lines, fmt.Sprintf("{0, {\"Internal error: %v\"}}", r))
-			if suffix != "" {
-				lines = append(lines, suffix)
-			}
+			line = fmt.Sprintf("{0, {\"Internal error: %v\"}}", r)
 			metrics.PanicsRecovered.Add(1)
 			slog.Error("panic in eval",
 				slog.Int64("player", int64(player)),
@@ -49,19 +44,12 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 
 	prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), s.registry)
 	if len(diagnostics) > 0 {
-		if prefix != "" {
-			lines = append(lines, prefix)
-		}
 		kind := "Compile error"
 		if diagnostics[0].Stage == compiler.SyntaxStage {
 			kind = "Parse error"
 		}
 		errMsg := fmt.Sprintf("{0, {\"%s: %s\"}}", kind, diagnostics[0].Message)
-		lines = append(lines, errMsg)
-		if suffix != "" {
-			lines = append(lines, suffix)
-		}
-		return lines
+		return errMsg
 	}
 
 	// Execute the code synchronously
@@ -233,12 +221,9 @@ resumeLoop:
 		}()
 	}
 
-	// Send result wrapped with prefix/suffix in ToastStunt eval format:
+	// Return one result record in ToastStunt eval format:
 	// Success: {1, value}
 	// Runtime error: {2, {E_TYPE, "message", value}}
-	if prefix != "" {
-		lines = append(lines, prefix)
-	}
 	var resultStr string
 	if result.Flow == types.FlowException {
 		// Runtime error: {2, {E_TYPE, "message", value}}
@@ -252,9 +237,5 @@ resumeLoop:
 		// Success with no return value: {1, 0}
 		resultStr = "{1, 0}"
 	}
-	lines = append(lines, resultStr)
-	if suffix != "" {
-		lines = append(lines, suffix)
-	}
-	return lines
+	return resultStr
 }
