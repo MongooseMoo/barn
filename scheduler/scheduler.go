@@ -22,7 +22,13 @@ import (
 
 // Scheduler manages task and VM execution.
 type Scheduler struct {
-	tasks                   map[int64]*task.Task
+	tasks map[int64]*task.Task
+	// executingTasks counts physical VM-execution leases by task ID. Counts, rather
+	// than a boolean set, remain truthful if the duplicate-dispatch defect tracked
+	// separately in #30 runs the same task twice. Logical task state may become
+	// suspended before runTask finishes mutating and publishing its VM. Every access
+	// is protected by mu.
+	executingTasks          map[int64]int
 	waiting                 *TaskQueue
 	nextTaskID              int64
 	queueSeq                int64
@@ -77,16 +83,17 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
-		tasks:       make(map[int64]*task.Task),
-		waiting:     NewTaskQueue(),
-		nextTaskID:  1,
-		registry:    vm.BuildVMRegistry(),
-		store:       store,
-		options:     options,
-		taskWork:    make(chan taskWorkItem),
-		workerCount: workerCount,
-		ctx:         ctx,
-		cancel:      cancel,
+		tasks:          make(map[int64]*task.Task),
+		executingTasks: make(map[int64]int),
+		waiting:        NewTaskQueue(),
+		nextTaskID:     1,
+		registry:       vm.BuildVMRegistry(),
+		store:          store,
+		options:        options,
+		taskWork:       make(chan taskWorkItem),
+		workerCount:    workerCount,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
@@ -157,6 +164,23 @@ func (s *Scheduler) LiveTaskCount() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return int64(len(s.tasks))
+}
+
+func (s *Scheduler) acquireTaskExecution(t *task.Task) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executingTasks[t.ID]++
+	t.SetState(task.TaskRunning)
+}
+
+func (s *Scheduler) releaseTaskExecution(taskID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if count := s.executingTasks[taskID]; count > 1 {
+		s.executingTasks[taskID] = count - 1
+	} else {
+		delete(s.executingTasks, taskID)
+	}
 }
 
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
@@ -400,17 +424,17 @@ func (s *Scheduler) YieldReadyTasks() int {
 // collectSiblingGCRefs, with one stricter requirement: the flush must see EVERY live
 // task's locals as roots, not merely the ones it happens to be able to read.
 //
-// A running task is therefore fatal rather than skippable. Its VM is being mutated on
-// another goroutine, so it can neither be walked here (the data race collectSiblingGCRefs
-// exists to avoid) nor ignored (its locals are roots). The per-task inline sweep could
-// skip running siblings because a task's own uncommitted creations are not yet visible
-// to them; a deferred batch has no such argument, because the tasks that enqueued it
-// have since committed. So when any task is running we report ok=false and the caller
-// leaves the batches queued for the next quiescent pass.
+// An actively executing task is therefore fatal rather than skippable. Its VM is being
+// mutated on another goroutine, so it can neither be walked here nor ignored (its locals
+// are roots). Logical TaskRunning is insufficient because suspend records a suspended
+// state before VM handoff completes. When any physical execution lease is active, the
+// caller leaves the batches queued for the next quiescent pass.
 func (s *Scheduler) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	if len(s.executingTasks) != 0 {
+		return nil, nil, false
+	}
 	anonRefs = make(map[types.ObjID]struct{})
 	for _, t := range s.tasks {
 		if t == nil {
@@ -432,13 +456,17 @@ func (s *Scheduler) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifR
 
 // collectExplicitGlobalGCSiblingRefs snapshots the anonymous references held by
 // every live task other than the run_gc() caller. A global sweep cannot safely
-// inspect a running sibling's mutating VM, and unlike per-task floor GC it also
-// cannot prove that the sibling has no reference to an existing candidate. It
-// therefore fails closed when any other live task is running.
+// inspect an actively executing sibling's mutating VM, and unlike per-task floor
+// GC it also cannot prove that the sibling has no reference to an existing
+// candidate. It therefore fails closed on any other physical execution lease.
 func (s *Scheduler) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	for id, count := range s.executingTasks {
+		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
+			return nil, false
+		}
+	}
 	anonRefs = make(map[types.ObjID]struct{})
 	for _, sibling := range s.tasks {
 		if sibling == nil || (exclude != nil && sibling.ID == exclude.ID) {
@@ -462,14 +490,14 @@ func (s *Scheduler) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anon
 // finalization. The references are collected here, under s.mu, rather than by handing
 // VM pointers back to be walked after the lock is dropped — that is the whole point:
 //
-//   - A running sibling is actively mutating its VM on another goroutine, so it is
-//     skipped (orphan GC never recycles objects a concurrent sibling could hold, since
-//     this task's current-slice creations are not yet committed or handed off).
+//   - A physically executing sibling may be mutating its VM on another goroutine even
+//     after it has logically suspended, so it is skipped (orphan GC never recycles
+//     objects a concurrent sibling could hold, since this task's current-slice
+//     creations are not yet committed or handed off).
 //   - A queued/suspended sibling's VM is read here while s.mu is held. Because task
-//     dispatch (ProcessReadyTasks) and the Running transition in runTask both take
-//     s.mu, no sibling can begin executing — and thus begin mutating its VM — while we
-//     read it. Walking the pointers after releasing s.mu would race exactly that
-//     transition.
+//     dispatch and physical execution-lease acquisition both take s.mu, no sibling
+//     can begin executing — and thus begin mutating its VM — while we read it. Walking
+//     the pointers after releasing s.mu would race exactly that transition.
 func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -477,6 +505,9 @@ func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types
 	anonRefs = make(map[types.ObjID]struct{})
 	for _, queued := range s.tasks {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
+			continue
+		}
+		if s.executingTasks[queued.ID] > 0 {
 			continue
 		}
 		state := queued.GetState()

@@ -48,6 +48,13 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
+	// Logical TaskRunning ends as soon as a builtin records suspension, before
+	// the VM has returned and before its resumable state is published. Keep a
+	// scheduler-owned physical execution lease across the entire invocation so
+	// GC never walks or ignores a VM that this goroutine can still mutate.
+	s.acquireTaskExecution(t)
+	defer s.releaseTaskExecution(t.ID)
+
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -87,14 +94,13 @@ retryAttempt:
 	}
 	if attempt > 0 {
 		retryState.restore(t)
+		// A failed attempt may have recorded a logical suspend before its
+		// transaction conflict was detected. The physical lease remains held,
+		// while the retry begins a fresh logical running slice.
+		s.mu.Lock()
+		t.SetState(task.TaskRunning)
+		s.mu.Unlock()
 	}
-	// Publish the Running transition under s.mu, the lock collectSiblingGCRefs holds
-	// while it reads sibling tasks' VMs. This guarantees a concurrent GC walk either
-	// sees this task as Running (and skips its VM) or blocks here before this goroutine
-	// touches the VM below — closing the popped-but-not-yet-running race window.
-	s.mu.Lock()
-	t.SetState(task.TaskRunning)
-	s.mu.Unlock()
 
 	ctx := t.Context
 	if ctx == nil {
