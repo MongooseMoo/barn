@@ -32,15 +32,31 @@ func markLiveStoreMutated(ctx *kernel.TaskContext) {
 // decentralized writes (a prior create/move/recycle) before a COARSE builtin
 // (renumber/chparent/add_verb/...) reads or mutates the live store mid-task, so the
 // coarse builtin never observes stale live state. After it the task is treated as
-// having mutated the live store directly (non-retryable, coarse commit). No-op when
-// nothing is staged.
-func flushStagedBeforeCoarse(ctx *kernel.TaskContext) {
+// having mutated the live store directly (non-retryable, coarse commit). A validating
+// flush conflict is returned without marking the task live-mutated, so the caller can
+// abort and the scheduler can retry the still-staged transaction. No-op when nothing
+// is staged.
+func flushStagedBeforeCoarse(ctx *kernel.TaskContext) types.ErrorCode {
 	tx := readTxn(ctx)
 	if tx == nil || !tx.HasStagedTopology() {
-		return
+		return types.E_NONE
 	}
-	tx.FlushStagedToLive()
+	if tx.HasStagedVerbDeletes() {
+		next, published, errCode := tx.CommitAndRenew()
+		if errCode != types.E_NONE {
+			return errCode
+		}
+		ctx.StoreTxn = next
+		if published {
+			markLiveStoreMutated(ctx)
+		}
+		return types.E_NONE
+	}
+	if errCode := tx.FlushStagedToLive(); errCode != types.E_NONE {
+		return errCode
+	}
 	markLiveStoreMutated(ctx)
+	return types.E_NONE
 }
 
 func objectExistsForRead(ctx *kernel.TaskContext, objID types.ObjID) types.ErrorCode {
@@ -87,16 +103,25 @@ func hasObjectFlagForRead(ctx *kernel.TaskContext, objID types.ObjID, flag dbsto
 
 func objectAllowsForRead(ctx *kernel.TaskContext, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
 	if ctx.IsWizard {
-		return true, types.E_NONE
+		return dbstore.ObjectAllows(types.ObjNothing, 0, ctx.Programmer, true, flag), types.E_NONE
 	}
 	owner, errCode := objectOwnerForRead(ctx, objID)
 	if errCode != types.E_NONE {
 		return false, errCode
 	}
-	if owner == ctx.Programmer {
+	if dbstore.ObjectAllows(owner, 0, ctx.Programmer, false, flag) {
 		return true, types.E_NONE
 	}
-	return hasObjectFlagForRead(ctx, objID, flag)
+	var flags dbstore.ObjectFlags
+	if tx := readTxn(ctx); tx != nil {
+		flags, errCode = tx.ObjectFlags(objID)
+	} else {
+		flags, errCode = ctx.Store.ObjectFlags(objID)
+	}
+	if errCode != types.E_NONE {
+		return false, errCode
+	}
+	return dbstore.ObjectAllows(owner, flags, ctx.Programmer, ctx.IsWizard, flag), types.E_NONE
 }
 
 func parentForRead(ctx *kernel.TaskContext, objID types.ObjID) (types.ObjID, types.ErrorCode) {

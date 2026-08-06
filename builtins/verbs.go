@@ -352,7 +352,9 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -541,13 +543,12 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		}
 	}
 	// Resolve before checking authority to preserve delete_verb's E_VERBNF-before-
-	// E_PERM precedence. This reference is validation-only: an authorized coarse
-	// flush below can publish this task's staged verb writes and advance the verb
-	// list generation.
-	if _, ok := resolveDescriptor(); !ok {
+	// E_PERM precedence. A transaction stages deletion of this exact current-list
+	// index; commit validates the starting generation before publishing anything.
+	resolved, ok := resolveDescriptor()
+	if !ok {
 		return types.Err(types.E_VERBNF)
 	}
-
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
@@ -555,24 +556,17 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if !allowed {
 		return types.Err(types.E_PERM)
 	}
-
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
-
-	// Mint the mutation reference from the post-flush view. DeleteResolvedVerb
-	// still validates this generation under the store lock, so an external
-	// mutation between this resolution and deletion fails without retargeting.
-	resolved, ok := resolveDescriptor()
-	if !ok {
-		return types.Err(types.E_VERBNF)
-	}
-	if errCode := store.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
-		return types.Err(errCode)
-	}
-	markLiveStoreMutated(ctx)
 	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Direct-call contexts without a StoreTxn retain the one-lock fallback: live
+	// authority and exact generation are validated atomically with deletion.
+	if errCode := store.DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -582,7 +576,9 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 // Changes verb metadata
 // info: {owner, perms, names}
 func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -654,7 +650,9 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
 func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 3 {

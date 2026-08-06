@@ -285,6 +285,16 @@ func buildImageWithVerbCode(old *Object, name string, code []string, ts uint64) 
 	return &img
 }
 
+// buildImageWithVerbDelete returns a new immutable image with the exact current
+// verb-list index removed. Transaction commit calls it in staged order only
+// after validating the starting verb-list generation and every shifted index.
+func buildImageWithVerbDelete(old *Object, index int, ts uint64) *Object {
+	img := cloneObjectForReadTxn(old)
+	deleteVerbAtIndex(img, index)
+	img.verbVersion = ts
+	return img
+}
+
 // rememberOldImageLocked stashes an already-immutable old published image as the
 // history node for its id (no clone — under COW the replaced image IS a complete
 // immutable snapshot). historyMu guards the shared history map against concurrent
@@ -305,9 +315,10 @@ func (s *Store) rememberOldImageLocked(old *Object) {
 
 // commitDecentralized applies a commit whose ENTIRE write footprint is within the
 // decentralized write kinds — scalar (name/owner/flags), relationship (location),
-// property DEFINE, property DEFINITION-DELETE, property-value, property-delete, and
-// verb-code writes — and is not tx.liveMutated. It runs under store.mu.RLock so
-// disjoint committers proceed in parallel; per-object slot mutexes (taken in ascending
+// property DEFINE, property DEFINITION-DELETE, property-value, property-delete,
+// verb-code writes, and verb-topology deletes — and is not tx.liveMutated. It runs
+// under store.mu.RLock so disjoint committers proceed in parallel; per-object slot
+// mutexes (taken in ascending
 // ObjID order, deadlock-free) serialize same-object committers and exclude concurrent
 // publishers of the same slot. The union of read-set and write-set slots stays locked
 // through validation and publish, so disjoint writers cannot both validate a
@@ -370,6 +381,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	}
 	for key := range tx.verbWrites {
 		addID(key.objID)
+	}
+	for _, deletion := range tx.verbDeletes {
+		addID(deletion.objID)
 	}
 	// Newly-created objects are writes too (their slot is published here), even a bare
 	// create with no self-writes on any existing map.
@@ -464,6 +478,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		tx.validationFail = true
 		return errCode
 	}
+	if errCode := tx.validateVerbDeleteTargetsLocked(); errCode != types.E_NONE {
+		return errCode
+	}
 
 	// Verify every written object is live, and every verb-code target verb exists,
 	// BEFORE bumping the clock or building/publishing anything — so a
@@ -554,6 +571,10 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	for key, w := range tx.verbWrites {
 		verbWritesByObj[key.objID] = append(verbWritesByObj[key.objID], verbWrite2{name: key.name, code: w.code})
 	}
+	verbDeletesByObj := make(map[types.ObjID][]int)
+	for _, deletion := range tx.verbDeletes {
+		verbDeletesByObj[deletion.objID] = append(verbDeletesByObj[deletion.objID], deletion.index)
+	}
 
 	// Build one new immutable image per object, applying all its staged writes in a
 	// fixed kind order, then publish. Detach every collection from the published old
@@ -598,6 +619,9 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		for _, w := range verbWritesByObj[id] {
 			img = buildImageWithVerbCode(img, w.name, w.code, ts)
 		}
+		for _, index := range verbDeletesByObj[id] {
+			img = buildImageWithVerbDelete(img, index, ts)
+		}
 		if tx.recycleWrites[id] {
 			// Recycle turns the object into a tombstone LAST, overriding any of its own
 			// staged self-writes; the edges on OTHER objects (its location's contents,
@@ -638,6 +662,7 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 	tx.propertyWrites = nil
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
+	tx.verbDeletes = nil
 	tx.createdObjects = nil
 	tx.recycleWrites = nil
 	return types.E_NONE
