@@ -63,7 +63,7 @@ jobs:
         run: |
           uv run --project moo-conformance-tests --frozen moo-conformance \
             -m "admission or conformance" \
-            --server-command "${{ github.workspace }}/barn --db {db} --listen tcp://127.0.0.1:{port} --checkpoint-interval 0 --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+            --server-command "${{ github.workspace }}/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
             --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
             --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
             --moo-host=127.0.0.1 \
