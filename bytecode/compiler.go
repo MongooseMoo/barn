@@ -99,6 +99,10 @@ func NewCompilerWithRegistry(registry Registry) *Compiler {
 
 // Compile compiles a node to a Program
 func (c *Compiler) Compile(node verb.Node) (*Program, error) {
+	if err := verb.ValidateNodeNestingDepth(node); err != nil {
+		return nil, err
+	}
+
 	// Initialize global scope
 	c.beginScope()
 
@@ -132,6 +136,10 @@ func (c *Compiler) Compile(node verb.Node) (*Program, error) {
 // (from break expr or default 0) is used as the implicit return value.
 // VarNames is populated from the compiler's variable table.
 func (c *Compiler) CompileProgram(program *verb.Program) (*Program, error) {
+	if err := verb.ValidateProgramNestingDepth(program); err != nil {
+		return nil, err
+	}
+
 	stmts := program.Statements
 	c.beginScope()
 

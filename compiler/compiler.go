@@ -65,6 +65,15 @@ func CompileMOOWithKey(sourceLines []string, key sourcekey.Key, registry bytecod
 
 	compiled, err := bytecode.NewCompilerWithRegistry(registry).CompileProgram(program)
 	if err != nil {
+		var depthError *verb.NestingDepthError
+		if errors.As(err, &depthError) {
+			return nil, []Diagnostic{{
+				Stage:    SyntaxStage,
+				Position: depthError.Position,
+				Message:  "syntax error",
+				Detail:   depthError,
+			}}
+		}
 		return nil, []Diagnostic{compileDiagnostic(err)}
 	}
 	compiled.Source = append([]string(nil), sourceLines...)

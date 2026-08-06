@@ -2,6 +2,7 @@ package parser
 
 import (
 	"barn/verb"
+	"errors"
 	"fmt"
 )
 
@@ -33,20 +34,34 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 		if err != nil {
 			// Capture the line of the offending token and present Toast's
 			// generic "syntax error". p.current is the token parsing choked on.
-			return nil, &ParseError{
-				Line:   p.current.Position.Line,
-				Msg:    "syntax error",
-				Detail: err,
-			}
+			return nil, parseError(err, p.current.Position.Line)
 		}
 		statements = append(statements, stmt)
 	}
 
-	return &verb.Program{Statements: statements}, nil
+	program := &verb.Program{Statements: statements}
+	if err := verb.ValidateProgramNestingDepth(program); err != nil {
+		return nil, parseError(err, 1)
+	}
+	return program, nil
+}
+
+func parseError(detail error, fallbackLine int) *ParseError {
+	line := fallbackLine
+	var depthError *verb.NestingDepthError
+	if errors.As(detail, &depthError) && depthError.Position.Line > 0 {
+		line = depthError.Position.Line
+	}
+	return &ParseError{Line: line, Msg: "syntax error", Detail: detail}
 }
 
 // parseStatement parses a single statement
 func (p *Parser) parseStatement() (verb.Stmt, error) {
+	if err := p.enterNesting(); err != nil {
+		return nil, err
+	}
+	defer p.leaveNesting()
+
 	switch p.current.Type {
 	case TOKEN_IF:
 		return p.parseIfStatement()

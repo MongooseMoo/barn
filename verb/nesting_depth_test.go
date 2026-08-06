@@ -2,6 +2,11 @@ package verb_test
 
 import (
 	"errors"
+	"go/ast"
+	goparser "go/parser"
+	"go/token"
+	"reflect"
+	"sort"
 	"testing"
 
 	"barn/verb"
@@ -116,5 +121,53 @@ func TestValidateProgramNestingDepthCountsDepthNotNodes(t *testing.T) {
 	var depthErr *verb.NestingDepthError
 	if !errors.As(err, &depthErr) {
 		t.Fatalf("ValidateProgramNestingDepth(depth 257) error = %T %v, want *verb.NestingDepthError", err, err)
+	}
+}
+
+func TestNestingValidatorCoversEverySemanticNodeType(t *testing.T) {
+	nodes := []verb.Node{
+		&verb.LiteralExpr{}, &verb.IdentifierExpr{}, &verb.UnaryExpr{},
+		&verb.BinaryExpr{}, &verb.TernaryExpr{}, &verb.IndexBoundaryExpr{},
+		&verb.IndexExpr{}, &verb.RangeExpr{}, &verb.PropertyExpr{},
+		&verb.VerbCallExpr{}, &verb.BuiltinCallExpr{}, &verb.SpliceExpr{},
+		&verb.CatchExpr{}, &verb.AssignExpr{}, &verb.VariableTarget{},
+		&verb.PropertyTarget{}, &verb.IndexTarget{}, &verb.RangeTarget{},
+		&verb.DestructuringTarget{}, &verb.RequiredBinding{}, &verb.OptionalBinding{},
+		&verb.RestBinding{}, &verb.ListExpr{}, &verb.ListRangeExpr{},
+		&verb.MapExpr{}, &verb.ExprStmt{}, &verb.IfStmt{}, &verb.WhileStmt{},
+		&verb.CollectionLoopStmt{}, &verb.RangeLoopStmt{}, &verb.BreakStmt{},
+		&verb.ContinueStmt{}, &verb.ReturnStmt{}, &verb.TryStmt{}, &verb.ForkStmt{},
+	}
+	covered := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if err := verb.ValidateNodeNestingDepth(node); err != nil {
+			t.Errorf("ValidateNodeNestingDepth(%T) error = %v", node, err)
+		}
+		covered = append(covered, reflect.TypeOf(node).Elem().Name())
+	}
+	sort.Strings(covered)
+
+	file, err := goparser.ParseFile(token.NewFileSet(), "ir.go", nil, 0)
+	if err != nil {
+		t.Fatalf("ParseFile(ir.go) error = %v", err)
+	}
+	declared := make([]string, 0, len(nodes))
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "Position" || function.Recv == nil || len(function.Recv.List) != 1 {
+			continue
+		}
+		pointer, ok := function.Recv.List[0].Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		identifier, ok := pointer.X.(*ast.Ident)
+		if ok {
+			declared = append(declared, identifier.Name)
+		}
+	}
+	sort.Strings(declared)
+	if !reflect.DeepEqual(covered, declared) {
+		t.Fatalf("validator node coverage = %v, semantic nodes = %v", covered, declared)
 	}
 }

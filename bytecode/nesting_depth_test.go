@@ -10,9 +10,13 @@ import (
 )
 
 func nestedUnaryExpr(depth int) verb.Expr {
-	var expr verb.Expr = &verb.LiteralExpr{Pos: verb.Position{Line: 7}, Kind: verb.LiteralInt, IntValue: 1}
+	return nestedUnaryExprAt(depth, 7)
+}
+
+func nestedUnaryExprAt(depth, line int) verb.Expr {
+	var expr verb.Expr = &verb.LiteralExpr{Pos: verb.Position{Line: line}, Kind: verb.LiteralInt, IntValue: 1}
 	for i := 1; i < depth; i++ {
-		expr = &verb.UnaryExpr{Pos: verb.Position{Line: 7}, Operator: verb.UnaryNegate, Operand: expr}
+		expr = &verb.UnaryExpr{Pos: verb.Position{Line: line}, Operator: verb.UnaryNegate, Operand: expr}
 	}
 	return expr
 }
@@ -43,7 +47,7 @@ func TestCompileProgramDirectIRNestingBoundary(t *testing.T) {
 		t.Run(strconv.Itoa(depth), func(t *testing.T) {
 			semantic := &verb.Program{Statements: []verb.Stmt{&verb.ReturnStmt{
 				Pos:   verb.Position{Line: 11},
-				Value: nestedUnaryExpr(depth - 1),
+				Value: nestedUnaryExprAt(depth-1, 11),
 			}}}
 			program, err := compileProgramWithoutPanic(t, semantic)
 			if depth <= 256 {

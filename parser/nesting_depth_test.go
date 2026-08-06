@@ -69,6 +69,10 @@ func postfixSource(depth int) string {
 	return "return value" + strings.Repeat("[1].property", (depth-2)/2) + strings.Repeat("[1]", (depth-2)%2) + ";"
 }
 
+func postfixAssignmentSource(depth int) string {
+	return "value" + strings.Repeat("[1]", depth-3) + " = 1;"
+}
+
 func elseifSource(depth int) string {
 	clauses := depth - 2
 	var source strings.Builder
@@ -137,6 +141,19 @@ func TestParserNestingDepthBoundary(t *testing.T) {
 				assertCompileNestingDiagnostic(t, source, depth)
 			})
 		}
+	}
+}
+
+func TestParserGuardsPostfixAssignmentLowering(t *testing.T) {
+	if _, err := parseWithoutPanic(t, postfixAssignmentSource(256)); err != nil {
+		t.Fatalf("ParseProgram(postfix assignment depth 256) error = %v", err)
+	}
+	for _, depth := range []int{257, 2560} {
+		program, err := parseWithoutPanic(t, postfixAssignmentSource(depth))
+		if err == nil {
+			t.Fatalf("ParseProgram(postfix assignment depth %d) = (%#v, nil), want nesting error", depth, program)
+		}
+		assertNestingError(t, err, depth)
 	}
 }
 

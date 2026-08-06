@@ -10,9 +10,10 @@ import (
 
 // Parser parses MOO source code into language-neutral verb semantics.
 type Parser struct {
-	lexer   *Lexer
-	current Token
-	peek    Token
+	lexer        *Lexer
+	current      Token
+	peek         Token
+	nestingDepth int
 }
 
 // NewParser creates a new Parser instance
@@ -30,6 +31,18 @@ func NewParser(input string) *Parser {
 func (p *Parser) nextToken() {
 	p.current = p.peek
 	p.peek = p.lexer.NextToken()
+}
+
+func (p *Parser) enterNesting() error {
+	if p.nestingDepth >= verb.MaxNestingDepth {
+		return &verb.NestingDepthError{Position: p.current.Position}
+	}
+	p.nestingDepth++
+	return nil
+}
+
+func (p *Parser) leaveNesting() {
+	p.nestingDepth--
 }
 
 // Precedence levels for operators (higher number = higher precedence)
@@ -150,6 +163,11 @@ func semanticBinaryOperator(token TokenType) verb.BinaryOperator {
 
 // ParseExpression parses an expression
 func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
+	if err := p.enterNesting(); err != nil {
+		return nil, err
+	}
+	defer p.leaveNesting()
+
 	// Parse prefix expression
 	var left verb.Expr
 	var err error
@@ -659,6 +677,25 @@ func lowerAssignmentTarget(expr verb.Expr) (verb.Target, error) {
 }
 
 func lowerCollectionAssignmentTarget(expr verb.Expr) (verb.CollectionTarget, error) {
+	type segment struct {
+		pos   verb.Position
+		index verb.Expr
+	}
+
+	var segments []segment
+	for {
+		switch current := expr.(type) {
+		case *verb.IndexExpr:
+			segments = append(segments, segment{pos: current.Pos, index: current.Index})
+			expr = current.Expr
+		case *verb.RangeExpr:
+			return nil, fmt.Errorf("invalid collection assignment target: %T", expr)
+		default:
+			goto base
+		}
+	}
+
+base:
 	target, err := lowerAssignmentTarget(expr)
 	if err != nil {
 		return nil, err
@@ -666,6 +703,10 @@ func lowerCollectionAssignmentTarget(expr verb.Expr) (verb.CollectionTarget, err
 	collection, ok := target.(verb.CollectionTarget)
 	if !ok {
 		return nil, fmt.Errorf("invalid collection assignment target: %T", expr)
+	}
+	for i := len(segments) - 1; i >= 0; i-- {
+		part := segments[i]
+		collection = &verb.IndexTarget{Pos: part.pos, Collection: collection, Index: part.index}
 	}
 	return collection, nil
 }

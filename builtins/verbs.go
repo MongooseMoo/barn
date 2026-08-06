@@ -335,7 +335,9 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
 	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
-		sourceLines = parser.FormatMOO(program)
+		if formatted, err := parser.FormatMOO(program); err == nil {
+			sourceLines = formatted
+		}
 	}
 
 	// Convert source lines to list

@@ -27,10 +27,15 @@ const (
 	precedenceProperty   // . : [] (highest - property access, verb call, index)
 )
 
-// FormatMOO converts a semantic verb program back to MOO source lines.
-func FormatMOO(program *verb.Program) []string {
+// FormatMOO converts a validated semantic verb program back to MOO source
+// lines. Validation happens before formatting begins, so rejected input cannot
+// produce partial output or reach the recursive formatter.
+func FormatMOO(program *verb.Program) ([]string, error) {
+	if err := verb.ValidateProgramNestingDepth(program); err != nil {
+		return nil, err
+	}
 	if len(program.Statements) == 0 {
-		return []string{}
+		return []string{}, nil
 	}
 
 	var lines []string
@@ -38,7 +43,7 @@ func FormatMOO(program *verb.Program) []string {
 		line := unparseStmt(stmt, 0)
 		lines = append(lines, strings.Split(line, "\n")...)
 	}
-	return lines
+	return lines, nil
 }
 
 // unparseStmt converts a statement to source code
@@ -325,8 +330,14 @@ func unparsePropertyExpr(e *verb.PropertyExpr) string {
 // unparseBinaryExpr handles binary expressions with proper precedence
 func unparseBinaryExpr(e *verb.BinaryExpr, parentPrecedence int) string {
 	prec := binaryPrecedence(e.Operator)
-	left := unparseExpr(e.Left, prec)
-	right := unparseExpr(e.Right, prec+1) // Right-associative for same precedence
+	leftPrecedence := prec
+	rightPrecedence := prec + 1
+	if e.Operator == verb.BinaryPower {
+		leftPrecedence = prec + 1
+		rightPrecedence = prec
+	}
+	left := unparseExpr(e.Left, leftPrecedence)
+	right := unparseExpr(e.Right, rightPrecedence)
 	op := unparseBinaryOp(e.Operator)
 
 	result := left + " " + op + " " + right
