@@ -2703,6 +2703,22 @@ func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbVi
 	return verb.View(), nil
 }
 
+// ResolveVerbOnObject resolves verbName against the transaction's object
+// snapshot and returns an opaque reference for Store.DeleteResolvedVerb.
+func (tx *StoreTxn) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
+	verb, err := tx.findVerbOnObject(objID, verbName)
+	if err != nil {
+		return ResolvedVerb{}, err
+	}
+	obj := tx.object(objID)
+	for index, candidate := range obj.verbList {
+		if candidate == verb {
+			return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, nil
+		}
+	}
+	return ResolvedVerb{}, fmt.Errorf("verb not found: %s", verbName)
+}
+
 func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb, error) {
 	obj := tx.object(objID)
 	if obj == nil || obj.recycled {
@@ -2757,6 +2773,22 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 	verb := obj.verbList[index]
 	tx.markVerbRead(objID, verb)
 	return verb.View(), types.E_NONE
+}
+
+// ResolveVerbByIndex resolves an index against the transaction's object
+// snapshot and returns an opaque reference for Store.DeleteResolvedVerb.
+func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return ResolvedVerb{}, types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.verbList) {
+		return ResolvedVerb{}, types.E_RANGE
+	}
+	tx.markVerbScan(objID, obj)
+	verb := obj.verbList[index]
+	tx.markVerbRead(objID, verb)
+	return ResolvedVerb{store: tx.store, objID: objID, index: index, listVersion: obj.verbVersion}, types.E_NONE
 }
 
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
