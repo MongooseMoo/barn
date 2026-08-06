@@ -331,8 +331,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 	}
 
 	transport := NewTCPTransport(socket)
-	conn := cm.NewConnectionFromTransport(transport)
-	conn.SetListener(record.object, record.descriptorPort, record.printMessages)
+	conn := cm.newConnectionFromTransport(transport, record)
 
 	slog.Info("new connection", slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
@@ -376,8 +375,7 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 	wsConn.SetReadLimit(1 << 20)
 
 	transport := NewWebSocketTransport(wsConn, r.RemoteAddr)
-	conn := cm.NewConnectionFromTransport(transport)
-	conn.SetListener(record.object, record.descriptorPort, record.printMessages)
+	conn := cm.newConnectionFromTransport(transport, record)
 
 	slog.Info("new connection", slog.String("protocol", record.protocol), slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
@@ -400,15 +398,25 @@ func (cm *ConnectionManager) handleConnection(conn *Connection) {
 
 // NewConnectionFromTransport creates a connection from any transport (for testing)
 func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Connection {
+	return cm.newConnectionFromTransport(transport, nil)
+}
+
+// newConnectionFromTransport constructs and fully initializes a connection
+// before publishing it through the manager's lookup maps.
+func (cm *ConnectionManager) newConnectionFromTransport(transport Transport, listener *listenerRecord) *Connection {
 	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
 	connID := cm.nextConnID
 	cm.nextConnID++
 	conn := NewConnection(connID, transport)
+	if listener != nil {
+		conn.SetListener(listener.object, listener.descriptorPort, listener.printMessages)
+	}
 	cm.connections[connID] = conn
 	// Register with negative ID during unlogged phase (like toaststunt)
 	// This allows notify() to reach pre-login connections
 	cm.playerConns[types.ObjID(-connID)] = conn
-	cm.mu.Unlock()
 
 	return conn
 }
