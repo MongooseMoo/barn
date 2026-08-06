@@ -73,7 +73,9 @@ func (c *benchConnection) IdleSeconds() int64 {
 	return idle
 }
 func (c *benchConnection) GetResolvedName() string { return "bench-harness" }
-func (c *benchConnection) ListenerPort() int64     { return 7777 }
+func (c *benchConnection) ListenerPort() (int64, bool) {
+	return 7777, true
+}
 
 func (c *benchConnection) touch() { c.lastActive.Store(time.Now().Unix()) }
 

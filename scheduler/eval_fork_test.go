@@ -33,7 +33,9 @@ func (c *evalCommandStubConn) BufferedOutputLength() int { return 0 }
 func (c *evalCommandStubConn) ConnectedSeconds() int64   { return 0 }
 func (c *evalCommandStubConn) IdleSeconds() int64        { return 0 }
 func (c *evalCommandStubConn) GetResolvedName() string   { return "" }
-func (c *evalCommandStubConn) ListenerPort() int64       { return 0 }
+func (c *evalCommandStubConn) ListenerPort() (int64, bool) {
+	return 0, false
+}
 
 type evalCommandStubConnManager struct {
 	player           types.ObjID

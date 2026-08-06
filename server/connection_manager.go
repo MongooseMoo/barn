@@ -20,20 +20,21 @@ import (
 )
 
 type listenerRecord struct {
-	listener      net.Listener
-	object        types.ObjID
-	port          int64
-	protocol      string
-	path          string
-	printMessages bool
-	ipv6          bool
-	iface         string
-	tls           bool
-	tlsConfig     *tls.Config
-	httpServer    *http.Server
-	primary       bool
-	accepting     bool
-	done          chan struct{}
+	listener       net.Listener
+	object         types.ObjID
+	descriptorPort int64
+	boundPort      int64
+	protocol       string
+	path           string
+	printMessages  bool
+	ipv6           bool
+	iface          string
+	tls            bool
+	tlsConfig      *tls.Config
+	httpServer     *http.Server
+	primary        bool
+	accepting      bool
+	done           chan struct{}
 }
 
 type listenerKey struct {
@@ -218,33 +219,41 @@ func (cm *ConnectionManager) CloseConnections(message string) {
 }
 
 func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
-	port, ipv6, err := parseListenerPort(listener.Addr())
+	boundPort, ipv6, err := parseListenerPort(listener.Addr())
 	if err != nil {
 		_ = listener.Close()
 		return builtins.ListenerDescriptor{}, err
 	}
 
 	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
+	// Runtime listeners are addressed by the MOO-requested descriptor, including
+	// descriptor 0. Startup-owned port-0 listeners expose the bound OS port so
+	// callers can discover and connect to the server selected ephemeral port.
+	descriptorPort := spec.Port
+	if primary && descriptorPort == 0 {
+		descriptorPort = boundPort
+	}
 	desc := builtins.ListenerDescriptor{
 		Protocol: spec.Protocol,
-		Port:     port,
+		Port:     descriptorPort,
 		IPv6:     ipv6,
 		Path:     canonicalListenerPath(spec.Protocol, spec.Path),
 	}
 	key := listenerKeyFromDescriptor(desc)
 	record := &listenerRecord{
-		listener:      listener,
-		object:        spec.Object,
-		port:          port,
-		protocol:      desc.Protocol,
-		path:          desc.Path,
-		printMessages: spec.PrintMessages,
-		ipv6:          ipv6,
-		iface:         spec.Interface,
-		tls:           spec.Protocol == builtins.ListenerProtocolTLS || spec.Protocol == builtins.ListenerProtocolSecureWebSocket,
-		tlsConfig:     tlsConfig,
-		primary:       primary,
-		done:          make(chan struct{}),
+		listener:       listener,
+		object:         spec.Object,
+		descriptorPort: descriptorPort,
+		boundPort:      boundPort,
+		protocol:       desc.Protocol,
+		path:           desc.Path,
+		printMessages:  spec.PrintMessages,
+		ipv6:           ipv6,
+		iface:          spec.Interface,
+		tls:            spec.Protocol == builtins.ListenerProtocolTLS || spec.Protocol == builtins.ListenerProtocolSecureWebSocket,
+		tlsConfig:      tlsConfig,
+		primary:        primary,
+		done:           make(chan struct{}),
 	}
 	if desc.Protocol == builtins.ListenerProtocolWebSocket || desc.Protocol == builtins.ListenerProtocolSecureWebSocket {
 		record.httpServer = &http.Server{
@@ -265,7 +274,8 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 
 	slog.Info("listening",
 		slog.String("protocol", spec.Protocol),
-		slog.Int64("port", port),
+		slog.Int64("port", boundPort),
+		slog.Int64("descriptor_port", descriptorPort),
 		slog.Int64("this", int64(spec.Object)),
 		slog.Bool("primary", primary))
 
@@ -321,8 +331,7 @@ func (cm *ConnectionManager) handleNewConnection(record *listenerRecord, socket 
 	}
 
 	transport := NewTCPTransport(socket)
-	conn := cm.NewConnectionFromTransport(transport)
-	conn.SetListener(record.object, record.port, record.printMessages)
+	conn := cm.newConnectionFromTransport(transport, record)
 
 	slog.Info("new connection", slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
@@ -366,8 +375,7 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 	wsConn.SetReadLimit(1 << 20)
 
 	transport := NewWebSocketTransport(wsConn, r.RemoteAddr)
-	conn := cm.NewConnectionFromTransport(transport)
-	conn.SetListener(record.object, record.port, record.printMessages)
+	conn := cm.newConnectionFromTransport(transport, record)
 
 	slog.Info("new connection", slog.String("protocol", record.protocol), slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
@@ -390,15 +398,25 @@ func (cm *ConnectionManager) handleConnection(conn *Connection) {
 
 // NewConnectionFromTransport creates a connection from any transport (for testing)
 func (cm *ConnectionManager) NewConnectionFromTransport(transport Transport) *Connection {
+	return cm.newConnectionFromTransport(transport, nil)
+}
+
+// newConnectionFromTransport constructs and fully initializes a connection
+// before publishing it through the manager's lookup maps.
+func (cm *ConnectionManager) newConnectionFromTransport(transport Transport, listener *listenerRecord) *Connection {
 	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
 	connID := cm.nextConnID
 	cm.nextConnID++
 	conn := NewConnection(connID, transport)
+	if listener != nil {
+		conn.SetListener(listener.object, listener.descriptorPort, listener.printMessages)
+	}
 	cm.connections[connID] = conn
 	// Register with negative ID during unlogged phase (like toaststunt)
 	// This allows notify() to reach pre-login connections
 	cm.playerConns[types.ObjID(-connID)] = conn
-	cm.mu.Unlock()
 
 	return conn
 }
@@ -613,7 +631,7 @@ func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
 	for _, record := range cm.listeners {
 		out = append(out, builtins.ListenerInfo{
 			Object:        record.object,
-			Port:          record.port,
+			Port:          record.descriptorPort,
 			Protocol:      record.protocol,
 			Path:          record.path,
 			PrintMessages: record.printMessages,
