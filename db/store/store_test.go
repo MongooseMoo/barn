@@ -199,6 +199,42 @@ func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	}
 }
 
+func TestAppendPendingFinalizationsPromotesCoveringRootAndPreservesDistinctValues(t *testing.T) {
+	store := NewStore()
+	root := NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetLocation(types.ObjNothing)
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+
+	leaf, errCode := store.CreateObject(nil, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create leaf: %v", errCode)
+	}
+	head, errCode := store.CreateObject(nil, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create head: %v", errCode)
+	}
+	if errCode := store.DefineProperty(head, "next", NewProperty(types.NewAnon(leaf), 0, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define head.next: %v", errCode)
+	}
+
+	distinct := types.NewStr("distinct pending value")
+	store.SetPendingFinalizations([]types.Value{types.NewAnon(leaf), distinct})
+	store.AppendPendingFinalizations([]types.Value{types.NewAnon(head)})
+
+	store.mu.RLock()
+	got := cloneValues(store.pendingFinalizations)
+	store.mu.RUnlock()
+	if len(got) != 2 {
+		t.Fatalf("pending finalizations = %v, want covering root plus distinct value", got)
+	}
+	if !got[0].Equal(distinct) || !got[1].Equal(types.NewAnon(head)) {
+		t.Fatalf("pending finalizations = %v, want [%v %v]", got, distinct, types.NewAnon(head))
+	}
+}
+
 func TestNewObject(t *testing.T) {
 	obj := NewObject(5, 10)
 
