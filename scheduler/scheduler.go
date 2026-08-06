@@ -103,7 +103,12 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 		return s.CallVerb(objID, verbName, args, player)
 	})
 	s.registry.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
-		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
+		var current *task.Task
+		if ctx != nil {
+			current, _ = ctx.Task.(*task.Task)
+		}
+		siblingAnon, _ := s.collectSiblingGCRefs(current)
+		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, ctx, 0, siblingAnon)
 		return nil
 	})
 	s.startWorkers()
