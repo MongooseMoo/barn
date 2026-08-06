@@ -10,8 +10,10 @@ func (s *Store) SetPendingFinalizations(values []types.Value) {
 	s.pendingFinalizations = cloneValues(values)
 }
 
-// AppendPendingFinalizations records pending finalization values, preserving the
-// existing de-duplication behavior keyed by the serialized value string.
+// AppendPendingFinalizations records pending finalization values. Finalizable
+// references are deduplicated by semantic identity: anonymous object id or WAIF
+// instance pointer. In particular, two distinct WAIFs of the same class have the
+// same literal string but must remain separate roots.
 func (s *Store) AppendPendingFinalizations(values []types.Value) {
 	if len(values) == 0 {
 		return
@@ -20,18 +22,35 @@ func (s *Store) AppendPendingFinalizations(values []types.Value) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	seen := make(map[string]struct{}, len(s.pendingFinalizations)+len(values))
-	for _, value := range s.pendingFinalizations {
-		seen[value.String()] = struct{}{}
-	}
 	for _, value := range values {
-		key := value.String()
-		if _, ok := seen[key]; ok {
+		if finalizationValueInList(value, s.pendingFinalizations) {
 			continue
 		}
-		seen[key] = struct{}{}
 		s.pendingFinalizations = append(s.pendingFinalizations, value)
 	}
+}
+
+func finalizationValueInList(needle types.Value, values []types.Value) bool {
+	for _, candidate := range values {
+		if needle.Type() != candidate.Type() {
+			continue
+		}
+		switch needle.Type() {
+		case types.TYPE_ANON:
+			if needle.ID() == candidate.ID() {
+				return true
+			}
+		case types.TYPE_WAIF:
+			if needle.WaifIdentity() == candidate.WaifIdentity() {
+				return true
+			}
+		default:
+			if needle.Equal(candidate) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func cloneValues(values []types.Value) []types.Value {

@@ -80,6 +80,11 @@ type TaskContext struct {
 	// conflicts after this point must not retry the whole task body.
 	IrreversibleSideEffect bool
 
+	// DeferredGC marks a :recycle activation owned by the scheduler's deferred
+	// collector. Lifecycle requests from this activation must not wait on the
+	// collector goroutine that is executing them.
+	DeferredGC bool
+
 	// PendingEffects holds commit-deferred external effects in source call order.
 	// Failed commits discard the log; successful commits replay it sequentially.
 	PendingEffects []PendingEffect

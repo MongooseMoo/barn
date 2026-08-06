@@ -251,6 +251,61 @@ func TestRoundTripPreservesPendingAnonymousCycle(t *testing.T) {
 	}
 }
 
+func TestRoundTripPreservesPendingWaifIdentityBackrefsAndNestedAnon(t *testing.T) {
+	objectStore := store.NewStore()
+	class := store.NewObjectBuilder(0)
+	class.SetOwner(0)
+	if err := objectStore.Add(class.Build()); err != nil {
+		t.Fatalf("add WAIF class: %v", err)
+	}
+	for _, name := range []string{":self", ":anon"} {
+		if errCode := objectStore.DefineProperty(0, name, store.NewProperty(types.None, 0, store.PropRead, false, true)); errCode != types.E_NONE {
+			t.Fatalf("define WAIF property %s: %v", name, errCode)
+		}
+	}
+	anonID, errCode := objectStore.CreateObject([]types.ObjID{0}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create nested anonymous object: %v", errCode)
+	}
+	waif := types.NewWaif(0, 0)
+	waif.SetProperty("self", waif)
+	waif.SetProperty("anon", types.NewAnon(anonID))
+	objectStore.SetPendingFinalizations([]types.Value{waif})
+
+	path := filepath.Join(t.TempDir(), "pending-waif.db")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create checkpoint: %v", err)
+	}
+	if err := NewWriter(file, objectStore.Snapshot()).WriteDatabase(); err != nil {
+		_ = file.Close()
+		t.Fatalf("write checkpoint: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close checkpoint: %v", err)
+	}
+
+	reloaded, err := LoadDatabase(path)
+	if err != nil {
+		t.Fatalf("reload checkpoint: %v", err)
+	}
+	if got := len(reloaded.PendingFinalizations); got != 1 {
+		t.Fatalf("pending finalizations = %v, want one WAIF", reloaded.PendingFinalizations)
+	}
+	root := reloaded.PendingFinalizations[0]
+	if root.Type() != types.TYPE_WAIF {
+		t.Fatalf("pending root = %v, want WAIF", root)
+	}
+	self, ok := root.GetProperty("self")
+	if !ok || !self.Equal(root) {
+		t.Fatalf("WAIF self backref = %v, ok=%v, want root identity %p", self, ok, root.WaifIdentity())
+	}
+	anon, ok := root.GetProperty("anon")
+	if !ok || anon.Type() != types.TYPE_ANON || !reloaded.NewStoreFromDatabase().Valid(anon.ID()) {
+		t.Fatalf("WAIF nested anonymous ref = %v, ok=%v, want valid anonymous object", anon, ok)
+	}
+}
+
 // TestRoundTripPreservesSiblingAfterClear checks that clearing an inherited
 // property override on an object does not corrupt sibling property values in
 // the checkpoint. Before the fix, ClearPropertyOverride removed the slot from

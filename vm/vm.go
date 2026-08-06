@@ -25,6 +25,10 @@ type VM struct {
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
 	PendingWaifs  []types.Value
+	// PendingFinalizations holds finalizable identities captured as activation
+	// frames leave scope. The scheduler consumes them only during shutdown;
+	// ordinary completion continues through the normal WAIF/anonymous GC path.
+	PendingFinalizations []types.Value
 
 	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
@@ -41,6 +45,7 @@ func (vm *VM) pushFrame(f *StackFrame) {
 // popFrame removes the top call frame and updates the cached current-frame
 // pointer to the new top (nil when the call stack is empty).
 func (vm *VM) popFrame() {
+	vm.collectPendingFinalizationsFromFrame(vm.Frames[len(vm.Frames)-1])
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
 	if n := len(vm.Frames); n > 0 {
 		vm.frame = vm.Frames[n-1]

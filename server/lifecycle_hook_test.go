@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,9 +12,78 @@ import (
 	"barn/builtins"
 	dbformat "barn/db/format"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	runtime "barn/scheduler"
 	"barn/types"
+	"barn/vm"
 )
+
+func TestShutdownHostCallbackUsesSchedulerBoundaryWhenNotRunningAndOnPanic(t *testing.T) {
+	tests := []struct {
+		name    string
+		unclean bool
+		want    int
+	}{
+		{name: "not running", want: 1},
+		{name: "panic", unclean: true, want: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			source, err := os.ReadFile(filepath.Join("..", "Test_fresh2.db"))
+			if err != nil {
+				t.Fatalf("read source database: %v", err)
+			}
+			dbPath := filepath.Join(t.TempDir(), "callback.db")
+			if err := os.WriteFile(dbPath, source, 0o600); err != nil {
+				t.Fatalf("write test database: %v", err)
+			}
+			s, err := NewServer(dbPath, []builtins.ListenerSpec{{Protocol: builtins.ListenerProtocolTCP, Port: 7777}}, 0)
+			if err != nil {
+				t.Fatalf("NewServer: %v", err)
+			}
+			if err := s.LoadDatabase(); err != nil {
+				t.Fatalf("LoadDatabase: %v", err)
+			}
+			t.Cleanup(s.scheduler.Stop)
+
+			anonID, errCode := s.store.CreateObject([]types.ObjID{0}, 2, true)
+			if errCode != types.E_NONE {
+				t.Fatalf("create caller anonymous object: %v", errCode)
+			}
+			callerVM := vm.NewVM(s.store, s.scheduler.Registry())
+			callerVM.PendingFinalizations = []types.Value{types.NewAnon(anonID)}
+			var handedOff []types.Value
+			s.scheduler.SetPendingFinalizationSink(func(values []types.Value) {
+				handedOff = append(handedOff, values...)
+			})
+
+			ctx := kernel.NewTaskContext()
+			ctx.IsWizard = true
+			ctx.Programmer = 2
+			ctx.Registry = s.scheduler.Registry()
+			ctx.CallerVM = callerVM
+			shutdown, ok := s.scheduler.Registry().Get("shutdown")
+			if !ok {
+				t.Fatal("shutdown builtin is not registered")
+			}
+			result := shutdown(ctx, []types.Value{types.NewStr("test"), types.NewInt(boolInt(tc.unclean))})
+			if !result.IsNormal() {
+				t.Fatalf("shutdown result = %#v, want normal", result)
+			}
+
+			if got := len(handedOff); got != tc.want {
+				t.Fatalf("scheduler handoff roots = %v, want %d via canonical boundary", handedOff, tc.want)
+			}
+		})
+	}
+}
+
+func boolInt(value bool) int64 {
+	if value {
+		return 1
+	}
+	return 0
+}
 
 func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	store := dbstore.NewStore()
@@ -398,11 +468,12 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	if errCode := store.DefineProperty(system, "shutdown_started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define shutdown_started property: %v", errCode)
 	}
-	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
+	addTestVerb(store, system, "checkpoint_started", "pending = create(#0, #2, 1); #0.checkpoint_started = 1;")
 	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = args[1];")
 	addTestVerb(store, system, "shutdown_started", "#0.shutdown_started = 1;")
 
 	scheduler := runtime.NewScheduler(store)
+	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &Server{
@@ -445,6 +516,92 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	}
 	if shutdownStarted.Type() != types.TYPE_INT || shutdownStarted.Int() != 0 {
 		t.Fatalf("shutdown_started = %v, want 0", shutdownStarted)
+	}
+
+	reloaded, err := dbformat.LoadDatabase(s.dbPath + ".new")
+	if err != nil {
+		t.Fatalf("load emergency checkpoint: %v", err)
+	}
+	if got := len(reloaded.PendingFinalizations); got != 1 {
+		t.Fatalf("emergency checkpoint pending roots = %v, want checkpoint_started local preserved after Panic publishes shutdown", reloaded.PendingFinalizations)
+	}
+}
+
+func TestPanicCheckpointKeepsSuspendedWaifAndAnonymousRootsTaskOwned(t *testing.T) {
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	if errCode := store.DefineProperty(system, "held", dbstore.NewProperty(types.None, 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define held property: %v", errCode)
+	}
+	addTestVerb(store, system, "hold", "w = new_waif(); a = create(#0, #2, 1); w.held = a; suspend();")
+
+	scheduler := runtime.NewScheduler(store)
+	t.Cleanup(scheduler.Stop)
+	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
+	if _, err := scheduler.RunServerVerbTask(system, "hold", nil, 2); err != nil {
+		t.Fatalf("run suspended root holder: %v", err)
+	}
+	queued, suspended := scheduler.TaskSnapshots()
+	if len(queued) != 0 || len(suspended) != 1 {
+		t.Fatalf("task snapshots before panic: queued=%d suspended=%d, want 0 and 1", len(queued), len(suspended))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		store:          store,
+		scheduler:      scheduler,
+		input:          NewInputProcessor(store, scheduler),
+		connManager:    NewConnectionManager(7777),
+		dbPath:         filepath.Join(t.TempDir(), "panic-live-roots.db"),
+		checkpointChan: make(chan struct{}, 1),
+		ctx:            ctx,
+		cancel:         cancel,
+	}
+
+	if err := s.Panic("live roots"); !errors.Is(err, ErrPanicShutdown) {
+		t.Fatalf("Panic error = %v, want ErrPanicShutdown", err)
+	}
+	reloaded, err := dbformat.LoadDatabase(s.dbPath + ".new")
+	if err != nil {
+		t.Fatalf("load emergency checkpoint: %v", err)
+	}
+	if got := len(reloaded.PendingFinalizations); got != 0 {
+		t.Fatalf("emergency checkpoint pending roots = %v, want none", reloaded.PendingFinalizations)
+	}
+	if got := len(reloaded.SuspendedTasks); got != 1 {
+		t.Fatalf("emergency checkpoint suspended tasks = %d, want one", got)
+	}
+	if got := len(reloaded.AnonymousObjs); got != 1 {
+		t.Fatalf("emergency checkpoint anonymous objects = %d, want one task-owned object", got)
+	}
+}
+
+func TestShutdownPublishesFinalizationHandoffBeforeCancel(t *testing.T) {
+	store := dbstore.NewStore()
+	addTestObject(t, store, 0, dbstore.FlagWizard)
+	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	addTestVerb(store, 0, "after_shutdown", "pending = create(#0, #2, 1);")
+	scheduler := runtime.NewScheduler(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s := &Server{
+		store:       store,
+		scheduler:   scheduler,
+		running:     true,
+		ctx:         ctx,
+		cancel:      cancel,
+		connManager: NewConnectionManager(7777),
+	}
+	scheduler.SetPendingFinalizationSink(store.AppendPendingFinalizations)
+
+	s.Shutdown("test")
+	if _, err := scheduler.RunServerVerbTask(0, "after_shutdown", nil, 0); err != nil {
+		t.Fatalf("run task after Shutdown: %v", err)
+	}
+	if got := len(store.Snapshot().PendingFinalizations); got != 1 {
+		t.Fatalf("pending roots after Shutdown = %d, want 1", got)
 	}
 }
 

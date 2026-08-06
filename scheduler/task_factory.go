@@ -2,8 +2,10 @@ package scheduler
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"barn/builtins"
@@ -30,6 +32,15 @@ func configureVMStackLimit(machine *vm.VM) {
 
 // QueueTask adds a task to the scheduler
 func (s *Scheduler) QueueTask(t *task.Task) int64 {
+	return s.queueTask(t, false)
+}
+
+func (s *Scheduler) queueTask(t *task.Task, allowDuringShutdown bool) int64 {
+	if !s.reserveFinalizationProducer(allowDuringShutdown) {
+		return 0
+	}
+	defer s.finishFinalizationProducer()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -43,6 +54,21 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 	task.GetManager().RegisterTask(t)
 
 	return t.ID
+}
+
+func (s *Scheduler) registerImmediateTask(t *task.Task, allowDuringShutdown bool) bool {
+	if !s.reserveFinalizationProducer(allowDuringShutdown) {
+		return false
+	}
+	t.SetState(task.TaskQueued)
+	s.mu.Lock()
+	s.tasks[t.ID] = t
+	s.mu.Unlock()
+	task.GetManager().RegisterTask(t)
+	if s.taskLifecycleObserver != nil {
+		s.taskLifecycleObserver("immediate_after_register", t)
+	}
+	return true
 }
 
 // CreateForegroundTask creates a foreground task (user command)
@@ -90,13 +116,12 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
 
-	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	if !s.registerImmediateTask(t, true) {
+		return types.Result{}, context.Canceled
+	}
+	defer s.finishFinalizationProducer()
 
-	if err := s.runTask(t); err != nil {
+	if err := s.runTaskReserved(t); err != nil {
 		return t.Result, err
 	}
 	if s.taskOutputFlusher != nil {
@@ -160,17 +185,16 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 	// here — rather than queuing for the ticker — ensures the login state is
 	// settled before the I/O loop reads the next line, matching ToastStunt's
 	// run-to-suspend-or-completion login semantics.
-	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	if !s.registerImmediateTask(t, false) {
+		return 0, context.Canceled
+	}
+	defer s.finishFinalizationProducer()
 
 	if onStart != nil {
 		onStart(t.ID)
 	}
 
-	if err := s.runTask(t); err != nil {
+	if err := s.runTaskReserved(t); err != nil {
 		return t.ID, err
 	}
 	return t.ID, nil
@@ -286,7 +310,7 @@ func (s *Scheduler) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo
 		LineNumber: firstLine,
 	})
 
-	childID := s.QueueTask(t)
+	childID := s.queueTask(t, true)
 	if parent != nil {
 		parent.CreatedForks = append(parent.CreatedForks, childID)
 	}
@@ -376,6 +400,10 @@ func (s *Scheduler) CancelLoginTasksFor(connID types.ObjID) {
 // input line, arriving before the ticker re-ran the task, would not be found by
 // FindReadingTask and would spawn a parallel do_login_command.
 func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
+	if !s.beginOrdinaryFinalizationProducer() {
+		return false
+	}
+	defer s.finishFinalizationProducer()
 	t := task.GetManager().FindReadingTask(player)
 	if t == nil {
 		return false
@@ -384,7 +412,7 @@ func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
 	if !t.Resume(types.NewStr(line)) {
 		return false
 	}
-	if err := s.runTask(t); err != nil {
+	if err := s.runTaskReserved(t); err != nil {
 		slog.Error("task resume error",
 			slog.Int64("task_id", t.ID),
 			slog.Int64("this", int64(t.This)),
@@ -454,6 +482,9 @@ func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Sn
 	defer s.mu.Unlock()
 
 	for _, t := range s.tasks {
+		if _, running := s.runningTasks[t.ID]; running {
+			continue
+		}
 		snapshot := t.PersistenceSnapshot()
 		if snapshot.State == task.TaskCompleted || snapshot.State == task.TaskKilled {
 			continue
@@ -472,5 +503,7 @@ func (s *Scheduler) TaskSnapshots() (queued []task.Snapshot, suspended []task.Sn
 			suspended = append(suspended, snapshot)
 		}
 	}
+	sort.Slice(queued, func(i, j int) bool { return queued[i].ID < queued[j].ID })
+	sort.Slice(suspended, func(i, j int) bool { return suspended[i].ID < suspended[j].ID })
 	return queued, suspended
 }

@@ -47,7 +47,26 @@ const escalateAfterAttempts = 63
 var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
-func (s *Scheduler) runTask(t *task.Task) (retErr error) {
+func (s *Scheduler) runTask(t *task.Task) error {
+	if !s.beginFinalizationProducer() {
+		return context.Canceled
+	}
+	defer s.finishFinalizationProducer()
+	return s.runTaskReserved(t)
+}
+
+// runTaskReserved executes a task after its caller has reserved a producer
+// token. Ready passes and immediate task factories reserve before selection or
+// registration becomes externally visible, closing both pre-execution gaps.
+func (s *Scheduler) runTaskReserved(t *task.Task) (retErr error) {
+	var bcVM *vm.VM
+	var anonGCFloor types.ObjID
+	var anonFloor uint64
+	defer func() {
+		s.mu.Lock()
+		delete(s.runningTasks, t.ID)
+		s.mu.Unlock()
+	}()
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -59,6 +78,13 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 				slog.String("panic", fmt.Sprint(r)),
 				slog.String("go_stack", string(debug.Stack())))
 			t.SetState(task.TaskKilled)
+			if bcVM != nil {
+				shutdownOwns := s.settleCompletedTaskFinalizations(t.Context, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
+				t.SetBytecodeVM(nil)
+				if !shutdownOwns {
+					s.flushDeferredGC()
+				}
+			}
 			retErr = fmt.Errorf("internal panic: %v", r)
 		}
 	}()
@@ -93,6 +119,7 @@ retryAttempt:
 	// sees this task as Running (and skips its VM) or blocks here before this goroutine
 	// touches the VM below — closing the popped-but-not-yet-running race window.
 	s.mu.Lock()
+	s.runningTasks[t.ID] = struct{}{}
 	t.SetState(task.TaskRunning)
 	s.mu.Unlock()
 
@@ -160,12 +187,11 @@ retryAttempt:
 	defer cancel()
 
 	var result types.Result
-	var bcVM *vm.VM
-	anonGCFloor := s.store.NextID()
+	anonGCFloor = s.store.NextID()
 	// Sample the global anon-creation counter at the SAME point as anonGCFloor so
 	// the two are consistent. If it is unchanged at task end, no anonymous object
 	// was created since the floor and the orphan-anon GC sweep can be skipped.
-	anonFloor := s.store.AnonCreationCount()
+	anonFloor = s.store.AnonCreationCount()
 
 	if savedVM := t.BytecodeVMValue(); savedVM != nil {
 		// Retrieve saved VM -- could be resuming after suspend or running a forked child
@@ -336,13 +362,12 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		if taskCtx.Err() == context.Canceled && bcVM != nil && s.pendingFinalizationSink != nil {
-			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
-				s.pendingFinalizationSink(pending)
-			}
-		}
+		shutdownOwns := s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
 		t.SetState(task.TaskKilled)
 		t.SetBytecodeVM(nil)
+		if !shutdownOwns {
+			s.flushDeferredGC()
+		}
 		return taskCtx.Err()
 	default:
 	}
@@ -542,13 +567,7 @@ retryAttempt:
 	// values that still carry anonymous references so the final checkpoint can
 	// serialize them as pending finalization values. Outside shutdown, completed
 	// tasks still trigger orphan-anonymous collection.
-	if s.ctx.Err() != nil {
-		if s.pendingFinalizationSink != nil && bcVM != nil {
-			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
-				s.pendingFinalizationSink(pending)
-			}
-		}
-	} else {
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards
@@ -557,12 +576,6 @@ retryAttempt:
 		//
 		// This task's VM is released below, so its references are snapshotted now,
 		// on the goroutine that owns it, rather than walked at flush time.
-		if bcVM != nil {
-			s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), bcVM)
-		}
-		if s.store.AnonCreationCount() != anonFloor {
-			s.deferAnonGC(ctx, anonGCFloor, bcVM)
-		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
@@ -787,15 +800,13 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	t.FromCommand = true
 	t.ForkCreator = s
 
-	// Register task
-	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	if !s.registerImmediateTask(t, false) {
+		return context.Canceled
+	}
+	defer s.finishFinalizationProducer()
 
 	// Run synchronously on the scheduler goroutine
-	err := s.runTask(t)
+	err := s.runTaskReserved(t)
 	if err != nil {
 		slog.Error("task error",
 			slog.Int64("task_id", t.ID),
