@@ -481,7 +481,7 @@ func (s *Store) validateResolvedVerbDeleteAuthorityLocked(resolved ResolvedVerb,
 		return errCode
 	}
 	obj := s.liveObjectLocked(resolved.objID)
-	if !isWizard && obj.owner != programmer && !obj.flags.Has(FlagWrite) {
+	if !ObjectAllows(obj.owner, obj.flags, programmer, isWizard, FlagWrite) {
 		return types.E_PERM
 	}
 	return types.E_NONE

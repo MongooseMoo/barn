@@ -549,8 +549,15 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 	if !ok {
 		return types.Err(types.E_VERBNF)
 	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+		if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))

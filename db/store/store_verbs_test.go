@@ -254,15 +254,21 @@ func TestDeleteResolvedVerbAuthorizedPreservesStaleIdentityPrecedence(t *testing
 	}
 }
 
-func TestStoreTxnVerbDeleteTopologyFlushValidatesBeforeMutation(t *testing.T) {
+func TestStoreTxnVerbDeleteCommitAndRenewValidatesBeforeMutation(t *testing.T) {
 	store := newOverlappingVerbStore(t)
 	tx := store.BeginReadOnly(0)
+	if _, errCode := tx.ObjectOwner(0); errCode != types.E_NONE {
+		t.Fatalf("ObjectOwner authority read: %v", errCode)
+	}
+	if _, errCode := tx.ObjectFlags(0); errCode != types.E_NONE {
+		t.Fatalf("ObjectFlags authority read: %v", errCode)
+	}
 	resolved, err := tx.ResolveVerbOnObject(0, "peek")
 	if err != nil {
 		t.Fatalf("ResolveVerbOnObject: %v", err)
 	}
-	if errCode := tx.DeleteResolvedVerbAuthorized(resolved, 0, false); errCode != types.E_NONE {
-		t.Fatalf("DeleteResolvedVerbAuthorized stage: %v", errCode)
+	if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
+		t.Fatalf("DeleteResolvedVerb stage: %v", errCode)
 	}
 	if !tx.HasStagedTopology() {
 		t.Fatal("staged verb deletion is not reported as topology")
@@ -274,27 +280,35 @@ func TestStoreTxnVerbDeleteTopologyFlushValidatesBeforeMutation(t *testing.T) {
 	if errCode := store.SetObjectOwner(0, 1); errCode != types.E_NONE {
 		t.Fatalf("SetObjectOwner(conflict): %v", errCode)
 	}
-	if errCode := tx.FlushStagedToLive(); errCode != types.E_INVARG || !tx.ValidationFailed() {
-		t.Fatalf("FlushStagedToLive after authority conflict = %v, validationFailed=%v; want E_INVARG, true", errCode, tx.ValidationFailed())
+	next, published, errCode := tx.CommitAndRenew()
+	if errCode != types.E_INVARG || !tx.ValidationFailed() {
+		t.Fatalf("CommitAndRenew after authority conflict = %v, validationFailed=%v; want E_INVARG, true", errCode, tx.ValidationFailed())
+	}
+	if next != tx || published {
+		t.Fatalf("conflicted CommitAndRenew = next %p, published %v; want original %p, false", next, published, tx)
 	}
 	if _, err := store.FindVerbOnObject(0, "peek"); err != nil {
 		t.Fatalf("conflicted topology flush deleted verb: %v", err)
 	}
 }
 
-func TestStoreTxnVerbDeleteTopologyFlushAppliesAfterValidation(t *testing.T) {
+func TestStoreTxnVerbDeleteCommitAndRenewAppliesAfterValidation(t *testing.T) {
 	store := newOverlappingVerbStore(t)
 	tx := store.BeginReadOnly(0)
 	resolved, err := tx.ResolveVerbOnObject(0, "peek")
 	if err != nil {
 		t.Fatalf("ResolveVerbOnObject: %v", err)
 	}
-	if errCode := tx.DeleteResolvedVerbAuthorized(resolved, 0, false); errCode != types.E_NONE {
-		t.Fatalf("DeleteResolvedVerbAuthorized stage: %v", errCode)
+	if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
+		t.Fatalf("DeleteResolvedVerb stage: %v", errCode)
 	}
 
-	if errCode := tx.FlushStagedToLive(); errCode != types.E_NONE {
-		t.Fatalf("FlushStagedToLive: %v", errCode)
+	next, published, errCode := tx.CommitAndRenew()
+	if errCode != types.E_NONE {
+		t.Fatalf("CommitAndRenew: %v", errCode)
+	}
+	if next == tx || !published {
+		t.Fatalf("CommitAndRenew = next %p, published %v; want replacement, true", next, published)
 	}
 	if tx.HasWrites() {
 		t.Fatal("successful validated topology flush retained staged writes")

@@ -321,6 +321,14 @@ func (f ObjectFlags) Has(flag ObjectFlags) bool {
 	return f&flag != 0
 }
 
+// ObjectAllows is the store-independent object authority rule used by metadata
+// operations: wizards and owners are admitted, otherwise the object must grant
+// the requested flag. Callers are responsible for reading owner and flags from
+// one coherent live or transaction view.
+func ObjectAllows(owner types.ObjID, flags ObjectFlags, programmer types.ObjID, isWizard bool, required ObjectFlags) bool {
+	return isWizard || owner == programmer || flags.Has(required)
+}
+
 // Set sets a flag
 func (f ObjectFlags) Set(flag ObjectFlags) ObjectFlags {
 	return f | flag

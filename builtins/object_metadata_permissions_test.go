@@ -278,31 +278,31 @@ func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 	}
 }
 
-func TestDeleteVerbUsesSameTaskStagedAuthority(t *testing.T) {
-	tests := []struct {
-		name       string
-		flag       dbstore.ObjectFlags
-		programmer func(metadataPermissionFixture) types.ObjID
-		stage      func(*testing.T, metadataPermissionFixture)
-		want       types.ErrorCode
-		wantGone   bool
+func TestObjectMetadataBuiltinsUseSameTaskStagedAuthority(t *testing.T) {
+	authorityCases := []struct {
+		name        string
+		initialFlag func(dbstore.ObjectFlags) dbstore.ObjectFlags
+		programmer  func(metadataPermissionFixture) types.ObjID
+		stage       func(*testing.T, metadataPermissionFixture, dbstore.ObjectFlags)
+		want        types.ErrorCode
 	}{
 		{
-			name:       "staged owner grant",
-			programmer: func(f metadataPermissionFixture) types.ObjID { return f.intruder },
-			stage: func(t *testing.T, f metadataPermissionFixture) {
+			name:        "staged owner grant",
+			initialFlag: func(dbstore.ObjectFlags) dbstore.ObjectFlags { return 0 },
+			programmer:  func(f metadataPermissionFixture) types.ObjID { return f.intruder },
+			stage: func(t *testing.T, f metadataPermissionFixture, _ dbstore.ObjectFlags) {
 				t.Helper()
 				if errCode := f.ctx.StoreTxn.SetObjectOwner(f.target, f.intruder); errCode != types.E_NONE {
 					t.Fatalf("SetObjectOwner(grant): %s", errCode)
 				}
 			},
-			want:     types.E_NONE,
-			wantGone: true,
+			want: types.E_NONE,
 		},
 		{
-			name:       "staged owner revocation",
-			programmer: func(f metadataPermissionFixture) types.ObjID { return f.owner },
-			stage: func(t *testing.T, f metadataPermissionFixture) {
+			name:        "staged owner revocation",
+			initialFlag: func(dbstore.ObjectFlags) dbstore.ObjectFlags { return 0 },
+			programmer:  func(f metadataPermissionFixture) types.ObjID { return f.owner },
+			stage: func(t *testing.T, f metadataPermissionFixture, _ dbstore.ObjectFlags) {
 				t.Helper()
 				if errCode := f.ctx.StoreTxn.SetObjectOwner(f.target, f.intruder); errCode != types.E_NONE {
 					t.Fatalf("SetObjectOwner(revoke): %s", errCode)
@@ -311,24 +311,24 @@ func TestDeleteVerbUsesSameTaskStagedAuthority(t *testing.T) {
 			want: types.E_PERM,
 		},
 		{
-			name:       "staged write flag grant",
-			programmer: func(f metadataPermissionFixture) types.ObjID { return f.intruder },
-			stage: func(t *testing.T, f metadataPermissionFixture) {
+			name:        "staged object flag grant",
+			initialFlag: func(dbstore.ObjectFlags) dbstore.ObjectFlags { return 0 },
+			programmer:  func(f metadataPermissionFixture) types.ObjID { return f.intruder },
+			stage: func(t *testing.T, f metadataPermissionFixture, required dbstore.ObjectFlags) {
 				t.Helper()
-				if errCode := f.ctx.StoreTxn.SetObjectFlag(f.target, dbstore.FlagWrite, true); errCode != types.E_NONE {
+				if errCode := f.ctx.StoreTxn.SetObjectFlag(f.target, required, true); errCode != types.E_NONE {
 					t.Fatalf("SetObjectFlag(grant): %s", errCode)
 				}
 			},
-			want:     types.E_NONE,
-			wantGone: true,
+			want: types.E_NONE,
 		},
 		{
-			name:       "staged write flag revocation",
-			flag:       dbstore.FlagWrite,
-			programmer: func(f metadataPermissionFixture) types.ObjID { return f.intruder },
-			stage: func(t *testing.T, f metadataPermissionFixture) {
+			name:        "staged object flag revocation",
+			initialFlag: func(required dbstore.ObjectFlags) dbstore.ObjectFlags { return required },
+			programmer:  func(f metadataPermissionFixture) types.ObjID { return f.intruder },
+			stage: func(t *testing.T, f metadataPermissionFixture, required dbstore.ObjectFlags) {
 				t.Helper()
-				if errCode := f.ctx.StoreTxn.SetObjectFlag(f.target, dbstore.FlagWrite, false); errCode != types.E_NONE {
+				if errCode := f.ctx.StoreTxn.SetObjectFlag(f.target, required, false); errCode != types.E_NONE {
 					t.Fatalf("SetObjectFlag(revoke): %s", errCode)
 				}
 			},
@@ -336,35 +336,24 @@ func TestDeleteVerbUsesSameTaskStagedAuthority(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			f := newMetadataPermissionFixture(t, test.flag)
-			f.ctx.Programmer = test.programmer(f)
-			f.ctx.Player = f.ctx.Programmer
-			test.stage(t, f)
+	for _, builtinCase := range metadataPermissionCases() {
+		for _, authorityCase := range authorityCases {
+			t.Run(builtinCase.name+"/"+authorityCase.name, func(t *testing.T) {
+				f := newMetadataPermissionFixture(t, authorityCase.initialFlag(builtinCase.requiredFlag))
+				f.ctx.Programmer = authorityCase.programmer(f)
+				f.ctx.Player = f.ctx.Programmer
+				authorityCase.stage(t, f, builtinCase.requiredFlag)
 
-			result := builtinDeleteVerb(f.ctx, []types.Value{
-				types.NewObj(f.target),
-				types.NewStr("existing"),
-			})
-			if test.want == types.E_NONE {
-				if !result.IsNormal() {
-					t.Fatalf("delete_verb with staged authority = %+v, want success", result)
+				result := builtinCase.call(f)
+				if authorityCase.want == types.E_NONE {
+					if !result.IsNormal() {
+						t.Fatalf("%s with staged authority = %+v, want success", builtinCase.name, result)
+					}
+				} else if !result.IsError() || result.Error != authorityCase.want {
+					t.Fatalf("%s with staged authority = %+v, want %s", builtinCase.name, result, authorityCase.want)
 				}
-			} else if !result.IsError() || result.Error != test.want {
-				t.Fatalf("delete_verb with staged authority = %+v, want %s", result, test.want)
-			}
-			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
-				t.Fatalf("Commit: %s", errCode)
-			}
-			_, err := f.store.FindVerbOnObject(f.target, "existing")
-			if test.wantGone && err == nil {
-				t.Fatal("authorized staged delete did not remove verb at commit")
-			}
-			if !test.wantGone && err != nil {
-				t.Fatalf("denied staged delete removed verb at commit: %v", err)
-			}
-		})
+			})
+		}
 	}
 }
 

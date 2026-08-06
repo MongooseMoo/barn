@@ -597,11 +597,17 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 // HasStagedTopology reports whether the txn has staged TOPOLOGY writes that a coarse
 // builtin would read stale from the live store mid-task: created objects (absent from
 // live), relationship writes (location/contents/children), or verb-list deletions.
-// Property/scalar/verb-CODE writes are not included. A flush containing a verb-list
-// deletion takes the commit gate and validates the complete read set before publishing;
-// the legacy unvalidated flush remains only for the other coarse-immediate topology.
+// Property/scalar/verb-CODE writes are not included. A verb-list deletion crosses
+// this boundary through CommitAndRenew; the legacy unvalidated flush remains only
+// for the other coarse-immediate topology.
 func (tx *StoreTxn) HasStagedTopology() bool {
 	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0)
+}
+
+// HasStagedVerbDeletes reports whether a coarse builtin must cross a normal
+// validating commit-and-renew boundary before it reads or mutates live verbs.
+func (tx *StoreTxn) HasStagedVerbDeletes() bool {
+	return tx != nil && len(tx.verbDeletes) > 0
 }
 
 func (tx *StoreTxn) HasWrites() bool {
@@ -2429,59 +2435,31 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	return types.E_NONE
 }
 
-// flushStagedToLive applies this txn's staged decentralized writes to the LIVE store
+// FlushStagedToLive applies this txn's staged decentralized writes to the LIVE store
 // immediately and clears them, so a subsequent COARSE builtin that reads/mutates the
 // live store mid-task (renumber/chparent/add_verb) sees them instead of stale live
 // state. It also drops the read set: the task has now mutated the live store, so it is
 // non-isolated (Toast-like) and its eventual coarse commit must not conflict on reads
 // taken against the pre-flush snapshot. Reads are NOT validated on the way out (coarse
 // semantics — last-writer-wins, like an immediate mutation); a created object is private
-// and cannot conflict anyway. No-op if nothing is staged.
+// and cannot conflict anyway. Exact verb deletion is rejected because it must cross a
+// validating CommitAndRenew boundary. No-op if nothing is staged.
 func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	if tx == nil || !tx.HasWrites() {
 		return types.E_NONE
+	}
+	if len(tx.verbDeletes) > 0 {
+		// Exact verb deletion depends on scalar and ordered-list generations.
+		// Its coarse boundary must use CommitAndRenew so the ordinary commit path
+		// validates the complete read set before publishing anything.
+		return types.E_INVARG
 	}
 	// This method republishes staged writes, drops the read set, re-clones every
 	// cached object from CURRENT live, and resets tx.owned — i.e. it rebuilds the
 	// txn's whole view and re-enables the resolution memo. Everything memoized
 	// against the pre-flush view must go.
 	tx.invalidateResolveCaches()
-	if len(tx.verbDeletes) > 0 && !tx.gateExempt {
-		// A staged verb deletion is never published by the legacy unvalidated
-		// coarse flush path. Treat this boundary as a validating mid-task commit:
-		// take the normal commit gate, validate every read and shifted delete
-		// target under the store lock, then apply the complete staged write set.
-		tx.store.commitGate.RLock()
-		defer tx.store.commitGate.RUnlock()
-	}
 	tx.store.mu.Lock()
-	if len(tx.verbDeletes) > 0 {
-		tx.validationFail = false
-		if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
-			tx.validationFail = true
-			tx.store.mu.Unlock()
-			return errCode
-		}
-		if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
-			tx.validationFail = true
-			tx.store.mu.Unlock()
-			return errCode
-		}
-		if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
-			tx.validationFail = true
-			tx.store.mu.Unlock()
-			return errCode
-		}
-		if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
-			tx.validationFail = true
-			tx.store.mu.Unlock()
-			return errCode
-		}
-		if errCode := tx.validateVerbDeleteTargetsLocked(); errCode != types.E_NONE {
-			tx.store.mu.Unlock()
-			return errCode
-		}
-	}
 	ec := tx.applyStagedToLiveLocked()
 	tx.store.mu.Unlock()
 
@@ -2663,11 +2641,11 @@ func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {
 	return types.E_NONE
 }
 
-// DeleteResolvedVerbAuthorized stages deletion of the exact verb selected from
-// this transaction's current private view. Object authority is read from that
-// same view, so earlier staged owner/flag writes govern admission. The scalar
-// and verb-generation reads are validated before commit publishes any change.
-func (tx *StoreTxn) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
+// DeleteResolvedVerb stages deletion of the exact verb selected from this
+// transaction's current private view. Authority admission belongs to the
+// caller's transaction-aware object rule; this method owns only exact identity
+// and ordered-list staging. The resolution scan supplies the generation guard.
+func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	if tx == nil || tx.store == nil || resolved.store != tx.store {
 		return types.E_VERBNF
 	}
@@ -2678,13 +2656,6 @@ func (tx *StoreTxn) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programm
 	if obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
 		return types.E_VERBNF
 	}
-	if !isWizard {
-		tx.markObjectScalarRead(resolved.objID, obj)
-		if obj.owner != programmer && !obj.flags.Has(FlagWrite) {
-			return types.E_PERM
-		}
-	}
-
 	tx.invalidateResolveCaches()
 	obj = tx.mutableObject(resolved.objID)
 	if !validLiveObject(obj) || obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
