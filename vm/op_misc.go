@@ -8,8 +8,8 @@ import (
 )
 
 func (vm *VM) executeCallBuiltin() error {
-	funcID := vm.ReadByte()
-	argc := vm.ReadByte()
+	funcID := vm.FetchByte()
+	argc := vm.FetchByte()
 
 	var args []types.Value
 	if argc == 0xFF {

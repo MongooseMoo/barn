@@ -8,9 +8,10 @@ import (
 
 // FormatTraceback formats a call stack and error into a Toast-style traceback
 // Toast format:
-//   #<verb_loc>:<verb> (this == #<this>), line <N>:  <error message>
-//   ... called from #<verb_loc>:<verb> (this == #<this>), line <N>
-//   (End of traceback)
+//
+//	#<verb_loc>:<verb> (this == #<this>), line <N>:  <error message>
+//	... called from #<verb_loc>:<verb> (this == #<this>), line <N>
+//	(End of traceback)
 func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
 	if len(stack) == 0 {
 		// No stack - just show error
