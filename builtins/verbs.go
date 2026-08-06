@@ -143,6 +143,13 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	names, errCode := verbNamesForRead(ctx, objID)
 	if errCode != types.E_NONE {
@@ -500,7 +507,6 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -522,21 +528,44 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
-
-	var name string
-	switch descVal.Type() {
-	case types.TYPE_STR:
-		name = descVal.Str()
-	case types.TYPE_INT:
-		verb, errCode := store.VerbByIndex(objID, int(descVal.Int())-1)
-		if errCode != types.E_NONE {
-			return types.Err(types.E_VERBNF)
+	resolveDescriptor := func() (dbstore.ResolvedVerb, bool) {
+		switch descVal.Type() {
+		case types.TYPE_STR:
+			resolved, err := resolveVerbOnObjectForRead(ctx, objID, descVal.Str())
+			return resolved, err == nil
+		case types.TYPE_INT:
+			resolved, errCode := resolveVerbByIndexForRead(ctx, objID, int(descVal.Int())-1)
+			return resolved, errCode == types.E_NONE
+		default:
+			return dbstore.ResolvedVerb{}, false
 		}
-		name = verb.Name
+	}
+	// Resolve before checking authority to preserve delete_verb's E_VERBNF-before-
+	// E_PERM precedence. This reference is validation-only: an authorized coarse
+	// flush below can publish this task's staged verb writes and advance the verb
+	// list generation.
+	if _, ok := resolveDescriptor(); !ok {
+		return types.Err(types.E_VERBNF)
 	}
 
-	if errCode := store.DeleteVerb(objID, name); errCode != types.E_NONE {
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
+
+	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+
+	// Mint the mutation reference from the post-flush view. DeleteResolvedVerb
+	// still validates this generation under the store lock, so an external
+	// mutation between this resolution and deletion fails without retargeting.
+	resolved, ok := resolveDescriptor()
+	if !ok {
+		return types.Err(types.E_VERBNF)
+	}
+	if errCode := store.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
