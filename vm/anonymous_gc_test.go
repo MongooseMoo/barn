@@ -114,3 +114,38 @@ func TestCollectPendingFinalizationValuesSkipsBareAnonymousLocals(t *testing.T) 
 		t.Fatalf("len(got) = %d, want 0", len(got))
 	}
 }
+
+func TestExpandAnonymousReachabilityIncludesTransactionPropertyWrites(t *testing.T) {
+	store := dbstore.NewStore()
+	root := testObject(0, false)
+	head := testObject(4, true)
+	middle := testObject(5, true)
+	for _, obj := range []*dbstore.Object{root, head, middle} {
+		if err := store.Add(obj); err != nil {
+			t.Fatalf("add object: %v", err)
+		}
+	}
+	for _, id := range []types.ObjID{4, 5} {
+		if errCode := store.DefineProperty(id, "next", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+			t.Fatalf("DefineProperty(%d) = %v", id, errCode)
+		}
+	}
+
+	tx := store.BeginReadOnly(0)
+	defer tx.Release()
+	if errCode := tx.SetPropertyValue(4, "next", types.NewAnon(5)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue(head) = %v", errCode)
+	}
+	if errCode := tx.SetPropertyValue(5, "next", types.NewAnon(4)); errCode != types.E_NONE {
+		t.Fatalf("SetPropertyValue(middle) = %v", errCode)
+	}
+
+	reachable := make(map[types.ObjID]struct{})
+	refs := map[types.ObjID]struct{}{4: {}}
+	expandAnonymousReachability(store, tx, reachable, refs)
+	for _, id := range []types.ObjID{4, 5} {
+		if _, ok := reachable[id]; !ok {
+			t.Errorf("anonymous object %d not reachable through staged cycle: %#v", id, reachable)
+		}
+	}
+}
