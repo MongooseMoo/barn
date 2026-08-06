@@ -2097,6 +2097,35 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 	}
 }
 
+// CommitAndRenew publishes this transaction's staged writes through the ordinary
+// validated commit path, then replaces it with a fresh transaction at the store's
+// current clock. It is used at coarse runtime boundaries that must expose all prior
+// task writes to a live-store operation and give subsequent callbacks a current
+// read view. A failed commit leaves this transaction, its writes, and its read view
+// intact. The replacement preserves an escalation-gate exemption held by the
+// caller's current scheduler attempt.
+func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
+	if tx == nil || tx.store == nil {
+		return tx, false, types.E_INVARG
+	}
+
+	publishedWrites = tx.HasWrites()
+	if publishedWrites {
+		if errCode := tx.Commit(); errCode != types.E_NONE {
+			return tx, false, errCode
+		}
+	}
+
+	store := tx.store
+	gateExempt := tx.gateExempt
+	tx.Release()
+	next = store.BeginReadOnly(0)
+	if gateExempt {
+		next.ExemptFromCommitGate()
+	}
+	return next, publishedWrites, types.E_NONE
+}
+
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
 		return types.E_NONE

@@ -76,6 +76,57 @@ type VMErrorSnapshot struct {
 	Value   types.Value
 }
 
+// IsInterruptedForPersistence reports whether the database writer emits this
+// VM snapshot in the interrupted-task section rather than the ordinary
+// suspended-task section.
+func (s Snapshot) IsInterruptedForPersistence() bool {
+	return s.ReadingPlayer != types.ObjNothing || s.IsExecSuspended || s.IsHTTPReadSuspended
+}
+
+// TransformPersistenceValues applies transform to every typed value that the
+// database writer emits for this queued or suspended task snapshot. Keeping the
+// traversal here gives checkpoint reachability seeding and reference rewriting
+// one definition of the task persistence surface.
+func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.Value) {
+	if s == nil || transform == nil {
+		return
+	}
+
+	if s.VM == nil {
+		if s.Fork != nil {
+			for name, value := range s.Fork.Variables {
+				s.Fork.Variables[name] = transform(value)
+			}
+			if len(s.CallStack) > 0 {
+				s.CallStack[0].ThisValue = transform(s.CallStack[0].ThisValue)
+			}
+		}
+		return
+	}
+	if !s.IsInterruptedForPersistence() {
+		s.WakeValue = transform(s.WakeValue)
+	}
+	s.TaskLocal = transform(s.TaskLocal)
+	for frameIndex := range s.VM.Frames {
+		frame := &s.VM.Frames[frameIndex]
+		for index, value := range frame.Program.Constants {
+			frame.Program.Constants[index] = transform(value)
+		}
+		for index, value := range frame.Locals {
+			frame.Locals[index] = transform(value)
+		}
+		for index, value := range frame.Stack {
+			frame.Stack[index] = transform(value)
+		}
+		frame.ThisValue = transform(frame.ThisValue)
+		for index, value := range frame.Args {
+			frame.Args[index] = transform(value)
+		}
+		frame.PendingError.Value = transform(frame.PendingError.Value)
+		frame.SavedThisValue = transform(frame.SavedThisValue)
+	}
+}
+
 type vmSnapshotter interface {
 	PersistenceVMSnapshot() *VMSnapshot
 }
