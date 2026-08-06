@@ -61,6 +61,11 @@ func (s *Store) Snapshot() Snapshot {
 	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
 	//     no slot and passing VALIDATE).
 	plan := s.planAnonymousSerializationLocked()
+	for i, value := range snapshot.PendingFinalizations {
+		if rewritten, changed := plan.rewriteValue(value); changed {
+			snapshot.PendingFinalizations[i] = rewritten
+		}
+	}
 
 	// propertyNames must be computed over the live objects so parent-chain walks
 	// see the full graph; build them keyed by id.
@@ -96,7 +101,7 @@ func (s *Store) Snapshot() Snapshot {
 	// Emit reachable anonymous objects with their assigned above-max
 	// serialization ids, in serialization-id order so the dump is deterministic.
 	for _, ser := range plan.order {
-		obj := s.anonObjects[ser.identity]
+		obj := s.lookupAnonymousLocked(ser.identity)
 		if obj == nil {
 			continue
 		}
@@ -131,7 +136,10 @@ type anonSerializationPlan struct {
 func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 	plan := &anonSerializationPlan{rewrite: make(map[types.ObjID]types.ObjID)}
 
-	// Seed: every anon id referenced by a non-anonymous live object's properties.
+	// Seed: every anon id referenced by a non-anonymous live object's properties
+	// or by the pending-finalization queue. Pending roots are deliberately not
+	// persistent properties, but their complete anonymous graphs must survive the
+	// checkpoint so finalization can resume after restart.
 	seen := make(map[types.ObjID]struct{})
 	queue := make([]types.ObjID, 0)
 	enqueue := func(id types.ObjID) {
@@ -155,6 +163,13 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		}
 		return true
 	})
+	for _, value := range s.pendingFinalizations {
+		refs := make(map[types.ObjID]struct{})
+		collectAnonymousObjectRefs(value, refs)
+		for id := range refs {
+			enqueue(id)
+		}
+	}
 
 	// Transitively expand through anon objects that actually exist out-of-band,
 	// collecting the reachable-and-present set. References to absent anon ids are
@@ -163,7 +178,7 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
-		obj := s.anonObjects[id]
+		obj := s.lookupAnonymousLocked(id)
 		if obj == nil {
 			// Referenced but absent: a dangling anon reference. It will be
 			// rewritten to NOTHING below.

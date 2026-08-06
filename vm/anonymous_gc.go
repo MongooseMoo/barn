@@ -5,6 +5,7 @@ import (
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
+	"sort"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
@@ -23,13 +24,6 @@ func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 			collectAnonymousRefsForGC(pair[0], out)
 			collectAnonymousRefsForGC(pair[1], out)
 		}
-	}
-}
-
-func collectCompositeAnonymousRefs(v types.Value, out map[types.ObjID]struct{}) {
-	switch v.Type() {
-	case types.TYPE_LIST, types.TYPE_MAP:
-		collectAnonymousRefsForGC(v, out)
 	}
 }
 
@@ -87,9 +81,10 @@ func expandAnonymousReachability(store *dbstore.Store, tx *dbstore.StoreTxn, rea
 }
 
 // CollectPendingFinalizationValues snapshots anonymous-object references held by
-// a live VM and returns the bare anonymous IDs that still need pending
-// finalization because they are not already reachable from persistent object
-// properties.
+// a live VM and returns one bare anonymous root for each still-unreachable graph
+// that must survive shutdown finalization. A single root retains its complete
+// anonymous-object component for serialization; emitting every local in a cycle
+// would duplicate the same pending finalization graph.
 func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Value {
 	if store == nil || exec == nil {
 		return nil
@@ -101,14 +96,52 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 			continue
 		}
 		for _, value := range frame.Locals {
-			collectCompositeAnonymousRefs(value, refs)
+			collectAnonymousRefsForGC(value, refs)
 		}
 	}
 	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collectCompositeAnonymousRefs(exec.Stack[i], refs)
+		collectAnonymousRefsForGC(exec.Stack[i], refs)
 	}
 
-	return pendingFinalizationValues(store, refs)
+	candidates := pendingFinalizationValues(store, refs)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	type candidateRoot struct {
+		value   types.Value
+		closure map[types.ObjID]struct{}
+	}
+	ordered := make([]candidateRoot, 0, len(candidates))
+	for _, candidate := range candidates {
+		closure := make(map[types.ObjID]struct{})
+		store.ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
+			candidate.ID(): {},
+		})
+		ordered = append(ordered, candidateRoot{value: candidate, closure: closure})
+	}
+	// A root that reaches another candidate must be considered first. Closure
+	// size provides a deterministic topological order for acyclic reachability;
+	// equal closures are the same cycle, so identity order chooses one member.
+	sort.Slice(ordered, func(i, j int) bool {
+		if len(ordered[i].closure) != len(ordered[j].closure) {
+			return len(ordered[i].closure) > len(ordered[j].closure)
+		}
+		return ordered[i].value.ID() < ordered[j].value.ID()
+	})
+
+	covered := buildPersistentAnonymousReachability(store)
+	roots := make([]types.Value, 0, len(ordered))
+	for _, candidate := range ordered {
+		if _, seen := covered[candidate.value.ID()]; seen {
+			continue
+		}
+		roots = append(roots, candidate.value)
+		for id := range candidate.closure {
+			covered[id] = struct{}{}
+		}
+	}
+	return roots
 }
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
