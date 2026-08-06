@@ -7,6 +7,7 @@ import (
 
 	"barn/command"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	runtime "barn/scheduler"
 	"barn/types"
 )
@@ -18,6 +19,11 @@ const (
 
 func runIntrinsicEval(t *testing.T, source string) []string {
 	t.Helper()
+	return runIntrinsicEvalWithSchedulerSetup(t, source, nil)
+}
+
+func runIntrinsicEvalWithSchedulerSetup(t *testing.T, source string, setup func(*runtime.Scheduler)) []string {
+	t.Helper()
 
 	store := dbstore.NewStore()
 	addTestObject(t, store, 0, dbstore.FlagWizard)
@@ -25,6 +31,9 @@ func runIntrinsicEval(t *testing.T, source string) []string {
 
 	rt := runtime.NewScheduler(store)
 	defer rt.Stop()
+	if setup != nil {
+		setup(rt)
+	}
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
@@ -76,5 +85,18 @@ func TestIntrinsicEvalFramesErrorResultsExactlyOnce(t *testing.T) {
 				t.Fatalf("intrinsic eval body = %q, want substring %q", got[1], test.bodyContains)
 			}
 		})
+	}
+}
+
+func TestIntrinsicEvalFramesRecoveredPanicExactlyOnce(t *testing.T) {
+	got := runIntrinsicEvalWithSchedulerSetup(t, `eval_test_panic(); return 1;`, func(rt *runtime.Scheduler) {
+		rt.Registry().Register("eval_test_panic", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
+			panic("induced eval panic")
+		})
+	})
+
+	want := []string{evalTestPrefix, `{0, {"Internal error: induced eval panic"}}`, evalTestSuffix}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("intrinsic eval recovered-panic output = %q, want %q", got, want)
 	}
 }
