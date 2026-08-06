@@ -200,18 +200,38 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 		return
 	}
 
-	recycled := make(map[types.ObjID]struct{})
+	// Freeze one candidate snapshot at the lowest request floor before invoking
+	// any recycle callback. A callback may create and persist a new anonymous
+	// object; recomputing candidates for a later request against stale reachability
+	// would incorrectly recycle that newly-live object. Filtering this one slice
+	// per request preserves request/context order with O(candidate count) memory.
+	frozenCandidates := store.AnonymousRecycleCandidates(reachable, minFloor)
+
+	recycleFrozenAnonymousCandidates(requests, frozenCandidates, func(ctx *kernel.TaskContext, id types.ObjID) {
+		// Best-effort cleanup: recycle() handles missing/already-invalid objects.
+		_ = recycleFn(ctx, []types.Value{types.NewAnon(id)})
+	})
+}
+
+// recycleFrozenAnonymousCandidates routes one immutable candidate snapshot
+// through request contexts in request order. Filtering by each floor and global
+// de-duplication reproduce the old per-request behavior without retaining one
+// candidate slice per request.
+func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates []types.ObjID, recycle func(*kernel.TaskContext, types.ObjID)) {
+	recycled := make(map[types.ObjID]struct{}, len(frozenCandidates))
 	for _, req := range requests {
 		if req.Ctx == nil {
 			continue
 		}
-		for _, id := range store.AnonymousRecycleCandidates(reachable, req.MinID) {
+		for _, id := range frozenCandidates {
+			if id < req.MinID {
+				continue
+			}
 			if _, done := recycled[id]; done {
 				continue
 			}
 			recycled[id] = struct{}{}
-			// Best-effort cleanup: recycle() handles missing/already-invalid objects.
-			_ = recycleFn(req.Ctx, []types.Value{types.NewAnon(id)})
+			recycle(req.Ctx, id)
 		}
 	}
 }

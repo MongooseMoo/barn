@@ -53,12 +53,16 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// scheduler-owned physical execution lease across the entire invocation so
 	// GC never walks or ignores a VM that this goroutine can still mutate.
 	s.acquireTaskExecution(t)
+	var executionCtx *kernel.TaskContext
 	defer func() {
 		// This is the singular runTask lifecycle boundary for every caller:
 		// publish all task/VM state first, release the physical execution lease,
 		// then settle deferred GC while the just-finished VM is safe to inspect.
 		// If another task remains active the flush fails closed and that task's
 		// corresponding lifecycle boundary will retry it.
+		if executionCtx != nil {
+			s.releaseExecutionContext(executionCtx, t.ID)
+		}
 		s.releaseTaskExecution(t.ID)
 		s.flushDeferredGC()
 	}()
@@ -114,6 +118,13 @@ retryAttempt:
 	if ctx == nil {
 		t.SetState(task.TaskKilled)
 		return errors.New("task has no context")
+	}
+	if executionCtx != ctx {
+		if executionCtx != nil {
+			s.releaseExecutionContext(executionCtx, t.ID)
+		}
+		s.acquireExecutionContext(ctx, t.ID)
+		executionCtx = ctx
 	}
 
 	// Attach task to context so builtins can access task_local
