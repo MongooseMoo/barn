@@ -21,7 +21,7 @@ import (
 //   - String + has index: push list of {char, position} pairs, push 1
 //   - Other: E_TYPE
 func (vm *VM) executeIterPrep() error {
-	hasIndex := vm.ReadByte() != 0
+	hasIndex := vm.FetchByte() != 0
 	container := vm.Pop()
 
 	switch container.Type() {
@@ -92,9 +92,9 @@ func (vm *VM) executeIterPrep() error {
 //   - length >= numRequired (E_ARGS if too few)
 //   - If !hasRest: length <= numRequired + numOptional (E_ARGS if too many)
 func (vm *VM) executeScatter() error {
-	numRequired := int(vm.ReadByte())
-	numOptional := int(vm.ReadByte())
-	hasRest := vm.ReadByte() != 0
+	numRequired := int(vm.FetchByte())
+	numOptional := int(vm.FetchByte())
+	hasRest := vm.FetchByte() != 0
 
 	val := vm.Pop()
 	if val.Type() != types.TYPE_LIST {
