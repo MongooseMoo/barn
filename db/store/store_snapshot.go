@@ -37,7 +37,33 @@ type Snapshot struct {
 	PendingFinalizations []types.Value
 }
 
+// SnapshotValueRewriter applies the anonymous identity-to-serialization mapping
+// chosen for one store snapshot to additional values written in the same
+// checkpoint.
+type SnapshotValueRewriter struct {
+	plan *anonSerializationPlan
+}
+
+func (r SnapshotValueRewriter) Rewrite(value types.Value) types.Value {
+	if r.plan == nil {
+		return value
+	}
+	rewritten, changed := r.plan.rewriteValue(value)
+	if !changed {
+		return value
+	}
+	return rewritten
+}
+
 func (s *Store) Snapshot() Snapshot {
+	snapshot, _ := s.SnapshotWithRoots(nil)
+	return snapshot
+}
+
+// SnapshotWithRoots builds a store snapshot whose anonymous serialization plan
+// is additionally seeded by values persisted outside the object store, and
+// returns the same plan's value rewriter for those external surfaces.
+func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueRewriter) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -60,7 +86,12 @@ func (s *Store) Snapshot() Snapshot {
 	//     unreachable/missing -> NOTHING (-1), matching Toast's db_write_anonymous
 	//     is_valid==false path (a dangling anon value serializes as #-1, allocating
 	//     no slot and passing VALIDATE).
-	plan := s.planAnonymousSerializationLocked()
+	plan := s.planAnonymousSerializationLocked(roots)
+	for i, value := range snapshot.PendingFinalizations {
+		if rewritten, changed := plan.rewriteValue(value); changed {
+			snapshot.PendingFinalizations[i] = rewritten
+		}
+	}
 
 	// propertyNames must be computed over the live objects so parent-chain walks
 	// see the full graph; build them keyed by id.
@@ -96,7 +127,7 @@ func (s *Store) Snapshot() Snapshot {
 	// Emit reachable anonymous objects with their assigned above-max
 	// serialization ids, in serialization-id order so the dump is deterministic.
 	for _, ser := range plan.order {
-		obj := s.anonObjects[ser.identity]
+		obj := s.lookupAnonymousLocked(ser.identity)
 		if obj == nil {
 			continue
 		}
@@ -107,7 +138,7 @@ func (s *Store) Snapshot() Snapshot {
 		snapshot.PropertyNames[ser.serialID] = s.snapshotPropertyNamesLocked(obj)
 	}
 
-	return snapshot
+	return snapshot, SnapshotValueRewriter{plan: plan}
 }
 
 // anonSerialID pairs an anonymous object's identity id with the above-max
@@ -128,10 +159,13 @@ type anonSerializationPlan struct {
 
 // planAnonymousSerializationLocked computes reachability over the out-of-band
 // anonymous objects and assigns above-max serialization ids. Callers hold s.mu.
-func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
+func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) *anonSerializationPlan {
 	plan := &anonSerializationPlan{rewrite: make(map[types.ObjID]types.ObjID)}
 
-	// Seed: every anon id referenced by a non-anonymous live object's properties.
+	// Seed: every anon id referenced by a non-anonymous live object's properties
+	// or by the pending-finalization queue. Pending roots are deliberately not
+	// persistent properties, but their complete anonymous graphs must survive the
+	// checkpoint so finalization can resume after restart.
 	seen := make(map[types.ObjID]struct{})
 	queue := make([]types.ObjID, 0)
 	enqueue := func(id types.ObjID) {
@@ -155,6 +189,20 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 		}
 		return true
 	})
+	for _, value := range s.pendingFinalizations {
+		refs := make(map[types.ObjID]struct{})
+		collectAnonymousObjectRefs(value, refs)
+		for id := range refs {
+			enqueue(id)
+		}
+	}
+	for _, value := range additionalRoots {
+		refs := make(map[types.ObjID]struct{})
+		collectAnonymousObjectRefs(value, refs)
+		for id := range refs {
+			enqueue(id)
+		}
+	}
 
 	// Transitively expand through anon objects that actually exist out-of-band,
 	// collecting the reachable-and-present set. References to absent anon ids are
@@ -163,7 +211,7 @@ func (s *Store) planAnonymousSerializationLocked() *anonSerializationPlan {
 	for len(queue) > 0 {
 		id := queue[0]
 		queue = queue[1:]
-		obj := s.anonObjects[id]
+		obj := s.lookupAnonymousLocked(id)
 		if obj == nil {
 			// Referenced but absent: a dangling anon reference. It will be
 			// rewritten to NOTHING below.

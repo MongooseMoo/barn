@@ -85,6 +85,20 @@ func hasObjectFlagForRead(ctx *kernel.TaskContext, objID types.ObjID, flag dbsto
 	return ctx.Store.HasObjectFlag(objID, flag)
 }
 
+func objectAllowsForRead(ctx *kernel.TaskContext, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
+	if ctx.IsWizard {
+		return true, types.E_NONE
+	}
+	owner, errCode := objectOwnerForRead(ctx, objID)
+	if errCode != types.E_NONE {
+		return false, errCode
+	}
+	if owner == ctx.Programmer {
+		return true, types.E_NONE
+	}
+	return hasObjectFlagForRead(ctx, objID, flag)
+}
+
 func parentForRead(ctx *kernel.TaskContext, objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if tx := readTxn(ctx); tx != nil {
 		return tx.Parent(objID)
@@ -174,9 +188,23 @@ func findVerbOnObjectForRead(ctx *kernel.TaskContext, objID types.ObjID, name st
 	return ctx.Store.FindVerbOnObject(objID, name)
 }
 
+func resolveVerbOnObjectForRead(ctx *kernel.TaskContext, objID types.ObjID, name string) (dbstore.ResolvedVerb, error) {
+	if tx := readTxn(ctx); tx != nil {
+		return tx.ResolveVerbOnObject(objID, name)
+	}
+	return ctx.Store.ResolveVerbOnObject(objID, name)
+}
+
 func verbByIndexForRead(ctx *kernel.TaskContext, objID types.ObjID, index int) (dbstore.VerbView, types.ErrorCode) {
 	if tx := readTxn(ctx); tx != nil {
 		return tx.VerbByIndex(objID, index)
 	}
 	return ctx.Store.VerbByIndex(objID, index)
+}
+
+func resolveVerbByIndexForRead(ctx *kernel.TaskContext, objID types.ObjID, index int) (dbstore.ResolvedVerb, types.ErrorCode) {
+	if tx := readTxn(ctx); tx != nil {
+		return tx.ResolveVerbByIndex(objID, index)
+	}
+	return ctx.Store.ResolveVerbByIndex(objID, index)
 }
