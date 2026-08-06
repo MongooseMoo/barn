@@ -34,6 +34,61 @@ func TestCryptBcryptPrefixesMatchToast(t *testing.T) {
 	}
 }
 
+func TestCryptBcryptRawSaltDollarUsesCostDelimiter(t *testing.T) {
+	const (
+		password = "foobar"
+		rawSalt  = "1234$67890123456"
+	)
+	encodedSalt := bcryptBase64Encode([]byte(rawSalt))
+	tests := []struct {
+		name     string
+		prefix   string
+		cost     string
+		isWizard bool
+		wantErr  types.ErrorCode
+	}{
+		{name: "2a_default_programmer", prefix: "$2a$", cost: "05"},
+		{name: "2y_default_programmer", prefix: "$2y$", cost: "05"},
+		{name: "2a_non_default_wizard", prefix: "$2a$", cost: "04", isWizard: true},
+		{name: "2y_non_default_wizard", prefix: "$2y$", cost: "04", isWizard: true},
+		{name: "2a_non_default_programmer", prefix: "$2a$", cost: "04", wantErr: types.E_PERM},
+		{name: "2y_non_default_programmer", prefix: "$2y$", cost: "04", wantErr: types.E_PERM},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			input := tc.prefix + tc.cost + "$" + rawSalt
+			got, errCode := cryptPasswordWithPerm(password, input, tc.isWizard)
+			if errCode != tc.wantErr {
+				t.Fatalf("cryptPasswordWithPerm(%q) error = %s, want %s", input, errCode, tc.wantErr)
+			}
+			if tc.wantErr != types.E_NONE {
+				return
+			}
+
+			control := tc.prefix + tc.cost + "$" + encodedSalt
+			want, controlErr := cryptPasswordWithPerm(password, control, tc.isWizard)
+			if controlErr != types.E_NONE {
+				t.Fatalf("encoded control %q error = %s, want E_NONE", control, controlErr)
+			}
+			if got != want {
+				t.Errorf("cryptPasswordWithPerm(%q) = %q, want encoded-salt result %q", input, got, want)
+			}
+		})
+	}
+}
+
+func TestParseBcryptPrefixCostRejectsInvalidTokens(t *testing.T) {
+	for _, costToken := range []string{"18446744073709551621", "+10", "-10"} {
+		t.Run(costToken, func(t *testing.T) {
+			salt := "$2y$" + costToken + "$KRGxLBS0Lxe3KBCwKxOzLe"
+			if cost, err := parseBcryptPrefixCost(salt); err == nil {
+				t.Fatalf("parseBcryptPrefixCost(%q) = %d, want invalid-token error", salt, cost)
+			}
+		})
+	}
+}
+
 func TestCryptBcryptRequiresExactlyTwoCostDigits(t *testing.T) {
 	for name, salt := range map[string]string{
 		"2a_one_digit":    "$2a$5$KRGxLBS0Lxe3KBCwKxOzLe",

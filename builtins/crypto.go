@@ -758,7 +758,7 @@ func shaCryptDigest(newHash func() hash.Hash, key, saltB []byte, rounds int) []b
 }
 
 func parseBcryptPrefixCost(salt string) (int, error) {
-	separator := strings.LastIndexByte(salt[4:], '$')
+	separator := strings.IndexByte(salt[4:], '$')
 	if separator < 0 {
 		return 0, nil
 	}
@@ -766,12 +766,15 @@ func parseBcryptPrefixCost(salt string) (int, error) {
 	if len(salt) < 7 || separator == 4 {
 		return 0, fmt.Errorf("invalid bcrypt cost")
 	}
-	cost := 0
-	for _, digit := range salt[4:separator] {
+	costToken := salt[4:separator]
+	for _, digit := range costToken {
 		if digit < '0' || digit > '9' {
 			return 0, fmt.Errorf("invalid bcrypt cost")
 		}
-		cost = cost*10 + int(digit-'0')
+	}
+	cost, err := strconv.Atoi(costToken)
+	if err != nil {
+		return 0, fmt.Errorf("invalid bcrypt cost")
 	}
 	if cost < 4 || cost > 31 {
 		return 0, fmt.Errorf("invalid bcrypt cost: must be 4-31")
