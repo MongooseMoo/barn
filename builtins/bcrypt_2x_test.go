@@ -80,6 +80,59 @@ func TestCryptBcrypt2xMatchesCorrectedOnlyForASCII(t *testing.T) {
 	}
 }
 
+func TestCryptBcrypt2xPasswordBoundaries(t *testing.T) {
+	const setting = "$2x$05$CCCCCCCCCCCCCCCCCCCCC."
+	hash2x := func(t *testing.T, password string) string {
+		t.Helper()
+		got, errCode := cryptPasswordWithPerm(password, setting, true)
+		if errCode != types.E_NONE {
+			t.Fatalf("2x hash for %d-byte password error = %s, want E_NONE", len(password), errCode)
+		}
+		if len(got) != 60 || !strings.HasPrefix(got, setting[:7]) {
+			t.Fatalf("2x hash for %d-byte password = %q, want 60-byte hash with prefix %q", len(password), got, setting[:7])
+		}
+		return got
+	}
+
+	t.Run("empty password succeeds", func(t *testing.T) {
+		hash2x(t, "")
+	})
+
+	t.Run("embedded NUL terminates password", func(t *testing.T) {
+		prefix := string([]byte{'A', 0x80, 'B'})
+		if got, want := hash2x(t, prefix+"\x00ignored"), hash2x(t, prefix); got != want {
+			t.Errorf("embedded-NUL hash = %q, want prefix-only hash %q", got, want)
+		}
+	})
+
+	t.Run("72 byte limit preserves high-byte semantics", func(t *testing.T) {
+		first71 := strings.Repeat("A", 70) + string([]byte{0x80})
+		first72 := first71 + string([]byte{0xff})
+		first73 := first72 + string([]byte{0xa3})
+		if len(first71) != 71 || len(first72) != 72 || len(first73) != 73 {
+			t.Fatalf("test vector lengths = %d, %d, %d; want 71, 72, 73", len(first71), len(first72), len(first73))
+		}
+
+		hash71 := hash2x(t, first71)
+		hash72 := hash2x(t, first72)
+		hash73 := hash2x(t, first73)
+		if hash71 == hash72 {
+			t.Errorf("71-byte and 72-byte high-boundary passwords produced the same hash %q", hash72)
+		}
+		if hash72 != hash73 {
+			t.Errorf("72-byte hash %q differs from 73-byte hash %q; byte 73 must be ignored", hash72, hash73)
+		}
+
+		corrected, errCode := cryptPasswordWithPerm(first72, "$2y$"+setting[4:], true)
+		if errCode != types.E_NONE {
+			t.Fatalf("2y boundary control error = %s, want E_NONE", errCode)
+		}
+		if hash72[4:] == corrected[4:] {
+			t.Errorf("2x and 2y high-byte boundary bodies are both %q, want signed-char divergence", hash72[4:])
+		}
+	})
+}
+
 func TestCryptBcrypt2xPermissionAndCostWidthOrdering(t *testing.T) {
 	tests := []struct {
 		name     string
