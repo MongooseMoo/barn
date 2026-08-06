@@ -752,6 +752,31 @@ func TestCloseConnectionsSendsShutdownBannerAndClosesTransports(t *testing.T) {
 	}
 }
 
+func TestAcceptedConnectionIsPublishedWithListenerMetadata(t *testing.T) {
+	cm := NewConnectionManager(7777)
+	record := &listenerRecord{
+		object:         5,
+		descriptorPort: 0,
+		printMessages:  true,
+	}
+
+	conn := cm.newConnectionFromTransport(newRecordingTransport("accepted"), record)
+	published := cm.GetConnection(types.ObjID(-conn.ID))
+	if published != conn {
+		t.Fatalf("published connection = %v, want %v", published, conn)
+	}
+	port, set := published.ListenerPort()
+	if !set || port != 0 {
+		t.Fatalf("published listener port = (%d, %t), want (0, true)", port, set)
+	}
+	if got := conn.ListenerObject(); got != record.object {
+		t.Fatalf("published listener object = %d, want %d", got, record.object)
+	}
+	if !conn.PrintMessages() {
+		t.Fatal("published connection lost print-messages metadata")
+	}
+}
+
 func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
 	cert := selfSignedCertificate(t)
 	setupConn := newSetupBlockingConn()
