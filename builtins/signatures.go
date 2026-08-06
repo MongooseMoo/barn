@@ -270,6 +270,9 @@ func builtinFinishedTasks(ctx *kernel.TaskContext, args []types.Value) types.Res
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
 	all := task.GetManager().GetAllTasks()
 	result := make([]types.Value, 0)
 	for _, t := range all {

@@ -79,7 +79,7 @@ type Connection interface {
 	ConnectedSeconds() int64
 	IdleSeconds() int64
 	GetResolvedName() string
-	ListenerPort() int64
+	ListenerPort() (int64, bool)
 }
 
 type outboundConnectionInfo interface {
@@ -1045,11 +1045,9 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 	case method == 1:
 		return types.Ok(types.NewStr(host))
 	default:
-		listenPort := 0
-		if conn.ListenerPort() > 0 {
-			listenPort = int(conn.ListenerPort())
-		} else if cm := hostOf(ctx).ConnManager; cm != nil {
-			listenPort = cm.GetListenPort()
+		listenPort, ok := conn.ListenerPort()
+		if !ok {
+			listenPort = int64(hostOf(ctx).ConnManager.GetListenPort())
 		}
 		return types.Ok(types.NewStr(fmt.Sprintf("port %d from %s [%s], port %s", listenPort, name, host, port)))
 	}
@@ -1214,9 +1212,9 @@ func builtinConnectionInfo(ctx *kernel.TaskContext, args []types.Value) types.Re
 	host, portText := parseRemoteAddress(remoteAddr)
 	destPort := int64(0)
 	_, _ = fmt.Sscanf(portText, "%d", &destPort)
-	sourcePort := conn.ListenerPort()
+	sourcePort, listenerPortSet := conn.ListenerPort()
 	sourceHost := "127.0.0.1"
-	if sourcePort <= 0 {
+	if !listenerPortSet {
 		sourcePort = int64(cm.GetListenPort())
 	}
 	if sourceAddr != "" {
