@@ -5,6 +5,7 @@ import (
 	dbstore "barn/db/store"
 	"barn/kernel"
 	"barn/types"
+	"sort"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
@@ -23,13 +24,6 @@ func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 			collectAnonymousRefsForGC(pair[0], out)
 			collectAnonymousRefsForGC(pair[1], out)
 		}
-	}
-}
-
-func collectCompositeAnonymousRefs(v types.Value, out map[types.ObjID]struct{}) {
-	switch v.Type() {
-	case types.TYPE_LIST, types.TYPE_MAP:
-		collectAnonymousRefsForGC(v, out)
 	}
 }
 
@@ -74,16 +68,23 @@ func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct
 	return store.UnreachableAnonymousValues(reachable, refs)
 }
 
-func expandAnonymousReachability(store *dbstore.Store, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+func expandAnonymousReachability(store *dbstore.Store, tx *dbstore.StoreTxn, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if store != nil {
 		store.ExpandAnonymousReachability(reachable, refs)
+	}
+	if tx != nil {
+		// Add the owning task's in-flight property graph without replacing the
+		// live expansion: refs from sibling VMs may postdate this transaction's
+		// snapshot and must remain protected by the live-store walk.
+		tx.ExpandAnonymousReachability(reachable, refs)
 	}
 }
 
 // CollectPendingFinalizationValues snapshots anonymous-object references held by
-// a live VM and returns the bare anonymous IDs that still need pending
-// finalization because they are not already reachable from persistent object
-// properties.
+// a live VM and returns one bare anonymous root for each still-unreachable graph
+// that must survive shutdown finalization. A single root retains its complete
+// anonymous-object component for serialization; emitting every local in a cycle
+// would duplicate the same pending finalization graph.
 func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Value {
 	if store == nil || exec == nil {
 		return nil
@@ -95,14 +96,52 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 			continue
 		}
 		for _, value := range frame.Locals {
-			collectCompositeAnonymousRefs(value, refs)
+			collectAnonymousRefsForGC(value, refs)
 		}
 	}
 	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collectCompositeAnonymousRefs(exec.Stack[i], refs)
+		collectAnonymousRefsForGC(exec.Stack[i], refs)
 	}
 
-	return pendingFinalizationValues(store, refs)
+	candidates := pendingFinalizationValues(store, refs)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	type candidateRoot struct {
+		value   types.Value
+		closure map[types.ObjID]struct{}
+	}
+	ordered := make([]candidateRoot, 0, len(candidates))
+	for _, candidate := range candidates {
+		closure := make(map[types.ObjID]struct{})
+		store.ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
+			candidate.ID(): {},
+		})
+		ordered = append(ordered, candidateRoot{value: candidate, closure: closure})
+	}
+	// A root that reaches another candidate must be considered first. Closure
+	// size provides a deterministic topological order for acyclic reachability;
+	// equal closures are the same cycle, so identity order chooses one member.
+	sort.Slice(ordered, func(i, j int) bool {
+		if len(ordered[i].closure) != len(ordered[j].closure) {
+			return len(ordered[i].closure) > len(ordered[j].closure)
+		}
+		return ordered[i].value.ID() < ordered[j].value.ID()
+	})
+
+	covered := buildPersistentAnonymousReachability(store)
+	roots := make([]types.Value, 0, len(ordered))
+	for _, candidate := range ordered {
+		if _, seen := covered[candidate.value.ID()]; seen {
+			continue
+		}
+		roots = append(roots, candidate.value)
+		for id := range candidate.closure {
+			covered[id] = struct{}{}
+		}
+	}
+	return roots
 }
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
@@ -160,25 +199,45 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 			liveRefs[id] = struct{}{}
 		}
 	}
-	expandAnonymousReachability(store, reachable, liveRefs)
+	expandAnonymousReachability(store, nil, reachable, liveRefs)
 
 	recycleFn, ok := registry.Get("recycle")
 	if !ok {
 		return
 	}
 
-	recycled := make(map[types.ObjID]struct{})
+	// Freeze one candidate snapshot at the lowest request floor before invoking
+	// any recycle callback. A callback may create and persist a new anonymous
+	// object; recomputing candidates for a later request against stale reachability
+	// would incorrectly recycle that newly-live object. Filtering this one slice
+	// per request preserves request/context order with O(candidate count) memory.
+	frozenCandidates := store.AnonymousRecycleCandidates(reachable, minFloor)
+
+	recycleFrozenAnonymousCandidates(requests, frozenCandidates, func(ctx *kernel.TaskContext, id types.ObjID) {
+		// Best-effort cleanup: recycle() handles missing/already-invalid objects.
+		_ = recycleFn(ctx, []types.Value{types.NewAnon(id)})
+	})
+}
+
+// recycleFrozenAnonymousCandidates routes one immutable candidate snapshot
+// through request contexts in request order. Filtering by each floor and global
+// de-duplication reproduce the old per-request behavior without retaining one
+// candidate slice per request.
+func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates []types.ObjID, recycle func(*kernel.TaskContext, types.ObjID)) {
+	recycled := make(map[types.ObjID]struct{}, len(frozenCandidates))
 	for _, req := range requests {
 		if req.Ctx == nil {
 			continue
 		}
-		for _, id := range store.AnonymousRecycleCandidates(reachable, req.MinID) {
+		for _, id := range frozenCandidates {
+			if id < req.MinID {
+				continue
+			}
 			if _, done := recycled[id]; done {
 				continue
 			}
 			recycled[id] = struct{}{}
-			// Best-effort cleanup: recycle() handles missing/already-invalid objects.
-			_ = recycleFn(req.Ctx, []types.Value{types.NewAnon(id)})
+			recycle(req.Ctx, id)
 		}
 	}
 }
@@ -215,7 +274,7 @@ func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Re
 	for _, exec := range localVMs {
 		collectAnonymousRefsFromVM(exec, liveRefs)
 	}
-	expandAnonymousReachability(store, reachable, liveRefs)
+	expandAnonymousReachability(store, ctx.StoreTxn, reachable, liveRefs)
 
 	candidates := store.AnonymousRecycleCandidates(reachable, minID)
 	if len(candidates) == 0 {

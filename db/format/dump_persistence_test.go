@@ -190,6 +190,67 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 	}
 }
 
+func TestRoundTripPreservesPendingAnonymousCycle(t *testing.T) {
+	loaded, err := LoadDatabase(filepath.Join("..", "..", "Test_fresh2.db"))
+	if err != nil {
+		t.Fatalf("LoadDatabase failed: %v", err)
+	}
+
+	objectStore := loaded.NewStoreFromDatabase()
+	anonA, errCode := objectStore.CreateObject([]types.ObjID{0}, 3, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject A: %v", errCode)
+	}
+	anonB, errCode := objectStore.CreateObject([]types.ObjID{0}, 3, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject B: %v", errCode)
+	}
+	if errCode := objectStore.DefineProperty(anonA, "next", store.NewProperty(types.NewAnon(anonB), 3, store.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty A.next: %v", errCode)
+	}
+	if errCode := objectStore.DefineProperty(anonB, "next", store.NewProperty(types.NewAnon(anonA), 3, store.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty B.next: %v", errCode)
+	}
+	objectStore.AppendPendingFinalizations([]types.Value{types.NewAnon(anonA)})
+
+	path := filepath.Join(t.TempDir(), "pending-cycle.db")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if err := NewWriter(file, objectStore.Snapshot()).WriteDatabase(); err != nil {
+		file.Close()
+		t.Fatalf("WriteDatabase failed: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reloaded, err := LoadDatabase(path)
+	if err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+	if got := len(reloaded.PendingFinalizations); got != 1 {
+		t.Fatalf("pending finalizations = %d, want 1", got)
+	}
+	if got := len(reloaded.AnonymousObjs); got != 2 {
+		t.Fatalf("anonymous objects = %d, want 2", got)
+	}
+	reloadedStore := reloaded.NewStoreFromDatabase()
+	root := reloaded.PendingFinalizations[0]
+	if root.Type() != types.TYPE_ANON || !reloadedStore.Valid(root.ID()) {
+		t.Fatalf("pending root = %v, want valid anonymous object", root)
+	}
+	next, ok, propErr := reloadedStore.LocalProperty(root.ID(), "next")
+	if propErr != types.E_NONE || !ok || next.Value.Type() != types.TYPE_ANON || !reloadedStore.Valid(next.Value.ID()) {
+		t.Fatalf("pending root next = %#v, ok=%v err=%v", next, ok, propErr)
+	}
+	back, ok, propErr := reloadedStore.LocalProperty(next.Value.ID(), "next")
+	if propErr != types.E_NONE || !ok || !back.Value.Equal(root) {
+		t.Fatalf("pending cycle back edge = %#v, ok=%v err=%v, want %v", back, ok, propErr, root)
+	}
+}
+
 // TestRoundTripPreservesSiblingAfterClear checks that clearing an inherited
 // property override on an object does not corrupt sibling property values in
 // the checkpoint. Before the fix, ClearPropertyOverride removed the slot from

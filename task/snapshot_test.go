@@ -4,8 +4,75 @@ import (
 	"testing"
 	"time"
 
+	"barn/bytecode"
 	"barn/types"
 )
+
+func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *testing.T) {
+	anon := func(id types.ObjID) types.Value { return types.NewAnon(id) }
+	queued := Snapshot{
+		Fork: &ForkSnapshot{Variables: map[string]types.Value{
+			"first":  anon(101),
+			"second": anon(102),
+		}},
+		CallStack: []ActivationFrame{{ThisValue: anon(103)}},
+	}
+	suspended := Snapshot{
+		// A yielded fork retains Fork metadata in memory, but the suspended-task
+		// writer serializes its VM instead. This decoy must not become a root.
+		Fork:          &ForkSnapshot{Variables: map[string]types.Value{"decoy": anon(999)}},
+		ReadingPlayer: types.ObjNothing,
+		WakeValue:     anon(201),
+		TaskLocal:     anon(202),
+		CallStack:     []ActivationFrame{{ThisValue: anon(998)}},
+		VM: &VMSnapshot{Frames: []VMFrameSnapshot{{
+			Program:        bytecode.Program{Constants: []types.Value{anon(203), anon(204)}},
+			Locals:         []types.Value{anon(205)},
+			Stack:          []types.Value{anon(206)},
+			ThisValue:      anon(207),
+			Args:           []types.Value{anon(208)},
+			PendingError:   VMErrorSnapshot{Present: true, Value: anon(209)},
+			SavedThisValue: anon(210),
+		}}},
+	}
+	interrupted := Snapshot{
+		IsHTTPReadSuspended: true,
+		WakeValue:           anon(399),
+		TaskLocal:           anon(301),
+		VM: &VMSnapshot{Frames: []VMFrameSnapshot{{
+			Locals: []types.Value{anon(302)},
+		}}},
+	}
+
+	visited := make(map[types.ObjID]int)
+	transform := func(value types.Value) types.Value {
+		if value.Type() != types.TYPE_ANON {
+			return value
+		}
+		visited[value.ID()]++
+		return types.NewAnon(value.ID() + 1000)
+	}
+	queued.TransformPersistenceValues(transform)
+	suspended.TransformPersistenceValues(transform)
+	interrupted.TransformPersistenceValues(transform)
+
+	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 301, 302} {
+		if got := visited[id]; got != 1 {
+			t.Errorf("serialized value #%d visited %d times, want once", id, got)
+		}
+	}
+	for _, id := range []types.ObjID{399, 998, 999} {
+		if got := visited[id]; got != 0 {
+			t.Errorf("non-serialized value #%d visited %d times, want zero", id, got)
+		}
+	}
+	if got, want := queued.Fork.Variables["first"].ID(), types.ObjID(1101); got != want {
+		t.Errorf("rewritten queued variable id = %d, want %d", got, want)
+	}
+	if got, want := suspended.VM.Frames[0].SavedThisValue.ID(), types.ObjID(1210); got != want {
+		t.Errorf("rewritten saved-this id = %d, want %d", got, want)
+	}
+}
 
 func TestPersistenceSnapshotCopiesMutableFields(t *testing.T) {
 	task := NewTaskFull(42, 7, nil, 100, 1)

@@ -1931,6 +1931,98 @@ func TestTransactionPropertyValuesSeeStagedWrites(t *testing.T) {
 	}
 }
 
+func TestStoreTxnCommitAndRenewConflictLeavesTransactionIntact(t *testing.T) {
+	store := NewStore()
+	root := NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetProperty("value", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+
+	first := store.BeginReadOnly(0)
+	t.Cleanup(first.Release)
+	if errCode := first.SetPropertyValue(0, "value", types.NewInt(2)); errCode != types.E_NONE {
+		t.Fatalf("stage first value: %v", errCode)
+	}
+	second := store.BeginReadOnly(0)
+	if errCode := second.SetPropertyValue(0, "value", types.NewInt(3)); errCode != types.E_NONE {
+		second.Release()
+		t.Fatalf("stage concurrent value: %v", errCode)
+	}
+	if errCode := second.Commit(); errCode != types.E_NONE {
+		second.Release()
+		t.Fatalf("commit concurrent value: %v", errCode)
+	}
+	second.Release()
+
+	next, published, errCode := first.CommitAndRenew()
+	if errCode != types.E_INVARG {
+		t.Fatalf("CommitAndRenew conflict = %v, want E_INVARG", errCode)
+	}
+	if next != first {
+		t.Fatal("CommitAndRenew conflict replaced the original transaction")
+	}
+	if published {
+		t.Fatal("CommitAndRenew conflict reported writes published")
+	}
+	if !first.HasWrites() {
+		t.Fatal("CommitAndRenew conflict discarded staged writes")
+	}
+	if first.released.Load() {
+		t.Fatal("CommitAndRenew conflict released the original transaction")
+	}
+	value, errCode := store.PropertyValue(0, "value")
+	if errCode != types.E_NONE || value.Type() != types.TYPE_INT || value.Int() != 3 {
+		t.Fatalf("live value after conflict = %v (%v), want concurrent value 3", value, errCode)
+	}
+}
+
+func TestStoreTxnCommitAndRenewPublishesAndPreservesGateExemption(t *testing.T) {
+	store := NewStore()
+	root := NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetProperty("value", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+
+	store.EscalationLock()
+	t.Cleanup(store.EscalationUnlock)
+	tx := store.BeginReadOnly(0)
+	tx.ExemptFromCommitGate()
+	if errCode := tx.SetPropertyValue(0, "value", types.NewInt(2)); errCode != types.E_NONE {
+		tx.Release()
+		t.Fatalf("stage value: %v", errCode)
+	}
+
+	next, published, errCode := tx.CommitAndRenew()
+	if errCode != types.E_NONE {
+		tx.Release()
+		t.Fatalf("CommitAndRenew: %v", errCode)
+	}
+	t.Cleanup(next.Release)
+	if !published {
+		t.Fatal("CommitAndRenew did not report staged writes published")
+	}
+	if next == tx {
+		t.Fatal("CommitAndRenew returned the original transaction")
+	}
+	if !tx.released.Load() {
+		t.Fatal("CommitAndRenew did not release the original transaction")
+	}
+	if !next.gateExempt {
+		t.Fatal("CommitAndRenew replacement lost escalation-gate exemption")
+	}
+	if next.ReadTimestamp() != store.ReadTimestamp() {
+		t.Fatalf("replacement timestamp = %d, want current store timestamp %d", next.ReadTimestamp(), store.ReadTimestamp())
+	}
+	value, errCode := next.PropertyValue(0, "value")
+	if errCode != types.E_NONE || value.Type() != types.TYPE_INT || value.Int() != 2 {
+		t.Fatalf("replacement value = %v (%v), want published value 2", value, errCode)
+	}
+}
+
 // TestTransactionAdoptAndCommitAnonymousObject is the regression guard for the F2
 // merge gap: a runtime-created anonymous object lives out-of-band in s.anonObjects
 // (no numbered slot, no history). The MVCC read-transaction resolvers were only
