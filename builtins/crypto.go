@@ -319,7 +319,7 @@ func hexValue(c byte) int {
 // - MD5 ($1$)
 // - SHA256 ($5$)
 // - SHA512 ($6$)
-// - bcrypt ($2a$, $2y$)
+// - bcrypt ($2a$, $2x$, $2y$)
 func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
@@ -360,7 +360,7 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
 func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.ErrorCode) {
 	// Parse algorithm and parameters from salt
-	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2y$") {
+	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2x$") || strings.HasPrefix(salt, "$2y$") {
 		// bcrypt - first validate cost range, then check permissions
 		cost, err := parseBcryptPrefixCost(salt)
 		if err != nil {
@@ -794,7 +794,7 @@ func parseBcryptCost(salt string) (int, error) {
 	return cost, nil
 }
 
-// cryptBcrypt implements bcrypt ($2a$, $2y$)
+// cryptBcrypt implements bcrypt ($2a$, $2x$, $2y$)
 func cryptBcrypt(password, salt string) (string, error) {
 	// bcrypt format: $2a$NN$<salt>
 	// Salt can be either 16 raw bytes or 22 base64-encoded chars
@@ -826,14 +826,19 @@ func cryptBcrypt(password, salt string) (string, error) {
 		return "", fmt.Errorf("invalid bcrypt salt")
 	}
 
-	hash, err := cryptbcrypt.GenerateFromPasswordSalt([]byte(password), rawSalt, cost)
+	key := []byte(password)
+	if prefix == "$2x$" {
+		key = bcrypt2xSchedule(key)
+	}
+	hash, err := cryptbcrypt.GenerateFromPasswordSalt(key, rawSalt, cost)
 	if err != nil {
 		return "", err
 	}
 
 	hashStr := string(hash)
-	// $2y$ uses the corrected bcrypt algorithm and differs only in its marker.
-	if prefix == "$2y$" && strings.HasPrefix(hashStr, "$2a$") {
+	// GenerateFromPasswordSalt emits $2a$. The 2y corrected variant differs
+	// only in its marker; 2x uses the historical schedule synthesized above.
+	if (prefix == "$2x$" || prefix == "$2y$") && strings.HasPrefix(hashStr, "$2a$") {
 		hashStr = prefix + hashStr[4:]
 	}
 	return hashStr, nil
