@@ -17,6 +17,8 @@ import (
 
 // EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command.
 func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix string) (lines []string) {
+	var executionTask *task.Task
+	var executionCtx *kernel.TaskContext
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -32,6 +34,16 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 				slog.Int64("player", int64(player)),
 				slog.String("panic", fmt.Sprint(r)),
 				slog.String("go_stack", string(debug.Stack())))
+		}
+		// Recovery must finish before this direct VM relinquishes ownership. Then
+		// release the physical lease and let the lifecycle flush retry anything an
+		// inline floor sweep had to defer.
+		if executionCtx != nil {
+			s.releaseExecutionContext(executionCtx, executionTask.ID)
+		}
+		if executionTask != nil {
+			s.releaseTaskExecution(executionTask.ID)
+			s.flushDeferredGC()
 		}
 	}()
 
@@ -72,6 +84,10 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.Task = t
 	ctx.TaskID = t.ID
+	s.acquireTaskExecution(t)
+	s.acquireExecutionContext(ctx, t.ID)
+	executionTask = t
+	executionCtx = ctx
 
 	// Create bytecode VM and execute
 	bcVM := vm.NewVM(s.store, s.registry)
@@ -189,13 +205,32 @@ resumeLoop:
 	pending := bcVM.TakePendingWaifs()
 	anonCreated := s.store.AnonCreationCount() != anonFloor
 	if anonCreated || len(pending) > 0 {
-		siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
-		if len(pending) > 0 {
-			s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
-		}
-		if anonCreated {
-			vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
-		}
+		func() {
+			s.gcSweepMu.Lock()
+			defer s.gcSweepMu.Unlock()
+			s.vmStartMu.Lock()
+			defer s.vmStartMu.Unlock()
+
+			siblingAnon, siblingWaifs, quiescent := s.collectSiblingGCRefs(t)
+			if !quiescent {
+				if len(pending) > 0 {
+					s.deferPendingWaifs(ctx, pending, bcVM)
+				}
+				if anonCreated {
+					s.deferAnonGC(ctx, anonGCFloor, bcVM)
+				}
+				return
+			}
+
+			s.acquireSweepContext(ctx)
+			defer s.releaseSweepContext(ctx)
+			if len(pending) > 0 {
+				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
+			}
+			if anonCreated {
+				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+			}
+		}()
 	}
 
 	// Send result wrapped with prefix/suffix in ToastStunt eval format:

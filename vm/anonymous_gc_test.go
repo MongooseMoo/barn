@@ -3,7 +3,9 @@ package vm
 import (
 	"testing"
 
+	"barn/builtins"
 	dbstore "barn/db/store"
+	"barn/kernel"
 	"barn/types"
 )
 
@@ -182,5 +184,89 @@ func TestExpandAnonymousReachabilityIncludesTransactionPropertyWrites(t *testing
 		if _, ok := reachable[id]; !ok {
 			t.Errorf("anonymous object %d not reachable through staged cycle: %#v", id, reachable)
 		}
+	}
+}
+
+func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testing.T) {
+	store := dbstore.NewStore()
+	root := testObject(0, false)
+	if err := store.Add(root); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	if errCode := store.DefineProperty(0, "stash", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define stash: %v", errCode)
+	}
+	const candidateCount = 64
+	for id := types.ObjID(1); id <= candidateCount; id++ {
+		if err := store.Add(testObject(id, true)); err != nil {
+			t.Fatalf("add anonymous candidate #%d: %v", id, err)
+		}
+	}
+
+	registry := builtins.NewRegistry()
+	var createdByHook types.ObjID
+	recycleCalls := 0
+	registry.Register("recycle", func(_ *kernel.TaskContext, args []types.Value) types.Result {
+		recycleCalls++
+		if len(args) != 1 || args[0].Type() != types.TYPE_ANON {
+			return types.Err(types.E_INVARG)
+		}
+		if err := store.Recycle(args[0].Obj()); err != nil {
+			return types.Err(types.E_INVARG)
+		}
+		if createdByHook == 0 {
+			var errCode types.ErrorCode
+			createdByHook, errCode = store.CreateObject(nil, 0, true)
+			if errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
+			if errCode := store.SetPropertyValue(0, "stash", types.NewAnon(createdByHook)); errCode != types.E_NONE {
+				return types.Err(errCode)
+			}
+		}
+		return types.Ok(types.NewInt(0))
+	})
+
+	ctx := kernel.NewTaskContext()
+	ctx.Store = store
+	ctx.Registry = registry
+	const requestCount = 128
+	requests := make([]AnonGCRequest, requestCount)
+	for i := range requests {
+		requests[i] = AnonGCRequest{Ctx: ctx, MinID: 1}
+	}
+	RecycleOrphanAnonymousBatch(store, registry, requests, nil)
+
+	if recycleCalls != candidateCount {
+		t.Fatalf("recycle calls = %d, want only %d pre-snapshot candidates across %d requests", recycleCalls, candidateCount, requestCount)
+	}
+	if createdByHook == 0 || !store.Valid(createdByHook) {
+		t.Fatalf("recycle-hook-created persistent anonymous object #%d did not survive current batch", createdByHook)
+	}
+	stash, errCode := store.PropertyValue(0, "stash")
+	if errCode != types.E_NONE || stash.Type() != types.TYPE_ANON || stash.Obj() != createdByHook {
+		t.Fatalf("persistent stash = %v (%v), want anonymous #%d", stash, errCode, createdByHook)
+	}
+}
+
+func TestRecycleFrozenAnonymousCandidatesAllocationsDoNotScaleWithRequests(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	const requestCount = 128
+	requests := make([]AnonGCRequest, requestCount)
+	for i := range requests {
+		requests[i] = AnonGCRequest{Ctx: ctx, MinID: 1}
+	}
+	const candidateCount = 64
+	candidates := make([]types.ObjID, candidateCount)
+	for i := range candidates {
+		candidates[i] = types.ObjID(i + 1)
+	}
+	recycle := func(_ *kernel.TaskContext, _ types.ObjID) {}
+
+	allocs := testing.AllocsPerRun(50, func() {
+		recycleFrozenAnonymousCandidates(requests, candidates, recycle)
+	})
+	if allocs > 8 {
+		t.Fatalf("routing %d candidates through %d requests allocated %.1f times, want <= 8 independent of request count", candidateCount, requestCount, allocs)
 	}
 }

@@ -13,7 +13,7 @@ func (w *Writer) SetTaskSnapshots(queued, suspended []task.Snapshot) {
 	w.suspendedTasks = w.suspendedTasks[:0]
 	w.interruptedTasks = w.interruptedTasks[:0]
 	for _, snapshot := range suspended {
-		if snapshot.ReadingPlayer != types.ObjNothing || snapshot.IsExecSuspended || snapshot.IsHTTPReadSuspended {
+		if snapshot.IsInterruptedForPersistence() {
 			w.interruptedTasks = append(w.interruptedTasks, snapshot)
 		} else {
 			w.suspendedTasks = append(w.suspendedTasks, snapshot)
