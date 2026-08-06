@@ -1461,7 +1461,7 @@ func builtinRandomBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	}
 
 	bytes := make([]byte, count)
-	_, err := sharedRandom.read(bytes)
+	_, err := rand.Read(bytes)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}

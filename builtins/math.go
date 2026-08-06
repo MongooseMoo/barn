@@ -3,6 +3,7 @@ package builtins
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"strings"
 
 	"barn/kernel"
@@ -574,7 +575,7 @@ func builtinFrandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		min = args[0].Float()
 		max = args[1].Float()
 	}
-	f := sharedRandom.float64()
+	f := rand.Float64()
 	return types.Ok(types.NewFloat(min + f*(max-min)))
 }
 

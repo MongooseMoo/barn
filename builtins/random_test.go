@@ -3,6 +3,7 @@ package builtins
 import (
 	"bytes"
 	cryptorand "crypto/rand"
+	"errors"
 	rand "math/rand/v2"
 	"sync"
 	"testing"
@@ -11,95 +12,147 @@ import (
 	"barn/types"
 )
 
-func TestRandomFamilySharesReseededGenerator(t *testing.T) {
+type failingEntropyReader struct {
+	err error
+}
+
+func (r failingEntropyReader) Read(_ []byte) (int, error) {
+	return 0, r.err
+}
+
+func randomTestSeed(offset byte) [32]byte {
 	var seed [32]byte
 	for i := range seed {
-		seed[i] = byte(i)
+		seed[i] = byte(i) + offset
 	}
-	entropy := bytes.NewReader(append(seed[:], seed[:]...))
-	originalReader := cryptorand.Reader
-	cryptorand.Reader = entropy
+	return seed
+}
+
+func installSharedRandomForTest(t *testing.T, generator *randomGenerator) {
+	t.Helper()
+	original := sharedRandom
+	sharedRandom = generator
 	t.Cleanup(func() {
-		cryptorand.Reader = originalReader
+		sharedRandom = original
 	})
+}
+
+func requireRandomInt(t *testing.T, ctx *kernel.TaskContext, max int64) int64 {
+	t.Helper()
+	result := builtinRandom(ctx, []types.Value{types.NewInt(max)})
+	if result.IsError() {
+		t.Fatalf("random(%d) failed: %v", max, result.Error)
+	}
+	return result.Val.Int()
+}
+
+func TestReseedRandomReturnsZeroAndReseedsIntegerStream(t *testing.T) {
+	initialSeed := randomTestSeed(0)
+	reseededSeed := randomTestSeed(32)
+	installSharedRandomForTest(t, newRandomGenerator(initialSeed, bytes.NewReader(reseededSeed[:])))
 
 	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
-
-	assertReseededSequence := func() {
-		t.Helper()
-
-		entropyBefore := entropy.Len()
-		result := builtinReseedRandom(ctx, nil)
-		if result.IsError() {
-			t.Fatalf("reseed_random() failed: %v", result.Error)
-		}
-		if result.Val.Type() != types.TYPE_INT || result.Val.Int() != 0 {
-			t.Fatalf("reseed_random() = %#v, want integer 0", result.Val)
-		}
-
-		consumed := entropyBefore - entropy.Len()
-		if consumed != 32 {
-			t.Fatalf("reseed_random() consumed %d entropy bytes, want a 32-byte seed", consumed)
-		}
-
-		source := rand.NewChaCha8(seed)
-		reference := rand.New(source)
-
-		integer := builtinRandom(ctx, []types.Value{types.NewInt(1_000_000)})
-		if integer.IsError() {
-			t.Fatalf("random() failed: %v", integer.Error)
-		}
-		if got, want := integer.Val.Int(), reference.Int64N(1_000_000)+1; got != want {
-			t.Fatalf("random() = %d, want %d from reseeded shared stream", got, want)
-		}
-
-		floating := builtinFrandom(ctx, []types.Value{types.NewFloat(1)})
-		if floating.IsError() {
-			t.Fatalf("frandom() failed: %v", floating.Error)
-		}
-		if got, want := floating.Val.Float(), reference.Float64(); got != want {
-			t.Fatalf("frandom() = %v, want %v from reseeded shared stream", got, want)
-		}
-
-		randomBytes := builtinRandomBytes(ctx, []types.Value{types.NewInt(16)})
-		if randomBytes.IsError() {
-			t.Fatalf("random_bytes() failed: %v", randomBytes.Error)
-		}
-		gotBytes, invalid := decodeBinaryString(randomBytes.Val.Str())
-		if invalid {
-			t.Fatalf("random_bytes() returned invalid binary string %q", randomBytes.Val.Str())
-		}
-		wantBytes := make([]byte, 16)
-		if _, err := source.Read(wantBytes); err != nil {
-			t.Fatalf("reference random byte draw failed: %v", err)
-		}
-		if !bytes.Equal(gotBytes, wantBytes) {
-			t.Fatalf("random_bytes() = %x, want %x from reseeded shared stream", gotBytes, wantBytes)
-		}
-
-		integer = builtinRandom(ctx, []types.Value{types.NewInt(1_000_000)})
-		if integer.IsError() {
-			t.Fatalf("second random() failed: %v", integer.Error)
-		}
-		if got, want := integer.Val.Int(), reference.Int64N(1_000_000)+1; got != want {
-			t.Fatalf("random() after random_bytes() = %d, want %d from shared stream", got, want)
-		}
+	result := builtinReseedRandom(ctx, nil)
+	if result.IsError() {
+		t.Fatalf("reseed_random() failed: %v", result.Error)
+	}
+	if result.Val.Type() != types.TYPE_INT || result.Val.Int() != 0 {
+		t.Fatalf("reseed_random() = %#v, want integer 0", result.Val)
 	}
 
-	assertReseededSequence()
-	assertReseededSequence()
+	reference := rand.New(rand.NewChaCha8(reseededSeed))
+	for i := 0; i < 3; i++ {
+		if got, want := requireRandomInt(t, ctx, 1_000_000), reference.Int64N(1_000_000)+1; got != want {
+			t.Fatalf("random() draw %d = %d, want %d from reseeded integer stream", i, got, want)
+		}
+	}
 }
 
-func TestReseedRandomRejectsNonWizard(t *testing.T) {
-	ctx := kernel.NewTaskContext()
-	result := builtinReseedRandom(ctx, nil)
-	if !result.IsError() || result.Error != types.E_PERM {
+func TestReseedRandomValidatesArityAndAuthority(t *testing.T) {
+	wizard := kernel.NewTaskContext()
+	wizard.IsWizard = true
+	if result := builtinReseedRandom(wizard, []types.Value{types.NewInt(1)}); !result.IsError() || result.Error != types.E_ARGS {
+		t.Fatalf("reseed_random(1) = %#v, want E_ARGS", result)
+	}
+
+	nonWizard := kernel.NewTaskContext()
+	if result := builtinReseedRandom(nonWizard, nil); !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("non-wizard reseed_random() = %#v, want E_PERM", result)
 	}
 }
 
-func TestRandomFamilyConcurrentUse(t *testing.T) {
+func TestReseedRandomEntropyFailurePreservesIntegerState(t *testing.T) {
+	seed := randomTestSeed(7)
+	entropyErr := errors.New("entropy unavailable")
+	installSharedRandomForTest(t, newRandomGenerator(seed, failingEntropyReader{err: entropyErr}))
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	reference := rand.New(rand.NewChaCha8(seed))
+
+	if got, want := requireRandomInt(t, ctx, 1_000_000), reference.Int64N(1_000_000)+1; got != want {
+		t.Fatalf("random() before failed reseed = %d, want %d", got, want)
+	}
+	if result := builtinReseedRandom(ctx, nil); !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("reseed_random() with failed entropy = %#v, want E_INVARG", result)
+	}
+	if got, want := requireRandomInt(t, ctx, 1_000_000), reference.Int64N(1_000_000)+1; got != want {
+		t.Fatalf("random() after failed reseed = %d, want unchanged-stream draw %d", got, want)
+	}
+}
+
+func TestReseedRandomLeavesOtherRandomStreamsIndependent(t *testing.T) {
+	initialSeed := randomTestSeed(0)
+	reseededSeed := randomTestSeed(64)
+	installSharedRandomForTest(t, newRandomGenerator(initialSeed, bytes.NewReader(reseededSeed[:])))
+
+	cryptoBytes := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	originalCryptoReader := cryptorand.Reader
+	cryptorand.Reader = bytes.NewReader(cryptoBytes)
+	t.Cleanup(func() {
+		cryptorand.Reader = originalCryptoReader
+	})
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	if result := builtinReseedRandom(ctx, nil); result.IsError() {
+		t.Fatalf("reseed_random() failed: %v", result.Error)
+	}
+
+	reference := rand.New(rand.NewChaCha8(reseededSeed))
+	if got, want := requireRandomInt(t, ctx, 1_000_000), reference.Int64N(1_000_000)+1; got != want {
+		t.Fatalf("first random() = %d, want %d", got, want)
+	}
+
+	floating := builtinFrandom(ctx, []types.Value{types.NewFloat(1)})
+	if floating.IsError() {
+		t.Fatalf("frandom() failed: %v", floating.Error)
+	}
+	if got := floating.Val.Float(); got < 0 || got >= 1 {
+		t.Fatalf("frandom(1.0) = %v, want [0, 1)", got)
+	}
+
+	randomBytes := builtinRandomBytes(ctx, []types.Value{types.NewInt(int64(len(cryptoBytes)))})
+	if randomBytes.IsError() {
+		t.Fatalf("random_bytes() failed: %v", randomBytes.Error)
+	}
+	gotBytes, invalid := decodeBinaryString(randomBytes.Val.Str())
+	if invalid {
+		t.Fatalf("random_bytes() returned invalid binary string %q", randomBytes.Val.Str())
+	}
+	if !bytes.Equal(gotBytes, cryptoBytes) {
+		t.Fatalf("random_bytes() = %x, want crypto/rand bytes %x", gotBytes, cryptoBytes)
+	}
+
+	if got, want := requireRandomInt(t, ctx, 1_000_000), reference.Int64N(1_000_000)+1; got != want {
+		t.Fatalf("random() after frandom/random_bytes = %d, want independent-stream draw %d", got, want)
+	}
+}
+
+func TestRandomAndReseedRandomConcurrentUse(t *testing.T) {
+	installSharedRandomForTest(t, newRandomGenerator(randomTestSeed(0), cryptorand.Reader))
+
 	const workers = 8
 	const iterations = 100
 
@@ -115,16 +168,9 @@ func TestRandomFamilyConcurrentUse(t *testing.T) {
 
 			ctx := kernel.NewTaskContext()
 			for range iterations {
-				results := []types.Result{
-					builtinRandom(ctx, []types.Value{types.NewInt(1_000_000)}),
-					builtinFrandom(ctx, []types.Value{types.NewFloat(1)}),
-					builtinRandomBytes(ctx, []types.Value{types.NewInt(16)}),
-				}
-				for _, result := range results {
-					if result.IsError() {
-						errors <- result.Error
-						return
-					}
+				if result := builtinRandom(ctx, []types.Value{types.NewInt(1_000_000)}); result.IsError() {
+					errors <- result.Error
+					return
 				}
 			}
 		}()
@@ -138,8 +184,7 @@ func TestRandomFamilyConcurrentUse(t *testing.T) {
 		ctx := kernel.NewTaskContext()
 		ctx.IsWizard = true
 		for range iterations {
-			result := builtinReseedRandom(ctx, nil)
-			if result.IsError() {
+			if result := builtinReseedRandom(ctx, nil); result.IsError() {
 				errors <- result.Error
 				return
 			}
@@ -150,7 +195,7 @@ func TestRandomFamilyConcurrentUse(t *testing.T) {
 	wg.Wait()
 	close(errors)
 
-	for err := range errors {
-		t.Fatalf("concurrent random builtin failed: %v", err)
+	for errCode := range errors {
+		t.Fatalf("concurrent random builtin failed: %v", errCode)
 	}
 }
