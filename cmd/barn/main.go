@@ -101,7 +101,6 @@ func startDebugEndpoint(addr string) (*http.Server, error) {
 	srv := &http.Server{Handler: mux}
 	slog.Info("debug endpoint listening", slog.String("addr", listener.Addr().String()))
 
-
 	go func() {
 		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Warn("debug endpoint stopped", slog.Any("err", err))

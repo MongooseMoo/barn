@@ -93,9 +93,9 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 	// Simulate a restored database whose highest task ID was 99. Eval and queued
 	// tasks must both advance the scheduler-owned counter from that point.
 	atomic.StoreInt64(&s.nextTaskID, 99)
-	lines := s.EvalCommandOutput(types.ObjNothing, "return task_id();", "", "")
-	if len(lines) != 1 || lines[0] != "{1, 100}" {
-		t.Fatalf("eval task ID = %v, want [{1, 100}]", lines)
+	line := s.EvalCommandOutput(types.ObjNothing, "return task_id();")
+	if line != "{1, 100}" {
+		t.Fatalf("eval task ID = %v, want {1, 100}", line)
 	}
 
 	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)

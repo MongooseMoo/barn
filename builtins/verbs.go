@@ -143,6 +143,13 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 
 	names, errCode := verbNamesForRead(ctx, objID)
 	if errCode != types.E_NONE {
@@ -345,7 +352,9 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
 func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -500,7 +509,6 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -522,28 +530,43 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions (must be owner or wizard)
-
-	var name string
-	switch descVal.Type() {
-	case types.TYPE_STR:
-		name = descVal.Str()
-	case types.TYPE_INT:
-		verb, errCode := store.VerbByIndex(objID, int(descVal.Int())-1)
-		if errCode != types.E_NONE {
-			return types.Err(types.E_VERBNF)
+	resolveDescriptor := func() (dbstore.ResolvedVerb, bool) {
+		switch descVal.Type() {
+		case types.TYPE_STR:
+			resolved, err := resolveVerbOnObjectForRead(ctx, objID, descVal.Str())
+			return resolved, err == nil
+		case types.TYPE_INT:
+			resolved, errCode := resolveVerbByIndexForRead(ctx, objID, int(descVal.Int())-1)
+			return resolved, errCode == types.E_NONE
+		default:
+			return dbstore.ResolvedVerb{}, false
 		}
-		name = verb.Name
 	}
-
-	if errCode := store.DeleteVerb(objID, name); errCode != types.E_NONE {
+	// Resolve before checking authority to preserve delete_verb's E_VERBNF-before-
+	// E_PERM precedence. A transaction stages deletion of this exact current-list
+	// index; commit validates the starting generation before publishing anything.
+	resolved, ok := resolveDescriptor()
+	if !ok {
+		return types.Err(types.E_VERBNF)
+	}
+	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	markLiveStoreMutated(ctx)
+	if !allowed {
+		return types.Err(types.E_PERM)
+	}
 	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
+		return types.Ok(types.NewInt(0))
+	}
+
+	// Direct-call contexts without a StoreTxn retain the one-lock fallback: live
+	// authority and exact generation are validated atomically with deletion.
+	if errCode := store.DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -553,7 +576,9 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 // Changes verb metadata
 // info: {owner, perms, names}
 func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -625,7 +650,9 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
 func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 3 {

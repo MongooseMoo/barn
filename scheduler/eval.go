@@ -15,41 +15,41 @@ import (
 	"barn/vm"
 )
 
-// EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command.
-func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix string) (lines []string) {
+// EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command
+// and returns its single result record. The server input boundary owns framing.
+func (s *Scheduler) EvalCommandOutput(player types.ObjID, code string) (line string) {
+	var executionTask *task.Task
+	var executionCtx *kernel.TaskContext
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			if prefix != "" {
-				lines = append(lines, prefix)
-			}
-			lines = append(lines, fmt.Sprintf("{0, {\"Internal error: %v\"}}", r))
-			if suffix != "" {
-				lines = append(lines, suffix)
-			}
+			line = fmt.Sprintf("{0, {\"Internal error: %v\"}}", r)
 			metrics.PanicsRecovered.Add(1)
 			slog.Error("panic in eval",
 				slog.Int64("player", int64(player)),
 				slog.String("panic", fmt.Sprint(r)),
 				slog.String("go_stack", string(debug.Stack())))
 		}
+		// Recovery must finish before this direct VM relinquishes ownership. Then
+		// release the physical lease and let the lifecycle flush retry anything an
+		// inline floor sweep had to defer.
+		if executionCtx != nil {
+			s.releaseExecutionContext(executionCtx, executionTask.ID)
+		}
+		if executionTask != nil {
+			s.releaseTaskExecution(executionTask.ID)
+			s.flushDeferredGC()
+		}
 	}()
 
 	prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), s.registry)
 	if len(diagnostics) > 0 {
-		if prefix != "" {
-			lines = append(lines, prefix)
-		}
 		kind := "Compile error"
 		if diagnostics[0].Stage == compiler.SyntaxStage {
 			kind = "Parse error"
 		}
 		errMsg := fmt.Sprintf("{0, {\"%s: %s\"}}", kind, diagnostics[0].Message)
-		lines = append(lines, errMsg)
-		if suffix != "" {
-			lines = append(lines, suffix)
-		}
-		return lines
+		return errMsg
 	}
 
 	// Execute the code synchronously
@@ -72,6 +72,10 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code, prefix, suffix s
 	t.ForkCreator = s // Enable fork support in eval commands
 	ctx.Task = t
 	ctx.TaskID = t.ID
+	s.acquireTaskExecution(t)
+	s.acquireExecutionContext(ctx, t.ID)
+	executionTask = t
+	executionCtx = ctx
 
 	// Create bytecode VM and execute
 	bcVM := vm.NewVM(s.store, s.registry)
@@ -189,21 +193,37 @@ resumeLoop:
 	pending := bcVM.TakePendingWaifs()
 	anonCreated := s.store.AnonCreationCount() != anonFloor
 	if anonCreated || len(pending) > 0 {
-		siblingAnon, siblingWaifs := s.collectSiblingGCRefs(t)
-		if len(pending) > 0 {
-			s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
-		}
-		if anonCreated {
-			vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
-		}
+		func() {
+			s.gcSweepMu.Lock()
+			defer s.gcSweepMu.Unlock()
+			s.vmStartMu.Lock()
+			defer s.vmStartMu.Unlock()
+
+			siblingAnon, siblingWaifs, quiescent := s.collectSiblingGCRefs(t)
+			if !quiescent {
+				if len(pending) > 0 {
+					s.deferPendingWaifs(ctx, pending, bcVM)
+				}
+				if anonCreated {
+					s.deferAnonGC(ctx, anonGCFloor, bcVM)
+				}
+				return
+			}
+
+			s.acquireSweepContext(ctx)
+			defer s.releaseSweepContext(ctx)
+			if len(pending) > 0 {
+				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
+			}
+			if anonCreated {
+				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+			}
+		}()
 	}
 
-	// Send result wrapped with prefix/suffix in ToastStunt eval format:
+	// Return one result record in ToastStunt eval format:
 	// Success: {1, value}
 	// Runtime error: {2, {E_TYPE, "message", value}}
-	if prefix != "" {
-		lines = append(lines, prefix)
-	}
 	var resultStr string
 	if result.Flow == types.FlowException {
 		// Runtime error: {2, {E_TYPE, "message", value}}
@@ -217,9 +237,5 @@ resumeLoop:
 		// Success with no return value: {1, 0}
 		resultStr = "{1, 0}"
 	}
-	lines = append(lines, resultStr)
-	if suffix != "" {
-		lines = append(lines, suffix)
-	}
-	return lines
+	return resultStr
 }

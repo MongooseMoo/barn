@@ -85,7 +85,7 @@ func (vm *VM) executeIndexSet() error {
 	// Bytecode: OP_INDEX_SET <varIdx:byte>
 	// Stack: [... value_copy index] (value_copy and index on top)
 	// After: modifies collection in locals[varIdx], pops index and value_copy
-	varIdx := vm.ReadByte()
+	varIdx := vm.FetchByte()
 	index := vm.Pop()
 	value := vm.Pop()
 
@@ -127,7 +127,7 @@ func (vm *VM) executeRangeSet() error {
 	// Bytecode: OP_RANGE_SET <varIdx:byte>
 	// Stack: [... value_copy start end] (end on top)
 	// After: modifies collection in locals[varIdx], pops end, start, and value_copy
-	varIdx := vm.ReadByte()
+	varIdx := vm.FetchByte()
 	end := vm.Pop()
 	start := vm.Pop()
 	value := vm.Pop()
@@ -428,7 +428,7 @@ func (vm *VM) executeRange() error {
 // executeIndexMarker resolves ^/$ markers against a collection. Index markers
 // resolve map boundaries to keys; range markers remain positional.
 func (vm *VM) executeIndexMarker() error {
-	marker := vm.ReadByte()
+	marker := vm.FetchByte()
 	coll := vm.Pop()
 	if marker == bytecode.RangeMarkerFirst || marker == bytecode.RangeMarkerLast {
 		if coll.Type() != types.TYPE_LIST && coll.Type() != types.TYPE_STR && coll.Type() != types.TYPE_MAP {

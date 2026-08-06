@@ -28,8 +28,8 @@ import (
 // Native frame push: compiles the verb to bytecode and pushes a new StackFrame.
 // Returns a compile error if bytecode compilation fails.
 func (vm *VM) executeCallVerb() error {
-	verbNameIdx := vm.ReadByte()
-	argc := int(vm.ReadByte())
+	verbNameIdx := vm.FetchByte()
+	argc := int(vm.FetchByte())
 
 	// Resolve verb name
 	var verbName string
@@ -289,7 +289,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 // finds the same verb name on an ancestor, compiles it to bytecode,
 // and pushes a new frame. Preserves `this` (original target).
 func (vm *VM) executePass() error {
-	argc := int(vm.ReadByte())
+	argc := int(vm.FetchByte())
 
 	frame := vm.CurrentFrame()
 	if frame == nil {

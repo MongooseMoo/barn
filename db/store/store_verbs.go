@@ -81,6 +81,17 @@ type VerbCandidate struct {
 	Verb    VerbView
 }
 
+// ResolvedVerb is an opaque reference to one verb definition in one version of
+// an object's ordered verb list. It lets Store perform an exact live deletion or
+// StoreTxn stage that exact current-list selection without a second name lookup
+// that could select a different overlapping alias.
+type ResolvedVerb struct {
+	store       *Store
+	objID       types.ObjID
+	index       int
+	listVersion uint64
+}
+
 func (s *Store) HasLocalVerb(objID types.ObjID, name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -287,6 +298,25 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, 
 	return verb.View(), nil
 }
 
+// ResolveVerbOnObject resolves verbName on objID itself and returns an opaque
+// reference suitable for DeleteResolvedVerb.
+func (s *Store) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	verb, err := s.findVerbOnObjectLocked(objID, verbName)
+	if err != nil {
+		return ResolvedVerb{}, err
+	}
+	for index, candidate := range obj.verbList {
+		if candidate == verb {
+			return ResolvedVerb{store: s, objID: objID, index: index, listVersion: obj.verbVersion}, nil
+		}
+	}
+	return ResolvedVerb{}, fmt.Errorf("verb not found: %s", verbName)
+}
+
 func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Verb, error) {
 	obj := s.liveObjectLocked(objID)
 	if obj == nil {
@@ -347,6 +377,22 @@ func (s *Store) VerbByIndex(objID types.ObjID, index int) (VerbView, types.Error
 	return obj.verbList[index].View(), types.E_NONE
 }
 
+// ResolveVerbByIndex resolves an index on objID to an opaque reference suitable
+// for DeleteResolvedVerb.
+func (s *Store) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
+		return ResolvedVerb{}, types.E_INVIND
+	}
+	if index < 0 || index >= len(obj.verbList) {
+		return ResolvedVerb{}, types.E_RANGE
+	}
+	return ResolvedVerb{store: s, objID: objID, index: index, listVersion: obj.verbVersion}, types.E_NONE
+}
+
 func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -391,14 +437,88 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 	if err != nil || verb == nil {
 		return types.E_VERBNF
 	}
+	for index, candidate := range obj.verbList {
+		if candidate == verb {
+			return s.deleteResolvedVerbLocked(ResolvedVerb{
+				store:       s,
+				objID:       objID,
+				index:       index,
+				listVersion: obj.verbVersion,
+			})
+		}
+	}
+	return types.E_VERBNF
+}
 
-	obj = s.republishForMutation(obj)
-	// verb was resolved from the old image; re-resolve from the fresh image so the
-	// pointer-identity delete below matches the fresh verb node.
-	if verb, err = s.findVerbOnObjectLocked(objID, name); err != nil || verb == nil {
+// DeleteResolvedVerb deletes exactly the definition previously selected by a
+// ResolveVerb call. If the object's verb list changed after resolution, it
+// fails without mutation instead of applying a stale index to another verb.
+func (s *Store) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.deleteResolvedVerbLocked(resolved)
+}
+
+// DeleteResolvedVerbAuthorized validates the resolved verb identity and the
+// programmer's current live authority, then deletes the verb while holding one
+// store lock. It is the no-transaction fallback for delete_verb; transaction
+// callers stage deletion on StoreTxn so commit validation precedes mutation.
+// Identity validation precedes authority validation so a stale or missing
+// descriptor retains delete_verb's E_VERBNF-before-E_PERM precedence.
+func (s *Store) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if errCode := s.validateResolvedVerbDeleteAuthorityLocked(resolved, programmer, isWizard); errCode != types.E_NONE {
+		return errCode
+	}
+	return s.deleteResolvedVerbLocked(resolved)
+}
+
+func (s *Store) validateResolvedVerbDeleteAuthorityLocked(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
+	if errCode := s.validateResolvedVerbLocked(resolved); errCode != types.E_NONE {
+		return errCode
+	}
+	obj := s.liveObjectLocked(resolved.objID)
+	if !ObjectAllows(obj.owner, obj.flags, programmer, isWizard, FlagWrite) {
+		return types.E_PERM
+	}
+	return types.E_NONE
+}
+
+func (s *Store) validateResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode {
+	if resolved.store != s {
 		return types.E_VERBNF
 	}
+	obj := s.liveObjectLocked(resolved.objID)
+	if obj == nil {
+		return types.E_INVIND
+	}
+	if obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
+		return types.E_VERBNF
+	}
+	return types.E_NONE
+}
+
+func (s *Store) deleteResolvedVerbLocked(resolved ResolvedVerb) types.ErrorCode {
+	if errCode := s.validateResolvedVerbLocked(resolved); errCode != types.E_NONE {
+		return errCode
+	}
+
+	obj := s.liveObjectLocked(resolved.objID)
+	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
+	deleteVerbAtIndex(obj, resolved.index)
+	stampObjectVerbs(obj, ts)
+	return types.E_NONE
+}
+
+// deleteVerbAtIndex removes exactly the verb at index from a private object
+// image and repairs its primary-name map. The caller owns obj exclusively and
+// has already validated index.
+func deleteVerbAtIndex(obj *Object, index int) {
+	verb := obj.verbList[index]
 	keysToRefresh := make([]string, 0, 1)
 	for key, entry := range obj.verbs {
 		if entry == verb {
@@ -407,12 +527,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 		}
 	}
 
-	for i, entry := range obj.verbList {
-		if entry == verb {
-			obj.verbList = append(obj.verbList[:i], obj.verbList[i+1:]...)
-			break
-		}
-	}
+	obj.verbList = append(obj.verbList[:index], obj.verbList[index+1:]...)
 
 	for _, key := range keysToRefresh {
 		for i := len(obj.verbList) - 1; i >= 0; i-- {
@@ -423,8 +538,6 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 			}
 		}
 	}
-	stampObjectVerbs(obj, ts)
-	return types.E_NONE
 }
 
 func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, perms VerbPerms, names []string) types.ErrorCode {

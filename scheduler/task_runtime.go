@@ -48,6 +48,25 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Scheduler) runTask(t *task.Task) (retErr error) {
+	// Logical TaskRunning ends as soon as a builtin records suspension, before
+	// the VM has returned and before its resumable state is published. Keep a
+	// scheduler-owned physical execution lease across the entire invocation so
+	// GC never walks or ignores a VM that this goroutine can still mutate.
+	s.acquireTaskExecution(t)
+	var executionCtx *kernel.TaskContext
+	defer func() {
+		// This is the singular runTask lifecycle boundary for every caller:
+		// publish all task/VM state first, release the physical execution lease,
+		// then settle deferred GC while the just-finished VM is safe to inspect.
+		// If another task remains active the flush fails closed and that task's
+		// corresponding lifecycle boundary will retry it.
+		if executionCtx != nil {
+			s.releaseExecutionContext(executionCtx, t.ID)
+		}
+		s.releaseTaskExecution(t.ID)
+		s.flushDeferredGC()
+	}()
+
 	// Recover from panics to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -87,19 +106,25 @@ retryAttempt:
 	}
 	if attempt > 0 {
 		retryState.restore(t)
+		// A failed attempt may have recorded a logical suspend before its
+		// transaction conflict was detected. The physical lease remains held,
+		// while the retry begins a fresh logical running slice.
+		s.mu.Lock()
+		t.SetState(task.TaskRunning)
+		s.mu.Unlock()
 	}
-	// Publish the Running transition under s.mu, the lock collectSiblingGCRefs holds
-	// while it reads sibling tasks' VMs. This guarantees a concurrent GC walk either
-	// sees this task as Running (and skips its VM) or blocks here before this goroutine
-	// touches the VM below — closing the popped-but-not-yet-running race window.
-	s.mu.Lock()
-	t.SetState(task.TaskRunning)
-	s.mu.Unlock()
 
 	ctx := t.Context
 	if ctx == nil {
 		t.SetState(task.TaskKilled)
 		return errors.New("task has no context")
+	}
+	if executionCtx != ctx {
+		if executionCtx != nil {
+			s.releaseExecutionContext(executionCtx, t.ID)
+		}
+		s.acquireExecutionContext(ctx, t.ID)
+		executionCtx = ctx
 	}
 
 	// Attach task to context so builtins can access task_local
@@ -575,10 +600,6 @@ retryAttempt:
 			}
 		}
 
-		// Settle the batches now so an orphan's :recycle stays observable by the very
-		// next command, as it was when collection ran inline. If a sibling is still
-		// running, the flush declines and the end-of-pass flush picks these up.
-		s.flushDeferredGC()
 	}
 
 	t.SetBytecodeVM(nil) // Release VM after completion

@@ -259,7 +259,9 @@ func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		// earlier decentralized create in this same task must be flushed to live first —
 		// otherwise an anonymous child of a just-created numbered object inherits from a
 		// parent the coarse store cannot see yet (E_INVIND on later property access).
-		flushStagedBeforeCoarse(ctx)
+		if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 		var ec types.ErrorCode
 		newID, ec = store.CreateObject(parents, owner, anonymous)
 		if ec != types.E_NONE {
@@ -475,7 +477,9 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		// Coarse recycle reads/reparents through the LIVE store, so flush any topology this
 		// task staged decentrally first (e.g. a just-created child of the object being
 		// recycled) — otherwise store.Recycle cannot see it. Mirrors the coarse create path.
-		flushStagedBeforeCoarse(ctx)
+		if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+			return types.Err(errCode)
+		}
 		if err := store.Recycle(objID); err != nil {
 			return types.Err(types.E_INVARG)
 		}

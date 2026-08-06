@@ -140,11 +140,29 @@ func (s *Scheduler) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskCon
 }
 
 // flushDeferredGC settles the deferred waif and anonymous-object batches.
-// Called from the scheduler loop after every task pass. Liveness is judged at
-// flush time against persistent state plus all live task VMs, so deferral
-// only changes WHEN an orphan's :recycle runs: immediately after the pass
-// while sweeps stay cheap, on gcSweepInterval once they become expensive.
+// Called after each runTask releases its physical execution lease, with an
+// end-of-scheduler-pass call as a fallback. Liveness is judged at flush time
+// against persistent state plus all live task VMs, so deferral only changes
+// WHEN an orphan's :recycle runs: immediately while sweeps stay cheap, on
+// gcSweepInterval once they become expensive.
 func (s *Scheduler) flushDeferredGC() {
+	// Avoid contending on the sweep barrier when there is plainly no work.
+	s.pendingWaifMu.Lock()
+	if len(s.pendingWaifBatch) == 0 && len(s.pendingAnonGC) == 0 {
+		s.pendingWaifMu.Unlock()
+		return
+	}
+	s.pendingWaifMu.Unlock()
+
+	// Serialize sweeps, then stop new VM starts before testing quiescence. Both
+	// locks remain held through root capture, batch drain, and every recycle hook.
+	// This makes the captured VM roots valid for the complete sweep.
+	s.gcSweepMu.Lock()
+	defer s.gcSweepMu.Unlock()
+	s.vmStartMu.Lock()
+	defer s.vmStartMu.Unlock()
+
+	// Another flush may have settled the batch while this goroutine waited.
 	s.pendingWaifMu.Lock()
 	if len(s.pendingWaifBatch) == 0 && len(s.pendingAnonGC) == 0 {
 		s.pendingWaifMu.Unlock()
@@ -157,10 +175,8 @@ func (s *Scheduler) flushDeferredGC() {
 	}
 	s.pendingWaifMu.Unlock()
 
-	// Gather roots before draining, and only from a quiescent scheduler: a running
-	// task's VM holds roots but cannot be read without racing it. If one is running,
-	// leave the batches queued — deferral only changes WHEN an orphan's :recycle
-	// runs, never whether, and the end-of-pass flush will settle them.
+	// A VM that acquired its lease before vmStartMu cannot be inspected. Leave
+	// the batches queued; that VM's lifecycle release will retry the flush.
 	siblingAnon, siblingWaifs, quiescent := s.collectAllGCRefs()
 	if !quiescent {
 		return
@@ -190,6 +206,22 @@ func (s *Scheduler) flushDeferredGC() {
 		}
 	}
 
+	markedContexts := make(map[*kernel.TaskContext]struct{})
+	for _, req := range anonBatch {
+		if req.Ctx == nil {
+			continue
+		}
+		if _, marked := markedContexts[req.Ctx]; marked {
+			continue
+		}
+		markedContexts[req.Ctx] = struct{}{}
+		s.acquireSweepContext(req.Ctx)
+	}
+	defer func() {
+		for ctx := range markedContexts {
+			s.releaseSweepContext(ctx)
+		}
+	}()
 	vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, siblingAnon)
 
 	cost := time.Since(sweepStart)
@@ -248,5 +280,7 @@ func (s *Scheduler) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Va
 	vm.SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
 	vm.SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
 	vm.SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+	s.acquireSweepContext(recycleCtx)
+	defer s.releaseSweepContext(recycleCtx)
 	_ = recycleVM.ExecuteLoop()
 }

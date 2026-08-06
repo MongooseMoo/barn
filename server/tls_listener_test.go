@@ -38,7 +38,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	defer func() { _ = cm.RemoveListener(desc) }()
 
-	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port <= 0 {
+	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port != 0 {
 		t.Fatalf("unexpected descriptor: %+v", desc)
 	}
 
@@ -48,10 +48,81 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	info := infos[0]
 	if info.Protocol != builtins.ListenerProtocolTLS ||
-		info.Port != desc.Port ||
+		info.Port != 0 ||
 		!info.TLS ||
 		info.Interface != "127.0.0.1" {
 		t.Fatalf("unexpected listener info: %+v", info)
+	}
+	cm.mu.Lock()
+	boundPort := cm.listeners[listenerKeyFromDescriptor(desc)].boundPort
+	cm.mu.Unlock()
+	if boundPort <= 0 {
+		t.Fatalf("runtime TLS bound port = %d, want nonzero OS port", boundPort)
+	}
+}
+
+func TestRuntimeTLSListenerZeroLifecycle(t *testing.T) {
+	certPath, keyPath := writeSelfSignedCertificate(t)
+	cm := NewConnectionManager(0)
+	t.Cleanup(cm.CloseListeners)
+	spec := builtins.ListenerSpec{
+		Protocol:           builtins.ListenerProtocolTLS,
+		Port:               0,
+		Interface:          "127.0.0.1",
+		TLSCertificatePath: certPath,
+		TLSKeyPath:         keyPath,
+	}
+	want := builtins.ListenerDescriptor{
+		Protocol: builtins.ListenerProtocolTLS,
+		Port:     0,
+	}
+
+	desc, err := cm.AddListener(spec)
+	if err != nil {
+		t.Fatalf("AddListener(TLS port 0): %v", err)
+	}
+	if desc != want {
+		t.Errorf("AddListener(TLS port 0) descriptor = %+v, want %+v", desc, want)
+	}
+
+	infos := cm.ListenerInfos()
+	if len(infos) != 1 {
+		t.Fatalf("ListenerInfos() count = %d, want 1", len(infos))
+	}
+	if infos[0].Protocol != want.Protocol || infos[0].Port != want.Port {
+		t.Errorf("ListenerInfos()[0] descriptor = %s://:%d, want %s://:%d",
+			infos[0].Protocol, infos[0].Port, want.Protocol, want.Port)
+	}
+
+	boundAddr := runtimeListenerBoundAddress(t, cm, desc)
+
+	duplicateDesc, err := cm.AddListener(spec)
+	if err == nil {
+		t.Errorf("AddListener(duplicate TLS descriptor 0) = %+v, want error", duplicateDesc)
+		if cleanupErr := cm.RemoveListener(duplicateDesc); cleanupErr != nil {
+			t.Fatalf("remove unexpectedly accepted duplicate TLS listener: %v", cleanupErr)
+		}
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 1 {
+		t.Errorf("ListenerInfos() count after TLS duplicate = %d, want 1", len(infos))
+	}
+
+	if err := cm.RemoveListener(want); err != nil {
+		t.Errorf("RemoveListener(TLS descriptor 0): %v", err)
+		if cleanupErr := cm.RemoveListener(desc); cleanupErr != nil {
+			t.Fatalf("remove actual TLS descriptor %+v after failed descriptor-0 removal: %v", desc, cleanupErr)
+		}
+	}
+	if infos := cm.ListenerInfos(); len(infos) != 0 {
+		t.Errorf("ListenerInfos() after TLS removal = %+v, want none", infos)
+	}
+
+	rebound, err := net.Listen("tcp4", boundAddr)
+	if err != nil {
+		t.Fatalf("bind released runtime TLS socket %s: %v", boundAddr, err)
+	}
+	if err := rebound.Close(); err != nil {
+		t.Fatalf("close rebound TLS socket: %v", err)
 	}
 }
 

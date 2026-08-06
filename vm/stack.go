@@ -45,8 +45,8 @@ func (vm *VM) PopN(n int) []types.Value {
 	return values
 }
 
-// ReadByte reads a byte from the current instruction stream
-func (vm *VM) ReadByte() byte {
+// FetchByte reads a byte from the current instruction stream.
+func (vm *VM) FetchByte() byte {
 	frame := vm.CurrentFrame()
 	b := frame.Program.Code[frame.IP]
 	frame.IP++

@@ -115,6 +115,43 @@ func (s *Store) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, 
 	s.expandAnonymousReachabilityLocked(reachable, queue)
 }
 
+// ExpandAnonymousReachability expands anonymous roots through this transaction's
+// object view, including property values staged by the current task. A live-store
+// walk cannot see those values until commit and may otherwise collect an object
+// that is reachable through the task's in-flight anonymous graph.
+func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+	if tx == nil || len(refs) == 0 {
+		return
+	}
+
+	queue := make([]types.ObjID, 0, len(refs))
+	for id := range refs {
+		queue = append(queue, id)
+	}
+	visited := make(map[types.ObjID]struct{}, len(refs))
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if _, seen := visited[id]; seen {
+			continue
+		}
+		visited[id] = struct{}{}
+
+		obj := tx.object(id)
+		if !validLiveObject(obj) || !obj.anonymous {
+			continue
+		}
+		reachable[id] = struct{}{}
+		nested := make(map[types.ObjID]struct{})
+		for _, prop := range obj.properties {
+			collectAnonymousObjectRefs(prop.value, nested)
+		}
+		for nestedID := range nested {
+			queue = append(queue, nestedID)
+		}
+	}
+}
+
 func (s *Store) expandAnonymousReachabilityLocked(reachable map[types.ObjID]struct{}, queue []types.ObjID) {
 	for len(queue) > 0 {
 		id := queue[0]

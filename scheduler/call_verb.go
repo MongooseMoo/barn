@@ -28,6 +28,23 @@ func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args [
 	if parentCtx == nil {
 		return types.Err(types.E_INVARG)
 	}
+	// This is a separate synchronous VM even though it shares the parent's
+	// transaction/context. Count it under the same opaque lease so run_gc cannot
+	// exclude the sole owner while CallerVM temporarily points only at this inner
+	// VM. A sweep-owned hook instead inherits the already-held start barrier.
+	if !s.isSweepOwnedContext(parentCtx) {
+		if ownerTaskID, claimed, attributable := s.executionContextClaim(parentCtx); claimed {
+			if !attributable {
+				ownerTaskID = ambiguousExecutionOwnerID
+			}
+			s.acquireInheritedTaskExecution(ownerTaskID)
+			s.acquireExecutionContext(parentCtx, ownerTaskID)
+			defer func() {
+				s.releaseExecutionContext(parentCtx, ownerTaskID)
+				s.releaseTaskExecution(ownerTaskID)
+			}()
+		}
+	}
 
 	var (
 		verb     dbstore.VerbView
@@ -145,7 +162,22 @@ func (s *Scheduler) CallVerbInContext(objID types.ObjID, verbName string, args [
 	return result
 }
 
+type vmOwnership uint8
+
+const (
+	vmOwnershipNone vmOwnership = iota
+	vmOwnershipExecution
+	vmOwnershipSweep
+)
+
 func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string) (result types.Result) {
+	return s.callVerbWithArgstr(objID, verbName, args, player, argstr, vmOwnershipNone, 0)
+}
+
+func (s *Scheduler) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64) (result types.Result) {
+	var leasedTask *task.Task
+	var inheritedLease bool
+	var ownedCtx *kernel.TaskContext
 	// Recover from panics in compile/execute to avoid crashing the server
 	defer func() {
 		if r := recover(); r != nil {
@@ -158,13 +190,27 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 				slog.String("go_stack", string(debug.Stack())))
 			result = types.Err(types.E_NONE)
 		}
+		if ownedCtx != nil {
+			switch ownership {
+			case vmOwnershipExecution:
+				s.releaseExecutionContext(ownedCtx, ownerTaskID)
+			case vmOwnershipSweep:
+				s.releaseSweepContext(ownedCtx)
+			}
+		}
+		if inheritedLease {
+			s.releaseTaskExecution(ownerTaskID)
+		}
+		if leasedTask != nil {
+			s.releaseTaskExecution(leasedTask.ID)
+			s.flushDeferredGC()
+		}
 	}()
 
-	// Trace verb call
-	trace.VerbCall(objID, verbName, args, player, player)
-
-	// Create a lightweight task FIRST for call stack tracking
-	// This ensures we have a stack even if verb lookup fails
+	// Create the lightweight task without touching the target or arguments, then
+	// publish ownership at the earliest safe entry. Anonymous/waif arguments are
+	// roots even during trace, lookup, and compile, before a VM frame exists to be
+	// scanned by GC.
 	t := &task.Task{
 		Owner:       player,
 		Programmer:  player, // Will be updated to verb owner if verb found
@@ -172,6 +218,19 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
 		ForkCreator: s,                   // Enable fork support in server hooks
 	}
+	if ownership == vmOwnershipNone {
+		s.acquireTaskExecution(t)
+		leasedTask = t
+		ownership = vmOwnershipExecution
+		ownerTaskID = t.ID
+	} else if ownership == vmOwnershipExecution {
+		s.acquireInheritedTaskExecution(ownerTaskID)
+		inheritedLease = true
+	}
+
+	// Trace only after the direct path owns either a physical lease or the
+	// caller's sweep barrier.
+	trace.VerbCall(objID, verbName, args, player, player)
 
 	// Look up the verb to get its owner for programmer permissions
 	verb, defObjID, err := s.store.FindVerb(objID, verbName)
@@ -224,6 +283,15 @@ func (s *Scheduler) CallVerbWithArgstr(objID types.ObjID, verbName string, args 
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
+
+	// Propagate the already-published ownership to nested registry hooks.
+	switch ownership {
+	case vmOwnershipExecution:
+		s.acquireExecutionContext(ctx, ownerTaskID)
+	case vmOwnershipSweep:
+		s.acquireSweepContext(ctx)
+	}
+	ownedCtx = ctx
 
 	// Push activation frame for traceback support
 	t.PushFrame(task.ActivationFrame{

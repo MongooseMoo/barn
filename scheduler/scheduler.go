@@ -22,7 +22,26 @@ import (
 
 // Scheduler manages task and VM execution.
 type Scheduler struct {
-	tasks                   map[int64]*task.Task
+	tasks map[int64]*task.Task
+	// executingTasks counts physical VM-execution leases by task ID. Counts, rather
+	// than a boolean set, remain truthful if the duplicate-dispatch defect tracked
+	// separately in #30 runs the same task twice. Logical task state may become
+	// suspended before runTask finishes mutating and publishing its VM. Every access
+	// is protected by mu.
+	executingTasks map[int64]int
+	// gcSweepMu serializes every anonymous/waif sweep. vmStartMu closes the
+	// root-snapshot gap by preventing a new VM execution lease from being
+	// published until the sweep and its recycle hooks are complete. The strict
+	// lock order is gcSweepMu -> vmStartMu -> mu -> task locks.
+	gcSweepMu sync.Mutex
+	vmStartMu sync.Mutex
+	// Context ownership is scheduler-private provenance for every leased VM path.
+	// It lets nested verb calls inherit an existing execution lease or sweep
+	// barrier instead of acquiring vmStartMu recursively (which would deadlock
+	// during recycle hooks).
+	executionOwnedContexts  map[*kernel.TaskContext]map[int64]int
+	sweepOwnedContexts      map[*kernel.TaskContext]int
+	executionStartObserver  func() // test-only observation before vmStartMu acquisition
 	waiting                 *TaskQueue
 	nextTaskID              int64
 	queueSeq                int64
@@ -49,6 +68,8 @@ type Scheduler struct {
 	lastGCSweep      time.Time
 	lastGCCost       time.Duration
 }
+
+const ambiguousExecutionOwnerID int64 = -1 << 63
 
 type taskWorkItem struct {
 	task    *task.Task
@@ -77,22 +98,22 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Scheduler{
-		tasks:       make(map[int64]*task.Task),
-		waiting:     NewTaskQueue(),
-		nextTaskID:  1,
-		registry:    vm.BuildVMRegistry(),
-		store:       store,
-		options:     options,
-		taskWork:    make(chan taskWorkItem),
-		workerCount: workerCount,
-		ctx:         ctx,
-		cancel:      cancel,
+		tasks:                  make(map[int64]*task.Task),
+		executingTasks:         make(map[int64]int),
+		executionOwnedContexts: make(map[*kernel.TaskContext]map[int64]int),
+		sweepOwnedContexts:     make(map[*kernel.TaskContext]int),
+		waiting:                NewTaskQueue(),
+		nextTaskID:             1,
+		registry:               vm.BuildVMRegistry(),
+		store:                  store,
+		options:                options,
+		taskWork:               make(chan taskWorkItem),
+		workerCount:            workerCount,
+		ctx:                    ctx,
+		cancel:                 cancel,
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
-		if tc != nil && tc.StoreTxn != nil && tc.Task != nil {
-			return s.CallVerbInContext(objID, verbName, args, tc)
-		}
 		player := types.ObjNothing
 		if tc != nil {
 			player = tc.Player
@@ -100,11 +121,69 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 				player = tc.Programmer
 			}
 		}
+		if tc != nil && tc.StoreTxn != nil && tc.Task != nil {
+			return s.CallVerbInContext(objID, verbName, args, tc)
+		}
+		// A no-transaction recycle context needs standalone server-hook semantics,
+		// but inherits the sweep barrier instead of acquiring vmStartMu. Transaction
+		// contexts retain CallVerbInContext's shared transaction/caller semantics;
+		// that path handles sweep ownership itself.
+		if s.isSweepOwnedContext(tc) {
+			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipSweep, 0)
+		}
+		if ownerID, claimed, attributable := s.executionContextClaim(tc); claimed {
+			if !attributable {
+				ownerID = ambiguousExecutionOwnerID
+			}
+			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipExecution, ownerID)
+		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
 	s.registry.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
-		vm.AutoRecycleOrphanAnonymousWith(store, s.registry, ctx)
-		return nil
+		// A recycle hook may call run_gc() while its owning sweep is still active.
+		// Re-entry is a successful no-op; blocking here would self-deadlock.
+		if !s.gcSweepMu.TryLock() {
+			return nil
+		}
+		defer s.gcSweepMu.Unlock()
+		s.vmStartMu.Lock()
+		defer s.vmStartMu.Unlock()
+
+		var current *task.Task
+		if ctx != nil {
+			current, _ = ctx.Task.(*task.Task)
+		}
+		if ownerID, claimed, attributable := s.executionContextClaim(ctx); claimed && !attributable {
+			return nil
+		} else if claimed {
+			current = &task.Task{ID: ownerID}
+		}
+		siblingAnon, ok := s.collectExplicitGlobalGCSiblingRefs(current)
+		if !ok {
+			return nil
+		}
+		renewTransaction := func() error {
+			if ctx == nil || ctx.StoreTxn == nil {
+				return nil
+			}
+			next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenew()
+			if errCode != types.E_NONE {
+				return errors.New(errCode.String())
+			}
+			ctx.StoreTxn = next
+			if publishedWrites || ctx.LiveStoreMutated {
+				ctx.LiveStoreMutated = true
+				next.MarkLiveMutated()
+			}
+			return nil
+		}
+		if err := renewTransaction(); err != nil {
+			return err
+		}
+		s.acquireSweepContext(ctx)
+		defer s.releaseSweepContext(ctx)
+		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, ctx, 0, siblingAnon)
+		return renewTransaction()
 	})
 	s.startWorkers()
 
@@ -149,6 +228,129 @@ func (s *Scheduler) LiveTaskCount() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return int64(len(s.tasks))
+}
+
+func (s *Scheduler) acquireTaskExecution(t *task.Task) {
+	if s.executionStartObserver != nil {
+		s.executionStartObserver()
+	}
+	s.vmStartMu.Lock()
+	defer s.vmStartMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executingTasks[t.ID]++
+	t.SetState(task.TaskRunning)
+}
+
+func (s *Scheduler) releaseTaskExecution(taskID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if count := s.executingTasks[taskID]; count > 1 {
+		s.executingTasks[taskID] = count - 1
+	} else {
+		delete(s.executingTasks, taskID)
+	}
+}
+
+// acquireInheritedTaskExecution records a synchronously nested standalone VM
+// under an execution lease that already passed vmStartMu. It must not acquire
+// vmStartMu again, but the extra refcount makes run_gc fail closed while both
+// the outer and inner VMs hold roots and TaskContext.CallerVM names only one.
+func (s *Scheduler) acquireInheritedTaskExecution(taskID int64) {
+	s.mu.Lock()
+	s.executingTasks[taskID]++
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64) {
+	if ctx == nil {
+		return
+	}
+	s.mu.Lock()
+	owners := s.executionOwnedContexts[ctx]
+	if owners == nil {
+		owners = make(map[int64]int)
+		s.executionOwnedContexts[ctx] = owners
+	}
+	owners[taskID]++
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64) {
+	if ctx == nil {
+		return
+	}
+	s.mu.Lock()
+	owners := s.executionOwnedContexts[ctx]
+	if count := owners[taskID]; count > 1 {
+		owners[taskID] = count - 1
+	} else if count == 1 {
+		delete(owners, taskID)
+		if len(owners) == 0 {
+			delete(s.executionOwnedContexts, ctx)
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) executionContextOwner(ctx *kernel.TaskContext) (int64, bool) {
+	ownerID, claimed, attributable := s.executionContextClaim(ctx)
+	return ownerID, claimed && attributable
+}
+
+// executionContextClaim distinguishes an unowned context from one whose
+// physical execution owner is ambiguous. Ambiguity makes global GC a
+// successful no-op; treating it as absent could fall back to ctx.Task and
+// exclude the wrong sole lease.
+func (s *Scheduler) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64, claimed, attributable bool) {
+	if ctx == nil {
+		return 0, false, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owners := s.executionOwnedContexts[ctx]
+	if len(owners) == 0 {
+		return 0, false, false
+	}
+	if len(owners) != 1 {
+		return 0, true, false
+	}
+	for id := range owners {
+		return id, true, true
+	}
+	return 0, false, false
+}
+
+func (s *Scheduler) acquireSweepContext(ctx *kernel.TaskContext) {
+	if ctx == nil {
+		return
+	}
+	s.mu.Lock()
+	s.sweepOwnedContexts[ctx]++
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) releaseSweepContext(ctx *kernel.TaskContext) {
+	if ctx == nil {
+		return
+	}
+	s.mu.Lock()
+	if count := s.sweepOwnedContexts[ctx]; count > 1 {
+		s.sweepOwnedContexts[ctx] = count - 1
+	} else {
+		delete(s.sweepOwnedContexts, ctx)
+	}
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
+	if ctx == nil {
+		return false
+	}
+	s.mu.Lock()
+	owned := s.sweepOwnedContexts[ctx] > 0
+	s.mu.Unlock()
+	return owned
 }
 
 func (s *Scheduler) populateTaskContextDependencies(ctx *kernel.TaskContext) {
@@ -392,17 +594,17 @@ func (s *Scheduler) YieldReadyTasks() int {
 // collectSiblingGCRefs, with one stricter requirement: the flush must see EVERY live
 // task's locals as roots, not merely the ones it happens to be able to read.
 //
-// A running task is therefore fatal rather than skippable. Its VM is being mutated on
-// another goroutine, so it can neither be walked here (the data race collectSiblingGCRefs
-// exists to avoid) nor ignored (its locals are roots). The per-task inline sweep could
-// skip running siblings because a task's own uncommitted creations are not yet visible
-// to them; a deferred batch has no such argument, because the tasks that enqueued it
-// have since committed. So when any task is running we report ok=false and the caller
-// leaves the batches queued for the next quiescent pass.
+// An actively executing task is therefore fatal rather than skippable. Its VM is being
+// mutated on another goroutine, so it can neither be walked here nor ignored (its locals
+// are roots). Logical TaskRunning is insufficient because suspend records a suspended
+// state before VM handoff completes. When any physical execution lease is active, the
+// caller leaves the batches queued for the next quiescent pass.
 func (s *Scheduler) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
+	if len(s.executingTasks) != 0 {
+		return nil, nil, false
+	}
 	anonRefs = make(map[types.ObjID]struct{})
 	for _, t := range s.tasks {
 		if t == nil {
@@ -422,38 +624,76 @@ func (s *Scheduler) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifR
 	return anonRefs, waifRefs, true
 }
 
+// collectExplicitGlobalGCSiblingRefs snapshots the anonymous references held by
+// every live task other than the run_gc() caller. A global sweep cannot safely
+// inspect an actively executing sibling's mutating VM, and unlike per-task floor
+// GC it also cannot prove that the sibling has no reference to an existing
+// candidate. It therefore fails closed on any other physical execution lease.
+func (s *Scheduler) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, count := range s.executingTasks {
+		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
+			return nil, false
+		}
+	}
+	anonRefs = make(map[types.ObjID]struct{})
+	for _, sibling := range s.tasks {
+		if sibling == nil || (exclude != nil && sibling.ID == exclude.ID) {
+			continue
+		}
+		switch sibling.GetState() {
+		case task.TaskCompleted, task.TaskKilled:
+			continue
+		case task.TaskRunning:
+			return nil, false
+		}
+		if exec, isVM := sibling.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
+			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
+		}
+	}
+	return anonRefs, true
+}
+
 // collectSiblingGCRefs snapshots the anonymous-object and waif references held by
 // every OTHER task's saved VM, for use when `exclude` runs orphan GC / waif
 // finalization. The references are collected here, under s.mu, rather than by handing
 // VM pointers back to be walked after the lock is dropped — that is the whole point:
 //
-//   - A running sibling is actively mutating its VM on another goroutine, so it is
-//     skipped (orphan GC never recycles objects a concurrent sibling could hold, since
-//     this task's current-slice creations are not yet committed or handed off).
+//   - A physically executing sibling may be mutating its VM on another goroutine even
+//     after it has logically suspended, so the collection fails closed. Skipping it
+//     would omit roots it acquired after this caller's floor was sampled.
 //   - A queued/suspended sibling's VM is read here while s.mu is held. Because task
-//     dispatch (ProcessReadyTasks) and the Running transition in runTask both take
-//     s.mu, no sibling can begin executing — and thus begin mutating its VM — while we
-//     read it. Walking the pointers after releasing s.mu would race exactly that
-//     transition.
-func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value) {
+//     dispatch and physical execution-lease acquisition both take s.mu, no sibling
+//     can begin executing — and thus begin mutating its VM — while we read it. Walking
+//     the pointers after releasing s.mu would race exactly that transition.
+func (s *Scheduler) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	for id, count := range s.executingTasks {
+		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
+			return nil, nil, false
+		}
+	}
 	anonRefs = make(map[types.ObjID]struct{})
 	for _, queued := range s.tasks {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue
 		}
 		state := queued.GetState()
-		if state == task.TaskCompleted || state == task.TaskKilled || state == task.TaskRunning {
+		if state == task.TaskCompleted || state == task.TaskKilled {
 			continue
+		}
+		if state == task.TaskRunning {
+			return nil, nil, false
 		}
 		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
 			vm.CollectWaifsFromVM(exec, &waifRefs)
 		}
 	}
-	return anonRefs, waifRefs
+	return anonRefs, waifRefs, true
 }
 
 func (s *Scheduler) isWizard(objID types.ObjID) bool {
