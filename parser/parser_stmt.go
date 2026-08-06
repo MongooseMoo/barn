@@ -49,8 +49,11 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 func parseError(detail error, fallbackLine int) *ParseError {
 	line := fallbackLine
 	var depthError *verb.NestingDepthError
-	if errors.As(detail, &depthError) && depthError.Position.Line > 0 {
-		line = depthError.Position.Line
+	if errors.As(detail, &depthError) {
+		detail = depthError
+		if depthError.Position.Line > 0 {
+			line = depthError.Position.Line
+		}
 	}
 	return &ParseError{Line: line, Msg: "syntax error", Detail: detail}
 }

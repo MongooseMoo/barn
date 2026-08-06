@@ -64,3 +64,46 @@ func TestCompileMOONestingBoundarySucceeds(t *testing.T) {
 		}
 	}
 }
+
+func TestCompileMOOCollectionNestingDetailIsCanonicalTypedError(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{name: "list", expr: strings.Repeat("{", 255) + "1" + strings.Repeat("}", 255)},
+		{name: "map", expr: strings.Repeat("[\"key\" -> ", 255) + "1" + strings.Repeat("]", 255)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := []string{"return 0;", "return " + test.expr + ";"}
+			key := sourcekey.Of(source)
+			if _, ok := mooProgramCache.get(key); ok {
+				t.Fatal("test source unexpectedly already cached")
+			}
+			program, diagnostics := compileMOOWithKeyWithoutPanic(t, source, key)
+			if program != nil {
+				t.Fatal("CompileMOOWithKey() returned partial program")
+			}
+			if len(diagnostics) != 1 {
+				t.Fatalf("diagnostic count = %d, want 1", len(diagnostics))
+			}
+			diagnostic := diagnostics[0]
+			if diagnostic.Stage != SyntaxStage || diagnostic.Message != "syntax error" || diagnostic.Position.Line != 2 {
+				t.Fatalf("diagnostic = %+v, want line 2 SyntaxStage syntax error", diagnostic)
+			}
+			depthErr, ok := diagnostic.Detail.(*verb.NestingDepthError)
+			if !ok {
+				t.Fatalf("Diagnostic.Detail = %T %v, want exactly *verb.NestingDepthError", diagnostic.Detail, diagnostic.Detail)
+			}
+			if got, want := depthErr.Error(), "maximum nesting depth exceeded (max 256)"; got != want {
+				t.Fatalf("NestingDepthError.Error() = %q, want %q", got, want)
+			}
+			if depthErr.Position.Line != 2 {
+				t.Fatalf("NestingDepthError.Position.Line = %d, want 2", depthErr.Position.Line)
+			}
+			if _, ok := mooProgramCache.get(key); ok {
+				t.Fatal("rejected program inserted into cache")
+			}
+		})
+	}
+}

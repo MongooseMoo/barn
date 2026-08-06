@@ -289,3 +289,32 @@ func TestParserNestingErrorUsesOffendingLine(t *testing.T) {
 		t.Fatalf("NestingDepthError.Position.Line = %d, want 2", depthErr.Position.Line)
 	}
 }
+
+func TestParserCollectionNestingDetailIsCanonicalTypedError(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(int) string
+	}{
+		{name: "list", build: listSource},
+		{name: "map", build: mapSource},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parseWithoutPanic(t, "return 0;\n"+test.build(257))
+			var parseErr *parser.ParseError
+			if !errors.As(err, &parseErr) {
+				t.Fatalf("ParseProgram() error = %T %v, want *parser.ParseError", err, err)
+			}
+			depthErr, ok := parseErr.Detail.(*verb.NestingDepthError)
+			if !ok {
+				t.Fatalf("ParseError.Detail = %T %v, want exactly *verb.NestingDepthError", parseErr.Detail, parseErr.Detail)
+			}
+			if got, want := depthErr.Error(), "maximum nesting depth exceeded (max 256)"; got != want {
+				t.Fatalf("NestingDepthError.Error() = %q, want %q", got, want)
+			}
+			if parseErr.Line != 2 || depthErr.Position.Line != 2 {
+				t.Fatalf("error lines = ParseError %d, detail %d; want both 2", parseErr.Line, depthErr.Position.Line)
+			}
+		})
+	}
+}
