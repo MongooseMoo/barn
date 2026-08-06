@@ -78,9 +78,10 @@ func (c *stubConn) BufferedOutputLength() int { return len(c.buffered) }
 func (c *stubConn) ConnectedSeconds() int64   { return 0 }
 func (c *stubConn) IdleSeconds() int64        { return 0 }
 func (c *stubConn) GetResolvedName() string   { return "" }
-func (c *stubConn) ListenerPort() int64       { return c.listenerPort }
-func (c *stubConn) ListenerPortSet() bool     { return c.listenerPortSet }
-func (c *stubConn) IsOutbound() bool          { return c.outbound }
+func (c *stubConn) ListenerPort() (int64, bool) {
+	return c.listenerPort, c.listenerPortSet
+}
+func (c *stubConn) IsOutbound() bool { return c.outbound }
 func (c *stubConn) OutboundSourceAddr() string {
 	return c.source
 }
