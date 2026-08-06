@@ -510,6 +510,14 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeGetProp()
 	case bytecode.OP_SET_PROP:
 		return vm.executeSetProp()
+	case bytecode.OP_GET_PROP_DYNAMIC:
+		return vm.executeGetPropDynamic()
+	case bytecode.OP_SET_PROP_DYNAMIC:
+		return vm.executeSetPropDynamic()
+	case bytecode.OP_GET_PROP_WIDE:
+		return vm.executeGetPropWide()
+	case bytecode.OP_SET_PROP_WIDE:
+		return vm.executeSetPropWide()
 
 	// Arithmetic operations
 	case bytecode.OP_ADD:
@@ -706,6 +714,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Verb calls
 	case bytecode.OP_CALL_VERB:
 		return vm.executeCallVerb()
+	case bytecode.OP_CALL_VERB_DYNAMIC:
+		return vm.executeCallVerbDynamic()
+	case bytecode.OP_CALL_VERB_WIDE:
+		return vm.executeCallVerbWide()
 
 	// Fork
 	case bytecode.OP_FORK:
