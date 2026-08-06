@@ -199,6 +199,38 @@ func TestStorePendingFinalizationsSnapshot(t *testing.T) {
 	}
 }
 
+func TestStoreSnapshotNormalizesCompositePendingCandidates(t *testing.T) {
+	store := NewStore()
+	if err := store.Add(NewObject(0, 0)); err != nil {
+		t.Fatalf("add numbered object: %v", err)
+	}
+	for _, id := range []types.ObjID{4, 5} {
+		builder := NewObjectBuilder(id)
+		builder.SetAnonymous(true)
+		store.AddAnonymous(builder.Build())
+	}
+	store.SetPendingFinalizations([]types.Value{
+		types.NewList([]types.Value{
+			types.NewAnon(5),
+			types.NewMap([][2]types.Value{{types.NewAnon(4), types.NewStr("key")}}),
+		}),
+	})
+
+	snapshot := store.Snapshot()
+	want := []types.Value{types.NewAnon(1), types.NewAnon(2)}
+	if len(snapshot.PendingFinalizations) != len(want) {
+		t.Fatalf("snapshot pending finalizations = %v, want canonical bare roots %v", snapshot.PendingFinalizations, want)
+	}
+	for i := range want {
+		if !snapshot.PendingFinalizations[i].Equal(want[i]) {
+			t.Fatalf("snapshot pending finalizations = %v, want canonical bare roots %v", snapshot.PendingFinalizations, want)
+		}
+	}
+	if got := len(snapshot.AnonymousObjects); got != 2 {
+		t.Fatalf("snapshot anonymous objects = %d, want both composite references emitted", got)
+	}
+}
+
 func TestNewObject(t *testing.T) {
 	obj := NewObject(5, 10)
 
