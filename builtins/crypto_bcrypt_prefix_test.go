@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"strings"
 	"testing"
 
 	"barn/kernel"
@@ -35,11 +36,32 @@ func TestCryptBcryptPrefixesMatchToast(t *testing.T) {
 }
 
 func TestCryptBcryptRawSaltDollarUsesCostDelimiter(t *testing.T) {
-	const (
-		password = "foobar"
-		rawSalt  = "1234$67890123456"
-	)
-	encodedSalt := bcryptBase64Encode([]byte(rawSalt))
+	rawSalts := []struct {
+		name string
+		raw  string
+	}{
+		{name: "dollar_first", raw: "$123456789012345"},
+		{name: "dollar_middle", raw: "1234567$89012345"},
+		{name: "dollar_last", raw: "123456789012345$"},
+		{name: "multiple_dollars", raw: "$123$56789$12345"},
+		{name: "nul_and_high_bytes", raw: string([]byte{0x00, '$', 0x80, 0xff, 0x01, 0x7f, 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'})},
+	}
+	for _, tc := range rawSalts {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(tc.raw); got != 16 {
+				t.Fatalf("raw salt length = %d, want 16", got)
+			}
+			for _, prefix := range []string{"$2a$", "$2y$"} {
+				t.Run(prefix[1:3], func(t *testing.T) {
+					assertRawBcryptMatchesEncoded(t, "foobar", prefix, "04", tc.raw, true)
+				})
+			}
+		})
+	}
+}
+
+func TestCryptBcryptRawSaltDollarPreservesPermissionOrdering(t *testing.T) {
+	const rawSalt = "$123$56789$12345"
 	tests := []struct {
 		name     string
 		prefix   string
@@ -49,41 +71,74 @@ func TestCryptBcryptRawSaltDollarUsesCostDelimiter(t *testing.T) {
 	}{
 		{name: "2a_default_programmer", prefix: "$2a$", cost: "05"},
 		{name: "2y_default_programmer", prefix: "$2y$", cost: "05"},
-		{name: "2a_non_default_wizard", prefix: "$2a$", cost: "04", isWizard: true},
-		{name: "2y_non_default_wizard", prefix: "$2y$", cost: "04", isWizard: true},
 		{name: "2a_non_default_programmer", prefix: "$2a$", cost: "04", wantErr: types.E_PERM},
 		{name: "2y_non_default_programmer", prefix: "$2y$", cost: "04", wantErr: types.E_PERM},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			input := tc.prefix + tc.cost + "$" + rawSalt
-			got, errCode := cryptPasswordWithPerm(password, input, tc.isWizard)
-			if errCode != tc.wantErr {
-				t.Fatalf("cryptPasswordWithPerm(%q) error = %s, want %s", input, errCode, tc.wantErr)
-			}
-			if tc.wantErr != types.E_NONE {
+			if tc.wantErr == types.E_NONE {
+				assertRawBcryptMatchesEncoded(t, "foobar", tc.prefix, tc.cost, rawSalt, tc.isWizard)
 				return
 			}
-
-			control := tc.prefix + tc.cost + "$" + encodedSalt
-			want, controlErr := cryptPasswordWithPerm(password, control, tc.isWizard)
-			if controlErr != types.E_NONE {
-				t.Fatalf("encoded control %q error = %s, want E_NONE", control, controlErr)
-			}
-			if got != want {
-				t.Errorf("cryptPasswordWithPerm(%q) = %q, want encoded-salt result %q", input, got, want)
+			input := tc.prefix + tc.cost + "$" + rawSalt
+			_, errCode := cryptPasswordWithPerm("foobar", input, tc.isWizard)
+			if errCode != tc.wantErr {
+				t.Fatalf("cryptPasswordWithPerm(%q) error = %s, want %s", input, errCode, tc.wantErr)
 			}
 		})
 	}
 }
 
-func TestParseBcryptPrefixCostRejectsInvalidTokens(t *testing.T) {
-	for _, costToken := range []string{"18446744073709551621", "+10", "-10"} {
-		t.Run(costToken, func(t *testing.T) {
-			salt := "$2y$" + costToken + "$KRGxLBS0Lxe3KBCwKxOzLe"
-			if cost, err := parseBcryptPrefixCost(salt); err == nil {
-				t.Fatalf("parseBcryptPrefixCost(%q) = %d, want invalid-token error", salt, cost)
+func assertRawBcryptMatchesEncoded(t *testing.T, password, prefix, cost, rawSalt string, isWizard bool) {
+	t.Helper()
+	input := prefix + cost + "$" + rawSalt
+	got, errCode := cryptPasswordWithPerm(password, input, isWizard)
+	if errCode != types.E_NONE {
+		t.Fatalf("cryptPasswordWithPerm(%q) error = %s, want E_NONE", input, errCode)
+	}
+	control := prefix + cost + "$" + bcryptBase64Encode([]byte(rawSalt))
+	want, controlErr := cryptPasswordWithPerm(password, control, isWizard)
+	if controlErr != types.E_NONE {
+		t.Fatalf("encoded control %q error = %s, want E_NONE", control, controlErr)
+	}
+	if got != want {
+		t.Errorf("cryptPasswordWithPerm(%q) = %q, want encoded-salt result %q", input, got, want)
+	}
+}
+
+func TestParseBcryptPrefixCostTokens(t *testing.T) {
+	leadingZeros := strings.Repeat("0", 64)
+	tests := []struct {
+		name      string
+		costToken string
+		want      int
+		wantErr   bool
+	}{
+		{name: "leading_zeros_min", costToken: leadingZeros + "4", want: 4},
+		{name: "leading_zeros_default", costToken: leadingZeros + "5", want: 5},
+		{name: "leading_zeros_max", costToken: leadingZeros + "31", want: 31},
+		{name: "overflow", costToken: "18446744073709551621", wantErr: true},
+		{name: "leading_plus", costToken: "+10", wantErr: true},
+		{name: "leading_minus", costToken: "-10", wantErr: true},
+		{name: "alphabetic", costToken: "0x04", wantErr: true},
+		{name: "empty", costToken: "", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			salt := "$2y$" + tc.costToken + "$KRGxLBS0Lxe3KBCwKxOzLe"
+			got, err := parseBcryptPrefixCost(salt)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseBcryptPrefixCost(%q) = %d, want error", salt, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseBcryptPrefixCost(%q) error = %v, want nil", salt, err)
+			}
+			if got != tc.want {
+				t.Errorf("parseBcryptPrefixCost(%q) = %d, want %d", salt, got, tc.want)
 			}
 		})
 	}
