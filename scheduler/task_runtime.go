@@ -53,7 +53,15 @@ func (s *Scheduler) runTask(t *task.Task) (retErr error) {
 	// scheduler-owned physical execution lease across the entire invocation so
 	// GC never walks or ignores a VM that this goroutine can still mutate.
 	s.acquireTaskExecution(t)
-	defer s.releaseTaskExecution(t.ID)
+	defer func() {
+		// This is the singular runTask lifecycle boundary for every caller:
+		// publish all task/VM state first, release the physical execution lease,
+		// then settle deferred GC while the just-finished VM is safe to inspect.
+		// If another task remains active the flush fails closed and that task's
+		// corresponding lifecycle boundary will retry it.
+		s.releaseTaskExecution(t.ID)
+		s.flushDeferredGC()
+	}()
 
 	// Recover from panics to avoid crashing the server
 	defer func() {
@@ -581,10 +589,6 @@ retryAttempt:
 			}
 		}
 
-		// Settle the batches now so an orphan's :recycle stays observable by the very
-		// next command, as it was when collection ran inline. If a sibling is still
-		// running, the flush declines and the end-of-pass flush picks these up.
-		s.flushDeferredGC()
 	}
 
 	t.SetBytecodeVM(nil) // Release VM after completion

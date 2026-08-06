@@ -140,10 +140,11 @@ func (s *Scheduler) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskCon
 }
 
 // flushDeferredGC settles the deferred waif and anonymous-object batches.
-// Called from the scheduler loop after every task pass. Liveness is judged at
-// flush time against persistent state plus all live task VMs, so deferral
-// only changes WHEN an orphan's :recycle runs: immediately after the pass
-// while sweeps stay cheap, on gcSweepInterval once they become expensive.
+// Called after each runTask releases its physical execution lease, with an
+// end-of-scheduler-pass call as a fallback. Liveness is judged at flush time
+// against persistent state plus all live task VMs, so deferral only changes
+// WHEN an orphan's :recycle runs: immediately while sweeps stay cheap, on
+// gcSweepInterval once they become expensive.
 func (s *Scheduler) flushDeferredGC() {
 	s.pendingWaifMu.Lock()
 	if len(s.pendingWaifBatch) == 0 && len(s.pendingAnonGC) == 0 {
