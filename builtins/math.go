@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 	"strings"
-	"time"
 
 	"barn/kernel"
 	"barn/types"
@@ -113,9 +112,9 @@ func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	switch len(args) {
 	case 0:
 		// Random positive integer in full 64-bit range [1, MaxInt64]
-		// Use rand.Int63n(MaxInt64) which gives [0, MaxInt64-1], then add 1
+		// Use Int64N(MaxInt64) which gives [0, MaxInt64-1], then add 1
 		const maxInt64 = 9223372036854775807
-		return types.Ok(types.NewInt(rand.Int63n(maxInt64) + 1))
+		return types.Ok(types.NewInt(sharedRandom.int64N(maxInt64) + 1))
 
 	case 1:
 		// Random in [1, max]
@@ -126,7 +125,7 @@ func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if maxV <= 0 {
 			return types.Err(types.E_INVARG) // Must be positive
 		}
-		return types.Ok(types.NewInt(rand.Int63n(maxV) + 1))
+		return types.Ok(types.NewInt(sharedRandom.int64N(maxV) + 1))
 
 	case 2:
 		// Random in [min, max]
@@ -138,7 +137,7 @@ func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if minV > maxV {
 			return types.Err(types.E_INVARG)
 		}
-		return types.Ok(types.NewInt(minV + rand.Int63n(maxV-minV+1)))
+		return types.Ok(types.NewInt(minV + sharedRandom.int64N(maxV-minV+1)))
 
 	default:
 		return types.Err(types.E_ARGS)
@@ -587,7 +586,9 @@ func builtinReseedRandom(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	rand.Seed(time.Now().UnixNano())
+	if err := sharedRandom.reseed(); err != nil {
+		return types.Err(types.E_INVARG)
+	}
 	return types.Ok(types.NewInt(0))
 }
 
