@@ -5,9 +5,9 @@ import "testing"
 func TestErrorCodes(t *testing.T) {
 	// Verify error codes match spec/errors.md
 	tests := []struct {
-		code     ErrorCode
-		value    int
-		name     string
+		code  ErrorCode
+		value int
+		name  string
 	}{
 		{E_NONE, 0, "E_NONE"},
 		{E_TYPE, 1, "E_TYPE"},

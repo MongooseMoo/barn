@@ -483,7 +483,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	switch op {
 	// Stack operations
 	case bytecode.OP_PUSH:
-		idx := vm.ReadByte()
+		idx := vm.FetchByte()
 		vm.Push(vm.CurrentFrame().Program.Constants[idx])
 
 	case bytecode.OP_POP:
@@ -494,7 +494,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 
 	// Variable operations
 	case bytecode.OP_GET_VAR:
-		idx := vm.ReadByte()
+		idx := vm.FetchByte()
 		val := vm.CurrentFrame().Locals[idx]
 		if val.IsUnbound() {
 			return MooError{Code: types.E_VARNF}
@@ -502,7 +502,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		vm.Push(val)
 
 	case bytecode.OP_SET_VAR:
-		idx := vm.ReadByte()
+		idx := vm.FetchByte()
 		vm.CurrentFrame().Locals[idx] = vm.Pop()
 
 	// Property operations
@@ -595,8 +595,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_FOR_RANGE_CHECK:
 		// Range-for condition, fused: if Locals[valueVar] > Locals[endVar], jump to exit.
 		// Replicates GET_VAR/GET_VAR/LE/JUMP_IF_FALSE using the same compare semantics.
-		valueIdx := vm.ReadByte()
-		endIdx := vm.ReadByte()
+		valueIdx := vm.FetchByte()
+		endIdx := vm.FetchByte()
 		offset := vm.ReadShort()
 		frame := vm.CurrentFrame()
 		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx], vm.promoting())
@@ -611,7 +611,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		// Range-for increment + loop back, fused: Locals[valueVar] += 1; IP -= offset.
 		// Replicates GET_VAR/IMM(1)/ADD/SET_VAR/LOOP; integer fast path, E_TYPE otherwise
 		// (matching OP_ADD: only int+int is valid for a +1 increment).
-		valueIdx := vm.ReadByte()
+		valueIdx := vm.FetchByte()
 		offset := vm.ReadShort()
 		frame := vm.CurrentFrame()
 		cur := frame.Locals[valueIdx]
@@ -625,10 +625,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		// for-in element load, fused: value = normalizedList[idx], unwrapping the
 		// {value,key} pair when the iteration is over pairs. idx is provably in
 		// [1..len] (FOR_RANGE_CHECK gates it), so no bounds-check dispatch needed.
-		listIdx := vm.ReadByte()
-		elemIdx := vm.ReadByte()
-		valueIdx := vm.ReadByte()
-		isPairsIdx := vm.ReadByte()
+		listIdx := vm.FetchByte()
+		elemIdx := vm.FetchByte()
+		valueIdx := vm.FetchByte()
+		isPairsIdx := vm.FetchByte()
 		frame := vm.CurrentFrame()
 		list := frame.Locals[listIdx]
 		if list.Type() != types.TYPE_LIST {
@@ -646,10 +646,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_FOR_LIST_LOAD_KV:
 		// for-in k,v element load, fused: elem={value,key}=normalizedList[idx];
 		// value=elem[1]; index=elem[2]. Elements are always pairs here.
-		listIdx := vm.ReadByte()
-		elemIdx := vm.ReadByte()
-		valueIdx := vm.ReadByte()
-		indexIdx := vm.ReadByte()
+		listIdx := vm.FetchByte()
+		elemIdx := vm.FetchByte()
+		valueIdx := vm.FetchByte()
+		indexIdx := vm.FetchByte()
 		frame := vm.CurrentFrame()
 		list := frame.Locals[listIdx]
 		if list.Type() != types.TYPE_LIST {

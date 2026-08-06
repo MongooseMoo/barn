@@ -13,7 +13,7 @@ import (
 // Property operations
 
 func (vm *VM) executeGetProp() error {
-	propNameIdx := vm.ReadByte()
+	propNameIdx := vm.FetchByte()
 
 	// Determine property name: static (from constant pool) or dynamic (from stack)
 	var propName string
@@ -142,7 +142,7 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 }
 
 func (vm *VM) executeSetProp() error {
-	propNameIdx := vm.ReadByte()
+	propNameIdx := vm.FetchByte()
 
 	// Determine property name: static (from constant pool) or dynamic (from stack)
 	var propName string
