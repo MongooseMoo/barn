@@ -53,13 +53,14 @@ func ctxWithConnManager(cm ConnectionManager) *kernel.TaskContext {
 }
 
 type stubConn struct {
-	remote       string
-	listenerPort int64
-	sent         []string
-	buffered     []string
-	outbound     bool
-	source       string
-	destination  string
+	remote          string
+	listenerPort    int64
+	listenerPortSet bool
+	sent            []string
+	buffered        []string
+	outbound        bool
+	source          string
+	destination     string
 }
 
 func (c *stubConn) Send(message string) error {
@@ -77,8 +78,10 @@ func (c *stubConn) BufferedOutputLength() int { return len(c.buffered) }
 func (c *stubConn) ConnectedSeconds() int64   { return 0 }
 func (c *stubConn) IdleSeconds() int64        { return 0 }
 func (c *stubConn) GetResolvedName() string   { return "" }
-func (c *stubConn) ListenerPort() int64       { return c.listenerPort }
-func (c *stubConn) IsOutbound() bool          { return c.outbound }
+func (c *stubConn) ListenerPort() (int64, bool) {
+	return c.listenerPort, c.listenerPortSet
+}
+func (c *stubConn) IsOutbound() bool { return c.outbound }
 func (c *stubConn) OutboundSourceAddr() string {
 	return c.source
 }
@@ -369,7 +372,11 @@ func TestSwitchPlayerReturnsNoValueOnSuccess(t *testing.T) {
 
 func TestConnectionNameFormats(t *testing.T) {
 	ctx := ctxWithConnManager(&stubConnManager{
-		conn:   &stubConn{remote: "[::1]:4567", listenerPort: 7777},
+		conn: &stubConn{
+			remote:          "[::1]:4567",
+			listenerPort:    7777,
+			listenerPortSet: true,
+		},
 		listen: 7777,
 	})
 	ctx.Player = 7
@@ -426,6 +433,64 @@ func TestConnectionNameFormats(t *testing.T) {
 	}
 }
 
+func TestConnectionMetadataDistinguishesExplicitZeroListenerPort(t *testing.T) {
+	tests := []struct {
+		name            string
+		listenerPortSet bool
+		wantName        string
+		wantSourcePort  int64
+	}{
+		{
+			name:            "explicit descriptor zero",
+			listenerPortSet: true,
+			wantName:        "port 0 from 127.0.0.1 [127.0.0.1], port 4567",
+			wantSourcePort:  0,
+		},
+		{
+			name:            "unset metadata uses startup listener",
+			listenerPortSet: false,
+			wantName:        "port 7777 from 127.0.0.1 [127.0.0.1], port 4567",
+			wantSourcePort:  7777,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := ctxWithConnManager(&stubConnManager{
+				conn: &stubConn{
+					remote:          "127.0.0.1:4567",
+					listenerPort:    0,
+					listenerPortSet: tt.listenerPortSet,
+				},
+				listen: 7777,
+			})
+
+			nameResult := builtinConnectionName(ctx, []types.Value{
+				types.NewObj(-1),
+				types.NewInt(0),
+			})
+			if nameResult.IsError() {
+				t.Fatalf("connection_name: unexpected error: %v", nameResult.Error)
+			}
+			if got := nameResult.Val.Str(); got != tt.wantName {
+				t.Errorf("connection_name = %q, want %q", got, tt.wantName)
+			}
+
+			infoResult := builtinConnectionInfo(ctx, []types.Value{types.NewObj(-1)})
+			if infoResult.IsError() {
+				t.Fatalf("connection_info: unexpected error: %v", infoResult.Error)
+			}
+			sourcePort, ok := infoResult.Val.MapGet(types.NewStr("source_port"))
+			if !ok {
+				t.Fatal("connection_info omitted source_port")
+			}
+			if got := sourcePort.Int(); got != tt.wantSourcePort {
+				t.Errorf("connection_info source_port = %d, want %d", got, tt.wantSourcePort)
+			}
+		})
+	}
+}
+
 func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 	manager := &stubConnManager{}
 
@@ -456,6 +521,59 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 		!manager.added.PrintMessages {
 		t.Fatalf("unexpected spec: %+v", manager.added)
 	}
+}
+
+func TestRuntimeListenerZeroDescriptorFlowsThroughBuiltins(t *testing.T) {
+	manager := &stubConnManager{
+		infos: []ListenerInfo{{
+			Object:   42,
+			Port:     0,
+			Protocol: ListenerProtocolTCP,
+		}},
+	}
+	ctx := ctxWithConnManager(manager)
+	ctx.IsWizard = true
+
+	t.Run("listen returns requested descriptor", func(t *testing.T) {
+		res := builtinListen(ctx, []types.Value{
+			types.NewObj(42),
+			types.NewInt(0),
+			types.NewMap([][2]types.Value{{
+				types.NewStr("interface"), types.NewStr("127.0.0.1"),
+			}}),
+		})
+		if res.IsError() {
+			t.Fatalf("listen(player, 0, options): %v", res.Error)
+		}
+		if res.Val.Type() != types.TYPE_INT || res.Val.Int() != 0 {
+			t.Errorf("listen(player, 0, options) = %v, want descriptor 0", res.Val)
+		}
+	})
+
+	t.Run("listeners exposes requested descriptor", func(t *testing.T) {
+		res := builtinListeners(ctx, []types.Value{types.NewInt(0)})
+		if res.IsError() {
+			t.Fatalf("listeners(0): %v", res.Error)
+		}
+		if res.Val.Type() != types.TYPE_LIST || res.Val.Len() != 1 {
+			t.Fatalf("listeners(0) = %v, want one entry", res.Val)
+		}
+		port, ok := res.Val.Get(1).MapGet(types.NewStr("port"))
+		if !ok || port.Int() != 0 {
+			t.Errorf("listeners(0) port = %v, want 0", port)
+		}
+	})
+
+	t.Run("unlisten accepts requested descriptor", func(t *testing.T) {
+		res := builtinUnlisten(ctx, []types.Value{types.NewInt(0)})
+		if res.IsError() {
+			t.Fatalf("unlisten(0): %v", res.Error)
+		}
+		want := ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: 0}
+		if !listenerDescriptorEqual(manager.removed, want) {
+			t.Errorf("unlisten(0) removed %+v, want %+v", manager.removed, want)
+		}
+	})
 }
 
 func TestListenBuildsIPv6ListenerSpec(t *testing.T) {

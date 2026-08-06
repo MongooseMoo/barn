@@ -564,19 +564,19 @@ func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Res
 	case "features":
 		return types.Ok(features)
 	case "options.OUTBOUND_NETWORK", "options/OUTBOUND_NETWORK":
-		return types.Ok(types.NewInt(boolToInt64(options.OutboundNetwork)))
+		return types.Ok(types.NewStr(boolOptionState(options.OutboundNetwork)))
 	case "options.PROMOTE_NUMBERS", "options/PROMOTE_NUMBERS":
-		return types.Ok(types.NewInt(boolToInt64(options.PromoteNumbers)))
+		return types.Ok(types.NewStr(boolOptionState(options.PromoteNumbers)))
 	default:
 		return types.Err(types.E_INVARG)
 	}
 }
 
-func boolToInt64(v bool) int64 {
+func boolOptionState(v bool) string {
 	if v {
-		return 1
+		return "ON"
 	}
-	return 0
+	return "OFF"
 }
 
 // builtinServerLog implements server_log(message)
