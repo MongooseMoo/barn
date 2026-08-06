@@ -162,10 +162,28 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 		if !ok {
 			return nil
 		}
+		renewTransaction := func() error {
+			if ctx == nil || ctx.StoreTxn == nil {
+				return nil
+			}
+			next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenew()
+			if errCode != types.E_NONE {
+				return errors.New(errCode.String())
+			}
+			ctx.StoreTxn = next
+			if publishedWrites || ctx.LiveStoreMutated {
+				ctx.LiveStoreMutated = true
+				next.MarkLiveMutated()
+			}
+			return nil
+		}
+		if err := renewTransaction(); err != nil {
+			return err
+		}
 		s.acquireSweepContext(ctx)
 		defer s.releaseSweepContext(ctx)
 		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, ctx, 0, siblingAnon)
-		return nil
+		return renewTransaction()
 	})
 	s.startWorkers()
 
