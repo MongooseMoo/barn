@@ -292,9 +292,9 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	startAttempted := make(chan struct{})
 	var attemptOnce sync.Once
 	scheduler.executionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
-	evalDone := make(chan []string, 1)
+	evalDone := make(chan string, 1)
 	go func() {
-		evalDone <- scheduler.EvalCommandOutput(0, "gc_eval_started(); return 1;", "", "")
+		evalDone <- scheduler.EvalCommandOutput(0, "gc_eval_started(); return 1;")
 	}()
 	select {
 	case <-startAttempted:
@@ -319,9 +319,9 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 		t.Fatal("eval VM did not begin after sweep released")
 	}
 	select {
-	case lines := <-evalDone:
-		if len(lines) != 1 || lines[0] != "{1, 1}" {
-			t.Fatalf("eval output = %v, want successful return", lines)
+	case line := <-evalDone:
+		if line != "{1, 1}" {
+			t.Fatalf("eval output = %q, want successful return", line)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("eval did not complete after sweep released")
