@@ -42,6 +42,7 @@ type StoreTxn struct {
 	verbReads                 map[verbReadKey]uint64
 	verbScans                 map[types.ObjID]uint64
 	verbWrites                map[verbWriteKey]verbWrite
+	verbDeletes               []verbDelete
 	validationFail            bool
 	liveMutated               bool
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
@@ -217,6 +218,15 @@ type verbWriteKey struct {
 
 type verbWrite struct {
 	code []string
+}
+
+// verbDelete records the index selected from the transaction's successively
+// mutated private verb list. Commit replays entries in order after validating
+// the original verb-list generation, so two deletes at the same shifted index
+// remove the same definitions the transaction observed without retargeting.
+type verbDelete struct {
+	objID types.ObjID
+	index int
 }
 
 func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
@@ -578,21 +588,24 @@ func (tx *StoreTxn) markVerbScan(objID types.ObjID, obj *Object) {
 	if tx == nil || obj == nil {
 		return
 	}
+	if _, exists := tx.verbScans[objID]; exists {
+		return
+	}
 	tx.verbScans[objID] = obj.verbVersion
 }
 
 // HasStagedTopology reports whether the txn has staged TOPOLOGY writes that a coarse
 // builtin would read stale from the live store mid-task: created objects (absent from
-// live) or relationship writes (location/contents/children). Property/scalar/verb
-// writes are NOT included — coarse ops that follow them already read live-without-them
-// and apply everything at the coarse commit, and flushing those mid-task would change
-// the observable timing of unrelated staged writes.
+// live), relationship writes (location/contents/children), or verb-list deletions.
+// Property/scalar/verb-CODE writes are not included. A flush containing a verb-list
+// deletion takes the commit gate and validates the complete read set before publishing;
+// the legacy unvalidated flush remains only for the other coarse-immediate topology.
 func (tx *StoreTxn) HasStagedTopology() bool {
-	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (len(tx.createdObjects) > 0 || len(tx.relationshipWrites) > 0 || len(tx.recycleWrites) > 0 || len(tx.verbDeletes) > 0)
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
 }
 
 // writeFootprintHasAnon reports whether any staged write targets an anonymous
@@ -643,6 +656,11 @@ func (tx *StoreTxn) writeFootprintHasAnon() bool {
 	}
 	for key := range tx.verbWrites {
 		if isAnon(key.objID) {
+			return true
+		}
+	}
+	for _, deletion := range tx.verbDeletes {
+		if isAnon(deletion.objID) {
 			return true
 		}
 	}
@@ -697,6 +715,13 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 			delete(tx.verbWrites, key)
 		}
 	}
+	keptDeletes := tx.verbDeletes[:0]
+	for _, deletion := range tx.verbDeletes {
+		if deletion.objID != objID {
+			keptDeletes = append(keptDeletes, deletion)
+		}
+	}
+	tx.verbDeletes = keptDeletes
 }
 
 func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
@@ -2073,7 +2098,7 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 }
 
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
+	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
 		return types.E_NONE
 	}
 	if tx.store == nil {
@@ -2162,6 +2187,9 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	}
 	if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
 		tx.validationFail = true
+		return errCode
+	}
+	if errCode := tx.validateVerbDeleteTargetsLocked(); errCode != types.E_NONE {
 		return errCode
 	}
 	return tx.applyStagedToLiveLocked()
@@ -2326,6 +2354,18 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 		stampVerb(verb, ts)
 		stampObjectVerbs(live, ts)
 	}
+	for _, deletion := range tx.verbDeletes {
+		live := tx.store.liveObjectLocked(deletion.objID)
+		if !validLiveObject(live) {
+			return types.E_INVIND
+		}
+		if !remembered[deletion.objID] {
+			live = tx.store.republishForMutation(live)
+			remembered[deletion.objID] = true
+		}
+		deleteVerbAtIndex(live, deletion.index)
+		stampObjectVerbs(live, ts)
+	}
 	// Recycle tombstones LAST, so a create-then-recycle of the same object (build task)
 	// publishes a recycled slot. The object's edges on OTHER objects were applied above
 	// as relationship deltas.
@@ -2354,6 +2394,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	tx.propertyWrites = nil
 	tx.propertyDeletes = nil
 	tx.verbWrites = nil
+	tx.verbDeletes = nil
 	tx.createdObjects = nil
 	tx.recycleWrites = nil
 	return types.E_NONE
@@ -2376,7 +2417,42 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	// txn's whole view and re-enables the resolution memo. Everything memoized
 	// against the pre-flush view must go.
 	tx.invalidateResolveCaches()
+	if len(tx.verbDeletes) > 0 && !tx.gateExempt {
+		// A staged verb deletion is never published by the legacy unvalidated
+		// coarse flush path. Treat this boundary as a validating mid-task commit:
+		// take the normal commit gate, validate every read and shifted delete
+		// target under the store lock, then apply the complete staged write set.
+		tx.store.commitGate.RLock()
+		defer tx.store.commitGate.RUnlock()
+	}
 	tx.store.mu.Lock()
+	if len(tx.verbDeletes) > 0 {
+		tx.validationFail = false
+		if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
+			tx.validationFail = true
+			tx.store.mu.Unlock()
+			return errCode
+		}
+		if errCode := tx.validateObjectRelationshipReadsLocked(); errCode != types.E_NONE {
+			tx.validationFail = true
+			tx.store.mu.Unlock()
+			return errCode
+		}
+		if errCode := tx.validatePropertyReadsLocked(); errCode != types.E_NONE {
+			tx.validationFail = true
+			tx.store.mu.Unlock()
+			return errCode
+		}
+		if errCode := tx.validateVerbReadsLocked(); errCode != types.E_NONE {
+			tx.validationFail = true
+			tx.store.mu.Unlock()
+			return errCode
+		}
+		if errCode := tx.validateVerbDeleteTargetsLocked(); errCode != types.E_NONE {
+			tx.store.mu.Unlock()
+			return errCode
+		}
+	}
 	ec := tx.applyStagedToLiveLocked()
 	tx.store.mu.Unlock()
 
@@ -2536,6 +2612,60 @@ func (tx *StoreTxn) validateVerbReadsLocked() types.ErrorCode {
 			return types.E_INVARG
 		}
 	}
+	return types.E_NONE
+}
+
+func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {
+	lengths := make(map[types.ObjID]int)
+	for _, deletion := range tx.verbDeletes {
+		length, ok := lengths[deletion.objID]
+		if !ok {
+			live := tx.store.liveObjectLocked(deletion.objID)
+			if !validLiveObject(live) {
+				return types.E_INVIND
+			}
+			length = len(live.verbList)
+		}
+		if deletion.index < 0 || deletion.index >= length {
+			return types.E_VERBNF
+		}
+		lengths[deletion.objID] = length - 1
+	}
+	return types.E_NONE
+}
+
+// DeleteResolvedVerbAuthorized stages deletion of the exact verb selected from
+// this transaction's current private view. Object authority is read from that
+// same view, so earlier staged owner/flag writes govern admission. The scalar
+// and verb-generation reads are validated before commit publishes any change.
+func (tx *StoreTxn) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
+	if tx == nil || tx.store == nil || resolved.store != tx.store {
+		return types.E_VERBNF
+	}
+	obj := tx.object(resolved.objID)
+	if !validLiveObject(obj) {
+		return types.E_INVIND
+	}
+	if obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
+		return types.E_VERBNF
+	}
+	if !isWizard {
+		tx.markObjectScalarRead(resolved.objID, obj)
+		if obj.owner != programmer && !obj.flags.Has(FlagWrite) {
+			return types.E_PERM
+		}
+	}
+
+	tx.invalidateResolveCaches()
+	obj = tx.mutableObject(resolved.objID)
+	if !validLiveObject(obj) || obj.verbVersion != resolved.listVersion || resolved.index < 0 || resolved.index >= len(obj.verbList) {
+		return types.E_VERBNF
+	}
+	target := obj.verbList[resolved.index]
+	delete(tx.verbWrites, verbWriteKey{objID: resolved.objID, name: target.mapKey()})
+	deleteVerbAtIndex(obj, resolved.index)
+	tx.verbDeletes = append(tx.verbDeletes, verbDelete{objID: resolved.objID, index: resolved.index})
+	obj.verbVersion++ // private generation: invalidates resolved handles minted before this staged delete
 	return types.E_NONE
 }
 
@@ -2703,8 +2833,8 @@ func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbVi
 	return verb.View(), nil
 }
 
-// ResolveVerbOnObject resolves verbName against the transaction's object
-// snapshot and returns an opaque reference for Store.DeleteResolvedVerb.
+// ResolveVerbOnObject resolves verbName against the transaction's current
+// object view and returns an opaque reference for exact staged deletion.
 func (tx *StoreTxn) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
 	verb, err := tx.findVerbOnObject(objID, verbName)
 	if err != nil {
@@ -2775,8 +2905,8 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 	return verb.View(), types.E_NONE
 }
 
-// ResolveVerbByIndex resolves an index against the transaction's object
-// snapshot and returns an opaque reference for Store.DeleteResolvedVerb.
+// ResolveVerbByIndex resolves an index against the transaction's current object
+// view and returns an opaque reference for exact staged deletion.
 func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {

@@ -9,7 +9,9 @@ import (
 // Reassigns object to lowest available object ID
 // Returns the new object ID
 func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
-	flushStagedBeforeCoarse(ctx) // this coarse op reads/mutates the live store
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 	store := ctx.Store
 
 	if len(args) != 1 {

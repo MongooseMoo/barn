@@ -102,6 +102,212 @@ func TestDeleteVerbRefreshesTransactionVerbView(t *testing.T) {
 	}
 }
 
+func TestDeleteVerbAuthorityRevocationConflictsBeforeMutation(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+	ctx.IsWizard = false
+
+	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	if result.IsError() {
+		t.Fatalf("delete_verb staging failed: %v", result.Error)
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("staged delete mutated live store before commit: %v", err)
+	}
+	if errCode := store.SetObjectOwner(0, 1); errCode != types.E_NONE {
+		t.Fatalf("SetObjectOwner(revoke): %v", errCode)
+	}
+	if errCode := store.SetObjectFlag(0, dbstore.FlagWrite, false); errCode != types.E_NONE {
+		t.Fatalf("SetObjectFlag(revoke): %v", errCode)
+	}
+	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_INVARG || !ctx.StoreTxn.ValidationFailed() {
+		t.Fatalf("Commit after authority revocation = %v, validationFailed=%v; want E_INVARG, true", errCode, ctx.StoreTxn.ValidationFailed())
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("conflicted delete mutated live store: %v", err)
+	}
+
+	retry := kernel.NewTaskContext()
+	retry.Store = store
+	retry.StoreTxn = store.BeginReadOnly(0)
+	retry.Programmer = 0
+	retry.Player = 0
+	result = builtinDeleteVerb(retry, []types.Value{types.NewObj(0), types.NewStr("look")})
+	if !result.IsError() || result.Error != types.E_PERM {
+		t.Fatalf("serial retry after authority revocation = %+v, want E_PERM", result)
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("denied retry mutated live store: %v", err)
+	}
+}
+
+func TestDeleteVerbUnrelatedReadConflictLeavesVerbIntact(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+	addTxnObject(t, store, 1, 0)
+	if errCode := store.SetObjectName(1, "before"); errCode != types.E_NONE {
+		t.Fatalf("SetObjectName(before): %v", errCode)
+	}
+	ctx.StoreTxn.Release()
+	ctx.StoreTxn = store.BeginReadOnly(0)
+	if _, errCode := ctx.StoreTxn.ObjectName(1); errCode != types.E_NONE {
+		t.Fatalf("ObjectName read: %v", errCode)
+	}
+	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	if result.IsError() {
+		t.Fatalf("delete_verb staging failed: %v", result.Error)
+	}
+	if errCode := store.SetObjectName(1, "after"); errCode != types.E_NONE {
+		t.Fatalf("SetObjectName(conflict): %v", errCode)
+	}
+
+	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_INVARG || !ctx.StoreTxn.ValidationFailed() {
+		t.Fatalf("Commit after unrelated read conflict = %v, validationFailed=%v; want E_INVARG, true", errCode, ctx.StoreTxn.ValidationFailed())
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("unrelated conflict allowed irreversible verb deletion: %v", err)
+	}
+}
+
+func TestDeleteVerbStagesShiftedIndicesAndSurvivorCode(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+	for _, name := range []string{"second", "survivor"} {
+		verb := dbstore.NewVerb(name, []string{name}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}, []string{"return 1;"})
+		if _, errCode := store.AddVerb(0, verb); errCode != types.E_NONE {
+			t.Fatalf("AddVerb(%s): %v", name, errCode)
+		}
+	}
+	if errCode := ctx.StoreTxn.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs: %v", errCode)
+	}
+	if errCode := ctx.StoreTxn.SetVerbCode(0, "survivor", []string{"return 3;"}); errCode != types.E_NONE {
+		t.Fatalf("SetVerbCode(survivor): %v", errCode)
+	}
+	for i := 0; i < 2; i++ {
+		result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewInt(1)})
+		if result.IsError() {
+			t.Fatalf("delete_verb shifted index call %d: %v", i+1, result.Error)
+		}
+	}
+	if names, errCode := ctx.StoreTxn.VerbNames(0); errCode != types.E_NONE || len(names) != 1 || names[0] != "survivor" {
+		t.Fatalf("transaction verb names after shifted deletes = %v, %v; want [survivor], E_NONE", names, errCode)
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("staged deletes mutated live store before commit: %v", err)
+	}
+	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+		t.Fatalf("Commit: %v", errCode)
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err == nil {
+		t.Fatal("first shifted-index target remains after commit")
+	}
+	if _, err := store.FindVerbOnObject(0, "second"); err == nil {
+		t.Fatal("second shifted-index target remains after commit")
+	}
+	survivor, err := store.FindVerbOnObject(0, "survivor")
+	if err != nil {
+		t.Fatalf("FindVerbOnObject(survivor): %v", err)
+	}
+	if len(survivor.Code) != 1 || survivor.Code[0] != "return 3;" {
+		t.Fatalf("survivor code after commit = %v, want [return 3;]", survivor.Code)
+	}
+}
+
+func TestDeleteVerbConcurrentListGenerationDoesNotRetarget(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+	second := dbstore.NewVerb("second", []string{"second"}, 0, dbstore.VerbRead|dbstore.VerbExecute, dbstore.VerbArgs{This: "none", Prep: "none", That: "none"}, nil)
+	if _, errCode := store.AddVerb(0, second); errCode != types.E_NONE {
+		t.Fatalf("AddVerb(second): %v", errCode)
+	}
+	if errCode := ctx.StoreTxn.AdoptLiveVerbs(0); errCode != types.E_NONE {
+		t.Fatalf("AdoptLiveVerbs: %v", errCode)
+	}
+	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewInt(2)})
+	if result.IsError() {
+		t.Fatalf("delete_verb staging failed: %v", result.Error)
+	}
+	if errCode := store.DeleteVerb(0, "look"); errCode != types.E_NONE {
+		t.Fatalf("concurrent DeleteVerb(look): %v", errCode)
+	}
+
+	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_INVARG || !ctx.StoreTxn.ValidationFailed() {
+		t.Fatalf("Commit after verb generation change = %v, validationFailed=%v; want E_INVARG, true", errCode, ctx.StoreTxn.ValidationFailed())
+	}
+	if _, err := store.FindVerbOnObject(0, "second"); err != nil {
+		t.Fatalf("stale staged index retargeted surviving verb: %v", err)
+	}
+}
+
+func stagedDeleteFlushConflictContext(t *testing.T) (*kernel.TaskContext, *dbstore.Store) {
+	t.Helper()
+	ctx, store := verbMetadataTxnTestContext(t)
+	if _, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE {
+		t.Fatalf("ObjectName conflict read: %v", errCode)
+	}
+	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	if result.IsError() {
+		t.Fatalf("delete_verb staging failed: %v", result.Error)
+	}
+	if errCode := store.SetObjectName(0, "changed concurrently"); errCode != types.E_NONE {
+		t.Fatalf("SetObjectName(conflict): %v", errCode)
+	}
+	return ctx, store
+}
+
+func TestVerbCoarseBuiltinPropagatesStagedDeleteFlushConflict(t *testing.T) {
+	ctx, store := stagedDeleteFlushConflictContext(t)
+	result := builtinAddVerb(ctx, []types.Value{
+		types.NewObj(0),
+		types.NewList([]types.Value{types.NewObj(0), types.NewStr("rxd"), types.NewStr("added")}),
+		types.NewList([]types.Value{types.NewStr("none"), types.NewStr("none"), types.NewStr("none")}),
+	})
+	if !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("add_verb after conflicted staged delete = %+v, want E_INVARG", result)
+	}
+	if ctx.LiveStoreMutated {
+		t.Fatal("failed staged-delete flush marked task live-mutated")
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("failed flush deleted staged target: %v", err)
+	}
+	if _, err := store.FindVerbOnObject(0, "added"); err == nil {
+		t.Fatal("add_verb mutated live store after failed flush")
+	}
+}
+
+func TestObjectCoarseBuiltinPropagatesStagedDeleteFlushConflict(t *testing.T) {
+	ctx, store := verbMetadataTxnTestContext(t)
+	addTxnObject(t, store, 1, 0)
+	addTxnObject(t, store, 2, 0)
+	if err := store.Recycle(1); err != nil {
+		t.Fatalf("Recycle(#1): %v", err)
+	}
+	ctx.StoreTxn.Release()
+	ctx.StoreTxn = store.BeginReadOnly(0)
+	if _, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE {
+		t.Fatalf("ObjectName conflict read: %v", errCode)
+	}
+	result := builtinDeleteVerb(ctx, []types.Value{types.NewObj(0), types.NewStr("look")})
+	if result.IsError() {
+		t.Fatalf("delete_verb staging failed: %v", result.Error)
+	}
+	if errCode := store.SetObjectName(0, "changed concurrently"); errCode != types.E_NONE {
+		t.Fatalf("SetObjectName(conflict): %v", errCode)
+	}
+
+	result = builtinRenumber(ctx, []types.Value{types.NewObj(2)})
+	if !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("renumber after conflicted staged delete = %+v, want E_INVARG", result)
+	}
+	if ctx.LiveStoreMutated {
+		t.Fatal("failed staged-delete flush marked task live-mutated")
+	}
+	if _, err := store.FindVerbOnObject(0, "look"); err != nil {
+		t.Fatalf("failed flush deleted staged target: %v", err)
+	}
+	if !store.Valid(2) || !store.IsRecycled(1) {
+		t.Fatalf("renumber mutated live object IDs after failed flush: valid(#2)=%v recycled(#1)=%v", store.Valid(2), store.IsRecycled(1))
+	}
+}
+
 func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 	store := dbstore.NewStore()
 	addTxnObject(t, store, 0, 0, dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagRead, dbstore.FlagWrite)

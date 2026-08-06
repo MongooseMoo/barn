@@ -210,6 +210,49 @@ func TestDeleteVerbPreservesNotFoundPrecedenceForUnauthorizedProgrammer(t *testi
 	}
 }
 
+func TestDeleteVerbWithoutTransactionUsesAtomicLiveFallback(t *testing.T) {
+	tests := []struct {
+		name       string
+		authorized bool
+		want       types.ErrorCode
+	}{
+		{name: "owner", authorized: true, want: types.E_NONE},
+		{name: "denied", want: types.E_PERM},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := newMetadataPermissionFixture(t, 0)
+			f.ctx.StoreTxn.Release()
+			f.ctx.StoreTxn = nil
+			if test.authorized {
+				f.ctx.Programmer = f.owner
+				f.ctx.Player = f.owner
+			}
+
+			result := builtinDeleteVerb(f.ctx, []types.Value{
+				types.NewObj(f.target),
+				types.NewStr("existing"),
+			})
+			if test.want == types.E_NONE {
+				if !result.IsNormal() {
+					t.Fatalf("delete_verb no-txn fallback = %+v, want success", result)
+				}
+				if _, err := f.store.FindVerbOnObject(f.target, "existing"); err == nil {
+					t.Fatal("authorized no-txn fallback left verb live")
+				}
+				return
+			}
+			if !result.IsError() || result.Error != test.want {
+				t.Fatalf("delete_verb no-txn fallback = %+v, want %s", result, test.want)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err != nil {
+				t.Fatalf("denied no-txn fallback removed verb: %v", err)
+			}
+		})
+	}
+}
+
 func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 	f := newMetadataPermissionFixture(t, 0)
 	staged, errCode := f.ctx.StoreTxn.CreateObject(
@@ -235,6 +278,96 @@ func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 	}
 }
 
+func TestDeleteVerbUsesSameTaskStagedAuthority(t *testing.T) {
+	tests := []struct {
+		name       string
+		flag       dbstore.ObjectFlags
+		programmer func(metadataPermissionFixture) types.ObjID
+		stage      func(*testing.T, metadataPermissionFixture)
+		want       types.ErrorCode
+		wantGone   bool
+	}{
+		{
+			name:       "staged owner grant",
+			programmer: func(f metadataPermissionFixture) types.ObjID { return f.intruder },
+			stage: func(t *testing.T, f metadataPermissionFixture) {
+				t.Helper()
+				if errCode := f.ctx.StoreTxn.SetObjectOwner(f.target, f.intruder); errCode != types.E_NONE {
+					t.Fatalf("SetObjectOwner(grant): %s", errCode)
+				}
+			},
+			want:     types.E_NONE,
+			wantGone: true,
+		},
+		{
+			name:       "staged owner revocation",
+			programmer: func(f metadataPermissionFixture) types.ObjID { return f.owner },
+			stage: func(t *testing.T, f metadataPermissionFixture) {
+				t.Helper()
+				if errCode := f.ctx.StoreTxn.SetObjectOwner(f.target, f.intruder); errCode != types.E_NONE {
+					t.Fatalf("SetObjectOwner(revoke): %s", errCode)
+				}
+			},
+			want: types.E_PERM,
+		},
+		{
+			name:       "staged write flag grant",
+			programmer: func(f metadataPermissionFixture) types.ObjID { return f.intruder },
+			stage: func(t *testing.T, f metadataPermissionFixture) {
+				t.Helper()
+				if errCode := f.ctx.StoreTxn.SetObjectFlag(f.target, dbstore.FlagWrite, true); errCode != types.E_NONE {
+					t.Fatalf("SetObjectFlag(grant): %s", errCode)
+				}
+			},
+			want:     types.E_NONE,
+			wantGone: true,
+		},
+		{
+			name:       "staged write flag revocation",
+			flag:       dbstore.FlagWrite,
+			programmer: func(f metadataPermissionFixture) types.ObjID { return f.intruder },
+			stage: func(t *testing.T, f metadataPermissionFixture) {
+				t.Helper()
+				if errCode := f.ctx.StoreTxn.SetObjectFlag(f.target, dbstore.FlagWrite, false); errCode != types.E_NONE {
+					t.Fatalf("SetObjectFlag(revoke): %s", errCode)
+				}
+			},
+			want: types.E_PERM,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			f := newMetadataPermissionFixture(t, test.flag)
+			f.ctx.Programmer = test.programmer(f)
+			f.ctx.Player = f.ctx.Programmer
+			test.stage(t, f)
+
+			result := builtinDeleteVerb(f.ctx, []types.Value{
+				types.NewObj(f.target),
+				types.NewStr("existing"),
+			})
+			if test.want == types.E_NONE {
+				if !result.IsNormal() {
+					t.Fatalf("delete_verb with staged authority = %+v, want success", result)
+				}
+			} else if !result.IsError() || result.Error != test.want {
+				t.Fatalf("delete_verb with staged authority = %+v, want %s", result, test.want)
+			}
+			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit: %s", errCode)
+			}
+			_, err := f.store.FindVerbOnObject(f.target, "existing")
+			if test.wantGone && err == nil {
+				t.Fatal("authorized staged delete did not remove verb at commit")
+			}
+			if !test.wantGone && err != nil {
+				t.Fatalf("denied staged delete removed verb at commit: %v", err)
+			}
+		})
+	}
+}
+
 func addMetadataTestVerb(t *testing.T, f metadataPermissionFixture, name string, names []string) int {
 	t.Helper()
 	verb := dbstore.NewVerb(
@@ -255,7 +388,7 @@ func addMetadataTestVerb(t *testing.T, f metadataPermissionFixture, name string,
 	return index
 }
 
-func TestAuthorizedDeleteVerbRefreshesResolvedIdentityAfterSelfFlush(t *testing.T) {
+func TestAuthorizedDeleteVerbCommitsWithStagedTopologyAndSurvivorCode(t *testing.T) {
 	tests := []struct {
 		name       string
 		descriptor types.Value
@@ -290,13 +423,25 @@ func TestAuthorizedDeleteVerbRefreshesResolvedIdentityAfterSelfFlush(t *testing.
 				test.descriptor,
 			})
 			if !result.IsNormal() {
-				t.Fatalf("authorized delete_verb after self-flush = %+v, want success", result)
+				t.Fatalf("authorized staged delete_verb = %+v, want success", result)
+			}
+			if f.store.Valid(staged) {
+				t.Fatalf("delete_verb published staged object #%d before commit", staged)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err != nil {
+				t.Fatalf("delete_verb mutated live target before commit: %v", err)
+			}
+			if _, err := f.ctx.StoreTxn.FindVerbOnObject(f.target, "existing"); err == nil {
+				t.Fatal("transaction view retained staged deletion target")
+			}
+			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit: %s", errCode)
 			}
 			if !f.store.Valid(staged) {
-				t.Fatalf("delete_verb did not preserve flushed object #%d", staged)
+				t.Fatalf("commit did not publish staged object #%d", staged)
 			}
 			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err == nil {
-				t.Fatal("delete_verb left the resolved target in the store")
+				t.Fatal("commit left the resolved target in the store")
 			}
 			survivor, err := f.store.FindVerbOnObject(f.target, "survivor")
 			if err != nil {
@@ -344,6 +489,12 @@ func TestDeleteVerbDeletesLoadedMultiAliasByResolvedDescriptor(t *testing.T) {
 			if !result.IsNormal() {
 				t.Fatalf("delete_verb loaded multi-alias by %s = %+v, want success", test.name, result)
 			}
+			if _, err := f.store.FindVerbOnObject(f.target, "glance"); err != nil {
+				t.Fatalf("staged delete mutated live multi-alias verb: %v", err)
+			}
+			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit: %s", errCode)
+			}
 			if _, err := f.store.FindVerbOnObject(f.target, "glance"); err == nil {
 				t.Fatal("delete_verb left the resolved loaded multi-alias verb in the store")
 			}
@@ -388,6 +539,12 @@ func TestDeleteVerbDeletesExactResolvedVerbWhenAliasesOverlap(t *testing.T) {
 			})
 			if !result.IsNormal() {
 				t.Fatalf("delete_verb overlapping alias by %s = %+v, want success", test.name, result)
+			}
+			if _, err := f.store.FindVerbOnObject(f.target, "peek"); err != nil {
+				t.Fatalf("staged delete mutated live overlapping target: %v", err)
+			}
+			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
+				t.Fatalf("Commit: %s", errCode)
 			}
 			if _, err := f.store.FindVerbOnObject(f.target, "look"); err != nil {
 				t.Fatalf("delete_verb removed the earlier overlapping verb: %v", err)

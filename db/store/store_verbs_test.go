@@ -168,6 +168,142 @@ func TestDeleteResolvedVerbRejectsStaleListWithoutRetargeting(t *testing.T) {
 	}
 }
 
+func TestDeleteResolvedVerbAuthorizedUsesCurrentLiveAuthority(t *testing.T) {
+	tests := []struct {
+		name       string
+		programmer types.ObjID
+		isWizard   bool
+		configure  func(*testing.T, *Store)
+		want       types.ErrorCode
+	}{
+		{
+			name:       "owner",
+			programmer: 0,
+			configure:  func(_ *testing.T, _ *Store) {},
+			want:       types.E_NONE,
+		},
+		{
+			name:       "write flag",
+			programmer: 9,
+			configure: func(t *testing.T, store *Store) {
+				t.Helper()
+				if errCode := store.SetObjectFlag(0, FlagWrite, true); errCode != types.E_NONE {
+					t.Fatalf("SetObjectFlag: %v", errCode)
+				}
+			},
+			want: types.E_NONE,
+		},
+		{
+			name:       "wizard",
+			programmer: 9,
+			isWizard:   true,
+			configure:  func(_ *testing.T, _ *Store) {},
+			want:       types.E_NONE,
+		},
+		{
+			name:       "revoked owner",
+			programmer: 0,
+			configure: func(t *testing.T, store *Store) {
+				t.Helper()
+				if errCode := store.SetObjectOwner(0, 1); errCode != types.E_NONE {
+					t.Fatalf("SetObjectOwner: %v", errCode)
+				}
+			},
+			want: types.E_PERM,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newOverlappingVerbStore(t)
+			resolved, err := store.ResolveVerbOnObject(0, "peek")
+			if err != nil {
+				t.Fatalf("ResolveVerbOnObject: %v", err)
+			}
+			test.configure(t, store)
+
+			if errCode := store.DeleteResolvedVerbAuthorized(resolved, test.programmer, test.isWizard); errCode != test.want {
+				t.Fatalf("DeleteResolvedVerbAuthorized = %v, want %v", errCode, test.want)
+			}
+			_, err = store.FindVerbOnObject(0, "peek")
+			if test.want == types.E_NONE && err == nil {
+				t.Fatal("authorized delete left the resolved verb in the store")
+			}
+			if test.want != types.E_NONE && err != nil {
+				t.Fatalf("denied delete removed the resolved verb: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteResolvedVerbAuthorizedPreservesStaleIdentityPrecedence(t *testing.T) {
+	store := newOverlappingVerbStore(t)
+	resolved, errCode := store.ResolveVerbByIndex(0, 1)
+	if errCode != types.E_NONE {
+		t.Fatalf("ResolveVerbByIndex: %v", errCode)
+	}
+	if errCode := store.DeleteVerb(0, "look"); errCode != types.E_NONE {
+		t.Fatalf("DeleteVerb first: %v", errCode)
+	}
+
+	if errCode := store.DeleteResolvedVerbAuthorized(resolved, 9, false); errCode != types.E_VERBNF {
+		t.Fatalf("DeleteResolvedVerbAuthorized stale unauthorized reference = %v, want E_VERBNF", errCode)
+	}
+	if _, err := store.FindVerbOnObject(0, "peek"); err != nil {
+		t.Fatalf("stale authorized delete retargeted another verb: %v", err)
+	}
+}
+
+func TestStoreTxnVerbDeleteTopologyFlushValidatesBeforeMutation(t *testing.T) {
+	store := newOverlappingVerbStore(t)
+	tx := store.BeginReadOnly(0)
+	resolved, err := tx.ResolveVerbOnObject(0, "peek")
+	if err != nil {
+		t.Fatalf("ResolveVerbOnObject: %v", err)
+	}
+	if errCode := tx.DeleteResolvedVerbAuthorized(resolved, 0, false); errCode != types.E_NONE {
+		t.Fatalf("DeleteResolvedVerbAuthorized stage: %v", errCode)
+	}
+	if !tx.HasStagedTopology() {
+		t.Fatal("staged verb deletion is not reported as topology")
+	}
+	if _, err := store.FindVerbOnObject(0, "peek"); err != nil {
+		t.Fatalf("staged deletion mutated live store: %v", err)
+	}
+
+	if errCode := store.SetObjectOwner(0, 1); errCode != types.E_NONE {
+		t.Fatalf("SetObjectOwner(conflict): %v", errCode)
+	}
+	if errCode := tx.FlushStagedToLive(); errCode != types.E_INVARG || !tx.ValidationFailed() {
+		t.Fatalf("FlushStagedToLive after authority conflict = %v, validationFailed=%v; want E_INVARG, true", errCode, tx.ValidationFailed())
+	}
+	if _, err := store.FindVerbOnObject(0, "peek"); err != nil {
+		t.Fatalf("conflicted topology flush deleted verb: %v", err)
+	}
+}
+
+func TestStoreTxnVerbDeleteTopologyFlushAppliesAfterValidation(t *testing.T) {
+	store := newOverlappingVerbStore(t)
+	tx := store.BeginReadOnly(0)
+	resolved, err := tx.ResolveVerbOnObject(0, "peek")
+	if err != nil {
+		t.Fatalf("ResolveVerbOnObject: %v", err)
+	}
+	if errCode := tx.DeleteResolvedVerbAuthorized(resolved, 0, false); errCode != types.E_NONE {
+		t.Fatalf("DeleteResolvedVerbAuthorized stage: %v", errCode)
+	}
+
+	if errCode := tx.FlushStagedToLive(); errCode != types.E_NONE {
+		t.Fatalf("FlushStagedToLive: %v", errCode)
+	}
+	if tx.HasWrites() {
+		t.Fatal("successful validated topology flush retained staged writes")
+	}
+	if _, err := store.FindVerbOnObject(0, "peek"); err == nil {
+		t.Fatal("validated topology flush left staged deletion target live")
+	}
+}
+
 func TestDeleteVerbHandlesLoadedMultiAliasRawName(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
