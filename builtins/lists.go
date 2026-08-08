@@ -2,7 +2,12 @@ package builtins
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+	"unsafe"
 
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
@@ -477,27 +482,141 @@ func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	list := args[0]
 
-	// Dedup using MOO value equality (.Equal), the same equality setadd uses
-	// (Toast list.cc setadd -> ismember(.., case_matters=0), case-insensitive for
-	// strings). unique is a set-dedup operation, so it must agree with setadd: an
-	// element setadd treats as a duplicate must also be collapsed here. A prior
-	// elem.String() map key was case-SENSITIVE and disagreed with setadd.
-	var unique []types.Value
-	for i := 1; i <= list.Len(); i++ {
-		elem := list.Get(i)
+	// Bucket by properties that are identical whenever Value.Equal is true, then
+	// use Equal inside each bucket. This preserves setadd's equality semantics
+	// without comparing every distinct scalar against every earlier value.
+	unique := make([]types.Value, 0, list.Len())
+	bucketHeads := make(map[uniqueBucketKey]int, list.Len())
+	previousInBucket := make([]int, 0, list.Len())
+	for i, elem := range list.Elements() {
+		key := uniqueKey(elem, i)
 		dup := false
-		for _, seen := range unique {
-			if seen.Equal(elem) {
+		for cursor := bucketHeads[key]; cursor != 0; cursor = previousInBucket[cursor-1] {
+			if unique[cursor-1].Equal(elem) {
 				dup = true
 				break
 			}
 		}
 		if !dup {
 			unique = append(unique, elem)
+			previousInBucket = append(previousInBucket, bucketHeads[key])
+			bucketHeads[key] = len(unique)
 		}
 	}
 
 	return types.Ok(types.NewList(unique))
+}
+
+type uniqueBucketKey struct {
+	typeCode  types.TypeCode
+	kind      uint8
+	scalar    uint64
+	text      string
+	reference unsafe.Pointer
+	length    int
+}
+
+const (
+	uniqueScalar uint8 = iota
+	uniqueString
+	uniqueReference
+	uniqueCollection
+	uniqueNone
+	uniqueUnbound
+	uniqueAlwaysDistinct
+)
+
+func uniqueKey(value types.Value, position int) uniqueBucketKey {
+	if value.IsNone() {
+		return uniqueBucketKey{kind: uniqueNone}
+	}
+	if value.IsUnbound() {
+		return uniqueBucketKey{kind: uniqueUnbound}
+	}
+
+	key := uniqueBucketKey{typeCode: value.Type()}
+	switch value.Type() {
+	case types.TYPE_INT:
+		key.kind = uniqueScalar
+		key.scalar = uint64(value.Int())
+	case types.TYPE_FLOAT:
+		f := value.Float()
+		if math.IsNaN(f) {
+			key.kind = uniqueAlwaysDistinct
+			key.scalar = uint64(position)
+			return key
+		}
+		if f == 0 {
+			f = 0 // Equal treats positive and negative zero as the same value.
+		}
+		key.kind = uniqueScalar
+		key.scalar = math.Float64bits(f)
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		key.kind = uniqueScalar
+		key.scalar = uint64(value.Obj())
+	case types.TYPE_ERR:
+		key.kind = uniqueScalar
+		key.scalar = uint64(value.ErrCode())
+	case types.TYPE_BOOL:
+		key.kind = uniqueScalar
+		if value.Bool() {
+			key.scalar = 1
+		}
+	case types.TYPE_STR:
+		key.kind = uniqueString
+		key.text = foldUniqueString(value.Str())
+	case types.TYPE_WAIF:
+		key.kind = uniqueReference
+		key.reference = value.WaifIdentity()
+	case types.TYPE_LIST, types.TYPE_MAP:
+		key.kind = uniqueCollection
+		key.length = value.Len()
+	default:
+		key.kind = uniqueAlwaysDistinct
+		key.scalar = uint64(position)
+	}
+	return key
+}
+
+func foldUniqueString(value string) string {
+	if !utf8.ValidString(value) {
+		return foldUniqueASCII(value)
+	}
+	for _, r := range value {
+		if canonicalFoldRune(r) != r {
+			var folded strings.Builder
+			folded.Grow(len(value))
+			for _, next := range value {
+				folded.WriteRune(canonicalFoldRune(next))
+			}
+			return folded.String()
+		}
+	}
+	return value
+}
+
+func canonicalFoldRune(r rune) rune {
+	canonical := r
+	for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+		if next > canonical {
+			canonical = next
+		}
+	}
+	return canonical
+}
+
+func foldUniqueASCII(value string) string {
+	for i := range len(value) {
+		if lower := asciiLower(value[i]); lower != value[i] {
+			folded := []byte(value)
+			folded[i] = lower
+			for j := i + 1; j < len(folded); j++ {
+				folded[j] = asciiLower(folded[j])
+			}
+			return string(folded)
+		}
+	}
+	return value
 }
 
 // ============================================================================
