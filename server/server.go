@@ -11,16 +11,16 @@ import (
 	"sync"
 	"time"
 
-	"barn/builtins"
-	"barn/config"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/metrics"
-	runtime "barn/scheduler"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/config"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // Server represents the MOO server

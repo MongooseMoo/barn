@@ -1,9 +1,9 @@
 package vm
 
 import (
-	"barn/bytecode"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // buildTraceback returns a MOO list of stack frames suitable for the 4th

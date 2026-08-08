@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // debugValidation gates temporary conflict-diagnosis logging (BARN_DEBUG_RETRY).

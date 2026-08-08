@@ -1,6 +1,6 @@
 package store
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // ObjectBuilder is the construction/relink API for the database loader in
 // db/format. The loader reads a database into a graph of builders, performs

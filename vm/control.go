@@ -1,9 +1,9 @@
 package vm
 
 import (
-	"barn/bytecode"
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/types"
 	"strings"
 	"time"
 )

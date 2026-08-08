@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func requireLastMove(t *testing.T, value types.Value, source types.ObjID, before, after int64) {

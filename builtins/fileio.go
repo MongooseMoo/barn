@@ -11,8 +11,8 @@ import (
 	"strings"
 	"sync"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type mooFileHandle struct {

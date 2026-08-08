@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"barn/verb"
+	"github.com/MongooseMoo/barn/verb"
 	"unicode"
 )
 

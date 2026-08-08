@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"barn/bytecode"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *testing.T) {

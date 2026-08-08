@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	runtime "github.com/MongooseMoo/barn/scheduler"
 )
 
 type deadlineProbeTransport struct {

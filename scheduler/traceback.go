@@ -3,9 +3,9 @@ package scheduler
 import (
 	"log/slog"
 
-	"barn/metrics"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // tbFrame is one verb activation as it appears in a logged traceback. The JSON

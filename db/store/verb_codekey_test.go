@@ -4,8 +4,8 @@ import (
 	"sync"
 	"testing"
 
-	"barn/sourcekey"
-	"barn/types"
+	"github.com/MongooseMoo/barn/sourcekey"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // A verb's CodeKey identifies its source content: it must always equal a fresh

@@ -1,8 +1,8 @@
 package store
 
 import (
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 	"slices"
 	"unsafe"
 )

@@ -3,12 +3,12 @@ package scheduler
 import (
 	"time"
 
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/metrics"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func sameWaif(a, b types.Value) bool {

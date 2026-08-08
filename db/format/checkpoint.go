@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"barn/db/store"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // WriteCheckpoint writes a database checkpoint to path+".new", never modifying path.

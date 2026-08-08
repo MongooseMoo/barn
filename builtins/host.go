@@ -1,6 +1,6 @@
 package builtins
 
-import "barn/kernel"
+import "github.com/MongooseMoo/barn/kernel"
 
 // Hooks the server installs for lifecycle builtins (run_gc, dump_database,
 // shutdown). Named so the signatures are written once, not at every field,

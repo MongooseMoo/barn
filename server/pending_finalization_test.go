@@ -6,10 +6,10 @@ import (
 	"sync"
 	"testing"
 
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/types"
-	"barn/vm"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func pendingFinalizationVM(store *dbstore.Store, value types.Value) *vm.VM {

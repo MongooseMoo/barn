@@ -1,6 +1,6 @@
 package store
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // store_resolve_cache.go — allocation-free ancestry walks (Part A) and a
 // per-transaction memo of verb/property resolution (Part B).

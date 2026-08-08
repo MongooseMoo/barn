@@ -1,6 +1,6 @@
 package vm
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // Environment manages variable bindings with lexical scoping
 // Supports nested scopes (local variables, global variables, etc.)

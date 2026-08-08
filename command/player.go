@@ -1,8 +1,8 @@
 package command
 
 import (
-	dbstore "barn/db/store"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ParsePlayerCommand parses input exactly as a player's command line and

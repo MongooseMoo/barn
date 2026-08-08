@@ -1,8 +1,8 @@
 package builtins
 
 import (
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // BuiltinFunc is a function type for builtin functions

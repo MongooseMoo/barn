@@ -36,12 +36,12 @@ import (
 	"testing"
 	"time"
 
-	"barn/builtins"
-	"barn/command"
-	"barn/config"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/command"
+	"github.com/MongooseMoo/barn/config"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // --- stub connection manager ------------------------------------------------

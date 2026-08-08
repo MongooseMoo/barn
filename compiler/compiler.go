@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"barn/bytecode"
-	"barn/parser"
-	"barn/sourcekey"
-	"barn/verb"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/parser"
+	"github.com/MongooseMoo/barn/sourcekey"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // Diagnostic is a source-located syntax or bytecode compilation failure.

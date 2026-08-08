@@ -6,11 +6,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"barn/compiler"
-	dbformat "barn/db/format"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/compiler"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func (s *Scheduler) LoadQueuedTasks(queued []*dbformat.QueuedTask) {

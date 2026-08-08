@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"barn/config"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // runTasksThroughPool queues every task and drains them through the worker pool,

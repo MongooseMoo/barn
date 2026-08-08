@@ -1,6 +1,6 @@
 package store
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	s.mu.RLock()

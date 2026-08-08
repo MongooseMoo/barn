@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"barn/bytecode"
-	"barn/kernel"
-	"barn/metrics"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TaskState represents the current state of a task

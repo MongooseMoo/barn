@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 
 	"golang.org/x/crypto/argon2"
 )

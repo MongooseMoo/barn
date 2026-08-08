@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	dbstore "barn/db/store"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 )
 
 // commitCounterDelta is a snapshot of the four MVCC commit observability counters

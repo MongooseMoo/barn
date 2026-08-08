@@ -3,8 +3,8 @@ package builtins
 import (
 	"testing"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestFileListReturnsEmptyListWhenSandboxDirectoryIsMissing(t *testing.T) {

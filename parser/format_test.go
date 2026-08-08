@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	dbformat "barn/db/format"
-	"barn/parser"
-	"barn/types"
-	"barn/verb"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/parser"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {

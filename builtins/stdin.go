@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ProcessStdin owns suspended read_stdin() waiters and reads from the server's

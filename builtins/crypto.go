@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"strings"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 
 	cryptbcrypt "github.com/go-crypt/x/bcrypt"
 	"golang.org/x/crypto/ripemd160"

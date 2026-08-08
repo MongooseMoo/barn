@@ -1,8 +1,8 @@
 package store
 
 import (
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 	"strings"
 )
 
@@ -610,7 +610,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 }
 
 // SetVerbCode updates a verb's source. The AST/bytecode cache no longer lives on
-// the verb (it moved to barn/bytecode), so this only writes persistent source.
+// the verb (it moved to github.com/MongooseMoo/barn/bytecode), so this only writes persistent source.
 // In a full landing this would also bump a per-verb code epoch to invalidate the
 // relocated cache; the spike proves topology only.
 func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {

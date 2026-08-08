@@ -3,12 +3,12 @@ package scheduler
 import (
 	"testing"
 
-	"barn/builtins"
-	"barn/bytecode"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {

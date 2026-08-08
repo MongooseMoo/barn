@@ -1,11 +1,11 @@
 package vm
 
 import (
-	"barn/builtins"
-	"barn/bytecode"
-	dbstore "barn/db/store"
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func (vm *VM) executeIndex() error {

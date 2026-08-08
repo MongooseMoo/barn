@@ -3,7 +3,7 @@ package kernel
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestNewTaskContext(t *testing.T) {

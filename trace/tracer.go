@@ -1,8 +1,8 @@
 package trace
 
 import (
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 	"io"
 	"os"
 	"path/filepath"

@@ -3,7 +3,7 @@ package store
 import (
 	"runtime"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // store_history_gc.go — bounded history GC (COW Phase 4).

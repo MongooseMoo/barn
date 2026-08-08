@@ -4,7 +4,7 @@ package parser
 // These are RED tests — they expose confirmed bugs.
 
 import (
-	"barn/verb"
+	"github.com/MongooseMoo/barn/verb"
 	"strings"
 	"testing"
 )

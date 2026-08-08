@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"barn/compiler"
-	"barn/kernel"
-	"barn/metrics"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/compiler"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"barn/bytecode"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 const barnVMFrameMarker = "__barn_vm_frame_v1"
