@@ -45,7 +45,7 @@ type TaskManager interface {
 // Host bundles the server-provided capabilities that builtins depend on but the
 // builtins package cannot implement itself: networking, input injection, task
 // scheduling, and process lifecycle. The Registry owns one Host, wired by its
-// owner (the scheduler/server) after construction; builtins read it via
+// owner (the engine/server) after construction; builtins read it via
 // hostOf(ctx). A zero Host — db tools, the oracle, pure-builtin tests — leaves
 // every field nil, and each builtin turns a nil capability into its usual MOO
 // error. This mirrors the verbCaller / SetVerbCaller pattern the Registry uses;
@@ -81,7 +81,7 @@ func (r *Registry) SetConnectionManager(cm ConnectionManager) { r.host.ConnManag
 // SetInputForcer wires the input forcer used by force_input/set_connection_option.
 func (r *Registry) SetInputForcer(f InputForcer) { r.host.InputForcer = f }
 
-// SetTaskYielder wires the scheduler hook used by resume() to run ready tasks.
+// SetTaskYielder wires the engine hook used by resume() to run ready tasks.
 func (r *Registry) SetTaskYielder(y TaskYielder) { r.host.TaskYielder = y }
 
 // SetTaskManager wires the execution engine's task manager used by task builtins.

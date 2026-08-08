@@ -1,7 +1,7 @@
 # Barn
 
 Barn is a Go implementation of a MOO server. It includes a parser, bytecode VM,
-ToastStunt-format database reader/writer, TCP server, task scheduler, built-in
+ToastStunt-format database reader/writer, TCP server, execution engine, built-in
 function registry, and conformance tooling for comparing behavior with existing
 MOO implementations.
 
@@ -122,7 +122,8 @@ barn/
 |-- builtins/        # Built-in function implementations and registry
 |-- parser/          # MOO lexer, parser, AST, and unparser
 |-- db/              # ToastStunt-format database I/O
-|-- server/          # TCP server, connection management, scheduler integration
+|-- engine/          # MOO evaluation, verb execution, and task lifecycle
+|-- server/          # TCP server, connection management, engine integration
 |-- types/           # MOO value types and task context
 |-- task/            # Task state, queues, and tracebacks
 |-- conformance/     # Go-side conformance loader and runner

@@ -5,7 +5,7 @@ import (
 
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -21,7 +21,7 @@ func loginTestSetup(t *testing.T, loginVerb []string) (*InputProcessor, *Connect
 	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 	addTestVerb(store, listener, "do_login_command", loginVerb...)
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	t.Cleanup(rt.Stop)
 	s := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
@@ -34,7 +34,7 @@ func loginTestSetup(t *testing.T, loginVerb []string) (*InputProcessor, *Connect
 }
 
 // countReadingTasks returns the number of suspended tasks reading from player.
-func countReadingTasks(rt *runtime.Scheduler, player types.ObjID) int {
+func countReadingTasks(rt *engine.Runtime, player types.ObjID) int {
 	n := 0
 	queued, suspended := rt.TaskSnapshots()
 	for _, snapshot := range append(queued, suspended...) {
@@ -47,7 +47,7 @@ func countReadingTasks(rt *runtime.Scheduler, player types.ObjID) int {
 
 // countLiveLoginTasks returns login-hook tasks (Owner == the pre-login connID
 // player) that are neither completed nor killed.
-func countLiveLoginTasks(rt *runtime.Scheduler, player types.ObjID) int {
+func countLiveLoginTasks(rt *engine.Runtime, player types.ObjID) int {
 	n := 0
 	queued, suspended := rt.TaskSnapshots()
 	for _, snapshot := range append(queued, suspended...) {

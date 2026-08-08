@@ -87,7 +87,7 @@ type Store struct {
 	// MVCC commit observability counters (Phase A instrumentation). Bumped
 	// lock-free, mirroring the anonCreations pattern. commitAttempts/Successes/
 	// Conflicts are bumped inside StoreTxn.Commit; commitRetries is bumped by the
-	// scheduler each time it loops back after a retryable conflict. These are
+	// execution runtime each time it loops back after a retryable conflict. These are
 	// observation-only and never affect control flow.
 	commitAttempts  atomic.Uint64
 	commitSuccesses atomic.Uint64
@@ -226,8 +226,8 @@ func (s *Store) ActiveReadTransactions() int {
 	return total
 }
 
-// NoteCommitRetry records one scheduler-side conflict retry (loop-back). It is
-// the only exported mutator; the scheduler lives in another package and cannot
+// NoteCommitRetry records one engine-side conflict retry (loop-back). It is
+// the only exported mutator; the engine lives in another package and cannot
 // touch the unexported counter fields directly.
 func (s *Store) NoteCommitRetry() { s.commitRetries.Add(1) }
 
@@ -237,7 +237,7 @@ func (s *Store) CommitEscalations() uint64 { return s.commitEscalations.Load() }
 // attempt: while held, no ordinary commit can start, so a gateExempt txn
 // snapshotted and committed under it validates against a frozen store. Direct
 // live-store mutations (the LiveStoreMutated paths) bypass the gate; the
-// scheduler's retry cap remains the backstop for that rare interleaving.
+// runtime's retry cap remains the backstop for that rare interleaving.
 func (s *Store) EscalationLock() {
 	s.commitGate.Lock()
 	s.commitEscalations.Add(1)

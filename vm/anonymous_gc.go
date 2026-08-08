@@ -29,7 +29,7 @@ func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 
 // CollectAnonymousRefsFromVM gathers the anonymous-object IDs reachable from a VM's
 // frames and stack into out. It touches only VM state (no Store lock), so callers may
-// run it while holding the scheduler lock to snapshot a sibling task's references
+// run it while holding the engine lock to snapshot a sibling task's references
 // without racing that task's execution.
 func CollectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	collectAnonymousRefsFromVM(exec, out)
@@ -171,7 +171,7 @@ type AnonGCRequest struct {
 // is recycled.
 //
 // siblingRefs holds the anonymous ids snapshotted from every live task's VM under
-// the scheduler lock. Together with each request's OwnRefs it covers the same root
+// the engine lock. Together with each request's OwnRefs it covers the same root
 // set the inline per-task sweep saw, without walking a *VM here — so a task running
 // concurrently on another goroutine is never read.
 func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Registry, requests []AnonGCRequest, siblingRefs map[types.ObjID]struct{}) {
@@ -247,7 +247,7 @@ func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates
 // collect objects created during the current execution without sweeping
 // pre-existing database state.
 // siblingRefs holds anonymous IDs already collected from other tasks' VMs (under the
-// scheduler lock, so they were snapshotted without racing those tasks). localVMs are
+// engine lock, so they were snapshotted without racing those tasks). localVMs are
 // VMs owned by the calling goroutine (this task's own VM), safe to walk here.
 func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
 	if ctx == nil || store == nil || registry == nil {

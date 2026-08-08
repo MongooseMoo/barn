@@ -11,7 +11,7 @@ import (
 // VM reuse.
 //
 // Every Go builtin that invokes a MOO verb (waif method dispatch, move hooks,
-// $sysobj hooks) goes through the scheduler's registry VerbCaller, which built a
+// $sysobj hooks) goes through the runtime's registry VerbCaller, which built a
 // fresh VM per call. Each one allocated a 256-entry operand stack and a 16-entry
 // frame slice that were thrown away microseconds later; on a real workload that
 // was the single largest source of allocated bytes in the server.
@@ -19,7 +19,7 @@ import (
 // Acquire/Release recycle those backing arrays. A pooled VM is only ever handed
 // back by a call site that has proven nothing outlives the call — see ReleaseVM's
 // refusal conditions and the audit notes on each call site. The task VMs
-// (scheduler/task_runtime.go, task_factory.go, task_load.go) are deliberately NOT
+// (engine/task_runtime.go, task_factory.go, task_load.go) are deliberately NOT
 // pooled: they are stored on the task via SetBytecodeVM and resumed after a
 // suspend, and are walked for GC roots by other goroutines.
 const (

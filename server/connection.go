@@ -42,7 +42,7 @@ type Connection struct {
 	outbound        bool
 	outboundSource  string
 	outboundDest    string
-	// loginTaskID is the scheduler task ID of an in-flight login-hook task for
+	// loginTaskID is the engine task ID of an in-flight login-hook task for
 	// this (not-yet-logged-in) connection, or 0 if none. Used to (a) avoid
 	// spawning a parallel do_login_command while one is already running/reading
 	// and (b) kill the reading login task on disconnect.

@@ -162,7 +162,7 @@ func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 	mgr.SuspendTask(t, seconds)
 
-	// Return FlowSuspend so scheduler knows to pause execution
+	// Return FlowSuspend so the engine knows to pause execution.
 	// The task will be resumed later via resume() builtin
 	return types.Suspend(seconds)
 }

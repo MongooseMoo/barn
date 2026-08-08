@@ -135,7 +135,7 @@ func (s *Store) pruneObjectHistory(id types.ObjID, floor uint64) {
 }
 
 // finalizeStoreTxnRelease is the runtime-finalizer backstop: if a StoreTxn is
-// dropped without an explicit Release (the scheduler re-begins/drops txns without
+// dropped without an explicit Release (the runtime re-begins/drops txns without
 // a Close call in several paths), its readTS registration would otherwise leak
 // and pin the floor forever, defeating GC. A finalizer can only run once the
 // txn is unreachable — i.e. provably no longer live — so it can NEVER deregister
@@ -145,7 +145,7 @@ func finalizeStoreTxnRelease(tx *StoreTxn) {
 }
 
 // release deregisters this transaction's readTS exactly once and clears its
-// finalizer. Called explicitly by the scheduler when it drops/replaces a txn
+// finalizer. Called explicitly by the runtime when it drops/replaces a txn
 // (promptness) and, as a backstop, by the runtime finalizer (correctness even if
 // an explicit call is missed). Idempotent: the second caller is a no-op.
 func (tx *StoreTxn) release() {
@@ -162,7 +162,7 @@ func (tx *StoreTxn) release() {
 }
 
 // Release deregisters this transaction's readTS from the live-read floor. The
-// scheduler calls it when it finishes with a txn (commit+re-begin, or drop), so
+// runtime calls it when it finishes with a txn (commit+re-begin, or drop), so
 // the floor advances promptly and dead history can be pruned. It is safe to call
 // multiple times and safe to never call (the finalizer backstop releases a
 // dropped txn eventually). After Release the txn must not be used to read again.

@@ -11,7 +11,7 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -25,8 +25,8 @@ func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	addTestVerb(store, system, "server_started", "#0.started = 1;")
 
 	s := &Server{
-		store:     store,
-		scheduler: runtime.NewScheduler(store),
+		store:   store,
+		runtime: engine.NewRuntime(store),
 	}
 
 	if err := s.callServerStarted(); err != nil {
@@ -56,11 +56,11 @@ func TestCheckpointedConnectionsDisconnectBeforeServerStarted(t *testing.T) {
 		`#0.events = {@#0.events, {"started", player, this}};`,
 	)
 
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	s := &Server{
-		store:     store,
-		scheduler: scheduler,
-		input:     NewInputProcessor(store, scheduler),
+		store:   store,
+		runtime: rt,
+		input:   NewInputProcessor(store, rt),
 		checkpointedConns: []dbformat.ActiveConnection{{
 			Player:   -7,
 			Listener: 0,
@@ -114,10 +114,10 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	defer cm.CloseListeners()
 
 	s := &Server{
-		store:     store,
-		scheduler: runtime.NewScheduler(store),
+		store:   store,
+		runtime: engine.NewRuntime(store),
 	}
-	s.scheduler.Registry().SetConnectionManager(cm)
+	s.runtime.Registry().SetConnectionManager(cm)
 
 	if err := s.callServerStarted(); err != nil {
 		t.Fatalf("call server_started: %v", err)
@@ -141,13 +141,13 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 	port := int64(occupied.Addr().(*net.TCPAddr).Port)
 
 	store := dbstore.NewStore()
-	scheduler := runtime.NewScheduler(store)
-	input := NewInputProcessor(store, scheduler)
+	rt := engine.NewRuntime(store)
+	input := NewInputProcessor(store, rt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &Server{
 		store:          store,
-		scheduler:      scheduler,
+		runtime:        rt,
 		input:          input,
 		connManager:    NewConnectionManager(int(port)),
 		listenerSpecs:  []builtins.ListenerSpec{{Protocol: builtins.ListenerProtocolTCP, Port: port, Interface: "127.0.0.1"}},
@@ -206,12 +206,12 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	}
 	defer cm.CloseListeners()
 
-	scheduler := runtime.NewScheduler(store)
-	scheduler.Registry().SetConnectionManager(cm)
+	rt := engine.NewRuntime(store)
+	rt.Registry().SetConnectionManager(cm)
 	s := &Server{
 		store:           store,
-		scheduler:       scheduler,
-		input:           NewInputProcessor(store, scheduler),
+		runtime:         rt,
+		input:           NewInputProcessor(store, rt),
 		connManager:     cm,
 		shutdownMessage: "Maintenance",
 	}
@@ -246,15 +246,15 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 
 func TestShutdownClosesActiveConnectionsWithMessage(t *testing.T) {
 	store := dbstore.NewStore()
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	cm := NewConnectionManager(7777)
 	transport := newRecordingTransport("client")
 	cm.NewConnectionFromTransport(transport)
 
 	s := &Server{
 		store:           store,
-		scheduler:       scheduler,
-		input:           NewInputProcessor(store, scheduler),
+		runtime:         rt,
+		input:           NewInputProcessor(store, rt),
 		connManager:     cm,
 		shutdownMessage: "Maintenance",
 	}
@@ -274,9 +274,9 @@ func TestShutdownClosesActiveConnectionsWithMessage(t *testing.T) {
 
 func TestShutdownWaitsForDisconnectCleanup(t *testing.T) {
 	store := dbstore.NewStore()
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	cm := NewConnectionManager(7777)
-	input := NewInputProcessor(store, scheduler)
+	input := NewInputProcessor(store, rt)
 	input.SetConnectionManager(cm)
 	input.Start()
 
@@ -287,7 +287,7 @@ func TestShutdownWaitsForDisconnectCleanup(t *testing.T) {
 
 	s := &Server{
 		store:           store,
-		scheduler:       scheduler,
+		runtime:         rt,
 		input:           input,
 		connManager:     cm,
 		shutdownMessage: "Maintenance",
@@ -307,11 +307,11 @@ func TestShutdownWaitsForDisconnectCleanup(t *testing.T) {
 
 func TestShutdownWaitsForBackgroundGoroutines(t *testing.T) {
 	store := dbstore.NewStore()
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	s := &Server{
 		store:           store,
-		scheduler:       scheduler,
-		input:           NewInputProcessor(store, scheduler),
+		runtime:         rt,
+		input:           NewInputProcessor(store, rt),
 		connManager:     NewConnectionManager(7777),
 		shutdownMessage: "Maintenance",
 	}
@@ -340,7 +340,7 @@ func TestShutdownWaitsForBackgroundGoroutines(t *testing.T) {
 	}
 }
 
-func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
+func TestShutdownFinalCheckpointRunsHooksBeforeRuntimeStops(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
@@ -353,11 +353,11 @@ func TestShutdownFinalCheckpointRunsHooksBeforeSchedulerStops(t *testing.T) {
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = 1;")
 	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = args[1];")
 
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	s := &Server{
 		store:              store,
-		scheduler:          scheduler,
-		input:              NewInputProcessor(store, scheduler),
+		runtime:            rt,
+		input:              NewInputProcessor(store, rt),
 		connManager:        NewConnectionManager(7777),
 		dbPath:             filepath.Join(t.TempDir(), "shutdown.db"),
 		checkpointInterval: time.Second,
@@ -402,13 +402,13 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = args[1];")
 	addTestVerb(store, system, "shutdown_started", "#0.shutdown_started = 1;")
 
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &Server{
 		store:          store,
-		scheduler:      scheduler,
-		input:          NewInputProcessor(store, scheduler),
+		runtime:        rt,
+		input:          NewInputProcessor(store, rt),
 		connManager:    NewConnectionManager(7777),
 		dbPath:         filepath.Join(t.TempDir(), "panic.db"),
 		checkpointChan: make(chan struct{}, 1),
@@ -461,13 +461,13 @@ func TestRequestedCheckpointRunsOnServerLoop(t *testing.T) {
 	addTestVerb(store, system, "checkpoint_started", "#0.checkpoint_started = #0.checkpoint_started + 1;")
 	addTestVerb(store, system, "checkpoint_finished", "#0.checkpoint_finished = #0.checkpoint_finished + args[1];")
 
-	scheduler := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s := &Server{
 		store:          store,
-		scheduler:      scheduler,
-		input:          NewInputProcessor(store, scheduler),
+		runtime:        rt,
+		input:          NewInputProcessor(store, rt),
 		connManager:    NewConnectionManager(7777),
 		dbPath:         filepath.Join(t.TempDir(), "requested.db"),
 		checkpointChan: make(chan struct{}, 1),

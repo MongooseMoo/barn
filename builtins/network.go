@@ -93,7 +93,7 @@ type inputWakeConnection interface {
 }
 
 // InputForcer allows builtins to inject input lines into a player's stream.
-// Implemented by the scheduler to avoid import cycles.
+// Implemented by the execution engine to avoid import cycles.
 type InputForcer interface {
 	ForceInput(player types.ObjID, line string, atFront bool)
 }
