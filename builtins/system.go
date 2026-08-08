@@ -260,7 +260,10 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	t.ExecCancelFunc = execCancel
 
 	// Suspend the task indefinitely (will be resumed by goroutine)
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	mgr.SuspendTask(t, -1)
 
 	// Launch subprocess in background goroutine

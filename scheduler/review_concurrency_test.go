@@ -18,15 +18,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// resetReviewManager drains any tasks left in the global manager from prior tests.
-func resetReviewManager(t *testing.T) {
-	t.Helper()
-	mgr := task.GetManager()
-	for _, tk := range mgr.GetAllTasks() {
-		mgr.RemoveTask(tk.ID)
-	}
-}
-
 // -----------------------------------------------------------------------------
 // BUG-1: ProcessReadyTasks closes t.Done even when the task only SUSPENDED
 // (did not complete or get killed). Any waiter on Done wakes believing the
@@ -83,12 +74,9 @@ func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 // cannot overwrite a different live task with a colliding ID.
 // -----------------------------------------------------------------------------
 func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.T) {
-	resetReviewManager(t)
-	t.Cleanup(func() { resetReviewManager(t) })
-
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
-	mgr := task.GetManager()
+	mgr := s.taskManager
 
 	// Simulate a restored database whose highest task ID was 99. Eval and queued
 	// tasks must both advance the scheduler-owned counter from that point.
@@ -108,7 +96,7 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 	}
 
 	if managerView := mgr.GetTask(schedulerTaskID); managerView == nil {
-		t.Fatal("scheduler task was not registered with the global task manager")
+		t.Fatal("scheduler task was not registered with its task manager")
 	}
 }
 
@@ -132,9 +120,6 @@ func TestReview_IDCollisionManagerAndSchedulerCountersAreIndependent(t *testing.
 //
 // -----------------------------------------------------------------------------
 func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
-	resetReviewManager(t)
-	t.Cleanup(func() { resetReviewManager(t) })
-
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
 
@@ -154,7 +139,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	s.tasks[taskA.ID] = taskA
 	s.mu.Unlock()
 	taskA.SetState(task.TaskQueued)
-	task.GetManager().RegisterTask(taskA)
+	s.taskManager.RegisterTask(taskA)
 
 	// taskB: return 1 — completes quickly; its runTask calls liveTaskVMs at the
 	// GC boundary (task_runtime.go:307), which reads taskA.BytecodeVM.
@@ -171,7 +156,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	s.tasks[taskB.ID] = taskB
 	s.mu.Unlock()
 	taskB.SetState(task.TaskQueued)
-	task.GetManager().RegisterTask(taskB)
+	s.taskManager.RegisterTask(taskB)
 
 	var wg sync.WaitGroup
 

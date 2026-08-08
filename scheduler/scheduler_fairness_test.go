@@ -13,9 +13,6 @@ import (
 // one batch rather than one task per pass — so two ready background tasks both
 // complete in a single ProcessReadyTasks call.
 func TestProcessReadyTasksRunsAllReadyTasksInOnePass(t *testing.T) {
-	resetServerVerbTaskManager(t)
-	t.Cleanup(func() { resetServerVerbTaskManager(t) })
-
 	s := NewScheduler(dbstore.NewStore())
 	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
 	if len(diagnostics) != 0 {

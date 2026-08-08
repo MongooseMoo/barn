@@ -42,7 +42,10 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		countMode = args[1].Truthy()
 	}
 
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	tasks := mgr.GetQueuedTasks()
 	// Toast returns waiting tasks in ascending start-time order (earliest
 	// first). It never sorts in bf_queued_tasks (tasks.cc:2571-2581); the
@@ -100,7 +103,10 @@ func builtinKillTask(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INTRPT)
 	}
 
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 
 	errCode := mgr.KillTask(taskID, ctx.Programmer, ctx.IsWizard)
 	if errCode != types.E_NONE {
@@ -150,7 +156,10 @@ func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Suspend the task
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	mgr.SuspendTask(t, seconds)
 
 	// Return FlowSuspend so scheduler knows to pause execution
@@ -179,7 +188,10 @@ func builtinResume(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		value = args[1]
 	}
 
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	errCode := mgr.ResumeTask(taskID, value, ctx.Programmer, ctx.IsWizard)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
@@ -468,7 +480,10 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	// Get the task from manager
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	t := mgr.GetTask(taskID)
 	if t == nil {
 		return types.Err(types.E_INVARG)
@@ -578,6 +593,10 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	task.GetManager().SuspendTask(t, seconds)
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	mgr.SuspendTask(t, seconds)
 	return types.Suspend(seconds)
 }

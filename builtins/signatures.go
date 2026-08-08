@@ -233,12 +233,16 @@ func builtinQueueInfo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 
 	if !ctx.IsWizard {
 		if target != ctx.Player {
 			return types.Err(types.E_PERM)
 		}
-		return types.Ok(types.NewInt(countBackgroundTasksFor(target)))
+		return types.Ok(types.NewInt(countBackgroundTasksFor(mgr, target)))
 	}
 
 	connected := 0
@@ -252,13 +256,13 @@ func builtinQueueInfo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewMap([][2]types.Value{
 		{types.NewStr("player"), types.NewObj(target)},
 		{types.NewStr("connected"), types.NewInt(int64(connected))},
-		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(target))},
+		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(mgr, target))},
 	}))
 }
 
-func countBackgroundTasksFor(player types.ObjID) int64 {
+func countBackgroundTasksFor(tasks TaskLister, player types.ObjID) int64 {
 	count := int64(0)
-	for _, t := range task.GetManager().GetQueuedTasks() {
+	for _, t := range tasks.GetQueuedTasks() {
 		if t.Owner == player {
 			count++
 		}
@@ -273,7 +277,11 @@ func builtinFinishedTasks(ctx *kernel.TaskContext, args []types.Value) types.Res
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	all := task.GetManager().GetAllTasks()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	all := mgr.GetAllTasks()
 	result := make([]types.Value, 0)
 	for _, t := range all {
 		st := t.GetState()
@@ -291,7 +299,11 @@ func builtinThreads(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
-	all := task.GetManager().GetAllTasks()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	all := mgr.GetAllTasks()
 	result := make([]types.Value, 0, len(all))
 	for _, t := range all {
 		if t.GetState() == task.TaskRunning || t.GetState() == task.TaskSuspended || t.GetState() == task.TaskQueued {
@@ -477,7 +489,11 @@ func builtinBackgroundTest(ctx *kernel.TaskContext, args []types.Value) types.Re
 	}
 	result := args[0]
 	t.IsExecSuspended = true
-	task.GetManager().SuspendTask(t, -1)
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	mgr.SuspendTask(t, -1)
 	go func() {
 		time.Sleep(time.Duration(delay) * time.Second)
 		t.CompleteExec(result)
@@ -538,7 +554,10 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	t.ReadingPlayer = player
 
 	// Suspend indefinitely — will be resumed when input arrives
-	mgr := task.GetManager()
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	mgr.SuspendTask(t, -1)
 
 	return types.Suspend(-1)
@@ -871,8 +890,12 @@ func builtinReadStdin(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	if stdin == nil {
 		return types.Err(types.E_INVARG)
 	}
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
 	t.WakeErrorAsValue = true
-	task.GetManager().SuspendTask(t, -1)
+	mgr.SuspendTask(t, -1)
 	if !stdin.ReadLineAsync(t) {
 		return types.Err(types.E_INVARG)
 	}

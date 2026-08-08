@@ -27,6 +27,7 @@ import (
 	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/profile"
 	"github.com/MongooseMoo/barn/server"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -639,6 +640,7 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 // evalExpression parses and evaluates a MOO expression
 func evalExpression(store *dbstore.Store, expr string, options config.Options) {
 	registry := vm.BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
 	prog, diagnostics := compiler.CompileMOO([]string{"return " + expr + ";"}, registry)
 	if len(diagnostics) > 0 {
 		fmt.Fprintf(os.Stderr, "Compile error: %s\n", diagnostics[0].Error())

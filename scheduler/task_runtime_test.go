@@ -53,13 +53,7 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewScheduler(store)
-
-	// Drain any tasks left in the global manager by other tests so our resume
-	// lookup and ProcessReadyTasks iteration see only this task.
-	mgr := task.GetManager()
-	for _, tk := range mgr.GetAllTasks() {
-		mgr.RemoveTask(tk.ID)
-	}
+	mgr := s.taskManager
 
 	ticks, seconds := foregroundTaskLimits()
 	program, diagnostics := compiler.CompileMOO([]string{"suspend(); return 42;"}, s.registry)
@@ -133,7 +127,7 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 
 	taskID := s.CreateForegroundTask(types.ObjNothing, program)
 	t.Cleanup(func() {
-		task.GetManager().RemoveTask(taskID)
+		s.taskManager.RemoveTask(taskID)
 		s.mu.Lock()
 		delete(s.tasks, taskID)
 		s.mu.Unlock()
@@ -187,7 +181,7 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	mgr := task.GetManager()
+	mgr := s.taskManager
 	parentID := s.CreateForegroundTask(types.ObjNothing, program)
 	defer func() {
 		s.mu.Lock()

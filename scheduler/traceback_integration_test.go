@@ -15,9 +15,6 @@ import (
 // raising a real E_TYPE — rather than a fabricated call stack, so it covers the
 // actual call site in runTask rather than the formatting in isolation.
 func TestUncaughtExceptionInRealTaskLogsOneRecord(t *testing.T) {
-	resetServerVerbTaskManager(t)
-	t.Cleanup(func() { resetServerVerbTaskManager(t) })
-
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
@@ -83,9 +80,6 @@ func TestUncaughtExceptionInRealTaskLogsOneRecord(t *testing.T) {
 }
 
 func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
-	resetServerVerbTaskManager(t)
-	t.Cleanup(func() { resetServerVerbTaskManager(t) })
-
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
@@ -150,9 +144,6 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 }
 
 func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T) {
-	resetServerVerbTaskManager(t)
-	t.Cleanup(func() { resetServerVerbTaskManager(t) })
-
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)

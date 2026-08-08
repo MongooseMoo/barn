@@ -24,6 +24,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	}
 
 	registry := BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
 	ctx.Store = store
 	ctx.Registry = registry
 
@@ -636,6 +637,7 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
 	ctx := kernel.NewTaskContext()
 	ctx.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store

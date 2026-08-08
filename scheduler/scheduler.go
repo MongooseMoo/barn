@@ -22,7 +22,8 @@ import (
 
 // Scheduler manages task and VM execution.
 type Scheduler struct {
-	tasks map[int64]*task.Task
+	tasks       map[int64]*task.Task
+	taskManager *task.Manager
 	// executingTasks counts physical VM-execution leases by task ID. Counts, rather
 	// than a boolean set, remain truthful if the duplicate-dispatch defect tracked
 	// separately in #30 runs the same task twice. Logical task state may become
@@ -96,15 +97,19 @@ func newSchedulerWithWorkerCount(store *dbstore.Store, options config.Options, w
 		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	manager := task.NewManager()
+	registry := vm.BuildVMRegistry()
+	registry.SetTaskManager(manager)
 
 	s := &Scheduler{
 		tasks:                  make(map[int64]*task.Task),
+		taskManager:            manager,
 		executingTasks:         make(map[int64]int),
 		executionOwnedContexts: make(map[*kernel.TaskContext]map[int64]int),
 		sweepOwnedContexts:     make(map[*kernel.TaskContext]int),
 		waiting:                NewTaskQueue(),
 		nextTaskID:             1,
-		registry:               vm.BuildVMRegistry(),
+		registry:               registry,
 		store:                  store,
 		options:                options,
 		taskWork:               make(chan taskWorkItem),

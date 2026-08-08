@@ -1,30 +1,21 @@
 package task
 
 import (
-	"github.com/MongooseMoo/barn/types"
 	"sync"
 	"time"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
-// Manager is a global singleton that manages all tasks
+// Manager tracks the tasks owned by one execution engine.
 type Manager struct {
 	tasks map[int64]*Task
 	mu    sync.RWMutex
 }
 
-var (
-	globalManager     *Manager
-	globalManagerOnce sync.Once
-)
-
-// GetManager returns the global task manager singleton
-func GetManager() *Manager {
-	globalManagerOnce.Do(func() {
-		globalManager = &Manager{
-			tasks: make(map[int64]*Task),
-		}
-	})
-	return globalManager
+// NewManager creates an empty task manager for one execution engine.
+func NewManager() *Manager {
+	return &Manager{tasks: make(map[int64]*Task)}
 }
 
 // GetTask retrieves a task by ID
