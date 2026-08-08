@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestCOWConcurrentDefineDeleteSubtreeRaceFree is the COW Phase 2 go/no-go race +

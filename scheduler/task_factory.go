@@ -6,14 +6,14 @@ import (
 	"log/slog"
 	"time"
 
-	"barn/builtins"
-	"barn/bytecode"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func foregroundTaskLimits() (int64, float64) {

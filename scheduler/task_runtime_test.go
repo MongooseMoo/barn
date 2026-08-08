@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"barn/builtins"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestRunTaskStaleStartTimeDoesNotExpireDeadline covers a checkpoint-restored

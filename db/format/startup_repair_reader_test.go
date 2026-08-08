@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func startupRepairFixture(name string) string {

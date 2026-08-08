@@ -1,9 +1,9 @@
 package builtins
 
 import (
-	"barn/kernel"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func enqueuePendingEffect(ctx *kernel.TaskContext, effect kernel.PendingEffect) {

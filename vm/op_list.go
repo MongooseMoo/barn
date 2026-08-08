@@ -1,9 +1,9 @@
 package vm
 
 import (
-	"barn/builtins"
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func (vm *VM) executeMakeList() error {

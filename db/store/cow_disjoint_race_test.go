@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestCOWCommitHoldsReadSetSlotsThroughPublish(t *testing.T) {

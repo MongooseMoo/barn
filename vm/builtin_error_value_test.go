@@ -3,7 +3,7 @@ package vm
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestBuiltinRaisedErrorValueIsErrorList reproduces the de-box regression where

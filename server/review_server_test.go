@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/types"
 
 	"github.com/coder/websocket"
 )

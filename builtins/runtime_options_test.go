@@ -3,9 +3,9 @@ package builtins
 import (
 	"testing"
 
-	"barn/config"
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func runtimeOptionCtx(options config.Options) *kernel.TaskContext {

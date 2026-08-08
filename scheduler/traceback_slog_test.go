@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // captureRecords installs a JSON logger as the default and returns the records

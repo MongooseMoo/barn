@@ -1,12 +1,12 @@
 package server
 
 import (
-	"barn/builtins"
-	dbformat "barn/db/format"
-	"barn/types"
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/types"
 	"log/slog"
 	"net"
 	"net/http"

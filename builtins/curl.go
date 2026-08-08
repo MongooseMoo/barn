@@ -6,8 +6,8 @@ import (
 	neturl "net/url"
 	"time"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"barn/bytecode"
-	"barn/compiler"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 )
 
 func TestDisassembleDecodesCompiledProgram(t *testing.T) {

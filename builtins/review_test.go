@@ -6,9 +6,9 @@ package builtins
 import (
 	"testing"
 
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // newReviewCtx builds a minimal TaskContext backed by a real Store and Registry.

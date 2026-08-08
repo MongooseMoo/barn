@@ -1,9 +1,9 @@
 package format
 
 import (
-	"barn/types"
 	"bufio"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // parseV17 parses a version 17 database

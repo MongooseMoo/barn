@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestAliasedVerbReadCommits: a txn that calls (reads) a verb whose name is a

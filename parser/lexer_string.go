@@ -1,6 +1,6 @@
 package parser
 
-import "barn/verb"
+import "github.com/MongooseMoo/barn/verb"
 
 // readString reads a string literal using MOO escape semantics:
 // backslash strips itself and leaves the next character literal.

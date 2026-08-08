@@ -4,9 +4,9 @@ import (
 	"sync"
 	"testing"
 
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Characterization tests for the per-builtin-call dispatch path (CallByID,

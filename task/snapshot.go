@@ -3,8 +3,8 @@ package task
 import (
 	"time"
 
-	"barn/bytecode"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ForkSnapshot is the persistence-relevant portion of a forked task.

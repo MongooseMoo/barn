@@ -1,8 +1,8 @@
 package parser
 
 import (
-	"barn/verb"
 	"fmt"
+	"github.com/MongooseMoo/barn/verb"
 	"math/big"
 	"strconv"
 	"strings"

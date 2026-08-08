@@ -1,9 +1,9 @@
 package format
 
 import (
-	"barn/types"
 	"bufio"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 	"strconv"
 	"strings"
 )

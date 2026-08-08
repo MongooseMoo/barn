@@ -1,7 +1,7 @@
 package store
 
 import (
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 	"testing"
 	"unsafe"
 )

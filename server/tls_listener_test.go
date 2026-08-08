@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"barn/builtins"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
+	"github.com/MongooseMoo/barn/builtins"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	runtime "github.com/MongooseMoo/barn/scheduler"
 )
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {

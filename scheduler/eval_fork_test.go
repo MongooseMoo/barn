@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"barn/builtins"
-	"barn/command"
-	"barn/compiler"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/command"
+	"github.com/MongooseMoo/barn/compiler"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type evalCommandStubConn struct {

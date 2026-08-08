@@ -1,7 +1,7 @@
 package command
 
 import (
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 	"strings"
 	"unicode"
 )

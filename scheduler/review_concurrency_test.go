@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // resetReviewManager drains any tasks left in the global manager from prior tests.

@@ -1,8 +1,8 @@
 package server
 
 import (
-	"barn/types"
 	"context"
+	"github.com/MongooseMoo/barn/types"
 	"net"
 	"sync"
 	"time"

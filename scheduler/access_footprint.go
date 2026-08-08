@@ -1,8 +1,8 @@
 package scheduler
 
 import (
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Access-footprint analysis is currently stubbed: analyzeTaskAccessFootprint

@@ -1,6 +1,6 @@
 package command
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // InputEvent represents a line of input, or a disconnect, from a connection.
 type InputEvent struct {

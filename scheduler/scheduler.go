@@ -10,14 +10,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"barn/builtins"
-	"barn/config"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/metrics"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // Scheduler manages task and VM execution.

@@ -3,7 +3,7 @@ package scheduler
 import (
 	"testing"
 
-	dbstore "barn/db/store"
+	dbstore "github.com/MongooseMoo/barn/db/store"
 )
 
 func TestEvalBareSuspendTimeoutReturnsInvalidArgument(t *testing.T) {

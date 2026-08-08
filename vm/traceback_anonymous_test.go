@@ -3,9 +3,9 @@ package vm
 import (
 	"testing"
 
-	"barn/kernel"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestBuildTracebackInvalidatesAnonymousThis(t *testing.T) {

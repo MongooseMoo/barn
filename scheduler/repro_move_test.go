@@ -3,8 +3,8 @@ package scheduler
 import (
 	"testing"
 
-	"barn/config"
-	"barn/types"
+	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestMoveMixedWithCoarseBuiltinsStaysConsistent is a regression guard for the

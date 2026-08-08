@@ -1,11 +1,11 @@
 package profile
 
 import (
-	"barn/config"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/MongooseMoo/barn/config"
 	"os"
 	"path/filepath"
 	"runtime"

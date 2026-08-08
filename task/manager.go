@@ -1,7 +1,7 @@
 package task
 
 import (
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 	"sync"
 	"time"
 )

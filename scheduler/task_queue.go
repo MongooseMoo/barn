@@ -1,8 +1,8 @@
 package scheduler
 
 import (
-	"barn/task"
 	"container/heap"
+	"github.com/MongooseMoo/barn/task"
 	"time"
 )
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"barn/db/store"
-	"barn/types"
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestWriteWaifPropertiesFollowClassIndexOrder(t *testing.T) {

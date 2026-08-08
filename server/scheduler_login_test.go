@@ -3,10 +3,10 @@ package server
 import (
 	"testing"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbstore.ObjectFlags) types.ObjID {

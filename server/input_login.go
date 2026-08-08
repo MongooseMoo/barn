@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // shouldCallDoLoginCommand checks whether do_login_command should be called

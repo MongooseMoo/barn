@@ -1,8 +1,8 @@
 package parser
 
 import (
-	"barn/verb"
 	"fmt"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // ParseError is a syntax error carrying the source line of the offending token.

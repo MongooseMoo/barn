@@ -3,10 +3,10 @@ package scheduler
 import (
 	"testing"
 
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // On the concurrent (MVCC) scheduler, a pass runs all ready optimistic tasks in

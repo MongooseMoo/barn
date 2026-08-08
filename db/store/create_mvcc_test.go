@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestTxnCreateDecentralized: tx.CreateObject stages a create that commits on the

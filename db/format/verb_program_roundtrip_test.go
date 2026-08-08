@@ -1,9 +1,9 @@
 package format
 
 import (
-	"barn/db/store"
-	"barn/types"
 	"bytes"
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 	"os"
 	"strings"
 	"testing"

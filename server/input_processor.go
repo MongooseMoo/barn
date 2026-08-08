@@ -10,14 +10,14 @@ import (
 	"sync"
 	"time"
 
-	"barn/builtins"
-	"barn/command"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/command"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type InputProcessor struct {

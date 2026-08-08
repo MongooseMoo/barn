@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestSchedulerTickRoutesDisconnectThroughConnectionLane(t *testing.T) {

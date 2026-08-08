@@ -1,10 +1,10 @@
 package main
 
 import (
-	dbformat "barn/db/format"
-	"barn/types"
 	"flag"
 	"fmt"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/types"
 	"os"
 )
 

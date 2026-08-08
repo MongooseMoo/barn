@@ -1,7 +1,7 @@
 package server
 
 import (
-	"barn/builtins"
+	"github.com/MongooseMoo/barn/builtins"
 	"testing"
 )
 

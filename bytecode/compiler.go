@@ -5,8 +5,8 @@ import (
 	"math"
 	"strconv"
 
-	"barn/types"
-	"barn/verb"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // UnknownBuiltinError is returned by the compiler when a verb references a
@@ -24,7 +24,7 @@ func (e *UnknownBuiltinError) Error() string {
 
 // Registry is the narrow interface the compiler needs from the builtins
 // registry: resolve a builtin function name to its numeric ID at compile time.
-// Defined here so the bytecode package does NOT import barn/builtins (which would
+// Defined here so the bytecode package does NOT import github.com/MongooseMoo/barn/builtins (which would
 // create an import cycle, since builtins imports bytecode). *builtins.Registry
 // satisfies this structurally. The single GetID call happens once per verb at
 // COMPILE time, never on the per-instruction execution hot path.

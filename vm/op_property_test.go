@@ -3,9 +3,9 @@ package vm
 import (
 	"testing"
 
-	"barn/builtins"
-	dbstore "barn/db/store"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {

@@ -1,9 +1,9 @@
 package builtins
 
 import (
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func readTxn(ctx *kernel.TaskContext) *dbstore.StoreTxn {
