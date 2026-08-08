@@ -1,7 +1,7 @@
 package bytecode
 
 import (
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Program represents compiled bytecode

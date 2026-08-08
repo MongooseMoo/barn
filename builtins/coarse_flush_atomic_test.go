@@ -3,7 +3,7 @@ package builtins
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestGenericCoarseBuiltinPropagatesFailedLegacyTopologyFlush(t *testing.T) {

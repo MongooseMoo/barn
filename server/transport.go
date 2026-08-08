@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"barn/builtins"
+	"github.com/MongooseMoo/barn/builtins"
 )
 
 // Telnet protocol constants (RFC 854, RFC 855)

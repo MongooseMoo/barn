@@ -3,12 +3,12 @@ package vm
 import (
 	"fmt"
 
-	"barn/builtins"
-	"barn/bytecode"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // PersistenceVMSnapshot returns a detached copy of every state component

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"barn/bytecode"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/parser"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/parser"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Preposition list matching ToastStunt's prep_list

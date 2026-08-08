@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"testing"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestMooPatternPercentEscapesAreLiteralByDefault(t *testing.T) {

@@ -1,6 +1,6 @@
 package parser
 
-import "barn/verb"
+import "github.com/MongooseMoo/barn/verb"
 
 // TokenType represents different types of lexical tokens
 type TokenType int

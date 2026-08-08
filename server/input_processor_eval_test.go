@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	runtime "barn/scheduler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 const (
@@ -19,17 +19,17 @@ const (
 
 func runIntrinsicEval(t *testing.T, source string) []string {
 	t.Helper()
-	return runIntrinsicEvalWithSchedulerSetup(t, source, nil)
+	return runIntrinsicEvalWithRuntimeSetup(t, source, nil)
 }
 
-func runIntrinsicEvalWithSchedulerSetup(t *testing.T, source string, setup func(*runtime.Scheduler)) []string {
+func runIntrinsicEvalWithRuntimeSetup(t *testing.T, source string, setup func(*engine.Runtime)) []string {
 	t.Helper()
 
 	store := dbstore.NewStore()
 	addTestObject(t, store, 0, dbstore.FlagWizard)
 	player := addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagProgrammer|dbstore.FlagWizard)
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	defer rt.Stop()
 	if setup != nil {
 		setup(rt)
@@ -89,7 +89,7 @@ func TestIntrinsicEvalFramesErrorResultsExactlyOnce(t *testing.T) {
 }
 
 func TestIntrinsicEvalFramesRecoveredPanicExactlyOnce(t *testing.T) {
-	got := runIntrinsicEvalWithSchedulerSetup(t, `eval_test_panic(); return 1;`, func(rt *runtime.Scheduler) {
+	got := runIntrinsicEvalWithRuntimeSetup(t, `eval_test_panic(); return 1;`, func(rt *engine.Runtime) {
 		rt.Registry().Register("eval_test_panic", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
 			panic("induced eval panic")
 		})

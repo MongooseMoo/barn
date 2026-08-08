@@ -1,6 +1,6 @@
 package store
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // SetPendingFinalizations installs pending finalization values loaded from disk.
 func (s *Store) SetPendingFinalizations(values []types.Value) {

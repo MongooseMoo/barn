@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestConcurrentAnonObjectWritesSerialize is the anon-object analogue of the

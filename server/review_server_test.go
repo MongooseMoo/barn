@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/types"
 
 	"github.com/coder/websocket"
 )
@@ -34,7 +34,7 @@ func TestReview_FallbackLoginReturnsWizardWithNoLoginHandler(t *testing.T) {
 	// Listener object (#10) intentionally has NO do_login_command verb.
 	addTestObject(t, store, 10, dbstore.FlagWizard)
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	s := NewInputProcessor(store, rt)
 	conn := NewConnection(2, stubTransport{})
 	conn.SetListener(10, 7789, true)

@@ -1,6 +1,6 @@
 package store
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // store_resolve_cache.go — allocation-free ancestry walks (Part A) and a
 // per-transaction memo of verb/property resolution (Part B).
@@ -21,7 +21,7 @@ import "barn/types"
 // PER-TRANSACTION rather than store-global, stamped by the txn's own snapshot:
 //
 //   - A StoreTxn is a fixed MVCC snapshot (readTS, store_txn.go BeginReadOnly)
-//     and lives for a whole task slice (scheduler/task_runtime.go:115 begins one
+//     and lives for a whole task slice (engine/task_runtime.go begins one
 //     per attempt and only replaces it after a commit), which on the mongoose
 //     workload is hundreds to thousands of verb calls and property reads. So the
 //     memo has a real working set to amortize over.

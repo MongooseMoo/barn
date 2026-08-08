@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // The object directory maps sequential numbered object ids to their *objectSlot.

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"barn/bytecode"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // executeCallVerb handles OP_CALL_VERB: call a verb on an object.

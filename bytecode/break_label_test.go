@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"barn/compiler"
+	"github.com/MongooseMoo/barn/compiler"
 )
 
 type stubRegistry struct{}

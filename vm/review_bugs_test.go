@@ -6,7 +6,7 @@ package vm
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ---------------------------------------------------------------------------

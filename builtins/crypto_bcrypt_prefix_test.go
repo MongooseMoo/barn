@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestCryptBcryptPrefixesMatchToast(t *testing.T) {

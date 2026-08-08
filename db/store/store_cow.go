@@ -1,6 +1,6 @@
 package store
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 // store_cow.go — copy-on-write property-value publish (COW Phase 0).
 //

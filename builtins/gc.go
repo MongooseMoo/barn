@@ -3,9 +3,9 @@ package builtins
 import (
 	"runtime"
 
-	kernel "barn/kernel"
+	kernel "github.com/MongooseMoo/barn/kernel"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ============================================================================

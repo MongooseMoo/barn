@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // debugValidation gates temporary conflict-diagnosis logging (BARN_DEBUG_RETRY).
@@ -27,7 +27,7 @@ func debugConflict(kind string, objID types.ObjID, name string, want, live uint6
 type StoreTxn struct {
 	readTS                    uint64
 	store                     *Store
-	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the scheduler holds it exclusively)
+	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
 	scalarWrites              map[types.ObjID]objectScalarWrite
@@ -67,7 +67,7 @@ type StoreTxn struct {
 	maxObjID      types.ObjID
 	highWaterID   types.ObjID
 	// released guards the readTS deregistration (Phase 4 history GC) so the floor
-	// registration is removed exactly once whether by the scheduler's explicit
+	// registration is removed exactly once whether by the runtime's explicit
 	// Release or the runtime-finalizer backstop. See store_history_gc.go.
 	released atomic.Bool
 
@@ -242,7 +242,7 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	// Register this txn's readTS as live BEFORE returning, under store.mu (held for
 	// the whole call), so the history-GC floor can never advance past a reader that
 	// is about to issue reads at readTS. The matching deregistration is StoreTxn.
-	// Release (called by the scheduler) with a runtime-finalizer backstop so a
+	// Release (called by the runtime) with a finalizer backstop so a
 	// dropped-without-Release txn cannot leak its registration forever.
 	s.registerReadTS(readTS)
 	tx := &StoreTxn{
@@ -623,7 +623,7 @@ func (tx *StoreTxn) hasStagedWrites() bool {
 
 // markTerminal records an operation/apply failure that cannot become valid by
 // retrying this transaction. The physical private maps remain available for error
-// handling and diagnostics, while HasWrites becomes false so scheduler lifecycle
+// handling and diagnostics, while HasWrites becomes false so runtime lifecycle
 // boundaries cannot publish a transaction after its terminal commit failed.
 func (tx *StoreTxn) markTerminal(errCode types.ErrorCode) types.ErrorCode {
 	if tx != nil && errCode != types.E_NONE && !tx.validationFail && tx.terminalErr == types.E_NONE {
@@ -2104,7 +2104,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 }
 
 // ExemptFromCommitGate marks this txn as the escalated attempt's txn: its
-// Commit will not take the shared commit gate. Only the scheduler's bounded-
+// Commit will not take the shared commit gate. Only the engine's bounded-
 // escalation path may call this, and only while holding EscalationLock.
 func (tx *StoreTxn) ExemptFromCommitGate() {
 	if tx != nil {
@@ -2126,7 +2126,7 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 // task writes to a live-store operation and give subsequent callbacks a current
 // read view. A failed commit leaves this transaction, its writes, and its read view
 // intact. The replacement preserves an escalation-gate exemption held by the
-// caller's current scheduler attempt.
+// caller's current runtime attempt.
 func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
 	if tx == nil || tx.store == nil {
 		return tx, false, types.E_INVARG
@@ -2170,7 +2170,7 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	tx.invalidateResolveCaches()
 	// Ordinary commits hold the escalation gate shared for the whole
 	// validate+apply window; an escalated attempt's txn (gateExempt) skips it
-	// because its scheduler already holds the gate exclusively. Outermost by
+	// because its runtime already holds the gate exclusively. Outermost by
 	// design: lock order is commitGate, then store locks.
 	if !tx.gateExempt {
 		tx.store.commitGate.RLock()

@@ -1,6 +1,6 @@
 package parser
 
-import "barn/verb"
+import "github.com/MongooseMoo/barn/verb"
 
 // readErrorLiteral reads an error literal (E_TYPE, E_DIV, etc.)
 func (l *Lexer) readErrorLiteral() Token {

@@ -4,7 +4,7 @@ import (
 	"io"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type stubTransport struct{}

@@ -3,7 +3,7 @@ package compiler
 import (
 	"testing"
 
-	"barn/sourcekey"
+	"github.com/MongooseMoo/barn/sourcekey"
 )
 
 func TestCompileMOOWithKeyHitsTheSameCacheEntryAsCompileMOO(t *testing.T) {

@@ -1,8 +1,8 @@
 package task
 
 import (
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 	"strings"
 )
 

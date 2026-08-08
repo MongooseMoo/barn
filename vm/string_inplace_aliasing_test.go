@@ -3,8 +3,8 @@ package vm
 import (
 	"testing"
 
-	dbstore "barn/db/store"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestStringInplaceAppendAliasing(t *testing.T) {

@@ -1,10 +1,10 @@
 package format
 
 import (
-	"barn/db/store"
-	"barn/types"
 	"bufio"
 	"fmt"
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 	"strconv"
 	"strings"
 )

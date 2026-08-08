@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
 )
 
 type deadlineProbeTransport struct {
@@ -53,7 +53,7 @@ func (t *deadlineProbeTransport) SetReadDeadline(deadline time.Time) error {
 
 func TestUnauthenticatedReadDeadlineUsesToastStrictSecondBoundary(t *testing.T) {
 	store := dbstore.NewStore()
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	cm.connectTimeout = 3 * time.Second
@@ -74,7 +74,7 @@ func TestUnauthenticatedReadDeadlineUsesToastStrictSecondBoundary(t *testing.T) 
 
 func TestLoginTimeoutWaitsForPreviouslyDispatchedInput(t *testing.T) {
 	store := dbstore.NewStore()
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)

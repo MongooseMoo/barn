@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestApplyContentsDeltasAddIsIdempotentAcrossRetry(t *testing.T) {

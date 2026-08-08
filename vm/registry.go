@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"barn/builtins"
-	"barn/bytecode"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // BuildVMRegistry creates a builtins registry suitable for the bytecode VM.

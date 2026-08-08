@@ -3,8 +3,8 @@ package store
 import (
 	"strings"
 
-	"barn/sourcekey"
-	"barn/types"
+	"github.com/MongooseMoo/barn/sourcekey"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Object represents a MOO object.

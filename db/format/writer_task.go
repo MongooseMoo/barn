@@ -1,9 +1,9 @@
 package format
 
 import (
-	"barn/task"
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 	"time"
 )
 

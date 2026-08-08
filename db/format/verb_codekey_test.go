@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"barn/db/store"
-	"barn/sourcekey"
-	"barn/types"
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/sourcekey"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // A verb read back through the loader must arrive with its content key already

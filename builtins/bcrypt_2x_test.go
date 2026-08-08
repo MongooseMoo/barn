@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 const bcrypt2xTestSalt = "/OK.fbVrR/bpIqNJ5ianF."

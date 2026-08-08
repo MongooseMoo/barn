@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // shouldCallDoLoginCommand checks whether do_login_command should be called
@@ -235,7 +235,7 @@ func (s *InputProcessor) connectMessage() string {
 }
 
 // loginPlayer associates a connection with a player.
-// Called on the scheduler goroutine after a successful do_login_command.
+// Called on the runtime goroutine after a successful do_login_command.
 func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newlyCreated bool) {
 	cm := s.connManager
 	if cm == nil {
@@ -279,7 +279,7 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		trace.Connection("LOGIN", conn.ID, player, "")
 	}
 
-	// Call hooks on the scheduler goroutine
+	// Call hooks on the runtime goroutine.
 	if alreadyLoggedIn {
 		// Ensure ConnectionTime is set even if switch_player handled login
 		if conn.ConnectionTime.IsZero() {

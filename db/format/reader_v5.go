@@ -1,9 +1,9 @@
 package format
 
 import (
-	"barn/db/store"
 	"bufio"
 	"fmt"
+	"github.com/MongooseMoo/barn/db/store"
 )
 
 // parseV5 parses a version 5 database.

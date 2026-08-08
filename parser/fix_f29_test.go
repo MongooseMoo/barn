@@ -3,8 +3,8 @@ package parser
 import (
 	"testing"
 
-	"barn/types"
-	"barn/verb"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // TestFixF29_EIntrptParsesToCode18 asserts the full E_INTRPT round-trip: the

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/types"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func main() {

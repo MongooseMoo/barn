@@ -4,15 +4,15 @@ import (
 	"testing"
 	"time"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/types"
 )
 
-func TestSchedulerTickRoutesDisconnectThroughConnectionLane(t *testing.T) {
+func TestRuntimeTickRoutesDisconnectThroughConnectionLane(t *testing.T) {
 	store := dbstore.NewStore()
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	defer rt.Stop()
 	processor := NewInputProcessor(store, rt)
 	defer processor.Stop()
@@ -39,7 +39,7 @@ func TestSchedulerTickRoutesDisconnectThroughConnectionLane(t *testing.T) {
 		IsDisconnect: true,
 		Done:         disconnectDone,
 	}
-	processor.processSchedulerTick()
+	processor.processRuntimeTick()
 	<-disconnectDone
 
 	deadline := time.Now().Add(100 * time.Millisecond)

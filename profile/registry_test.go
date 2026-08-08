@@ -1,7 +1,7 @@
 package profile
 
 import (
-	"barn/config"
+	"github.com/MongooseMoo/barn/config"
 	"os"
 	"path/filepath"
 	"strings"

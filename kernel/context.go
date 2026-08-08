@@ -3,9 +3,9 @@ package kernel
 import (
 	"log/slog"
 
-	"barn/config"
-	dbstore "barn/db/store"
-	"barn/types"
+	"github.com/MongooseMoo/barn/config"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TaskContext holds the execution context for a MOO task

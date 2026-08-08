@@ -1,8 +1,8 @@
 package server
 
 import (
-	"barn/builtins"
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
 	"net"
 	"net/url"
 	"strconv"

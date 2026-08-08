@@ -3,10 +3,10 @@ package server
 import (
 	"testing"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func addTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbstore.ObjectFlags) types.ObjID {
@@ -44,7 +44,7 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 		"endif",
 	)
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	s := NewInputProcessor(store, rt)
 	conn := NewConnection(2, stubTransport{})
 	conn.SetListener(10, 7789, true)
@@ -69,7 +69,7 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	addTestVerb(store, listener, "user_created", "#0.created = args[1];")
 	addTestVerb(store, listener, "user_connected", "#0.connected = args[1];")
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	s := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	s.SetConnectionManager(cm)
@@ -98,7 +98,7 @@ func TestUserConnectedUsesServerInitiatedCallerFrame(t *testing.T) {
 	}
 	addTestVerb(store, system, "user_connected", "#0.connected_frame = {this, player, caller, args, argstr};")
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
 	processor.callUserHook(system, "user_connected", 2)
 
@@ -142,7 +142,7 @@ func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
 		t.Fatalf("add user_client_disconnected: %v", errCode)
 	}
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
@@ -217,7 +217,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 		t.Fatalf("add new connected hook: %v", errCode)
 	}
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
@@ -276,9 +276,6 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 }
 
 func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
-	resetTaskManager()
-	t.Cleanup(resetTaskManager)
-
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
@@ -301,7 +298,7 @@ func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
 		"#0.continued = 1;",
 	)
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
 	processor.callUserHook(system, "user_connected", 2)
 	for range 4 {

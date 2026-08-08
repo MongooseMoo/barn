@@ -11,22 +11,22 @@ import (
 	"sync"
 	"time"
 
-	"barn/builtins"
-	"barn/config"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/metrics"
-	runtime "barn/scheduler"
-	"barn/task"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/config"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // Server represents the MOO server
 type Server struct {
 	store              *dbstore.Store
-	scheduler          *runtime.Scheduler
+	runtime            *engine.Runtime
 	input              *InputProcessor
 	connManager        *ConnectionManager
 	checkpointedConns  []dbformat.ActiveConnection
@@ -80,26 +80,26 @@ func (s *Server) LoadDatabase() error {
 	}
 
 	s.store = database.NewStoreFromDatabase()
-	s.scheduler = runtime.NewSchedulerWithOptions(s.store, s.options)
-	s.input = NewInputProcessor(s.store, s.scheduler)
+	s.runtime = engine.NewRuntimeWithOptions(s.store, s.options)
+	s.input = NewInputProcessor(s.store, s.runtime)
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))
 	s.checkpointedConns = append([]dbformat.ActiveConnection(nil), database.ActiveConnections...)
 
 	// Counters are incremented where the events happen; these two are read on
 	// demand because "how many right now" is a question about live state.
-	metrics.PublishGauge("barn.tasks_live", s.scheduler.LiveTaskCount)
+	metrics.PublishGauge("barn.tasks_live", s.runtime.LiveTaskCount)
 	metrics.PublishGauge("barn.connections_live", func() int64 {
 		return int64(len(s.connManager.ConnectedPlayers(true)))
 	})
 
 	s.input.SetConnectionManager(s.connManager)
-	s.scheduler.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
-	s.scheduler.SetTaskLineSender(func(player types.ObjID, line string) {
+	s.runtime.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
+	s.runtime.SetTaskLineSender(func(player types.ObjID, line string) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
 			_ = conn.Send(line)
 		}
 	})
-	s.scheduler.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
 		lines := task.FormatTraceback(stack, err)
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {
@@ -113,7 +113,7 @@ func (s *Server) LoadDatabase() error {
 			_ = conn.Send(line)
 		}
 	})
-	s.scheduler.SetTaskOutputFlusher(func(player types.ObjID, outputSuffix string) {
+	s.runtime.SetTaskOutputFlusher(func(player types.ObjID, outputSuffix string) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
 			conn.Flush()
 			if outputSuffix != "" {
@@ -122,16 +122,16 @@ func (s *Server) LoadDatabase() error {
 		}
 	})
 
-	// Wire the host capabilities the server provides onto the scheduler's
+	// Wire the host capabilities the server provides onto the runtime's
 	// builtin registry (the registry owns them; there is no global state).
-	reg := s.scheduler.Registry()
+	reg := s.runtime.Registry()
 
 	// Wire notify() builtin to connection manager
 	reg.SetConnectionManager(s.connManager)
 
-	// Wire force_input() builtin to scheduler
+	// Wire the force_input() builtin to the runtime.
 	reg.SetInputForcer(s.input)
-	reg.SetTaskYielder(s.scheduler)
+	reg.SetTaskYielder(s.runtime)
 	reg.SetProcessStdin(builtins.NewProcessStdin(os.Stdin))
 
 	// dump_database() does not report success until the requested checkpoint is
@@ -171,8 +171,8 @@ func (s *Server) LoadDatabase() error {
 	builtins.LoadServerOptionsFromStore(s.store)
 	builtins.LoadProtectedBuiltinsFromStore(s.store)
 
-	s.scheduler.LoadQueuedTasks(database.QueuedTasks)
-	s.scheduler.LoadSuspendedTasks(database.SuspendedTasks)
+	s.runtime.LoadQueuedTasks(database.QueuedTasks)
+	s.runtime.LoadSuspendedTasks(database.SuspendedTasks)
 
 	slog.Info("database loaded",
 		slog.Int("version", database.Version),
@@ -195,7 +195,7 @@ func (s *Server) Start() error {
 	s.running = true
 	s.mu.Unlock()
 
-	// Start scheduler
+	// Start the execution runtime.
 	s.input.Start()
 
 	// Bind listener sockets before server_started so MOO code can inspect
@@ -204,7 +204,7 @@ func (s *Server) Start() error {
 		s.cancel()
 		s.connManager.CloseListeners()
 		s.input.Stop()
-		s.scheduler.Stop()
+		s.runtime.Stop()
 		s.backgroundWG.Wait()
 		s.mu.Lock()
 		s.running = false
@@ -297,7 +297,7 @@ func (s *Server) checkpoint() error {
 
 	start := time.Now()
 
-	queuedTasks, suspendedTasks := s.scheduler.TaskSnapshots()
+	queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 	activeConnections := s.connManager.CheckpointConnections()
 	if err := dbformat.WriteCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 		s.callCheckpointFinished(false)
@@ -361,7 +361,7 @@ func (s *Server) shutdown() error {
 		slog.Info("final checkpoint skipped (checkpointing disabled)")
 	}
 
-	s.scheduler.Stop()
+	s.runtime.Stop()
 	s.backgroundWG.Wait()
 
 	s.mu.Lock()
@@ -409,7 +409,7 @@ func (s *Server) callServerStarted() error {
 	if !s.store.HasLocalVerb(0, "server_started") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "server_started", nil, 0)
+	_, err := s.runtime.RunServerVerbTask(0, "server_started", nil, 0)
 	return err
 }
 
@@ -418,7 +418,7 @@ func (s *Server) callCheckpointStarted() error {
 	if !s.store.HasLocalVerb(0, "checkpoint_started") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_started", nil, 0)
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_started", nil, 0)
 	return err
 }
 
@@ -427,7 +427,7 @@ func (s *Server) callCheckpointFinished(success bool) error {
 	if !s.store.HasLocalVerb(0, "checkpoint_finished") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
+	_, err := s.runtime.RunServerVerbTask(0, "checkpoint_finished", []types.Value{types.NewInt(boolToInt(success))}, 0)
 	return err
 }
 
@@ -436,7 +436,7 @@ func (s *Server) callShutdownStarted(message string) error {
 	if !s.store.HasLocalVerb(0, "shutdown_started") {
 		return nil
 	}
-	_, err := s.scheduler.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
+	_, err := s.runtime.RunServerVerbTask(0, "shutdown_started", []types.Value{types.NewStr(message)}, 0)
 	return err
 }
 

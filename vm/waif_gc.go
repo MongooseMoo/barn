@@ -1,6 +1,6 @@
 package vm
 
-import "barn/types"
+import "github.com/MongooseMoo/barn/types"
 
 func collectWaifsForGC(v types.Value, out *[]types.Value) {
 	switch v.Type() {

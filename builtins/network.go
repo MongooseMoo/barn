@@ -9,10 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	"barn/kernel"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 const (
@@ -93,7 +93,7 @@ type inputWakeConnection interface {
 }
 
 // InputForcer allows builtins to inject input lines into a player's stream.
-// Implemented by the scheduler to avoid import cycles.
+// Implemented by the execution engine to avoid import cycles.
 type InputForcer interface {
 	ForceInput(player types.ObjID, line string, atFront bool)
 }
@@ -1415,7 +1415,11 @@ func builtinReadHTTP(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 		// TODO: check last_input_task_id(connection) == current_task_id.
 	}
-	if task.GetManager().FindReadingTask(connection) != nil || HasPendingHTTPRead(connection) {
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	if mgr.FindReadingTask(connection) != nil || HasPendingHTTPRead(connection) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1430,6 +1434,6 @@ func builtinReadHTTP(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	t.IsHTTPReadSuspended = true
-	task.GetManager().SuspendTask(t, -1)
+	mgr.SuspendTask(t, -1)
 	return types.Suspend(-1)
 }
