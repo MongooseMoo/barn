@@ -14,7 +14,7 @@ func readTxn(ctx *kernel.TaskContext) *dbstore.StoreTxn {
 }
 
 // markLiveStoreMutated records that this builtin mutated the live Store directly,
-// outside the task's transaction. It flags both the context (so the scheduler will
+// outside the task's transaction. It flags both the context (so the engine will
 // not retry the task — a retry would re-apply the un-rollback-able mutation) and the
 // transaction (so commit uses the coarse path). Each mutating builtin separately
 // adopts only the object facets changed by its own mutation.
@@ -34,7 +34,7 @@ func markLiveStoreMutated(ctx *kernel.TaskContext) {
 // coarse builtin never observes stale live state. After it the task is treated as
 // having mutated the live store directly (non-retryable, coarse commit). A validating
 // flush conflict is returned without marking the task live-mutated, so the caller can
-// abort and the scheduler can retry the still-staged transaction. No-op when nothing
+// abort and the engine can retry the still-staged transaction. No-op when nothing
 // is staged.
 func flushStagedBeforeCoarse(ctx *kernel.TaskContext) types.ErrorCode {
 	tx := readTxn(ctx)

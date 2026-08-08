@@ -8,7 +8,7 @@ import (
 	"time"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/engine"
 )
 
 // TestCheckpointDoesNotModifyInputDB verifies that a checkpoint writes only to
@@ -26,8 +26,8 @@ func TestCheckpointDoesNotModifyInputDB(t *testing.T) {
 
 	s := &Server{
 		store:              store,
-		scheduler:          runtime.NewScheduler(store),
-		input:              NewInputProcessor(store, runtime.NewScheduler(store)),
+		runtime:            engine.NewRuntime(store),
+		input:              NewInputProcessor(store, engine.NewRuntime(store)),
 		connManager:        NewConnectionManager(0),
 		dbPath:             dbPath,
 		checkpointInterval: time.Second,

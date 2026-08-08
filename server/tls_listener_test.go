@@ -19,7 +19,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	runtime "github.com/MongooseMoo/barn/scheduler"
+	"github.com/MongooseMoo/barn/engine"
 )
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {
@@ -193,13 +193,13 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 		"endif",
 	)
 
-	scheduler := runtime.NewScheduler(store)
-	input := NewInputProcessor(store, scheduler)
+	rt := engine.NewRuntime(store)
+	input := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(0)
 	input.SetConnectionManager(cm)
 	input.Start()
 	defer input.Stop()
-	defer scheduler.Stop()
+	defer rt.Stop()
 
 	err := cm.BindListeners([]builtins.ListenerSpec{{
 		Protocol:           builtins.ListenerProtocolTLS,

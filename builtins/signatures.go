@@ -159,7 +159,7 @@ func builtinFunctionInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 }
 
 // debugCallFunction gates temporary call_function failure logging (shares the
-// BARN_DEBUG_RETRY diagnosis env with the store/scheduler instrumentation).
+// BARN_DEBUG_RETRY diagnosis env with the store/engine instrumentation).
 var debugCallFunction = os.Getenv("BARN_DEBUG_RETRY") != ""
 
 func builtinCallFunction(ctx *kernel.TaskContext, args []types.Value) types.Result {

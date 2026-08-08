@@ -26,7 +26,7 @@ func (m *Manager) GetTask(id int64) *Task {
 }
 
 // RegisterTask registers an externally created task with the manager
-// This allows builtins to find tasks created by the scheduler
+// This allows builtins to find tasks created by the execution runtime.
 func (m *Manager) RegisterTask(t *Task) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

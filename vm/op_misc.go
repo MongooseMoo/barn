@@ -63,7 +63,7 @@ func (vm *VM) executeCallBuiltin() error {
 		return nil
 	}
 
-	// Handle FlowSuspend: yield control back to the caller (scheduler).
+	// Handle FlowSuspend: yield control back to the execution engine.
 	// Push 0 onto the stack first as the return value of suspend() — when
 	// Resume() is called, execution continues after the builtin call with
 	// this value already on the stack.
