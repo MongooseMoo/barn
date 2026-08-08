@@ -78,15 +78,14 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		VerbLoc:    0,
 		Player:     2,
 	})
-	manager := task.GetManager()
-	manager.RegisterTask(taskValue)
-	manager.SuspendTask(taskValue, 100)
-	defer manager.RemoveTask(taskID)
-
 	ctx := kernel.NewTaskContext()
 	ctx.Store = store
 	ctx.Programmer = 2
 	ctx.Player = 2
+	manager := wireTestTaskManager(ctx)
+	manager.RegisterTask(taskValue)
+	manager.SuspendTask(taskValue, 100)
+	defer manager.RemoveTask(taskID)
 
 	result := builtinQueuedTasks(ctx, nil)
 	if result.IsError() {
@@ -137,15 +136,14 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	})
 	programmerThreeTask.SetState(task.TaskQueued)
 
-	manager := task.GetManager()
+	wizard := kernel.NewTaskContext()
+	wizard.Programmer = 99
+	wizard.IsWizard = true
+	manager := wireTestTaskManager(wizard)
 	manager.RegisterTask(programmerTwoTask)
 	manager.RegisterTask(programmerThreeTask)
 	defer manager.RemoveTask(programmerTwoTaskID)
 	defer manager.RemoveTask(programmerThreeTaskID)
-
-	wizard := kernel.NewTaskContext()
-	wizard.Programmer = 99
-	wizard.IsWizard = true
 
 	plainResult := builtinQueuedTasks(wizard, nil)
 	if plainResult.IsError() {
@@ -189,6 +187,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 
 	programmer := kernel.NewTaskContext()
 	programmer.Programmer = 2
+	programmer.Registry = wizard.Registry
 
 	visibleResult := builtinQueuedTasks(programmer, nil)
 	if visibleResult.IsError() {
@@ -238,13 +237,12 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 	})
 	taskValue.SetState(task.TaskSuspended)
 
-	manager := task.GetManager()
-	manager.RegisterTask(taskValue)
-	defer manager.RemoveTask(taskID)
-
 	ctx := kernel.NewTaskContext()
 	ctx.TaskID = 1
 	ctx.Programmer = 2
+	manager := wireTestTaskManager(ctx)
+	manager.RegisterTask(taskValue)
+	defer manager.RemoveTask(taskID)
 
 	withLines := builtinTaskStack(ctx, []types.Value{
 		types.NewInt(taskID),

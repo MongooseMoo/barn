@@ -88,7 +88,7 @@ func (s *Scheduler) loadSuspendedTask(saved task.Snapshot) error {
 		s.mu.Lock()
 		s.tasks[t.ID] = t
 		s.mu.Unlock()
-		task.GetManager().RegisterTask(t)
+		s.taskManager.RegisterTask(t)
 	}
 	for {
 		current := atomic.LoadInt64(&s.nextTaskID)

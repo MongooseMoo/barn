@@ -79,8 +79,8 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 	second.Done = make(chan struct{})
 	s.QueueTask(first)
 	s.QueueTask(second)
-	defer task.GetManager().RemoveTask(first.ID)
-	defer task.GetManager().RemoveTask(second.ID)
+	defer s.taskManager.RemoveTask(first.ID)
+	defer s.taskManager.RemoveTask(second.ID)
 
 	done := make(chan int, 1)
 	go func() {
@@ -203,7 +203,7 @@ func TestProcessReadyTasksRunsTaskOnceAndClosesDoneOnce(t *testing.T) {
 		completes.Add(1)
 	}
 	s.QueueTask(queued)
-	defer task.GetManager().RemoveTask(queued.ID)
+	defer s.taskManager.RemoveTask(queued.ID)
 
 	if got := s.ProcessReadyTasks(); got != 1 {
 		t.Fatalf("ProcessReadyTasks() = %d, want 1", got)
@@ -240,8 +240,8 @@ func TestProcessReadyTasksFlushesInReadyOrder(t *testing.T) {
 	second.CommandOutputSuffix = "second"
 	s.QueueTask(first)
 	s.QueueTask(second)
-	defer task.GetManager().RemoveTask(first.ID)
-	defer task.GetManager().RemoveTask(second.ID)
+	defer s.taskManager.RemoveTask(first.ID)
+	defer s.taskManager.RemoveTask(second.ID)
 
 	if got := s.ProcessReadyTasks(); got != 2 {
 		t.Fatalf("ProcessReadyTasks() = %d, want 2", got)
@@ -354,7 +354,7 @@ return child;
 	if len(queued.CreatedForks) != 0 {
 		t.Fatalf("created forks after successful commit = %#v, want none", queued.CreatedForks)
 	}
-	child := task.GetManager().GetTask(childID.Int())
+	child := s.taskManager.GetTask(childID.Int())
 	if child == nil {
 		t.Fatalf("child task %d was not registered", childID.Int())
 	}
@@ -503,7 +503,7 @@ return child;
 	if len(queued.CreatedForks) != 0 {
 		t.Fatalf("created forks after failed post-yin commit = %#v, want none", queued.CreatedForks)
 	}
-	for _, child := range task.GetManager().GetQueuedTasks() {
+	for _, child := range s.taskManager.GetQueuedTasks() {
 		if child.Owner == owner {
 			return
 		}
@@ -603,7 +603,7 @@ return child;
 	if len(queued.CreatedForks) != 0 {
 		t.Fatalf("created forks after conflict = %#v, want none", queued.CreatedForks)
 	}
-	for _, task := range task.GetManager().GetQueuedTasks() {
+	for _, task := range s.taskManager.GetQueuedTasks() {
 		if task.Owner == owner {
 			t.Fatalf("conflicted fork task %d remained queued", task.ID)
 		}
@@ -837,7 +837,7 @@ func removeTasksForOwner(s *Scheduler, owner types.ObjID) {
 	}
 	s.mu.Unlock()
 
-	mgr := task.GetManager()
+	mgr := s.taskManager
 	for _, task := range mgr.GetAllTasks() {
 		if task != nil && task.Owner == owner {
 			task.Kill()

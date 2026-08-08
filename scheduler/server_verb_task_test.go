@@ -4,18 +4,8 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
-
-func resetServerVerbTaskManager(t *testing.T) {
-	t.Helper()
-	mgr := task.GetManager()
-	for _, tk := range mgr.GetAllTasks() {
-		tk.Kill()
-		mgr.RemoveTask(tk.ID)
-	}
-}
 
 func addServerVerbTestObject(t *testing.T, store *dbstore.Store, id types.ObjID, flags dbstore.ObjectFlags) {
 	t.Helper()
@@ -29,9 +19,6 @@ func addServerVerbTestObject(t *testing.T, store *dbstore.Store, id types.ObjID,
 }
 
 func TestRunServerVerbTaskRunsBeforeReturning(t *testing.T) {
-	resetServerVerbTaskManager(t)
-	t.Cleanup(func() { resetServerVerbTaskManager(t) })
-
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)

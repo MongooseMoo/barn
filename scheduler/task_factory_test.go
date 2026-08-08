@@ -60,9 +60,9 @@ func TestCreateForkedTaskUsesCurrentProgrammer(t *testing.T) {
 			"marker": types.NewStr("current-programmer"),
 		},
 	})
-	defer task.GetManager().RemoveTask(forkID)
+	defer s.taskManager.RemoveTask(forkID)
 
-	forked := task.GetManager().GetTask(forkID)
+	forked := s.taskManager.GetTask(forkID)
 	if forked == nil {
 		t.Fatalf("forked task %d was not registered", forkID)
 	}
@@ -91,7 +91,7 @@ func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
 	killed.IsForked = true
 	killed.ForkCreator = s
 	s.QueueTask(killed)
-	defer task.GetManager().RemoveTask(killed.ID)
+	defer s.taskManager.RemoveTask(killed.ID)
 
 	if got := s.ProcessReadyTasks(); got != 1 {
 		t.Fatalf("scheduler pass ran %d tasks, want 1", got)
@@ -133,9 +133,9 @@ func TestCreateForkedTaskReportsParentSourceLine(t *testing.T) {
 		Verb:      "delayed",
 		VerbLoc:   0,
 	})
-	defer task.GetManager().RemoveTask(forkID)
+	defer s.taskManager.RemoveTask(forkID)
 
-	forked := task.GetManager().GetTask(forkID)
+	forked := s.taskManager.GetTask(forkID)
 	if forked == nil {
 		t.Fatalf("forked task %d was not registered", forkID)
 	}

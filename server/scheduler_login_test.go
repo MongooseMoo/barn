@@ -276,9 +276,6 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 }
 
 func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
-	resetTaskManager()
-	t.Cleanup(resetTaskManager)
-
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)

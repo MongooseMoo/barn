@@ -751,7 +751,7 @@ func (s *Scheduler) discardCreatedForks(parent *task.Task) {
 	}
 	s.mu.Unlock()
 
-	mgr := task.GetManager()
+	mgr := s.taskManager
 	for _, id := range created {
 		if child := mgr.GetTask(id); child != nil {
 			child.Kill()
@@ -813,7 +813,7 @@ func (s *Scheduler) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbM
 	s.mu.Lock()
 	s.tasks[t.ID] = t
 	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	s.taskManager.RegisterTask(t)
 
 	// Run synchronously on the scheduler goroutine
 	err := s.runTask(t)

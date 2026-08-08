@@ -117,7 +117,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		if !ok {
 			return types.Err(types.E_INVARG)
 		}
-		task.GetManager().SuspendTask(holder, -1)
+		scheduler.taskManager.SuspendTask(holder, -1)
 		close(entered)
 		<-release
 		return types.Suspend(-1)

@@ -63,7 +63,7 @@ func (s *Scheduler) EvalCommandOutput(player types.ObjID, code string) (line str
 
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.
-	mgr := task.GetManager()
+	mgr := s.taskManager
 	ticks, secondsLimit := foregroundTaskLimits()
 	t := task.NewTask(s.newTaskID(), player, ticks, secondsLimit)
 	mgr.RegisterTask(t)

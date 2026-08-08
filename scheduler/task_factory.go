@@ -39,8 +39,8 @@ func (s *Scheduler) QueueTask(t *task.Task) int64 {
 	t.QueueSeq = s.queueSeq
 	heap.Push(s.waiting, t)
 
-	// Also register with global task manager so builtins can find it
-	task.GetManager().RegisterTask(t)
+	// Register with this scheduler's task manager so builtins can find it.
+	s.taskManager.RegisterTask(t)
 
 	return t.ID
 }
@@ -94,7 +94,7 @@ func (s *Scheduler) RunServerVerbTask(objID types.ObjID, verbName string, args [
 	s.mu.Lock()
 	s.tasks[t.ID] = t
 	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	s.taskManager.RegisterTask(t)
 
 	if err := s.runTask(t); err != nil {
 		return t.Result, err
@@ -164,7 +164,7 @@ func (s *Scheduler) CreateLoginHookTask(objID types.ObjID, verbName string, args
 	s.mu.Lock()
 	s.tasks[t.ID] = t
 	s.mu.Unlock()
-	task.GetManager().RegisterTask(t)
+	s.taskManager.RegisterTask(t)
 
 	if onStart != nil {
 		onStart(t.ID)
@@ -333,8 +333,8 @@ func (s *Scheduler) KillTask(taskID int64, killerID types.ObjID) error {
 // player. This covers both the currently tracked login task and any task left
 // suspended on read() from this connection — so no dangling read()-suspended
 // task can swallow input for a connID later reused by another connection. The
-// task manager is a process-global singleton matched purely by ReadingPlayer,
-// so cancelling by connID (not a single tracked ID) is required for robustness.
+// task manager is matched by ReadingPlayer, so cancelling by connID (not a
+// single tracked ID) is required for robustness.
 // No permission check — this is a server-internal lifecycle op.
 func (s *Scheduler) CancelLoginTasksFor(connID types.ObjID) {
 	// Collect candidates: tasks owned by this connID (login-hook tasks run with
@@ -352,9 +352,9 @@ func (s *Scheduler) CancelLoginTasksFor(connID types.ObjID) {
 	}
 	s.mu.Unlock()
 
-	// Also sweep the global manager for read()-suspended tasks bound to this
+	// Also sweep the owned manager for read()-suspended tasks bound to this
 	// connID that the scheduler may not own (defense in depth).
-	for _, t := range task.GetManager().GetAllTasks() {
+	for _, t := range s.taskManager.GetAllTasks() {
 		if t != nil && t.ReadingPlayer == connID {
 			victims = append(victims, t)
 		}
@@ -364,7 +364,7 @@ func (s *Scheduler) CancelLoginTasksFor(connID types.ObjID) {
 		t.ReadingPlayer = types.ObjNothing
 		t.OnComplete = nil // Don't run login completion for a dead connection.
 		t.Kill()
-		task.GetManager().RemoveTask(t.ID)
+		s.taskManager.RemoveTask(t.ID)
 	}
 }
 
@@ -376,7 +376,7 @@ func (s *Scheduler) CancelLoginTasksFor(connID types.ObjID) {
 // input line, arriving before the ticker re-ran the task, would not be found by
 // FindReadingTask and would spawn a parallel do_login_command.
 func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
-	t := task.GetManager().FindReadingTask(player)
+	t := s.taskManager.FindReadingTask(player)
 	if t == nil {
 		return false
 	}
@@ -398,7 +398,7 @@ func (s *Scheduler) ResumeReadingTask(player types.ObjID, line string) bool {
 }
 
 // CleanupFinishedTasks removes completed and killed tasks from both the
-// scheduler's own table and the global task manager. Without this, every task
+// scheduler's own table and its task manager. Without this, every task
 // (including unauthenticated pre-login do_login_command tasks) accumulates
 // forever — an unbounded-growth / DoS vector on the pre-auth path. Only
 // terminal tasks are removed; suspended/queued/running tasks are left intact.
@@ -418,7 +418,7 @@ func (s *Scheduler) CleanupFinishedTasks() {
 	}
 	s.mu.Unlock()
 
-	mgr := task.GetManager()
+	mgr := s.taskManager
 	for _, id := range finished {
 		mgr.RemoveTask(id)
 	}

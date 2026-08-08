@@ -154,7 +154,9 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
-	mgr := task.GetManager()
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	mgr := wireTestTaskManager(ctx)
 
 	// Use large IDs unlikely to collide with other test tasks.
 	const earlierID = int64(88801)
@@ -179,9 +181,6 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 	later.StartTime = time.Now()
 	defer mgr.RemoveTask(earlierID)
 	defer mgr.RemoveTask(laterID)
-
-	ctx := kernel.NewTaskContext()
-	ctx.IsWizard = true
 
 	res := builtinQueuedTasks(ctx, []types.Value{})
 	if res.IsError() {
@@ -242,7 +241,9 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
-	mgr := task.GetManager()
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	mgr := wireTestTaskManager(ctx)
 
 	const timedID = int64(88811)
 	const indefID = int64(88812)
@@ -275,9 +276,6 @@ func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
 	if indef.WakeDue(time.Now()) {
 		t.Fatalf("indefinite-suspended task reported WakeDue=true; it must never auto-wake")
 	}
-
-	ctx := kernel.NewTaskContext()
-	ctx.IsWizard = true
 
 	res := builtinQueuedTasks(ctx, []types.Value{})
 	if res.IsError() {
