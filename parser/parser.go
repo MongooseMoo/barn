@@ -837,7 +837,7 @@ func (p *Parser) parseListExpr() (verb.Expr, error) {
 	// Parse first element
 	elem, err := p.ParseExpression(PREC_LOWEST)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse list element: %w", err)
+		return nil, err
 	}
 
 	// Check for range syntax: {start..end}
@@ -872,7 +872,7 @@ func (p *Parser) parseListExpr() (verb.Expr, error) {
 
 		elem, err := p.ParseExpression(PREC_LOWEST)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse list element: %w", err)
+			return nil, err
 		}
 		elements = append(elements, elem)
 	}
@@ -903,7 +903,7 @@ func (p *Parser) parseMapExpr() (*verb.MapExpr, error) {
 	// Parse first pair
 	key, err := p.ParseExpression(PREC_LOWEST)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse map key: %w", err)
+		return nil, err
 	}
 
 	if p.current.Type != TOKEN_ARROW {
@@ -913,7 +913,7 @@ func (p *Parser) parseMapExpr() (*verb.MapExpr, error) {
 
 	value, err := p.ParseExpression(PREC_LOWEST)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse map value: %w", err)
+		return nil, err
 	}
 	pairs = append(pairs, verb.MapPair{Key: key, Value: value})
 
@@ -928,7 +928,7 @@ func (p *Parser) parseMapExpr() (*verb.MapExpr, error) {
 
 		key, err := p.ParseExpression(PREC_LOWEST)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse map key: %w", err)
+			return nil, err
 		}
 
 		if p.current.Type != TOKEN_ARROW {
@@ -938,7 +938,7 @@ func (p *Parser) parseMapExpr() (*verb.MapExpr, error) {
 
 		value, err := p.ParseExpression(PREC_LOWEST)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse map value: %w", err)
+			return nil, err
 		}
 		pairs = append(pairs, verb.MapPair{Key: key, Value: value})
 	}
