@@ -2,10 +2,10 @@ package parser
 
 import (
 	"fmt"
-	"github.com/MongooseMoo/barn/verb"
-	"math/big"
 	"strconv"
 	"strings"
+
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // Parser parses MOO source code into language-neutral verb semantics.
@@ -675,19 +675,31 @@ func systemObjectLiteral(pos verb.Position) *verb.LiteralExpr {
 }
 
 // parseLiteralExpr parses a MOO literal into its semantic payload.
-// wrapInt64Literal reduces a non-negative decimal integer literal modulo 2^64
+// wrapInt64Literal reduces a decimal integer literal modulo 2^64
 // and reinterprets the low 64 bits as a signed two's-complement int64, matching
-// how MOO's C lexer handles out-of-range literals. The token is always
-// non-negative here (unary minus is parsed separately).
-func wrapInt64Literal(s string) (int64, bool) {
-	z, ok := new(big.Int).SetString(s, 10)
-	if !ok {
-		return 0, false
+// how MOO's C lexer handles out-of-range literals. Since 10^64 is divisible by
+// 2^64, digits before the final 64 cannot affect the result. Integer tokens are
+// non-negative (unary minus is parsed separately), while object tokens can
+// include a leading sign. The lexer has already validated the token's digits.
+func wrapInt64Literal(s string) int64 {
+	start := 0
+	negative := false
+	if s[0] == '+' || s[0] == '-' {
+		start = 1
+		negative = s[0] == '-'
 	}
-	var mask big.Int
-	mask.SetUint64(^uint64(0)) // 2^64 - 1
-	z.And(z, &mask)
-	return int64(z.Uint64()), true
+	if len(s)-start > 64 {
+		start = len(s) - 64
+	}
+
+	var value uint64
+	for i := start; i < len(s); i++ {
+		value = value*10 + uint64(s[i]-'0')
+	}
+	if negative {
+		value = 0 - value
+	}
+	return int64(value)
 }
 
 func (p *Parser) parseLiteralExpr() (*verb.LiteralExpr, error) {
@@ -703,11 +715,7 @@ func (p *Parser) parseLiteralExpr() (*verb.LiteralExpr, error) {
 			// This is how the most-negative literal -9223372036854775808 works:
 			// the positive token 9223372036854775808 (= 2^63) wraps to INT_MIN.
 			if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
-				if wrapped, ok := wrapInt64Literal(p.current.Value); ok {
-					val = wrapped
-				} else {
-					return nil, fmt.Errorf("failed to parse integer: %w", err)
-				}
+				val = wrapInt64Literal(p.current.Value)
 			} else {
 				return nil, fmt.Errorf("failed to parse integer: %w", err)
 			}
@@ -749,11 +757,7 @@ func (p *Parser) parseLiteralExpr() (*verb.LiteralExpr, error) {
 		id, err := strconv.ParseInt(val, 10, 64)
 		if err != nil {
 			if numErr, ok := err.(*strconv.NumError); ok && numErr.Err == strconv.ErrRange {
-				if wrapped, ok := wrapInt64Literal(val); ok {
-					id = wrapped
-				} else {
-					return nil, fmt.Errorf("failed to parse object ID: %w", err)
-				}
+				id = wrapInt64Literal(val)
 			} else {
 				return nil, fmt.Errorf("failed to parse object ID: %w", err)
 			}
