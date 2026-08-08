@@ -438,10 +438,6 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 				// Newly-created object: materialize (and lock) its empty slot so the
 				// new image can be published into it.
 				slot = s.dir.getOrCreate(id)
-			} else if seen[id] {
-				// No slot => written object never existed. Apply-time contract returns E_INVIND.
-				unlockSlots(slots)
-				return types.E_INVIND
 			} else {
 				continue
 			}
@@ -450,16 +446,6 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		slots = append(slots, slot)
 	}
 	defer unlockSlots(slots)
-
-	// A created id's slot must be EMPTY: if a Renumber-into-gap or ResetMaxObject race
-	// occupied it, treat it as a conflict and retry (which allocates a fresh id) rather
-	// than stomping a live object (Fable P0-3).
-	for id := range tx.createdObjects {
-		if slot := s.dir.slot(id); slot != nil && slot.ptr.Load() != nil {
-			tx.validationFail = true
-			return types.E_INVARG
-		}
-	}
 
 	// Validate the read set against the currently-published immutable images.
 	if errCode := tx.validateObjectScalarReadsLocked(); errCode != types.E_NONE {
@@ -478,59 +464,8 @@ func (tx *StoreTxn) commitDecentralized() types.ErrorCode {
 		tx.validationFail = true
 		return errCode
 	}
-	if errCode := tx.validateVerbDeleteTargetsLocked(); errCode != types.E_NONE {
+	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
 		return errCode
-	}
-
-	// Verify every written object is live, and every verb-code target verb exists,
-	// BEFORE bumping the clock or building/publishing anything — so a
-	// non-existent/recycled target object (E_INVIND) or missing verb (E_VERBNF)
-	// fails the WHOLE commit atomically with no partial side effect.
-	for _, id := range writeIDs {
-		if tx.createdObjects[id] != nil {
-			continue // created this txn; no published image to be "live" yet
-		}
-		if !validLiveObject(s.load(id)) {
-			return types.E_INVIND
-		}
-	}
-	for key := range tx.verbWrites {
-		live := s.load(key.objID)
-		if live.verbs[key.name] == nil {
-			return types.E_VERBNF
-		}
-	}
-	// The validLiveObject loop above has already proven every footprint object (which
-	// includes every propertyDefines/propertyDefinitionDeletes definer) is live, so the
-	// s.load(key.objID) results below are non-nil — do not reorder these checks above it.
-	//
-	// A property DEFINE must not collide with a property already present on the
-	// definer's image unless this transaction first deleted that same definition.
-	// The paired delete+define is an ordered replacement.
-	for key := range tx.propertyDefines {
-		// A created id has no published image (s.load is nil); its base — the
-		// creation-time inherited property set — is the collision baseline.
-		live := s.load(key.objID)
-		if live == nil {
-			live = tx.createdObjects[key.objID]
-		}
-		if _, _, exists := propertyByName(live.properties, key.name); exists {
-			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing {
-				return types.E_INVARG
-			}
-		}
-	}
-	// A property DEFINE-DELETE must target a property defined on the definer's image
-	// (mirrors deleteDefinedPropertyLocked's E_PROPNF, store_properties.go:536).
-	for key, actualName := range tx.propertyDefinitionDeletes {
-		live := s.load(key.objID)
-		if live == nil {
-			live = tx.createdObjects[key.objID]
-		}
-		_, prop, ok := propertyByName(live.properties, actualName)
-		if !ok || !prop.defined {
-			return types.E_PROPNF
-		}
 	}
 
 	ts := s.bumpClock()

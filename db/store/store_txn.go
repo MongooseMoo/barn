@@ -44,6 +44,7 @@ type StoreTxn struct {
 	verbWrites                map[verbWriteKey]verbWrite
 	verbDeletes               []verbDelete
 	validationFail            bool
+	terminalErr               types.ErrorCode
 	liveMutated               bool
 	// owned marks which entries in `objects` are txn-PRIVATE mutable copies rather
 	// than aliases of a shared immutable published image. Reads (tx.object) may cache
@@ -175,7 +176,9 @@ func applyContentsDeltas(contents []types.ObjID, deltas []contentsDelta) []types
 	result := contents
 	for _, d := range deltas {
 		if d.add {
-			result = insertObjIDAtMOOPosition(result, d.id, d.position)
+			if !slices.Contains(result, d.id) {
+				result = insertObjIDAtMOOPosition(result, d.id, d.position)
+			}
 		} else {
 			result = removeObjID(result, d.id)
 		}
@@ -611,7 +614,22 @@ func (tx *StoreTxn) HasStagedVerbDeletes() bool {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
+	return tx != nil && tx.terminalErr == types.E_NONE && tx.hasStagedWrites()
+}
+
+func (tx *StoreTxn) hasStagedWrites() bool {
 	return tx != nil && (len(tx.scalarWrites) > 0 || len(tx.relationshipWrites) > 0 || len(tx.propertyDefines) > 0 || len(tx.propertyDefinitionDeletes) > 0 || len(tx.propertyWrites) > 0 || len(tx.propertyDeletes) > 0 || len(tx.verbWrites) > 0 || len(tx.verbDeletes) > 0 || len(tx.createdObjects) > 0 || len(tx.recycleWrites) > 0)
+}
+
+// markTerminal records an operation/apply failure that cannot become valid by
+// retrying this transaction. The physical private maps remain available for error
+// handling and diagnostics, while HasWrites becomes false so runtime lifecycle
+// boundaries cannot publish a transaction after its terminal commit failed.
+func (tx *StoreTxn) markTerminal(errCode types.ErrorCode) types.ErrorCode {
+	if tx != nil && errCode != types.E_NONE && !tx.validationFail && tx.terminalErr == types.E_NONE {
+		tx.terminalErr = errCode
+	}
+	return errCode
 }
 
 // writeFootprintHasAnon reports whether any staged write targets an anonymous
@@ -2094,9 +2112,8 @@ func (tx *StoreTxn) ExemptFromCommitGate() {
 	}
 }
 
-// ClearCommitGateExemption re-arms the shared gate for a txn that outlived its
-// escalated attempt (the runtime releases the gate but may recommit the same
-// txn on later suspend/yield boundaries).
+// ClearCommitGateExemption re-arms the shared gate for a retryable txn that
+// outlived its escalated attempt. Terminal failures are not recommittable.
 func (tx *StoreTxn) ClearCommitGateExemption() {
 	if tx != nil {
 		tx.gateExempt = false
@@ -2113,6 +2130,9 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
 	if tx == nil || tx.store == nil {
 		return tx, false, types.E_INVARG
+	}
+	if tx.terminalErr != types.E_NONE {
+		return tx, false, tx.terminalErr
 	}
 
 	publishedWrites = tx.HasWrites()
@@ -2133,11 +2153,17 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 }
 
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
-	if tx == nil || (len(tx.scalarWrites) == 0 && len(tx.relationshipWrites) == 0 && len(tx.propertyDefines) == 0 && len(tx.propertyDefinitionDeletes) == 0 && len(tx.propertyWrites) == 0 && len(tx.propertyDeletes) == 0 && len(tx.verbWrites) == 0 && len(tx.verbDeletes) == 0 && len(tx.createdObjects) == 0 && len(tx.recycleWrites) == 0) {
+	if tx == nil {
+		return types.E_NONE
+	}
+	if tx.terminalErr != types.E_NONE {
+		return tx.terminalErr
+	}
+	if !tx.hasStagedWrites() {
 		return types.E_NONE
 	}
 	if tx.store == nil {
-		return types.E_INVARG
+		return tx.markTerminal(types.E_INVARG)
 	}
 	// Belt and braces: staged writes already disabled the memo (they privatize),
 	// but publishing them changes the world the memo described.
@@ -2202,7 +2228,11 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	// mutation below race-free. writeFootprintHasAnon takes store.mu.RLock and
 	// releases it before the coarse Lock here (RWMutex is not upgradable).
 	if !tx.liveMutated && !tx.writeFootprintHasAnon() {
-		return tx.commitDecentralized()
+		commitErr = tx.commitDecentralized()
+		if commitErr != types.E_NONE && !tx.validationFail {
+			tx.markTerminal(commitErr)
+		}
+		return commitErr
 	}
 
 	tx.store.mu.Lock()
@@ -2224,19 +2254,127 @@ func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 		tx.validationFail = true
 		return errCode
 	}
+	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+		return tx.markTerminal(errCode)
+	}
+	commitErr = tx.applyStagedToLiveLocked()
+	if commitErr != types.E_NONE {
+		tx.markTerminal(commitErr)
+	}
+	return commitErr
+}
+
+// preflightStagedToLiveLocked validates the complete staged operation footprint
+// before a publication timestamp is allocated or any live image is changed. It is
+// shared by coarse Commit, the legacy unvalidated FlushStagedToLive boundary, and
+// the decentralized committer. The caller holds store.mu for reading or writing;
+// decentralized callers additionally hold every numbered footprint slot mutex.
+func (tx *StoreTxn) preflightStagedToLiveLocked() types.ErrorCode {
+	s := tx.store
+
+	// A concurrently occupied allocated id is a retryable allocation conflict: a
+	// fresh attempt allocates another id. This is the one preflight failure that
+	// deliberately participates in the validation-conflict retry contract.
+	for id := range tx.createdObjects {
+		if slot := s.dir.slot(id); slot != nil && slot.ptr.Load() != nil {
+			tx.validationFail = true
+			return types.E_INVARG
+		}
+	}
+
+	validateTarget := func(id types.ObjID) types.ErrorCode {
+		if tx.createdObjects[id] != nil {
+			return types.E_NONE
+		}
+		if !validLiveObject(s.liveObjectLocked(id)) {
+			return types.E_INVIND
+		}
+		return types.E_NONE
+	}
+	for id := range tx.scalarWrites {
+		if errCode := validateTarget(id); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for id := range tx.relationshipWrites {
+		if errCode := validateTarget(id); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for key := range tx.propertyDefines {
+		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for key := range tx.propertyDefinitionDeletes {
+		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for key := range tx.propertyWrites {
+		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for key := range tx.propertyDeletes {
+		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for key := range tx.verbWrites {
+		if errCode := validateTarget(key.objID); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for _, deletion := range tx.verbDeletes {
+		if errCode := validateTarget(deletion.objID); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+	for id := range tx.recycleWrites {
+		if errCode := validateTarget(id); errCode != types.E_NONE {
+			return errCode
+		}
+	}
+
+	baseObject := func(id types.ObjID) *Object {
+		if created := tx.createdObjects[id]; created != nil {
+			return created
+		}
+		return s.liveObjectLocked(id)
+	}
+	for key := range tx.verbWrites {
+		if baseObject(key.objID).verbs[key.name] == nil {
+			return types.E_VERBNF
+		}
+	}
 	if errCode := tx.validateVerbDeleteTargetsLocked(); errCode != types.E_NONE {
 		return errCode
 	}
-	return tx.applyStagedToLiveLocked()
+	for key := range tx.propertyDefines {
+		live := baseObject(key.objID)
+		if _, _, exists := propertyByName(live.properties, key.name); exists {
+			if _, replacing := tx.propertyDefinitionDeletes[key]; !replacing {
+				return types.E_INVARG
+			}
+		}
+	}
+	for key, actualName := range tx.propertyDefinitionDeletes {
+		live := baseObject(key.objID)
+		_, prop, ok := propertyByName(live.properties, actualName)
+		if !ok || !prop.defined {
+			return types.E_PROPNF
+		}
+	}
+	return types.E_NONE
 }
 
-// applyStagedToLiveLocked applies all staged writes to the LIVE store in place (the
-// coarse path): it publishes staged creates, then applies scalar, relationship
-// (location/contents/children), property, and verb writes, retaining pre-mutation
-// images in history, and clears the staged maps. It does NOT validate the read set —
-// the coarse Commit validates before calling this, and flushStagedToLive deliberately
-// skips validation (a task about to coarse-mutate is non-isolated, matching Toast's
-// immediate semantics). Caller holds store.mu.Lock.
+// applyStagedToLiveLocked applies a fully preflighted staged footprint to the LIVE
+// store in place (the coarse path): it publishes staged creates, then applies scalar,
+// relationship (location/contents/children), property, and verb writes, retaining
+// pre-mutation images in history, and clears the staged maps. It does NOT validate the
+// read set: coarse Commit does that before shared operation preflight, while Flush
+// intentionally performs only operation preflight. Caller holds store.mu.Lock.
 func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 	ts := tx.store.bumpClockLocked()
 	remembered := make(map[types.ObjID]bool)
@@ -2441,27 +2579,41 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 // state. It also drops the read set: the task has now mutated the live store, so it is
 // non-isolated (Toast-like) and its eventual coarse commit must not conflict on reads
 // taken against the pre-flush snapshot. Reads are NOT validated on the way out (coarse
-// semantics — last-writer-wins, like an immediate mutation); a created object is private
-// and cannot conflict anyway. Exact verb deletion is rejected because it must cross a
-// validating CommitAndRenew boundary. No-op if nothing is staged.
+// semantics — last-writer-wins, like an immediate mutation). The complete operation
+// footprint is still preflighted before any publication, including allocated-id
+// occupancy. Exact verb deletion is rejected because it must cross a validating
+// CommitAndRenew boundary. No-op if nothing is staged.
 func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
-	if tx == nil || !tx.HasWrites() {
+	if tx == nil {
+		return types.E_NONE
+	}
+	if tx.terminalErr != types.E_NONE {
+		return tx.terminalErr
+	}
+	if !tx.hasStagedWrites() {
 		return types.E_NONE
 	}
 	if len(tx.verbDeletes) > 0 {
 		// Exact verb deletion depends on scalar and ordered-list generations.
 		// Its coarse boundary must use CommitAndRenew so the ordinary commit path
 		// validates the complete read set before publishing anything.
-		return types.E_INVARG
+		return tx.markTerminal(types.E_INVARG)
 	}
-	// This method republishes staged writes, drops the read set, re-clones every
-	// cached object from CURRENT live, and resets tx.owned — i.e. it rebuilds the
-	// txn's whole view and re-enables the resolution memo. Everything memoized
-	// against the pre-flush view must go.
-	tx.invalidateResolveCaches()
+	tx.validationFail = false
 	tx.store.mu.Lock()
+	if errCode := tx.preflightStagedToLiveLocked(); errCode != types.E_NONE {
+		tx.store.mu.Unlock()
+		return tx.markTerminal(errCode)
+	}
+	// Only a successful preflight may discard the old memo/view bookkeeping.
+	// A failure must leave the task's complete private view available to its
+	// builtin error handler.
+	tx.invalidateResolveCaches()
 	ec := tx.applyStagedToLiveLocked()
 	tx.store.mu.Unlock()
+	if ec != types.E_NONE {
+		return tx.markTerminal(ec)
+	}
 
 	// Drop the pre-flush reads but keep the maps allocated: the coarse builtin that
 	// triggered the flush still records reads afterward (markVerbScan, etc.), so niling
@@ -2515,7 +2667,7 @@ func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
 	}
 	tx.store.mu.RUnlock()
 	tx.owned = make(map[types.ObjID]bool)
-	return ec
+	return types.E_NONE
 }
 
 func (tx *StoreTxn) validateObjectScalarReadsLocked() types.ErrorCode {
@@ -2627,7 +2779,10 @@ func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {
 	for _, deletion := range tx.verbDeletes {
 		length, ok := lengths[deletion.objID]
 		if !ok {
-			live := tx.store.liveObjectLocked(deletion.objID)
+			live := tx.createdObjects[deletion.objID]
+			if live == nil {
+				live = tx.store.liveObjectLocked(deletion.objID)
+			}
 			if !validLiveObject(live) {
 				return types.E_INVIND
 			}

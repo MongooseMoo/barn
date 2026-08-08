@@ -51,11 +51,12 @@ import "github.com/MongooseMoo/barn/types"
 // mutableObject/privatizeCached first, which marks the object owned, and
 // `owned` only ever grows within a transaction. So the first staged write
 // disables the memo for the remainder of the transaction and its own writes are
-// always read back by a real walk. (The single exception is
+// always read back by a real walk. (The single exception is a successful
 // FlushStagedToLive, which publishes the staged writes, re-clones every cached
 // object from current live and resets tx.owned; it invalidates the memo
 // explicitly, and the fresh clones it installs are unowned, so nothing can be
-// mutated in place without a new privatizeCached.) The gate also guarantees no
+// mutated in place without a new privatizeCached. A failed flush preserves
+// owned and therefore keeps the memo disabled.) The gate also guarantees no
 // memoized entry can ever reference a
 // txn-private object: with owned empty, every cached *Object is a shared
 // IMMUTABLE published image, whose properties/verbs/parents cannot change

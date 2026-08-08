@@ -387,6 +387,9 @@ retryAttempt:
 			break
 		}
 	}
+	// HasWrites also gates terminal transactions: a failed non-validation
+	// preflight retains its private maps for error handling but must never be
+	// recommitted at a later lifecycle boundary.
 	if result.Flow != types.FlowSuspend && ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result = types.Err(errCode)
@@ -413,6 +416,8 @@ retryAttempt:
 		if s.store.AnonCreationCount() != anonFloor {
 			s.deferAnonGC(ctx, anonGCFloor, nil)
 		}
+		// A terminal commit failure makes HasWrites false without discarding the
+		// private view, preventing completion cleanup from recommitting it.
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
