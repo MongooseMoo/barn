@@ -9,6 +9,10 @@ import (
 
 // Arithmetic operations
 
+// Toast defines MININT as one more than INT64_MIN to avoid overflow issues
+// when negating or dividing MININT by -1. We match this for compatibility.
+const MININT int64 = -9223372036854775807
+
 // promoting reports whether PROMOTE_NUMBERS is enabled for the current task.
 func (vm *VM) promoting() bool {
 	return vm.Context != nil && vm.Context.RuntimeOptions.PromoteNumbers
