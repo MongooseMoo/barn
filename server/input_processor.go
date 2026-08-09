@@ -35,7 +35,6 @@ type InputProcessor struct {
 	// concurrently. The main run() loop only demuxes events onto these lanes.
 	workersMu sync.Mutex
 	workers   map[int64]chan command.InputEvent
-	inFlight  sync.WaitGroup
 }
 
 func NewInputProcessor(store *dbstore.Store, runtime *engine.Runtime) *InputProcessor {
@@ -222,12 +221,6 @@ func (p *InputProcessor) processRuntimeTick() {
 // read()/login ordering invariants of processInput; cross-connection events run
 // concurrently.
 func (p *InputProcessor) dispatch(input command.InputEvent) {
-	if input.IsTimeout {
-		p.inFlight.Wait()
-		p.processInput(input)
-		return
-	}
-
 	p.workersMu.Lock()
 	ch, ok := p.workers[input.ConnID]
 	if !ok {
@@ -238,11 +231,9 @@ func (p *InputProcessor) dispatch(input command.InputEvent) {
 	}
 	p.workersMu.Unlock()
 
-	p.inFlight.Add(1)
 	select {
 	case ch <- input:
 	case <-p.ctx.Done():
-		p.inFlight.Done()
 	}
 }
 
@@ -251,17 +242,9 @@ func (p *InputProcessor) connectionWorker(connID int64, ch chan command.InputEve
 	for {
 		select {
 		case <-p.ctx.Done():
-			for {
-				select {
-				case <-ch:
-					p.inFlight.Done()
-				default:
-					return
-				}
-			}
+			return
 		case input := <-ch:
 			p.processInput(input)
-			p.inFlight.Done()
 			if input.IsDisconnect {
 				// The connection is gone; retire its lane. A later event for a reused
 				// ConnID will spin up a fresh lane.
