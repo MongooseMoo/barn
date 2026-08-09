@@ -69,12 +69,6 @@ func TestComparisonPrecedence(t *testing.T) {
 				t.Errorf("expected comparison operator at root, got %s", binary.Operator)
 			}
 
-			// At least one side should have arithmetic
-			_, leftIsBinary := binary.Left.(*verb.BinaryExpr)
-			_, rightIsBinary := binary.Right.(*verb.BinaryExpr)
-			if !leftIsBinary && !rightIsBinary {
-				// This is OK for simple cases like "1 == 2"
-			}
 		})
 	}
 }

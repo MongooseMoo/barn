@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-func matchVerbName(verbPattern, searchName string) bool {
-	// Case-insensitive matching
-	return matchVerbNameLowered(strings.ToLower(verbPattern), strings.ToLower(searchName))
-}
-
 // matchVerbNameLowered is matchVerbName with both sides already lowercased.
 // Dispatch pre-lowers the search once and matches against Verb.lowerNames,
 // keeping the per-alias hot loop free of ToLower allocations.
@@ -552,6 +547,7 @@ func (s *Store) SetVerbInfo(objID types.ObjID, name string, owner types.ObjID, p
 	// inherited one (Toast bf_set_verb_info -> find_described_verb ->
 	// db_find_defined_verb; src/verbs.cc:346, src/db_verbs.cc:670). An inherited
 	// verb -> E_VERBNF, leaving the ancestor's verb unchanged.
+	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
 	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
@@ -594,6 +590,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 	// set_verb_args operates only on a verb DEFINED ON THIS OBJECT (Toast
 	// bf_set_verb_args -> find_described_verb -> db_find_defined_verb;
 	// src/verbs.cc:444). Inherited verb -> E_VERBNF, ancestor untouched.
+	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
 	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF
@@ -623,6 +620,7 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 	// set_verb_code operates only on a verb DEFINED ON THIS OBJECT (Toast
 	// bf_set_verb_code -> find_described_verb -> db_find_defined_verb;
 	// src/verbs.cc:528). Inherited verb -> E_VERBNF, ancestor untouched.
+	//lint:ignore SA4006 Resolving before republishing preserves E_VERBNF precedence; the fresh image must then be resolved again.
 	verb, err := s.findVerbOnObjectLocked(objID, name)
 	if err != nil {
 		return types.E_VERBNF

@@ -391,19 +391,6 @@ func (c *Compiler) currentLoop() *LoopContext {
 }
 
 // findLoop finds a loop by label (or innermost if label is empty)
-func (c *Compiler) findLoop(label string) *LoopContext {
-	if label == "" {
-		return c.currentLoop()
-	}
-
-	for i := len(c.loops) - 1; i >= 0; i-- {
-		if c.loops[i].Label == label {
-			return &c.loops[i]
-		}
-	}
-	return nil
-}
-
 // findLoopByTarget finds a loop by explicit label or by loop variable/index name.
 func (c *Compiler) findLoopByTarget(name string) *LoopContext {
 	if name == "" {
@@ -2173,7 +2160,7 @@ func (c *Compiler) compileBreak(n *verb.BreakStmt) error {
 	// parser.y:1205-1206, check_loop_name LOOP_BREAK).
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
-		return fmt.Errorf("Invalid loop name")
+		return fmt.Errorf("invalid loop name")
 	}
 	if loop == nil {
 		return fmt.Errorf("break outside of loop")
@@ -2188,7 +2175,7 @@ func (c *Compiler) compileBreak(n *verb.BreakStmt) error {
 func (c *Compiler) compileContinue(n *verb.ContinueStmt) error {
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
-		return fmt.Errorf("Invalid loop name")
+		return fmt.Errorf("invalid loop name")
 	}
 	if loop == nil {
 		return fmt.Errorf("continue outside of loop")

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 )
 
 // Access-footprint analysis is currently stubbed: analyzeTaskAccessFootprint
@@ -32,15 +31,8 @@ import (
 // Watch that on a representative workload: if retries are negligible, the fast path
 // was never needed. If they pile up, reintroduce it as compile-time footprint
 // metadata on the Program (the front-end-agnostic seam) — not an AST walk here.
-type propertyAccess struct {
-	obj  types.ObjID
-	name string
-}
-
 type accessFootprint struct {
-	propertyReads  map[propertyAccess]struct{}
-	propertyWrites map[propertyAccess]struct{}
-	unknown        bool
+	unknown bool
 }
 
 func unknownAccessFootprint() accessFootprint {
@@ -60,19 +52,6 @@ func analyzeTaskAccessFootprint(t *task.Task) accessFootprint {
 func accessFootprintsCommute(left, right accessFootprint) bool {
 	if left.unknown || right.unknown {
 		return false
-	}
-	for write := range left.propertyWrites {
-		if _, ok := right.propertyWrites[write]; ok {
-			return false
-		}
-		if _, ok := right.propertyReads[write]; ok {
-			return false
-		}
-	}
-	for write := range right.propertyWrites {
-		if _, ok := left.propertyReads[write]; ok {
-			return false
-		}
 	}
 	return true
 }

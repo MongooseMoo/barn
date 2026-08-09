@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
@@ -38,7 +37,7 @@ func BuildVMRegistry() *builtins.Registry {
 			lines = append(lines, arg.Str())
 		}
 
-		code := fmt.Sprintf("%s", joinLines(lines))
+		code := joinLines(lines)
 		prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), registry)
 		if len(diagnostics) > 0 {
 			return types.Ok(types.NewList([]types.Value{

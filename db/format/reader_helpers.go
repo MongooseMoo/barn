@@ -30,9 +30,7 @@ func readObjID(r *bufio.Reader) (types.ObjID, error) {
 		return 0, err
 	}
 	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, "#") {
-		line = line[1:]
-	}
+	line = strings.TrimPrefix(line, "#")
 	val, err := strconv.ParseInt(line, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse objid: %w", err)

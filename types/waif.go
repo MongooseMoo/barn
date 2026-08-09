@@ -97,15 +97,3 @@ func (v Value) PropertyNames() []string {
 }
 
 // equalMaps reports whether two property maps are equal.
-func equalMaps(a, b map[string]Value) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key, valA := range a {
-		valB, ok := b[key]
-		if !ok || !valA.Equal(valB) {
-			return false
-		}
-	}
-	return true
-}

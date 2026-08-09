@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Build & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+
+      - name: Staticcheck
+        run: staticcheck ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+  conformance:
+    name: MOO conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout barn
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build barn
+        run: go build -o barn ./cmd/barn/
+
+      # The conformance suite is the spec. It lives in its own repo and is a
+      # read-only dependency here; CI always runs barn against its latest tip.
+      - name: Checkout moo-conformance-tests
+        uses: actions/checkout@v4
+        with:
+          repository: MongooseMoo/moo-conformance-tests
+          ref: main
+          path: moo-conformance-tests
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # Managed mode: run the one supported default Linux/Test.db profile.
+      # The suite owns the working DB copy and switches to bundled startup DBs.
+      - name: Run conformance suite
+        run: |
+          uv run --project moo-conformance-tests --frozen moo-conformance \
+            -m "admission or conformance" \
+            --server-command "${{ github.workspace }}/barn --db {db} --listen tcp://127.0.0.1:{port} --config=${{ github.workspace }}/profiles/barn/outbound-on.conf --profile-id=barn-linux-testdb-outbound-on --profile-manifest={manifest}" \
+            --server-db="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/Test.db" \
+            --server-db-dir="${{ github.workspace }}/moo-conformance-tests/src/moo_conformance/_db/startup" \
+            --moo-host=127.0.0.1 \
+            --oracle-profile-manifest="${{ github.workspace }}/profiles/toast/stock-wsl-testdb.json" \
+            --fail-on-unexpected-skip \
+            --strict-markers \
+            --admission-evidence-output="${{ github.workspace }}/conformance-admission.json" \
+            --admission-evidence-context="barn-ci:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${GITHUB_SHA}:barn-linux-testdb-outbound-on" \
+            -q \
+            --junitxml="${{ github.workspace }}/conformance-results.xml"
+
+      - name: Upload conformance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-results
+          path: |
+            conformance-results.xml
+            conformance-admission.json
+          if-no-files-found: warn
