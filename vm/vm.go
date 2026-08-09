@@ -374,6 +374,7 @@ func (vm *VM) executeLoop() types.Result {
 			// Sync line numbers so task_stack() reports accurate lines
 			// for suspended tasks.
 			vm.syncTaskLineNumbers()
+			vm.clearDeadStackSlots()
 			return vm.yieldResult
 		}
 

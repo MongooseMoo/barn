@@ -45,6 +45,13 @@ func (vm *VM) PopN(n int) []types.Value {
 	return values
 }
 
+// clearDeadStackSlots releases references above the stack pointer. Pop stays
+// minimal because it is on the interpreter's hot path; clearing once when the
+// VM yields prevents a suspended task from retaining its stack high-water mark.
+func (vm *VM) clearDeadStackSlots() {
+	clear(vm.Stack[vm.SP:])
+}
+
 // FetchByte reads a byte from the current instruction stream.
 func (vm *VM) FetchByte() byte {
 	frame := vm.CurrentFrame()
