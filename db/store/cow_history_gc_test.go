@@ -1,10 +1,79 @@
 package store
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
 )
+
+// TestHistoryFloorDoesNotMissCompletedReaderDuringScan exercises the sharded
+// registry interleaving from issue #31. A floor scan is paused on shard 1 after
+// it has visited shard 0, then a reader whose timestamp belongs to shard 0 is
+// allowed to finish registering. If that reader completes before the scan
+// returns, the returned floor must include it; otherwise history needed by the
+// now-live reader can be pruned.
+func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
+	previousProcs := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previousProcs) })
+
+	store := NewStore()
+	const (
+		readerTS = uint64(readTSShardCount)     // shard 0
+		newerTS  = uint64(readTSShardCount + 2) // shard 2
+	)
+	store.registerReadTS(newerTS)
+	t.Cleanup(func() { store.deregisterReadTS(newerTS) })
+
+	blockedShard := &store.readTSShards[1]
+	blockedShard.mu.Lock()
+	shardLocked := true
+	t.Cleanup(func() {
+		if shardLocked {
+			blockedShard.mu.Unlock()
+		}
+	})
+
+	floorStarted := make(chan struct{})
+	floorDone := make(chan uint64, 1)
+	go func() {
+		close(floorStarted)
+		floorDone <- store.historyFloor()
+	}()
+	<-floorStarted
+	// With one P, the floor goroutine runs through shard 0 and blocks on the
+	// locked shard 1 before control returns here.
+	runtime.Gosched()
+
+	readerDone := make(chan *StoreTxn, 1)
+	go func() {
+		readerDone <- store.BeginReadOnly(readerTS)
+	}()
+	// On the broken implementation this registration completes in shard 0 even
+	// though the in-progress scan has already passed it. A correct implementation
+	// serializes registration with the scan, so completion waits until afterward.
+	runtime.Gosched()
+
+	var reader *StoreTxn
+	readerCompletedBeforeFloor := false
+	select {
+	case reader = <-readerDone:
+		readerCompletedBeforeFloor = true
+	default:
+	}
+
+	blockedShard.mu.Unlock()
+	shardLocked = false
+	floor := <-floorDone
+	if reader == nil {
+		reader = <-readerDone
+	}
+	reader.Release()
+
+	if readerCompletedBeforeFloor && floor > readerTS {
+		t.Fatalf("historyFloor() = %d after reader at %d completed registration, want <= %d", floor, readerTS, readerTS)
+	}
+}
 
 // historyLen returns the number of retained old versions for id (test-only).
 func (s *Store) historyLen(id types.ObjID) int {
