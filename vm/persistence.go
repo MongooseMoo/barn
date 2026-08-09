@@ -144,12 +144,13 @@ func cloneProgram(program *bytecode.Program) bytecode.Program {
 		return bytecode.Program{}
 	}
 	return bytecode.Program{
-		Code:      append([]byte(nil), program.Code...),
-		Constants: append([]types.Value(nil), program.Constants...),
-		VarNames:  append([]string(nil), program.VarNames...),
-		LineInfo:  append([]bytecode.LineEntry(nil), program.LineInfo...),
-		NumLocals: program.NumLocals,
-		Source:    append([]string(nil), program.Source...),
+		Code:         append([]byte(nil), program.Code...),
+		Constants:    append([]types.Value(nil), program.Constants...),
+		VarNames:     append([]string(nil), program.VarNames...),
+		LineInfo:     append([]bytecode.LineEntry(nil), program.LineInfo...),
+		NumLocals:    program.NumLocals,
+		Source:       append([]string(nil), program.Source...),
+		BuiltinSlots: program.BuiltinSlots,
 	}
 }
 

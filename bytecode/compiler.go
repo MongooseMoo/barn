@@ -334,6 +334,7 @@ func (c *Compiler) declareVariable(name string) int {
 	// Add to global variable table
 	c.program.VarNames = append(c.program.VarNames, name)
 	c.variables[name] = idx
+	c.program.BuiltinSlots.Set(name, idx)
 
 	// Track max locals
 	if idx+1 > c.program.NumLocals {

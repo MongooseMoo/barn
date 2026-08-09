@@ -54,17 +54,17 @@ func BuildVMRegistry() *builtins.Registry {
 			evalVM.Context = ctx
 			evalVM.TickLimit = 30000
 			frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
-			SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
-			SetLocalByName(frame, prog, "player", types.NewObj(ctx.Player))
-			SetLocalByName(frame, prog, "caller", types.NewObj(ctx.ThisObj))
-			SetLocalByName(frame, prog, "verb", types.NewStr(""))
-			SetLocalByName(frame, prog, "args", types.NewList([]types.Value{}))
-			SetLocalByName(frame, prog, "argstr", types.NewStr(""))
-			SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
-			SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
-			SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
-			SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
-			SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+			SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Caller, types.NewObj(ctx.ThisObj))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(""))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList([]types.Value{}))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
 			result := evalVM.ExecuteLoop()
 			if result.Flow == types.FlowException {
 				return types.Ok(types.NewList([]types.Value{types.NewInt(0), types.NewErr(result.Error)}))
@@ -102,17 +102,17 @@ func BuildVMRegistry() *builtins.Registry {
 			frame.Locals[i] = types.Unbound
 		}
 
-		SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
-		SetLocalByName(frame, prog, "player", types.NewObj(ctx.Player))
-		SetLocalByName(frame, prog, "caller", types.NewObj(ctx.ThisObj))
-		SetLocalByName(frame, prog, "verb", types.NewStr(""))
-		SetLocalByName(frame, prog, "args", types.NewList([]types.Value{}))
-		SetLocalByName(frame, prog, "argstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
-		SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+		SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Caller, types.NewObj(ctx.ThisObj))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList([]types.Value{}))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
 
 		ctx.ThisObj = types.ObjNothing
 		ctx.ThisValue = types.None

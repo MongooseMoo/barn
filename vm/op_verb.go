@@ -207,17 +207,17 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		frame.Locals[i] = types.Unbound
 	}
 
-	// Pre-populate built-in variables using VarNames.
+	// Pre-populate built-in variables using their compiler-resolved slots.
 	// For waif/primitive/anonymous targets, "this" is the actual value, not NewObj(objID).
 	if !thisValue.IsNone() {
-		SetLocalByName(frame, prog, "this", thisValue)
+		SetLocalBySlot(frame, prog.BuiltinSlots.This, thisValue)
 	} else {
-		SetLocalByName(frame, prog, "this", types.NewObj(objID))
+		SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(objID))
 	}
-	SetLocalByName(frame, prog, "verb", types.NewStr(lookupVerbName))
-	SetLocalByName(frame, prog, "caller", callerValue)
-	SetLocalByName(frame, prog, "args", types.NewList(args))
-	SetLocalByName(frame, prog, "player", types.NewObj(player))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(lookupVerbName))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, callerValue)
+	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
 
 	// Propagate command environment variables from the task's parsed command context.
 	// Only propagate real command context when NOT inside an eval() boundary.
@@ -231,20 +231,20 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
-			SetLocalByName(frame, prog, "argstr", types.NewStr(t.Argstr))
-			SetLocalByName(frame, prog, "dobjstr", types.NewStr(t.Dobjstr))
-			SetLocalByName(frame, prog, "iobjstr", types.NewStr(t.Iobjstr))
-			SetLocalByName(frame, prog, "prepstr", types.NewStr(t.Prepstr))
-			SetLocalByName(frame, prog, "dobj", types.NewObj(t.Dobj))
-			SetLocalByName(frame, prog, "iobj", types.NewObj(t.Iobj))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
+			SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
 		}
 	} else {
-		SetLocalByName(frame, prog, "argstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "dobjstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "iobjstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "prepstr", types.NewStr(""))
-		SetLocalByName(frame, prog, "dobj", types.NewObj(types.ObjNothing))
-		SetLocalByName(frame, prog, "iobj", types.NewObj(types.ObjNothing))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
 	}
 
 	// Update shared context for builtins
@@ -437,11 +437,11 @@ func (vm *VM) executePass() error {
 	}
 
 	// Pre-populate built-in variables
-	SetLocalByName(newFrame, prog, "this", passThis)
-	SetLocalByName(newFrame, prog, "verb", types.NewStr(verbName))
-	SetLocalByName(newFrame, prog, "caller", types.NewObj(frame.Caller))
-	SetLocalByName(newFrame, prog, "args", types.NewList(passArgs))
-	SetLocalByName(newFrame, prog, "player", types.NewObj(frame.Player))
+	SetLocalBySlot(newFrame, prog.BuiltinSlots.This, passThis)
+	SetLocalBySlot(newFrame, prog.BuiltinSlots.Verb, types.NewStr(verbName))
+	SetLocalBySlot(newFrame, prog.BuiltinSlots.Caller, types.NewObj(frame.Caller))
+	SetLocalBySlot(newFrame, prog.BuiltinSlots.Args, types.NewList(passArgs))
+	SetLocalBySlot(newFrame, prog.BuiltinSlots.Player, types.NewObj(frame.Player))
 
 	// pass() continues the same command, so propagate the command parsing
 	// variables to the inherited verb (matching the regular verb-dispatch path
@@ -455,20 +455,20 @@ func (vm *VM) executePass() error {
 	}
 	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
-			SetLocalByName(newFrame, prog, "argstr", types.NewStr(t.Argstr))
-			SetLocalByName(newFrame, prog, "dobjstr", types.NewStr(t.Dobjstr))
-			SetLocalByName(newFrame, prog, "iobjstr", types.NewStr(t.Iobjstr))
-			SetLocalByName(newFrame, prog, "prepstr", types.NewStr(t.Prepstr))
-			SetLocalByName(newFrame, prog, "dobj", types.NewObj(t.Dobj))
-			SetLocalByName(newFrame, prog, "iobj", types.NewObj(t.Iobj))
+			SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
+			SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
+			SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
+			SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
+			SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
+			SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
 		}
 	} else {
-		SetLocalByName(newFrame, prog, "argstr", types.NewStr(""))
-		SetLocalByName(newFrame, prog, "dobjstr", types.NewStr(""))
-		SetLocalByName(newFrame, prog, "iobjstr", types.NewStr(""))
-		SetLocalByName(newFrame, prog, "prepstr", types.NewStr(""))
-		SetLocalByName(newFrame, prog, "dobj", types.NewObj(types.ObjNothing))
-		SetLocalByName(newFrame, prog, "iobj", types.NewObj(types.ObjNothing))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(""))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(""))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(""))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(types.ObjNothing))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(types.ObjNothing))
 	}
 
 	// Update shared context for builtins

@@ -6,12 +6,55 @@ import (
 
 // Program represents compiled bytecode
 type Program struct {
-	Code      []byte        // Bytecode instructions
-	Constants []types.Value // Constant pool
-	VarNames  []string      // Variable name table
-	LineInfo  []LineEntry   // Source line mapping
-	NumLocals int           // Number of local variables
-	Source    []string      // Source lines (1-based by index+1), optional
+	Code         []byte        // Bytecode instructions
+	Constants    []types.Value // Constant pool
+	VarNames     []string      // Variable name table
+	LineInfo     []LineEntry   // Source line mapping
+	NumLocals    int           // Number of local variables
+	Source       []string      // Source lines (1-based by index+1), optional
+	BuiltinSlots BuiltinSlots  // One-based local slots for built-in variables (zero = unused)
+}
+
+// BuiltinSlots caches the local-variable slots populated when a verb frame is
+// created. Slots are stored one-based so the zero value means "not referenced".
+type BuiltinSlots struct {
+	This, Player, Caller, Verb, Args              int
+	Argstr, Dobjstr, Iobjstr, Prepstr, Dobj, Iobj int
+}
+
+// Set records the slot for a built-in variable. It returns false for ordinary
+// local variables.
+func (s *BuiltinSlots) Set(name string, slot int) bool {
+	encoded := slot + 1
+	var target *int
+	switch name {
+	case "this":
+		target = &s.This
+	case "player":
+		target = &s.Player
+	case "caller":
+		target = &s.Caller
+	case "verb":
+		target = &s.Verb
+	case "args":
+		target = &s.Args
+	case "argstr":
+		target = &s.Argstr
+	case "dobjstr":
+		target = &s.Dobjstr
+	case "iobjstr":
+		target = &s.Iobjstr
+	case "prepstr":
+		target = &s.Prepstr
+	case "dobj":
+		target = &s.Dobj
+	case "iobj":
+		target = &s.Iobj
+	default:
+		return false
+	}
+	*target = encoded
+	return true
 }
 
 // LineEntry maps bytecode IP to source line
@@ -95,12 +138,13 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	}
 
 	return &Program{
-		Code:      code,
-		Constants: p.Constants, // Share constants
-		VarNames:  p.VarNames,  // Share variable names
-		LineInfo:  lineInfo,
-		NumLocals: p.NumLocals, // Same local count (inherit all vars)
-		Source:    p.Source,
+		Code:         code,
+		Constants:    p.Constants, // Share constants
+		VarNames:     p.VarNames,  // Share variable names
+		LineInfo:     lineInfo,
+		NumLocals:    p.NumLocals, // Same local count (inherit all vars)
+		Source:       p.Source,
+		BuiltinSlots: p.BuiltinSlots,
 	}
 }
 
