@@ -396,14 +396,19 @@ func parseHTTPChunkedBody(data []byte, start int) (string, int, bool) {
 			}
 		}
 
-		if len(data[pos:]) < int(size)+2 {
+		// Check the attacker-controlled size before converting it to int or
+		// adding the trailing CRLF length. Either operation can overflow for a
+		// syntactically valid, very large chunk size.
+		remaining := len(data) - pos
+		if remaining < 2 || size > int64(remaining-2) {
 			return "", 0, false
 		}
-		body = append(body, data[pos:pos+int(size)]...)
-		if data[pos+int(size)] != '\r' || data[pos+int(size)+1] != '\n' {
+		chunkSize := int(size)
+		body = append(body, data[pos:pos+chunkSize]...)
+		if data[pos+chunkSize] != '\r' || data[pos+chunkSize+1] != '\n' {
 			return "", 0, false
 		}
-		pos += int(size) + 2
+		pos += chunkSize + 2
 	}
 }
 
@@ -560,34 +565,39 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []str
 
 	held := heldInputEnabled(player)
 
-	httpHeldInputState.mu.Lock()
-	state := httpHeldInputState.byPlayer[player]
-	if state != nil {
-		pruneHTTPWaitersLocked(state)
-	}
-	// An active read_http waiter owns incoming input: the line belongs to that
-	// read and must NOT also be held as a command. Otherwise read_http consumes
-	// it here while drainHeldCommands() later replays the same line as a command
-	// when hold-input is turned off (the http-cluster cascade bug).
-	hadWaiter := state != nil && len(state.waiters) > 0
+	hadWaiter, wakes, handled := func() (bool, []httpWake, bool) {
+		httpHeldInputState.mu.Lock()
+		defer httpHeldInputState.mu.Unlock()
 
-	if !held && !hadWaiter {
-		httpHeldInputState.mu.Unlock()
+		state := httpHeldInputState.byPlayer[player]
+		if state != nil {
+			pruneHTTPWaitersLocked(state)
+		}
+		// An active read_http waiter owns incoming input: the line belongs to that
+		// read and must NOT also be held as a command. Otherwise read_http consumes
+		// it here while drainHeldCommands() later replays the same line as a command
+		// when hold-input is turned off (the http-cluster cascade bug).
+		hadWaiter := state != nil && len(state.waiters) > 0
+
+		if !held && !hadWaiter {
+			return false, nil, false
+		}
+
+		state = getOrCreateHeldHTTPInput(player)
+		decoded, invalid := decodeBinaryString(line)
+		if invalid {
+			state.invalidCount++
+		} else if atFront {
+			state.buffer = append(append([]byte(nil), decoded...), state.buffer...)
+		} else {
+			state.buffer = append(state.buffer, decoded...)
+		}
+
+		return hadWaiter, collectHTTPWakeupsLocked(player, state), true
+	}()
+	if !handled {
 		return false, nil
 	}
-
-	state = getOrCreateHeldHTTPInput(player)
-	decoded, invalid := decodeBinaryString(line)
-	if invalid {
-		state.invalidCount++
-	} else if atFront {
-		state.buffer = append(append([]byte(nil), decoded...), state.buffer...)
-	} else {
-		state.buffer = append(state.buffer, decoded...)
-	}
-
-	wakes := collectHTTPWakeupsLocked(player, state)
-	httpHeldInputState.mu.Unlock()
 
 	for _, wake := range wakes {
 		wake.task.Resume(wake.value)
