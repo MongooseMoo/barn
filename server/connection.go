@@ -33,7 +33,6 @@ type Connection struct {
 	connectedAt     time.Time
 	ConnectionTime  time.Time // Set when login completes (zero means not yet logged in)
 	lastInput       time.Time
-	outputCounter   int
 	programming     *programmingMode
 	listenerObject  types.ObjID
 	listenerPort    int64
@@ -72,9 +71,6 @@ func NewConnection(id int64, transport Transport) *Connection {
 
 // Send sends a message to the connection immediately
 func (c *Connection) Send(message string) error {
-	c.mu.Lock()
-	c.outputCounter++
-	c.mu.Unlock()
 	return c.transport.WriteLine(message)
 }
 
@@ -83,7 +79,6 @@ func (c *Connection) Buffer(message string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.outputBuffer = append(c.outputBuffer, message)
-	c.outputCounter++
 }
 
 // Flush flushes the output buffer
@@ -208,7 +203,7 @@ func (c *Connection) GetOutputSuffix() string {
 func (c *Connection) BufferedOutputLength() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.outputCounter
+	return len(c.outputBuffer)
 }
 
 // ConnectedSeconds returns how long the connection has been active.

@@ -59,3 +59,27 @@ func TestProxiedIPRewritesRemoteAddr(t *testing.T) {
 		t.Fatalf("post-proxy RemoteAddr = %q, want 203.0.113.5:7777", got)
 	}
 }
+
+func TestBufferedOutputLengthTracksQueuedLines(t *testing.T) {
+	conn := NewConnection(1, stubTransport{})
+
+	if err := conn.Send("immediate"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got := conn.BufferedOutputLength(); got != 0 {
+		t.Fatalf("BufferedOutputLength after Send = %d, want 0", got)
+	}
+
+	conn.Buffer("first")
+	conn.Buffer("second")
+	if got := conn.BufferedOutputLength(); got != 2 {
+		t.Fatalf("BufferedOutputLength before Flush = %d, want 2", got)
+	}
+
+	if err := conn.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if got := conn.BufferedOutputLength(); got != 0 {
+		t.Fatalf("BufferedOutputLength after Flush = %d, want 0", got)
+	}
+}
