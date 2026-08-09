@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -40,7 +41,7 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 			ThisValue:       frame.ThisValue,
 			Player:          frame.Player,
 			Verb:            frame.Verb,
-			StoredVerb:      frame.StoredVerb,
+			StoredVerb:      storedVerbName(frame),
 			Caller:          frame.Caller,
 			VerbLoc:         frame.VerbLoc,
 			Args:            append([]types.Value(nil), frame.Args...),
@@ -70,6 +71,13 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 		snapshot.Frames = append(snapshot.Frames, saved)
 	}
 	return snapshot
+}
+
+func storedVerbName(frame *StackFrame) string {
+	if frame.StoredVerb != "" {
+		return frame.StoredVerb
+	}
+	return strings.Join(frame.StoredVerbNames, " ")
 }
 
 // RestoreVMSnapshot reconstructs a yielded VM from checkpoint state.

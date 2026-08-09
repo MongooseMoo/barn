@@ -110,6 +110,7 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 			Caller:          frame.Caller,
 			Verb:            frame.Verb,
 			StoredVerb:      frame.StoredVerb,
+			StoredVerbNames: frame.StoredVerbNames,
 			VerbLoc:         frame.VerbLoc,
 			Args:            frame.Args,
 			LineNumber:      line,

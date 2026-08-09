@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
@@ -87,8 +86,6 @@ func BuildVMRegistry() *builtins.Registry {
 			Caller:          ctx.ThisObj,
 			VerbLoc:         types.ObjNothing,
 			Args:            []types.Value{},
-			LoopStack:       make([]bytecode.LoopState, 0, 4),
-			ExceptStack:     make([]bytecode.Handler, 0, 4),
 			IsEvalFrame:     true,
 			VerbDebug:       true,
 			SavedThisObj:    ctx.ThisObj,

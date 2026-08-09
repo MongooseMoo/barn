@@ -31,8 +31,8 @@ func tbFrames(stack []task.ActivationFrame) []tbFrame {
 
 		// Match FormatTraceback's naming: the stored name spec, or the eval marker.
 		verbName := frame.Verb
-		if frame.StoredVerb != "" {
-			verbName = frame.StoredVerb
+		if storedVerb := frame.TracebackVerb(); storedVerb != "" {
+			verbName = storedVerb
 		}
 		if frame.IsEvalFrame {
 			verbName = "Input to EVAL"

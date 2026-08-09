@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime/debug"
-	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/compiler"
@@ -131,7 +130,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
 	frame.IsVerbCall = true
 	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)
-	frame.StoredVerb = strings.Join(verb.Names, " ")
+	frame.StoredVerbNames = verb.Names
 	frame.SavedThisObj = savedThisObj
 	frame.SavedThisValue = savedThisValue
 	frame.SavedVerb = savedVerb

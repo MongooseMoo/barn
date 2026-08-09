@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
@@ -187,12 +186,10 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		ThisValue:       thisValue,
 		Player:          player,
 		Verb:            lookupVerbName,
-		StoredVerb:      strings.Join(verb.Names, " "),
+		StoredVerbNames: verb.Names,
 		Caller:          callerObj,
 		VerbLoc:         defObjID,
 		Args:            args,
-		LoopStack:       make([]bytecode.LoopState, 0, 4),
-		ExceptStack:     make([]bytecode.Handler, 0, 4),
 		IsVerbCall:      true,
 		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
 		SavedThisObj:    savedThisObj,
@@ -416,12 +413,10 @@ func (vm *VM) executePass() error {
 		ThisValue:       passThisValue,
 		Player:          frame.Player,
 		Verb:            verbName,
-		StoredVerb:      strings.Join(verb.Names, " "),
+		StoredVerbNames: verb.Names,
 		Caller:          frame.Caller,
 		VerbLoc:         defObjID,
 		Args:            passArgs,
-		LoopStack:       make([]bytecode.LoopState, 0, 4),
-		ExceptStack:     make([]bytecode.Handler, 0, 4),
 		IsVerbCall:      true,
 		VerbDebug:       verb.Perms.Has(dbstore.VerbDebug),
 		SavedThisObj:    savedThisObj,
