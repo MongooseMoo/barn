@@ -543,7 +543,7 @@ func builtinRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Mark this task as reading from the player
-	t.ReadingPlayer = player
+	t.SetReadingPlayer(player)
 
 	// Suspend indefinitely — will be resumed when input arrives
 	mgr := taskManagerOf(ctx)

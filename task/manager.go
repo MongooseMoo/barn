@@ -147,7 +147,7 @@ func (m *Manager) FindReadingTask(player types.ObjID) *Task {
 	defer m.mu.RUnlock()
 
 	for _, t := range m.tasks {
-		if t.GetState() == TaskSuspended && t.ReadingPlayer == player {
+		if t.IsReadingFrom(player) {
 			return t
 		}
 	}

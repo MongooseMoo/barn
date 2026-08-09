@@ -597,9 +597,7 @@ retryAttempt:
 	// Fire the terminal-completion callback (if any) exactly once. This branch
 	// is only reached on terminal completion — a suspend returns earlier (the
 	// FlowSuspend block above), so OnComplete never fires on a read() yield.
-	if t.OnComplete != nil {
-		cb := t.OnComplete
-		t.OnComplete = nil
+	if cb := t.TakeOnComplete(); cb != nil {
 		cb(result)
 	}
 	return nil

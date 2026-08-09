@@ -190,6 +190,44 @@ type Task struct {
 	mu sync.RWMutex
 }
 
+// ReadingPlayerValue returns the player whose input this task is waiting for.
+func (t *Task) ReadingPlayerValue() types.ObjID {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.ReadingPlayer
+}
+
+// SetReadingPlayer records the player whose input this task is waiting for.
+func (t *Task) SetReadingPlayer(player types.ObjID) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ReadingPlayer = player
+}
+
+// IsReadingFrom reports whether the task is suspended waiting for player input.
+func (t *Task) IsReadingFrom(player types.ObjID) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.State == TaskSuspended && t.ReadingPlayer == player
+}
+
+// SetOnComplete installs the callback invoked when the task terminates.
+func (t *Task) SetOnComplete(onComplete func(Result types.Result)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.OnComplete = onComplete
+}
+
+// TakeOnComplete atomically removes and returns the terminal callback.
+// A nil return means that no callback is pending.
+func (t *Task) TakeOnComplete() func(Result types.Result) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	onComplete := t.OnComplete
+	t.OnComplete = nil
+	return onComplete
+}
+
 // CloseDone closes the task's Done channel exactly once. It is a no-op when
 // Done is nil or has already been closed, so callers may invoke it on every
 // terminal-state transition without risking a close-of-closed-channel panic.
