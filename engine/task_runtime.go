@@ -268,7 +268,7 @@ retryAttempt:
 			// verb's stored name spec (incl. wildcards) for printed tracebacks.
 			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil {
 				frame.VerbDebug = taskVerb.Perms.Has(dbstore.VerbDebug)
-				frame.StoredVerb = strings.Join(taskVerb.Names, " ")
+				frame.StoredVerbNames = taskVerb.Names
 			}
 
 			// Set verb context variables

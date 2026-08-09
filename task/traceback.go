@@ -32,8 +32,8 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
 		// whose traceback uses db_verb_names while callers()/task_stack() use the
 		// invoked name. The eval'd-code activation is shown as "Input to EVAL".
 		verbName := frame.Verb
-		if frame.StoredVerb != "" {
-			verbName = frame.StoredVerb
+		if storedVerb := frame.TracebackVerb(); storedVerb != "" {
+			verbName = storedVerb
 		}
 		if frame.IsEvalFrame {
 			verbName = "Input to EVAL"

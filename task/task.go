@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,7 @@ type ActivationFrame struct {
 	Caller           types.ObjID   // Object that called this verb
 	Verb             string        // Verb name as invoked (callers()/task_stack())
 	StoredVerb       string        // Verb's stored name spec incl. wildcards; used by printed tracebacks
+	StoredVerbNames  []string      // Lazy form used by live frames; immutable verb storage owns the backing array
 	VerbLoc          types.ObjID   // Object where verb is defined
 	Args             []types.Value // Arguments passed to verb
 	LineNumber       int           // Current line number in verb
@@ -73,6 +75,15 @@ type ActivationFrame struct {
 	SourceLine       string        // Source text at LineNumber (best-effort, for debugging/logging)
 	ServerInitiated  bool          // True if this is a server-invoked call (do_login_command, etc.)
 	IsEvalFrame      bool          // True if this is an eval() infrastructure frame (excluded from tracebacks)
+}
+
+// TracebackVerb returns the stored verb name spec without requiring callers to
+// know whether the frame came from live execution or a persisted checkpoint.
+func (a *ActivationFrame) TracebackVerb() string {
+	if a.StoredVerb != "" {
+		return a.StoredVerb
+	}
+	return strings.Join(a.StoredVerbNames, " ")
 }
 
 // ToList converts an activation frame to a MOO list for callers()
