@@ -136,6 +136,23 @@ func TestParseHTTPResponseChunked(t *testing.T) {
 	}
 }
 
+func TestParseHTTPChunkedBodyRejectsOverflowingSize(t *testing.T) {
+	data := []byte("7FFFFFFFFFFFFFFF\r\nAAAA\r\n0\r\n\r\n")
+	if body, consumed, complete := parseHTTPChunkedBody(data, 0); complete {
+		t.Fatalf("unexpected complete parse: body %q, consumed %d", body, consumed)
+	}
+}
+
+func FuzzParseHTTPChunkedBody(f *testing.F) {
+	f.Add([]byte("7FFFFFFFFFFFFFFF\r\nAAAA\r\n0\r\n\r\n"))
+	f.Add([]byte("4\r\nWiki\r\n0\r\n\r\n"))
+	f.Add([]byte("FFFFFFFFFFFFFFFF\r\n"))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		parseHTTPChunkedBody(data, 0)
+	})
+}
+
 func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 	player := types.ObjID(7)
 	resetHTTPTestState(player)
