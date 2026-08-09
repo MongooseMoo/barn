@@ -64,6 +64,13 @@ func (s *Store) Snapshot() Snapshot {
 // is additionally seeded by values persisted outside the object store, and
 // returns the same plan's value rewriter for those external surfaces.
 func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueRewriter) {
+	// A decentralized commit publishes each object image separately while holding
+	// commitGate for reading. Exclude commits for the complete snapshot walk so a
+	// checkpoint can never combine images from opposite sides of one transaction.
+	// Keep the established lock order (commitGate, then s.mu) used by Commit.
+	s.commitGate.Lock()
+	defer s.commitGate.Unlock()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
