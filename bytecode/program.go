@@ -76,9 +76,10 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	copy(code, p.Code[bodyIP:bodyIP+bodyLen])
 	code[bodyLen] = byte(OP_RETURN_NONE) // Implicit return at end of fork body
 
-	// OP_TRY_EXCEPT / OP_TRY_FINALLY operands are ABSOLUTE handler IPs in the
-	// parent program's coordinates; the extracted body starts at 0, so they
-	// must be rebased or the handler jump lands outside the sub-program.
+	// OP_TRY_EXCEPT / OP_TRY_FINALLY / OP_END_FINALLY operands are ABSOLUTE
+	// handler IPs in the parent program's coordinates; the extracted body starts
+	// at 0, so they must be rebased or identify the wrong handler in the
+	// sub-program.
 	// Relative operands (OP_JUMP family) need no adjustment.
 	rebaseAbsoluteHandlerIPs(code[:bodyLen], bodyIP)
 
@@ -105,10 +106,10 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 
 // rebaseAbsoluteHandlerIPs walks the instruction stream and subtracts bodyIP
 // from every absolute handler target: the per-clause handler IP of
-// OP_TRY_EXCEPT and the finally IP of OP_TRY_FINALLY. Nested fork bodies in
-// the range are rebased into this program's coordinates too; a later
-// extraction of the nested body subtracts its own bodyIP, which composes to
-// the correct final coordinates.
+// OP_TRY_EXCEPT and the finally IP of OP_TRY_FINALLY / OP_END_FINALLY. Nested
+// fork bodies in the range are rebased into this program's coordinates too; a
+// later extraction of the nested body subtracts its own bodyIP, which composes
+// to the correct final coordinates.
 func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) {
 	for ip := 0; ip < len(code); {
 		op := OpCode(code[ip])
@@ -118,7 +119,7 @@ func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) {
 			operandCount = len(code) - ip
 		}
 		switch op {
-		case OP_TRY_FINALLY:
+		case OP_TRY_FINALLY, OP_END_FINALLY:
 			if operandCount == 2 {
 				rebaseShort(code, ip, bodyIP)
 			}

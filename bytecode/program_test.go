@@ -80,3 +80,20 @@ func TestExtractForkBodyRebasesMultiClauseAndFinallyIPs(t *testing.T) {
 		t.Errorf("TRY_FINALLY IP = %d, want 50", got)
 	}
 }
+
+func TestExtractForkBodyRebasesEndFinallyHandlerIP(t *testing.T) {
+	const bodyIP = 9
+	const handlerAbs = bodyIP + 12
+	hi, lo := encodeShort(handlerAbs)
+	body := []byte{
+		byte(OP_END_FINALLY), hi, lo,
+		byte(OP_POP),
+	}
+	parent := &Program{Code: append(make([]byte, bodyIP), body...)}
+
+	sub := parent.ExtractForkBody(bodyIP, len(body))
+
+	if got := decodeShort(sub.Code[1], sub.Code[2]); got != handlerAbs-bodyIP {
+		t.Errorf("END_FINALLY handler IP = %d, want %d", got, handlerAbs-bodyIP)
+	}
+}
