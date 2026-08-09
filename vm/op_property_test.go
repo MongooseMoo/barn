@@ -126,9 +126,11 @@ func TestBuiltinPropertyErrorOrdering(t *testing.T) {
 func TestBuiltinPropertyProtectionOption(t *testing.T) {
 	store := builtinPropertyTestStore(t, false)
 	options := dbstore.NewObject(3, 0)
-	options.SetProperty("protect_r", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true))
 	if err := store.Add(options); err != nil {
 		t.Fatalf("Add server options: %v", err)
+	}
+	if errCode := store.DefineProperty(3, "protect_r", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty(protect_r): %v", errCode)
 	}
 	if errCode := store.DefineProperty(0, "server_options", dbstore.NewProperty(types.NewObj(3), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty(server_options): %v", errCode)
@@ -147,14 +149,13 @@ func builtinPropertyTestStore(t *testing.T, user bool) *dbstore.Store {
 	store := dbstore.NewStore()
 	for _, id := range []types.ObjID{0, 1, 2} {
 		obj := dbstore.NewObject(id, id)
-		if id == 1 {
-			obj.SetOwner(1)
-			if user {
-				obj.SetFlags(dbstore.FlagUser)
-			}
-		}
 		if err := store.Add(obj); err != nil {
 			t.Fatalf("Add(%d): %v", id, err)
+		}
+		if id == 1 && user {
+			if errCode := store.SetObjectFlag(id, dbstore.FlagUser, true); errCode != types.E_NONE {
+				t.Fatalf("SetObjectFlag(%d): %v", id, errCode)
+			}
 		}
 	}
 	return store
