@@ -5,6 +5,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -40,4 +41,122 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 	if !handled || errCode != types.E_PERM {
 		t.Fatalf("setBuiltinProperty(last_move) = (%v, %v), want (true, E_PERM)", handled, errCode)
 	}
+}
+
+func TestBuiltinPropertyWritePermissions(t *testing.T) {
+	tests := []struct {
+		name  string
+		value types.Value
+	}{
+		{"name", types.NewStr("renamed")},
+		{"owner", types.NewObj(2)},
+		{"programmer", types.NewInt(1)},
+		{"wizard", types.NewInt(1)},
+		{"r", types.NewInt(1)},
+		{"w", types.NewInt(1)},
+		{"f", types.NewInt(1)},
+		{"a", types.NewInt(1)},
+		{"location", types.NewObj(1)},
+		{"contents", types.NewList(nil)},
+		{"last_move", types.NewMap(nil)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := builtinPropertyTestStore(t, false)
+			ctx := &kernel.TaskContext{Programmer: 2, Store: store}
+			handled, errCode := setBuiltinProperty(store, nil, 1, tt.name, tt.value, ctx)
+			if !handled || errCode != types.E_PERM {
+				t.Fatalf("setBuiltinProperty(%q) = (%v, %v), want (true, E_PERM)", tt.name, handled, errCode)
+			}
+		})
+	}
+}
+
+func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
+	for _, name := range []string{"name", "r", "w", "f", "a"} {
+		t.Run("owner_can_set_"+name, func(t *testing.T) {
+			store := builtinPropertyTestStore(t, false)
+			value := types.NewInt(1)
+			if name == "name" {
+				value = types.NewStr("renamed")
+			}
+			if _, errCode := setBuiltinProperty(store, nil, 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_NONE {
+				t.Fatalf("owner setting %q returned %v", name, errCode)
+			}
+		})
+	}
+
+	for _, name := range []string{"owner", "programmer", "wizard"} {
+		t.Run("owner_cannot_set_"+name, func(t *testing.T) {
+			store := builtinPropertyTestStore(t, false)
+			value := types.NewInt(1)
+			if name == "owner" {
+				value = types.NewObj(2)
+			}
+			if _, errCode := setBuiltinProperty(store, nil, 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+				t.Fatalf("owner setting %q returned %v, want E_PERM", name, errCode)
+			}
+		})
+	}
+
+	store := builtinPropertyTestStore(t, true)
+	if _, errCode := setBuiltinProperty(store, nil, 1, "name", types.NewStr("renamed"), &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+		t.Fatalf("owner renaming player returned %v, want E_PERM", errCode)
+	}
+	wizard := &kernel.TaskContext{Programmer: 0, IsWizard: true, Store: store}
+	if _, errCode := setBuiltinProperty(store, nil, 1, "wizard", types.NewInt(1), wizard); errCode != types.E_NONE {
+		t.Fatalf("wizard setting wizard returned %v", errCode)
+	}
+}
+
+func TestBuiltinPropertyErrorOrdering(t *testing.T) {
+	store := builtinPropertyTestStore(t, false)
+	nonWizard := &kernel.TaskContext{Programmer: 2, Store: store}
+	if _, errCode := setBuiltinProperty(store, nil, 1, "owner", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
+		t.Fatalf("invalid owner value returned %v, want E_TYPE before E_PERM", errCode)
+	}
+	if _, errCode := setBuiltinProperty(store, nil, 1, "name", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
+		t.Fatalf("invalid name value returned %v, want E_TYPE before E_PERM", errCode)
+	}
+	if _, errCode := setBuiltinProperty(store, nil, 1, "wizard", types.NewStr("truthy"), nonWizard); errCode != types.E_PERM {
+		t.Fatalf("non-wizard wizard assignment returned %v, want E_PERM before value handling", errCode)
+	}
+}
+
+func TestBuiltinPropertyProtectionOption(t *testing.T) {
+	store := builtinPropertyTestStore(t, false)
+	options := dbstore.NewObject(3, 0)
+	if err := store.Add(options); err != nil {
+		t.Fatalf("Add server options: %v", err)
+	}
+	if errCode := store.DefineProperty(3, "protect_r", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty(protect_r): %v", errCode)
+	}
+	if errCode := store.DefineProperty(0, "server_options", dbstore.NewProperty(types.NewObj(3), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty(server_options): %v", errCode)
+	}
+	builtins.LoadProtectedBuiltinsFromStore(store)
+	t.Cleanup(func() { builtins.LoadProtectedBuiltinsFromStore(nil) })
+
+	ctx := &kernel.TaskContext{Programmer: 1, Store: store}
+	if _, errCode := setBuiltinProperty(store, nil, 1, "r", types.NewInt(1), ctx); errCode != types.E_PERM {
+		t.Fatalf("owner setting protected r returned %v, want E_PERM", errCode)
+	}
+}
+
+func builtinPropertyTestStore(t *testing.T, user bool) *dbstore.Store {
+	t.Helper()
+	store := dbstore.NewStore()
+	for _, id := range []types.ObjID{0, 1, 2} {
+		obj := dbstore.NewObject(id, id)
+		if err := store.Add(obj); err != nil {
+			t.Fatalf("Add(%d): %v", id, err)
+		}
+		if id == 1 && user {
+			if errCode := store.SetObjectFlag(id, dbstore.FlagUser, true); errCode != types.E_NONE {
+				t.Fatalf("SetObjectFlag(%d): %v", id, errCode)
+			}
+		}
+	}
+	return store
 }
