@@ -124,3 +124,11 @@ func SetLocalByName(frame *StackFrame, prog *bytecode.Program, name string, valu
 		}
 	}
 }
+
+// SetLocalBySlot sets a compiler-resolved, one-based local slot. A zero slot
+// means the program does not reference that built-in variable.
+func SetLocalBySlot(frame *StackFrame, slot int, value types.Value) {
+	if slot != 0 {
+		frame.Locals[slot-1] = value
+	}
+}

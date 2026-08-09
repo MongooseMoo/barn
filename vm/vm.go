@@ -146,11 +146,11 @@ func (vm *VM) RunWithVerbContext(prog *bytecode.Program, thisObj types.ObjID, pl
 	frame := vm.PrepareVerbFrame(prog, thisObj, player, caller, verbName, verbLoc, args)
 
 	// Pre-populate verb context variables
-	SetLocalByName(frame, prog, "this", types.NewObj(thisObj))
-	SetLocalByName(frame, prog, "player", types.NewObj(player))
-	SetLocalByName(frame, prog, "caller", types.NewObj(caller))
-	SetLocalByName(frame, prog, "verb", types.NewStr(verbName))
-	SetLocalByName(frame, prog, "args", types.NewList(args))
+	SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(thisObj))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(player))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Caller, types.NewObj(caller))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Verb, types.NewStr(verbName))
+	SetLocalBySlot(frame, prog.BuiltinSlots.Args, types.NewList(args))
 	vm.syncContextTicks()
 
 	return vm.executeLoop()
