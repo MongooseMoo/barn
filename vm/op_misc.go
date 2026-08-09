@@ -45,6 +45,11 @@ func (vm *VM) executeCallBuiltin() error {
 
 	// Call builtin
 	result := vm.Builtins.CallByID(int(funcID), vm.Context, args)
+	if vm.Context != nil && vm.Context.BuiltinTicksConsumed != 0 {
+		vm.Ticks += vm.Context.BuiltinTicksConsumed
+		vm.Context.BuiltinTicksConsumed = 0
+		vm.syncContextTicks()
+	}
 
 	// Clear CallerVM after the call
 	if vm.Context != nil {

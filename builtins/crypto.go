@@ -351,11 +351,54 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
 
 	// Determine algorithm from salt prefix
+	bcryptCost, shaRounds, errCode := cryptWork(salt)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	maxBcryptCost, maxSHARounds := GetCryptWorkLimits()
+	if pending := pendingServerOptions(ctx); pending != nil {
+		maxBcryptCost = pending.MaxCryptBcryptCost
+		maxSHARounds = pending.MaxCryptSHARounds
+	}
+	if bcryptCost > maxBcryptCost || shaRounds > maxSHARounds {
+		return types.Err(types.E_QUOTA)
+	}
+	// Charge work before starting it. One tick represents 1,000 SHA rounds or
+	// one bcrypt cost-4 work unit, so expensive hashes participate in the
+	// task's existing tick budget instead of hiding behind a single opcode.
+	workTicks := int64((shaRounds + 999) / 1000)
+	if bcryptCost >= 4 {
+		workTicks = int64(1) << (bcryptCost - 4)
+	}
+	if !ctx.ChargeBuiltinTicks(workTicks) {
+		return types.Err(types.E_QUOTA)
+	}
+
 	result, errCode := cryptPasswordWithPerm(password, salt, playerIsWizard)
 	if errCode != 0 {
 		return types.Err(errCode)
 	}
 	return types.Ok(types.NewStr(result))
+}
+
+// cryptWork returns the caller-controlled work factor encoded in salt.
+func cryptWork(salt string) (bcryptCost, shaRounds int, errCode types.ErrorCode) {
+	if strings.HasPrefix(salt, "$2a$") || strings.HasPrefix(salt, "$2x$") || strings.HasPrefix(salt, "$2y$") {
+		cost, err := parseBcryptPrefixCost(salt)
+		if err != nil {
+			return 0, 0, types.E_INVARG
+		}
+		return cost, 0, types.E_NONE
+	}
+	if strings.HasPrefix(salt, "$5$") {
+		_, rounds, _ := parseCryptSalt(salt, "$5$", true, shaCryptSaltLenMax)
+		return 0, rounds, types.E_NONE
+	}
+	if strings.HasPrefix(salt, "$6$") {
+		_, rounds, _ := parseCryptSalt(salt, "$6$", true, shaCryptSaltLenMax)
+		return 0, rounds, types.E_NONE
+	}
+	return 0, 0, types.E_NONE
 }
 
 // cryptPasswordWithPerm implements crypt with algorithm detection and permission checking
