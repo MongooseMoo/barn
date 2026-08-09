@@ -8,6 +8,27 @@ import (
 
 // Comparison operations
 
+func boolIntEqual(left, right types.Value) (bool, bool) {
+	leftIsBool := left.Type() == types.TYPE_BOOL
+	rightIsBool := right.Type() == types.TYPE_BOOL
+	leftIsInt := left.Type() == types.TYPE_INT
+	rightIsInt := right.Type() == types.TYPE_INT
+
+	if leftIsBool && rightIsInt {
+		if left.Bool() {
+			return right.Int() == 1, true
+		}
+		return right.Int() == 0, true
+	}
+	if leftIsInt && rightIsBool {
+		if right.Bool() {
+			return left.Int() == 1, true
+		}
+		return left.Int() == 0, true
+	}
+	return false, false
+}
+
 func (vm *VM) executeEq() error {
 	b := vm.Pop()
 	a := vm.Pop()
