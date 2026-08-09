@@ -2,8 +2,10 @@ package server
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -24,6 +26,39 @@ func (f *fakeConn) SetWriteDeadline(t time.Time) error { return nil }
 func newTestTransport(data []byte) *TCPTransport {
 	conn := &fakeConn{bytes.NewReader(data)}
 	return NewTCPTransport(conn)
+}
+
+func TestPipeTransportConcurrentSendAndClose(t *testing.T) {
+	transport := NewPipeTransport()
+
+	const senders = 256
+	var wg sync.WaitGroup
+	wg.Add(senders)
+	for range senders {
+		go func() {
+			defer wg.Done()
+			_ = transport.Send("input")
+		}()
+	}
+	wg.Add(senders)
+	for range senders {
+		go func() {
+			defer wg.Done()
+			_ = transport.WriteLine("output")
+		}()
+	}
+
+	if err := transport.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	wg.Wait()
+
+	if err := transport.Send("after close"); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Send() after Close() error = %v, want %v", err, net.ErrClosed)
+	}
+	if err := transport.WriteLine("after close"); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("WriteLine() after Close() error = %v, want %v", err, net.ErrClosed)
+	}
 }
 
 func TestReadLinePlainText(t *testing.T) {
