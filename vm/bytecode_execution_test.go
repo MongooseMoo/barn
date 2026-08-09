@@ -774,6 +774,42 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 	requireInt(t, runBytecodeProgram(t, `suspend(0); return 9;`, nil, nil), 9)
 }
 
+func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
+	store := dbstore.NewStore()
+	registry := BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
+	ctx := kernel.NewTaskContext()
+	ctx.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+
+	program, diagnostics := compiler.CompileMOO([]string{`suspend(); return 9;`}, registry)
+	if len(diagnostics) > 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
+	}
+
+	machine := NewVM(store, registry)
+	machine.Context = ctx
+	// Model a stack that previously grew past its current live region. These
+	// reference-bearing values must not remain reachable while the VM sleeps.
+	machine.Stack = []types.Value{
+		types.NewStr("dead 1"),
+		types.NewStr("dead 2"),
+		types.NewStr("dead 3"),
+	}
+	machine.SP = 0
+
+	if result := machine.Run(program); result.Flow != types.FlowSuspend {
+		t.Fatalf("result = %#v, want suspend", result)
+	}
+	if len(machine.Stack) <= machine.SP {
+		t.Fatalf("stack len = %d, SP = %d; test did not create dead slots", len(machine.Stack), machine.SP)
+	}
+	for i := machine.SP; i < len(machine.Stack); i++ {
+		if !machine.Stack[i].Equal(types.Value{}) {
+			t.Errorf("dead stack slot %d = %v, want cleared value", i, machine.Stack[i])
+		}
+	}
+}
+
 func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
