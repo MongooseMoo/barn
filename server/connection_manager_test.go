@@ -819,6 +819,49 @@ func TestAcceptedConnectionIsPublishedWithListenerMetadata(t *testing.T) {
 	}
 }
 
+func TestOpenNetworkConnectionMatchesDialedSocket(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	cm := NewConnectionManager(7777)
+	accepted := make(chan *Connection, 1)
+	go func() {
+		socket, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		// Publish an unrelated connection first, reproducing the race where
+		// the lowest newly allocated connection ID belongs to another player.
+		cm.NewConnectionFromTransport(newRecordingTransport("innocent-player"))
+		accepted <- cm.NewConnectionFromTransport(NewTCPTransport(socket))
+	}()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	handle, err := cm.OpenNetworkConnection(addr.IP.String(), int64(addr.Port))
+	if err != nil {
+		t.Fatalf("OpenNetworkConnection: %v", err)
+	}
+	dialed := <-accepted
+	defer cm.detachOutboundClient(dialed.ID)
+
+	if want := types.ObjID(-dialed.ID); handle != want {
+		t.Fatalf("outbound handle = %d, want matched connection %d", handle, want)
+	}
+	if !dialed.IsOutbound() {
+		t.Fatal("matched connection was not marked outbound")
+	}
+	innocent := cm.connections[dialed.ID-1]
+	if innocent == nil {
+		t.Fatal("unrelated connection was not published")
+	}
+	if innocent.IsOutbound() {
+		t.Fatal("unrelated connection was marked outbound")
+	}
+}
+
 func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
 	cert := selfSignedCertificate(t)
 	setupConn := newSetupBlockingConn()
