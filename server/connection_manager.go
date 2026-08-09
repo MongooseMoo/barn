@@ -284,15 +284,26 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 
 // acceptConnections accepts incoming connections
 func (cm *ConnectionManager) acceptConnections(record *listenerRecord) {
+	var retryDelay time.Duration
 	for {
 		socket, err := record.listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
-			slog.Warn("accept error", slog.Any("err", err))
+			if retryDelay == 0 {
+				retryDelay = 5 * time.Millisecond
+			} else {
+				retryDelay *= 2
+			}
+			if max := time.Second; retryDelay > max {
+				retryDelay = max
+			}
+			slog.Warn("accept error; retrying", slog.Any("err", err), slog.Duration("retry_delay", retryDelay))
+			time.Sleep(retryDelay)
 			continue
 		}
+		retryDelay = 0
 
 		cm.mu.Lock()
 		if cm.closing {
