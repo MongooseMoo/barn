@@ -56,3 +56,15 @@ func (r *randomGenerator) int64N(n int64) int64 {
 	defer r.mu.Unlock()
 	return r.random.Int64N(n)
 }
+
+func (r *randomGenerator) uint64N(n uint64) uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.random.Uint64N(n)
+}
+
+func (r *randomGenerator) uint64() uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.random.Uint64()
+}

@@ -24,6 +24,8 @@ func builtinAbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	switch args[0].Type() {
 	case types.TYPE_INT:
 		if args[0].Int() < 0 {
+			// Deliberately preserve two's-complement overflow for MinInt64;
+			// Toast's bf_abs has the same behavior.
 			return types.Ok(types.NewInt(-args[0].Int()))
 		}
 		return types.Ok(args[0])
@@ -137,7 +139,17 @@ func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		if minV > maxV {
 			return types.Err(types.E_INVARG)
 		}
-		return types.Ok(types.NewInt(minV + sharedRandom.int64N(maxV-minV+1)))
+
+		// Compute the inclusive width in unsigned arithmetic. A zero width means
+		// the range spans all 2^64 int64 bit patterns.
+		width := uint64(maxV) - uint64(minV) + 1
+		var offset uint64
+		if width == 0 {
+			offset = sharedRandom.uint64()
+		} else {
+			offset = sharedRandom.uint64N(width)
+		}
+		return types.Ok(types.NewInt(int64(uint64(minV) + offset)))
 
 	default:
 		return types.Err(types.E_ARGS)

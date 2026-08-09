@@ -4,6 +4,7 @@ import (
 	"bytes"
 	cryptorand "crypto/rand"
 	"errors"
+	"math"
 	rand "math/rand/v2"
 	"sync"
 	"testing"
@@ -11,6 +12,41 @@ import (
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
+
+func TestRandomSupportsEveryInt64RangeWithoutOverflow(t *testing.T) {
+	installSharedRandomForTest(t, newRandomGenerator(randomTestSeed(0), cryptorand.Reader))
+	ctx := kernel.NewTaskContext()
+
+	tests := []struct {
+		name string
+		args []types.Value
+		min  int64
+		max  int64
+	}{
+		{name: "no arguments", min: 1, max: math.MaxInt64},
+		{name: "zero through max", args: []types.Value{types.NewInt(0), types.NewInt(math.MaxInt64)}, min: 0, max: math.MaxInt64},
+		{name: "full int64", args: []types.Value{types.NewInt(math.MinInt64), types.NewInt(math.MaxInt64)}, min: math.MinInt64, max: math.MaxInt64},
+		{name: "negative one through max", args: []types.Value{types.NewInt(-1), types.NewInt(math.MaxInt64)}, min: -1, max: math.MaxInt64},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for range 100 {
+				result := builtinRandom(ctx, test.args)
+				if result.IsError() {
+					t.Fatalf("builtinRandom(%v) failed: %v", test.args, result.Error)
+				}
+				if got := result.Val.Int(); got < test.min || got > test.max {
+					t.Fatalf("builtinRandom(%v) = %d, want [%d, %d]", test.args, got, test.min, test.max)
+				}
+			}
+		})
+	}
+
+	if result := builtinRandom(ctx, []types.Value{types.NewInt(5), types.NewInt(4)}); !result.IsError() || result.Error != types.E_INVARG {
+		t.Fatalf("random(5, 4) = %#v, want E_INVARG", result)
+	}
+}
 
 type failingEntropyReader struct {
 	err error
