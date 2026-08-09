@@ -2,8 +2,10 @@ package builtins
 
 import (
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -102,6 +104,81 @@ func sqliteMapGet(t *testing.T, m types.Value, key string) types.Value {
 		t.Fatalf("missing key %q", key)
 	}
 	return value
+}
+
+func sqliteAsyncCtx() (*kernel.TaskContext, *task.Task) {
+	ctx := sqliteWizardCtx()
+	taskValue := task.NewTask(1, ctx.Programmer, 1000, 1)
+	taskValue.SetState(task.TaskRunning)
+	ctx.Task = taskValue
+	wireTestTaskManager(ctx)
+	return ctx, taskValue
+}
+
+func waitForSQLiteResume(t *testing.T, taskValue *task.Task) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for taskValue.GetState() == task.TaskSuspended && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := taskValue.GetState(); got != task.TaskQueued {
+		t.Fatalf("task state = %v, want queued after SQLite completion", got)
+	}
+}
+
+func TestSqliteAsyncErrorAlwaysResumesTask(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	ctx, taskValue := sqliteAsyncCtx()
+	handle := newSQLiteHandle(1, ":memory:", nil, nil)
+	handle.closed = true
+
+	result := sqliteExecOrQueryAsync(ctx, handle, "SELECT 1", nil, false)
+	if result.Flow != types.FlowSuspend {
+		t.Fatalf("result flow = %v, want suspend", result.Flow)
+	}
+	waitForSQLiteResume(t, taskValue)
+	if taskValue.WakeValue.Type() != types.TYPE_ERR || taskValue.WakeValue.ErrCode() != types.E_INVARG {
+		t.Fatalf("wake value = %v, want E_INVARG", taskValue.WakeValue)
+	}
+}
+
+func TestSqliteCloseWaitsOffTaskGoroutine(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+
+	ctx, taskValue := sqliteAsyncCtx()
+	handle := newSQLiteHandle(1, ":memory:", nil, nil)
+	handle.activeOps = 1
+	sqliteState.mu.Lock()
+	sqliteState.handles[handle.id] = handle
+	sqliteState.mu.Unlock()
+
+	returned := make(chan types.Result, 1)
+	go func() {
+		returned <- builtinSqliteClose(ctx, []types.Value{types.NewInt(handle.id)})
+	}()
+	select {
+	case result := <-returned:
+		if result.Flow != types.FlowSuspend {
+			t.Fatalf("result flow = %v, want suspend", result.Flow)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("sqlite_close blocked the task goroutine")
+	}
+
+	if got := taskValue.GetState(); got != task.TaskSuspended {
+		t.Fatalf("task state = %v, want suspended while close waits", got)
+	}
+	handle.mu.Lock()
+	handle.activeOps = 0
+	handle.cond.Broadcast()
+	handle.mu.Unlock()
+	waitForSQLiteResume(t, taskValue)
+	if taskValue.WakeValue.Type() != types.TYPE_INT || taskValue.WakeValue.Int() != 0 {
+		t.Fatalf("wake value = %v, want 0", taskValue.WakeValue)
+	}
 }
 
 func TestSqliteOpenInfoAndHandles(t *testing.T) {

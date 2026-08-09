@@ -251,9 +251,18 @@ func sqliteExecOrQuery(handle *sqliteHandle, sqlText string, params []any, inclu
 }
 
 func sqliteExecOrQueryAsync(ctx *kernel.TaskContext, handle *sqliteHandle, sqlText string, params []any, includeHeaders bool) types.Result {
+	return runSQLiteAsync(ctx, func() types.Result {
+		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
+	})
+}
+
+// runSQLiteAsync keeps waits on a handle's serialized operation queue off the
+// scheduler's task goroutines. Every completion, including an error, resumes
+// the suspended task exactly once.
+func runSQLiteAsync(ctx *kernel.TaskContext, operation func() types.Result) types.Result {
 	t, ok := ctx.Task.(*task.Task)
 	if !ok {
-		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
+		return operation()
 	}
 
 	mgr := taskManagerOf(ctx)
@@ -262,10 +271,12 @@ func sqliteExecOrQueryAsync(ctx *kernel.TaskContext, handle *sqliteHandle, sqlTe
 	}
 	mgr.SuspendTask(t, -1)
 	go func() {
-		result := sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
-		if result.IsNormal() {
-			_ = t.Resume(result.Val)
+		result := operation()
+		if result.IsError() {
+			_ = t.Resume(types.NewErr(result.Error))
+			return
 		}
+		_ = t.Resume(result.Val)
 	}()
 	return types.Suspend(-1)
 }
@@ -368,24 +379,29 @@ func builtinSqliteClose(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(code)
 	}
 
+	handle.mu.Lock()
+	handle.closed = true
+	handle.mu.Unlock()
+
 	sqliteState.mu.Lock()
 	delete(sqliteState.handles, handle.id)
 	sqliteState.mu.Unlock()
 
-	handle.mu.Lock()
-	handle.closed = true
-	for handle.activeOps > 0 {
-		handle.cond.Wait()
-	}
-	handle.mu.Unlock()
+	return runSQLiteAsync(ctx, func() types.Result {
+		handle.mu.Lock()
+		for handle.activeOps > 0 {
+			handle.cond.Wait()
+		}
+		handle.mu.Unlock()
 
-	if handle.conn != nil {
-		_ = handle.conn.Close()
-	}
-	if handle.db != nil {
-		_ = handle.db.Close()
-	}
-	return types.Ok(types.NewInt(0))
+		if handle.conn != nil {
+			_ = handle.conn.Close()
+		}
+		if handle.db != nil {
+			_ = handle.db.Close()
+		}
+		return types.Ok(types.NewInt(0))
+	})
 }
 
 func builtinSqliteHandles(ctx *kernel.TaskContext, args []types.Value) types.Result {
@@ -507,17 +523,19 @@ func builtinSqliteLastInsertRowID(ctx *kernel.TaskContext, args []types.Value) t
 		return types.Err(code)
 	}
 
-	opCtx, ok := beginSQLiteOperation(handle)
-	if !ok {
-		return types.Err(types.E_INVARG)
-	}
-	defer endSQLiteOperation(handle)
+	return runSQLiteAsync(ctx, func() types.Result {
+		opCtx, ok := beginSQLiteOperation(handle)
+		if !ok {
+			return types.Err(types.E_INVARG)
+		}
+		defer endSQLiteOperation(handle)
 
-	var lastID int64
-	if err := handle.conn.QueryRowContext(opCtx, "SELECT last_insert_rowid()").Scan(&lastID); err != nil {
-		return sqliteErrorResult(err)
-	}
-	return types.Ok(types.NewInt(lastID))
+		var lastID int64
+		if err := handle.conn.QueryRowContext(opCtx, "SELECT last_insert_rowid()").Scan(&lastID); err != nil {
+			return sqliteErrorResult(err)
+		}
+		return types.Ok(types.NewInt(lastID))
+	})
 }
 
 func builtinSqliteLimit(ctx *kernel.TaskContext, args []types.Value) types.Result {
