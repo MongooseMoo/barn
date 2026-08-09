@@ -104,6 +104,42 @@ func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
 	}
 }
 
+func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxStringConcat: 1,
+		},
+	}}
+
+	tests := []struct {
+		name       string
+		builtin    func(*kernel.TaskContext, []types.Value) types.Result
+		args       []types.Value
+		wantLength int
+	}{
+		{"string_hash", builtinStringHash, []types.Value{types.NewStr("x"), types.NewStr("sha512"), types.NewInt(1)}, 192},
+		{"binary_hash", builtinBinaryHash, []types.Value{types.NewStr("x"), types.NewStr("sha512"), types.NewInt(1)}, 192},
+		{"value_hash", builtinValueHash, []types.Value{types.NewInt(1), types.NewStr("sha512"), types.NewInt(1)}, 192},
+		{"string_hmac", builtinStringHmac, []types.Value{types.NewStr("x"), types.NewStr("~78"), types.NewStr("sha256"), types.NewInt(1)}, 96},
+		{"binary_hmac", builtinBinaryHmac, []types.Value{types.NewStr("x"), types.NewStr("~78"), types.NewStr("sha256"), types.NewInt(1)}, 96},
+		{"value_hmac", builtinValueHmac, []types.Value{types.NewInt(1), types.NewStr("~78"), types.NewStr("sha256"), types.NewInt(1)}, 96},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := test.builtin(ctx, test.args)
+			if result.IsError() {
+				t.Fatalf("result with max_string_concat=1 failed: %+v", result)
+			}
+			if got := len(result.Val.Str()); got != test.wantLength {
+				t.Fatalf("result length = %d, want %d", got, test.wantLength)
+			}
+		})
+	}
+}
+
 func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	decoded := types.NewList([]types.Value{types.NewInt(120), types.NewInt(120)})
