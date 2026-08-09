@@ -2160,7 +2160,8 @@ func (c *Compiler) compileBreak(n *verb.BreakStmt) error {
 	// parser.y:1205-1206, check_loop_name LOOP_BREAK).
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
-		return fmt.Errorf("invalid loop name")
+		//lint:ignore ST1005 This diagnostic matches Toast's externally visible compiler text.
+		return fmt.Errorf("Invalid loop name")
 	}
 	if loop == nil {
 		return fmt.Errorf("break outside of loop")
@@ -2175,7 +2176,8 @@ func (c *Compiler) compileBreak(n *verb.BreakStmt) error {
 func (c *Compiler) compileContinue(n *verb.ContinueStmt) error {
 	loop := c.findLoopByTarget(n.Label)
 	if loop == nil && n.Label != "" {
-		return fmt.Errorf("invalid loop name")
+		//lint:ignore ST1005 This diagnostic matches Toast's externally visible compiler text.
+		return fmt.Errorf("Invalid loop name")
 	}
 	if loop == nil {
 		return fmt.Errorf("continue outside of loop")
