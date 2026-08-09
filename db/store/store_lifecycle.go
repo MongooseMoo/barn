@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/types"
 	"slices"
-	"unsafe"
 )
 
 func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
@@ -602,11 +601,11 @@ func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 	defer s.mu.Unlock()
 
 	if s.waifRegistry == nil {
-		s.waifRegistry = make(map[types.ObjID]map[unsafe.Pointer]struct{})
+		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]struct{})
 	}
 
 	if s.waifRegistry[classID] == nil {
-		s.waifRegistry[classID] = make(map[unsafe.Pointer]struct{})
+		s.waifRegistry[classID] = make(map[types.WaifIdentity]struct{})
 	}
 
 	s.waifRegistry[classID][waif.WaifIdentity()] = struct{}{}

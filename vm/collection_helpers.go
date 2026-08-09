@@ -1,8 +1,6 @@
 package vm
 
 import (
-	"unsafe"
-
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
@@ -77,13 +75,13 @@ func setAtIndex(ctx *kernel.TaskContext, coll types.Value, index types.Value, va
 //
 // Like Toast (waif.cc:252-256) it also recurses into the waif's own property
 // values, plus nested lists/maps. A visited set keyed on waif identity
-// (WaifIdentity, the GC-traced ref pointer) guards against cycles formed by waif
+// (WaifIdentity, an opaque GC-traced token) guards against cycles formed by waif
 // aliasing so traversal always terminates.
 func containsWaif(val types.Value, waif types.Value) bool {
 	return containsWaifVisited(val, waif, nil)
 }
 
-func containsWaifVisited(val types.Value, waif types.Value, visited map[unsafe.Pointer]bool) bool {
+func containsWaifVisited(val types.Value, waif types.Value, visited map[types.WaifIdentity]bool) bool {
 	switch val.Type() {
 	case types.TYPE_WAIF:
 		// Leaf: same underlying waif instance (pointer identity), not class+owner.
@@ -97,7 +95,7 @@ func containsWaifVisited(val types.Value, waif types.Value, visited map[unsafe.P
 			return false
 		}
 		if visited == nil {
-			visited = make(map[unsafe.Pointer]bool)
+			visited = make(map[types.WaifIdentity]bool)
 		}
 		visited[id] = true
 		for _, name := range val.PropertyNames() {
