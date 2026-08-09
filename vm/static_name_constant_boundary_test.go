@@ -15,12 +15,25 @@ import (
 
 const staticNameBoundary = "edge"
 
-func sourceWithStaticNameAtConstant255(tail string) string {
-	fillers := make([]string, 255)
-	for i := range fillers {
-		fillers[i] = fmt.Sprintf("%q", fmt.Sprintf("constant-%03d", i))
+func sourceWithDistinctStaticNames(operation string, count int, tail string) string {
+	var source strings.Builder
+	source.WriteString("object = caller_perms(); if (0) ")
+	for i := 0; i < count-1; i++ {
+		name := fmt.Sprintf("boundary_%03d", i)
+		switch operation {
+		case "get":
+			fmt.Fprintf(&source, "object.%s; ", name)
+		case "set":
+			fmt.Fprintf(&source, "object.%s = 0; ", name)
+		case "call":
+			fmt.Fprintf(&source, "object:%s(); ", name)
+		default:
+			panic("unknown static-name operation: " + operation)
+		}
 	}
-	return "fillers = {" + strings.Join(fillers, ", ") + "}; " + tail
+	source.WriteString("endif ")
+	source.WriteString(tail)
+	return source.String()
 }
 
 func staticNameBoundaryStore(t *testing.T) *dbstore.Store {
@@ -44,44 +57,59 @@ func staticNameBoundaryStore(t *testing.T) *dbstore.Store {
 	return store
 }
 
-func assertStaticNameUsesConstant255(t *testing.T, source, wantOpcode string) {
+func assertStaticNameEncoding(t *testing.T, source string, constantCount int, wantOpcode string) {
 	t.Helper()
 	program, diagnostics := compiler.CompileMOO([]string{source}, BuildVMRegistry())
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 	}
-	if got, want := len(program.Constants), 256; got != want {
+	if got, want := len(program.Constants), constantCount; got != want {
 		t.Fatalf("len(Program.Constants) = %d, want %d", got, want)
 	}
-	last := program.Constants[255]
+	last := program.Constants[constantCount-1]
 	if last.Type() != types.TYPE_STR || last.Str() != staticNameBoundary {
-		t.Fatalf("Program.Constants[255] = %v, want %q", last, staticNameBoundary)
+		t.Fatalf("Program.Constants[%d] = %v, want %q", constantCount-1, last, staticNameBoundary)
 	}
 	disassembly := strings.Join(bytecode.Disassemble(program), "\n")
 	if !strings.Contains(disassembly, wantOpcode) {
 		t.Fatalf("Disassemble() omitted %s:\n%s", wantOpcode, disassembly)
 	}
+	if strings.Contains(disassembly, "_DYNAMIC") {
+		t.Fatalf("static-name source emitted a dynamic-name opcode:\n%s", disassembly)
+	}
 }
 
-func TestStaticNamesAtConstant255ExecuteWithoutTakingDynamicPath(t *testing.T) {
+func TestStaticNamesAt255And256DistinctNamesExecuteWithoutTakingDynamicPath(t *testing.T) {
 	tests := []struct {
-		name       string
-		tail       string
-		wantOpcode string
-		want       int64
+		name      string
+		operation string
+		tail      string
+		compactOp string
+		wideOp    string
+		want      int64
 	}{
-		{name: "property get", tail: "object = caller_perms(); return object.edge;", wantOpcode: "GET_PROP_WIDE", want: 41},
-		{name: "property set", tail: "object = caller_perms(); object.edge = 42; return object.edge;", wantOpcode: "SET_PROP_WIDE", want: 42},
-		{name: "verb call", tail: "object = caller_perms(); return object:edge();", wantOpcode: "CALL_VERB_WIDE", want: 43},
+		{name: "property get", operation: "get", tail: "return object.edge;", compactOp: "GET_PROP", wideOp: "GET_PROP_WIDE", want: 41},
+		{name: "property set", operation: "set", tail: "object.edge = 42; return object.edge;", compactOp: "SET_PROP", wideOp: "SET_PROP_WIDE", want: 42},
+		{name: "verb call", operation: "call", tail: "return object:edge();", compactOp: "CALL_VERB", wideOp: "CALL_VERB_WIDE", want: 43},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			source := sourceWithStaticNameAtConstant255(tc.tail)
-			assertStaticNameUsesConstant255(t, source, tc.wantOpcode)
-			result := runBytecodeProgram(t, source, staticNameBoundaryStore(t), nil)
-			if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != tc.want {
-				t.Fatalf("Run() = flow %v value %v error %v, want return %d", result.Flow, result.Val, result.Error, tc.want)
+			for _, boundary := range []struct {
+				count      int
+				wantOpcode string
+			}{
+				{count: 255, wantOpcode: tc.compactOp},
+				{count: 256, wantOpcode: tc.wideOp},
+			} {
+				t.Run(fmt.Sprintf("%d names", boundary.count), func(t *testing.T) {
+					source := sourceWithDistinctStaticNames(tc.operation, boundary.count, tc.tail)
+					assertStaticNameEncoding(t, source, boundary.count, boundary.wantOpcode)
+					result := runBytecodeProgram(t, source, staticNameBoundaryStore(t), nil)
+					if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_INT || result.Val.Int() != tc.want {
+						t.Fatalf("Run() = flow %v value %v error %v, want return %d", result.Flow, result.Val, result.Error, tc.want)
+					}
+				})
 			}
 		})
 	}
