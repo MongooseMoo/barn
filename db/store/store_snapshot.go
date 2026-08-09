@@ -2,6 +2,7 @@ package store
 
 import (
 	"sort"
+	"unsafe"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -78,7 +79,7 @@ func (s *Store) SnapshotWithRoots(roots []types.Value) (Snapshot, SnapshotValueR
 		MaxObject:            s.maxObjectID(),
 		Objects:              make(map[types.ObjID]*SnapshotObject, s.dir.len()),
 		PropertyNames:        make(map[types.ObjID][]string, s.dir.len()),
-		PendingFinalizations: cloneValues(s.pendingFinalizations),
+		PendingFinalizations: s.pendingFinalizationsForSnapshotLocked(roots),
 	}
 
 	// Build the anonymous-object serialization plan. Anonymous objects live
@@ -160,14 +161,18 @@ type anonSerialID struct {
 type anonSerializationPlan struct {
 	// rewrite maps an anonymous object's identity id to the value it must be
 	// rewritten to: a positive above-max serialization id (reachable) or NOTHING.
-	rewrite map[types.ObjID]types.ObjID
-	order   []anonSerialID
+	rewrite     map[types.ObjID]types.ObjID
+	order       []anonSerialID
+	waifRewrite map[unsafe.Pointer]types.Value
 }
 
 // planAnonymousSerializationLocked computes reachability over the out-of-band
 // anonymous objects and assigns above-max serialization ids. Callers hold s.mu.
 func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) *anonSerializationPlan {
-	plan := &anonSerializationPlan{rewrite: make(map[types.ObjID]types.ObjID)}
+	plan := &anonSerializationPlan{
+		rewrite:     make(map[types.ObjID]types.ObjID),
+		waifRewrite: make(map[unsafe.Pointer]types.Value),
+	}
 
 	// Seed: every anon id referenced by a non-anonymous live object's properties
 	// or by the pending-finalization queue. Pending roots are deliberately not
@@ -294,6 +299,30 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 			return types.NewAnon(types.ObjNothing), true
 		}
 		return types.NewAnon(target), true
+	case types.TYPE_WAIF:
+		identity := v.WaifIdentity()
+		if rewritten, ok := p.waifRewrite[identity]; ok {
+			return rewritten, true
+		}
+		if !p.valueNeedsAnonymousRewrite(v, nil) {
+			return v, false
+		}
+		rewritten := types.NewWaif(v.Class(), v.Owner())
+		p.waifRewrite[identity] = rewritten
+		names := v.PropertyNames()
+		sort.Strings(names)
+		for _, name := range names {
+			property, ok := v.GetProperty(name)
+			if !ok {
+				continue
+			}
+			if next, changed := p.rewriteValue(property); changed {
+				rewritten.SetProperty(name, next)
+			} else {
+				rewritten.SetProperty(name, property)
+			}
+		}
+		return rewritten, true
 	case types.TYPE_LIST:
 		elems := v.Elements()
 		var out []types.Value
@@ -332,6 +361,44 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 	default:
 		return v, false
 	}
+}
+
+func (p *anonSerializationPlan) valueNeedsAnonymousRewrite(value types.Value, visited map[unsafe.Pointer]struct{}) bool {
+	switch value.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if !value.IsAnonymous() {
+			return false
+		}
+		_, ok := p.rewrite[value.ID()]
+		return ok
+	case types.TYPE_WAIF:
+		identity := value.WaifIdentity()
+		if _, seen := visited[identity]; seen {
+			return false
+		}
+		if visited == nil {
+			visited = make(map[unsafe.Pointer]struct{})
+		}
+		visited[identity] = struct{}{}
+		for _, name := range value.PropertyNames() {
+			if property, ok := value.GetProperty(name); ok && p.valueNeedsAnonymousRewrite(property, visited) {
+				return true
+			}
+		}
+	case types.TYPE_LIST:
+		for _, element := range value.Elements() {
+			if p.valueNeedsAnonymousRewrite(element, visited) {
+				return true
+			}
+		}
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
+			if p.valueNeedsAnonymousRewrite(pair[0], visited) || p.valueNeedsAnonymousRewrite(pair[1], visited) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func snapshotObjectValue(obj *Object) *SnapshotObject {

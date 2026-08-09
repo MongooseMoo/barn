@@ -68,6 +68,16 @@ func TestFormatMOOPreservesCanonicalBitwiseXorSpelling(t *testing.T) {
 	}
 }
 
+func TestFormatMOOCanonicalizesTypeConstantVariableSpellings(t *testing.T) {
+	program, err := parser.NewParser("waif = 1; anon = 2; return {waif, anon};").ParseProgram()
+	if err != nil {
+		t.Fatalf("ParseProgram() error = %v", err)
+	}
+	if got, want := strings.Join(parser.FormatMOO(program), "\n"), "WAIF = 1;\nANON = 2;\nreturn {WAIF, ANON};"; got != want {
+		t.Fatalf("FormatMOO() = %q, want %q", got, want)
+	}
+}
+
 func TestFormatMOOPreservesRepresentativeDatabaseVerbs(t *testing.T) {
 	database, err := dbformat.LoadDatabase("../db/format/testdata/toastcore.db")
 	if err != nil {

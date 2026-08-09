@@ -10,6 +10,17 @@ func (s *Store) SetPendingFinalizations(values []types.Value) {
 	s.pendingFinalizations = cloneValues(values)
 }
 
+// TakePendingFinalizations transfers loaded pending values to the runtime's
+// startup finalizer. The store queue is cleared atomically so a checkpoint
+// cannot write the same root while it is already being processed.
+func (s *Store) TakePendingFinalizations() []types.Value {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	values := cloneValues(s.pendingFinalizations)
+	s.pendingFinalizations = nil
+	return values
+}
+
 // AppendPendingFinalizations records pending finalization values. Direct
 // anonymous roots are reduced against the complete graph already queued by
 // earlier shutdown tasks: a root already reachable from the queue is redundant,
@@ -24,20 +35,20 @@ func (s *Store) AppendPendingFinalizations(values []types.Value) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	seen := make(map[string]struct{}, len(s.pendingFinalizations)+len(values))
-	for _, value := range s.pendingFinalizations {
-		seen[value.String()] = struct{}{}
-	}
 	for _, value := range values {
-		key := value.String()
-		if _, ok := seen[key]; ok {
+		if finalizationValueInList(value, s.pendingFinalizations) {
 			continue
 		}
 
 		rootID, isDirectRoot := directAnonymousRoot(value)
-		if !isDirectRoot {
-			seen[key] = struct{}{}
+		if !isDirectRoot && value.Type() != types.TYPE_WAIF {
 			s.pendingFinalizations = append(s.pendingFinalizations, value)
+			continue
+		}
+		if value.Type() == types.TYPE_WAIF {
+			if s.appendPendingWaifRootLocked(value) {
+				s.pendingFinalizations = append(s.pendingFinalizations, value)
+			}
 			continue
 		}
 
@@ -53,7 +64,6 @@ func (s *Store) AppendPendingFinalizations(values []types.Value) {
 				existingRoot, existingIsDirectRoot := directAnonymousRoot(existing)
 				if existingIsDirectRoot {
 					if _, replaced := closure[existingRoot]; replaced {
-						delete(seen, existing.String())
 						continue
 					}
 				}
@@ -62,9 +72,92 @@ func (s *Store) AppendPendingFinalizations(values []types.Value) {
 			s.pendingFinalizations = kept
 		}
 
-		seen[key] = struct{}{}
 		s.pendingFinalizations = append(s.pendingFinalizations, value)
 	}
+}
+
+// pendingFinalizationsForSnapshotLocked resolves the last ownership overlap at
+// the checkpoint boundary. A value serialized by a queued or suspended task is
+// task-owned and must not also appear in the pending-finalization section.
+// Caller holds s.mu for reading or writing.
+func (s *Store) pendingFinalizationsForSnapshotLocked(taskRoots []types.Value) []types.Value {
+	if len(s.pendingFinalizations) == 0 || len(taskRoots) == 0 {
+		return cloneValues(s.pendingFinalizations)
+	}
+
+	var taskWaifs []types.Value
+	anonRefs := make(map[types.ObjID]struct{})
+	for _, root := range taskRoots {
+		collectWaifsFromValue(root, &taskWaifs)
+		collectAnonymousObjectRefs(root, anonRefs)
+	}
+	taskAnonymous := make(map[types.ObjID]struct{}, len(anonRefs))
+	queue := make([]types.ObjID, 0, len(anonRefs))
+	for id := range anonRefs {
+		queue = append(queue, id)
+	}
+	s.expandAnonymousReachabilityLocked(taskAnonymous, queue)
+
+	kept := make([]types.Value, 0, len(s.pendingFinalizations))
+	for _, value := range s.pendingFinalizations {
+		if value.Type() == types.TYPE_WAIF && finalizationValueInList(value, taskWaifs) {
+			continue
+		}
+		if id, direct := directAnonymousRoot(value); direct {
+			if _, owned := taskAnonymous[id]; owned {
+				continue
+			}
+		}
+		kept = append(kept, value)
+	}
+	return kept
+}
+
+func finalizationValueInList(needle types.Value, values []types.Value) bool {
+	for _, candidate := range values {
+		if needle.Type() != candidate.Type() {
+			continue
+		}
+		switch needle.Type() {
+		case types.TYPE_ANON:
+			if needle.ID() == candidate.ID() {
+				return true
+			}
+		case types.TYPE_WAIF:
+			if needle.Equal(candidate) {
+				return true
+			}
+		default:
+			if needle.Equal(candidate) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *Store) appendPendingWaifRootLocked(root types.Value) bool {
+	var newClosure []types.Value
+	collectWaifsFromValue(root, &newClosure)
+	for _, existing := range s.pendingFinalizations {
+		if existing.Type() != types.TYPE_WAIF {
+			continue
+		}
+		var existingClosure []types.Value
+		collectWaifsFromValue(existing, &existingClosure)
+		if finalizationValueInList(root, existingClosure) {
+			return false
+		}
+	}
+	kept := s.pendingFinalizations[:0]
+	for _, existing := range s.pendingFinalizations {
+		if existing.Type() == types.TYPE_WAIF && finalizationValueInList(existing, newClosure) {
+			continue
+		}
+		kept = append(kept, existing)
+	}
+	s.pendingFinalizations = kept
+	return true
 }
 
 func directAnonymousRoot(value types.Value) (types.ObjID, bool) {

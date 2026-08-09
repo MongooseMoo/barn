@@ -61,3 +61,43 @@ func TestVerbCodeReturnsCompoundStatementAsSeparateLines(t *testing.T) {
 		t.Fatalf("verb_code = %s, want %s", result.Val.String(), want.String())
 	}
 }
+
+func TestSetVerbCodeStoresToastCanonicalProgramText(t *testing.T) {
+	ctx, store := newReviewCtx(t)
+	obj := mustCreate(t, store, []types.ObjID{types.ObjNothing}, 0)
+	mustAddVerb(t, store, obj, "canonical_set", 0, dbstore.VerbRead|dbstore.VerbWrite)
+	source := []types.Value{
+		types.NewStr("waif = 1;"),
+		types.NewStr("anon = 2;"),
+		types.NewStr("fork (0)"),
+		types.NewStr("  state = {waif, anon};"),
+		types.NewStr("endfork"),
+	}
+	result := builtinSetVerbCode(ctx, []types.Value{
+		types.NewObj(obj),
+		types.NewStr("canonical_set"),
+		types.NewList(source),
+	})
+	if result.IsError() || result.Val.Type() != types.TYPE_LIST || result.Val.Len() != 0 {
+		t.Fatalf("set_verb_code = %+v, want empty diagnostic list", result)
+	}
+	view, errCode := store.VerbByIndex(obj, 0)
+	if errCode != types.E_NONE {
+		t.Fatalf("VerbByIndex: %v", errCode)
+	}
+	want := []string{
+		"WAIF = 1;",
+		"ANON = 2;",
+		"fork (0)",
+		"state = {WAIF, ANON};",
+		"endfork",
+	}
+	if len(view.Code) != len(want) {
+		t.Fatalf("stored code = %v, want %v", view.Code, want)
+	}
+	for index := range want {
+		if view.Code[index] != want[index] {
+			t.Fatalf("stored code[%d] = %q, want %q", index, view.Code[index], want[index])
+		}
+	}
+}

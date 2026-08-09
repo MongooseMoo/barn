@@ -199,7 +199,7 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 		return unparseLiteral(e)
 
 	case *verb.IdentifierExpr:
-		return e.Name
+		return canonicalIdentifierName(e.Name)
 
 	case *verb.UnaryExpr:
 		op := unparseUnaryOp(e.Operator)
@@ -443,7 +443,7 @@ func unparseUnaryOp(op verb.UnaryOperator) string {
 func unparseTarget(target verb.Target) string {
 	switch target := target.(type) {
 	case *verb.VariableTarget:
-		return target.Name
+		return canonicalIdentifierName(target.Name)
 	case *verb.PropertyTarget:
 		object := unparseExpr(target.Object, precedenceProperty)
 		if target.Name != "" {
@@ -472,6 +472,16 @@ func unparseTarget(target verb.Target) string {
 		return "{" + strings.Join(bindings, ", ") + "}"
 	default:
 		return "<unknown target>"
+	}
+}
+
+func canonicalIdentifierName(name string) string {
+	upper := strings.ToUpper(name)
+	switch upper {
+	case "INT", "NUM", "OBJ", "STR", "ERR", "LIST", "FLOAT", "MAP", "ANON", "WAIF", "BOOL":
+		return upper
+	default:
+		return name
 	}
 }
 

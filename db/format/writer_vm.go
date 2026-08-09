@@ -3,6 +3,7 @@ package format
 import (
 	"fmt"
 	"time"
+	"unsafe"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/task"
@@ -73,19 +74,12 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation task.Activa
 		return err
 	}
 
-	bound := 0
-	for i := range frame.Program.VarNames {
-		if i < len(frame.Locals) && !frame.Locals[i].IsUnbound() {
-			bound++
-		}
-	}
-	if err := w.writeString(fmt.Sprintf("%d variables", bound)); err != nil {
+	bound := orderedBoundLocalIndices(frame)
+	if err := w.writeString(fmt.Sprintf("%d variables", len(bound))); err != nil {
 		return err
 	}
-	for i, name := range frame.Program.VarNames {
-		if i >= len(frame.Locals) || frame.Locals[i].IsUnbound() {
-			continue
-		}
+	for _, i := range bound {
+		name := frame.Program.VarNames[i]
 		if err := w.writeString(name); err != nil {
 			return err
 		}
@@ -111,6 +105,86 @@ func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation task.Activa
 	}
 	_, err := fmt.Fprintf(w.w, "%d 0 %d\n", frame.IP, frame.IP)
 	return err
+}
+
+// orderedBoundLocalIndices keeps ordinary environment order while moving a
+// direct WAIF alias behind a composite local that owns the same identity. That
+// makes the aggregate value the creation site in Toast's c/r WAIF stream while
+// retaining both named locals and their shared identity on reload.
+func orderedBoundLocalIndices(frame task.VMFrameSnapshot) []int {
+	ordinary := make([]int, 0, len(frame.Program.VarNames))
+	coveredAliases := make([]int, 0)
+	for index := range frame.Program.VarNames {
+		if index >= len(frame.Locals) || frame.Locals[index].IsUnbound() {
+			continue
+		}
+		candidate := frame.Locals[index]
+		if candidate.Type() == types.TYPE_WAIF && waifOwnedByAnotherLocal(candidate, frame.Locals, index) {
+			coveredAliases = append(coveredAliases, index)
+			continue
+		}
+		ordinary = append(ordinary, index)
+	}
+	return append(ordinary, coveredAliases...)
+}
+
+func waifOwnedByAnotherLocal(candidate types.Value, locals []types.Value, candidateIndex int) bool {
+	for index, owner := range locals {
+		if index == candidateIndex {
+			continue
+		}
+		switch owner.Type() {
+		case types.TYPE_LIST, types.TYPE_MAP:
+			if valueContainsWaif(owner, candidate, nil) {
+				return true
+			}
+		case types.TYPE_WAIF:
+			if !owner.Equal(candidate) && valueContainsWaifProperties(owner, candidate, nil) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func valueContainsWaif(value, candidate types.Value, visited map[unsafe.Pointer]struct{}) bool {
+	switch value.Type() {
+	case types.TYPE_WAIF:
+		if value.Equal(candidate) {
+			return true
+		}
+		return valueContainsWaifProperties(value, candidate, visited)
+	case types.TYPE_LIST:
+		for _, element := range value.Elements() {
+			if valueContainsWaif(element, candidate, visited) {
+				return true
+			}
+		}
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
+			if valueContainsWaif(pair[0], candidate, visited) || valueContainsWaif(pair[1], candidate, visited) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func valueContainsWaifProperties(value, candidate types.Value, visited map[unsafe.Pointer]struct{}) bool {
+	identity := value.WaifIdentity()
+	if _, seen := visited[identity]; seen {
+		return false
+	}
+	if visited == nil {
+		visited = make(map[unsafe.Pointer]struct{})
+	}
+	visited[identity] = struct{}{}
+	for _, name := range value.PropertyNames() {
+		if property, ok := value.GetProperty(name); ok && valueContainsWaif(property, candidate, visited) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation task.ActivationFrame) error {

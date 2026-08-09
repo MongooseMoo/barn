@@ -48,6 +48,8 @@ var ErrCommandVerbNoCode = errors.New("command verb has no code")
 
 // runTask executes a task's code using the bytecode VM
 func (s *Runtime) runTask(t *task.Task) (retErr error) {
+	s.beginFinalizationProducer()
+	defer s.finishFinalizationProducer()
 	// Logical TaskRunning ends as soon as a builtin records suspension, before
 	// the VM has returned and before its resumable state is published. Keep a
 	// runtime-owned physical execution lease across the entire invocation so
@@ -361,11 +363,7 @@ retryAttempt:
 	// Check context deadline
 	select {
 	case <-taskCtx.Done():
-		if taskCtx.Err() == context.Canceled && bcVM != nil && s.pendingFinalizationSink != nil {
-			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
-				s.pendingFinalizationSink(pending)
-			}
-		}
+		s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor)
 		t.SetState(task.TaskKilled)
 		t.SetBytecodeVM(nil)
 		return taskCtx.Err()
@@ -568,17 +566,10 @@ retryAttempt:
 		t.SetState(task.TaskCompleted)
 	}
 
-	// Match Toast lifecycle semantics at shutdown: preserve composite local
-	// values that still carry anonymous references so the final checkpoint can
-	// serialize them as pending finalization values. Outside shutdown, completed
-	// tasks still trigger orphan-anonymous collection.
-	if s.ctx.Err() != nil {
-		if s.pendingFinalizationSink != nil && bcVM != nil {
-			if pending := vm.CollectPendingFinalizationValues(s.store, bcVM); len(pending) > 0 {
-				s.pendingFinalizationSink(pending)
-			}
-		}
-	} else {
+	// Match Toast lifecycle semantics at shutdown: transfer completed-task roots
+	// only after an explicit shutdown request. Generic cancellation still runs
+	// ordinary finalization rather than fabricating pending checkpoint roots.
+	if !s.settleCompletedTaskFinalizations(ctx, bcVM, anonGCFloor, s.store.AnonCreationCount() != anonFloor) {
 		// A per-task waif/anon sweep is prohibitive on large databases, so both are
 		// deferred and settled by flushDeferredGC (which self-throttles once sweeps
 		// get expensive, and stays prompt while they are cheap). The cheap guards
@@ -587,12 +578,6 @@ retryAttempt:
 		//
 		// This task's VM is released below, so its references are snapshotted now,
 		// on the goroutine that owns it, rather than walked at flush time.
-		if bcVM != nil {
-			s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), bcVM)
-		}
-		if s.store.AnonCreationCount() != anonFloor {
-			s.deferAnonGC(ctx, anonGCFloor, bcVM)
-		}
 		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)

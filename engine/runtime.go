@@ -65,11 +65,18 @@ type Runtime struct {
 	// Deferred GC: task completion/suspend enqueue their pending waifs and
 	// orphan-anonymous collection requests here instead of paying a full-db
 	// sweep per task; flushDeferredGC settles both batches on an interval.
-	pendingWaifMu    sync.Mutex
-	pendingWaifBatch []pendingWaifEntry
-	pendingAnonGC    []vm.AnonGCRequest
-	lastGCSweep      time.Time
-	lastGCCost       time.Duration
+	pendingWaifMu               sync.Mutex
+	shutdownRequested           bool
+	shutdownPublishing          bool
+	shutdownPublished           bool
+	shutdownReady               chan struct{}
+	activeFinalizationProducers int
+	gcRunning                   bool
+	pendingShutdownRoots        []types.Value
+	pendingWaifBatch            []pendingWaifEntry
+	pendingAnonGC               []vm.AnonGCRequest
+	lastGCSweep                 time.Time
+	lastGCCost                  time.Duration
 }
 
 const ambiguousExecutionOwnerID int64 = -1 << 63
@@ -118,6 +125,7 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		workerCount:            workerCount,
 		ctx:                    ctx,
 		cancel:                 cancel,
+		shutdownReady:          make(chan struct{}),
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
@@ -378,6 +386,108 @@ func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 func (s *Runtime) Stop() {
 	s.cancel()
 	s.workersWG.Wait()
+}
+
+// BeginShutdown closes ordinary finalization ownership and returns a channel
+// that closes after every admitted producer has published either pending roots
+// or a complete task-owned suspended state.
+func (s *Runtime) BeginShutdown(exec *vm.VM) <-chan struct{} {
+	var callerRoots []types.Value
+	if exec != nil && (exec.Context == nil || !exec.Context.DeferredGC) {
+		callerRoots = vm.CollectPendingFinalizationValues(s.store, exec)
+	}
+	s.pendingWaifMu.Lock()
+	ready := s.shutdownReady
+	if s.shutdownPublished {
+		s.pendingWaifMu.Unlock()
+		s.appendPendingFinalizations(callerRoots)
+		return ready
+	}
+	s.pendingShutdownRoots = append(s.pendingShutdownRoots, callerRoots...)
+	s.shutdownRequested = true
+	publish := s.canPublishShutdownLocked()
+	if publish {
+		s.shutdownPublishing = true
+	}
+	s.pendingWaifMu.Unlock()
+	if publish {
+		s.publishShutdown()
+	}
+	return ready
+}
+
+func (s *Runtime) beginFinalizationProducer() {
+	s.pendingWaifMu.Lock()
+	s.activeFinalizationProducers++
+	s.pendingWaifMu.Unlock()
+}
+
+func (s *Runtime) finishFinalizationProducer() {
+	s.pendingWaifMu.Lock()
+	if s.activeFinalizationProducers <= 0 {
+		s.pendingWaifMu.Unlock()
+		panic("engine finalization producer underflow")
+	}
+	s.activeFinalizationProducers--
+	publish := s.canPublishShutdownLocked()
+	if publish {
+		s.shutdownPublishing = true
+	}
+	s.pendingWaifMu.Unlock()
+	if publish {
+		s.publishShutdown()
+	}
+}
+
+func (s *Runtime) canPublishShutdownLocked() bool {
+	return s.shutdownRequested && !s.shutdownPublishing && !s.shutdownPublished &&
+		!s.gcRunning && s.activeFinalizationProducers == 0
+}
+
+func (s *Runtime) publishShutdown() {
+	for {
+		s.pendingWaifMu.Lock()
+		if s.gcRunning || s.activeFinalizationProducers != 0 {
+			s.shutdownPublishing = false
+			s.pendingWaifMu.Unlock()
+			return
+		}
+		pending := s.takeDeferredFinalizationRootsLocked()
+		pending = append(pending, s.pendingShutdownRoots...)
+		s.pendingShutdownRoots = nil
+		s.pendingWaifMu.Unlock()
+		s.appendPendingFinalizations(pending)
+
+		s.pendingWaifMu.Lock()
+		if len(s.pendingShutdownRoots) != 0 || len(s.pendingWaifBatch) != 0 || len(s.pendingAnonGC) != 0 {
+			s.pendingWaifMu.Unlock()
+			continue
+		}
+		if s.gcRunning || s.activeFinalizationProducers != 0 {
+			s.shutdownPublishing = false
+			s.pendingWaifMu.Unlock()
+			return
+		}
+		s.shutdownPublished = true
+		s.shutdownPublishing = false
+		close(s.shutdownReady)
+		s.pendingWaifMu.Unlock()
+		return
+	}
+}
+
+func (s *Runtime) appendPendingFinalizations(values []types.Value) {
+	if len(values) != 0 && s.pendingFinalizationSink != nil {
+		s.pendingFinalizationSink(values)
+	}
+}
+
+// ShutdownRequested distinguishes lifecycle publication from generic runtime
+// cancellation; only an explicit lifecycle request transfers task roots.
+func (s *Runtime) ShutdownRequested() bool {
+	s.pendingWaifMu.Lock()
+	defer s.pendingWaifMu.Unlock()
+	return s.shutdownRequested
 }
 
 func (s *Runtime) SetPendingFinalizationSink(sink func([]types.Value)) {

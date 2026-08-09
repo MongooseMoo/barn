@@ -94,6 +94,7 @@ func (s *Server) LoadDatabase() error {
 
 	s.input.SetConnectionManager(s.connManager)
 	s.runtime.SetPendingFinalizationSink(s.store.AppendPendingFinalizations)
+	s.runtime.AdoptPendingFinalizations(s.store.TakePendingFinalizations())
 	s.runtime.SetTaskLineSender(func(player types.ObjID, line string) {
 		if conn := s.connManager.GetConnection(player); conn != nil {
 			_ = conn.Send(line)
@@ -138,10 +139,9 @@ func (s *Server) LoadDatabase() error {
 	// durable and available for managed restart adoption.
 	reg.SetDumpFunc(func() error { return s.checkpoint() })
 	reg.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+		var callerVM *vm.VM
 		if ctx != nil {
-			if callerVM, ok := ctx.CallerVM.(*vm.VM); ok {
-				s.store.AppendPendingFinalizations(vm.CollectPendingFinalizationValues(s.store, callerVM))
-			}
+			callerVM, _ = ctx.CallerVM.(*vm.VM)
 		}
 		shutdownMessage := "Server shutdown"
 		if ctx != nil {
@@ -156,8 +156,27 @@ func (s *Server) LoadDatabase() error {
 		} else if message != "" {
 			shutdownMessage = message
 		}
+		panicMessage := message
+		if panicMessage == "" {
+			panicMessage = shutdownMessage
+		}
+		ready := s.runtime.BeginShutdown(callerVM)
+		if ctx != nil && (ctx.DeferredGC || ctx.Task != nil) {
+			s.backgroundWG.Add(1)
+			go func() {
+				defer s.backgroundWG.Done()
+				<-ready
+				if unclean {
+					_ = s.Panic(panicMessage)
+					return
+				}
+				s.Shutdown(shutdownMessage)
+			}()
+			return nil
+		}
+		<-ready
 		if unclean {
-			s.Panic(shutdownMessage)
+			_ = s.Panic(panicMessage)
 			return nil
 		}
 		s.Shutdown(shutdownMessage)
@@ -288,6 +307,18 @@ func (s *Server) requestCheckpoint() error {
 
 // checkpoint saves the database to disk
 func (s *Server) checkpoint() error {
+	return s.checkpointWith(dbformat.WriteCheckpoint)
+}
+
+type checkpointWriter func(
+	string,
+	*dbstore.Store,
+	[]task.Snapshot,
+	[]task.Snapshot,
+	[]dbformat.ActiveConnection,
+) error
+
+func (s *Server) checkpointWith(writeCheckpoint checkpointWriter) error {
 	slog.Info("checkpoint started")
 
 	// Call #0:checkpoint_started()
@@ -299,7 +330,7 @@ func (s *Server) checkpoint() error {
 
 	queuedTasks, suspendedTasks := s.runtime.TaskSnapshots()
 	activeConnections := s.connManager.CheckpointConnections()
-	if err := dbformat.WriteCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
+	if err := writeCheckpoint(s.dbPath, s.store, queuedTasks, suspendedTasks, activeConnections); err != nil {
 		s.callCheckpointFinished(false)
 		return err
 	}
@@ -376,15 +407,15 @@ func (s *Server) shutdown() error {
 func (s *Server) Panic(message string) error {
 	// The Go stack is the only record of where the server actually tripped;
 	// the message alone says that it died, not why.
-	slog.Error("server panic",
+	slog.Error("PANIC: "+message,
 		slog.String("panic", message),
 		slog.String("go_stack", string(debug.Stack())))
 
 	// Attempt emergency database dump
-	if err := s.checkpoint(); err != nil {
+	if err := s.checkpointWith(dbformat.WritePanicCheckpoint); err != nil {
 		slog.Error("emergency dump failed", slog.Any("err", err))
 	} else {
-		slog.Info("emergency dump written", slog.String("path", s.dbPath))
+		slog.Info("emergency dump written", slog.String("path", s.dbPath+".new.PANIC"))
 	}
 
 	err := fmt.Errorf("%w: %s", ErrPanicShutdown, message)
