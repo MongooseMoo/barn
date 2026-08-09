@@ -50,6 +50,46 @@ func runBytecodeExpr(t *testing.T, expr string) types.Result {
 	return runBytecodeProgram(t, "return "+expr+";", nil, nil)
 }
 
+func TestForRangeSupportsObjectBounds(t *testing.T) {
+	result := runBytecodeProgram(t, `values = {}; for object in [#0..#2] values = {@values, object}; endfor return values;`, nil, nil)
+	if result.Flow != types.FlowReturn || result.Val.String() != `{#0, #1, #2}` {
+		t.Fatalf("object range result = flow %v, value %v, error %v; want {#0, #1, #2}", result.Flow, result.Val, result.Error)
+	}
+}
+
+func TestForRangeObjectBoundsCanBeEmpty(t *testing.T) {
+	result := runBytecodeProgram(t, `values = {}; for object in [#2..#0] values = {@values, object}; endfor return values;`, nil, nil)
+	if result.Flow != types.FlowReturn || result.Val.String() != `{}` {
+		t.Fatalf("empty object range result = flow %v, value %v, error %v; want {}", result.Flow, result.Val, result.Error)
+	}
+}
+
+func TestForRangeTerminatesAtScalarCeilings(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		{"integer", `values = {}; for value in [9223372036854775806..9223372036854775807] values = {@values, value}; endfor return values;`, `{9223372036854775806, 9223372036854775807}`},
+		{"object", `values = {}; for value in [#9223372036854775806..#9223372036854775807] values = {@values, value}; endfor return values;`, `{#9223372036854775806, #9223372036854775807}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("ceiling range result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, test.want)
+			}
+		})
+	}
+}
+
+func TestForRangeRejectsMismatchedBoundsBeforeBody(t *testing.T) {
+	result := runBytecodeProgram(t, `runs = 0; try for value in [1..#2] runs = runs + 1; endfor except (E_TYPE) endtry return runs;`, nil, nil)
+	if result.Flow != types.FlowReturn || result.Val.Int() != 0 {
+		t.Fatalf("rejected range result = flow %v, value %v, error %v; want zero body executions", result.Flow, result.Val, result.Error)
+	}
+}
+
 func TestComputedPropertyAssignmentEvaluatesTargetBeforeValue(t *testing.T) {
 	store := dbstore.NewStore()
 	root := dbstore.NewObjectBuilder(0)
