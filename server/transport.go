@@ -2,7 +2,6 @@ package server
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"net"
 	"strings"
@@ -242,10 +241,10 @@ func (t *TCPTransport) SetReadDeadline(deadline time.Time) error {
 
 // PipeTransport is an in-memory transport for testing
 type PipeTransport struct {
-	input   chan string // Lines to feed to server (from test)
-	output  chan string // Lines received from server (to test)
-	closed  bool
-	closeMu sync.Mutex
+	input     chan string // Lines to feed to server (from test)
+	output    chan string // Lines received from server (to test)
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewPipeTransport creates a new pipe transport for testing
@@ -253,49 +252,45 @@ func NewPipeTransport() *PipeTransport {
 	return &PipeTransport{
 		input:  make(chan string, 100),
 		output: make(chan string, 100),
-		closed: false,
+		done:   make(chan struct{}),
 	}
 }
 
 // ReadLine reads a line from the input channel (blocks)
 func (t *PipeTransport) ReadLine() (string, error) {
-	t.closeMu.Lock()
-	if t.closed {
-		t.closeMu.Unlock()
+	select {
+	case <-t.done:
 		return "", io.EOF
+	default:
 	}
-	t.closeMu.Unlock()
 
-	line, ok := <-t.input
-	if !ok {
+	select {
+	case line := <-t.input:
+		return line, nil
+	case <-t.done:
 		return "", io.EOF
 	}
-	return line, nil
 }
 
 // WriteLine writes a line to the output channel
 func (t *PipeTransport) WriteLine(msg string) error {
-	t.closeMu.Lock()
-	if t.closed {
-		t.closeMu.Unlock()
-		return errors.New("transport closed")
+	select {
+	case <-t.done:
+		return net.ErrClosed
+	default:
 	}
-	t.closeMu.Unlock()
 
-	t.output <- msg
-	return nil
+	select {
+	case t.output <- msg:
+		return nil
+	case <-t.done:
+		return net.ErrClosed
+	}
 }
 
 // Close closes the transport
 func (t *PipeTransport) Close() error {
-	t.closeMu.Lock()
-	defer t.closeMu.Unlock()
-
-	if !t.closed {
-		t.closed = true
-		close(t.input)
-		close(t.output)
-	}
+	t.closeOnce.Do(func() { close(t.done) })
 	return nil
 }
 
@@ -305,29 +300,40 @@ func (t *PipeTransport) RemoteAddr() string {
 }
 
 // Send sends a line to the server (called by test code)
-func (t *PipeTransport) Send(line string) {
-	t.input <- line
+func (t *PipeTransport) Send(line string) error {
+	select {
+	case <-t.done:
+		return net.ErrClosed
+	default:
+	}
+
+	select {
+	case t.input <- line:
+		return nil
+	case <-t.done:
+		return net.ErrClosed
+	}
 }
 
 // Receive receives a line from the server (called by test code)
 // Returns empty string if channel is closed
 func (t *PipeTransport) Receive() string {
-	line, ok := <-t.output
-	if !ok {
+	select {
+	case line := <-t.output:
+		return line
+	case <-t.done:
 		return ""
 	}
-	return line
 }
 
 // TryReceive attempts to receive without blocking
 // Returns the line and true if available, empty and false otherwise
 func (t *PipeTransport) TryReceive() (string, bool) {
 	select {
-	case line, ok := <-t.output:
-		if !ok {
-			return "", false
-		}
+	case line := <-t.output:
 		return line, true
+	case <-t.done:
+		return "", false
 	default:
 		return "", false
 	}
