@@ -105,7 +105,7 @@ func (vm *VM) executeIndexSet() error {
 		// Map error codes to error strings for the VM error handler
 		switch errCode {
 		case types.E_TYPE:
-			return fmt.Errorf("invalid index assignment (E_TYPE)")
+			return fmt.Errorf("E_TYPE: invalid index assignment")
 		case types.E_RANGE:
 			return fmt.Errorf("E_RANGE: index out of range")
 		case types.E_INVARG:
@@ -113,7 +113,8 @@ func (vm *VM) executeIndexSet() error {
 		case types.E_QUOTA:
 			return fmt.Errorf("E_QUOTA: value too large")
 		default:
-			return fmt.Errorf("index assignment error: E_%d", errCode)
+			//lint:ignore ST1005 The E_* prefix is parsed by the VM error handler.
+			return fmt.Errorf("E_%d: index assignment error", errCode)
 		}
 	}
 
