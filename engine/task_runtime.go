@@ -834,5 +834,5 @@ func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMat
 	if s.taskOutputFlusher != nil {
 		s.taskOutputFlusher(t.Owner, t.CommandOutputSuffix)
 	}
-	return nil
+	return err
 }
