@@ -14,12 +14,13 @@ import (
 // - Current player/programmer (permissions)
 // - Current object and verb (for 'this', 'caller', etc.)
 type TaskContext struct {
-	TicksRemaining int64       // Infinite loop protection
-	Player         types.ObjID // Current player
-	Programmer     types.ObjID // Effective permissions
-	ThisObj        types.ObjID // Current 'this' (might be prototype for primitives)
-	ThisValue      types.Value // Actual value of 'this' (primitive value, or nil for objects)
-	Verb           string      // Current verb name
+	TicksRemaining       int64       // Infinite loop protection
+	BuiltinTicksConsumed int64       // Non-opcode work to transfer into the VM tick counter
+	Player               types.ObjID // Current player
+	Programmer           types.ObjID // Effective permissions
+	ThisObj              types.ObjID // Current 'this' (might be prototype for primitives)
+	ThisValue            types.Value // Actual value of 'this' (primitive value, or nil for objects)
+	Verb                 string      // Current verb name
 
 	// IndexContext is the length of the collection currently being indexed
 	// Used to resolve ^ and $ markers in sub-expressions like list[^..^+1]
@@ -141,16 +142,18 @@ type PendingEffect struct {
 }
 
 type PendingServerOptions struct {
-	Loaded            int
-	MaxStringConcat   int
-	MaxListValueBytes int
-	MaxMapValueBytes  int
-	FgTicks           int64
-	BgTicks           int64
-	FgSeconds         float64
-	BgSeconds         float64
-	MaxStackDepth     int
-	ProtectedBuiltins map[string]bool
+	Loaded             int
+	MaxStringConcat    int
+	MaxListValueBytes  int
+	MaxMapValueBytes   int
+	FgTicks            int64
+	BgTicks            int64
+	FgSeconds          float64
+	BgSeconds          float64
+	MaxStackDepth      int
+	MaxCryptBcryptCost int
+	MaxCryptSHARounds  int
+	ProtectedBuiltins  map[string]bool
 }
 
 // NewTaskContext creates a new task context with default values.
@@ -174,6 +177,16 @@ func NewTaskContext() *TaskContext {
 func (ctx *TaskContext) ConsumeTick() bool {
 	ctx.TicksRemaining--
 	return ctx.TicksRemaining > 0
+}
+
+// ChargeBuiltinTicks accounts for work performed within one builtin opcode.
+func (ctx *TaskContext) ChargeBuiltinTicks(ticks int64) bool {
+	if ticks < 0 || ticks >= ctx.TicksRemaining {
+		return false
+	}
+	ctx.TicksRemaining -= ticks
+	ctx.BuiltinTicksConsumed += ticks
+	return true
 }
 
 // CheckStringLimit returns E_QUOTA if the string length exceeds MaxStringConcat
