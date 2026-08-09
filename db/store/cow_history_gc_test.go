@@ -1,10 +1,185 @@
 package store
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
 )
+
+// TestHistoryGCConcurrentReadersKeepLiveObjects is the issue #31 A/B workload
+// reduced to a CI regression: eight writers advance live object versions while
+// eight readers repeatedly open snapshots and assert that #1..#3, which are never
+// recycled, never disappear. History pruning remains enabled throughout.
+func TestHistoryGCConcurrentReadersKeepLiveObjects(t *testing.T) {
+	const (
+		writerCount     = 8
+		readerCount     = 8
+		writesPerWriter = 1_000
+		firstObject     = types.ObjID(1)
+		liveObjectCount = 3
+	)
+
+	store := NewStore()
+	for id := types.ObjID(0); id <= liveObjectCount; id++ {
+		if err := store.Add(NewObject(id, 0)); err != nil {
+			t.Fatalf("Add #%d failed: %v", id, err)
+		}
+	}
+
+	var writerWG sync.WaitGroup
+	var readerWG sync.WaitGroup
+	start := make(chan struct{})
+	var writersDone atomic.Bool
+	var reads atomic.Uint64
+	var commits atomic.Uint64
+	var spuriousInvalid atomic.Uint64
+	var unexpected atomic.Uint64
+
+	for writer := 0; writer < writerCount; writer++ {
+		writerWG.Add(1)
+		go func(writer int) {
+			defer writerWG.Done()
+			<-start
+			for attempt := 0; attempt < writesPerWriter; attempt++ {
+				id := firstObject + types.ObjID((writer+attempt)%liveObjectCount)
+				name := "odd"
+				if attempt%2 == 0 {
+					name = "even"
+				}
+				tx := store.BeginReadOnly(0)
+				errCode := tx.SetObjectName(id, name)
+				if errCode == types.E_NONE {
+					errCode = tx.Commit()
+				}
+				tx.Release()
+				switch errCode {
+				case types.E_NONE:
+					commits.Add(1)
+				case types.E_INVARG:
+					// Expected optimistic conflict between writers of the same object.
+				case types.E_INVIND:
+					spuriousInvalid.Add(1)
+				default:
+					unexpected.Add(1)
+				}
+			}
+		}(writer)
+	}
+
+	for range readerCount {
+		readerWG.Add(1)
+		go func() {
+			defer readerWG.Done()
+			<-start
+			for !writersDone.Load() {
+				tx := store.BeginReadOnly(0)
+				for offset := range liveObjectCount {
+					id := firstObject + types.ObjID(offset)
+					_, errCode := tx.ObjectName(id)
+					reads.Add(1)
+					switch errCode {
+					case types.E_NONE:
+					case types.E_INVIND:
+						spuriousInvalid.Add(1)
+					default:
+						unexpected.Add(1)
+					}
+				}
+				tx.Release()
+			}
+		}()
+	}
+
+	close(start)
+	writerWG.Wait()
+	writersDone.Store(true)
+	readerWG.Wait()
+
+	if got := spuriousInvalid.Load(); got != 0 {
+		t.Fatalf("concurrent reads/writes returned E_INVIND %d times for live #1..#3, want 0", got)
+	}
+	if got := unexpected.Load(); got != 0 {
+		t.Fatalf("concurrent reads/writes returned %d unexpected errors", got)
+	}
+	if got := commits.Load(); got == 0 {
+		t.Fatal("concurrent workload committed no writes")
+	}
+	if got := reads.Load(); got == 0 {
+		t.Fatal("concurrent workload completed no reads")
+	}
+	t.Logf("history pruning kept live objects visible across %d commits and %d reads", commits.Load(), reads.Load())
+}
+
+// TestHistoryFloorDoesNotMissCompletedReaderDuringScan exercises the sharded
+// registry interleaving from issue #31. A floor scan is paused on shard 1 after
+// it has visited shard 0, then a reader whose timestamp belongs to shard 0 is
+// allowed to finish registering. If that reader completes before the scan
+// returns, the returned floor must include it; otherwise history needed by the
+// now-live reader can be pruned.
+func TestHistoryFloorDoesNotMissCompletedReaderDuringScan(t *testing.T) {
+	previousProcs := runtime.GOMAXPROCS(1)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previousProcs) })
+
+	store := NewStore()
+	const (
+		readerTS = uint64(readTSShardCount)     // shard 0
+		newerTS  = uint64(readTSShardCount + 2) // shard 2
+	)
+	store.registerReadTS(newerTS)
+	t.Cleanup(func() { store.deregisterReadTS(newerTS) })
+
+	blockedShard := &store.readTSShards[1]
+	blockedShard.mu.Lock()
+	shardLocked := true
+	t.Cleanup(func() {
+		if shardLocked {
+			blockedShard.mu.Unlock()
+		}
+	})
+
+	floorStarted := make(chan struct{})
+	floorDone := make(chan uint64, 1)
+	go func() {
+		close(floorStarted)
+		floorDone <- store.historyFloor()
+	}()
+	<-floorStarted
+	// With one P, the floor goroutine runs through shard 0 and blocks on the
+	// locked shard 1 before control returns here.
+	runtime.Gosched()
+
+	readerDone := make(chan *StoreTxn, 1)
+	go func() {
+		readerDone <- store.BeginReadOnly(readerTS)
+	}()
+	// On the broken implementation this registration completes in shard 0 even
+	// though the in-progress scan has already passed it. A correct implementation
+	// serializes registration with the scan, so completion waits until afterward.
+	runtime.Gosched()
+
+	var reader *StoreTxn
+	readerCompletedBeforeFloor := false
+	select {
+	case reader = <-readerDone:
+		readerCompletedBeforeFloor = true
+	default:
+	}
+
+	blockedShard.mu.Unlock()
+	shardLocked = false
+	floor := <-floorDone
+	if reader == nil {
+		reader = <-readerDone
+	}
+	reader.Release()
+
+	if readerCompletedBeforeFloor && floor > readerTS {
+		t.Fatalf("historyFloor() = %d after reader at %d completed registration, want <= %d", floor, readerTS, readerTS)
+	}
+}
 
 // historyLen returns the number of retained old versions for id (test-only).
 func (s *Store) historyLen(id types.ObjID) int {

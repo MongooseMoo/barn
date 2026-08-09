@@ -54,17 +54,21 @@ type Store struct {
 	historyMu   sync.Mutex // guards history-map appends from concurrent COW committers
 	history     map[types.ObjID][]objectHistory
 
+	// readTSFloorMu makes choosing/registering a read timestamp linearizable with
+	// historyFloor's cross-shard scan. BeginReadOnly holds it shared from the clock
+	// sample through the shard insertion; historyFloor holds it exclusively while
+	// scanning. Registrations remain concurrent with each other, and deregistration
+	// stays shard-local because missing a reader that has already released is safe.
+	readTSFloorMu sync.RWMutex
+
 	// readTSShards holds the multiset of readTS values of currently-live read-only
 	// transactions, SHARDED by readTS to cut the per-transaction lock contention on
 	// the commit-dominated path: every Begin/Release/commit touches this registry, so
 	// a single global mutex serialized all 32 workers here (measured 88% of mutex
 	// contention). Sharding by readTS keeps each shard's multiset self-consistent
 	// (a given readTS always maps to the same shard), and historyFloor() = min key
-	// across shards (or clock if empty). Concurrent readers register at readTS=clock
-	// (the newest time), so a non-atomic cross-shard scan can only miss values >= the
-	// floor it would return — never producing a floor that is too HIGH. And a floor
-	// that is too LOW is always safe (conservative: retains more history, never prunes
-	// a live-needed version). COW Phase 4 history GC.
+	// across shards (or clock if empty). readTSFloorMu prevents a scan from missing a
+	// completed registration in a shard it already visited. COW Phase 4 history GC.
 	readTSShards [readTSShardCount]readTSShard
 
 	// anonCreations is a monotonic counter bumped every time an anonymous object

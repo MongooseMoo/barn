@@ -25,9 +25,28 @@ import (
 // ts>floor; drop the strictly-older entries. The newest entry with ts<=floor is
 // retained because a reader at exactly floor still needs it.
 
-// registerReadTS records a newly-begun transaction's readTS as live. Returns a
-// token used to deregister it. floorMu guards the multiset.
+// registerReadTS records an explicit transaction readTS as live. It participates
+// in the same registration-vs-floor-scan gate as currentReadTSAndRegister so a
+// completed registration cannot be missed by an in-progress cross-shard scan.
 func (s *Store) registerReadTS(readTS uint64) {
+	s.readTSFloorMu.RLock()
+	s.registerReadTSInShard(readTS)
+	s.readTSFloorMu.RUnlock()
+}
+
+// currentReadTSAndRegister samples the current clock and registers that timestamp
+// as one linearizable operation with respect to historyFloor. Without this gate a
+// floor scan could pass the target shard after the clock sample but before the
+// registration, then prune above the reader before BeginReadOnly returned.
+func (s *Store) currentReadTSAndRegister() uint64 {
+	s.readTSFloorMu.RLock()
+	readTS := s.clock.Load()
+	s.registerReadTSInShard(readTS)
+	s.readTSFloorMu.RUnlock()
+	return readTS
+}
+
+func (s *Store) registerReadTSInShard(readTS uint64) {
 	sh := &s.readTSShards[readTS%readTSShardCount]
 	sh.mu.Lock()
 	if sh.counts == nil {
@@ -60,13 +79,12 @@ func (s *Store) deregisterReadTS(readTS uint64) {
 // newest image is dead.
 //
 // Using the clock as the no-live-txn floor is safe against a txn that begins
-// concurrently: a new BeginReadOnly snapshots readTS=clock.Load() and registers
-// it BEFORE it can issue any read (it holds store.mu while doing both, and the
-// pruner holds store.mu.RLock which excludes that exclusive section for the
-// coarse path; the decentralized pruner reads the floor and the registry both
-// under the same locks the new txn must pass through). In all cases the floor
-// returned is <= the readTS of every txn that can still read.
+// concurrently because readTSFloorMu makes the floor scan exclusive with the
+// clock-sample-through-registration interval in currentReadTSAndRegister. A scan
+// therefore linearizes either before the sample or after the registration. In all
+// cases the returned floor is <= the readTS of every transaction that can read.
 func (s *Store) historyFloor() uint64 {
+	s.readTSFloorMu.Lock()
 	min := uint64(0)
 	have := false
 	for i := range s.readTSShards {
@@ -81,8 +99,9 @@ func (s *Store) historyFloor() uint64 {
 		sh.mu.Unlock()
 	}
 	if !have {
-		return s.clock.Load()
+		min = s.clock.Load()
 	}
+	s.readTSFloorMu.Unlock()
 	return min
 }
 

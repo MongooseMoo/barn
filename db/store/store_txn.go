@@ -237,14 +237,14 @@ func (s *Store) BeginReadOnly(readTS uint64) *StoreTxn {
 	defer s.mu.RUnlock()
 
 	if readTS == 0 {
-		readTS = s.clock.Load()
+		readTS = s.currentReadTSAndRegister()
+	} else {
+		s.registerReadTS(readTS)
 	}
-	// Register this txn's readTS as live BEFORE returning, under store.mu (held for
-	// the whole call), so the history-GC floor can never advance past a reader that
-	// is about to issue reads at readTS. The matching deregistration is StoreTxn.
-	// Release (called by the runtime) with a finalizer backstop so a
-	// dropped-without-Release txn cannot leak its registration forever.
-	s.registerReadTS(readTS)
+	// The timestamp is registered before returning, with the current-clock sample
+	// (when requested) serialized against history-floor scans. The matching
+	// deregistration is StoreTxn.Release (called by the runtime), with a finalizer
+	// backstop so a dropped-without-Release txn cannot leak its registration forever.
 	tx := &StoreTxn{
 		readTS:            readTS,
 		store:             s,
