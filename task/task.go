@@ -280,6 +280,19 @@ func (t *Task) SetState(state TaskState) {
 	t.State = state
 }
 
+// TryClaimQueued atomically takes the execution claim for a queued task.
+// Dispatchers must claim a task before handing it to runTask so two concurrent
+// scheduling paths cannot execute the same saved VM.
+func (t *Task) TryClaimQueued() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskQueued {
+		return false
+	}
+	t.State = TaskRunning
+	return true
+}
+
 // PushFrame pushes an activation frame onto the call stack
 func (t *Task) PushFrame(frame ActivationFrame) {
 	t.mu.Lock()
@@ -456,6 +469,24 @@ func (t *Task) Resume(value types.Value) bool {
 	// readiness gate keys off StartTime (engine/runtime.go: !StartTime.After(now)),
 	// so clear the sentinel back to now. runTask() re-stamps StartTime when the
 	// resumed VM actually runs, so this only affects the brief queued window.
+	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
+		t.StartTime = time.Now()
+	}
+	return true
+}
+
+// ResumeAndClaim resumes a suspended task directly into the running state.
+// It is used by synchronous resume paths, where publishing TaskQueued even
+// briefly would allow the ordinary scheduler to dispatch the same task.
+func (t *Task) ResumeAndClaim(value types.Value) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.State != TaskSuspended || t.IsExecSuspended {
+		return false
+	}
+	t.State = TaskRunning
+	t.WakeValue = value
+	t.IsHTTPReadSuspended = false
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {
 		t.StartTime = time.Now()
 	}

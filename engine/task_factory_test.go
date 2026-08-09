@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -10,6 +12,52 @@ import (
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 )
+
+func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
+	s := NewRuntime(dbstore.NewStore())
+	defer s.Stop()
+
+	reading := task.NewTaskFull(6001, 7, nil, 1000, 1)
+	reading.SetBytecodeVM(struct{}{}) // A saved VM makes a queued task scheduler-eligible.
+	reading.SetState(task.TaskSuspended)
+	reading.ReadingPlayer = 7
+	s.mu.Lock()
+	s.tasks[reading.ID] = reading
+	s.mu.Unlock()
+	s.taskManager.RegisterTask(reading)
+	defer s.taskManager.RemoveTask(reading.ID)
+
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var starts atomic.Int32
+	s.executionStartObserver = func() {
+		starts.Add(1)
+		entered <- struct{}{}
+		<-release
+	}
+
+	resumed := make(chan bool, 1)
+	go func() { resumed <- s.ResumeReadingTask(7, "password") }()
+
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("synchronous resume did not enter runTask")
+	}
+
+	// The resumed task is paused immediately on entry to runTask. A queued
+	// publication would let this scheduler pass dispatch the same saved VM.
+	if got := s.ProcessReadyTasks(); got != 0 {
+		t.Fatalf("ProcessReadyTasks() dispatched %d already-claimed task(s), want 0", got)
+	}
+	close(release)
+	if !<-resumed {
+		t.Fatal("ResumeReadingTask() = false, want true")
+	}
+	if got := starts.Load(); got != 1 {
+		t.Fatalf("runTask starts = %d, want exactly 1", got)
+	}
+}
 
 func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {
 	builtins.LoadServerOptionsFromStore(nil)

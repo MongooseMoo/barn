@@ -414,7 +414,7 @@ func (s *Runtime) ProcessReadyTasks() int {
 			break
 		}
 		heap.Pop(s.waiting)
-		if t.GetState() != task.TaskQueued {
+		if !t.TryClaimQueued() {
 			continue
 		}
 		readyTasks = append(readyTasks, t)
@@ -431,7 +431,7 @@ func (s *Runtime) ProcessReadyTasks() int {
 		}
 
 		if t.WakeDue(now) {
-			if t.Resume(types.NewInt(0)) {
+			if t.Resume(types.NewInt(0)) && t.TryClaimQueued() {
 				readyTasks = append(readyTasks, t)
 			}
 			continue
@@ -439,7 +439,9 @@ func (s *Runtime) ProcessReadyTasks() int {
 
 		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) {
 			if (t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
-				readyTasks = append(readyTasks, t)
+				if t.TryClaimQueued() {
+					readyTasks = append(readyTasks, t)
+				}
 			}
 		}
 	}
