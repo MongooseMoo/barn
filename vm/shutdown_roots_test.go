@@ -3,6 +3,7 @@ package vm
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
@@ -19,6 +20,25 @@ func TestCollectPendingFinalizationValuesKeepsNestedWaifAsOneRoot(t *testing.T) 
 	got := CollectPendingFinalizationValues(store, exec)
 	if len(got) != 1 || got[0].Type() != types.TYPE_WAIF || !got[0].Equal(parent) {
 		t.Fatalf("pending roots = %v, want only the parent WAIF", got)
+	}
+}
+
+func TestSetVarRetainsOverwrittenWaifForFinalization(t *testing.T) {
+	store := dbstore.NewStore()
+	waif := types.NewWaif(9, 3)
+	exec := NewVM(store, nil)
+	frame := &StackFrame{
+		Program: &bytecode.Program{Code: []byte{0}},
+		Locals:  []types.Value{waif},
+	}
+	exec.pushFrame(frame)
+	exec.Push(types.NewInt(0))
+	if err := exec.Execute(bytecode.OP_SET_VAR); err != nil {
+		t.Fatalf("set variable: %v", err)
+	}
+	got := CollectPendingFinalizationValues(store, exec)
+	if len(got) != 1 || !got[0].Equal(waif) {
+		t.Fatalf("pending roots after overwrite = %v, want overwritten WAIF", got)
 	}
 }
 
