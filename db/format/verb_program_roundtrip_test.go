@@ -147,3 +147,40 @@ func TestWriteVerbCodeSectionsIncludesAnonymousObjects(t *testing.T) {
 		t.Fatalf("anonymous verb program missing from output:\n%s", got)
 	}
 }
+
+func TestWriteVerbCodeSectionsUsesToastCanonicalProgramText(t *testing.T) {
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.Snapshot{AllObjects: []*store.SnapshotObject{{
+		ID: 0,
+		VerbList: []store.VerbView{{
+			HasProgram: true,
+			Code: []string{
+				"waif = 1;",
+				"anon = 2;",
+				"fork (0)",
+				"  state = {waif, anon};",
+				"endfork",
+			},
+		}},
+	}}})
+	if err := writer.writeVerbCodeSections(); err != nil {
+		t.Fatalf("writeVerbCodeSections: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	want := strings.Join([]string{
+		"1",
+		"#0:0",
+		"WAIF = 1;",
+		"ANON = 2;",
+		"fork (0)",
+		"state = {WAIF, ANON};",
+		"endfork",
+		".",
+		"",
+	}, "\n")
+	if got := buf.String(); got != want {
+		t.Fatalf("verb code section = %q, want %q", got, want)
+	}
+}
