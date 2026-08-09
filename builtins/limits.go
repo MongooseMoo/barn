@@ -16,42 +16,48 @@ import (
 // Global cache for server options (matches ToastStunt's _server_int_option_cache)
 // This is updated by load_server_options() and read by limit-checking functions
 const (
-	defaultMaxStringConcat   = 64537861
-	defaultMaxListValueBytes = 64537861
-	defaultMaxMapValueBytes  = 64537861
-	defaultFgTicks           = 60000
-	defaultBgTicks           = 30000
-	defaultFgSeconds         = 5.0
-	defaultBgSeconds         = 3.0
-	defaultMaxStackDepth     = 50
-	minStringConcatLimit     = 1021
-	minListValueBytesLimit   = 1021
-	minMapValueBytesLimit    = 1021
-	maxStringConcatLimit     = math.MaxInt32 - minStringConcatLimit
-	maxListValueBytesLimit   = math.MaxInt32 - minListValueBytesLimit
-	maxMapValueBytesLimit    = math.MaxInt32 - minMapValueBytesLimit
+	defaultMaxStringConcat    = 64537861
+	defaultMaxListValueBytes  = 64537861
+	defaultMaxMapValueBytes   = 64537861
+	defaultFgTicks            = 60000
+	defaultBgTicks            = 30000
+	defaultFgSeconds          = 5.0
+	defaultBgSeconds          = 3.0
+	defaultMaxStackDepth      = 50
+	defaultMaxCryptBcryptCost = 12
+	defaultMaxCryptSHARounds  = 1_000_000
+	minStringConcatLimit      = 1021
+	minListValueBytesLimit    = 1021
+	minMapValueBytesLimit     = 1021
+	maxStringConcatLimit      = math.MaxInt32 - minStringConcatLimit
+	maxListValueBytesLimit    = math.MaxInt32 - minListValueBytesLimit
+	maxMapValueBytesLimit     = math.MaxInt32 - minMapValueBytesLimit
 )
 
 var (
 	serverOptionsCache = struct {
 		sync.RWMutex
-		maxStringConcat   int
-		maxListValueBytes int
-		maxMapValueBytes  int
-		fgTicks           int64
-		bgTicks           int64
-		fgSeconds         float64
-		bgSeconds         float64
-		maxStackDepth     int
+		maxStringConcat    int
+		maxListValueBytes  int
+		maxMapValueBytes   int
+		fgTicks            int64
+		bgTicks            int64
+		fgSeconds          float64
+		bgSeconds          float64
+		maxStackDepth      int
+		maxCryptBcryptCost int
+		maxCryptSHARounds  int
 	}{
-		maxStringConcat:   defaultMaxStringConcat,
-		maxListValueBytes: defaultMaxListValueBytes,
-		maxMapValueBytes:  defaultMaxMapValueBytes,
-		fgTicks:           defaultFgTicks,
-		bgTicks:           defaultBgTicks,
-		fgSeconds:         defaultFgSeconds,
-		bgSeconds:         defaultBgSeconds,
-		maxStackDepth:     defaultMaxStackDepth,
+		maxStringConcat:    defaultMaxStringConcat,
+		maxListValueBytes:  defaultMaxListValueBytes,
+		maxMapValueBytes:   defaultMaxMapValueBytes,
+		fgTicks:            defaultFgTicks,
+		bgTicks:            defaultBgTicks,
+		fgSeconds:          defaultFgSeconds,
+		bgSeconds:          defaultBgSeconds,
+		maxStackDepth:      defaultMaxStackDepth,
+		maxCryptBcryptCost: defaultMaxCryptBcryptCost,
+		maxCryptSHARounds:  defaultMaxCryptSHARounds,
 	}
 )
 
@@ -61,6 +67,12 @@ func GetMaxStringConcat() int {
 	serverOptionsCache.RLock()
 	defer serverOptionsCache.RUnlock()
 	return serverOptionsCache.maxStringConcat
+}
+
+func GetCryptWorkLimits() (int, int) {
+	serverOptionsCache.RLock()
+	defer serverOptionsCache.RUnlock()
+	return serverOptionsCache.maxCryptBcryptCost, serverOptionsCache.maxCryptSHARounds
 }
 
 func GetTaskLimits(background bool) (int64, float64) {
@@ -110,14 +122,16 @@ func cacheServerOptionsDefaults() {
 
 func defaultServerOptionsSnapshot() kernel.PendingServerOptions {
 	return kernel.PendingServerOptions{
-		MaxStringConcat:   defaultMaxStringConcat,
-		MaxListValueBytes: defaultMaxListValueBytes,
-		MaxMapValueBytes:  defaultMaxMapValueBytes,
-		FgTicks:           defaultFgTicks,
-		BgTicks:           defaultBgTicks,
-		FgSeconds:         defaultFgSeconds,
-		BgSeconds:         defaultBgSeconds,
-		MaxStackDepth:     defaultMaxStackDepth,
+		MaxStringConcat:    defaultMaxStringConcat,
+		MaxListValueBytes:  defaultMaxListValueBytes,
+		MaxMapValueBytes:   defaultMaxMapValueBytes,
+		FgTicks:            defaultFgTicks,
+		BgTicks:            defaultBgTicks,
+		FgSeconds:          defaultFgSeconds,
+		BgSeconds:          defaultBgSeconds,
+		MaxStackDepth:      defaultMaxStackDepth,
+		MaxCryptBcryptCost: defaultMaxCryptBcryptCost,
+		MaxCryptSHARounds:  defaultMaxCryptSHARounds,
 	}
 }
 
@@ -135,6 +149,8 @@ func applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptions) {
 	serverOptionsCache.fgSeconds = snapshot.FgSeconds
 	serverOptionsCache.bgSeconds = snapshot.BgSeconds
 	serverOptionsCache.maxStackDepth = snapshot.MaxStackDepth
+	serverOptionsCache.maxCryptBcryptCost = snapshot.MaxCryptBcryptCost
+	serverOptionsCache.maxCryptSHARounds = snapshot.MaxCryptSHARounds
 	serverOptionsCache.Unlock()
 }
 
@@ -212,6 +228,18 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 	if prop, ok := findDefined(serverOptsID, "max_stack_depth"); ok {
 		if prop.Value.Type() == types.TYPE_INT && prop.Value.Int() > 0 {
 			snapshot.MaxStackDepth = int(prop.Value.Int())
+			snapshot.Loaded++
+		}
+	}
+	if prop, ok := findDefined(serverOptsID, "max_crypt_bcrypt_cost"); ok {
+		if prop.Value.Type() == types.TYPE_INT && prop.Value.Int() >= 4 && prop.Value.Int() <= 31 {
+			snapshot.MaxCryptBcryptCost = int(prop.Value.Int())
+			snapshot.Loaded++
+		}
+	}
+	if prop, ok := findDefined(serverOptsID, "max_crypt_sha_rounds"); ok {
+		if prop.Value.Type() == types.TYPE_INT && prop.Value.Int() >= shaCryptRoundsMin && prop.Value.Int() <= shaCryptRoundsMax {
+			snapshot.MaxCryptSHARounds = int(prop.Value.Int())
 			snapshot.Loaded++
 		}
 	}
