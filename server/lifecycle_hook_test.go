@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -405,12 +406,13 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	rt := engine.NewRuntime(store)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	dbPath := filepath.Join(t.TempDir(), "panic.db")
 	s := &Server{
 		store:          store,
 		runtime:        rt,
 		input:          NewInputProcessor(store, rt),
 		connManager:    NewConnectionManager(7777),
-		dbPath:         filepath.Join(t.TempDir(), "panic.db"),
+		dbPath:         dbPath,
 		checkpointChan: make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -445,6 +447,13 @@ func TestPanicReturnsTerminalErrorWithoutGracefulShutdown(t *testing.T) {
 	}
 	if shutdownStarted.Type() != types.TYPE_INT || shutdownStarted.Int() != 0 {
 		t.Fatalf("shutdown_started = %v, want 0", shutdownStarted)
+	}
+
+	if _, err := os.Stat(dbPath + ".new.PANIC"); err != nil {
+		t.Fatalf("stat emergency checkpoint: %v", err)
+	}
+	if _, err := os.Stat(dbPath + ".new"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ordinary checkpoint exists after panic: %v", err)
 	}
 }
 

@@ -13,6 +13,38 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+func TestWriteVMFrameDefinesCompositeOwnedWaifBeforeDirectAlias(t *testing.T) {
+	waif := types.NewWaif(9, 3)
+	frame := task.VMFrameSnapshot{
+		Program: bytecode.Program{
+			Source:    []string{"state = {WAIF};", "suspend(60);"},
+			VarNames:  []string{"WAIF", "state"},
+			NumLocals: 2,
+		},
+		Locals: []types.Value{waif, types.NewList([]types.Value{waif})},
+	}
+	var buf bytes.Buffer
+	writer := NewWriter(&buf, store.NewStore().Snapshot())
+	if err := writer.writeVMFrame(frame, task.ActivationFrame{}); err != nil {
+		t.Fatalf("writeVMFrame: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	output := buf.String()
+	header := strings.Index(output, "2 variables\n")
+	if header < 0 {
+		t.Fatalf("runtime environment header missing:\n%s", output)
+	}
+	environment := output[header:]
+	if !strings.HasPrefix(environment, "2 variables\nstate\n4\n1\n13\nc 0\n") {
+		t.Fatalf("composite owner was not the WAIF definition site:\n%s", environment)
+	}
+	if stateIndex, directIndex := strings.Index(environment, "\nstate\n"), strings.Index(environment, "\nWAIF\n"); stateIndex < 0 || directIndex < 0 || stateIndex >= directIndex {
+		t.Fatalf("runtime variable order does not place state before direct WAIF alias:\n%s", environment)
+	}
+}
+
 func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())

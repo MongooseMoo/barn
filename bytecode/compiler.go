@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/verb"
@@ -317,8 +318,9 @@ func (c *Compiler) endScope() {
 // If the variable count exceeds 255 (the maximum addressable by a single byte),
 // sets c.err and returns 0 as a safe fallback index.
 func (c *Compiler) declareVariable(name string) int {
+	key := strings.ToUpper(name)
 	// Check if already exists in global variable table
-	if idx, ok := c.variables[name]; ok {
+	if idx, ok := c.variables[key]; ok {
 		return idx
 	}
 
@@ -332,9 +334,13 @@ func (c *Compiler) declareVariable(name string) int {
 	}
 
 	// Add to global variable table
-	c.program.VarNames = append(c.program.VarNames, name)
-	c.variables[name] = idx
-	c.program.BuiltinSlots.Set(name, idx)
+	displayName := name
+	if _, isTypeName := builtinConstants[key]; isTypeName {
+		displayName = key
+	}
+	c.program.VarNames = append(c.program.VarNames, displayName)
+	c.variables[key] = idx
+	c.program.BuiltinSlots.Set(strings.ToLower(key), idx)
 
 	// Track max locals
 	if idx+1 > c.program.NumLocals {
@@ -343,7 +349,7 @@ func (c *Compiler) declareVariable(name string) int {
 
 	// Add to current scope
 	if len(c.scopes) > 0 {
-		c.scopes[len(c.scopes)-1].Variables[name] = idx
+		c.scopes[len(c.scopes)-1].Variables[key] = idx
 	}
 
 	return idx
@@ -351,7 +357,7 @@ func (c *Compiler) declareVariable(name string) int {
 
 // resolveVariable resolves a variable name to its index
 func (c *Compiler) resolveVariable(name string) (int, bool) {
-	idx, ok := c.variables[name]
+	idx, ok := c.variables[strings.ToUpper(name)]
 	return idx, ok
 }
 
@@ -565,7 +571,7 @@ func (c *Compiler) compileIdentifier(n *verb.IdentifierExpr) error {
 	}
 
 	// Check for built-in type constants (OBJ, STR, INT, etc.)
-	if val, ok := builtinConstants[n.Name]; ok {
+	if val, ok := builtinConstants[strings.ToUpper(n.Name)]; ok {
 		c.emitConstant(val)
 		return nil
 	}
