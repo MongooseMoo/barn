@@ -10,19 +10,19 @@ import (
 	"sync"
 	"time"
 
-	"barn/builtins"
-	"barn/command"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	runtime "barn/scheduler"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/command"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type InputProcessor struct {
 	store       *dbstore.Store
-	runtime     *runtime.Scheduler
+	runtime     *engine.Runtime
 	connManager *ConnectionManager
 	inputQueue  chan command.InputEvent
 	ctx         context.Context
@@ -38,11 +38,11 @@ type InputProcessor struct {
 	inFlight  sync.WaitGroup
 }
 
-func NewInputProcessor(store *dbstore.Store, runtimeScheduler *runtime.Scheduler) *InputProcessor {
+func NewInputProcessor(store *dbstore.Store, runtime *engine.Runtime) *InputProcessor {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &InputProcessor{
 		store:      store,
-		runtime:    runtimeScheduler,
+		runtime:    runtime,
 		inputQueue: make(chan command.InputEvent, 256),
 		ctx:        ctx,
 		cancel:     cancel,
@@ -72,7 +72,7 @@ func (p *InputProcessor) EnqueueInput(evt command.InputEvent) {
 }
 
 // HandleConnection reads transport input and serializes it onto the input queue.
-// All MOO verb execution remains on the scheduler/input goroutine.
+// All MOO verb execution remains on the runtime/input goroutine.
 func (p *InputProcessor) HandleConnection(conn *Connection) {
 	trace.Connection("NEW", conn.ID, types.ObjID(-conn.ID), conn.RemoteAddr())
 
@@ -97,7 +97,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		}
 	}
 
-	// Send initial welcome banner by enqueuing empty string to scheduler.
+	// Send the initial welcome banner by enqueuing an empty string to the runtime.
 	// This matches ToastStunt behavior: new_input_task(h->tasks, "", 0, 0).
 	{
 		done := make(chan struct{})
@@ -196,7 +196,7 @@ func (p *InputProcessor) run() {
 		case input := <-p.inputQueue:
 			p.dispatch(input)
 		case <-ticker.C:
-			p.processSchedulerTick()
+			p.processRuntimeTick()
 		case <-cleanupTicker.C:
 			// Reclaim completed/killed tasks so the pre-auth login path (and all
 			// other tasks) cannot grow unboundedly.
@@ -205,10 +205,10 @@ func (p *InputProcessor) run() {
 	}
 }
 
-func (p *InputProcessor) processSchedulerTick() {
-	// A select chooses randomly when both input and the scheduler tick are
+func (p *InputProcessor) processRuntimeTick() {
+	// A select chooses randomly when both input and the runtime tick are
 	// ready. Recheck the input queue before running another task so a busy
-	// scheduler cannot repeatedly win that tie and starve socket input.
+	// runtime cannot repeatedly win that tie and starve socket input.
 	select {
 	case input := <-p.inputQueue:
 		p.dispatch(input)
@@ -373,7 +373,7 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 	// Deliver the line to the read()-suspended task and run it synchronously to
 	// completion or to its next read() suspend. Running synchronously here (on
 	// the single input goroutine) closes the window in which a follow-up line,
-	// arriving before the scheduler ticker re-ran the resumed task, would not be
+	// arriving before the runtime ticker re-ran the resumed task, would not be
 	// found by FindReadingTask and would spawn a parallel do_login_command.
 	return p.runtime.ResumeReadingTask(player, line)
 }
@@ -530,7 +530,7 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 }
 
 // dispatchLoginCommand runs the listener's do_login_command as a registered,
-// resumable scheduler task. The login verb may call read() any number of times
+// resumable engine task. The login verb may call read() any number of times
 // (username, password, ...); each read() suspends and resumes the same task.
 // When the task finally returns, the completion callback interprets the result
 // and logs the player in. Falls back to the synchronous helper when there is no
@@ -667,7 +667,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
 	err := p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
-	if errors.Is(err, runtime.ErrCommandVerbNoCode) {
+	if errors.Is(err, engine.ErrCommandVerbNoCode) {
 		conn.Send(emptyMessage)
 		if outputSuffix != "" {
 			_ = conn.Send(outputSuffix)

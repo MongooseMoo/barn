@@ -4,9 +4,9 @@ import (
 	"math"
 	"testing"
 
-	"barn/config"
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/config"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // requirePromoteFloat asserts the result is a FloatValue with the given value.

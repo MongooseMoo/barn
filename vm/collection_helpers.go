@@ -3,9 +3,9 @@ package vm
 import (
 	"unsafe"
 
-	"barn/builtins"
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // isObjLike reports whether v is an object reference: either a regular object

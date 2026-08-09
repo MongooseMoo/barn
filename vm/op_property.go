@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"barn/builtins"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Property operations

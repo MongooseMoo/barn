@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestReadOnlyTransactionSeesStableSnapshot(t *testing.T) {

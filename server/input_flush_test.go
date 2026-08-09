@@ -4,11 +4,11 @@ import (
 	"reflect"
 	"testing"
 
-	"barn/command"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	runtime "barn/scheduler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/command"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
@@ -16,7 +16,7 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 	addTestObject(t, store, 0, dbstore.FlagWizard)
 	player := addTestObject(t, store, 424244, dbstore.FlagUser|dbstore.FlagWizard)
 
-	rt := runtime.NewScheduler(store)
+	rt := engine.NewRuntime(store)
 	defer rt.Stop()
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)

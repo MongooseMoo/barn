@@ -18,18 +18,19 @@ import (
 	"strings"
 	"syscall"
 
-	"barn/builtins"
-	"barn/compiler"
-	"barn/config"
-	dbformat "barn/db/format"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/logging"
-	"barn/profile"
-	"barn/server"
-	"barn/trace"
-	"barn/types"
-	"barn/vm"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/compiler"
+	"github.com/MongooseMoo/barn/config"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/logging"
+	"github.com/MongooseMoo/barn/profile"
+	"github.com/MongooseMoo/barn/server"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 // defaultGOGCPercent is Barn's on-by-default GC budget. The Go default
@@ -639,6 +640,7 @@ func dumpObjInfo(store *dbstore.Store, spec string) {
 // evalExpression parses and evaluates a MOO expression
 func evalExpression(store *dbstore.Store, expr string, options config.Options) {
 	registry := vm.BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
 	prog, diagnostics := compiler.CompileMOO([]string{"return " + expr + ";"}, registry)
 	if len(diagnostics) > 0 {
 		fmt.Fprintf(os.Stderr, "Compile error: %s\n", diagnostics[0].Error())

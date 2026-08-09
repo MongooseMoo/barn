@@ -4,8 +4,8 @@ import (
 	"container/list"
 	"sync"
 
-	"barn/bytecode"
-	"barn/sourcekey"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/sourcekey"
 )
 
 const mooCacheCapacity = 8192

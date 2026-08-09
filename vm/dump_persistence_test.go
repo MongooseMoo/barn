@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	dbformat "barn/db/format"
-	"barn/kernel"
-	"barn/types"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {

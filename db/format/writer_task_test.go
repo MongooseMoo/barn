@@ -1,16 +1,16 @@
 package format
 
 import (
-	"barn/bytecode"
 	"bufio"
 	"bytes"
+	"github.com/MongooseMoo/barn/bytecode"
 	"strings"
 	"testing"
 	"time"
 
-	"barn/db/store"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {

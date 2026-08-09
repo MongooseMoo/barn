@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func newGateTestStore(t *testing.T) *Store {

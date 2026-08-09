@@ -1,13 +1,13 @@
 package main
 
 import (
-	"barn/builtins"
-	"barn/bytecode"
-	"barn/compiler"
-	dbformat "barn/db/format"
-	"barn/types"
 	"flag"
 	"fmt"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/types"
 	"os"
 )
 

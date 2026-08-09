@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"barn/bytecode"
-	"barn/kernel"
-	"barn/metrics"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TaskState represents the current state of a task
@@ -144,7 +144,7 @@ type Task struct {
 	Context        *kernel.TaskContext // Task execution context
 	Result         types.Result        // Last execution result
 	ForkCreator    ForkCreator         // For creating forked tasks
-	CancelFunc     context.CancelFunc  // For cancellation (exported for scheduler)
+	CancelFunc     context.CancelFunc  // For cancellation (exported for the engine)
 	ExecCancelFunc context.CancelFunc  // For cancelling an exec() subprocess
 	StmtIndex      int                 // Current statement index (for suspend/resume)
 
@@ -375,11 +375,11 @@ func (t *Task) SetTaskLocal(val types.Value) {
 
 // BytecodeVMValue returns the saved bytecode VM handle (thread-safe).
 //
-// BytecodeVM is read by the scheduler from goroutines other than the one
+// BytecodeVM is read by the engine from goroutines other than the one
 // running the task (e.g. liveTaskVMs scanning sibling tasks for orphan-anonymous
 // GC, and ProcessReadyTasks' readiness check), so every access must hold t.mu.
-// This accessor is a leaf with respect to the scheduler's s.mu: it never
-// acquires any other lock, so the scheduler may safely hold s.mu while calling
+// This accessor is a leaf with respect to the runtime's mutex: it never
+// acquires any other lock, so the runtime may safely hold that mutex while calling
 // it (lock order: s.mu -> task.mu, never the reverse).
 func (t *Task) BytecodeVMValue() interface{} {
 	t.mu.RLock()
@@ -401,7 +401,7 @@ func (t *Task) SetBytecodeVM(machine interface{}) {
 // for an indefinite suspend (tasks.cc:1306-1307) so the task sorts AFTER every
 // timed task in queued_tasks(). It is a far-future instant so the ascending
 // queued_tasks comparator orders such tasks last. WakeTime is deliberately left
-// zero so the scheduler never auto-wakes it — only an explicit resume() does.
+// zero so the runtime never auto-wakes it — only an explicit resume() does.
 var IndefiniteSuspendStartTime = time.Unix(1<<62, 0)
 
 // Suspend suspends the task for a duration
@@ -443,8 +443,8 @@ func (t *Task) Resume(value types.Value) bool {
 	t.IsHTTPReadSuspended = false
 	// An indefinitely-suspended task carries the far-future
 	// IndefiniteSuspendStartTime sentinel so it sorts last in queued_tasks().
-	// Once explicitly resumed it must become runnable now, but the scheduler's
-	// readiness gate keys off StartTime (scheduler.go: !StartTime.After(now)),
+	// Once explicitly resumed it must become runnable now, but the runtime's
+	// readiness gate keys off StartTime (engine/runtime.go: !StartTime.After(now)),
 	// so clear the sentinel back to now. runTask() re-stamps StartTime when the
 	// resumed VM actually runs, so this only affects the brief queued window.
 	if t.StartTime.Equal(IndefiniteSuspendStartTime) {

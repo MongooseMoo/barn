@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestObjectAllows(t *testing.T) {

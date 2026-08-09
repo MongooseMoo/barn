@@ -3,7 +3,7 @@ package store
 import (
 	"time"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.ObjID, anonymous bool, chparent bool) {

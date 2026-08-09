@@ -12,7 +12,7 @@ package metrics
 import "expvar"
 
 var (
-	// TasksStarted counts every task the scheduler has created.
+	// TasksStarted counts every task the execution runtime has created.
 	TasksStarted = expvar.NewInt("barn.tasks_started")
 	// TasksKilled counts tasks that died — killed, or aborted by an error.
 	TasksKilled = expvar.NewInt("barn.tasks_killed")

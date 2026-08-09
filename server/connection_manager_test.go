@@ -1,10 +1,10 @@
 package server
 
 import (
-	"barn/builtins"
-	"barn/types"
 	"bufio"
 	"crypto/tls"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/types"
 	"net"
 	"net/http"
 	"net/http/httptest"

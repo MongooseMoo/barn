@@ -3,8 +3,8 @@ package bytecode
 import (
 	"fmt"
 
-	"barn/types"
-	"barn/verb"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 func valueFromLiteral(lit *verb.LiteralExpr) (types.Value, error) {

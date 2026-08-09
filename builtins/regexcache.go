@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"regexp"
+	"regexp/syntax"
 	"sync"
 )
 
@@ -24,13 +25,15 @@ type regexpCacheKey struct {
 	pattern       string
 	caseSensitive bool
 	anchored      bool
+	rightmost     bool
 }
 
 // regexpCacheEntry also memoizes failures: an invalid pattern costs the same
 // translate+compile work as a valid one and is equally repeatable from MOO.
 type regexpCacheEntry struct {
-	re  *regexp.Regexp
-	err error
+	re                 *regexp.Regexp
+	requiresSuffixScan bool
+	err                error
 }
 
 var (
@@ -64,6 +67,36 @@ func cachedMOOPattern(pattern string, caseSensitive, anchored bool) (*regexp.Reg
 	return entry.re, entry.err
 }
 
+// cachedMOORightmostPattern compiles a regexp that selects the match with the
+// greatest starting byte in one pass. The leading greedy wildcard fixes the
+// overall match at byte zero while forcing the captured MOO pattern as far
+// right as it can go; the caller removes that wrapper capture from the result.
+//
+// Assertions about the beginning of the input or a word boundary observe the
+// artificial start of every suffix in the historical rmatch implementation.
+// Those patterns must keep the suffix scan to preserve exact behavior.
+func cachedMOORightmostPattern(pattern string, caseSensitive bool) (*regexp.Regexp, bool, error) {
+	key := regexpCacheKey{pattern: pattern, caseSensitive: caseSensitive, rightmost: true}
+
+	regexpCacheMu.RLock()
+	entry, ok := regexpCache[key]
+	regexpCacheMu.RUnlock()
+	if ok {
+		return entry.re, entry.requiresSuffixScan, entry.err
+	}
+
+	entry = compileMOORightmostPattern(pattern, caseSensitive)
+
+	regexpCacheMu.Lock()
+	if len(regexpCache) >= regexpCacheCap {
+		regexpCache = make(map[regexpCacheKey]regexpCacheEntry, regexpCacheCap)
+	}
+	regexpCache[key] = entry
+	regexpCacheMu.Unlock()
+
+	return entry.re, entry.requiresSuffixScan, entry.err
+}
+
 func compileMOOPattern(pattern string, caseSensitive, anchored bool) regexpCacheEntry {
 	goPattern, err := mooPatternToGoRegex(pattern)
 	if err != nil {
@@ -81,6 +114,46 @@ func compileMOOPattern(pattern string, caseSensitive, anchored bool) regexpCache
 		return regexpCacheEntry{err: err}
 	}
 	return regexpCacheEntry{re: re}
+}
+
+func compileMOORightmostPattern(pattern string, caseSensitive bool) regexpCacheEntry {
+	goPattern, err := mooPatternToGoRegex(pattern)
+	if err != nil {
+		return regexpCacheEntry{err: err}
+	}
+	pat := goPattern
+	if !caseSensitive {
+		pat = "(?i)" + pat
+	}
+
+	parsed, err := syntax.Parse(pat, syntax.Perl)
+	if err != nil {
+		return regexpCacheEntry{err: err}
+	}
+	if regexpNeedsSuffixContext(parsed) {
+		entry := compileMOOPattern(pattern, caseSensitive, true)
+		entry.requiresSuffixScan = true
+		return entry
+	}
+
+	re, err := regexp.Compile("^(?s:.*)(" + pat + ")")
+	if err != nil {
+		return regexpCacheEntry{err: err}
+	}
+	return regexpCacheEntry{re: re}
+}
+
+func regexpNeedsSuffixContext(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpBeginLine, syntax.OpBeginText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return true
+	}
+	for _, sub := range re.Sub {
+		if regexpNeedsSuffixContext(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 func resetRegexpCacheForTest() {

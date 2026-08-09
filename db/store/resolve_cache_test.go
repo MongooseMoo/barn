@@ -4,7 +4,7 @@ import (
 	"maps"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // The resolution memo's ONLY safety obligation beyond returning the right

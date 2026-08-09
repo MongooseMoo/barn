@@ -3,12 +3,12 @@ package vm
 import (
 	"testing"
 
-	"barn/bytecode"
-	"barn/compiler"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *kernel.TaskContext) types.Result {
@@ -24,6 +24,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	}
 
 	registry := BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
 	ctx.Store = store
 	ctx.Registry = registry
 
@@ -628,6 +629,117 @@ func TestBytecodeFinallyDuringVerbUnwind(t *testing.T) {
 	requireInt(t, runBytecodeProgram(t, program, store, nil), 42)
 }
 
+func TestBytecodeNestedFinallyUnwindsEveryFinalizer(t *testing.T) {
+	tests := []struct {
+		name    string
+		program string
+		want    []types.Value
+	}{
+		{
+			name: "two levels",
+			program: `
+				result = {};
+				try
+					try
+						try
+							raise(E_INVARG);
+						finally
+							result = {@result, "inner"};
+						endtry
+					finally
+						result = {@result, "outer"};
+					endtry
+				except (E_INVARG)
+					return result;
+				endtry`,
+			want: []types.Value{types.NewStr("inner"), types.NewStr("outer")},
+		},
+		{
+			name: "three levels",
+			program: `
+				result = {};
+				try
+					try
+						try
+							try
+								raise(E_INVARG);
+							finally
+								result = {@result, "inner"};
+							endtry
+						finally
+							result = {@result, "middle"};
+						endtry
+					finally
+						result = {@result, "outer"};
+					endtry
+				except (E_INVARG)
+					return result;
+				endtry`,
+			want: []types.Value{
+				types.NewStr("inner"),
+				types.NewStr("middle"),
+				types.NewStr("outer"),
+			},
+		},
+		{
+			name: "finally inside except",
+			program: `
+				result = {};
+				try
+					try
+						raise(E_INVARG);
+					except (E_INVARG)
+						result = {@result, "except"};
+						try
+							raise(E_TYPE);
+						finally
+							result = {@result, "finally"};
+						endtry
+					endtry
+				except (E_TYPE)
+					result = {@result, "outer-except"};
+				endtry
+				return result;`,
+			want: []types.Value{
+				types.NewStr("except"),
+				types.NewStr("finally"),
+				types.NewStr("outer-except"),
+			},
+		},
+		{
+			name: "except inside finally",
+			program: `
+				result = {};
+				try
+					try
+						raise(E_INVARG);
+					finally
+						try
+							raise(E_TYPE);
+						except (E_TYPE)
+							result = {@result, "inner-except"};
+						endtry
+						result = {@result, "finally"};
+					endtry
+				except (E_INVARG)
+					result = {@result, "outer-except"};
+				endtry
+				return result;`,
+			want: []types.Value{
+				types.NewStr("inner-except"),
+				types.NewStr("finally"),
+				types.NewStr("outer-except"),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireList(t, runBytecodeProgram(t, test.program, nil, nil), test.want...)
+		})
+	}
+}
+
 func TestBytecodeForkAndSuspendResume(t *testing.T) {
 	requireInt(t, runBytecodeProgram(t, `fork (0) x = 1; endfork return 7;`, nil, nil), 7)
 	requireInt(t, runBytecodeProgram(t, `suspend(0); return 9;`, nil, nil), 9)
@@ -636,6 +748,7 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
+	registry.SetTaskManager(task.NewManager())
 	ctx := kernel.NewTaskContext()
 	ctx.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store

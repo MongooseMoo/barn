@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
@@ -110,6 +110,7 @@ func TestBuiltinFinishedTasksPermissionAndValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := kernel.NewTaskContext()
 			ctx.IsWizard = tc.isWizard
+			wireTestTaskManager(ctx)
 
 			result := builtinFinishedTasks(ctx, tc.args)
 			if tc.wantError != types.E_NONE {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func setVerbCodeConstantBoundarySource(tail string) []string {

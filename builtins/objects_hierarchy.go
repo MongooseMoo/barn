@@ -4,9 +4,9 @@ import (
 	"sort"
 	"strings"
 
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // builtinParent implements parent(object)

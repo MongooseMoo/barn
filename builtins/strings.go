@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ============================================================================
@@ -685,31 +685,56 @@ func builtinRmatch(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		caseSensitive = args[2].Truthy()
 	}
 
-	re, err := cachedMOOPattern(pattern, caseSensitive, true)
+	re, requiresSuffixScan, err := cachedMOORightmostPattern(pattern, caseSensitive)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
-
-	best := []int(nil)
-	for i := 0; i <= len(subject); i++ {
-		loc := re.FindStringSubmatchIndex(subject[i:])
-		if loc == nil {
-			continue
+	if !requiresSuffixScan && !isASCII(subject) {
+		// The historical byte-by-byte suffix scan can start in the middle of a
+		// UTF-8 encoding. Keep that byte-oriented behavior for non-ASCII strings.
+		re, err = cachedMOOPattern(pattern, caseSensitive, true)
+		if err != nil {
+			return types.Err(types.E_INVARG)
 		}
-		best = make([]int, len(loc))
-		for j, idx := range loc {
-			if idx < 0 {
-				best[j] = -1
-			} else {
-				best[j] = idx + i
-			}
-		}
+		requiresSuffixScan = true
 	}
-	if best == nil {
+
+	if requiresSuffixScan {
+		for i := len(subject); i >= 0; i-- {
+			loc := re.FindStringSubmatchIndex(subject[i:])
+			if loc == nil {
+				continue
+			}
+			for j, idx := range loc {
+				if idx >= 0 {
+					loc[j] += i
+				}
+			}
+			return types.Ok(buildMatchResult(subject, loc))
+		}
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	return types.Ok(buildMatchResult(subject, best))
+	loc := re.FindStringSubmatchIndex(subject)
+	if loc == nil {
+		return types.Ok(types.NewList([]types.Value{}))
+	}
+	// Drop the greedy-prefix match and promote its wrapper capture to the full
+	// match. The remaining captures are the original MOO pattern's captures.
+	loc[0], loc[1] = loc[2], loc[3]
+	copy(loc[2:], loc[4:])
+	loc = loc[:len(loc)-2]
+
+	return types.Ok(buildMatchResult(subject, loc))
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // builtinSubstitute implements substitute(template, match_result) -> str

@@ -3,7 +3,7 @@ package vm
 import (
 	"fmt"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func (vm *VM) staticNameFromConstant(index int, kind string) (string, error) {

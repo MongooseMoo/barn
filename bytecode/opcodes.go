@@ -99,7 +99,7 @@ const (
 	OP_TRY_EXCEPT  OpCode = OP_CONTINUE + 1 + iota // Push exception handlers [num_clauses, clause metadata...]
 	OP_END_EXCEPT                                  // Pop exception handlers [num_clauses]
 	OP_TRY_FINALLY                                 // Push finally handler [finally_offset]
-	OP_END_FINALLY                                 // Execute finally
+	OP_END_FINALLY                                 // Finish matching finally handler [finally_offset]
 	OP_CATCH                                       // DEAD: replaced by OP_TRY_EXCEPT/OP_END_EXCEPT pattern (never emitted by compiler)
 	OP_RAISE                                       // DEAD: replaced by Go error returns (never emitted by compiler)
 )

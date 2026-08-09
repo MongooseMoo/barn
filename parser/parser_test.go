@@ -1,8 +1,11 @@
 package parser
 
 import (
-	"barn/verb"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/MongooseMoo/barn/verb"
 )
 
 func TestParseIntegerLiterals(t *testing.T) {
@@ -14,6 +17,9 @@ func TestParseIntegerLiterals(t *testing.T) {
 		{"5", 5}, // MOO has no negative literals; "-5" is unary minus (see TestParseUnaryMinus)
 		{"0", 0},
 		{"9223372036854775807", 9223372036854775807},
+		{"9223372036854775808", -9223372036854775808},
+		{"18446744073709551616", 0},
+		{"99999999999999999999", 7766279631452241919},
 	}
 
 	for _, tt := range tests {
@@ -26,6 +32,41 @@ func TestParseIntegerLiterals(t *testing.T) {
 				t.Errorf("IntValue = %d, want %d", lit.IntValue, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseMillionDigitIntegerWithoutPathologicalCost(t *testing.T) {
+	input := "1" + strings.Repeat("0", 1_000_000-1)
+
+	start := time.Now()
+	lit := parseLiteralForTest(t, input)
+	elapsed := time.Since(start)
+	t.Logf("parsed one-million-digit integer in %v", elapsed)
+
+	if lit.Kind != verb.LiteralInt {
+		t.Fatalf("literal kind = %v, want LiteralInt", lit.Kind)
+	}
+	if lit.IntValue != 0 {
+		t.Errorf("IntValue = %d, want 0", lit.IntValue)
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("parsing a one-million-digit integer took %v, want at most 100ms", elapsed)
+	}
+}
+
+func TestWrapMillionDigitIntegerUnderOneMillisecond(t *testing.T) {
+	input := "1" + strings.Repeat("0", 1_000_000-2) + "1"
+
+	start := time.Now()
+	got := wrapInt64Literal(input)
+	elapsed := time.Since(start)
+	t.Logf("wrapped one-million-digit integer in %v", elapsed)
+
+	if got != 1 {
+		t.Errorf("wrapInt64Literal() = %d, want 1", got)
+	}
+	if elapsed >= time.Millisecond {
+		t.Errorf("wrapping a one-million-digit integer took %v, want under 1ms", elapsed)
 	}
 }
 

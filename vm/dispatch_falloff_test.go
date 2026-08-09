@@ -3,8 +3,8 @@ package vm
 import (
 	"testing"
 
-	"barn/bytecode"
-	"barn/compiler"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 )
 
 // These tests pin the behavior that the C5 dispatch-loop change relies on: the

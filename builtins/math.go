@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"strings"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ============================================================================

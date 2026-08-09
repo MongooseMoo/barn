@@ -1,8 +1,8 @@
 package profile
 
 import (
-	"barn/config"
 	"encoding/json"
+	"github.com/MongooseMoo/barn/config"
 	"os"
 	"path/filepath"
 	"testing"

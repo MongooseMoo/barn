@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestIsMemberPromoteNumbers: Toast mongoose branch (PROMOTE_NUMBERS on),

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result {

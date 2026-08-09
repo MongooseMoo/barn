@@ -93,7 +93,7 @@ func TestTruncatedFinalLineIsSkipped(t *testing.T) {
 // Go stacks are long; the scanner's default line limit would drop exactly the
 // records that matter most.
 func TestLongGoStackRecordIsRead(t *testing.T) {
-	huge := strings.Repeat("goroutine 1 [running]: barn/vm.(*VM).step(...)\\n", 3000)
+	huge := strings.Repeat("goroutine 1 [running]: github.com/MongooseMoo/barn/vm.(*VM).step(...)\\n", 3000)
 	panicRecord := `{"level":"ERROR","msg":"panic in task","panic":"index out of range","go_stack":"` + huge + `"}`
 	path := writeLog(t, panicRecord)
 
@@ -104,7 +104,7 @@ func TestLongGoStackRecordIsRead(t *testing.T) {
 	if len(records) != 1 {
 		t.Fatalf("a long panic record was dropped: got %d records", len(records))
 	}
-	if !strings.Contains(records[0].GoStack, "barn/vm") {
+	if !strings.Contains(records[0].GoStack, "github.com/MongooseMoo/barn/vm") {
 		t.Error("go_stack did not survive the read")
 	}
 }

@@ -4,9 +4,9 @@ import (
 	"math"
 	"sync"
 
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/types"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // ============================================================================

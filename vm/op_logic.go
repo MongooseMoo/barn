@@ -1,7 +1,7 @@
 package vm
 
 import (
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Logical operations

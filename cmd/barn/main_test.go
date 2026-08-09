@@ -1,8 +1,8 @@
 package main
 
 import (
-	"barn/builtins"
-	"barn/profile"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/profile"
 	"testing"
 )
 

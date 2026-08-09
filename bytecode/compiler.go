@@ -5,8 +5,8 @@ import (
 	"math"
 	"strconv"
 
-	"barn/types"
-	"barn/verb"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // UnknownBuiltinError is returned by the compiler when a verb references a
@@ -24,7 +24,7 @@ func (e *UnknownBuiltinError) Error() string {
 
 // Registry is the narrow interface the compiler needs from the builtins
 // registry: resolve a builtin function name to its numeric ID at compile time.
-// Defined here so the bytecode package does NOT import barn/builtins (which would
+// Defined here so the bytecode package does NOT import github.com/MongooseMoo/barn/builtins (which would
 // create an import cycle, since builtins imports bytecode). *builtins.Registry
 // satisfies this structurally. The single GetID call happens once per verb at
 // COMPILE time, never on the per-instruction execution hot path.
@@ -2281,13 +2281,18 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 
 	if n.Finalizer != nil {
 		c.emit(OP_END_FINALLY)
+		endFinallyIPPatch := len(c.program.Code)
+		c.emitShort(0xFFFF)
 		finallyIP := c.currentOffset()
 		c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
 		c.program.Code[finallyIPPatch+1] = byte(finallyIP)
+		c.program.Code[endFinallyIPPatch] = byte(finallyIP >> 8)
+		c.program.Code[endFinallyIPPatch+1] = byte(finallyIP)
 		if err := c.compileBlock(n.Finalizer.Body); err != nil {
 			return err
 		}
 		c.emit(OP_END_FINALLY)
+		c.emitShort(uint16(finallyIP))
 	}
 
 	return nil

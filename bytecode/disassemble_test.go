@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"barn/bytecode"
-	"barn/compiler"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 )
 
 func TestDisassembleDecodesCompiledProgram(t *testing.T) {
@@ -44,6 +44,49 @@ func TestDisassembleUsesToastOperatorMnemonics(t *testing.T) {
 	for _, want := range []string{"FIRST", "LAST", "COMPLEMENT", "BITSHL", "BITSHR"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("disassembly missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+func TestDisassembleDecodesEndFinallyHandlerOperands(t *testing.T) {
+	program, diagnostics := compiler.CompileMOO([]string{
+		"try",
+		"  x = 1;",
+		"finally",
+		"  x = 2;",
+		"endtry",
+		"return x;",
+	}, stubRegistry{})
+	if len(diagnostics) > 0 {
+		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
+	}
+
+	var tryOperands []string
+	var endOperands [][]string
+	for _, line := range bytecode.Disassemble(program) {
+		fields := strings.Fields(line)
+		if strings.HasSuffix(line, "TRY_FINALLY") {
+			if len(fields) != 5 {
+				t.Fatalf("TRY_FINALLY disassembly = %q, want opcode and two operands", line)
+			}
+			tryOperands = fields[2:4]
+		}
+		if strings.HasSuffix(line, "END_FINALLY") {
+			if len(fields) != 5 {
+				t.Fatalf("END_FINALLY disassembly = %q, want opcode and two operands", line)
+			}
+			endOperands = append(endOperands, fields[2:4])
+		}
+	}
+	if len(tryOperands) != 2 {
+		t.Fatalf("TRY_FINALLY operands = %v, want two bytes", tryOperands)
+	}
+	if len(endOperands) != 2 {
+		t.Fatalf("END_FINALLY instructions = %d, want 2", len(endOperands))
+	}
+	for i, operands := range endOperands {
+		if strings.Join(operands, " ") != strings.Join(tryOperands, " ") {
+			t.Fatalf("END_FINALLY %d operands = %v, want matching handler %v", i, operands, tryOperands)
 		}
 	}
 }

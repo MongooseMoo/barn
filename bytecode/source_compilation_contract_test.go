@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"barn/bytecode"
-	"barn/compiler"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestMOOCompilationContractCharacterizesEveryNodeFamily fixes the current

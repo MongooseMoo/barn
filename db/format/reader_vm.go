@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"barn/bytecode"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 )
 
 func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, error) {

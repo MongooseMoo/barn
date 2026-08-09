@@ -1,8 +1,8 @@
 package vm
 
 import (
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Bitwise operations

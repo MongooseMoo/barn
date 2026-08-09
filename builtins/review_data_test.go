@@ -4,8 +4,8 @@ import (
 	"math"
 	"testing"
 
-	"barn/kernel"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // TestReview_Data_* tests written by the analyst agent to probe suspected bugs

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"barn/kernel"
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 
 	_ "modernc.org/sqlite"
 )
@@ -256,7 +256,11 @@ func sqliteExecOrQueryAsync(ctx *kernel.TaskContext, handle *sqliteHandle, sqlTe
 		return sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
 	}
 
-	task.GetManager().SuspendTask(t, -1)
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	mgr.SuspendTask(t, -1)
 	go func() {
 		result := sqliteExecOrQuery(handle, sqlText, params, includeHeaders)
 		if result.IsNormal() {

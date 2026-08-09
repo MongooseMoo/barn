@@ -1,10 +1,10 @@
 package format
 
 import (
-	"barn/task"
-	"barn/types"
 	"bufio"
 	"fmt"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 	"strconv"
 	"strings"
 	"time"

@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // buildBenchStore creates a single object carrying a writable "counter" property.

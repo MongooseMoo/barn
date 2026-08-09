@@ -1,8 +1,8 @@
 package vm
 
 import (
-	"barn/builtins"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/types"
 	"math"
 	"strings"
 )

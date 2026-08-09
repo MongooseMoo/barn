@@ -1,8 +1,8 @@
 package builtins
 
 import (
-	"barn/task"
-	"barn/types"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 	"testing"
 )
 
@@ -169,7 +169,7 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 	if value, complete := prepareHTTPRead(player, "request", pending); complete {
 		t.Fatalf("expected incomplete request to suspend, got %v", value)
 	}
-	task.GetManager().SuspendTask(pending, -1)
+	task.NewManager().SuspendTask(pending, -1)
 
 	CloseHeldHTTPInput(player)
 
@@ -192,7 +192,7 @@ func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	if value, complete := prepareHTTPRead(player, "request", stalled); complete {
 		t.Fatalf("expected partial request to suspend, got %v", value)
 	}
-	task.GetManager().SuspendTask(stalled, -1)
+	task.NewManager().SuspendTask(stalled, -1)
 	CancelHTTPReadTask(stalled.ID)
 
 	if handled, _ := HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {

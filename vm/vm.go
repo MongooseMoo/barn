@@ -3,13 +3,13 @@ package vm
 import (
 	"fmt"
 
-	"barn/builtins"
-	"barn/bytecode"
-	dbstore "barn/db/store"
-	"barn/kernel"
-	"barn/task"
-	"barn/trace"
-	"barn/types"
+	"github.com/MongooseMoo/barn/builtins"
+	"github.com/MongooseMoo/barn/bytecode"
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/trace"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // VM represents the bytecode virtual machine
@@ -138,7 +138,7 @@ func (vm *VM) Run(prog *bytecode.Program) types.Result {
 }
 
 // RunWithVerbContext executes a program with verb context variables pre-populated
-// in the initial frame. This is used by the scheduler for top-level verb execution
+// in the initial frame. This is used by the engine for top-level verb execution
 // (command verbs and server hooks like do_login_command).
 func (vm *VM) RunWithVerbContext(prog *bytecode.Program, thisObj types.ObjID, player types.ObjID, caller types.ObjID, verbName string, verbLoc types.ObjID, args []types.Value) types.Result {
 	vm.ensureContextDependencies()
@@ -265,7 +265,7 @@ func (vm *VM) SetResumeValue(val types.Value, errorAsValue bool) {
 }
 
 // SetForkResult sets the fork variable in the current frame to the child task ID.
-// This should be called after the scheduler creates the child task, before Resume().
+// This should be called after the engine creates the child task, before Resume().
 func (vm *VM) SetForkResult(childTaskID int64) {
 	if vm.yieldResult.Flow == types.FlowFork && vm.yieldResult.ForkInfo != nil {
 		varName := vm.yieldResult.ForkInfo.VarName
@@ -410,7 +410,7 @@ func (vm *VM) syncTaskLineNumbers() {
 	}
 
 	// VM frames map 1:1 to task CallStack entries (the initial frame pushed
-	// by the scheduler is both VM frame 0 and CallStack entry 0).
+	// by the engine is both VM frame 0 and CallStack entry 0).
 	var lineNumbers []int
 	var runtimeVariables []types.Value
 	for _, frame := range vm.Frames {

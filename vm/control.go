@@ -1,26 +1,26 @@
 package vm
 
 import (
-	"barn/bytecode"
-	"barn/types"
 	"fmt"
+	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/types"
 	"strings"
 	"time"
 )
 
-// executeFork handles OP_FORK: evaluate delay, yield control to the scheduler.
+// executeFork handles OP_FORK: evaluate delay, then yield to the execution engine.
 //
 // Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short>
 // Stack: [delay] (delay value on top)
 //
 // Yields a FlowFork result with ForkInfo containing the fork body location,
-// delay, and variable name. The scheduler should:
+// delay, and variable name. The execution engine should:
 //  1. Create the child task (fork body)
 //  2. Call SetForkResult(childTaskID) on the VM
 //  3. Call Resume() to continue execution after the fork
 //
 // The fork variable is NOT set here — it is set by SetForkResult() with the
-// actual child task ID assigned by the scheduler.
+// actual child task ID assigned by the execution engine.
 func (vm *VM) executeFork() error {
 	varIdx := int(vm.FetchByte())
 	bodyLen := vm.ReadShort()
@@ -53,7 +53,7 @@ func (vm *VM) executeFork() error {
 		}
 	}
 
-	// Record the fork body's bytecode position for the scheduler.
+	// Record the fork body's bytecode position for the execution engine.
 	// The body starts at the current IP and runs for bodyLen bytes.
 	frame := vm.CurrentFrame()
 	forkBodyIP := frame.IP
@@ -62,8 +62,8 @@ func (vm *VM) executeFork() error {
 	// Skip over the fork body — the parent continues after the fork
 	frame.IP += forkBodyLen
 
-	// Build ForkInfo for the scheduler.
-	// Include the parent program and a locals snapshot so the scheduler can
+	// Build ForkInfo for the execution engine.
+	// Include the parent program and a locals snapshot so the execution engine can
 	// create a child VM with the forked bytecode range and variable state.
 	localsCopy := make([]types.Value, len(frame.Locals))
 	copy(localsCopy, frame.Locals)
@@ -99,7 +99,7 @@ func (vm *VM) executeFork() error {
 		Verb:        verbStr,
 		VerbLoc:     frame.VerbLoc,
 	}
-	// Store locals snapshot in Variables map for the scheduler
+	// Store locals snapshot in Variables map for the execution engine.
 	forkInfo.Variables = make(map[string]types.Value, len(frame.Program.VarNames))
 	for i, name := range frame.Program.VarNames {
 		if i < len(localsCopy) {
@@ -107,7 +107,7 @@ func (vm *VM) executeFork() error {
 		}
 	}
 
-	// Yield to the scheduler
+	// Yield to the execution engine.
 	vm.yielded = true
 	vm.yieldResult = types.Result{
 		Flow:     types.FlowFork,
@@ -248,23 +248,32 @@ func (vm *VM) executeTryFinally() error {
 	return nil
 }
 
-// executeEndFinally handles OP_END_FINALLY.
+// executeEndFinally handles OP_END_FINALLY <finally_ip>.
 // This opcode appears twice in try/finally bytecode:
-// 1. After the try body (normal path): pop handler from ExceptStack
+// 1. After the try body (normal path): pop its matching handler from ExceptStack
 // 2. After the finally block: re-raise PendingError if set
 func (vm *VM) executeEndFinally() error {
 	frame := vm.CurrentFrame()
 
-	// If there's a finally handler on top of the stack, pop it (normal path)
+	// Read the matching finally IP (absolute). Both END_FINALLY instructions
+	// carry the same identity as their OP_TRY_FINALLY so an inner block cannot
+	// consume an enclosing block's still-live handler.
+	hi := frame.Program.Code[frame.IP]
+	lo := frame.Program.Code[frame.IP+1]
+	frame.IP += 2
+	finallyIP := int(uint16(hi)<<8 | uint16(lo))
+
+	// If this block's finally handler is on top of the stack, pop it (normal path).
 	if len(frame.ExceptStack) > 0 {
 		top := frame.ExceptStack[len(frame.ExceptStack)-1]
-		if top.Type == bytecode.HandlerFinally {
+		if top.Type == bytecode.HandlerFinally && top.HandlerIP == finallyIP {
 			frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
 			return nil
 		}
 	}
 
-	// No finally handler to pop. Check for pending error to re-raise.
+	// This block's handler was already removed while unwinding. Re-raise the
+	// pending error without consuming an enclosing finally handler.
 	if frame.PendingError != nil {
 		err := frame.PendingError
 		frame.PendingError = nil

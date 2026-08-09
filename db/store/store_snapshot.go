@@ -3,7 +3,7 @@ package store
 import (
 	"sort"
 
-	"barn/types"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // SnapshotObject is a flat, read-only copy of an object for the database writer.
