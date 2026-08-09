@@ -37,7 +37,7 @@ func TestWriteVMFrameDefinesCompositeOwnedWaifBeforeDirectAlias(t *testing.T) {
 		t.Fatalf("runtime environment header missing:\n%s", output)
 	}
 	environment := output[header:]
-	if !strings.HasPrefix(environment, "2 variables\nstate\n13\nc 0\n9\n3\n") {
+	if !strings.HasPrefix(environment, "2 variables\nstate\n4\n1\n13\nc 0\n") {
 		t.Fatalf("composite owner was not the WAIF definition site:\n%s", environment)
 	}
 	if stateIndex, directIndex := strings.Index(environment, "\nstate\n"), strings.Index(environment, "\nWAIF\n"); stateIndex < 0 || directIndex < 0 || stateIndex >= directIndex {

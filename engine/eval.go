@@ -18,6 +18,8 @@ import (
 // EvalCommandOutput evaluates MOO code directly for the intrinsic EVAL command
 // and returns its single result record. The server input boundary owns framing.
 func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line string) {
+	s.beginFinalizationProducer()
+	defer s.finishFinalizationProducer()
 	var executionTask *task.Task
 	var executionCtx *kernel.TaskContext
 	// Recover from panics in compile/execute to avoid crashing the server

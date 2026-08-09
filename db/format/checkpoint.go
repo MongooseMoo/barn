@@ -16,6 +16,27 @@ func WriteCheckpoint(
 	queuedTasks, suspendedTasks []task.Snapshot,
 	activeConnections []ActiveConnection,
 ) error {
+	return writeCheckpoint(path+".new", path+".tmp", objectStore, queuedTasks, suspendedTasks, activeConnections)
+}
+
+// WritePanicCheckpoint writes an emergency database checkpoint to
+// path+".new.PANIC", leaving both the input database and the ordinary
+// checkpoint path untouched.
+func WritePanicCheckpoint(
+	path string,
+	objectStore *store.Store,
+	queuedTasks, suspendedTasks []task.Snapshot,
+	activeConnections []ActiveConnection,
+) error {
+	return writeCheckpoint(path+".new.PANIC", path+".tmp.PANIC", objectStore, queuedTasks, suspendedTasks, activeConnections)
+}
+
+func writeCheckpoint(
+	outPath, tempPath string,
+	objectStore *store.Store,
+	queuedTasks, suspendedTasks []task.Snapshot,
+	activeConnections []ActiveConnection,
+) error {
 	if objectStore == nil {
 		return fmt.Errorf("snapshot store is nil")
 	}
@@ -39,8 +60,6 @@ func WriteCheckpoint(
 		suspendedTasks[index].TransformPersistenceValues(rewriter.Rewrite)
 	}
 
-	outPath := path + ".new"
-	tempPath := path + ".tmp"
 	tempFile, err := os.Create(tempPath)
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)

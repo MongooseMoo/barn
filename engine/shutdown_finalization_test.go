@@ -68,6 +68,12 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add WAIF class: %v", err)
 	}
+	wizard := dbstore.NewObjectBuilder(3)
+	wizard.SetOwner(3)
+	wizard.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
+	if err := store.Add(wizard.Build()); err != nil {
+		t.Fatalf("add recycle owner: %v", err)
+	}
 	verb := dbstore.NewVerb(":recycle", []string{":recycle"}, 3,
 		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"},

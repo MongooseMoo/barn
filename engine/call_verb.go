@@ -174,6 +174,8 @@ func (s *Runtime) CallVerbWithArgstr(objID types.ObjID, verbName string, args []
 }
 
 func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, ownership vmOwnership, ownerTaskID int64) (result types.Result) {
+	s.beginFinalizationProducer()
+	defer s.finishFinalizationProducer()
 	var leasedTask *task.Task
 	var inheritedLease bool
 	var ownedCtx *kernel.TaskContext

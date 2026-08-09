@@ -27,6 +27,7 @@ func dirtyVM(machine *VM) {
 	machine.MaxStackDepth = 456
 	machine.Ticks = 789
 	machine.PendingWaifs = []types.Value{types.NewInt(1)}
+	machine.PendingFinalizations = []types.Value{types.NewInt(2)}
 	machine.frame = machine.Frames[0]
 	machine.yielded = true
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
@@ -146,8 +147,8 @@ func TestAcquireVMReturnsCleanVM(t *testing.T) {
 	if len(reused.Stack) != 0 || len(reused.Frames) != 0 {
 		t.Errorf("reused VM dirty: len(Stack)=%d len(Frames)=%d", len(reused.Stack), len(reused.Frames))
 	}
-	if reused.Context != nil || reused.PendingWaifs != nil || reused.frame != nil {
-		t.Error("reused VM still carries context/pending waifs/frame")
+	if reused.Context != nil || reused.PendingWaifs != nil || reused.PendingFinalizations != nil || reused.frame != nil {
+		t.Error("reused VM still carries context/pending finalizations/frame")
 	}
 	if reused.TickLimit != defaultTickLimit || reused.MaxStackDepth != defaultMaxStackDepth {
 		t.Errorf("reused VM limits = %d/%d, want %d/%d",

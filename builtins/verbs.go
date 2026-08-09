@@ -803,13 +803,21 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Ok(types.NewList(errVals))
 	}
 
+	storedLines := lines
+	if program, err := parser.NewParser(strings.Join(compileLines, "\n")).ParseProgram(); err == nil {
+		storedLines = parser.FormatMOO(program)
+		for index := range storedLines {
+			storedLines[index] = strings.TrimLeft(storedLines[index], " \t")
+		}
+	}
+
 	switch args[1].Type() {
 	case types.TYPE_STR:
 		var errCode types.ErrorCode
 		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetVerbCode(objID, args[1].Str(), lines)
+			errCode = tx.SetVerbCode(objID, args[1].Str(), storedLines)
 		} else {
-			errCode = store.SetVerbCode(objID, args[1].Str(), lines)
+			errCode = store.SetVerbCode(objID, args[1].Str(), storedLines)
 		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -817,9 +825,9 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	case types.TYPE_INT:
 		var errCode types.ErrorCode
 		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetVerbCodeByIndex(objID, int(args[1].Int())-1, lines)
+			errCode = tx.SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
 		} else {
-			errCode = store.SetVerbCodeByIndex(objID, int(args[1].Int())-1, lines)
+			errCode = store.SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
 		}
 		if errCode != types.E_NONE {
 			return types.Err(errCode)

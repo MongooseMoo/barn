@@ -3,22 +3,41 @@ package store
 import (
 	"github.com/MongooseMoo/barn/types"
 	"sort"
+	"unsafe"
 )
 
 func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{}) {
+	collectAnonymousObjectRefsVisited(value, out, nil)
+}
+
+func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]struct{}, visitedWaifs map[unsafe.Pointer]struct{}) {
 	switch value.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if value.IsAnonymous() {
 			out[value.ID()] = struct{}{}
 		}
+	case types.TYPE_WAIF:
+		identity := value.WaifIdentity()
+		if _, seen := visitedWaifs[identity]; seen {
+			return
+		}
+		if visitedWaifs == nil {
+			visitedWaifs = make(map[unsafe.Pointer]struct{})
+		}
+		visitedWaifs[identity] = struct{}{}
+		for _, name := range value.PropertyNames() {
+			if property, ok := value.GetProperty(name); ok {
+				collectAnonymousObjectRefsVisited(property, out, visitedWaifs)
+			}
+		}
 	case types.TYPE_LIST:
 		for _, elem := range value.Elements() {
-			collectAnonymousObjectRefs(elem, out)
+			collectAnonymousObjectRefsVisited(elem, out, visitedWaifs)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range value.Pairs() {
-			collectAnonymousObjectRefs(pair[0], out)
-			collectAnonymousObjectRefs(pair[1], out)
+			collectAnonymousObjectRefsVisited(pair[0], out, visitedWaifs)
+			collectAnonymousObjectRefsVisited(pair[1], out, visitedWaifs)
 		}
 	}
 }
@@ -229,17 +248,36 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 }
 
 func collectWaifsFromValue(value types.Value, out *[]types.Value) {
+	collectWaifsFromValueVisited(value, out, nil)
+}
+
+func collectWaifsFromValueVisited(value types.Value, out *[]types.Value, visited map[unsafe.Pointer]struct{}) {
 	switch value.Type() {
 	case types.TYPE_WAIF:
-		*out = append(*out, value)
+		if !finalizationValueInList(value, *out) {
+			*out = append(*out, value)
+		}
+		identity := value.WaifIdentity()
+		if _, seen := visited[identity]; seen {
+			return
+		}
+		if visited == nil {
+			visited = make(map[unsafe.Pointer]struct{})
+		}
+		visited[identity] = struct{}{}
+		for _, name := range value.PropertyNames() {
+			if property, ok := value.GetProperty(name); ok {
+				collectWaifsFromValueVisited(property, out, visited)
+			}
+		}
 	case types.TYPE_LIST:
 		for _, elem := range value.Elements() {
-			collectWaifsFromValue(elem, out)
+			collectWaifsFromValueVisited(elem, out, visited)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range value.Pairs() {
-			collectWaifsFromValue(pair[0], out)
-			collectWaifsFromValue(pair[1], out)
+			collectWaifsFromValueVisited(pair[0], out, visited)
+			collectWaifsFromValueVisited(pair[1], out, visited)
 		}
 	}
 }
