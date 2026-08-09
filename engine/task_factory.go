@@ -381,7 +381,9 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 		return false
 	}
 	t.ReadingPlayer = types.ObjNothing
-	if !t.Resume(types.NewStr(line)) {
+	// Resume directly into a claimed state. Publishing TaskQueued here lets the
+	// ticker select this saved VM before this goroutine enters runTask.
+	if !t.ResumeAndClaim(types.NewStr(line)) {
 		return false
 	}
 	if err := s.runTask(t); err != nil {
