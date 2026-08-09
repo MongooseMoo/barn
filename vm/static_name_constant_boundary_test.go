@@ -145,6 +145,26 @@ func TestDynamicPropertyAndVerbNamesRemainExecutable(t *testing.T) {
 	}
 }
 
+func TestNestedPropertyAssignmentsKeepDistinctTemporarySlots(t *testing.T) {
+	store := dbstore.NewStore()
+	for id, property := range []string{"outer", "inner"} {
+		object := dbstore.NewObjectBuilder(types.ObjID(id))
+		object.SetOwner(0)
+		object.SetFlags(dbstore.FlagRead | dbstore.FlagWrite)
+		object.SetProperty(property, dbstore.NewProperty(
+			types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true,
+		))
+		if err := store.Add(object.Build()); err != nil {
+			t.Fatalf("store.Add(#%d) failed: %v", id, err)
+		}
+	}
+
+	result := runBytecodeProgram(t, `#0.outer = (#1.inner = 99); return {#0.outer, #1.inner};`, store, nil)
+	if result.Flow != types.FlowReturn || result.Val.String() != "{99, 99}" {
+		t.Fatalf("nested property assignment = flow %v value %v error %v, want {99, 99}", result.Flow, result.Val, result.Error)
+	}
+}
+
 func TestLegacyDynamicNameSentinelsRemainExecutableAfterPersistence(t *testing.T) {
 	object := types.NewObj(0)
 	name := types.NewStr(staticNameBoundary)

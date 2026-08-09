@@ -40,6 +40,7 @@ type Compiler struct {
 	loops                []LoopContext        // Loop context stack for break/continue
 	scopes               []Scope              // Variable scope stack
 	tempCount            int                  // Counter for unique temporary variable names
+	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
 	registry             Registry             // Builtin function registry for name->ID resolution
 	indexContextVar      int                  // Variable slot used by index-boundary compilation (-1 = none)
 	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions
@@ -743,12 +744,19 @@ func (c *Compiler) compileTernary(n *verb.TernaryExpr) error {
 // compileAssign compiles an assignment expression
 func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 	if target, ok := n.Target.(*verb.PropertyTarget); ok {
+		// Sequential property assignments have disjoint temporary lifetimes, so
+		// reuse their slots. Nested assignments increment the depth and therefore
+		// retain distinct live slots while their outer assignment is suspended.
+		depth := c.propertyAssignDepth
+		c.propertyAssignDepth++
+		defer func() { c.propertyAssignDepth-- }()
+
 		// Property targets are evaluated before the assigned value. Capture the
 		// object and dynamic name because compiling the value may mutate either.
 		if err := c.compileNode(target.Object); err != nil {
 			return err
 		}
-		objectVar := c.declareVariable(c.tempVar("propassignobj"))
+		objectVar := c.declareVariable(fmt.Sprintf("__propassignobj_depth_%d__", depth))
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(objectVar))
 
@@ -760,7 +768,7 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			if err := c.compileNode(target.NameExpr); err != nil {
 				return err
 			}
-			nameVar = c.declareVariable(c.tempVar("propassignname"))
+			nameVar = c.declareVariable(fmt.Sprintf("__propassignname_depth_%d__", depth))
 			c.emit(OP_SET_VAR)
 			c.emitByte(byte(nameVar))
 		}
