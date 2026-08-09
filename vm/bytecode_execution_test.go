@@ -485,6 +485,35 @@ func TestBytecodeVerbCallExceptions(t *testing.T) {
 	requireString(t, runBytecodeProgram(t, noExecCaught, store, nil), "no such verb")
 }
 
+func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
+	store := newBytecodeVerbStore()
+	registry := BuildVMRegistry()
+	program, diagnostics := compiler.CompileMOO([]string{`
+		try
+			#0:test_return();
+		except (E_MAXREC)
+			return "caught";
+		endtry
+	`}, registry)
+	if len(diagnostics) != 0 {
+		t.Fatalf("compile failed: %v", diagnostics)
+	}
+
+	taskValue := task.NewTask(1, 0, 30_000, 1)
+	machine := NewVM(store, registry)
+	machine.MaxStackDepth = 1
+	machine.Context = kernel.NewTaskContext()
+	machine.Context.Task = taskValue
+
+	result := machine.Run(program)
+	if result.Flow != types.FlowReturn || result.Val.String() != `"caught"` {
+		t.Fatalf("result = flow %v, value %v, error %v; want caught E_MAXREC", result.Flow, result.Val, result.Error)
+	}
+	if got := len(taskValue.CallStack); got != 0 {
+		t.Fatalf("task activation frames after rejected call = %d, want 0", got)
+	}
+}
+
 func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	store := newBytecodeVerbStore()
 	obj, errCode := store.CreateObject(nil, 0, false)
