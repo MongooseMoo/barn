@@ -319,14 +319,18 @@ func (t *Task) GetCallStack() []ActivationFrame {
 	return stack
 }
 
-// GetTopFrame returns the top frame (current verb being executed)
-func (t *Task) GetTopFrame() *ActivationFrame {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+// SetTopFrameProgrammer updates the programmer of the current activation frame.
+// The update must happen while holding the lock: returning a pointer into
+// CallStack would allow a concurrent append to move the slice before the caller
+// writes through the pointer.
+func (t *Task) SetTopFrameProgrammer(who types.ObjID) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if len(t.CallStack) == 0 {
-		return nil
+		return false
 	}
-	return &t.CallStack[len(t.CallStack)-1]
+	t.CallStack[len(t.CallStack)-1].Programmer = who
+	return true
 }
 
 // UpdateLineNumber updates the line number of the top activation frame

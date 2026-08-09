@@ -238,9 +238,7 @@ func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	// caller_perms() reflects the new permissions (matches Toast's
 	// behavior where set_task_perms updates RUN_ACTIV.progr).
 	if t, ok := ctx.Task.(*task.Task); ok {
-		if top := t.GetTopFrame(); top != nil {
-			top.Programmer = args[0].ID()
-		}
+		t.SetTopFrameProgrammer(args[0].ID())
 	}
 
 	return types.Ok(types.NewInt(0))
