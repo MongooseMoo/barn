@@ -2027,6 +2027,7 @@ func (c *Compiler) compileRangeLoop(n *verb.RangeLoopStmt) error {
 	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same +1 semantics, counts one tick).
 	c.emit(OP_FOR_RANGE_NEXT)
 	c.emitByte(byte(valueVar))
+	c.emitByte(byte(endVar))
 	offset := c.currentOffset() + 2 - loopStart
 	c.emitShort(uint16(offset))
 
@@ -2142,6 +2143,7 @@ func (c *Compiler) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same opcode used by range-for).
 	c.emit(OP_FOR_RANGE_NEXT)
 	c.emitByte(byte(idxVar))
+	c.emitByte(byte(lenVar))
 	offset := c.currentOffset() + 2 - loopStart
 	c.emitShort(uint16(offset))
 

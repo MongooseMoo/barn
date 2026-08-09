@@ -89,7 +89,7 @@ const (
 	OP_FOR_RANGE_CHECK                                     // Range-for condition [valueVar:byte, endVar:byte, exitOffset:short]: if Locals[valueVar] > Locals[endVar] jump exit
 	OP_FOR_LIST_LOAD                                       // for-in element load [listVar,idxVar,valueVar,isPairsVar]: value = list[idx] (unwrapping {value,key} pairs when isPairs)
 	OP_FOR_LIST_LOAD_KV                                    // for-in k,v element load [listVar,idxVar,valueVar,indexVar]: elem={value,key}=list[idx]; value=elem[1]; index=elem[2]
-	OP_FOR_RANGE_NEXT                                      // Range-for increment+loopback [valueVar:byte, loopOffset:short]: Locals[valueVar]+=1; IP -= loopOffset
+	OP_FOR_RANGE_NEXT                                      // Range-for increment+loopback [valueVar:byte, endVar:byte, loopOffset:short]: increment value (or lower end at the ceiling); IP -= loopOffset
 	OP_BREAK                                               // DEAD: replaced by OP_JUMP with patching (never emitted by compiler)
 	OP_CONTINUE                                            // DEAD: replaced by OP_JUMP/OP_LOOP with patching (never emitted by compiler)
 )

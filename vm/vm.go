@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -614,17 +615,32 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		}
 
 	case bytecode.OP_FOR_RANGE_NEXT:
-		// Range-for increment + loop back, fused: Locals[valueVar] += 1; IP -= offset.
-		// Replicates GET_VAR/IMM(1)/ADD/SET_VAR/LOOP; integer fast path, E_TYPE otherwise
-		// (matching OP_ADD: only int+int is valid for a +1 increment).
+		// Range-for increment + loop back. At the maximum representable value,
+		// lower the end bound instead of overflowing the loop variable. This is
+		// how Toast makes a range ending at MAXINT or MAXOBJ terminate.
 		valueIdx := vm.FetchByte()
+		endIdx := vm.FetchByte()
 		offset := vm.ReadShort()
 		frame := vm.CurrentFrame()
 		cur := frame.Locals[valueIdx]
-		if cur.Type() != types.TYPE_INT {
+		switch cur.Type() {
+		case types.TYPE_INT:
+			if cur.Int() < math.MaxInt64 {
+				frame.Locals[valueIdx] = types.NewInt(cur.Int() + 1)
+			} else {
+				end := frame.Locals[endIdx]
+				frame.Locals[endIdx] = types.NewInt(end.Int() - 1)
+			}
+		case types.TYPE_OBJ:
+			if cur.ID() < types.ObjID(math.MaxInt64) {
+				frame.Locals[valueIdx] = types.NewObj(cur.ID() + 1)
+			} else {
+				end := frame.Locals[endIdx]
+				frame.Locals[endIdx] = types.NewObj(end.ID() - 1)
+			}
+		default:
 			return fmt.Errorf("E_TYPE: invalid operands for +")
 		}
-		frame.Locals[valueIdx] = types.NewInt(cur.Int() + 1)
 		frame.IP -= int(offset)
 
 	case bytecode.OP_FOR_LIST_LOAD:
