@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -762,21 +761,26 @@ func (cm *ConnectionManager) OpenNetworkConnection(host string, port int64) (typ
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		cm.mu.Lock()
-		ids := make([]int64, 0, len(cm.connections))
-		for id := range cm.connections {
-			if _, seen := existing[id]; !seen {
-				ids = append(ids, id)
+		var matchedID int64
+		for id, conn := range cm.connections {
+			if _, seen := existing[id]; seen || conn == nil {
+				continue
+			}
+			// The peer address observed by the accepted socket is the local
+			// address of this dialed socket. Matching those endpoints prevents
+			// an unrelated connection accepted during this window from being
+			// mistaken for the outbound connection.
+			if conn.RemoteAddr() == client.LocalAddr().String() {
+				matchedID = id
+				break
 			}
 		}
-		slices.Sort(ids)
-		if len(ids) > 0 {
-			connID := ids[0]
-			if conn := cm.connections[connID]; conn != nil {
-				conn.SetOutboundEndpoints(client.LocalAddr().String(), client.RemoteAddr().String())
-			}
-			cm.outboundClients[connID] = client
+		if matchedID != 0 {
+			conn := cm.connections[matchedID]
+			conn.SetOutboundEndpoints(client.LocalAddr().String(), client.RemoteAddr().String())
+			cm.outboundClients[matchedID] = client
 			cm.mu.Unlock()
-			return types.ObjID(-connID), nil
+			return types.ObjID(-matchedID), nil
 		}
 		cm.mu.Unlock()
 		time.Sleep(10 * time.Millisecond)
