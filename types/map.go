@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"unsafe"
 )
 
@@ -16,8 +17,10 @@ type mapEntry struct {
 // goMap is the heap payload behind a TYPE_MAP Value. Keys are stringified via
 // keyHash (Go maps need comparable keys); insertion order is tracked in 'order'.
 type goMap struct {
-	order []string            // key hashes in insertion order
-	pairs map[string]mapEntry // key hash -> entry
+	order    []string            // key hashes in insertion order
+	pairs    map[string]mapEntry // key hash -> entry
+	rootOnce sync.Once
+	root     *toastLookupNode
 }
 
 type toastLookupNode struct {
@@ -206,11 +209,12 @@ func (m *goMap) Len() int {
 }
 
 func (m *goMap) toastRoot() *toastLookupNode {
-	var root *toastLookupNode
-	for _, hash := range m.order {
-		root = toastLookupInsert(root, m.pairs[hash])
-	}
-	return root
+	m.rootOnce.Do(func() {
+		for _, hash := range m.order {
+			m.root = toastLookupInsert(m.root, m.pairs[hash])
+		}
+	})
+	return m.root
 }
 
 // get returns the value for a key, or (None, false) if absent.
@@ -381,6 +385,10 @@ func (v Value) PairsInInsertionOrder() [][2]Value {
 // GetWithCase returns a map value using Toast's tree topology and configurable
 // string-key case handling. Map builtins use this path; direct indexing uses MapGet.
 func (v Value) GetWithCase(key Value, caseSensitive bool) (Value, bool) {
+	if !caseSensitive && key.Type() == TYPE_STR {
+		return v.goMap().get(key)
+	}
+
 	root := v.goMap().toastRoot()
 	for root != nil {
 		comparison := toastMapCompare(root.entry.key, key, caseSensitive)
