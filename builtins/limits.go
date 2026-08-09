@@ -24,7 +24,7 @@ const (
 	defaultFgSeconds          = 5.0
 	defaultBgSeconds          = 3.0
 	defaultMaxStackDepth      = 50
-	defaultMaxCryptBcryptCost = 12
+	defaultMaxCryptBcryptCost = 14
 	defaultMaxCryptSHARounds  = 1_000_000
 	minStringConcatLimit      = 1021
 	minListValueBytesLimit    = 1021

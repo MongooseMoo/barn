@@ -14,7 +14,7 @@ func TestCryptRejectsWorkAboveServerLimits(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	ctx.IsWizard = true
 	for _, salt := range []string{
-		"$2y$13$......................",
+		"$2y$15$......................",
 		"$5$rounds=1000001$salt",
 		"$6$rounds=999999999$salt",
 	} {
