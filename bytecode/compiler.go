@@ -40,6 +40,7 @@ type Compiler struct {
 	loops                []LoopContext        // Loop context stack for break/continue
 	scopes               []Scope              // Variable scope stack
 	tempCount            int                  // Counter for unique temporary variable names
+	propertyAssignDepth  int                  // Active property-assignment nesting depth for reusable temp slots
 	registry             Registry             // Builtin function registry for name->ID resolution
 	indexContextVar      int                  // Variable slot used by index-boundary compilation (-1 = none)
 	indexBoundaryContext indexBoundaryContext // Whether map boundaries resolve as keys or positions
@@ -231,6 +232,21 @@ func (c *Compiler) addConstant(v types.Value) int {
 	c.program.Constants = append(c.program.Constants, v)
 	c.constants[key] = idx
 	return idx
+}
+
+// emitStaticNameOperation encodes a static property or verb name without
+// reserving any constant-pool index. The compact legacy opcode covers indices
+// 0..254; index 255 uses the appended wide opcode so old persisted bytecode can
+// keep interpreting compact operand 0xFF as its dynamic-name marker.
+func (c *Compiler) emitStaticNameOperation(compactOp, wideOp OpCode, name string) {
+	idx := c.addConstant(types.NewStr(name))
+	if idx < 0xFF {
+		c.emit(compactOp)
+		c.emitByte(byte(idx))
+		return
+	}
+	c.emit(wideOp)
+	c.emitShort(uint16(idx))
 }
 
 // emitJump emits a jump instruction and returns the offset to patch
@@ -728,12 +744,19 @@ func (c *Compiler) compileTernary(n *verb.TernaryExpr) error {
 // compileAssign compiles an assignment expression
 func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 	if target, ok := n.Target.(*verb.PropertyTarget); ok {
+		// Sequential property assignments have disjoint temporary lifetimes, so
+		// reuse their slots. Nested assignments increment the depth and therefore
+		// retain distinct live slots while their outer assignment is suspended.
+		depth := c.propertyAssignDepth
+		c.propertyAssignDepth++
+		defer func() { c.propertyAssignDepth-- }()
+
 		// Property targets are evaluated before the assigned value. Capture the
 		// object and dynamic name because compiling the value may mutate either.
 		if err := c.compileNode(target.Object); err != nil {
 			return err
 		}
-		objectVar := c.declareVariable(c.tempVar("propassignobj"))
+		objectVar := c.declareVariable(fmt.Sprintf("__propassignobj_depth_%d__", depth))
 		c.emit(OP_SET_VAR)
 		c.emitByte(byte(objectVar))
 
@@ -745,7 +768,7 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 			if err := c.compileNode(target.NameExpr); err != nil {
 				return err
 			}
-			nameVar = c.declareVariable(c.tempVar("propassignname"))
+			nameVar = c.declareVariable(fmt.Sprintf("__propassignname_depth_%d__", depth))
 			c.emit(OP_SET_VAR)
 			c.emitByte(byte(nameVar))
 		}
@@ -757,14 +780,11 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 		c.emit(OP_GET_VAR)
 		c.emitByte(byte(objectVar))
 		if target.Name != "" {
-			propIdx := c.addConstant(types.NewStr(target.Name))
-			c.emit(OP_SET_PROP)
-			c.emitByte(byte(propIdx))
+			c.emitStaticNameOperation(OP_SET_PROP, OP_SET_PROP_WIDE, target.Name)
 		} else {
 			c.emit(OP_GET_VAR)
 			c.emitByte(byte(nameVar))
-			c.emit(OP_SET_PROP)
-			c.emitByte(0xFF)
+			c.emit(OP_SET_PROP_DYNAMIC)
 		}
 		return nil
 	}
@@ -825,15 +845,12 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 				return err
 			}
 			if property.Name != "" {
-				propIdx := c.addConstant(types.NewStr(property.Name))
-				c.emit(OP_GET_PROP)
-				c.emitByte(byte(propIdx))
+				c.emitStaticNameOperation(OP_GET_PROP, OP_GET_PROP_WIDE, property.Name)
 			} else if property.NameExpr != nil {
 				if err := c.compileNode(property.NameExpr); err != nil {
 					return err
 				}
-				c.emit(OP_GET_PROP)
-				c.emitByte(0xFF)
+				c.emit(OP_GET_PROP_DYNAMIC)
 			} else {
 				return fmt.Errorf("property expression has neither static name nor dynamic expression")
 			}
@@ -993,15 +1010,12 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 
 			// Emit SET_PROP: pops obj, pops modified_collection, writes property
 			if basePropTarget.Name != "" {
-				propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
-				c.emit(OP_SET_PROP)
-				c.emitByte(byte(propIdx))
+				c.emitStaticNameOperation(OP_SET_PROP, OP_SET_PROP_WIDE, basePropTarget.Name)
 			} else if basePropTarget.NameExpr != nil {
 				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 					return err
 				}
-				c.emit(OP_SET_PROP)
-				c.emitByte(0xFF)
+				c.emit(OP_SET_PROP_DYNAMIC)
 			}
 			// Stack: [value] (original assigned value remains as expression result)
 		}
@@ -1034,15 +1048,12 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 				return err
 			}
 			if property.Name != "" {
-				propIdx := c.addConstant(types.NewStr(property.Name))
-				c.emit(OP_GET_PROP)
-				c.emitByte(byte(propIdx))
+				c.emitStaticNameOperation(OP_GET_PROP, OP_GET_PROP_WIDE, property.Name)
 			} else if property.NameExpr != nil {
 				if err := c.compileNode(property.NameExpr); err != nil {
 					return err
 				}
-				c.emit(OP_GET_PROP)
-				c.emitByte(0xFF)
+				c.emit(OP_GET_PROP_DYNAMIC)
 			} else {
 				return fmt.Errorf("property expression has neither static name nor dynamic expression")
 			}
@@ -1098,15 +1109,12 @@ func (c *Compiler) compileAssign(n *verb.AssignExpr) error {
 
 			// Emit SET_PROP: pops obj, pops modified_collection, writes property
 			if basePropTarget.Name != "" {
-				propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
-				c.emit(OP_SET_PROP)
-				c.emitByte(byte(propIdx))
+				c.emitStaticNameOperation(OP_SET_PROP, OP_SET_PROP_WIDE, basePropTarget.Name)
 			} else if basePropTarget.NameExpr != nil {
 				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 					return err
 				}
-				c.emit(OP_SET_PROP)
-				c.emitByte(0xFF)
+				c.emit(OP_SET_PROP_DYNAMIC)
 			}
 			// Stack: [value] (original assigned value remains as expression result)
 		}
@@ -1175,15 +1183,12 @@ func (c *Compiler) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start
 			return err
 		}
 		if property.Name != "" {
-			propIdx := c.addConstant(types.NewStr(property.Name))
-			c.emit(OP_GET_PROP)
-			c.emitByte(byte(propIdx))
+			c.emitStaticNameOperation(OP_GET_PROP, OP_GET_PROP_WIDE, property.Name)
 		} else if property.NameExpr != nil {
 			if err := c.compileNode(property.NameExpr); err != nil {
 				return err
 			}
-			c.emit(OP_GET_PROP)
-			c.emitByte(0xFF)
+			c.emit(OP_GET_PROP_DYNAMIC)
 		} else {
 			return fmt.Errorf("property expression has neither static name nor dynamic expression")
 		}
@@ -1271,15 +1276,12 @@ func (c *Compiler) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start
 			return err
 		}
 		if basePropTarget.Name != "" {
-			propIdx := c.addConstant(types.NewStr(basePropTarget.Name))
-			c.emit(OP_SET_PROP)
-			c.emitByte(byte(propIdx))
+			c.emitStaticNameOperation(OP_SET_PROP, OP_SET_PROP_WIDE, basePropTarget.Name)
 		} else if basePropTarget.NameExpr != nil {
 			if err := c.compileNode(basePropTarget.NameExpr); err != nil {
 				return err
 			}
-			c.emit(OP_SET_PROP)
-			c.emitByte(0xFF)
+			c.emit(OP_SET_PROP_DYNAMIC)
 		}
 	}
 
@@ -1505,19 +1507,14 @@ func (c *Compiler) compileProperty(n *verb.PropertyExpr) error {
 
 	if n.Property != "" {
 		// Static property: obj.prop
-		// Push property name as a string constant, then emit OP_GET_PROP
-		propIdx := c.addConstant(types.NewStr(n.Property))
-		c.emit(OP_GET_PROP)
-		c.emitByte(byte(propIdx))
+		c.emitStaticNameOperation(OP_GET_PROP, OP_GET_PROP_WIDE, n.Property)
 	} else if n.PropertyExpr != nil {
 		// Dynamic property: obj.(expr)
 		// Compile the property name expression (pushes string onto stack)
 		if err := c.compileNode(n.PropertyExpr); err != nil {
 			return err
 		}
-		// Use 0xFF to signal "property name is on top of stack"
-		c.emit(OP_GET_PROP)
-		c.emitByte(0xFF)
+		c.emit(OP_GET_PROP_DYNAMIC)
 	} else {
 		return fmt.Errorf("property expression has neither static name nor dynamic expression")
 	}
@@ -1584,17 +1581,12 @@ func (c *Compiler) compileVerbCall(n *verb.VerbCallExpr) error {
 		c.emitByte(byte(nameVar))
 	}
 
-	// Emit OP_CALL_VERB with verb name index and argument count
-	// Format: OP_CALL_VERB <verb_name_idx:byte> <argc:byte>
-	// verb_name_idx = 0xFF means dynamic (verb name on top of stack)
-	// argc = 0xFF means args list is on top of stack (splice mode)
-	c.emit(OP_CALL_VERB)
-
+	// Static names use a compact or wide constant operand. Dynamic names have
+	// their own opcode, so constant index 255 is never confused with stack mode.
 	if isDynamic {
-		c.emitByte(0xFF) // signal: verb name is on stack
+		c.emit(OP_CALL_VERB_DYNAMIC)
 	} else if n.Verb != "" {
-		verbIdx := c.addConstant(types.NewStr(n.Verb))
-		c.emitByte(byte(verbIdx))
+		c.emitStaticNameOperation(OP_CALL_VERB, OP_CALL_VERB_WIDE, n.Verb)
 	} else {
 		return fmt.Errorf("verb call has neither static name nor dynamic expression")
 	}

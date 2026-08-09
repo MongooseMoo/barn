@@ -14,25 +14,33 @@ import (
 
 func (vm *VM) executeGetProp() error {
 	propNameIdx := vm.FetchByte()
-
-	// Determine property name: static (from constant pool) or dynamic (from stack)
-	var propName string
 	if propNameIdx == 0xFF {
-		// Dynamic property: name is on top of stack
-		nameVal := vm.Pop()
-		if nameVal.Type() != types.TYPE_STR {
-			return fmt.Errorf("E_TYPE: dynamic property name must be a string")
-		}
-		propName = nameVal.Str()
-	} else {
-		// Static property: name from constant pool
-		nameVal := vm.CurrentFrame().Program.Constants[propNameIdx]
-		if nameVal.Type() != types.TYPE_STR {
-			return fmt.Errorf("internal error: property name constant is not a string")
-		}
-		propName = nameVal.Str()
+		return vm.executeGetPropDynamic()
 	}
+	return vm.executeGetPropStatic(int(propNameIdx))
+}
 
+func (vm *VM) executeGetPropWide() error {
+	return vm.executeGetPropStatic(int(vm.ReadShort()))
+}
+
+func (vm *VM) executeGetPropStatic(index int) error {
+	propName, err := vm.staticNameFromConstant(index, "property")
+	if err != nil {
+		return err
+	}
+	return vm.executeGetPropNamed(propName)
+}
+
+func (vm *VM) executeGetPropDynamic() error {
+	propName, err := vm.popDynamicName("property")
+	if err != nil {
+		return err
+	}
+	return vm.executeGetPropNamed(propName)
+}
+
+func (vm *VM) executeGetPropNamed(propName string) error {
 	// Pop the object
 	objVal := vm.Pop()
 
@@ -143,25 +151,33 @@ func (vm *VM) getWaifProp(waif types.Value, propName string) error {
 
 func (vm *VM) executeSetProp() error {
 	propNameIdx := vm.FetchByte()
-
-	// Determine property name: static (from constant pool) or dynamic (from stack)
-	var propName string
 	if propNameIdx == 0xFF {
-		// Dynamic property: name is on top of stack, then obj, then value_copy
-		nameVal := vm.Pop()
-		if nameVal.Type() != types.TYPE_STR {
-			return fmt.Errorf("E_TYPE: dynamic property name must be a string")
-		}
-		propName = nameVal.Str()
-	} else {
-		// Static property: name from constant pool
-		nameVal := vm.CurrentFrame().Program.Constants[propNameIdx]
-		if nameVal.Type() != types.TYPE_STR {
-			return fmt.Errorf("internal error: property name constant is not a string")
-		}
-		propName = nameVal.Str()
+		return vm.executeSetPropDynamic()
 	}
+	return vm.executeSetPropStatic(int(propNameIdx))
+}
 
+func (vm *VM) executeSetPropWide() error {
+	return vm.executeSetPropStatic(int(vm.ReadShort()))
+}
+
+func (vm *VM) executeSetPropStatic(index int) error {
+	propName, err := vm.staticNameFromConstant(index, "property")
+	if err != nil {
+		return err
+	}
+	return vm.executeSetPropNamed(propName)
+}
+
+func (vm *VM) executeSetPropDynamic() error {
+	propName, err := vm.popDynamicName("property")
+	if err != nil {
+		return err
+	}
+	return vm.executeSetPropNamed(propName)
+}
+
+func (vm *VM) executeSetPropNamed(propName string) error {
 	// Pop the object
 	objVal := vm.Pop()
 

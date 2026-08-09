@@ -12,7 +12,9 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// executeCallVerb handles OP_CALL_VERB: call a verb on an object.
+// executeCallVerb handles the original OP_CALL_VERB encoding. A 0xFF name
+// operand remains the legacy dynamic form so persisted suspended tasks resume
+// correctly; newly compiled programs use OP_CALL_VERB_DYNAMIC.
 //
 // Bytecode format: OP_CALL_VERB <verb_name_idx:byte> <argc:byte>
 // verb_name_idx = 0xFF means dynamic (verb name string is on top of stack, above args).
@@ -29,26 +31,34 @@ import (
 // Returns a compile error if bytecode compilation fails.
 func (vm *VM) executeCallVerb() error {
 	verbNameIdx := vm.FetchByte()
-	argc := int(vm.FetchByte())
-
-	// Resolve verb name
-	var verbName string
 	if verbNameIdx == 0xFF {
-		// Dynamic verb name: pop from stack (above args)
-		nameVal := vm.Pop()
-		if nameVal.Type() != types.TYPE_STR {
-			return fmt.Errorf("E_TYPE: dynamic verb name must be a string")
-		}
-		verbName = nameVal.Str()
-	} else {
-		// Static verb name: from constant pool
-		nameVal := vm.CurrentFrame().Program.Constants[verbNameIdx]
-		if nameVal.Type() != types.TYPE_STR {
-			return fmt.Errorf("internal error: verb name constant is not a string")
-		}
-		verbName = nameVal.Str()
+		return vm.executeCallVerbDynamic()
 	}
+	verbName, err := vm.staticNameFromConstant(int(verbNameIdx), "verb")
+	if err != nil {
+		return err
+	}
+	return vm.executeCallVerbNamed(verbName, int(vm.FetchByte()))
+}
 
+func (vm *VM) executeCallVerbWide() error {
+	verbName, err := vm.staticNameFromConstant(int(vm.ReadShort()), "verb")
+	if err != nil {
+		return err
+	}
+	return vm.executeCallVerbNamed(verbName, int(vm.FetchByte()))
+}
+
+func (vm *VM) executeCallVerbDynamic() error {
+	argc := int(vm.FetchByte())
+	verbName, err := vm.popDynamicName("verb")
+	if err != nil {
+		return err
+	}
+	return vm.executeCallVerbNamed(verbName, argc)
+}
+
+func (vm *VM) executeCallVerbNamed(verbName string, argc int) error {
 	// Pop arguments
 	var args []types.Value
 	if argc == 0xFF {
