@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/types"
 	"net"
@@ -19,6 +20,47 @@ type fakeListener struct {
 	mu       sync.Mutex
 	accepts  int
 	acceptCh chan struct{}
+}
+
+type failingListener struct {
+	addr     net.Addr
+	failures int
+	accepts  int
+	accepted chan time.Time
+}
+
+func (l *failingListener) Accept() (net.Conn, error) {
+	l.accepts++
+	if l.accepts <= l.failures {
+		return nil, errors.New("temporary accept failure")
+	}
+	l.accepted <- time.Now()
+	return nil, net.ErrClosed
+}
+
+func (l *failingListener) Close() error   { return nil }
+func (l *failingListener) Addr() net.Addr { return l.addr }
+
+func TestAcceptConnectionsBacksOffAfterFailures(t *testing.T) {
+	listener := &failingListener{
+		addr:     &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888},
+		failures: 3,
+		accepted: make(chan time.Time, 1),
+	}
+	cm := &ConnectionManager{}
+	started := time.Now()
+	go cm.acceptConnections(&listenerRecord{listener: listener})
+
+	select {
+	case finished := <-listener.accepted:
+		// Three failures should wait for 5ms, 10ms, and 20ms. Allow a
+		// small margin so the assertion is not sensitive to timer precision.
+		if elapsed := finished.Sub(started); elapsed < 30*time.Millisecond {
+			t.Fatalf("fourth Accept called after %v, want at least 30ms of backoff", elapsed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("accept loop did not retry after failures")
+	}
 }
 
 func (l *fakeListener) Accept() (net.Conn, error) {
