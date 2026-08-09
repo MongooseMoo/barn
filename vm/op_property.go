@@ -485,110 +485,98 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
-		if value.Type() == types.TYPE_STR {
-			if txn != nil {
-				return true, txn.SetObjectName(objID, value.Str())
-			}
-			return true, store.SetObjectName(objID, value.Str())
+		if value.Type() != types.TYPE_STR {
+			return true, types.E_TYPE
 		}
-		return false, types.E_NONE
+		if errCode := checkBuiltinPropertyOwner(store, txn, objID, "name", ctx, true); errCode != types.E_NONE {
+			return true, errCode
+		}
+		if txn != nil {
+			return true, txn.SetObjectName(objID, value.Str())
+		}
+		return true, store.SetObjectName(objID, value.Str())
 	case "owner":
-		if isObjLike(value) {
-			isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
-			if errCode != types.E_NONE {
-				return true, errCode
-			}
-			if isAnonymous && ctx != nil && !ctx.IsWizard {
-				return true, types.E_PERM
-			}
-			if txn != nil {
-				return true, txn.SetObjectOwner(objID, value.ID())
-			}
-			return true, store.SetObjectOwner(objID, value.ID())
+		if !isObjLike(value) {
+			return true, types.E_TYPE
 		}
-		return false, types.E_NONE
-	case "location":
-		if isObjLike(value) {
-			if txn != nil {
-				return true, txn.SetObjectLocationRaw(objID, value.ID())
-			}
-			return true, store.SetObjectLocationRaw(objID, value.ID())
+		if ctx != nil && !ctx.IsWizard {
+			return true, types.E_PERM
 		}
-		return false, types.E_NONE
-	case "programmer":
-		if value.Type() == types.TYPE_INT {
-			isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
-			if errCode != types.E_NONE {
-				return true, errCode
-			}
-			if isAnonymous {
-				if ctx != nil && ctx.IsWizard {
-					return true, types.E_INVARG
-				}
-				return true, types.E_PERM
-			}
-			if txn != nil {
-				return true, txn.SetObjectFlag(objID, dbstore.FlagProgrammer, value.Int() != 0)
-			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagProgrammer, value.Int() != 0)
+		if txn != nil {
+			return true, txn.SetObjectOwner(objID, value.ID())
 		}
-		return false, types.E_NONE
-	case "wizard":
-		if value.Type() == types.TYPE_INT {
-			isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
-			if errCode != types.E_NONE {
-				return true, errCode
-			}
-			if isAnonymous {
-				if ctx != nil && ctx.IsWizard {
-					return true, types.E_INVARG
-				}
-				return true, types.E_PERM
-			}
-			if txn != nil {
-				return true, txn.SetObjectFlag(objID, dbstore.FlagWizard, value.Int() != 0)
-			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagWizard, value.Int() != 0)
-		}
-		return false, types.E_NONE
-	case "last_move":
-		// last_move is server-maintained; it exists but is read-only -> E_PERM.
+		return true, store.SetObjectOwner(objID, value.ID())
+	case "location", "contents", "last_move":
 		return true, types.E_PERM
-	case "r":
-		if value.Type() == types.TYPE_INT {
-			if txn != nil {
-				return true, txn.SetObjectFlag(objID, dbstore.FlagRead, value.Int() != 0)
-			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagRead, value.Int() != 0)
+	case "programmer", "wizard":
+		if ctx != nil && !ctx.IsWizard {
+			return true, types.E_PERM
 		}
-		return false, types.E_NONE
-	case "w":
-		if value.Type() == types.TYPE_INT {
-			if txn != nil {
-				return true, txn.SetObjectFlag(objID, dbstore.FlagWrite, value.Int() != 0)
-			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagWrite, value.Int() != 0)
+		isAnonymous, errCode := objectIsAnonymousForRead(store, txn, objID)
+		if errCode != types.E_NONE {
+			return true, errCode
 		}
-		return false, types.E_NONE
-	case "f":
-		if value.Type() == types.TYPE_INT {
-			if txn != nil {
-				return true, txn.SetObjectFlag(objID, dbstore.FlagFertile, value.Int() != 0)
-			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagFertile, value.Int() != 0)
+		if isAnonymous {
+			return true, types.E_INVARG
 		}
-		return false, types.E_NONE
-	case "a":
-		if value.Type() == types.TYPE_INT {
-			if txn != nil {
-				return true, txn.SetObjectFlag(objID, dbstore.FlagAnonymous, value.Int() != 0)
-			}
-			return true, store.SetObjectFlag(objID, dbstore.FlagAnonymous, value.Int() != 0)
+		flag := dbstore.FlagProgrammer
+		if strings.EqualFold(name, "wizard") {
+			flag = dbstore.FlagWizard
 		}
-		return false, types.E_NONE
+		if txn != nil {
+			return true, txn.SetObjectFlag(objID, flag, value.Truthy())
+		}
+		return true, store.SetObjectFlag(objID, flag, value.Truthy())
+	case "r", "w", "f", "a":
+		if errCode := checkBuiltinPropertyOwner(store, txn, objID, strings.ToLower(name), ctx, false); errCode != types.E_NONE {
+			return true, errCode
+		}
+		flags := map[string]dbstore.ObjectFlags{"r": dbstore.FlagRead, "w": dbstore.FlagWrite, "f": dbstore.FlagFertile, "a": dbstore.FlagAnonymous}
+		flag := flags[strings.ToLower(name)]
+		if txn != nil {
+			return true, txn.SetObjectFlag(objID, flag, value.Truthy())
+		}
+		return true, store.SetObjectFlag(objID, flag, value.Truthy())
 	default:
 		return false, types.E_NONE
 	}
+}
+
+func checkBuiltinPropertyOwner(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
+	if ctx == nil || ctx.IsWizard {
+		return types.E_NONE
+	}
+	if builtins.IsProtectedBuiltin(name) {
+		return types.E_PERM
+	}
+	var owner types.ObjID
+	var errCode types.ErrorCode
+	if txn != nil {
+		owner, errCode = txn.ObjectOwner(objID)
+	} else {
+		owner, errCode = store.ObjectOwner(objID)
+	}
+	if errCode != types.E_NONE {
+		return errCode
+	}
+	if owner != ctx.Programmer {
+		return types.E_PERM
+	}
+	if rejectUser {
+		var isUser bool
+		if txn != nil {
+			isUser, errCode = txn.HasObjectFlag(objID, dbstore.FlagUser)
+		} else {
+			isUser, errCode = store.HasObjectFlag(objID, dbstore.FlagUser)
+		}
+		if errCode != types.E_NONE {
+			return errCode
+		}
+		if isUser {
+			return types.E_PERM
+		}
+	}
+	return types.E_NONE
 }
 
 func objectIsAnonymousForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID) (bool, types.ErrorCode) {
