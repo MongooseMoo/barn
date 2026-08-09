@@ -26,6 +26,37 @@ type regexpCacheKey struct {
 	caseSensitive bool
 	anchored      bool
 	rightmost     bool
+	rawPCRE       bool
+}
+
+// cachedPCREPattern returns a compiled regexp for the raw patterns accepted by
+// pcre_match() and pcre_replace(). Raw PCRE patterns use a distinct key space
+// from translated MOO patterns, even when the source text and flags match.
+func cachedPCREPattern(pattern string, caseSensitive bool) (*regexp.Regexp, error) {
+	key := regexpCacheKey{pattern: pattern, caseSensitive: caseSensitive, rawPCRE: true}
+
+	regexpCacheMu.RLock()
+	entry, ok := regexpCache[key]
+	regexpCacheMu.RUnlock()
+	if ok {
+		return entry.re, entry.err
+	}
+
+	pat := pattern
+	if !caseSensitive {
+		pat = "(?i)" + pat
+	}
+	re, err := regexp.Compile(pat)
+	entry = regexpCacheEntry{re: re, err: err}
+
+	regexpCacheMu.Lock()
+	if len(regexpCache) >= regexpCacheCap {
+		regexpCache = make(map[regexpCacheKey]regexpCacheEntry, regexpCacheCap)
+	}
+	regexpCache[key] = entry
+	regexpCacheMu.Unlock()
+
+	return entry.re, entry.err
 }
 
 // regexpCacheEntry also memoizes failures: an invalid pattern costs the same

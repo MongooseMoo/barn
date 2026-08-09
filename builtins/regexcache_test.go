@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 // coldCompileMOOPattern reproduces the pre-cache compile path verbatim so the
@@ -78,6 +80,84 @@ func TestCachedMOOPatternReusesCompiledRegexp(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("cache miss on repeat lookup: %p != %p", first, second)
+	}
+}
+
+func TestCachedPCREPatternReusesCompiledRegexp(t *testing.T) {
+	resetRegexpCacheForTest()
+	first, err := cachedPCREPattern(`(?P<word>[a-z]+)`, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	second, err := cachedPCREPattern(`(?P<word>[a-z]+)`, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if first != second {
+		t.Fatalf("cache miss on repeat lookup: %p != %p", first, second)
+	}
+	if n := regexpCacheLenForTest(); n != 1 {
+		t.Fatalf("repeat lookup created %d entries, want 1", n)
+	}
+}
+
+func TestCachedPCREPatternVariantsAreDistinct(t *testing.T) {
+	resetRegexpCacheForTest()
+	sensitive, err := cachedPCREPattern("abc", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	insensitive, err := cachedPCREPattern("abc", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	moo, err := cachedMOOPattern("abc", true, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sensitive == insensitive {
+		t.Fatal("case-sensitive and insensitive PCRE patterns shared an entry")
+	}
+	if sensitive == moo {
+		t.Fatal("raw PCRE and translated MOO patterns shared an entry")
+	}
+	if insensitive.MatchString("ABC") != true || sensitive.MatchString("ABC") != false {
+		t.Fatalf("case semantics wrong: insensitive=%v sensitive=%v",
+			insensitive.MatchString("ABC"), sensitive.MatchString("ABC"))
+	}
+}
+
+func TestPCREBuiltinsShareCachedPattern(t *testing.T) {
+	resetRegexpCacheForTest()
+	match := builtinPcreMatch(nil, []types.Value{
+		types.NewStr("abc"),
+		types.NewStr("abc"),
+		types.NewInt(1),
+	})
+	if match.Error != types.E_NONE {
+		t.Fatalf("pcre_match returned error: %v", match.Error)
+	}
+	replace := builtinPcreReplace(nil, []types.Value{
+		types.NewStr("abc"),
+		types.NewStr("s/abc/replaced/"),
+	})
+	if replace.Error != types.E_NONE {
+		t.Fatalf("pcre_replace returned error: %v", replace.Error)
+	}
+	if n := regexpCacheLenForTest(); n != 1 {
+		t.Fatalf("pcre_match and pcre_replace created %d cache entries, want 1", n)
+	}
+}
+
+func TestCachedPCREPatternCachesCompileFailure(t *testing.T) {
+	resetRegexpCacheForTest()
+	for i := 0; i < 2; i++ {
+		if _, err := cachedPCREPattern("[abc", true); err == nil {
+			t.Fatalf("attempt %d: expected compile error", i)
+		}
+	}
+	if n := regexpCacheLenForTest(); n != 1 {
+		t.Fatalf("repeated invalid pattern created %d entries, want 1", n)
 	}
 }
 
