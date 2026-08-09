@@ -261,6 +261,12 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		vm.Context.IsWizard = isWizard
 	}
 
+	// Enforce the VM frame limit before adding the matching task activation
+	// frame. A rejected call has no VM frame to pop that activation later.
+	if err := vm.checkFrameLimit(); err != nil {
+		return err
+	}
+
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Context != nil && vm.Context.Task != nil {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
@@ -279,9 +285,6 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 		}
 	}
 
-	if err := vm.checkFrameLimit(); err != nil {
-		return err
-	}
 	vm.pushFrame(frame)
 
 	// Return nil — Run() loop continues executing the new frame's bytecode
@@ -485,6 +488,12 @@ func (vm *VM) executePass() error {
 	// Trace pass() target call.
 	trace.VerbCall(frame.This, verbName, passArgs, frame.Player, frame.Caller)
 
+	// Enforce the VM frame limit before adding the matching task activation
+	// frame. A rejected pass has no VM frame to pop that activation later.
+	if err := vm.checkFrameLimit(); err != nil {
+		return err
+	}
+
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Context != nil && vm.Context.Task != nil {
 		if t, ok := vm.Context.Task.(*task.Task); ok {
@@ -503,9 +512,6 @@ func (vm *VM) executePass() error {
 		}
 	}
 
-	if err := vm.checkFrameLimit(); err != nil {
-		return err
-	}
 	vm.pushFrame(newFrame)
 
 	// Return nil — Run() loop continues executing the new frame's bytecode
