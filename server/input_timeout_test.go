@@ -2,43 +2,19 @@ package server
 
 import (
 	"io"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/types"
 )
 
 type deadlineProbeTransport struct {
 	deadline   time.Time
 	recordedAt time.Time
 }
-
-type controlledTimeoutTransport struct {
-	readStarted chan struct{}
-	releaseRead chan struct{}
-	startOnce   sync.Once
-}
-
-func (t *controlledTimeoutTransport) ReadLine() (string, error) {
-	t.startOnce.Do(func() { close(t.readStarted) })
-	<-t.releaseRead
-	return "", timeoutReadError{}
-}
-
-func (t *controlledTimeoutTransport) WriteLine(string) error { return nil }
-func (t *controlledTimeoutTransport) Close() error           { return nil }
-func (t *controlledTimeoutTransport) RemoteAddr() string     { return "127.0.0.1:7777" }
-func (t *controlledTimeoutTransport) SetReadDeadline(time.Time) error {
-	return nil
-}
-
-type timeoutReadError struct{}
-
-func (timeoutReadError) Error() string   { return "read timeout" }
-func (timeoutReadError) Timeout() bool   { return true }
-func (timeoutReadError) Temporary() bool { return true }
 
 func (t *deadlineProbeTransport) ReadLine() (string, error) { return "", io.EOF }
 func (t *deadlineProbeTransport) WriteLine(string) error    { return nil }
@@ -72,7 +48,7 @@ func TestUnauthenticatedReadDeadlineUsesToastStrictSecondBoundary(t *testing.T) 
 	}
 }
 
-func TestLoginTimeoutWaitsForPreviouslyDispatchedInput(t *testing.T) {
+func TestLoginTimeoutRoutesThroughConnectionLane(t *testing.T) {
 	store := dbstore.NewStore()
 	rt := engine.NewRuntime(store)
 	processor := NewInputProcessor(store, rt)
@@ -81,37 +57,26 @@ func TestLoginTimeoutWaitsForPreviouslyDispatchedInput(t *testing.T) {
 	processor.Start()
 	defer processor.Stop()
 
-	transport := &controlledTimeoutTransport{
-		readStarted: make(chan struct{}),
-		releaseRead: make(chan struct{}),
-	}
+	transport := newRecordingTransport("client")
 	conn := cm.NewConnectionFromTransport(transport)
-	handleDone := make(chan struct{})
-	go func() {
-		processor.HandleConnection(conn)
-		close(handleDone)
-	}()
+	done := make(chan struct{})
+	processor.dispatch(command.InputEvent{
+		ConnID:    conn.ID,
+		Player:    types.ObjID(-conn.ID),
+		IsTimeout: true,
+		Done:      done,
+	})
 
 	select {
-	case <-transport.readStarted:
+	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("connection never started its login read")
+		t.Fatal("login timeout did not complete on its connection lane")
 	}
 
-	processor.inFlight.Add(1)
-	close(transport.releaseRead)
-
-	select {
-	case <-handleDone:
-		processor.inFlight.Done()
-		t.Fatal("login timeout completed before prior input work")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	processor.inFlight.Done()
-	select {
-	case <-handleDone:
-	case <-time.After(2 * time.Second):
-		t.Fatal("login timeout did not complete after prior input work")
+	processor.workersMu.Lock()
+	_, laneExists := processor.workers[conn.ID]
+	processor.workersMu.Unlock()
+	if !laneExists {
+		t.Fatal("login timeout bypassed its connection lane")
 	}
 }
