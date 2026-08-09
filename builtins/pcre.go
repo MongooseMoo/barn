@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -42,11 +41,7 @@ func builtinPcreMatch(ctx *kernel.TaskContext, args []types.Value) types.Result 
 		findAll = args[3].Truthy()
 	}
 
-	pat := pattern.Str()
-	if !caseMatters {
-		pat = "(?i)" + pat
-	}
-	re, err := regexp.Compile(pat)
+	re, err := cachedPCREPattern(pattern.Str(), caseMatters)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
@@ -136,10 +131,7 @@ func builtinPcreReplace(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		}
 	}
 
-	if caseInsensitive {
-		pattern = "(?i)" + pattern
-	}
-	re, err := regexp.Compile(pattern)
+	re, err := cachedPCREPattern(pattern, !caseInsensitive)
 	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
