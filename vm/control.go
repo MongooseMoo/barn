@@ -248,23 +248,32 @@ func (vm *VM) executeTryFinally() error {
 	return nil
 }
 
-// executeEndFinally handles OP_END_FINALLY.
+// executeEndFinally handles OP_END_FINALLY <finally_ip>.
 // This opcode appears twice in try/finally bytecode:
-// 1. After the try body (normal path): pop handler from ExceptStack
+// 1. After the try body (normal path): pop its matching handler from ExceptStack
 // 2. After the finally block: re-raise PendingError if set
 func (vm *VM) executeEndFinally() error {
 	frame := vm.CurrentFrame()
 
-	// If there's a finally handler on top of the stack, pop it (normal path)
+	// Read the matching finally IP (absolute). Both END_FINALLY instructions
+	// carry the same identity as their OP_TRY_FINALLY so an inner block cannot
+	// consume an enclosing block's still-live handler.
+	hi := frame.Program.Code[frame.IP]
+	lo := frame.Program.Code[frame.IP+1]
+	frame.IP += 2
+	finallyIP := int(uint16(hi)<<8 | uint16(lo))
+
+	// If this block's finally handler is on top of the stack, pop it (normal path).
 	if len(frame.ExceptStack) > 0 {
 		top := frame.ExceptStack[len(frame.ExceptStack)-1]
-		if top.Type == bytecode.HandlerFinally {
+		if top.Type == bytecode.HandlerFinally && top.HandlerIP == finallyIP {
 			frame.ExceptStack = frame.ExceptStack[:len(frame.ExceptStack)-1]
 			return nil
 		}
 	}
 
-	// No finally handler to pop. Check for pending error to re-raise.
+	// This block's handler was already removed while unwinding. Re-raise the
+	// pending error without consuming an enclosing finally handler.
 	if frame.PendingError != nil {
 		err := frame.PendingError
 		frame.PendingError = nil

@@ -2297,13 +2297,18 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 
 	if n.Finalizer != nil {
 		c.emit(OP_END_FINALLY)
+		endFinallyIPPatch := len(c.program.Code)
+		c.emitShort(0xFFFF)
 		finallyIP := c.currentOffset()
 		c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
 		c.program.Code[finallyIPPatch+1] = byte(finallyIP)
+		c.program.Code[endFinallyIPPatch] = byte(finallyIP >> 8)
+		c.program.Code[endFinallyIPPatch+1] = byte(finallyIP)
 		if err := c.compileBlock(n.Finalizer.Body); err != nil {
 			return err
 		}
 		c.emit(OP_END_FINALLY)
+		c.emitShort(uint16(finallyIP))
 	}
 
 	return nil
