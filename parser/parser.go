@@ -10,10 +10,17 @@ import (
 
 // Parser parses MOO source code into language-neutral verb semantics.
 type Parser struct {
-	lexer   *Lexer
-	current Token
-	peek    Token
+	lexer            *Lexer
+	current          Token
+	peek             Token
+	parenthesisDepth int
+	statementCalls   int
 }
+
+// MaxNestingDepth is shared with semantic IR consumers.
+const MaxNestingDepth = verb.MaxNestingDepth
+
+func (p *Parser) limitError() error { return verb.ErrMaxNestingDepth }
 
 // NewParser creates a new Parser instance
 func NewParser(input string) *Parser {
@@ -271,6 +278,11 @@ func (p *Parser) ParseExpression(prec int) (verb.Expr, error) {
 		}
 
 	case TOKEN_LPAREN:
+		p.parenthesisDepth++
+		if p.parenthesisDepth > MaxNestingDepth {
+			return nil, p.limitError()
+		}
+		defer func() { p.parenthesisDepth-- }()
 		// Parse parenthesized expression
 		p.nextToken()
 		expr, err := p.ParseExpression(PREC_LOWEST)

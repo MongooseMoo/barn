@@ -1,6 +1,74 @@
 // Package verb defines the language-neutral semantic representation of a verb.
 package verb
 
+import (
+	"errors"
+	"reflect"
+)
+
+// MaxNestingDepth is the maximum number of nested semantic constructs accepted
+// by every frontend and backend that recursively walks a verb program.
+const MaxNestingDepth = 256
+
+var ErrMaxNestingDepth = errors.New("maximum nesting depth exceeded (max 256)")
+
+// ValidateNesting checks semantic IR without recursively walking attacker
+// controlled data. Siblings retain the same depth, so wide programs are not
+// penalized. Leaf nodes are allowed beneath the deepest construct.
+func ValidateNesting(program *Program) error {
+	return validateNesting(reflect.ValueOf(program), -2)
+}
+
+// ValidateNode applies the same limit to direct compiler inputs that do not
+// pass through a Program.
+func ValidateNode(node Node) error {
+	return validateNesting(reflect.ValueOf(node), -1)
+}
+
+func validateNesting(root reflect.Value, initialDepth int) error {
+	type item struct {
+		value reflect.Value
+		depth int
+	}
+	// The program container and its root statement are structural anchors, not
+	// nested source constructs.
+	stack := []item{{root, initialDepth}}
+	nodeType := reflect.TypeOf((*Node)(nil)).Elem()
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		v := current.value
+		if v.IsValid() && v.Type().Implements(nodeType) {
+			current.depth++
+			if current.depth > MaxNestingDepth {
+				return ErrMaxNestingDepth
+			}
+		}
+		for v.IsValid() && (v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer) {
+			if v.IsNil() {
+				v = reflect.Value{}
+				break
+			}
+			v = v.Elem()
+		}
+		if !v.IsValid() {
+			continue
+		}
+		switch v.Kind() {
+		case reflect.Struct:
+			for i := 0; i < v.NumField(); i++ {
+				f := v.Field(i)
+				stack = append(stack, item{f, current.depth})
+			}
+		case reflect.Slice:
+			for i := 0; i < v.Len(); i++ {
+				stack = append(stack, item{v.Index(i), current.depth})
+			}
+		}
+	}
+	return nil
+}
+
 // Position identifies a location in verb source.
 type Position struct {
 	Line   int
