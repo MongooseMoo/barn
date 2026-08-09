@@ -380,7 +380,7 @@ func main() {
 		if errors.Is(err, server.ErrPanicShutdown) {
 			slog.Error("server panic shutdown", slog.Any("err", err))
 			closeLogs()
-			os.Exit(1)
+			terminatePanicShutdown()
 		}
 		fatalf("Server error: %v", err)
 	}

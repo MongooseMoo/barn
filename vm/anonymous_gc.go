@@ -4,25 +4,45 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"sort"
+	"unsafe"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
 func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
+	collectAnonymousRefsForGCVisited(v, out, nil)
+}
+
+func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{}, visitedWaifs map[unsafe.Pointer]struct{}) {
 	switch v.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if v.IsAnonymous() {
 			out[v.ID()] = struct{}{}
 		}
+	case types.TYPE_WAIF:
+		identity := v.WaifIdentity()
+		if _, seen := visitedWaifs[identity]; seen {
+			return
+		}
+		if visitedWaifs == nil {
+			visitedWaifs = make(map[unsafe.Pointer]struct{})
+		}
+		visitedWaifs[identity] = struct{}{}
+		for _, name := range v.PropertyNames() {
+			if prop, ok := v.GetProperty(name); ok {
+				collectAnonymousRefsForGCVisited(prop, out, visitedWaifs)
+			}
+		}
 	case types.TYPE_LIST:
 		for _, elem := range v.Elements() {
-			collectAnonymousRefsForGC(elem, out)
+			collectAnonymousRefsForGCVisited(elem, out, visitedWaifs)
 		}
 	case types.TYPE_MAP:
 		for _, pair := range v.Pairs() {
-			collectAnonymousRefsForGC(pair[0], out)
-			collectAnonymousRefsForGC(pair[1], out)
+			collectAnonymousRefsForGCVisited(pair[0], out, visitedWaifs)
+			collectAnonymousRefsForGCVisited(pair[1], out, visitedWaifs)
 		}
 	}
 }
@@ -46,9 +66,136 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 		for _, value := range frame.Locals {
 			collectAnonymousRefsForGC(value, out)
 		}
+		collectAnonymousRefsForGC(frame.ThisValue, out)
+		for _, value := range frame.Args {
+			collectAnonymousRefsForGC(value, out)
+		}
+		collectAnonymousRefsForGC(frame.SavedThisValue, out)
+		collectAnonymousRefsFromPendingError(frame.PendingError, out)
 	}
 	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
 		collectAnonymousRefsForGC(exec.Stack[i], out)
+	}
+	for _, value := range exec.PendingWaifs {
+		collectAnonymousRefsForGC(value, out)
+	}
+	collectAnonymousRefsForGC(exec.yieldResult.Val, out)
+	if fork := exec.yieldResult.ForkInfo; fork != nil {
+		collectAnonymousRefsForGC(fork.ThisValue, out)
+		for _, value := range fork.Variables {
+			collectAnonymousRefsForGC(value, out)
+		}
+	}
+	if exec.Context != nil {
+		collectAnonymousRefsForGC(exec.Context.ThisValue, out)
+		collectAnonymousRefsForGC(exec.Context.MapFirstKey, out)
+		collectAnonymousRefsForGC(exec.Context.MapLastKey, out)
+		collectAnonymousRefsForGC(exec.Context.TaskLocal, out)
+		if owner, ok := exec.Context.Task.(*task.Task); ok && owner != nil {
+			collectAnonymousRefsForGC(owner.GetTaskLocal(), out)
+		}
+	}
+}
+
+func collectAnonymousRefsFromPendingError(err error, out map[types.ObjID]struct{}) {
+	for err != nil {
+		switch pending := err.(type) {
+		case VMException:
+			collectAnonymousRefsForGC(pending.Value, out)
+			return
+		case *VMException:
+			collectAnonymousRefsForGC(pending.Value, out)
+			return
+		case interface{ Unwrap() error }:
+			err = pending.Unwrap()
+		default:
+			return
+		}
+	}
+}
+
+func collectDirectFinalizationRoots(value types.Value, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
+	switch value.Type() {
+	case types.TYPE_OBJ, types.TYPE_ANON:
+		if value.IsAnonymous() {
+			refs[value.ID()] = struct{}{}
+		}
+	case types.TYPE_WAIF:
+		if !pendingFinalizationValueInList(value, *waifs) {
+			*waifs = append(*waifs, value)
+		}
+	case types.TYPE_LIST:
+		for _, elem := range value.Elements() {
+			collectDirectFinalizationRoots(elem, refs, waifs)
+		}
+	case types.TYPE_MAP:
+		for _, pair := range value.Pairs() {
+			collectDirectFinalizationRoots(pair[0], refs, waifs)
+			collectDirectFinalizationRoots(pair[1], refs, waifs)
+		}
+	}
+}
+
+func collectDirectFinalizationRootsFromVM(exec *VM, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
+	if exec == nil {
+		return
+	}
+	collect := func(value types.Value) { collectDirectFinalizationRoots(value, refs, waifs) }
+	for _, frame := range exec.Frames {
+		if frame == nil {
+			continue
+		}
+		for _, value := range frame.Locals {
+			collect(value)
+		}
+		collect(frame.ThisValue)
+		for _, value := range frame.Args {
+			collect(value)
+		}
+		collect(frame.SavedThisValue)
+		collectDirectFinalizationRootsFromPendingError(frame.PendingError, refs, waifs)
+	}
+	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
+		collect(exec.Stack[i])
+	}
+	for _, value := range exec.PendingWaifs {
+		collect(value)
+	}
+	for _, value := range exec.PendingFinalizations {
+		collect(value)
+	}
+	collect(exec.yieldResult.Val)
+	if fork := exec.yieldResult.ForkInfo; fork != nil {
+		collect(fork.ThisValue)
+		for _, value := range fork.Variables {
+			collect(value)
+		}
+	}
+	if exec.Context != nil {
+		collect(exec.Context.ThisValue)
+		collect(exec.Context.MapFirstKey)
+		collect(exec.Context.MapLastKey)
+		collect(exec.Context.TaskLocal)
+		if owner, ok := exec.Context.Task.(*task.Task); ok && owner != nil {
+			collect(owner.GetTaskLocal())
+		}
+	}
+}
+
+func collectDirectFinalizationRootsFromPendingError(err error, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
+	for err != nil {
+		switch pending := err.(type) {
+		case VMException:
+			collectDirectFinalizationRoots(pending.Value, refs, waifs)
+			return
+		case *VMException:
+			collectDirectFinalizationRoots(pending.Value, refs, waifs)
+			return
+		case interface{ Unwrap() error }:
+			err = pending.Unwrap()
+		default:
+			return
+		}
 	}
 }
 
@@ -80,34 +227,18 @@ func expandAnonymousReachability(store *dbstore.Store, tx *dbstore.StoreTxn, rea
 	}
 }
 
-// CollectPendingFinalizationValues snapshots anonymous-object references held by
-// a live VM and returns one bare anonymous root for each still-unreachable graph
-// that must survive shutdown finalization. A single root retains its complete
-// anonymous-object component for serialization; emitting every local in a cycle
-// would duplicate the same pending finalization graph.
+// CollectPendingFinalizationValues snapshots direct anonymous and WAIF identities
+// held by a live VM. Nested graphs are reduced to one covering root so a child
+// WAIF retained by its parent is not promoted to a second top-level finalization.
 func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Value {
 	if store == nil || exec == nil {
 		return nil
 	}
 
 	refs := make(map[types.ObjID]struct{})
-	for _, frame := range exec.Frames {
-		if frame == nil {
-			continue
-		}
-		for _, value := range frame.Locals {
-			collectAnonymousRefsForGC(value, refs)
-		}
-	}
-	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collectAnonymousRefsForGC(exec.Stack[i], refs)
-	}
-
+	var waifs []types.Value
+	collectDirectFinalizationRootsFromVM(exec, refs, &waifs)
 	candidates := pendingFinalizationValues(store, refs)
-	if len(candidates) == 0 {
-		return nil
-	}
-
 	type candidateRoot struct {
 		value   types.Value
 		closure map[types.ObjID]struct{}
@@ -131,7 +262,7 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 	})
 
 	covered := buildPersistentAnonymousReachability(store)
-	roots := make([]types.Value, 0, len(ordered))
+	roots := canonicalWaifRoots(waifs, store.PersistentWaifRoots())
 	for _, candidate := range ordered {
 		if _, seen := covered[candidate.value.ID()]; seen {
 			continue
@@ -142,6 +273,129 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 		}
 	}
 	return roots
+}
+
+func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []types.Value {
+	var persistentClosure []types.Value
+	for _, root := range persistent {
+		collectWaifsForGC(root, &persistentClosure)
+	}
+	type candidateRoot struct {
+		value   types.Value
+		closure []types.Value
+		order   int
+	}
+	ordered := make([]candidateRoot, 0, len(candidates))
+	for index, candidate := range candidates {
+		if candidate.Type() != types.TYPE_WAIF || waifValueInListInternal(candidate, persistentClosure) {
+			continue
+		}
+		var closure []types.Value
+		collectWaifsForGC(candidate, &closure)
+		ordered = append(ordered, candidateRoot{value: candidate, closure: closure, order: index})
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if len(ordered[i].closure) != len(ordered[j].closure) {
+			return len(ordered[i].closure) > len(ordered[j].closure)
+		}
+		return ordered[i].order < ordered[j].order
+	})
+	covered := append([]types.Value(nil), persistentClosure...)
+	roots := make([]types.Value, 0, len(ordered))
+	for _, candidate := range ordered {
+		if waifValueInListInternal(candidate.value, covered) {
+			continue
+		}
+		roots = append(roots, candidate.value)
+		for _, value := range candidate.closure {
+			if !waifValueInListInternal(value, covered) {
+				covered = append(covered, value)
+			}
+		}
+	}
+	return roots
+}
+
+func waifValueInListInternal(needle types.Value, values []types.Value) bool {
+	for _, value := range values {
+		if value.Type() == types.TYPE_WAIF && value.Equal(needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
+	if frame == nil {
+		return
+	}
+	for _, value := range frame.Locals {
+		vm.collectPendingFinalizationsFromValue(value)
+	}
+	vm.collectPendingFinalizationsFromValue(frame.ThisValue)
+	for _, value := range frame.Args {
+		vm.collectPendingFinalizationsFromValue(value)
+	}
+	vm.collectPendingFinalizationsFromValue(frame.SavedThisValue)
+	refs := make(map[types.ObjID]struct{})
+	var waifs []types.Value
+	collectDirectFinalizationRootsFromPendingError(frame.PendingError, refs, &waifs)
+	vm.appendPendingFinalizationRoots(refs, waifs)
+}
+
+func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
+	refs := make(map[types.ObjID]struct{})
+	var waifs []types.Value
+	collectDirectFinalizationRoots(value, refs, &waifs)
+	vm.appendPendingFinalizationRoots(refs, waifs)
+}
+
+func (vm *VM) appendPendingFinalizationRoots(refs map[types.ObjID]struct{}, waifs []types.Value) {
+	for id := range refs {
+		value := types.NewAnon(id)
+		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
+		}
+	}
+	for _, value := range waifs {
+		if !pendingFinalizationValueInList(value, vm.PendingFinalizations) {
+			vm.PendingFinalizations = append(vm.PendingFinalizations, value)
+		}
+	}
+}
+
+// TakePendingFinalizationValues returns the canonical roots retained across
+// frame-pop boundaries together with values still live in the VM.
+func (vm *VM) TakePendingFinalizationValues() []types.Value {
+	if vm == nil {
+		return nil
+	}
+	values := CollectPendingFinalizationValues(vm.Store, vm)
+	vm.PendingFinalizations = nil
+	return values
+}
+
+func pendingFinalizationValueInList(needle types.Value, values []types.Value) bool {
+	for _, candidate := range values {
+		if needle.Type() != candidate.Type() {
+			continue
+		}
+		switch needle.Type() {
+		case types.TYPE_ANON:
+			if needle.ID() == candidate.ID() {
+				return true
+			}
+		case types.TYPE_WAIF:
+			if needle.Equal(candidate) {
+				return true
+			}
+		default:
+			if needle.Equal(candidate) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
@@ -158,9 +412,10 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Reg
 // walked then; capturing the ids up front keeps them as roots without retaining
 // the *VM (which a concurrent flush must never touch).
 type AnonGCRequest struct {
-	Ctx     *kernel.TaskContext
-	MinID   types.ObjID
-	OwnRefs map[types.ObjID]struct{}
+	Ctx       *kernel.TaskContext
+	MinID     types.ObjID
+	OwnRefs   map[types.ObjID]struct{}
+	TaskOwned bool
 }
 
 // RecycleOrphanAnonymousBatch settles several deferred collection requests

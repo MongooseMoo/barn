@@ -26,6 +26,10 @@ type VM struct {
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
 	PendingWaifs  []types.Value
+	// PendingFinalizations retains direct finalizable identities as frames leave
+	// scope. Ordinary GC still owns them during normal operation; shutdown uses
+	// this lossless record after the final activation has already been popped.
+	PendingFinalizations []types.Value
 
 	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
@@ -42,6 +46,7 @@ func (vm *VM) pushFrame(f *StackFrame) {
 // popFrame removes the top call frame and updates the cached current-frame
 // pointer to the new top (nil when the call stack is empty).
 func (vm *VM) popFrame() {
+	vm.collectPendingFinalizationsFromFrame(vm.Frames[len(vm.Frames)-1])
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
 	if n := len(vm.Frames); n > 0 {
 		vm.frame = vm.Frames[n-1]
@@ -502,7 +507,11 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 
 	case bytecode.OP_SET_VAR:
 		idx := vm.FetchByte()
-		vm.CurrentFrame().Locals[idx] = vm.Pop()
+		frame := vm.CurrentFrame()
+		previous := frame.Locals[idx]
+		vm.collectPendingFinalizationsFromValue(previous)
+		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+		frame.Locals[idx] = vm.Pop()
 
 	// Property operations
 	case bytecode.OP_GET_PROP:
