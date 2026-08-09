@@ -134,11 +134,6 @@ func (w *Writer) writeInt64(i int64) error {
 }
 
 // writeIntRaw writes an integer without newline
-func (w *Writer) writeIntRaw(i int) error {
-	_, err := fmt.Fprintf(w.w, "%d", i)
-	return err
-}
-
 // writeFloat writes a float with %.19g format followed by newline
 // This matches ToastStunt's DBL_DIG + 4 = 19 significant digits
 func (w *Writer) writeFloat(f float64) error {

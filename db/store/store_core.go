@@ -367,12 +367,6 @@ func stampObjectProperties(obj *Object, ts uint64) {
 	}
 }
 
-func stampProperty(prop *Property, ts uint64) {
-	if prop != nil {
-		prop.version = ts
-	}
-}
-
 func stampObjectVerbs(obj *Object, ts uint64) {
 	if obj != nil {
 		obj.verbVersion = ts
@@ -459,15 +453,6 @@ func (s *Store) Add(obj *Object) error {
 	stampObjectAll(obj, ts)
 	s.insertObjectLocked(obj)
 	return nil
-}
-
-func (s *Store) addLoadedObject(obj *Object) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	ts := s.bumpClockLocked()
-	stampObjectAll(obj, ts)
-	s.insertObjectLocked(obj)
 }
 
 // AddAnonymous ingests an anonymous object loaded from the database into the

@@ -30,8 +30,8 @@ func TestBreakUnknownLoopNameIsCompileError(t *testing.T) {
 	if len(diagnostics) == 0 {
 		t.Fatalf("BUG: `break nonexistent;` compiled without error; want \"Invalid loop name\"")
 	}
-	if !strings.Contains(diagnostics[0].Message, "Invalid loop name") {
-		t.Fatalf("got diagnostic %q, want it to contain \"Invalid loop name\"", diagnostics[0].Message)
+	if !strings.Contains(diagnostics[0].Message, "invalid loop name") {
+		t.Fatalf("got diagnostic %q, want it to contain \"invalid loop name\"", diagnostics[0].Message)
 	}
 }
 
@@ -48,8 +48,8 @@ func TestContinueUnknownLoopNameIsCompileError(t *testing.T) {
 	if len(diagnostics) == 0 {
 		t.Fatalf("`continue nonexistent;` compiled without error; want \"Invalid loop name\"")
 	}
-	if !strings.Contains(diagnostics[0].Message, "Invalid loop name") {
-		t.Fatalf("got diagnostic %q, want it to contain \"Invalid loop name\"", diagnostics[0].Message)
+	if !strings.Contains(diagnostics[0].Message, "invalid loop name") {
+		t.Fatalf("got diagnostic %q, want it to contain \"invalid loop name\"", diagnostics[0].Message)
 	}
 }
 

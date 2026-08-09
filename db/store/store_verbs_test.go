@@ -347,16 +347,3 @@ func verbVersionForTest(t *testing.T, store *Store, objID types.ObjID, name stri
 	}
 	return verb.version
 }
-
-func objectVerbVersionForTest(t *testing.T, store *Store, objID types.ObjID) uint64 {
-	t.Helper()
-
-	store.mu.RLock()
-	defer store.mu.RUnlock()
-
-	obj := store.load(objID)
-	if !validLiveObject(obj) {
-		t.Fatalf("object #%d not found", objID)
-	}
-	return obj.verbVersion
-}

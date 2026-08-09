@@ -783,7 +783,7 @@ func (s *Runtime) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) typ
 func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
 	program, diagnostics := compiler.CompileMOOWithKey(match.Verb.Code, match.Verb.CodeKey, s.registry)
 	if len(diagnostics) > 0 {
-		return fmt.Errorf("Verb compile error: %s", diagnostics[0].Error())
+		return fmt.Errorf("verb compile error: %s", diagnostics[0].Error())
 	}
 	if len(match.Verb.Code) == 0 {
 		return ErrCommandVerbNoCode

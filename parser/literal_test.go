@@ -27,7 +27,3 @@ func parseLiteralForTest(t *testing.T, input string) *verb.LiteralExpr {
 	}
 	return lit
 }
-
-func literalInt(value int64) *verb.LiteralExpr {
-	return &verb.LiteralExpr{Kind: verb.LiteralInt, IntValue: value}
-}

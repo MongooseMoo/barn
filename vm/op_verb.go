@@ -527,13 +527,6 @@ func hasObjectFlagForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID typ
 	return store.HasObjectFlag(objID, flag)
 }
 
-func findVerbForRead(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, verbName string) (dbstore.VerbView, types.ObjID, error) {
-	if txn != nil {
-		return txn.FindVerb(objID, verbName)
-	}
-	return store.FindVerb(objID, verbName)
-}
-
 // findCallableVerbForRead resolves a verb for call dispatch (obj:verb()): a
 // same-named verb without execute permission does not shadow an executable one
 // defined further up the ancestry chain. It reads through the task's snapshot

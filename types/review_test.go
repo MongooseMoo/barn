@@ -35,9 +35,8 @@ func TestReview_ObjEqualIgnoresAnonFlag(t *testing.T) {
 // while two SEPARATELY created waifs are independent.
 func TestReview_WaifSetPropertyMutatesOriginal(t *testing.T) {
 	w1 := NewWaif(1, 2)
-	w2 := w1 // alias — same underlying waif (reference type)
-
-	w2 = w2.SetProperty("x", NewInt(42))
+	w2 := w1.SetProperty("x", NewInt(42)) // alias — same underlying waif (reference type)
+	_ = w2
 
 	// w1 MUST see the property set through its alias w2.
 	got, ok := w1.GetProperty("x")

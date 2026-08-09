@@ -409,29 +409,4 @@ func comparePairKeys(a, b types.Value) int {
 // ============================================================================
 
 // listToString converts a list value to its MOO string representation
-func listToString(list types.Value) string {
-	if list.Len() == 0 {
-		return "{}"
-	}
-
-	parts := make([]string, list.Len())
-	for i := 1; i <= list.Len(); i++ {
-		elem := list.Get(i)
-		parts[i-1] = elem.String()
-	}
-	return "{" + strings.Join(parts, ", ") + "}"
-}
-
 // mapToString converts a map value to its MOO string representation
-func mapToString(m types.Value) string {
-	pairs := m.Pairs()
-	if len(pairs) == 0 {
-		return "[]"
-	}
-
-	parts := make([]string, len(pairs))
-	for i, pair := range pairs {
-		parts[i] = pair[0].String() + " -> " + pair[1].String()
-	}
-	return "[" + strings.Join(parts, ", ") + "]"
-}

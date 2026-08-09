@@ -18,6 +18,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 
 	cryptbcrypt "github.com/go-crypt/x/bcrypt"
+	//lint:ignore SA1019 RIPEMD-160 is required for string_hash compatibility with Toast.
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -426,14 +427,6 @@ func cryptPasswordWithPerm(password, salt string, isWizard bool) (string, types.
 }
 
 // cryptPassword implements crypt with algorithm detection from salt (legacy, no perm check)
-func cryptPassword(password, salt string) (string, error) {
-	result, errCode := cryptPasswordWithPerm(password, salt, true)
-	if errCode != 0 {
-		return "", fmt.Errorf("crypt error: %v", errCode)
-	}
-	return result, nil
-}
-
 // ----------------------------------------------------------------------------
 // Standard Unix crypt(3) password hashing: md5crypt ($1$), sha256crypt ($5$),
 // sha512crypt ($6$).
@@ -901,18 +894,6 @@ func normalizeDESSaltChar(c byte) byte {
 }
 
 // extractSalt extracts the salt value from a crypt-style salt string
-func extractSalt(salt, prefix string) string {
-	if prefix != "" && strings.HasPrefix(salt, prefix) {
-		salt = salt[len(prefix):]
-	}
-	// Salt ends at next $ or end of string
-	dollarIdx := strings.Index(salt, "$")
-	if dollarIdx > 0 {
-		return salt[:dollarIdx]
-	}
-	return salt
-}
-
 // generateRandomSalt creates a random salt string
 func generateRandomSalt(length int) string {
 	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789./"
@@ -925,25 +906,6 @@ func generateRandomSalt(length int) string {
 }
 
 // base64Encode encodes bytes to a crypt-style base64 string
-func base64Encode(data []byte) string {
-	// Use standard base64 but with crypt alphabet
-	const chars = "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-	result := make([]byte, (len(data)*8+5)/6)
-	for i := 0; i < len(result); i++ {
-		byteIdx := (i * 6) / 8
-		bitOffset := (i * 6) % 8
-		val := 0
-		if byteIdx < len(data) {
-			val = int(data[byteIdx]) >> bitOffset
-		}
-		if bitOffset > 2 && byteIdx+1 < len(data) {
-			val |= int(data[byteIdx+1]) << (8 - bitOffset)
-		}
-		result[i] = chars[val&0x3f]
-	}
-	return string(result)
-}
-
 // ============================================================================
 // HASHING BUILTINS
 // ============================================================================

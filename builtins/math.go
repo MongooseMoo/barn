@@ -467,17 +467,6 @@ func builtinFloatstr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // toNumericFloat converts a value to float64 for math operations
 // Returns NaN if not numeric
-func toNumericFloat(v types.Value) float64 {
-	switch v.Type() {
-	case types.TYPE_INT:
-		return float64(v.Int())
-	case types.TYPE_FLOAT:
-		return v.Float()
-	default:
-		return math.NaN()
-	}
-}
-
 func builtinAcosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
