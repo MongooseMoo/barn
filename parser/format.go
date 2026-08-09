@@ -2,9 +2,10 @@ package parser
 
 import (
 	"fmt"
-	"github.com/MongooseMoo/barn/verb"
 	"strconv"
 	"strings"
+
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // Operator precedence levels (higher = tighter binding)
@@ -29,8 +30,17 @@ const (
 
 // FormatMOO converts a semantic verb program back to MOO source lines.
 func FormatMOO(program *verb.Program) []string {
+	lines, _ := FormatMOOChecked(program)
+	return lines
+}
+
+// FormatMOOChecked validates recursive formatter input before producing output.
+func FormatMOOChecked(program *verb.Program) ([]string, error) {
+	if err := verb.ValidateNesting(program); err != nil {
+		return nil, err
+	}
 	if len(program.Statements) == 0 {
-		return []string{}
+		return []string{}, nil
 	}
 
 	var lines []string
@@ -38,7 +48,7 @@ func FormatMOO(program *verb.Program) []string {
 		line := unparseStmt(stmt, 0)
 		lines = append(lines, strings.Split(line, "\n")...)
 	}
-	return lines
+	return lines, nil
 }
 
 // unparseStmt converts a statement to source code

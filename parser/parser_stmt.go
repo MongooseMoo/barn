@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+
 	"github.com/MongooseMoo/barn/verb"
 )
 
@@ -42,11 +43,20 @@ func (p *Parser) ParseProgram() (*verb.Program, error) {
 		statements = append(statements, stmt)
 	}
 
-	return &verb.Program{Statements: statements}, nil
+	program := &verb.Program{Statements: statements}
+	if err := verb.ValidateNesting(program); err != nil {
+		return nil, &ParseError{Line: p.current.Position.Line, Msg: "syntax error", Detail: err}
+	}
+	return program, nil
 }
 
 // parseStatement parses a single statement
 func (p *Parser) parseStatement() (verb.Stmt, error) {
+	p.statementCalls++
+	defer func() { p.statementCalls-- }()
+	if p.statementCalls > MaxNestingDepth+1 {
+		return nil, p.limitError()
+	}
 	switch p.current.Type {
 	case TOKEN_IF:
 		return p.parseIfStatement()
