@@ -1,6 +1,9 @@
 package bytecode
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // A fork body's OP_TRY_EXCEPT / OP_TRY_FINALLY operands encode ABSOLUTE
 // handler IPs in the parent program's coordinates (vm/control.go reads them
@@ -16,6 +19,14 @@ func encodeShort(v int) (byte, byte) {
 
 func decodeShort(hi, lo byte) int {
 	return int(uint16(hi)<<8 | uint16(lo))
+}
+
+func instructionPadding(length int) []byte {
+	padding := make([]byte, length)
+	for i := range padding {
+		padding[i] = byte(OP_RETURN_NONE)
+	}
+	return padding
 }
 
 func TestExtractForkBodyRebasesTryExceptHandlerIP(t *testing.T) {
@@ -36,9 +47,12 @@ func TestExtractForkBodyRebasesTryExceptHandlerIP(t *testing.T) {
 		byte(OP_JUMP), jmpHi, jmpLo,
 		byte(OP_POP),
 	}
-	parent := &Program{Code: append(make([]byte, bodyIP), body...)}
+	parent := &Program{Code: append(instructionPadding(bodyIP), body...)}
 
 	sub := parent.ExtractForkBody(bodyIP, len(body))
+	if sub == nil {
+		t.Fatal("ExtractForkBody rejected a valid instruction range")
+	}
 
 	gotHandler := decodeShort(sub.Code[5], sub.Code[6])
 	if want := handlerAbs - bodyIP; gotHandler != want {
@@ -66,9 +80,13 @@ func TestExtractForkBodyRebasesMultiClauseAndFinallyIPs(t *testing.T) {
 		byte(OP_TRY_FINALLY), finHi, finLo,
 		byte(OP_POP),
 	}
-	parent := &Program{Code: append(make([]byte, bodyIP), body...)}
+	body = append(body, instructionPadding(51-len(body))...)
+	parent := &Program{Code: append(instructionPadding(bodyIP), body...)}
 
 	sub := parent.ExtractForkBody(bodyIP, len(body))
+	if sub == nil {
+		t.Fatal("ExtractForkBody rejected a valid instruction range")
+	}
 
 	if got := decodeShort(sub.Code[6], sub.Code[7]); got != 30 {
 		t.Errorf("clause 0 handler IP = %d, want 30", got)
@@ -89,11 +107,74 @@ func TestExtractForkBodyRebasesEndFinallyHandlerIP(t *testing.T) {
 		byte(OP_END_FINALLY), hi, lo,
 		byte(OP_POP),
 	}
-	parent := &Program{Code: append(make([]byte, bodyIP), body...)}
+	body = append(body, instructionPadding(13-len(body))...)
+	parent := &Program{Code: append(instructionPadding(bodyIP), body...)}
 
 	sub := parent.ExtractForkBody(bodyIP, len(body))
+	if sub == nil {
+		t.Fatal("ExtractForkBody rejected a valid instruction range")
+	}
 
 	if got := decodeShort(sub.Code[1], sub.Code[2]); got != handlerAbs-bodyIP {
 		t.Errorf("END_FINALLY handler IP = %d, want %d", got, handlerAbs-bodyIP)
+	}
+}
+
+func TestWideControlFlowOperandBoundaryRoundTrips(t *testing.T) {
+	for _, value := range []int{65535, 65536} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			compiler := &Compiler{program: &Program{}}
+			compiler.emitWideInt(value)
+			if compiler.err != nil {
+				t.Fatalf("emitWideInt(%d) failed: %v", value, compiler.err)
+			}
+			if got := int(decodeAbsoluteWide(compiler.program.Code)); got != value {
+				t.Errorf("wide operand = %d, want %d", got, value)
+			}
+		})
+	}
+}
+
+func TestWideForkBodyLengthBoundaryExtractsCompleteBody(t *testing.T) {
+	for _, bodyLen := range []int{65535, 65536} {
+		t.Run(fmt.Sprint(bodyLen), func(t *testing.T) {
+			compiler := &Compiler{program: &Program{Code: []byte{byte(OP_FORK_WIDE), 0}}}
+			compiler.emitWideInt(bodyLen)
+			compiler.program.Code = append(compiler.program.Code, instructionPadding(bodyLen)...)
+			if compiler.err != nil {
+				t.Fatalf("encoding fork length %d failed: %v", bodyLen, compiler.err)
+			}
+
+			const bodyIP = 6 // opcode + var index + uint32 body length
+			extracted := compiler.program.ExtractForkBody(bodyIP, bodyLen)
+			if extracted == nil {
+				t.Fatalf("ExtractForkBody rejected body length %d", bodyLen)
+			}
+			if got := len(extracted.Code); got != bodyLen+1 {
+				t.Errorf("extracted code length = %d, want %d", got, bodyLen+1)
+			}
+		})
+	}
+}
+
+func TestExtractForkBodyRejectsInvalidInstructionRanges(t *testing.T) {
+	program := &Program{Code: []byte{byte(OP_PUSH), 0, byte(OP_RETURN_NONE)}}
+	tests := []struct {
+		name    string
+		bodyIP  int
+		bodyLen int
+	}{
+		{name: "negative start", bodyIP: -1, bodyLen: 1},
+		{name: "negative length", bodyIP: 0, bodyLen: -1},
+		{name: "past end", bodyIP: 0, bodyLen: 4},
+		{name: "start in operand", bodyIP: 1, bodyLen: 1},
+		{name: "end in operand", bodyIP: 0, bodyLen: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := program.ExtractForkBody(test.bodyIP, test.bodyLen); got != nil {
+				t.Errorf("ExtractForkBody(%d, %d) = %v, want nil", test.bodyIP, test.bodyLen, got.Code)
+			}
+		})
 	}
 }
