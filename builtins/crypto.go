@@ -1011,6 +1011,7 @@ func builtinStringHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 	hasher.Write([]byte(str.Str()))
 	hashBytes := hasher.Sum(nil)
 
+	// Toast exempts hash results from max_string_concat; do not apply CheckStringLimit here.
 	if binaryOutput {
 		// Return all bytes as ~XX encoded string (each byte = 3 chars)
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
@@ -1060,6 +1061,7 @@ func builtinBinaryHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 	hasher.Write(bytes)
 	hashBytes := hasher.Sum(nil)
 
+	// Toast exempts hash results from max_string_concat; do not apply CheckStringLimit here.
 	if binaryOutput {
 		// Return all bytes as ~XX encoded string (each byte = 3 chars)
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
@@ -1103,6 +1105,7 @@ func builtinValueHash(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	hasher.Write([]byte(literal))
 	hashBytes := hasher.Sum(nil)
 
+	// Toast exempts hash results from max_string_concat; do not apply CheckStringLimit here.
 	if binaryOutput {
 		// Return all bytes as ~XX encoded string (each byte = 3 chars)
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
@@ -1162,6 +1165,7 @@ func builtinStringHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 	mac.Write([]byte(str.Str()))
 	hashBytes := mac.Sum(nil)
 
+	// Toast exempts HMAC results from max_string_concat; do not apply CheckStringLimit here.
 	if binaryOutput {
 		// Return all bytes as ~XX encoded string (each byte = 3 chars)
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
@@ -1222,6 +1226,7 @@ func builtinBinaryHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 	mac.Write(data)
 	hashBytes := mac.Sum(nil)
 
+	// Toast exempts HMAC results from max_string_concat; do not apply CheckStringLimit here.
 	if binaryOutput {
 		// Return all bytes as ~XX encoded string (each byte = 3 chars)
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
@@ -1270,6 +1275,7 @@ func builtinValueHmac(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	mac.Write([]byte(args[0].String()))
 	hashBytes := mac.Sum(nil)
 
+	// Toast exempts HMAC results from max_string_concat; do not apply CheckStringLimit here.
 	if binaryOutput {
 		// Return all bytes as ~XX encoded string (each byte = 3 chars)
 		return types.Ok(types.NewStr(encodeAllBinaryStr(hashBytes)))
