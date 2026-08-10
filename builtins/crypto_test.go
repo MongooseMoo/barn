@@ -119,3 +119,19 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 		t.Fatalf("fully numeric decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 	}
 }
+
+func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	decoded := types.NewList([]types.Value{types.NewStr("xx")})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxListValueBytes: ValueBytes(decoded),
+		},
+	}}
+
+	result := builtinDecodeBinary(ctx, []types.Value{types.NewStr("xx")})
+	if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
+		t.Fatalf("grouped decode at pending byte limit = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
+	}
+}
