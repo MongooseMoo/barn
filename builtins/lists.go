@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-	"unsafe"
 
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
@@ -512,7 +511,7 @@ type uniqueBucketKey struct {
 	kind      uint8
 	scalar    uint64
 	text      string
-	reference unsafe.Pointer
+	reference types.WaifIdentity
 	length    int
 }
 

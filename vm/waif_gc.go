@@ -1,8 +1,6 @@
 package vm
 
 import (
-	"unsafe"
-
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -32,7 +30,7 @@ func collectDirectWaifsForGC(v types.Value, out *[]types.Value) {
 	}
 }
 
-func collectWaifsForGCVisited(v types.Value, out *[]types.Value, visited map[unsafe.Pointer]struct{}) {
+func collectWaifsForGCVisited(v types.Value, out *[]types.Value, visited map[types.WaifIdentity]struct{}) {
 	switch v.Type() {
 	case types.TYPE_WAIF:
 		for _, existing := range *out {
@@ -46,7 +44,7 @@ func collectWaifsForGCVisited(v types.Value, out *[]types.Value, visited map[uns
 			return
 		}
 		if visited == nil {
-			visited = make(map[unsafe.Pointer]struct{})
+			visited = make(map[types.WaifIdentity]struct{})
 		}
 		visited[identity] = struct{}{}
 		for _, name := range v.PropertyNames() {

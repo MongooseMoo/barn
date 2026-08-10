@@ -17,13 +17,13 @@ func TestKeyHashDistinctAcrossTypes(t *testing.T) {
 	hStr := keyHash(NewStr("1"))
 
 	if hInt == hFloat {
-		t.Errorf("int 1 and float 1.0 hash to the same key %q", hInt)
+		t.Errorf("int 1 and float 1.0 hash to the same key %v", hInt)
 	}
 	if hInt == hStr {
-		t.Errorf("int 1 and str \"1\" hash to the same key %q", hInt)
+		t.Errorf("int 1 and str \"1\" hash to the same key %v", hInt)
 	}
 	if hFloat == hStr {
-		t.Errorf("float 1.0 and str \"1\" hash to the same key %q", hFloat)
+		t.Errorf("float 1.0 and str \"1\" hash to the same key %v", hFloat)
 	}
 }
 
@@ -136,7 +136,7 @@ func TestReverseInsertedWaifMapKeysExposeReverseTopology(t *testing.T) {
 		t.Fatal("waif is not admitted as a map key")
 	}
 	if keyHash(first) == keyHash(second) {
-		t.Fatalf("distinct waifs have the same key hash %q", keyHash(first))
+		t.Fatalf("distinct waifs have the same key hash %v", keyHash(first))
 	}
 
 	firstFirst := NewMap([][2]Value{
@@ -411,5 +411,19 @@ func TestWaifIdentity(t *testing.T) {
 	w1copy.SetProperty("x", NewInt(7))
 	if got, ok := w1.GetProperty("x"); !ok || !got.Equal(NewInt(7)) {
 		t.Error("waif identity copies must share the property map")
+	}
+}
+
+func TestWaifMapLookupDoesNotAllocate(t *testing.T) {
+	waif := NewWaif(5, 2)
+	m := NewMap([][2]Value{{waif, NewInt(7)}})
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		if value, ok := m.MapGet(waif); !ok || value.Int() != 7 {
+			panic("waif map lookup failed")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("waif map lookup allocated %v times per run, want 0", allocs)
 	}
 }

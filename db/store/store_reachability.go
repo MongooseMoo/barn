@@ -3,14 +3,13 @@ package store
 import (
 	"github.com/MongooseMoo/barn/types"
 	"sort"
-	"unsafe"
 )
 
 func collectAnonymousObjectRefs(value types.Value, out map[types.ObjID]struct{}) {
 	collectAnonymousObjectRefsVisited(value, out, nil)
 }
 
-func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]struct{}, visitedWaifs map[unsafe.Pointer]struct{}) {
+func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]struct{}, visitedWaifs map[types.WaifIdentity]struct{}) {
 	switch value.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if value.IsAnonymous() {
@@ -22,7 +21,7 @@ func collectAnonymousObjectRefsVisited(value types.Value, out map[types.ObjID]st
 			return
 		}
 		if visitedWaifs == nil {
-			visitedWaifs = make(map[unsafe.Pointer]struct{})
+			visitedWaifs = make(map[types.WaifIdentity]struct{})
 		}
 		visitedWaifs[identity] = struct{}{}
 		for _, name := range value.PropertyNames() {
@@ -251,7 +250,7 @@ func collectWaifsFromValue(value types.Value, out *[]types.Value) {
 	collectWaifsFromValueVisited(value, out, nil)
 }
 
-func collectWaifsFromValueVisited(value types.Value, out *[]types.Value, visited map[unsafe.Pointer]struct{}) {
+func collectWaifsFromValueVisited(value types.Value, out *[]types.Value, visited map[types.WaifIdentity]struct{}) {
 	switch value.Type() {
 	case types.TYPE_WAIF:
 		if !finalizationValueInList(value, *out) {
@@ -262,7 +261,7 @@ func collectWaifsFromValueVisited(value types.Value, out *[]types.Value, visited
 			return
 		}
 		if visited == nil {
-			visited = make(map[unsafe.Pointer]struct{})
+			visited = make(map[types.WaifIdentity]struct{})
 		}
 		visited[identity] = struct{}{}
 		for _, name := range value.PropertyNames() {

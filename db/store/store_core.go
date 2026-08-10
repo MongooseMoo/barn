@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"unsafe"
 )
 
 // objectSlot is the per-id storage cell in Store.objects. The published image
@@ -107,7 +106,7 @@ type Store struct {
 	commitGate        sync.RWMutex
 	commitEscalations atomic.Uint64
 
-	waifRegistry    map[types.ObjID]map[unsafe.Pointer]struct{} // Track live waifs by class (keyed on waif identity)
+	waifRegistry    map[types.ObjID]map[types.WaifIdentity]struct{} // Track live waifs by class (keyed on waif identity)
 	verbCacheClears int64
 	verbCacheMisses int64
 

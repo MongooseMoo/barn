@@ -14,11 +14,21 @@ type mapEntry struct {
 	val Value
 }
 
-// goMap is the heap payload behind a TYPE_MAP Value. Keys are stringified via
-// keyHash (Go maps need comparable keys); insertion order is tracked in 'order'.
+// mapHash is the internal, comparable representation of a MOO map key. The
+// identity field stores WAIF identity directly, without exposing or formatting
+// the underlying pointer.
+type mapHash struct {
+	typeCode TypeCode
+	scalar   uint64
+	text     string
+	identity WaifIdentity
+}
+
+// goMap is the heap payload behind a TYPE_MAP Value. Keys use a typed,
+// comparable hash; insertion order is tracked in 'order'.
 type goMap struct {
-	order    []string            // key hashes in insertion order
-	pairs    map[string]mapEntry // key hash -> entry
+	order    []mapHash            // key hashes in insertion order
+	pairs    map[mapHash]mapEntry // key hash -> entry
 	rootOnce sync.Once
 	root     *toastLookupNode
 }
@@ -175,33 +185,33 @@ func toastLookupInsert(root *toastLookupNode, entry mapEntry) *toastLookupNode {
 	return root
 }
 
-// keyHash converts a value to a string key for the Go map.
+// keyHash converts a value to a comparable typed key for the Go map.
 //
 // LANDMINE: the old representation namespaced keys with %T (the Go dynamic
 // type), which kept int 1, float 1.0 and str "1" distinct. With a single struct
 // type %T is constant for every value, so it must namespace by v.Type() (the
 // numeric tag) instead. MOO strings hash case-insensitively.
-func keyHash(v Value) string {
+func keyHash(v Value) mapHash {
 	if v.Type() == TYPE_INT {
-		return fmt.Sprintf("%d:%d", int(v.Type()), int32(v.Int()))
+		return mapHash{typeCode: v.Type(), scalar: uint64(uint32(v.Int()))}
 	}
 	if v.Type() == TYPE_OBJ {
-		return fmt.Sprintf("%d:%d", int(v.Type()), int32(v.Obj()))
+		return mapHash{typeCode: v.Type(), scalar: uint64(uint32(v.Obj()))}
 	}
 	if v.Type() == TYPE_STR {
-		return fmt.Sprintf("%d:%s", int(v.Type()), foldASCII(v.Str()))
+		return mapHash{typeCode: v.Type(), text: foldASCII(v.Str())}
 	}
 	if v.Type() == TYPE_FLOAT {
 		f := v.Float()
 		if f == 0 {
 			f = 0
 		}
-		return fmt.Sprintf("%d:%016x", int(v.Type()), math.Float64bits(f))
+		return mapHash{typeCode: v.Type(), scalar: math.Float64bits(f)}
 	}
 	if v.Type() == TYPE_WAIF {
-		return fmt.Sprintf("%d:%p", int(v.Type()), v.WaifIdentity())
+		return mapHash{typeCode: v.Type(), identity: v.WaifIdentity()}
 	}
-	return fmt.Sprintf("%d:%s", int(v.Type()), v.String())
+	return mapHash{typeCode: v.Type(), text: v.String()}
 }
 
 func (m *goMap) Len() int {
@@ -227,18 +237,18 @@ func (m *goMap) get(k Value) (Value, bool) {
 
 func (m *goMap) set(k, v Value) *goMap {
 	hash := keyHash(k)
-	newPairs := make(map[string]mapEntry, len(m.pairs)+1)
+	newPairs := make(map[mapHash]mapEntry, len(m.pairs)+1)
 	for h, e := range m.pairs {
 		newPairs[h] = e
 	}
 	newPairs[hash] = mapEntry{key: k, val: v}
 
-	var newOrder []string
+	var newOrder []mapHash
 	if _, exists := m.pairs[hash]; exists {
-		newOrder = make([]string, len(m.order))
+		newOrder = make([]mapHash, len(m.order))
 		copy(newOrder, m.order)
 	} else {
-		newOrder = make([]string, len(m.order)+1)
+		newOrder = make([]mapHash, len(m.order)+1)
 		copy(newOrder, m.order)
 		newOrder[len(m.order)] = hash
 	}
@@ -252,14 +262,14 @@ func (m *goMap) delete(k Value) *goMap {
 		return m
 	}
 
-	newPairs := make(map[string]mapEntry, len(m.pairs)-1)
+	newPairs := make(map[mapHash]mapEntry, len(m.pairs)-1)
 	for h, e := range m.pairs {
 		if h != hash {
 			newPairs[h] = e
 		}
 	}
 
-	newOrder := make([]string, 0, len(m.order)-1)
+	newOrder := make([]mapHash, 0, len(m.order)-1)
 	for _, h := range m.order {
 		if h != hash {
 			newOrder = append(newOrder, h)
@@ -329,8 +339,8 @@ func mapValue(m *goMap) Value {
 // NewMap creates a map value from key-value pairs (later duplicates win).
 func NewMap(pairs [][2]Value) Value {
 	m := &goMap{
-		order: make([]string, 0, len(pairs)),
-		pairs: make(map[string]mapEntry),
+		order: make([]mapHash, 0, len(pairs)),
+		pairs: make(map[mapHash]mapEntry),
 	}
 	for _, p := range pairs {
 		hash := keyHash(p[0])
@@ -344,7 +354,7 @@ func NewMap(pairs [][2]Value) Value {
 
 // NewEmptyMap creates an empty map value.
 func NewEmptyMap() Value {
-	return mapValue(&goMap{order: nil, pairs: make(map[string]mapEntry)})
+	return mapValue(&goMap{order: nil, pairs: make(map[mapHash]mapEntry)})
 }
 
 // ---- Value-level map API (map-typed accessors are Map-prefixed to avoid
