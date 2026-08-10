@@ -150,7 +150,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	t.Argstr = argstr
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
-	t.OnComplete = onComplete
+	t.SetOnComplete(onComplete)
 
 	// Register the task so a read() suspend leaves it discoverable by
 	// FindReadingTask/deliverToReadingTask, then run it synchronously on the
@@ -345,7 +345,7 @@ func (s *Runtime) CancelLoginTasksFor(connID types.ObjID) {
 		if t == nil {
 			continue
 		}
-		if t.Owner == connID || t.ReadingPlayer == connID {
+		if t.Owner == connID || t.ReadingPlayerValue() == connID {
 			victims = append(victims, t)
 			delete(s.tasks, id)
 		}
@@ -355,14 +355,14 @@ func (s *Runtime) CancelLoginTasksFor(connID types.ObjID) {
 	// Also sweep the owned manager for read()-suspended tasks bound to this
 	// connID that the runtime may not own (defense in depth).
 	for _, t := range s.taskManager.GetAllTasks() {
-		if t != nil && t.ReadingPlayer == connID {
+		if t != nil && t.ReadingPlayerValue() == connID {
 			victims = append(victims, t)
 		}
 	}
 
 	for _, t := range victims {
-		t.ReadingPlayer = types.ObjNothing
-		t.OnComplete = nil // Don't run login completion for a dead connection.
+		t.SetReadingPlayer(types.ObjNothing)
+		t.TakeOnComplete() // Don't run login completion for a dead connection.
 		t.Kill()
 		s.taskManager.RemoveTask(t.ID)
 	}
@@ -380,7 +380,7 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 	if t == nil {
 		return false
 	}
-	t.ReadingPlayer = types.ObjNothing
+	t.SetReadingPlayer(types.ObjNothing)
 	// Resume directly into a claimed state. Publishing TaskQueued here lets the
 	// ticker select this saved VM before this goroutine enters runTask.
 	if !t.ResumeAndClaim(types.NewStr(line)) {
