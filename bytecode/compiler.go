@@ -201,6 +201,31 @@ func (c *Compiler) emitShort(s uint16) {
 	c.program.Code = append(c.program.Code, byte(s>>8), byte(s))
 }
 
+// emitWide adds a 4-byte unsigned control-flow operand (big-endian).
+func (c *Compiler) emitWide(value uint32) {
+	c.program.Code = append(c.program.Code,
+		byte(value>>24), byte(value>>16), byte(value>>8), byte(value))
+}
+
+func (c *Compiler) emitWideInt(value int) {
+	offset := len(c.program.Code)
+	c.emitWide(0)
+	c.patchWide(offset, value)
+}
+
+func (c *Compiler) patchWide(offset, value int) {
+	if value < 0 || uint64(value) > uint64(^uint32(0)) {
+		if c.err == nil {
+			c.err = fmt.Errorf("control-flow operand out of range: %d", value)
+		}
+		return
+	}
+	c.program.Code[offset] = byte(uint32(value) >> 24)
+	c.program.Code[offset+1] = byte(uint32(value) >> 16)
+	c.program.Code[offset+2] = byte(uint32(value) >> 8)
+	c.program.Code[offset+3] = byte(uint32(value))
+}
+
 // emitConstant adds a constant and emits OP_PUSH.
 // If the constant pool overflows, c.err is set by addConstant.
 func (c *Compiler) emitConstant(v types.Value) {
@@ -258,23 +283,32 @@ func (c *Compiler) emitStaticNameOperation(compactOp, wideOp OpCode, name string
 
 // emitJump emits a jump instruction and returns the offset to patch
 func (c *Compiler) emitJump(op OpCode) int {
-	c.emit(op)
-	c.emitShort(0xFFFF) // Placeholder offset
-	return len(c.program.Code) - 2
+	c.emit(wideJumpOpcode(op))
+	c.emitWide(^uint32(0)) // Placeholder offset
+	return len(c.program.Code) - 4
 }
 
-// patchJump patches a jump instruction to jump to current location.
-// If the jump offset exceeds 0xFFFF, sets c.err instead of panicking.
+// patchJump patches a wide jump instruction to jump to the current location.
 func (c *Compiler) patchJump(offset int) {
-	jump := len(c.program.Code) - offset - 2
-	if jump > 0xFFFF {
-		if c.err == nil {
-			c.err = fmt.Errorf("jump offset too large (max 65535, got %d)", jump)
-		}
-		return
+	jump := len(c.program.Code) - offset - 4
+	c.patchWide(offset, jump)
+}
+
+func wideJumpOpcode(op OpCode) OpCode {
+	switch op {
+	case OP_AND:
+		return OP_AND_WIDE
+	case OP_OR:
+		return OP_OR_WIDE
+	case OP_JUMP:
+		return OP_JUMP_WIDE
+	case OP_JUMP_IF_FALSE:
+		return OP_JUMP_IF_FALSE_WIDE
+	case OP_JUMP_IF_TRUE:
+		return OP_JUMP_IF_TRUE_WIDE
+	default:
+		panic(fmt.Sprintf("opcode %s has no wide jump form", op))
 	}
-	c.program.Code[offset] = byte(jump >> 8)
-	c.program.Code[offset+1] = byte(jump)
 }
 
 // currentOffset returns the current bytecode offset
@@ -1616,7 +1650,7 @@ func (c *Compiler) compileCatch(n *verb.CatchExpr) error {
 	// single-clause try/except that leaves the result on the stack.
 	//
 	// With default:
-	//   OP_TRY_EXCEPT 1 [codes...] [0 = no var] [handler_ip:short]
+	//   OP_TRY_EXCEPT_WIDE 1 [codes...] [0 = no var] [handler_ip:uint32]
 	//   [expr]
 	//   OP_END_EXCEPT 1
 	//   OP_JUMP [end]
@@ -1624,7 +1658,7 @@ func (c *Compiler) compileCatch(n *verb.CatchExpr) error {
 	//   end:
 	//
 	// Without default (return the error value):
-	//   OP_TRY_EXCEPT 1 [codes...] [var+1] [handler_ip:short]
+	//   OP_TRY_EXCEPT_WIDE 1 [codes...] [var+1] [handler_ip:uint32]
 	//   [expr]
 	//   OP_END_EXCEPT 1
 	//   OP_JUMP [end]
@@ -1638,7 +1672,7 @@ func (c *Compiler) compileCatch(n *verb.CatchExpr) error {
 	}
 
 	// Emit OP_TRY_EXCEPT with 1 clause
-	c.emit(OP_TRY_EXCEPT)
+	c.emit(OP_TRY_EXCEPT_WIDE)
 	c.emitByte(1) // 1 clause
 
 	codes, err := lowerErrorNames(n.Codes)
@@ -1665,7 +1699,7 @@ func (c *Compiler) compileCatch(n *verb.CatchExpr) error {
 
 	// Handler IP placeholder (absolute)
 	handlerIPPatch := len(c.program.Code)
-	c.emitShort(0xFFFF)
+	c.emitWide(^uint32(0))
 
 	// Compile the main expression
 	if err := c.compileNode(n.Expr); err != nil {
@@ -1681,8 +1715,7 @@ func (c *Compiler) compileCatch(n *verb.CatchExpr) error {
 
 	// Patch handler IP to point here
 	handlerIP := c.currentOffset()
-	c.program.Code[handlerIPPatch] = byte(handlerIP >> 8)
-	c.program.Code[handlerIPPatch+1] = byte(handlerIP)
+	c.patchWide(handlerIPPatch, handlerIP)
 
 	// Handler body
 	if n.Default != nil {
@@ -1848,11 +1881,11 @@ func (c *Compiler) compileWhile(n *verb.WhileStmt) error {
 	}
 
 	// Jump back to start (backward jump)
-	c.emit(OP_LOOP)
-	// After reading opcode + short, IP = currentOffset + 2
-	// We want IP - offset = loopStart, so offset = currentOffset + 2 - loopStart
-	offset := c.currentOffset() + 2 - loopStart
-	c.emitShort(uint16(offset))
+	c.emit(OP_LOOP_WIDE)
+	// After reading opcode + uint32, IP = currentOffset + 4.
+	// We want IP - offset = loopStart.
+	offset := c.currentOffset() + 4 - loopStart
+	c.emitWideInt(offset)
 
 	// Patch exit jump
 	c.patchJump(exitJump)
@@ -2012,11 +2045,11 @@ func (c *Compiler) compileRangeLoop(n *verb.RangeLoopStmt) error {
 
 	// Condition: if value > end, jump to exit. Fused FOR_RANGE_CHECK replaces the
 	// GET_VAR/GET_VAR/LE/JUMP_IF_FALSE sequence (same compare semantics, one dispatch).
-	c.emit(OP_FOR_RANGE_CHECK)
+	c.emit(OP_FOR_RANGE_CHECK_WIDE)
 	c.emitByte(byte(valueVar))
 	c.emitByte(byte(endVar))
 	exitJump := c.currentOffset()
-	c.emitShort(0xFFFF) // exit offset placeholder, patched below
+	c.emitWide(^uint32(0)) // exit offset placeholder, patched below
 
 	// Body
 	if err := c.compileBlock(n.Body); err != nil {
@@ -2031,11 +2064,11 @@ func (c *Compiler) compileRangeLoop(n *verb.RangeLoopStmt) error {
 
 	// Increment + loop back: value += 1; jump to condition. Fused FOR_RANGE_NEXT
 	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same +1 semantics, counts one tick).
-	c.emit(OP_FOR_RANGE_NEXT)
+	c.emit(OP_FOR_RANGE_NEXT_WIDE)
 	c.emitByte(byte(valueVar))
 	c.emitByte(byte(endVar))
-	offset := c.currentOffset() + 2 - loopStart
-	c.emitShort(uint16(offset))
+	offset := c.currentOffset() + 4 - loopStart
+	c.emitWideInt(offset)
 
 	// Patch exit
 	c.patchJump(exitJump)
@@ -2109,11 +2142,11 @@ func (c *Compiler) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 
 	// Condition: if idx > len, jump to exit. Fused FOR_RANGE_CHECK (idx and len are
 	// ints) replaces GET_VAR/GET_VAR/LE/JUMP_IF_FALSE — same opcode used by range-for.
-	c.emit(OP_FOR_RANGE_CHECK)
+	c.emit(OP_FOR_RANGE_CHECK_WIDE)
 	c.emitByte(byte(idxVar))
 	c.emitByte(byte(lenVar))
 	exitJump := c.currentOffset()
-	c.emitShort(0xFFFF) // exit offset placeholder, patched below
+	c.emitWide(^uint32(0)) // exit offset placeholder, patched below
 
 	// Load current element into the loop variable(s). Fused element-load replaces
 	// GET_VAR(list)/GET_VAR(idx)/INDEX plus the value/index extraction: idx is
@@ -2147,11 +2180,11 @@ func (c *Compiler) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 
 	// Increment + loop back: idx += 1; jump to condition. Fused FOR_RANGE_NEXT
 	// replaces GET_VAR/IMM/ADD/SET_VAR/LOOP (same opcode used by range-for).
-	c.emit(OP_FOR_RANGE_NEXT)
+	c.emit(OP_FOR_RANGE_NEXT_WIDE)
 	c.emitByte(byte(idxVar))
 	c.emitByte(byte(lenVar))
-	offset := c.currentOffset() + 2 - loopStart
-	c.emitShort(uint16(offset))
+	offset := c.currentOffset() + 4 - loopStart
+	c.emitWideInt(offset)
 
 	// Patch exit
 	c.patchJump(exitJump)
@@ -2193,11 +2226,11 @@ func (c *Compiler) compileContinue(n *verb.ContinueStmt) error {
 
 	if loop.ContinueIP > 0 {
 		// ContinueIP is known (while loops) -- emit backward jump directly
-		c.emit(OP_LOOP)
-		// After reading opcode + short, IP = currentOffset + 2
-		// We want IP - offset = ContinueIP, so offset = currentOffset + 2 - ContinueIP
-		offset := c.currentOffset() + 2 - loop.ContinueIP
-		c.emitShort(uint16(offset))
+		c.emit(OP_LOOP_WIDE)
+		// After reading opcode + uint32, IP = currentOffset + 4.
+		// We want IP - offset = ContinueIP.
+		offset := c.currentOffset() + 4 - loop.ContinueIP
+		c.emitWideInt(offset)
 	} else {
 		// ContinueIP not yet known (for loops) -- emit forward jump, patch later
 		patchOffset := c.emitJump(OP_JUMP)
@@ -2223,9 +2256,9 @@ func (c *Compiler) compileReturn(n *verb.ReturnStmt) error {
 func (c *Compiler) compileTry(n *verb.TryStmt) error {
 	finallyIPPatch := -1
 	if n.Finalizer != nil {
-		c.emit(OP_TRY_FINALLY)
+		c.emit(OP_TRY_FINALLY_WIDE)
 		finallyIPPatch = len(c.program.Code)
-		c.emitShort(0xFFFF)
+		c.emitWide(^uint32(0))
 	}
 
 	if len(n.Handlers) == 0 {
@@ -2234,7 +2267,7 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 		}
 	} else {
 		numHandlers := len(n.Handlers)
-		c.emit(OP_TRY_EXCEPT)
+		c.emit(OP_TRY_EXCEPT_WIDE)
 		c.emitByte(byte(numHandlers))
 
 		handlerOffsetPatches := make([]int, numHandlers)
@@ -2260,7 +2293,7 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 			}
 
 			handlerOffsetPatches[i] = len(c.program.Code)
-			c.emitShort(0xFFFF)
+			c.emitWide(^uint32(0))
 		}
 
 		if err := c.compileBlock(n.Body); err != nil {
@@ -2274,8 +2307,7 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 
 		for i, handler := range n.Handlers {
 			handlerIP := c.currentOffset()
-			c.program.Code[handlerOffsetPatches[i]] = byte(handlerIP >> 8)
-			c.program.Code[handlerOffsetPatches[i]+1] = byte(handlerIP)
+			c.patchWide(handlerOffsetPatches[i], handlerIP)
 
 			if err := c.compileBlock(handler.Body); err != nil {
 				return err
@@ -2292,19 +2324,17 @@ func (c *Compiler) compileTry(n *verb.TryStmt) error {
 	}
 
 	if n.Finalizer != nil {
-		c.emit(OP_END_FINALLY)
+		c.emit(OP_END_FINALLY_WIDE)
 		endFinallyIPPatch := len(c.program.Code)
-		c.emitShort(0xFFFF)
+		c.emitWide(^uint32(0))
 		finallyIP := c.currentOffset()
-		c.program.Code[finallyIPPatch] = byte(finallyIP >> 8)
-		c.program.Code[finallyIPPatch+1] = byte(finallyIP)
-		c.program.Code[endFinallyIPPatch] = byte(finallyIP >> 8)
-		c.program.Code[endFinallyIPPatch+1] = byte(finallyIP)
+		c.patchWide(finallyIPPatch, finallyIP)
+		c.patchWide(endFinallyIPPatch, finallyIP)
 		if err := c.compileBlock(n.Finalizer.Body); err != nil {
 			return err
 		}
-		c.emit(OP_END_FINALLY)
-		c.emitShort(uint16(finallyIP))
+		c.emit(OP_END_FINALLY_WIDE)
+		c.emitWideInt(finallyIP)
 	}
 
 	return nil
@@ -2564,7 +2594,7 @@ func (c *Compiler) compileFork(n *verb.ForkStmt) error {
 	//
 	// Bytecode layout:
 	//   [delay expression]         -- evaluates delay, pushes onto stack
-	//   OP_FORK <varIdx> <bodyLen:short>  -- pops delay, validates, sets var=0, jumps over body
+	//   OP_FORK_WIDE <varIdx> <bodyLen:uint32> -- pops delay, validates, sets var=0, jumps over body
 	//   [body statements]          -- compiled but skipped at runtime (for future scheduling)
 	//
 	// varIdx: 0 = anonymous fork, idx+1 = store task ID (0) in locals[idx]
@@ -2582,10 +2612,10 @@ func (c *Compiler) compileFork(n *verb.ForkStmt) error {
 	}
 
 	// Emit OP_FORK with variable index and placeholder body length
-	c.emit(OP_FORK)
+	c.emit(OP_FORK_WIDE)
 	c.emitByte(byte(varIdx))
 	bodyLenPatch := len(c.program.Code)
-	c.emitShort(0xFFFF) // placeholder for body length
+	c.emitWide(^uint32(0)) // placeholder for body length
 
 	// Compile the fork body (will be skipped at runtime but compiled for future use)
 	bodyStart := c.currentOffset()
@@ -2596,8 +2626,7 @@ func (c *Compiler) compileFork(n *verb.ForkStmt) error {
 
 	// Patch body length
 	bodyLen := bodyEnd - bodyStart
-	c.program.Code[bodyLenPatch] = byte(bodyLen >> 8)
-	c.program.Code[bodyLenPatch+1] = byte(bodyLen)
+	c.patchWide(bodyLenPatch, bodyLen)
 
 	return nil
 }

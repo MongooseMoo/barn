@@ -564,10 +564,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Logical operations
 	case bytecode.OP_NOT:
 		return vm.executeNot()
-	case bytecode.OP_AND:
-		return vm.executeAnd()
-	case bytecode.OP_OR:
-		return vm.executeOr()
+	case bytecode.OP_AND, bytecode.OP_AND_WIDE:
+		return vm.executeAnd(op == bytecode.OP_AND_WIDE)
+	case bytecode.OP_OR, bytecode.OP_OR_WIDE:
+		return vm.executeOr(op == bytecode.OP_OR_WIDE)
 
 	// Bitwise operations
 	case bytecode.OP_BITOR:
@@ -584,52 +584,52 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeShr()
 
 	// Control flow
-	case bytecode.OP_JUMP:
-		offset := vm.ReadShort()
-		vm.CurrentFrame().IP += int(offset)
+	case bytecode.OP_JUMP, bytecode.OP_JUMP_WIDE:
+		offset := vm.readControlFlowOperand(op == bytecode.OP_JUMP_WIDE)
+		vm.CurrentFrame().IP += offset
 
-	case bytecode.OP_JUMP_IF_FALSE:
-		offset := vm.ReadShort()
+	case bytecode.OP_JUMP_IF_FALSE, bytecode.OP_JUMP_IF_FALSE_WIDE:
+		offset := vm.readControlFlowOperand(op == bytecode.OP_JUMP_IF_FALSE_WIDE)
 		if !vm.Pop().Truthy() {
-			vm.CurrentFrame().IP += int(offset)
+			vm.CurrentFrame().IP += offset
 		}
 
-	case bytecode.OP_JUMP_IF_TRUE:
-		offset := vm.ReadShort()
+	case bytecode.OP_JUMP_IF_TRUE, bytecode.OP_JUMP_IF_TRUE_WIDE:
+		offset := vm.readControlFlowOperand(op == bytecode.OP_JUMP_IF_TRUE_WIDE)
 		if vm.Pop().Truthy() {
-			vm.CurrentFrame().IP += int(offset)
+			vm.CurrentFrame().IP += offset
 		}
 
 	case bytecode.OP_RETURN:
 		val := vm.Pop()
 		vm.Return(val)
 
-	case bytecode.OP_LOOP:
-		offset := vm.ReadShort()
-		vm.CurrentFrame().IP -= int(offset)
+	case bytecode.OP_LOOP, bytecode.OP_LOOP_WIDE:
+		offset := vm.readControlFlowOperand(op == bytecode.OP_LOOP_WIDE)
+		vm.CurrentFrame().IP -= offset
 
-	case bytecode.OP_FOR_RANGE_CHECK:
+	case bytecode.OP_FOR_RANGE_CHECK, bytecode.OP_FOR_RANGE_CHECK_WIDE:
 		// Range-for condition, fused: if Locals[valueVar] > Locals[endVar], jump to exit.
 		// Replicates GET_VAR/GET_VAR/LE/JUMP_IF_FALSE using the same compare semantics.
 		valueIdx := vm.FetchByte()
 		endIdx := vm.FetchByte()
-		offset := vm.ReadShort()
+		offset := vm.readControlFlowOperand(op == bytecode.OP_FOR_RANGE_CHECK_WIDE)
 		frame := vm.CurrentFrame()
 		cmp, err := compareValues(frame.Locals[valueIdx], frame.Locals[endIdx], vm.promoting())
 		if err != nil {
 			return err
 		}
 		if cmp > 0 {
-			frame.IP += int(offset)
+			frame.IP += offset
 		}
 
-	case bytecode.OP_FOR_RANGE_NEXT:
+	case bytecode.OP_FOR_RANGE_NEXT, bytecode.OP_FOR_RANGE_NEXT_WIDE:
 		// Range-for increment + loop back. At the maximum representable value,
 		// lower the end bound instead of overflowing the loop variable. This is
 		// how Toast makes a range ending at MAXINT or MAXOBJ terminate.
 		valueIdx := vm.FetchByte()
 		endIdx := vm.FetchByte()
-		offset := vm.ReadShort()
+		offset := vm.readControlFlowOperand(op == bytecode.OP_FOR_RANGE_NEXT_WIDE)
 		frame := vm.CurrentFrame()
 		cur := frame.Locals[valueIdx]
 		switch cur.Type() {
@@ -650,7 +650,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		default:
 			return fmt.Errorf("E_TYPE: invalid operands for +")
 		}
-		frame.IP -= int(offset)
+		frame.IP -= offset
 
 	case bytecode.OP_FOR_LIST_LOAD:
 		// for-in element load, fused: value = normalizedList[idx], unwrapping the
@@ -743,22 +743,22 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeCallVerbWide()
 
 	// Fork
-	case bytecode.OP_FORK:
-		return vm.executeFork()
+	case bytecode.OP_FORK, bytecode.OP_FORK_WIDE:
+		return vm.executeFork(op == bytecode.OP_FORK_WIDE)
 
 	// Pass (parent verb call)
 	case bytecode.OP_PASS:
 		return vm.executePass()
 
 	// Exception handling
-	case bytecode.OP_TRY_EXCEPT:
-		return vm.executeTryExcept()
+	case bytecode.OP_TRY_EXCEPT, bytecode.OP_TRY_EXCEPT_WIDE:
+		return vm.executeTryExcept(op == bytecode.OP_TRY_EXCEPT_WIDE)
 	case bytecode.OP_END_EXCEPT:
 		return vm.executeEndExcept()
-	case bytecode.OP_TRY_FINALLY:
-		return vm.executeTryFinally()
-	case bytecode.OP_END_FINALLY:
-		return vm.executeEndFinally()
+	case bytecode.OP_TRY_FINALLY, bytecode.OP_TRY_FINALLY_WIDE:
+		return vm.executeTryFinally(op == bytecode.OP_TRY_FINALLY_WIDE)
+	case bytecode.OP_END_FINALLY, bytecode.OP_END_FINALLY_WIDE:
+		return vm.executeEndFinally(op == bytecode.OP_END_FINALLY_WIDE)
 
 	default:
 		return fmt.Errorf("unknown opcode: %s (%d)", op.String(), op)

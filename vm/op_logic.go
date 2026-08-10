@@ -16,15 +16,15 @@ func (vm *VM) executeNot() error {
 	return nil
 }
 
-func (vm *VM) executeAnd() error {
+func (vm *VM) executeAnd(wide bool) error {
 	// Short-circuit AND
 	// Stack has left value, offset is in bytecode
-	offset := vm.ReadShort()
+	offset := vm.readControlFlowOperand(wide)
 	val := vm.Peek(0)
 
 	if !val.Truthy() {
 		// Left is false, skip right and keep left value
-		vm.CurrentFrame().IP += int(offset)
+		vm.CurrentFrame().IP += offset
 	} else {
 		// Left is true, pop it and evaluate right
 		vm.Pop()
@@ -33,15 +33,15 @@ func (vm *VM) executeAnd() error {
 	return nil
 }
 
-func (vm *VM) executeOr() error {
+func (vm *VM) executeOr(wide bool) error {
 	// Short-circuit OR
 	// Stack has left value, offset is in bytecode
-	offset := vm.ReadShort()
+	offset := vm.readControlFlowOperand(wide)
 	val := vm.Peek(0)
 
 	if val.Truthy() {
 		// Left is true, skip right and keep left value
-		vm.CurrentFrame().IP += int(offset)
+		vm.CurrentFrame().IP += offset
 	} else {
 		// Left is false, pop it and evaluate right
 		vm.Pop()

@@ -10,7 +10,8 @@ import (
 
 // executeFork handles OP_FORK: evaluate delay, then yield to the execution engine.
 //
-// Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short>
+// Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short> (legacy) or
+// OP_FORK_WIDE <varIdx:byte> <bodyLen:uint32> (new compilation).
 // Stack: [delay] (delay value on top)
 //
 // Yields a FlowFork result with ForkInfo containing the fork body location,
@@ -21,9 +22,9 @@ import (
 //
 // The fork variable is NOT set here — it is set by SetForkResult() with the
 // actual child task ID assigned by the execution engine.
-func (vm *VM) executeFork() error {
+func (vm *VM) executeFork(wide bool) error {
 	varIdx := int(vm.FetchByte())
-	bodyLen := vm.ReadShort()
+	bodyLen := vm.readControlFlowOperand(wide)
 
 	// Pop and validate the delay value
 	delay := vm.Pop()
@@ -57,7 +58,7 @@ func (vm *VM) executeFork() error {
 	// The body starts at the current IP and runs for bodyLen bytes.
 	frame := vm.CurrentFrame()
 	forkBodyIP := frame.IP
-	forkBodyLen := int(bodyLen)
+	forkBodyLen := bodyLen
 
 	// Skip over the fork body — the parent continues after the fork
 	frame.IP += forkBodyLen
@@ -171,7 +172,7 @@ func oneLineForkBody(source string) string {
 }
 
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
-func (vm *VM) executeTryExcept() error {
+func (vm *VM) executeTryExcept(wide bool) error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.FetchByte())
 	handlers := make([]bytecode.Handler, numClauses)
@@ -186,11 +187,8 @@ func (vm *VM) executeTryExcept() error {
 		varByte := vm.FetchByte()
 		varIndex := int(varByte) - 1 // 0 = no variable -> -1
 
-		// Read handler IP (absolute)
-		hi := frame.Program.Code[frame.IP]
-		lo := frame.Program.Code[frame.IP+1]
-		frame.IP += 2
-		handlerIP := int(uint16(hi)<<8 | uint16(lo))
+		// Read handler IP (absolute).
+		handlerIP := vm.readControlFlowOperand(wide)
 
 		handlers[i] = bytecode.Handler{
 			Type:       bytecode.HandlerExcept,
@@ -228,14 +226,11 @@ func (vm *VM) executeEndExcept() error {
 }
 
 // executeTryFinally handles OP_TRY_FINALLY: push a finally handler
-func (vm *VM) executeTryFinally() error {
+func (vm *VM) executeTryFinally(wide bool) error {
 	frame := vm.CurrentFrame()
 
 	// Read finally IP (absolute)
-	hi := frame.Program.Code[frame.IP]
-	lo := frame.Program.Code[frame.IP+1]
-	frame.IP += 2
-	finallyIP := int(uint16(hi)<<8 | uint16(lo))
+	finallyIP := vm.readControlFlowOperand(wide)
 
 	handler := bytecode.Handler{
 		Type:       bytecode.HandlerFinally,
@@ -252,16 +247,13 @@ func (vm *VM) executeTryFinally() error {
 // This opcode appears twice in try/finally bytecode:
 // 1. After the try body (normal path): pop its matching handler from ExceptStack
 // 2. After the finally block: re-raise PendingError if set
-func (vm *VM) executeEndFinally() error {
+func (vm *VM) executeEndFinally(wide bool) error {
 	frame := vm.CurrentFrame()
 
 	// Read the matching finally IP (absolute). Both END_FINALLY instructions
 	// carry the same identity as their OP_TRY_FINALLY so an inner block cannot
 	// consume an enclosing block's still-live handler.
-	hi := frame.Program.Code[frame.IP]
-	lo := frame.Program.Code[frame.IP+1]
-	frame.IP += 2
-	finallyIP := int(uint16(hi)<<8 | uint16(lo))
+	finallyIP := vm.readControlFlowOperand(wide)
 
 	// If this block's finally handler is on top of the stack, pop it (normal path).
 	if len(frame.ExceptStack) > 0 {

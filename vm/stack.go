@@ -69,6 +69,25 @@ func (vm *VM) ReadShort() uint16 {
 	return uint16(hi)<<8 | uint16(lo)
 }
 
+// ReadWide reads a 4-byte unsigned control-flow operand from the current
+// instruction stream.
+func (vm *VM) ReadWide() uint32 {
+	frame := vm.CurrentFrame()
+	value := uint32(frame.Program.Code[frame.IP])<<24 |
+		uint32(frame.Program.Code[frame.IP+1])<<16 |
+		uint32(frame.Program.Code[frame.IP+2])<<8 |
+		uint32(frame.Program.Code[frame.IP+3])
+	frame.IP += 4
+	return value
+}
+
+func (vm *VM) readControlFlowOperand(wide bool) int {
+	if wide {
+		return int(vm.ReadWide())
+	}
+	return int(vm.ReadShort())
+}
+
 // Return returns from the current frame
 func (vm *VM) Return(value types.Value) {
 	if len(vm.Frames) == 0 {

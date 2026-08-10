@@ -114,6 +114,14 @@ type Handler struct {
 // existing program. The sub-program shares the same constants and variable
 // names but has its own code slice (the fork body + OP_RETURN_NONE).
 func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
+	bodyEnd := bodyIP + bodyLen
+	if bodyIP < 0 || bodyLen < 0 || bodyIP > len(p.Code) || bodyEnd < bodyIP || bodyEnd > len(p.Code) {
+		return nil
+	}
+	if !instructionRangeHasBoundaries(p.Code, bodyIP, bodyEnd) {
+		return nil
+	}
+
 	// Extract the fork body bytecode
 	code := make([]byte, bodyLen+1) // +1 for OP_RETURN_NONE
 	copy(code, p.Code[bodyIP:bodyIP+bodyLen])
@@ -124,7 +132,9 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	// at 0, so they must be rebased or identify the wrong handler in the
 	// sub-program.
 	// Relative operands (OP_JUMP family) need no adjustment.
-	rebaseAbsoluteHandlerIPs(code[:bodyLen], bodyIP)
+	if !rebaseAbsoluteHandlerIPs(code[:bodyLen], bodyIP) {
+		return nil
+	}
 
 	// Adjust line info for the sub-program
 	var lineInfo []LineEntry
@@ -148,13 +158,43 @@ func (p *Program) ExtractForkBody(bodyIP, bodyLen int) *Program {
 	}
 }
 
+func instructionRangeHasBoundaries(code []byte, start, end int) bool {
+	foundStart := start == 0
+	foundEnd := end == 0
+	for ip := 0; ip < len(code); {
+		if ip == start {
+			foundStart = true
+		}
+		if ip == end {
+			foundEnd = true
+		}
+		op := OpCode(code[ip])
+		if op.String() == "UNKNOWN" {
+			return false
+		}
+		ip++
+		operandCount := instructionOperandCount(op, code[ip:])
+		if operandCount > len(code)-ip {
+			return false
+		}
+		ip += operandCount
+		if ip > end && !foundEnd {
+			return false
+		}
+	}
+	if len(code) == end {
+		foundEnd = true
+	}
+	return foundStart && foundEnd
+}
+
 // rebaseAbsoluteHandlerIPs walks the instruction stream and subtracts bodyIP
 // from every absolute handler target: the per-clause handler IP of
 // OP_TRY_EXCEPT and the finally IP of OP_TRY_FINALLY / OP_END_FINALLY. Nested
 // fork bodies in the range are rebased into this program's coordinates too; a
 // later extraction of the nested body subtracts its own bodyIP, which composes
 // to the correct final coordinates.
-func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) {
+func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) bool {
 	for ip := 0; ip < len(code); {
 		op := OpCode(code[ip])
 		ip++
@@ -165,36 +205,78 @@ func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) {
 		switch op {
 		case OP_TRY_FINALLY, OP_END_FINALLY:
 			if operandCount == 2 {
-				rebaseShort(code, ip, bodyIP)
+				if !rebaseShort(code, ip, bodyIP) {
+					return false
+				}
 			}
-		case OP_TRY_EXCEPT:
+		case OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
+			if operandCount == 4 {
+				if !rebaseWide(code, ip, bodyIP) {
+					return false
+				}
+			}
+		case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE:
 			// Operands: numClauses, then per clause:
-			// numCodes, codes..., var+1, handlerIP hi, handlerIP lo.
+			// numCodes, codes..., var+1, handlerIP (short or uint32).
 			end := ip + operandCount
 			clauses := int(code[ip])
 			pos := ip + 1
+			ipBytes := 2
+			if op == OP_TRY_EXCEPT_WIDE {
+				ipBytes = 4
+			}
 			for c := 0; c < clauses && pos < end; c++ {
 				ipPos := pos + 1 + int(code[pos]) + 1
-				if ipPos+2 > end {
+				if ipPos+ipBytes > end {
 					break
 				}
-				rebaseShort(code, ipPos, bodyIP)
-				pos = ipPos + 2
+				if ipBytes == 2 {
+					if !rebaseShort(code, ipPos, bodyIP) {
+						return false
+					}
+				} else if !rebaseWide(code, ipPos, bodyIP) {
+					return false
+				}
+				pos = ipPos + ipBytes
 			}
 		}
 		ip += operandCount
 	}
+	return true
 }
 
 // rebaseShort rewrites the 2-byte big-endian value at code[i:i+2] minus delta.
-func rebaseShort(code []byte, i, delta int) {
+func rebaseShort(code []byte, i, delta int) bool {
 	v := decodeAbsoluteShort(code[i], code[i+1]) - delta
+	if v < 0 || v > len(code) {
+		return false
+	}
 	code[i] = byte(uint16(v) >> 8)
 	code[i+1] = byte(uint16(v) & 0xFF)
+	return true
+}
+
+func rebaseWide(code []byte, i, delta int) bool {
+	v := int(decodeAbsoluteWide(code[i:i+4])) - delta
+	if v < 0 || v > len(code) {
+		return false
+	}
+	code[i] = byte(uint32(v) >> 24)
+	code[i+1] = byte(uint32(v) >> 16)
+	code[i+2] = byte(uint32(v) >> 8)
+	code[i+3] = byte(uint32(v))
+	return true
 }
 
 func decodeAbsoluteShort(hi, lo byte) int {
 	return int(uint16(hi)<<8 | uint16(lo))
+}
+
+func decodeAbsoluteWide(encoded []byte) uint32 {
+	return uint32(encoded[0])<<24 |
+		uint32(encoded[1])<<16 |
+		uint32(encoded[2])<<8 |
+		uint32(encoded[3])
 }
 
 // Matches checks if a handler matches an error code
