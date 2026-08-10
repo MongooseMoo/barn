@@ -216,6 +216,9 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 
 		// Extract the fork body as a sub-program
 		forkProg := parentProg.ExtractForkBody(bodyIP, bodyLen)
+		if forkProg == nil {
+			return 0
+		}
 		if line := forkProg.LineForIP(0); line > 0 {
 			firstLine = line
 		}

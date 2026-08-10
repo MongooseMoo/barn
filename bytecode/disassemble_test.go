@@ -65,21 +65,21 @@ func TestDisassembleDecodesEndFinallyHandlerOperands(t *testing.T) {
 	var endOperands [][]string
 	for _, line := range bytecode.Disassemble(program) {
 		fields := strings.Fields(line)
-		if strings.HasSuffix(line, "TRY_FINALLY") {
-			if len(fields) != 5 {
-				t.Fatalf("TRY_FINALLY disassembly = %q, want opcode and two operands", line)
+		if strings.HasSuffix(line, "TRY_FINALLY_WIDE") {
+			if len(fields) != 7 {
+				t.Fatalf("TRY_FINALLY_WIDE disassembly = %q, want opcode and four operands", line)
 			}
-			tryOperands = fields[2:4]
+			tryOperands = fields[2:6]
 		}
-		if strings.HasSuffix(line, "END_FINALLY") {
-			if len(fields) != 5 {
-				t.Fatalf("END_FINALLY disassembly = %q, want opcode and two operands", line)
+		if strings.HasSuffix(line, "END_FINALLY_WIDE") {
+			if len(fields) != 7 {
+				t.Fatalf("END_FINALLY_WIDE disassembly = %q, want opcode and four operands", line)
 			}
-			endOperands = append(endOperands, fields[2:4])
+			endOperands = append(endOperands, fields[2:6])
 		}
 	}
-	if len(tryOperands) != 2 {
-		t.Fatalf("TRY_FINALLY operands = %v, want two bytes", tryOperands)
+	if len(tryOperands) != 4 {
+		t.Fatalf("TRY_FINALLY_WIDE operands = %v, want four bytes", tryOperands)
 	}
 	if len(endOperands) != 2 {
 		t.Fatalf("END_FINALLY instructions = %d, want 2", len(endOperands))
