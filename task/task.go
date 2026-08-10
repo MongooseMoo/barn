@@ -206,9 +206,20 @@ func (t *Task) SetReadingPlayer(player types.ObjID) {
 
 // IsReadingFrom reports whether the task is suspended waiting for player input.
 func (t *Task) IsReadingFrom(player types.ObjID) bool {
+	_, _, ok := t.readingOrder(player)
+	return ok
+}
+
+// readingOrder atomically snapshots the deterministic order of a matching
+// read()-suspended task. QueueSeq is the primary FIFO key; ID makes selection
+// deterministic for tasks that have the same (including default-zero) sequence.
+func (t *Task) readingOrder(player types.ObjID) (queueSeq, id int64, ok bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.State == TaskSuspended && t.ReadingPlayer == player
+	if t.State != TaskSuspended || t.ReadingPlayer != player {
+		return 0, 0, false
+	}
+	return t.QueueSeq, t.ID, true
 }
 
 // SetOnComplete installs the callback invoked when the task terminates.

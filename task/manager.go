@@ -140,18 +140,27 @@ func (m *Manager) SuspendTask(task *Task, seconds float64) {
 	}
 }
 
-// FindReadingTask returns a suspended task that is read()ing from the given player.
+// FindReadingTask returns the oldest suspended task that is read()ing from the
+// given player. QueueSeq provides FIFO order; task ID breaks equal-sequence ties.
 // Returns nil if no task is currently reading from that player.
 func (m *Manager) FindReadingTask(player types.ObjID) *Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	var oldest *Task
+	var oldestQueueSeq, oldestID int64
 	for _, t := range m.tasks {
-		if t.IsReadingFrom(player) {
-			return t
+		queueSeq, id, ok := t.readingOrder(player)
+		if !ok {
+			continue
+		}
+		if oldest == nil || queueSeq < oldestQueueSeq || queueSeq == oldestQueueSeq && id < oldestID {
+			oldest = t
+			oldestQueueSeq = queueSeq
+			oldestID = id
 		}
 	}
-	return nil
+	return oldest
 }
 
 // CleanupCompletedTasks removes completed and killed tasks
