@@ -2,7 +2,6 @@ package store
 
 import (
 	"sort"
-	"unsafe"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -163,7 +162,7 @@ type anonSerializationPlan struct {
 	// rewritten to: a positive above-max serialization id (reachable) or NOTHING.
 	rewrite     map[types.ObjID]types.ObjID
 	order       []anonSerialID
-	waifRewrite map[unsafe.Pointer]types.Value
+	waifRewrite map[types.WaifIdentity]types.Value
 }
 
 // planAnonymousSerializationLocked computes reachability over the out-of-band
@@ -171,7 +170,7 @@ type anonSerializationPlan struct {
 func (s *Store) planAnonymousSerializationLocked(additionalRoots []types.Value) *anonSerializationPlan {
 	plan := &anonSerializationPlan{
 		rewrite:     make(map[types.ObjID]types.ObjID),
-		waifRewrite: make(map[unsafe.Pointer]types.Value),
+		waifRewrite: make(map[types.WaifIdentity]types.Value),
 	}
 
 	// Seed: every anon id referenced by a non-anonymous live object's properties
@@ -363,7 +362,7 @@ func (p *anonSerializationPlan) rewriteValue(v types.Value) (types.Value, bool) 
 	}
 }
 
-func (p *anonSerializationPlan) valueNeedsAnonymousRewrite(value types.Value, visited map[unsafe.Pointer]struct{}) bool {
+func (p *anonSerializationPlan) valueNeedsAnonymousRewrite(value types.Value, visited map[types.WaifIdentity]struct{}) bool {
 	switch value.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if !value.IsAnonymous() {
@@ -377,7 +376,7 @@ func (p *anonSerializationPlan) valueNeedsAnonymousRewrite(value types.Value, vi
 			return false
 		}
 		if visited == nil {
-			visited = make(map[unsafe.Pointer]struct{})
+			visited = make(map[types.WaifIdentity]struct{})
 		}
 		visited[identity] = struct{}{}
 		for _, name := range value.PropertyNames() {

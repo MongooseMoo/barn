@@ -3,7 +3,6 @@ package format
 import (
 	"fmt"
 	"time"
-	"unsafe"
 
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/task"
@@ -147,7 +146,7 @@ func waifOwnedByAnotherLocal(candidate types.Value, locals []types.Value, candid
 	return false
 }
 
-func valueContainsWaif(value, candidate types.Value, visited map[unsafe.Pointer]struct{}) bool {
+func valueContainsWaif(value, candidate types.Value, visited map[types.WaifIdentity]struct{}) bool {
 	switch value.Type() {
 	case types.TYPE_WAIF:
 		if value.Equal(candidate) {
@@ -170,13 +169,13 @@ func valueContainsWaif(value, candidate types.Value, visited map[unsafe.Pointer]
 	return false
 }
 
-func valueContainsWaifProperties(value, candidate types.Value, visited map[unsafe.Pointer]struct{}) bool {
+func valueContainsWaifProperties(value, candidate types.Value, visited map[types.WaifIdentity]struct{}) bool {
 	identity := value.WaifIdentity()
 	if _, seen := visited[identity]; seen {
 		return false
 	}
 	if visited == nil {
-		visited = make(map[unsafe.Pointer]struct{})
+		visited = make(map[types.WaifIdentity]struct{})
 	}
 	visited[identity] = struct{}{}
 	for _, name := range value.PropertyNames() {

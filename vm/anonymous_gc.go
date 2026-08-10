@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"sort"
-	"unsafe"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
@@ -15,7 +14,7 @@ func collectAnonymousRefsForGC(v types.Value, out map[types.ObjID]struct{}) {
 	collectAnonymousRefsForGCVisited(v, out, nil)
 }
 
-func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{}, visitedWaifs map[unsafe.Pointer]struct{}) {
+func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{}, visitedWaifs map[types.WaifIdentity]struct{}) {
 	switch v.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if v.IsAnonymous() {
@@ -27,7 +26,7 @@ func collectAnonymousRefsForGCVisited(v types.Value, out map[types.ObjID]struct{
 			return
 		}
 		if visitedWaifs == nil {
-			visitedWaifs = make(map[unsafe.Pointer]struct{})
+			visitedWaifs = make(map[types.WaifIdentity]struct{})
 		}
 		visitedWaifs[identity] = struct{}{}
 		for _, name := range v.PropertyNames() {
