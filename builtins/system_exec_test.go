@@ -3,6 +3,7 @@ package builtins
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,54 @@ func TestExecEnvironmentHelper(t *testing.T) {
 	if os.Getenv("BARN_EXEC_ENV_HELPER") == "1" {
 		fmt.Printf("%s|%s|%s", os.Getenv("ISSUE53_CHILD"), os.Getenv("ISSUE53_PARENT"), os.Getenv("PATH"))
 		os.Exit(0)
+	}
+}
+
+func TestExecInputHelper(t *testing.T) {
+	if os.Getenv("BARN_EXEC_INPUT_HELPER") == "1" {
+		input, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fmt.Fprint(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Print(string(input))
+		os.Exit(0)
+	}
+}
+
+func TestBuiltinExecPassesInputWithEnvironmentArgument(t *testing.T) {
+	program := installExecTestBinary(t)
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	result := builtinExec(ctx, []types.Value{
+		types.NewList([]types.Value{
+			types.NewStr(program),
+			types.NewStr("-test.run=^TestExecInputHelper$"),
+		}),
+		types.NewStr("hello"),
+		types.NewList([]types.Value{types.NewStr("BARN_EXEC_INPUT_HELPER=1")}),
+	})
+	if !result.IsNormal() {
+		t.Fatalf("exec result = flow %v error %v, want normal", result.Flow, result.Error)
+	}
+	if got, want := result.Val.Get(2).Str(), "hello"; got != want {
+		t.Fatalf("child stdin = %q, want %q", got, want)
+	}
+}
+
+func TestBuiltinExecRejectsInvalidInputWithEnvironmentArgument(t *testing.T) {
+	program := installExecTestBinary(t)
+
+	ctx := kernel.NewTaskContext()
+	ctx.IsWizard = true
+	result := builtinExec(ctx, []types.Value{
+		types.NewList([]types.Value{types.NewStr(program)}),
+		types.NewStr("invalid~input"),
+		types.NewList(nil),
+	})
+	if result.Error != types.E_INVARG {
+		t.Fatalf("exec error = %v, want %v", result.Error, types.E_INVARG)
 	}
 }
 
