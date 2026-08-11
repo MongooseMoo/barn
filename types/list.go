@@ -2,6 +2,7 @@ package types
 
 import (
 	"strings"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -11,17 +12,17 @@ import (
 //
 // watermark enables amortized-O(1) append without copying, safely under value
 // sharing (MOO lists are immutable values, but several sliceList headers can
-// share one backing array). It points to the highest committed append index in
-// the backing array, shared by every header viewing that array. A header may
-// append in place only when its own length equals the watermark (i.e. nobody
-// has appended past it) and the backing has spare capacity; it then writes the
-// previously-uncommitted slot, bumps the watermark, and returns a NEW header —
-// never mutating its own (possibly aliased) header. A nil watermark always
-// copies, so any list not produced by Append's growth path is append-safe.
+// share one backing array). It points to the exclusive append frontier in the
+// backing array, shared by every header viewing that array. A header may append
+// in place only when its own length equals the frontier (i.e. nobody has
+// appended past it), the backing has spare capacity, and it atomically claims
+// the next slot. It then writes the previously-uncommitted slot and returns a
+// NEW header — never mutating its own (possibly aliased) header. A nil watermark
+// always copies, so any list not produced by Append's growth path is append-safe.
 type sliceList struct {
 	elements  []Value
 	byteSize  int
-	watermark *int
+	watermark *atomic.Int64
 }
 
 // newSliceList wraps elements with an uncomputed size cache (filled lazily).
@@ -84,19 +85,20 @@ func (s *sliceList) append(v Value) *sliceList {
 	bs := s.byteSizeOf() + ValueBytes(v)
 
 	// In-place fast path: this header owns the frontier of the backing array
-	// (its length is the committed watermark) and there is spare capacity.
-	if s.watermark != nil && *s.watermark == n && cap(s.elements) > n {
+	// (its length equals the frontier) and there is spare capacity.
+	if s.watermark != nil && cap(s.elements) > n &&
+		s.watermark.CompareAndSwap(int64(n), int64(n+1)) {
 		extended := s.elements[:n+1]
 		extended[n] = v
-		*s.watermark = n + 1
 		return &sliceList{elements: extended, byteSize: bs, watermark: s.watermark}
 	}
 
 	// Copy path: reallocate with amortized growth (the [:n:n] cap forces a copy
 	// rather than touching s's backing). A fresh watermark tracks the new backing.
 	newElems := append(s.elements[:n:n], v)
-	wm := n + 1
-	return &sliceList{elements: newElems, byteSize: bs, watermark: &wm}
+	wm := new(atomic.Int64)
+	wm.Store(int64(n + 1))
+	return &sliceList{elements: newElems, byteSize: bs, watermark: wm}
 }
 
 func (s *sliceList) slice(start, end int) *sliceList {
