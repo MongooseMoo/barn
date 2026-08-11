@@ -299,7 +299,28 @@ func builtinFileRead(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if n < 0 {
 		return types.Err(types.E_INVARG)
 	}
-	buf := make([]byte, n)
+	position, err := h.file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return types.Err(types.E_FILE)
+	}
+	info, err := h.file.Stat()
+	if err != nil {
+		return types.Err(types.E_FILE)
+	}
+	remaining := info.Size() - position
+	if remaining < 0 {
+		remaining = 0
+	}
+	if n > remaining {
+		n = remaining
+	}
+	// file_read returns a MOO string, so reject an actual result that cannot fit
+	// the task's configured string limit before converting its size to int or
+	// allocating the read buffer.
+	if n > int64(^uint(0)>>1) || ctx.CheckStringLimit(int(n)) != types.E_NONE {
+		return types.Err(types.E_QUOTA)
+	}
+	buf := make([]byte, int(n))
 	count, err := h.file.Read(buf)
 	if err != nil && err != io.EOF {
 		return types.Err(types.E_FILE)
