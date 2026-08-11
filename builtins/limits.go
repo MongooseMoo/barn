@@ -410,6 +410,19 @@ func CheckMapLimit(m types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
+// CheckMapLimitForTask checks a map against the task's pending server options,
+// falling back to the currently cached max_map_value_bytes limit.
+func CheckMapLimitForTask(ctx *kernel.TaskContext, m types.Value) types.ErrorCode {
+	limit := GetMaxMapValueBytes()
+	if pending := pendingServerOptions(ctx); pending != nil {
+		limit = pending.MaxMapValueBytes
+	}
+	if limit > 0 && ValueBytes(m) > limit {
+		return types.E_QUOTA
+	}
+	return types.E_NONE
+}
+
 // CheckStringLength checks if a string length exceeds the max_string_concat
 // limit. Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 func CheckStringLength(length int) types.ErrorCode {
