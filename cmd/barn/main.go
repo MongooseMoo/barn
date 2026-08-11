@@ -18,11 +18,11 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/logging"
 	"github.com/MongooseMoo/barn/profile"
@@ -386,17 +386,17 @@ func main() {
 	}
 }
 
-func buildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]builtins.ListenerSpec, error) {
+func buildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]listener.Spec, error) {
 	if len(listenFlags) == 0 {
-		return server.DefaultListenSpecs(port), nil
+		return listener.DefaultSpecs(port), nil
 	}
 	if portProvided {
 		return nil, fmt.Errorf("cannot combine -port with -listen")
 	}
 
-	listenerSpecs := make([]builtins.ListenerSpec, 0, len(listenFlags))
+	listenerSpecs := make([]listener.Spec, 0, len(listenFlags))
 	for _, raw := range listenFlags {
-		spec, err := server.ParseListenSpec(raw)
+		spec, err := listener.ParseSpec(raw)
 		if err != nil {
 			return nil, fmt.Errorf("invalid -listen value: %w", err)
 		}
@@ -416,7 +416,7 @@ func flagWasProvided(name string) bool {
 	return false
 }
 
-func formatListenerSpecs(specs []builtins.ListenerSpec) string {
+func formatListenerSpecs(specs []listener.Spec) string {
 	parts := make([]string, 0, len(specs))
 	for _, spec := range specs {
 		if spec.Path != "" {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/MongooseMoo/barn/builtins"
 	dbformat "github.com/MongooseMoo/barn/db/format"
+	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 	"log/slog"
 	"net"
@@ -23,7 +24,7 @@ type listenerRecord struct {
 	object         types.ObjID
 	descriptorPort int64
 	boundPort      int64
-	protocol       string
+	protocol       listener.Protocol
 	path           string
 	printMessages  bool
 	ipv6           bool
@@ -37,7 +38,7 @@ type listenerRecord struct {
 }
 
 type listenerKey struct {
-	protocol string
+	protocol listener.Protocol
 	port     int64
 	ipv6     bool
 	path     string
@@ -89,13 +90,13 @@ func (cm *ConnectionManager) GetListenPort() int {
 
 // BindListeners creates startup-owned listener sockets without accepting
 // connections yet.
-func (cm *ConnectionManager) BindListeners(specs []builtins.ListenerSpec) error {
+func (cm *ConnectionManager) BindListeners(specs []listener.Spec) error {
 	if len(specs) == 0 {
 		return fmt.Errorf("no listeners configured")
 	}
 
 	originalPort := cm.listenPort
-	bound := make([]builtins.ListenerDescriptor, 0, len(specs))
+	bound := make([]listener.Descriptor, 0, len(specs))
 	for i, spec := range specs {
 		desc, err := cm.addListener(spec, true)
 		if err != nil {
@@ -217,14 +218,14 @@ func (cm *ConnectionManager) CloseConnections(message string) {
 	cm.connectionWG.Wait()
 }
 
-func (cm *ConnectionManager) registerListener(listener net.Listener, spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
-	boundPort, ipv6, err := parseListenerPort(listener.Addr())
+func (cm *ConnectionManager) registerListener(socket net.Listener, spec listener.Spec, primary bool, tlsConfig *tls.Config) (listener.Descriptor, error) {
+	boundPort, ipv6, err := parseListenerPort(socket.Addr())
 	if err != nil {
-		_ = listener.Close()
-		return builtins.ListenerDescriptor{}, err
+		_ = socket.Close()
+		return listener.Descriptor{}, err
 	}
 
-	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
+	spec.Protocol = listener.NormalizeProtocol(spec.Protocol)
 	// Runtime listeners are addressed by the MOO-requested descriptor, including
 	// descriptor 0. Startup-owned port-0 listeners expose the bound OS port so
 	// callers can discover and connect to the server selected ephemeral port.
@@ -232,7 +233,7 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 	if primary && descriptorPort == 0 {
 		descriptorPort = boundPort
 	}
-	desc := builtins.ListenerDescriptor{
+	desc := listener.Descriptor{
 		Protocol: spec.Protocol,
 		Port:     descriptorPort,
 		IPv6:     ipv6,
@@ -240,7 +241,7 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 	}
 	key := listenerKeyFromDescriptor(desc)
 	record := &listenerRecord{
-		listener:       listener,
+		listener:       socket,
 		object:         spec.Object,
 		descriptorPort: descriptorPort,
 		boundPort:      boundPort,
@@ -249,12 +250,12 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 		printMessages:  spec.PrintMessages,
 		ipv6:           ipv6,
 		iface:          spec.Interface,
-		tls:            spec.Protocol == builtins.ListenerProtocolTLS || spec.Protocol == builtins.ListenerProtocolSecureWebSocket,
+		tls:            spec.Protocol == listener.ProtocolTLS || spec.Protocol == listener.ProtocolSecureWebSocket,
 		tlsConfig:      tlsConfig,
 		primary:        primary,
 		done:           make(chan struct{}),
 	}
-	if desc.Protocol == builtins.ListenerProtocolWebSocket || desc.Protocol == builtins.ListenerProtocolSecureWebSocket {
+	if desc.Protocol == listener.ProtocolWebSocket || desc.Protocol == listener.ProtocolSecureWebSocket {
 		record.httpServer = &http.Server{
 			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				cm.handleWebSocketRequest(record, w, r)
@@ -265,14 +266,14 @@ func (cm *ConnectionManager) registerListener(listener net.Listener, spec builti
 	cm.mu.Lock()
 	if _, exists := cm.listeners[key]; exists {
 		cm.mu.Unlock()
-		_ = listener.Close()
-		return builtins.ListenerDescriptor{}, fmt.Errorf("listener already exists for %s", formatListenerDescriptor(desc))
+		_ = socket.Close()
+		return listener.Descriptor{}, fmt.Errorf("listener already exists for %s", formatListenerDescriptor(desc))
 	}
 	cm.listeners[key] = record
 	cm.mu.Unlock()
 
 	slog.Info("listening",
-		slog.String("protocol", spec.Protocol),
+		slog.String("protocol", string(spec.Protocol)),
 		slog.Int64("port", boundPort),
 		slog.Int64("descriptor_port", descriptorPort),
 		slog.Int64("this", int64(spec.Object)),
@@ -387,7 +388,7 @@ func (cm *ConnectionManager) handleWebSocketRequest(record *listenerRecord, w ht
 	transport := NewWebSocketTransport(wsConn, r.RemoteAddr)
 	conn := cm.newConnectionFromTransport(transport, record)
 
-	slog.Info("new connection", slog.String("protocol", record.protocol), slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
+	slog.Info("new connection", slog.String("protocol", string(record.protocol)), slog.String("addr", conn.RemoteAddr()), slog.Int64("conn_id", conn.ID))
 
 	cm.connectionWG.Add(1)
 	go cm.handleConnection(conn)
@@ -633,13 +634,13 @@ func (cm *ConnectionManager) RecyclePlayer(player types.ObjID) error {
 	return nil
 }
 
-func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
+func (cm *ConnectionManager) ListenerInfos() []listener.Info {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	out := make([]builtins.ListenerInfo, 0, len(cm.listeners))
+	out := make([]listener.Info, 0, len(cm.listeners))
 	for _, record := range cm.listeners {
-		out = append(out, builtins.ListenerInfo{
+		out = append(out, listener.Info{
 			Object:        record.object,
 			Port:          record.descriptorPort,
 			Protocol:      record.protocol,
@@ -653,42 +654,35 @@ func (cm *ConnectionManager) ListenerInfos() []builtins.ListenerInfo {
 	return out
 }
 
-func (cm *ConnectionManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
+func (cm *ConnectionManager) AddListener(spec listener.Spec) (listener.Descriptor, error) {
 	desc, err := cm.addListener(spec, false)
 	if err != nil {
-		return builtins.ListenerDescriptor{}, err
+		return listener.Descriptor{}, err
 	}
 	cm.StartAccepting()
 	return desc, nil
 }
 
-func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary bool) (builtins.ListenerDescriptor, error) {
-	spec.Protocol = normalizeListenerProtocol(spec.Protocol)
-	if spec.Protocol != builtins.ListenerProtocolTCP && spec.Protocol != builtins.ListenerProtocolTLS && spec.Protocol != builtins.ListenerProtocolWebSocket {
-		return builtins.ListenerDescriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
+func (cm *ConnectionManager) addListener(spec listener.Spec, primary bool) (listener.Descriptor, error) {
+	spec.Protocol = listener.NormalizeProtocol(spec.Protocol)
+	// Secure WebSocket vocabulary is understood by configuration parsing but
+	// the server does not yet implement the combined WSS transport.
+	if spec.Protocol == listener.ProtocolSecureWebSocket {
+		return listener.Descriptor{}, fmt.Errorf("unsupported listener protocol %q", spec.Protocol)
 	}
-	if spec.Protocol == builtins.ListenerProtocolWebSocket {
-		if spec.TLSCertificatePath != "" || spec.TLSKeyPath != "" {
-			return builtins.ListenerDescriptor{}, fmt.Errorf("ws listener does not accept TLS options")
-		}
+	if err := spec.Validate(); err != nil {
+		return listener.Descriptor{}, err
+	}
+	if spec.Protocol == listener.ProtocolWebSocket {
 		if spec.Path == "" {
 			spec.Path = "/"
 		}
-		if !strings.HasPrefix(spec.Path, "/") {
-			return builtins.ListenerDescriptor{}, fmt.Errorf("websocket listener path must start with /")
-		}
 		return cm.listenAndRegister(spec, primary, nil)
 	}
-	if spec.Path != "" {
-		return builtins.ListenerDescriptor{}, fmt.Errorf("%s listener does not accept path", spec.Protocol)
-	}
-	if spec.Protocol == builtins.ListenerProtocolTLS {
-		if spec.TLSCertificatePath == "" || spec.TLSKeyPath == "" {
-			return builtins.ListenerDescriptor{}, fmt.Errorf("tls listener requires certificate and key")
-		}
+	if spec.Protocol == listener.ProtocolTLS {
 		cert, err := tls.LoadX509KeyPair(spec.TLSCertificatePath, spec.TLSKeyPath)
 		if err != nil {
-			return builtins.ListenerDescriptor{}, err
+			return listener.Descriptor{}, err
 		}
 		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
 		return cm.listenAndRegister(spec, primary, tlsConfig)
@@ -697,7 +691,7 @@ func (cm *ConnectionManager) addListener(spec builtins.ListenerSpec, primary boo
 	return cm.listenAndRegister(spec, primary, nil)
 }
 
-func (cm *ConnectionManager) listenAndRegister(spec builtins.ListenerSpec, primary bool, tlsConfig *tls.Config) (builtins.ListenerDescriptor, error) {
+func (cm *ConnectionManager) listenAndRegister(spec listener.Spec, primary bool, tlsConfig *tls.Config) (listener.Descriptor, error) {
 	if spec.Interface == "" && spec.IPv6 {
 		spec.Interface = "::"
 	}
@@ -709,14 +703,14 @@ func (cm *ConnectionManager) listenAndRegister(spec builtins.ListenerSpec, prima
 	if spec.IPv6 {
 		network = "tcp6"
 	}
-	listener, err := net.Listen(network, addr)
+	socket, err := net.Listen(network, addr)
 	if err != nil {
-		return builtins.ListenerDescriptor{}, err
+		return listener.Descriptor{}, err
 	}
-	return cm.registerListener(listener, spec, primary, tlsConfig)
+	return cm.registerListener(socket, spec, primary, tlsConfig)
 }
 
-func (cm *ConnectionManager) RemoveListener(desc builtins.ListenerDescriptor) error {
+func (cm *ConnectionManager) RemoveListener(desc listener.Descriptor) error {
 	key := listenerKeyFromDescriptor(desc)
 	cm.mu.Lock()
 	record := cm.listeners[key]
@@ -857,16 +851,9 @@ func parseListenerPort(addr net.Addr) (int64, bool, error) {
 	return port, strings.Contains(host, ":"), nil
 }
 
-func normalizeListenerProtocol(protocol string) string {
-	if protocol == "" {
-		return builtins.ListenerProtocolTCP
-	}
-	return strings.ToLower(protocol)
-}
-
-func canonicalListenerPath(protocol, path string) string {
+func canonicalListenerPath(protocol listener.Protocol, path string) string {
 	switch protocol {
-	case builtins.ListenerProtocolWebSocket, builtins.ListenerProtocolSecureWebSocket:
+	case listener.ProtocolWebSocket, listener.ProtocolSecureWebSocket:
 		if path == "" {
 			return "/"
 		}
@@ -876,8 +863,8 @@ func canonicalListenerPath(protocol, path string) string {
 	}
 }
 
-func listenerKeyFromDescriptor(desc builtins.ListenerDescriptor) listenerKey {
-	protocol := normalizeListenerProtocol(desc.Protocol)
+func listenerKeyFromDescriptor(desc listener.Descriptor) listenerKey {
+	protocol := listener.NormalizeProtocol(desc.Protocol)
 	return listenerKey{
 		protocol: protocol,
 		port:     desc.Port,
@@ -886,8 +873,8 @@ func listenerKeyFromDescriptor(desc builtins.ListenerDescriptor) listenerKey {
 	}
 }
 
-func formatListenerDescriptor(desc builtins.ListenerDescriptor) string {
-	protocol := normalizeListenerProtocol(desc.Protocol)
+func formatListenerDescriptor(desc listener.Descriptor) string {
+	protocol := listener.NormalizeProtocol(desc.Protocol)
 	path := canonicalListenerPath(protocol, desc.Path)
 	if path == "" {
 		return fmt.Sprintf("%s://:%d", protocol, desc.Port)

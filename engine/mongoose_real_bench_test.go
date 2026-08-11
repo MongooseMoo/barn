@@ -41,6 +41,7 @@ import (
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -113,17 +114,17 @@ func (m *benchConnManager) GetListenPort() int { return 7777 }
 // $prod() — "#0 in slice(listeners($network.port), \"object\")" — sees the
 // prod deployment shape and #0:server_started activates $sql_utils (which
 // opens the SQLite handles `say` depends on).
-func (m *benchConnManager) ListenerInfos() []builtins.ListenerInfo {
-	return []builtins.ListenerInfo{{Object: 0, Port: 7777, PrintMessages: true}}
+func (m *benchConnManager) ListenerInfos() []listener.Info {
+	return []listener.Info{{Object: 0, Port: 7777, PrintMessages: true}}
 }
 
 // AddListener accepts silently: server_started's prod branch calls
 // listen(#0, $network.alternate_port) OUTSIDE any try — an error here would
 // kill the whole boot verb before services start.
-func (m *benchConnManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
-	return builtins.ListenerDescriptor{Port: spec.Port}, nil
+func (m *benchConnManager) AddListener(spec listener.Spec) (listener.Descriptor, error) {
+	return listener.Descriptor{Port: spec.Port}, nil
 }
-func (m *benchConnManager) RemoveListener(builtins.ListenerDescriptor) error { return nil }
+func (m *benchConnManager) RemoveListener(listener.Descriptor) error { return nil }
 func (m *benchConnManager) OpenNetworkConnection(string, int64) (types.ObjID, error) {
 	return types.ObjNothing, fmt.Errorf("bench: no outbound")
 }

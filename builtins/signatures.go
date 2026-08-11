@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/MongooseMoo/barn/internal/listener"
 	kernel "github.com/MongooseMoo/barn/kernel"
 
 	"github.com/MongooseMoo/barn/task"
@@ -730,8 +731,8 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	spec := ListenerSpec{
-		Protocol: ListenerProtocolTCP,
+	spec := listener.Spec{
+		Protocol: listener.ProtocolTCP,
 		Object:   args[0].Obj(),
 		Port:     port,
 	}
@@ -752,8 +753,8 @@ func builtinListen(ctx *kernel.TaskContext, args []types.Value) types.Result {
 				if pair[1].Type() != types.TYPE_STR {
 					return types.Err(types.E_TYPE)
 				}
-				spec.Protocol = normalizeListenerProtocol(pair[1].Str())
-				if !listenerProtocolSupported(spec.Protocol) {
+				spec.Protocol = listener.NormalizeProtocol(listener.Protocol(pair[1].Str()))
+				if !listener.IsSupportedProtocol(spec.Protocol) {
 					return types.Err(types.E_INVARG)
 				}
 			case "interface":

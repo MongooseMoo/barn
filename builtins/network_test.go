@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -92,9 +93,9 @@ func (c *stubConn) OutboundDestinationAddr() string {
 type stubConnManager struct {
 	conn        Connection
 	listen      int
-	infos       []ListenerInfo
-	added       ListenerSpec
-	removed     ListenerDescriptor
+	infos       []listener.Info
+	added       listener.Spec
+	removed     listener.Descriptor
 	boots       []types.ObjID
 	switches    []stubSwitch
 	switchedOld types.ObjID
@@ -123,26 +124,26 @@ func (m *stubConnManager) SwitchPlayer(oldPlayer, newPlayer types.ObjID) error {
 	return nil
 }
 func (m *stubConnManager) GetListenPort() int { return m.listen }
-func (m *stubConnManager) ListenerInfos() []ListenerInfo {
+func (m *stubConnManager) ListenerInfos() []listener.Info {
 	if m.infos != nil {
 		return m.infos
 	}
-	return []ListenerInfo{{
+	return []listener.Info{{
 		Object:   0,
 		Port:     int64(m.listen),
-		Protocol: ListenerProtocolTCP,
+		Protocol: listener.ProtocolTCP,
 	}}
 }
-func (m *stubConnManager) AddListener(spec ListenerSpec) (ListenerDescriptor, error) {
+func (m *stubConnManager) AddListener(spec listener.Spec) (listener.Descriptor, error) {
 	m.added = spec
-	return ListenerDescriptor{
-		Protocol: normalizeListenerProtocol(spec.Protocol),
+	return listener.Descriptor{
+		Protocol: listener.NormalizeProtocol(spec.Protocol),
 		Port:     spec.Port,
 		IPv6:     spec.IPv6,
 		Path:     spec.Path,
 	}, nil
 }
-func (m *stubConnManager) RemoveListener(desc ListenerDescriptor) error {
+func (m *stubConnManager) RemoveListener(desc listener.Descriptor) error {
 	m.removed = desc
 	return nil
 }
@@ -515,7 +516,7 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 	}
 	if manager.added.Object != 42 ||
 		manager.added.Port != 8888 ||
-		manager.added.Protocol != ListenerProtocolTCP ||
+		manager.added.Protocol != listener.ProtocolTCP ||
 		manager.added.Interface != "127.0.0.1" ||
 		manager.added.IPv6 ||
 		!manager.added.PrintMessages {
@@ -525,10 +526,10 @@ func TestListenBuildsListenerSpecFromOptions(t *testing.T) {
 
 func TestRuntimeListenerZeroDescriptorFlowsThroughBuiltins(t *testing.T) {
 	manager := &stubConnManager{
-		infos: []ListenerInfo{{
+		infos: []listener.Info{{
 			Object:   42,
 			Port:     0,
-			Protocol: ListenerProtocolTCP,
+			Protocol: listener.ProtocolTCP,
 		}},
 	}
 	ctx := ctxWithConnManager(manager)
@@ -569,7 +570,7 @@ func TestRuntimeListenerZeroDescriptorFlowsThroughBuiltins(t *testing.T) {
 		if res.IsError() {
 			t.Fatalf("unlisten(0): %v", res.Error)
 		}
-		want := ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: 0}
+		want := listener.Descriptor{Protocol: listener.ProtocolTCP, Port: 0}
 		if !listenerDescriptorEqual(manager.removed, want) {
 			t.Errorf("unlisten(0) removed %+v, want %+v", manager.removed, want)
 		}
@@ -611,7 +612,7 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 		types.NewObj(42),
 		types.NewInt(8889),
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr(ListenerProtocolTLS)},
+			{types.NewStr("protocol"), types.NewStr(string(listener.ProtocolTLS))},
 			{types.NewStr("certificate"), types.NewStr("server.crt")},
 			{types.NewStr("key"), types.NewStr("server.key")},
 		}),
@@ -625,10 +626,10 @@ func TestListenBuildsTLSListenerSpec(t *testing.T) {
 	desc := res.Val
 	protocol, _ := desc.MapGet(types.NewStr("protocol"))
 	port, _ := desc.MapGet(types.NewStr("port"))
-	if protocol.Str() != ListenerProtocolTLS || port.Int() != 8889 {
+	if protocol.Str() != string(listener.ProtocolTLS) || port.Int() != 8889 {
 		t.Fatalf("unexpected descriptor: %s", desc.String())
 	}
-	if manager.added.Protocol != ListenerProtocolTLS ||
+	if manager.added.Protocol != listener.ProtocolTLS ||
 		manager.added.TLSCertificatePath != "server.crt" ||
 		manager.added.TLSKeyPath != "server.key" {
 		t.Fatalf("unexpected spec: %+v", manager.added)
@@ -645,7 +646,7 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 		types.NewObj(42),
 		types.NewInt(8890),
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},
+			{types.NewStr("protocol"), types.NewStr(string(listener.ProtocolWebSocket))},
 			{types.NewStr("path"), types.NewStr("/moo")},
 		}),
 	})
@@ -659,12 +660,12 @@ func TestListenBuildsWebSocketListenerSpec(t *testing.T) {
 	protocol, _ := desc.MapGet(types.NewStr("protocol"))
 	port, _ := desc.MapGet(types.NewStr("port"))
 	path, _ := desc.MapGet(types.NewStr("path"))
-	if protocol.Str() != ListenerProtocolWebSocket ||
+	if protocol.Str() != string(listener.ProtocolWebSocket) ||
 		port.Int() != 8890 ||
 		path.Str() != "/moo" {
 		t.Fatalf("unexpected descriptor: %s", desc.String())
 	}
-	if manager.added.Protocol != ListenerProtocolWebSocket || manager.added.Path != "/moo" {
+	if manager.added.Protocol != listener.ProtocolWebSocket || manager.added.Path != "/moo" {
 		t.Fatalf("unexpected spec: %+v", manager.added)
 	}
 }
@@ -677,7 +678,7 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 
 	res := builtinUnlisten(ctx, []types.Value{
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},
+			{types.NewStr("protocol"), types.NewStr(string(listener.ProtocolWebSocket))},
 			{types.NewStr("port"), types.NewInt(8888)},
 			{types.NewStr("path"), types.NewStr("/moo")},
 		}),
@@ -685,7 +686,7 @@ func TestUnlistenAcceptsListenerDescriptorMap(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	want := ListenerDescriptor{Protocol: ListenerProtocolWebSocket, Port: 8888, Path: "/moo"}
+	want := listener.Descriptor{Protocol: listener.ProtocolWebSocket, Port: 8888, Path: "/moo"}
 	if !listenerDescriptorEqual(manager.removed, want) {
 		t.Fatalf("removed %+v, want %+v", manager.removed, want)
 	}
@@ -701,7 +702,7 @@ func TestUnlistenSecondArgumentSelectsIPv6Descriptor(t *testing.T) {
 	if res.IsError() {
 		t.Fatalf("unexpected error: %v", res.Error)
 	}
-	want := ListenerDescriptor{Protocol: ListenerProtocolTCP, Port: 8888, IPv6: true}
+	want := listener.Descriptor{Protocol: listener.ProtocolTCP, Port: 8888, IPv6: true}
 	if !listenerDescriptorEqual(manager.removed, want) {
 		t.Fatalf("removed %+v, want %+v", manager.removed, want)
 	}
@@ -733,18 +734,18 @@ func TestConnectionInfoUsesOutboundEndpointMetadata(t *testing.T) {
 
 func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	manager := &stubConnManager{
-		infos: []ListenerInfo{
+		infos: []listener.Info{
 			{
 				Object:        5,
 				Port:          8888,
-				Protocol:      ListenerProtocolWebSocket,
+				Protocol:      listener.ProtocolWebSocket,
 				Path:          "/moo",
 				PrintMessages: true,
 			},
 			{
 				Object:   6,
 				Port:     8888,
-				Protocol: ListenerProtocolTCP,
+				Protocol: listener.ProtocolTCP,
 			},
 		},
 	}
@@ -752,7 +753,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	ctx := ctxWithConnManager(manager)
 	res := builtinListeners(ctx, []types.Value{
 		types.NewMap([][2]types.Value{
-			{types.NewStr("protocol"), types.NewStr(ListenerProtocolWebSocket)},
+			{types.NewStr("protocol"), types.NewStr(string(listener.ProtocolWebSocket))},
 			{types.NewStr("port"), types.NewInt(8888)},
 			{types.NewStr("path"), types.NewStr("/moo")},
 		}),
@@ -774,7 +775,7 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 	protocol, _ := entry.MapGet(types.NewStr("protocol"))
 	path, _ := entry.MapGet(types.NewStr("path"))
 	tlsValue, _ := entry.MapGet(types.NewStr("TLS"))
-	if protocol.Str() != ListenerProtocolWebSocket ||
+	if protocol.Str() != string(listener.ProtocolWebSocket) ||
 		path.Str() != "/moo" ||
 		tlsValue.Int() != 0 {
 		t.Fatalf("unexpected listener entry: %s", entry.String())

@@ -16,6 +16,7 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
+	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -31,7 +32,7 @@ type Server struct {
 	connManager        *ConnectionManager
 	checkpointedConns  []dbformat.ActiveConnection
 	dbPath             string
-	listenerSpecs      []builtins.ListenerSpec
+	listenerSpecs      []listener.Spec
 	checkpointInterval time.Duration
 	options            config.Options
 	running            bool
@@ -47,12 +48,12 @@ type Server struct {
 var ErrPanicShutdown = errors.New("panic shutdown")
 
 // NewServer creates a new MOO server with default runtime options.
-func NewServer(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int) (*Server, error) {
+func NewServer(dbPath string, listenerSpecs []listener.Spec, checkpointIntervalSec int) (*Server, error) {
 	return NewServerWithOptions(dbPath, listenerSpecs, checkpointIntervalSec, config.DefaultOptions())
 }
 
 // NewServerWithOptions creates a new MOO server with the supplied runtime options.
-func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, checkpointIntervalSec int, options config.Options) (*Server, error) {
+func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpointIntervalSec int, options config.Options) (*Server, error) {
 	if len(listenerSpecs) == 0 {
 		return nil, fmt.Errorf("no listeners configured")
 	}
@@ -63,7 +64,7 @@ func NewServerWithOptions(dbPath string, listenerSpecs []builtins.ListenerSpec, 
 
 	return &Server{
 		dbPath:             dbPath,
-		listenerSpecs:      append([]builtins.ListenerSpec(nil), listenerSpecs...),
+		listenerSpecs:      append([]listener.Spec(nil), listenerSpecs...),
 		checkpointInterval: time.Duration(checkpointIntervalSec) * time.Second,
 		options:            options,
 		checkpointChan:     make(chan struct{}, 1),

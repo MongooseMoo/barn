@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"crypto/tls"
 	"errors"
-	"github.com/MongooseMoo/barn/builtins"
+	listenercfg "github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 	"net"
 	"net/http"
@@ -358,16 +358,16 @@ func TestListenerDescriptorsUseProtocolPathKey(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	tcp := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 
-	desc, err := cm.registerListener(tcp, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	desc, err := cm.registerListener(tcp, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 	}, false, nil)
 	if err != nil {
 		t.Fatalf("register tcp listener: %v", err)
 	}
 
-	err = cm.RemoveListener(builtins.ListenerDescriptor{
-		Protocol: builtins.ListenerProtocolWebSocket,
+	err = cm.RemoveListener(listenercfg.Descriptor{
+		Protocol: listenercfg.ProtocolWebSocket,
 		Port:     8888,
 		Path:     "/",
 	})
@@ -390,16 +390,16 @@ func TestListenerDescriptorsUseIPv6Key(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	tcp := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 
-	desc, err := cm.registerListener(tcp, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	desc, err := cm.registerListener(tcp, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 	}, false, nil)
 	if err != nil {
 		t.Fatalf("register tcp listener: %v", err)
 	}
 
-	err = cm.RemoveListener(builtins.ListenerDescriptor{
-		Protocol: builtins.ListenerProtocolTCP,
+	err = cm.RemoveListener(listenercfg.Descriptor{
+		Protocol: listenercfg.ProtocolTCP,
 		Port:     8888,
 		IPv6:     true,
 	})
@@ -423,16 +423,16 @@ func TestRegisterListenerRejectsDuplicateDescriptor(t *testing.T) {
 	first := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 	second := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 
-	_, err := cm.registerListener(first, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	_, err := cm.registerListener(first, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 	}, false, nil)
 	if err != nil {
 		t.Fatalf("register first listener: %v", err)
 	}
 
-	_, err = cm.registerListener(second, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	_, err = cm.registerListener(second, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   6,
 	}, false, nil)
 	if err == nil {
@@ -450,8 +450,8 @@ func TestRuntimeListenerZeroPreservesMOODescriptorAndReleasesBoundSocket(t *test
 	cm := NewConnectionManager(0)
 	t.Cleanup(cm.CloseListeners)
 
-	desc, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:  builtins.ListenerProtocolTCP,
+	desc, err := cm.AddListener(listenercfg.Spec{
+		Protocol:  listenercfg.ProtocolTCP,
 		Object:    5,
 		Port:      0,
 		Interface: "127.0.0.1",
@@ -482,8 +482,8 @@ func TestRuntimeListenerZeroPreservesMOODescriptorAndReleasesBoundSocket(t *test
 		t.Fatalf("runtime listener bound address = %q, want nonzero OS port", boundAddr)
 	}
 
-	if err := cm.RemoveListener(builtins.ListenerDescriptor{
-		Protocol: builtins.ListenerProtocolTCP,
+	if err := cm.RemoveListener(listenercfg.Descriptor{
+		Protocol: listenercfg.ProtocolTCP,
 		Port:     0,
 	}); err != nil {
 		t.Fatalf("RemoveListener(descriptor 0): %v", err)
@@ -505,8 +505,8 @@ func TestRuntimeListenerZeroRejectsDuplicateDescriptorAndClosesDuplicate(t *test
 	cm := NewConnectionManager(0)
 	first := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41001}}
 	duplicate := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 41002}}
-	spec := builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	spec := listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 		Port:     0,
 	}
@@ -531,15 +531,15 @@ func TestRuntimeListenerZeroRejectsDuplicateDescriptorAndClosesDuplicate(t *test
 func TestRuntimeWebSocketListenerZeroLifecycle(t *testing.T) {
 	cm := NewConnectionManager(0)
 	t.Cleanup(cm.CloseListeners)
-	spec := builtins.ListenerSpec{
-		Protocol:  builtins.ListenerProtocolWebSocket,
+	spec := listenercfg.Spec{
+		Protocol:  listenercfg.ProtocolWebSocket,
 		Object:    5,
 		Port:      0,
 		Interface: "127.0.0.1",
 		Path:      "/moo",
 	}
-	want := builtins.ListenerDescriptor{
-		Protocol: builtins.ListenerProtocolWebSocket,
+	want := listenercfg.Descriptor{
+		Protocol: listenercfg.ProtocolWebSocket,
 		Port:     0,
 		Path:     "/moo",
 	}
@@ -597,7 +597,7 @@ func TestRuntimeWebSocketListenerZeroLifecycle(t *testing.T) {
 	}
 }
 
-func runtimeListenerBoundAddress(t *testing.T, cm *ConnectionManager, desc builtins.ListenerDescriptor) string {
+func runtimeListenerBoundAddress(t *testing.T, cm *ConnectionManager, desc listenercfg.Descriptor) string {
 	t.Helper()
 	cm.mu.Lock()
 	record := cm.listeners[listenerKeyFromDescriptor(desc)]
@@ -637,9 +637,9 @@ func waitForWebSocketListener(t *testing.T, boundAddr, path string) {
 
 func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 	cm := NewConnectionManager(0)
-	err := cm.BindListeners([]builtins.ListenerSpec{
-		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
-		{Protocol: builtins.ListenerProtocolTCP, Port: 0, Interface: "127.0.0.1"},
+	err := cm.BindListeners([]listenercfg.Spec{
+		{Protocol: listenercfg.ProtocolTCP, Port: 0, Interface: "127.0.0.1"},
+		{Protocol: listenercfg.ProtocolTCP, Port: 0, Interface: "127.0.0.1"},
 	})
 	if err != nil {
 		t.Fatalf("bind listeners: %v", err)
@@ -654,7 +654,7 @@ func TestBindListenersCreatesMultipleTCPListeners(t *testing.T) {
 		t.Fatalf("got %d listeners, want 2", len(infos))
 	}
 	for _, info := range infos {
-		if info.Protocol != builtins.ListenerProtocolTCP {
+		if info.Protocol != listenercfg.ProtocolTCP {
 			t.Fatalf("unexpected protocol in listener info: %+v", info)
 		}
 		if info.Port <= 0 {
@@ -670,8 +670,8 @@ func TestRegisterListenerDoesNotAcceptUntilStartAccepting(t *testing.T) {
 		acceptCh: make(chan struct{}, 1),
 	}
 
-	desc, err := cm.registerListener(listener, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	desc, err := cm.registerListener(listener, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 	}, false, nil)
 	if err != nil {
@@ -702,14 +702,14 @@ func TestCloseListenersClosesPrimaryListeners(t *testing.T) {
 	primary := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
 	secondary := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}}
 
-	if _, err := cm.registerListener(primary, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	if _, err := cm.registerListener(primary, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 	}, true, nil); err != nil {
 		t.Fatalf("register primary listener: %v", err)
 	}
-	if _, err := cm.registerListener(secondary, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	if _, err := cm.registerListener(secondary, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   6,
 	}, false, nil); err != nil {
 		t.Fatalf("register secondary listener: %v", err)
@@ -732,8 +732,8 @@ func TestCloseListenersWaitsForAcceptLoops(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	listener := newBlockingListener()
 
-	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	if _, err := cm.registerListener(listener, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   5,
 	}, true, nil); err != nil {
 		t.Fatalf("register listener: %v", err)
@@ -870,8 +870,8 @@ func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	cm.connectTimeout = time.Hour
 
-	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTLS,
+	if _, err := cm.registerListener(listener, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTLS,
 		Object:   5,
 	}, true, &tls.Config{Certificates: []tls.Certificate{cert.Certificate}}); err != nil {
 		t.Fatalf("register listener: %v", err)
@@ -910,7 +910,7 @@ func TestCloseConnectionsClosesAndWaitsForAcceptedSetup(t *testing.T) {
 func TestCloseConnectionsWaitsForWebSocketSetup(t *testing.T) {
 	cm := NewConnectionManager(7777)
 	record := &listenerRecord{
-		protocol: builtins.ListenerProtocolWebSocket,
+		protocol: listenercfg.ProtocolWebSocket,
 		path:     "/",
 	}
 	response := newBlockingHijackResponseWriter()

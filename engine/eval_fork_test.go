@@ -12,6 +12,7 @@ import (
 	"github.com/MongooseMoo/barn/compiler"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -66,13 +67,13 @@ func (m *evalCommandStubConnManager) SwitchPlayer(oldPlayer, newPlayer types.Obj
 	return nil
 }
 func (m *evalCommandStubConnManager) GetListenPort() int { return 0 }
-func (m *evalCommandStubConnManager) ListenerInfos() []builtins.ListenerInfo {
+func (m *evalCommandStubConnManager) ListenerInfos() []listener.Info {
 	return nil
 }
-func (m *evalCommandStubConnManager) AddListener(spec builtins.ListenerSpec) (builtins.ListenerDescriptor, error) {
-	return builtins.ListenerDescriptor{}, nil
+func (m *evalCommandStubConnManager) AddListener(spec listener.Spec) (listener.Descriptor, error) {
+	return listener.Descriptor{}, nil
 }
-func (m *evalCommandStubConnManager) RemoveListener(desc builtins.ListenerDescriptor) error {
+func (m *evalCommandStubConnManager) RemoveListener(desc listener.Descriptor) error {
 	return nil
 }
 func (m *evalCommandStubConnManager) OpenNetworkConnection(host string, port int64) (types.ObjID, error) {

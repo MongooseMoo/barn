@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/builtins"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
+	listenercfg "github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -105,8 +105,8 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 	addTestVerb(store, system, "server_started", "#0.listener_count = length(listeners());")
 
 	cm := NewConnectionManager(0)
-	if err := cm.BindListeners([]builtins.ListenerSpec{{
-		Protocol:  builtins.ListenerProtocolTCP,
+	if err := cm.BindListeners([]listenercfg.Spec{{
+		Protocol:  listenercfg.ProtocolTCP,
 		Port:      0,
 		Interface: "127.0.0.1",
 	}}); err != nil {
@@ -151,7 +151,7 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 		runtime:        rt,
 		input:          input,
 		connManager:    NewConnectionManager(int(port)),
-		listenerSpecs:  []builtins.ListenerSpec{{Protocol: builtins.ListenerProtocolTCP, Port: port, Interface: "127.0.0.1"}},
+		listenerSpecs:  []listenercfg.Spec{{Protocol: listenercfg.ProtocolTCP, Port: port, Interface: "127.0.0.1"}},
 		checkpointChan: make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
@@ -199,8 +199,8 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 
 	cm := NewConnectionManager(7777)
 	listener := &fakeListener{addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8888}}
-	if _, err := cm.registerListener(listener, builtins.ListenerSpec{
-		Protocol: builtins.ListenerProtocolTCP,
+	if _, err := cm.registerListener(listener, listenercfg.Spec{
+		Protocol: listenercfg.ProtocolTCP,
 		Object:   0,
 	}, true, nil); err != nil {
 		t.Fatalf("register listener: %v", err)

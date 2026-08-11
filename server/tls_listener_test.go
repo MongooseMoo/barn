@@ -17,17 +17,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
+	listenercfg "github.com/MongooseMoo/barn/internal/listener"
 )
 
 func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	certPath, keyPath := writeSelfSignedCertificate(t)
 	cm := NewConnectionManager(0)
 
-	desc, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:           builtins.ListenerProtocolTLS,
+	desc, err := cm.AddListener(listenercfg.Spec{
+		Protocol:           listenercfg.ProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,
@@ -38,7 +38,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 	}
 	defer func() { _ = cm.RemoveListener(desc) }()
 
-	if desc.Protocol != builtins.ListenerProtocolTLS || desc.Port != 0 {
+	if desc.Protocol != listenercfg.ProtocolTLS || desc.Port != 0 {
 		t.Fatalf("unexpected descriptor: %+v", desc)
 	}
 
@@ -47,7 +47,7 @@ func TestAddTLSListenerReportsMetadata(t *testing.T) {
 		t.Fatalf("got %d listener infos, want 1", len(infos))
 	}
 	info := infos[0]
-	if info.Protocol != builtins.ListenerProtocolTLS ||
+	if info.Protocol != listenercfg.ProtocolTLS ||
 		info.Port != 0 ||
 		!info.TLS ||
 		info.Interface != "127.0.0.1" {
@@ -65,15 +65,15 @@ func TestRuntimeTLSListenerZeroLifecycle(t *testing.T) {
 	certPath, keyPath := writeSelfSignedCertificate(t)
 	cm := NewConnectionManager(0)
 	t.Cleanup(cm.CloseListeners)
-	spec := builtins.ListenerSpec{
-		Protocol:           builtins.ListenerProtocolTLS,
+	spec := listenercfg.Spec{
+		Protocol:           listenercfg.ProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,
 		TLSKeyPath:         keyPath,
 	}
-	want := builtins.ListenerDescriptor{
-		Protocol: builtins.ListenerProtocolTLS,
+	want := listenercfg.Descriptor{
+		Protocol: listenercfg.ProtocolTLS,
 		Port:     0,
 	}
 
@@ -128,8 +128,8 @@ func TestRuntimeTLSListenerZeroLifecycle(t *testing.T) {
 
 func TestAddTLSListenerRequiresCertificateAndKey(t *testing.T) {
 	cm := NewConnectionManager(0)
-	_, err := cm.AddListener(builtins.ListenerSpec{
-		Protocol:  builtins.ListenerProtocolTLS,
+	_, err := cm.AddListener(listenercfg.Spec{
+		Protocol:  listenercfg.ProtocolTLS,
 		Port:      0,
 		Interface: "127.0.0.1",
 	})
@@ -201,8 +201,8 @@ func TestTLSListenerLoginAndEval(t *testing.T) {
 	defer input.Stop()
 	defer rt.Stop()
 
-	err := cm.BindListeners([]builtins.ListenerSpec{{
-		Protocol:           builtins.ListenerProtocolTLS,
+	err := cm.BindListeners([]listenercfg.Spec{{
+		Protocol:           listenercfg.ProtocolTLS,
 		Port:               0,
 		Interface:          "127.0.0.1",
 		TLSCertificatePath: certPath,
