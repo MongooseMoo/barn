@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -49,8 +48,8 @@ func TestSqliteOpenRefusesSandboxEscape(t *testing.T) {
 	}
 }
 
-func sqliteWizardCtx() *kernel.TaskContext {
-	ctx := kernel.NewTaskContext()
+func sqliteWizardCtx() *Execution {
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.Player = 3
 	ctx.Programmer = 3
@@ -106,7 +105,7 @@ func sqliteMapGet(t *testing.T, m types.Value, key string) types.Value {
 	return value
 }
 
-func sqliteAsyncCtx() (*kernel.TaskContext, *task.Task) {
+func sqliteAsyncCtx() (*Execution, *task.Task) {
 	ctx := sqliteWizardCtx()
 	taskValue := task.NewTask(1, ctx.Programmer, 1000, 1)
 	taskValue.SetState(task.TaskRunning)

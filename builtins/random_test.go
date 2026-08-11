@@ -9,13 +9,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestRandomSupportsEveryInt64RangeWithoutOverflow(t *testing.T) {
 	installSharedRandomForTest(t, newRandomGenerator(randomTestSeed(0), cryptorand.Reader))
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 
 	tests := []struct {
 		name string
@@ -73,7 +72,7 @@ func installSharedRandomForTest(t *testing.T, generator *randomGenerator) {
 	})
 }
 
-func requireRandomInt(t *testing.T, ctx *kernel.TaskContext, max int64) int64 {
+func requireRandomInt(t *testing.T, ctx *Execution, max int64) int64 {
 	t.Helper()
 	result := builtinRandom(ctx, []types.Value{types.NewInt(max)})
 	if result.IsError() {
@@ -87,7 +86,7 @@ func TestReseedRandomReturnsZeroAndReseedsIntegerStream(t *testing.T) {
 	reseededSeed := randomTestSeed(32)
 	installSharedRandomForTest(t, newRandomGenerator(initialSeed, bytes.NewReader(reseededSeed[:])))
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	result := builtinReseedRandom(ctx, nil)
 	if result.IsError() {
@@ -106,13 +105,13 @@ func TestReseedRandomReturnsZeroAndReseedsIntegerStream(t *testing.T) {
 }
 
 func TestReseedRandomValidatesArityAndAuthority(t *testing.T) {
-	wizard := kernel.NewTaskContext()
+	wizard := newTestExecution()
 	wizard.IsWizard = true
 	if result := builtinReseedRandom(wizard, []types.Value{types.NewInt(1)}); !result.IsError() || result.Error != types.E_ARGS {
 		t.Fatalf("reseed_random(1) = %#v, want E_ARGS", result)
 	}
 
-	nonWizard := kernel.NewTaskContext()
+	nonWizard := newTestExecution()
 	if result := builtinReseedRandom(nonWizard, nil); !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("non-wizard reseed_random() = %#v, want E_PERM", result)
 	}
@@ -123,7 +122,7 @@ func TestReseedRandomEntropyFailurePreservesIntegerState(t *testing.T) {
 	entropyErr := errors.New("entropy unavailable")
 	installSharedRandomForTest(t, newRandomGenerator(seed, failingEntropyReader{err: entropyErr}))
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	reference := rand.New(rand.NewChaCha8(seed))
 
@@ -150,7 +149,7 @@ func TestReseedRandomLeavesOtherRandomStreamsIndependent(t *testing.T) {
 		cryptorand.Reader = originalCryptoReader
 	})
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	if result := builtinReseedRandom(ctx, nil); result.IsError() {
 		t.Fatalf("reseed_random() failed: %v", result.Error)
@@ -202,7 +201,7 @@ func TestRandomAndReseedRandomConcurrentUse(t *testing.T) {
 			defer wg.Done()
 			<-start
 
-			ctx := kernel.NewTaskContext()
+			ctx := newTestExecution()
 			for range iterations {
 				if result := builtinRandom(ctx, []types.Value{types.NewInt(1_000_000)}); result.IsError() {
 					errors <- result.Error
@@ -217,7 +216,7 @@ func TestRandomAndReseedRandomConcurrentUse(t *testing.T) {
 		defer wg.Done()
 		<-start
 
-		ctx := kernel.NewTaskContext()
+		ctx := newTestExecution()
 		ctx.IsWizard = true
 		for range iterations {
 			if result := builtinReseedRandom(ctx, nil); result.IsError() {

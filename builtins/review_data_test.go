@@ -4,15 +4,14 @@ import (
 	"math"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // TestReview_Data_* tests written by the analyst agent to probe suspected bugs
 // in the data-type builtins (lists, maps, strings, math, json, url, ansi, pcre).
 
-func reviewDataCtx() *kernel.TaskContext {
-	ctx := kernel.NewTaskContext()
+func reviewDataCtx() *Execution {
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	return ctx
 }

@@ -1,17 +1,36 @@
 package builtins
 
 import (
+	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
-// BuiltinFunc is a function type for builtin functions
-// Takes a task context and list of arguments, returns a Result
-type BuiltinFunc func(ctx *kernel.TaskContext, args []types.Value) types.Result
+// Execution carries the language-visible task state together with the runtime
+// services required for one builtin call. The VM constructs it explicitly for
+// production dispatch; tests of pure builtins can use Registry.NewExecution
+// with a nil Task and callbacks.
+type Execution struct {
+	*kernel.TaskContext
+	Task                 *task.Task
+	Registry             *Registry
+	PushEval             func(*bytecode.Program) types.Result
+	CollectAnonymousRefs func(map[types.ObjID]struct{})
+	PendingFinalizations func() []types.Value
+}
+
+// NewExecution binds task state and an optional concrete task to this registry.
+func (r *Registry) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execution {
+	return &Execution{TaskContext: ctx, Task: task, Registry: r}
+}
+
+// BuiltinFunc is a function type for builtin functions.
+type BuiltinFunc func(ctx *Execution, args []types.Value) types.Result
 
 // VerbCallerFunc is a callback for calling verbs on objects
 // Returns the result of calling the verb, or E_VERBNF if verb not found
-type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result
+type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result
 
 // builtinEntry is the per-builtin dispatch record. It is stored once in the
 // id-indexed entries slice so CallByID resolves a builtin with a single bounds
@@ -350,8 +369,8 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(name string, fn BuiltinFunc) {
 	invoke := fn
 	if builtinHasIrreversibleSideEffect(name) {
-		invoke = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
-			if ctx != nil {
+		invoke = func(ctx *Execution, args []types.Value) types.Result {
+			if ctx != nil && ctx.TaskContext != nil {
 				ctx.IrreversibleSideEffect = true
 			}
 			return fn(ctx, args)
@@ -372,7 +391,7 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 		entry.sig = sig
 		entry.hasSig = true
 		inner := invoke
-		stored = func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+		stored = func(ctx *Execution, args []types.Value) types.Result {
 			if err := validateKnownFunctionArgs(name, sig, args); err != types.E_NONE {
 				return types.Err(err)
 			}
@@ -426,8 +445,16 @@ func (r *Registry) GetID(name string) (int, bool) {
 // CallByID calls a builtin function by its ID, applying protected-builtin
 // redirection first. Resolution is a single bounds check + slice index.
 func (r *Registry) CallByID(id int, ctx *kernel.TaskContext, args []types.Value) types.Result {
+	return r.CallByIDWithExecution(id, r.NewExecution(ctx, nil), args)
+}
+
+// CallByIDWithExecution calls a builtin with explicitly supplied runtime services.
+func (r *Registry) CallByIDWithExecution(id int, ctx *Execution, args []types.Value) types.Result {
 	if id < 0 || id >= len(r.entries) {
 		return types.Err(types.E_VERBNF)
+	}
+	if ctx == nil || ctx.Registry != r {
+		return types.Err(types.E_INVARG)
 	}
 	return r.dispatch(r.entries[id], ctx, args)
 }
@@ -435,9 +462,17 @@ func (r *Registry) CallByID(id int, ctx *kernel.TaskContext, args []types.Value)
 // CallByName calls a builtin function by name, applying protected-builtin
 // redirection first.
 func (r *Registry) CallByName(name string, ctx *kernel.TaskContext, args []types.Value) (types.Result, bool) {
+	return r.CallByNameWithExecution(name, r.NewExecution(ctx, nil), args)
+}
+
+// CallByNameWithExecution calls a named builtin with explicit runtime services.
+func (r *Registry) CallByNameWithExecution(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
 	id, ok := r.nameToID[name]
 	if !ok {
 		return types.Result{}, false
+	}
+	if ctx == nil || ctx.Registry != r {
+		return types.Err(types.E_INVARG), true
 	}
 	return r.dispatch(r.entries[id], ctx, args), true
 }
@@ -450,7 +485,7 @@ func (r *Registry) CallByName(name string, ctx *kernel.TaskContext, args []types
 // the raw args to #0:bf_<name> unvalidated. Only when the call falls through to
 // the real builtin do we run the same arg-count/type checks the registration
 // closure used to perform (identical E_ARGS/E_TYPE codes).
-func (r *Registry) dispatch(e *builtinEntry, ctx *kernel.TaskContext, args []types.Value) types.Result {
+func (r *Registry) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
 	if redirect, ok := r.maybeProtectedRedirect(e.name, ctx, args); ok {
 		return redirect
 	}
@@ -471,7 +506,7 @@ func (r *Registry) dispatch(e *builtinEntry, ctx *kernel.TaskContext, args []typ
 //
 // Returns (result, true) when the call was handled by the redirect path, or
 // (_, false) when the caller should run the real builtin normally.
-func (r *Registry) maybeProtectedRedirect(name string, ctx *kernel.TaskContext, args []types.Value) (types.Result, bool) {
+func (r *Registry) maybeProtectedRedirect(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
 	if ctx == nil || name == "" {
 		return types.Result{}, false
 	}
@@ -520,7 +555,7 @@ func (r *Registry) SetVerbCaller(caller VerbCallerFunc) {
 
 // CallVerb calls a verb on an object using the registered verb caller
 // Returns E_VERBNF if no verb caller is set or if the verb is not found
-func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result {
+func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
 	if r.verbCaller == nil {
 		return types.Err(types.E_VERBNF)
 	}

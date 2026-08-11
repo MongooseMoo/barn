@@ -4,11 +4,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func builtinUrlEncode(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinUrlEncode(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -25,7 +24,7 @@ func builtinUrlEncode(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewStr(strings.ReplaceAll(url.QueryEscape(args[0].Str()), "+", "%20")))
 }
 
-func builtinUrlDecode(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinUrlDecode(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

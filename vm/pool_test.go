@@ -23,6 +23,7 @@ func dirtyVM(machine *VM) {
 	machine.Store = dbstore.NewStore()
 	machine.Builtins = BuildVMRegistry()
 	machine.Context = kernel.NewTaskContext()
+	machine.Task = task.NewTask(1, 0, 1, 1)
 	machine.TickLimit = 123
 	machine.MaxStackDepth = 456
 	machine.Ticks = 789
@@ -169,17 +170,6 @@ func TestReleaseVMDeclinesUnsafeVMs(t *testing.T) {
 		}
 	})
 
-	t.Run("installed as CallerVM", func(t *testing.T) {
-		machine := NewVM(nil, nil)
-		machine.Context = kernel.NewTaskContext()
-		machine.Context.CallerVM = machine
-		machine.Ticks = 42
-		ReleaseVM(machine)
-		if machine.Ticks != 42 {
-			t.Error("ReleaseVM reset a VM still installed as ctx.CallerVM")
-		}
-	})
-
 	t.Run("oversized stack", func(t *testing.T) {
 		machine := NewVM(nil, nil)
 		machine.Stack = make([]types.Value, 0, maxPooledStackCap+1)
@@ -216,8 +206,6 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 	run := func(code string) types.Result {
 		ctx := kernel.NewTaskContext()
 		ctx.Store = store
-		ctx.Registry = registry
-		ctx.Task = task.NewTask(1, types.ObjID(0), 30000, 1)
 
 		prog, diagnostics := compiler.CompileMOO([]string{code}, registry)
 		if len(diagnostics) > 0 {
@@ -225,6 +213,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 		}
 		machine := AcquireVM(store, registry)
 		machine.Context = ctx
+		machine.Task = task.NewTask(1, types.ObjID(0), 30000, 1)
 		result := machine.Run(prog)
 		ReleaseVM(machine)
 		return result

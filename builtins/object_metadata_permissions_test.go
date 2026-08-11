@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 type metadataPermissionFixture struct {
-	ctx      *kernel.TaskContext
+	ctx      *Execution
 	store    *dbstore.Store
 	target   types.ObjID
 	owner    types.ObjID
@@ -61,7 +60,7 @@ func newMetadataPermissionFixture(t *testing.T, targetFlag dbstore.ObjectFlags) 
 		t.Fatalf("AddVerb(existing): %s", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
 	ctx.Programmer = intruder

@@ -5,13 +5,12 @@ import (
 	"strings"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // builtinParent implements parent(object)
 // Returns the first parent of an object
-func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinParent(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -41,7 +40,7 @@ func builtinParent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinParents implements parents(object)
 // Returns list of all direct parents
 // Waifs have no parents (E_INVARG)
-func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinParents(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -76,7 +75,7 @@ func builtinParents(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinChildren implements children(object)
 // Returns list of direct children
 // Waifs have no children (E_INVARG)
-func builtinChildren(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinChildren(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -118,7 +117,7 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
-func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -270,7 +269,7 @@ func builtinChparent(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinChparents implements chparents(object, parents_list)
 // Changes object's parents (multiple inheritance)
-func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -423,7 +422,7 @@ func builtinChparents(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinAncestors implements ancestors(object [, include_self])
 // Returns list of all ancestors in inheritance order
-func builtinAncestors(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAncestors(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) < 1 || len(args) > 2 {
@@ -456,7 +455,7 @@ func builtinAncestors(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinDescendants implements descendants(object [, include_self])
 // Returns list of all descendants in inheritance order
-func builtinDescendants(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDescendants(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) < 1 || len(args) > 2 {
@@ -490,7 +489,7 @@ func builtinDescendants(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // builtinIsa implements isa(object, ancestor[, return_object])
 // Returns true if object inherits from ancestor, or the matching ancestor object
 // when return_object is truthy.
-func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinIsa(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) < 2 || len(args) > 3 {
@@ -552,7 +551,7 @@ func builtinIsa(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return noMatch()
 }
 
-func builtinLocateByName(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinLocateByName(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) < 1 || len(args) > 2 {
@@ -585,7 +584,7 @@ func builtinLocateByName(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewList(matches))
 }
 
-func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinLocations(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) < 1 || len(args) > 3 {
@@ -651,7 +650,7 @@ func builtinLocations(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	return types.Ok(types.NewList(out))
 }
 
-func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinOwnedObjects(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {
@@ -680,7 +679,7 @@ func builtinOwnedObjects(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewList(out))
 }
 
-func builtinRecycledObjects(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRecycledObjects(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {
@@ -702,7 +701,7 @@ func builtinRecycledObjects(ctx *kernel.TaskContext, args []types.Value) types.R
 	return types.Ok(types.NewList(out))
 }
 
-func builtinNextRecycledObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) > 1 {
@@ -740,13 +739,13 @@ func builtinNextRecycledObject(ctx *kernel.TaskContext, args []types.Value) type
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	store := ctx.Store
-	registry, ok := ctx.Registry.(*Registry)
-	if !ok {
+	registry := ctx.Registry
+	if registry == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -805,7 +804,7 @@ func builtinRecreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return result
 }
 
-func builtinWaifStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinWaifStats(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {

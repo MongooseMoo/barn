@@ -6,7 +6,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func enqueuePendingEffect(ctx *kernel.TaskContext, effect kernel.PendingEffect) {
+func enqueuePendingEffect(ctx *Execution, effect kernel.PendingEffect) {
 	ctx.PendingEffects = append(ctx.PendingEffects, effect)
 }
 
@@ -26,7 +26,7 @@ func pendingServerOptions(ctx *kernel.TaskContext) *kernel.PendingServerOptions 
 // It continues after an individual effect fails so a host failure cannot silently
 // drop later calls. The task has already committed, so failures are logged instead
 // of being converted into an uncatchable MOO error after successful completion.
-func FlushPendingEffects(ctx *kernel.TaskContext) {
+func FlushPendingEffects(ctx *Execution) {
 	if ctx == nil || len(ctx.PendingEffects) == 0 {
 		return
 	}
@@ -90,7 +90,7 @@ func FlushPendingEffects(ctx *kernel.TaskContext) {
 	}
 }
 
-func DiscardPendingEffects(ctx *kernel.TaskContext) {
+func DiscardPendingEffects(ctx *Execution) {
 	if ctx != nil {
 		ctx.PendingEffects = nil
 	}

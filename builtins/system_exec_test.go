@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -35,7 +34,7 @@ func TestExecInputHelper(t *testing.T) {
 func TestBuiltinExecPassesInputWithEnvironmentArgument(t *testing.T) {
 	program := installExecTestBinary(t)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	result := builtinExec(ctx, []types.Value{
 		types.NewList([]types.Value{
@@ -56,7 +55,7 @@ func TestBuiltinExecPassesInputWithEnvironmentArgument(t *testing.T) {
 func TestBuiltinExecRejectsInvalidInputWithEnvironmentArgument(t *testing.T) {
 	program := installExecTestBinary(t)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	result := builtinExec(ctx, []types.Value{
 		types.NewList([]types.Value{types.NewStr(program)}),
@@ -97,7 +96,7 @@ func TestBuiltinExecPassesToastEnvironmentToChild(t *testing.T) {
 	t.Setenv("ISSUE53_PARENT", "parent")
 	program := installExecTestBinary(t)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	result := builtinExec(ctx, []types.Value{
 		types.NewList([]types.Value{
@@ -121,7 +120,7 @@ func TestBuiltinExecPassesToastEnvironmentToChild(t *testing.T) {
 func TestBuiltinExecRejectsNonStringEnvironmentEntries(t *testing.T) {
 	program := installExecTestBinary(t)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	result := builtinExec(ctx, []types.Value{
 		types.NewList([]types.Value{types.NewStr(program)}),

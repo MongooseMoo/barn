@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
@@ -85,14 +86,17 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 	t.Cleanup(runtime.Stop)
 	returned := make(chan struct{})
 	var returnedOnce sync.Once
-	runtime.registry.Register("recycle_returned", func(*kernel.TaskContext, []types.Value) types.Result {
+	runtime.registry.Register("recycle_returned", func(*builtins.Execution, []types.Value) types.Result {
 		returnedOnce.Do(func() { close(returned) })
 		return types.Ok(types.None)
 	})
 	readyResult := make(chan (<-chan struct{}), 1)
-	runtime.registry.SetShutdownFunc(func(ctx *kernel.TaskContext, _ string, _ bool) error {
-		exec, _ := ctx.CallerVM.(*vm.VM)
-		readyResult <- beginShutdownForTest(t, runtime, exec)
+	runtime.registry.SetShutdownFunc(func(ctx *builtins.Execution, _ string, _ bool) error {
+		var roots []types.Value
+		if ctx.PendingFinalizations != nil {
+			roots = ctx.PendingFinalizations()
+		}
+		readyResult <- runtime.BeginShutdownWithRoots(roots)
 		return nil
 	})
 	waif := types.NewWaif(9, 3)

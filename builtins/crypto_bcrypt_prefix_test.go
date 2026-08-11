@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -191,7 +190,7 @@ func TestCryptBcryptPermissionPrecedesExactCostWidth(t *testing.T) {
 }
 
 func TestSaltBcryptPrefixesMatchToast(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	for _, prefix := range []string{"$2a$", "$2y$"} {
 		t.Run(prefix, func(t *testing.T) {
 			result := builtinSalt(ctx, []types.Value{
@@ -222,7 +221,7 @@ func TestSaltBcryptPrefixesMatchToast(t *testing.T) {
 }
 
 func TestSaltBcryptCostWidthMatchesToast(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	const randomData = "1234567890123456"
 	const encodedSalt = "KRGxLBS0Lxe3KBCwKxOzLe"
 

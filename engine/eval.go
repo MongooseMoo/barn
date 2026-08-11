@@ -60,7 +60,6 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
 	ctx.Store = s.store
-	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
 
 	// Create and register a real task so task_id()/resume()/task_local()
@@ -72,7 +71,6 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	defer mgr.RemoveTask(t.ID)
 	t.Programmer = player
 	t.ForkCreator = s // Enable fork support in eval commands
-	ctx.Task = t
 	ctx.TaskID = t.ID
 	s.acquireTaskExecution(t)
 	s.acquireExecutionContext(ctx, t.ID)
@@ -82,6 +80,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	// Create bytecode VM and execute
 	bcVM := vm.NewVM(s.store, s.registry)
 	bcVM.Context = ctx
+	bcVM.Task = t
 	bcVM.TickLimit = ticks
 	configureVMStackLimit(bcVM)
 
@@ -218,7 +217,7 @@ resumeLoop:
 				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
 			}
 			if anonCreated {
-				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, ctx, anonGCFloor, siblingAnon, bcVM)
+				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, s.registry.NewExecution(ctx, t), anonGCFloor, siblingAnon, bcVM)
 			}
 		}()
 	}

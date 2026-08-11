@@ -23,14 +23,15 @@ func (s *Runtime) CallVerb(objID types.ObjID, verbName string, args []types.Valu
 	return s.CallVerbWithArgstr(objID, verbName, args, player, "")
 }
 
-func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parentCtx *kernel.TaskContext) types.Result {
-	if parentCtx == nil {
+func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []types.Value, parent *builtins.Execution) types.Result {
+	if parent == nil || parent.TaskContext == nil {
 		return types.Err(types.E_INVARG)
 	}
+	parentCtx := parent.TaskContext
 	// This is a separate synchronous VM even though it shares the parent's
 	// transaction/context. Count it under the same opaque lease so run_gc cannot
-	// exclude the sole owner while CallerVM temporarily points only at this inner
-	// VM. A sweep-owned hook instead inherits the already-held start barrier.
+	// exclude the sole owner while both outer and inner VMs hold roots. A
+	// sweep-owned hook instead inherits the already-held start barrier.
 	if !s.isSweepOwnedContext(parentCtx) {
 		if ownerTaskID, claimed, attributable := s.executionContextClaim(parentCtx); claimed {
 			if !attributable {
@@ -101,7 +102,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	parentCtx.Programmer = verb.Owner
 	parentCtx.IsWizard = s.isWizard(verb.Owner)
 
-	parentTask, _ := parentCtx.Task.(*task.Task)
+	parentTask := parent.Task
 	if parentTask != nil {
 		parentTask.PushFrame(task.ActivationFrame{
 			This:       objID,
@@ -123,6 +124,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	// this same VM.
 	bcVM := vm.AcquireVM(s.store, s.registry)
 	bcVM.Context = parentCtx
+	bcVM.Task = parentTask
 	ticks, _ := foregroundTaskLimits()
 	bcVM.TickLimit = ticks
 	configureVMStackLimit(bcVM)
@@ -279,10 +281,8 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ctx.ThisValue = frameThisValue
 	ctx.Verb = verbName
 	ctx.ServerInitiated = true // Mark as server-initiated
-	ctx.Task = t               // Attach task so VM can track frames
 	ctx.Store = s.store
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
-	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
 
 	// Propagate the already-published ownership to nested registry hooks.
@@ -314,6 +314,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	// the context, never the VM.
 	bcVM := vm.AcquireVM(s.store, s.registry)
 	bcVM.Context = ctx
+	bcVM.Task = t
 	ticks, _ := foregroundTaskLimits()
 	bcVM.TickLimit = ticks
 	configureVMStackLimit(bcVM)
@@ -343,10 +344,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(ctx)
+		builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(ctx)
+		builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 	}
 
 	// Extract call stack BEFORE popping frames

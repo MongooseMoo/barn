@@ -3,6 +3,7 @@ package engine
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -23,7 +24,7 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 	rt := NewRuntime(store)
 	defer rt.Stop()
 	forceCalls := 0
-	rt.registry.Register("force_retry_conflict", func(ctx *kernel.TaskContext, _ []types.Value) types.Result {
+	rt.registry.Register("force_retry_conflict", func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		forceCalls++
 		if forceCalls == 1 {
 			// Simulate a concurrent commit after this attempt read retry_value. Do
@@ -40,16 +41,16 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 	replacementAttributed := false
 	firstRemovedDuringRetry := false
 	observeCalls := 0
-	rt.registry.Register("observe_retry_provenance", func(ctx *kernel.TaskContext, _ []types.Value) types.Result {
+	rt.registry.Register("observe_retry_provenance", func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		observeCalls++
-		ownerID, ok := rt.executionContextOwner(ctx)
-		holder, _ := ctx.Task.(*task.Task)
+		ownerID, ok := rt.executionContextOwner(ctx.TaskContext)
+		holder := ctx.Task
 		attributed := ok && holder != nil && ownerID == holder.ID
 		if observeCalls == 1 {
-			firstCtx = ctx
+			firstCtx = ctx.TaskContext
 			firstAttributed = attributed
 		} else if observeCalls == 2 {
-			replacementCtx = ctx
+			replacementCtx = ctx.TaskContext
 			replacementAttributed = attributed
 			_, claimed, _ := rt.executionContextClaim(firstCtx)
 			firstRemovedDuringRetry = !claimed

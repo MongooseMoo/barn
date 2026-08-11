@@ -22,6 +22,7 @@ type VM struct {
 	Store         *dbstore.Store      // Object store
 	Builtins      *builtins.Registry  // Builtin function registry
 	Context       *kernel.TaskContext // Task context for builtins
+	Task          *task.Task          // Runtime task owning this execution
 	TickLimit     int64               // Maximum ticks before E_MAXREC
 	MaxStackDepth int                 // Maximum VM call frames before E_MAXREC
 	Ticks         int64               // Current tick count
@@ -177,7 +178,6 @@ func (vm *VM) ensureContextDependencies() {
 		vm.Context = kernel.NewTaskContext()
 	}
 	vm.Context.Store = vm.Store
-	vm.Context.Registry = vm.Builtins
 }
 
 // PrepareVerbFrame creates and pushes an initial frame for a verb without starting
@@ -343,10 +343,8 @@ func (vm *VM) executeLoop() types.Result {
 			vmStack := vm.snapshotActivationFrames(line)
 			if len(vmStack) > 0 {
 				stackSnapshot = vmStack
-			} else if vm.Context != nil && vm.Context.Task != nil {
-				if t, ok := vm.Context.Task.(*task.Task); ok {
-					stackSnapshot = t.GetCallStack()
-				}
+			} else if vm.Task != nil {
+				stackSnapshot = vm.Task.GetCallStack()
 			}
 			// Handle error
 			handled, exceptionValue := vm.HandleError(err)
@@ -405,13 +403,10 @@ func (vm *VM) executeLoop() types.Result {
 // current frame IPs.  This must be called before any code that reads
 // task.CallStack line numbers (callers(), task_stack(), traceback building).
 func (vm *VM) syncTaskLineNumbers() {
-	if vm.Context == nil || vm.Context.Task == nil {
+	if vm.Context == nil || vm.Task == nil {
 		return
 	}
-	t, ok := vm.Context.Task.(*task.Task)
-	if !ok {
-		return
-	}
+	t := vm.Task
 
 	// VM frames map 1:1 to task CallStack entries (the initial frame pushed
 	// by the engine is both VM frame 0 and CallStack entry 0).
@@ -896,10 +891,8 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				vm.Context.Programmer = frame.SavedProgrammer
 				vm.Context.IsWizard = frame.SavedIsWizard
 			}
-			if vm.Context != nil && vm.Context.Task != nil {
-				if t, ok := vm.Context.Task.(*task.Task); ok {
-					t.PopFrame()
-				}
+			if vm.Task != nil {
+				vm.Task.PopFrame()
 			}
 			vm.SP = frame.BasePointer
 			vm.popFrame()
@@ -917,10 +910,8 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			vm.Context.Programmer = frame.SavedProgrammer
 			vm.Context.IsWizard = frame.SavedIsWizard
 
-			if vm.Context.Task != nil {
-				if t, ok := vm.Context.Task.(*task.Task); ok {
-					t.PopFrame()
-				}
+			if vm.Task != nil {
+				vm.Task.PopFrame()
 			}
 		}
 		vm.SP = frame.BasePointer

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -112,9 +113,9 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseHandoff := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseHandoff()
-	rt.registry.Register("gc_suspend_barrier", func(ctx *kernel.TaskContext, _ []types.Value) types.Result {
-		holder, ok := ctx.Task.(*task.Task)
-		if !ok {
+	rt.registry.Register("gc_suspend_barrier", func(ctx *builtins.Execution, _ []types.Value) types.Result {
+		holder := ctx.Task
+		if holder == nil {
 			return types.Err(types.E_INVARG)
 		}
 		rt.taskManager.SuspendTask(holder, -1)
@@ -296,7 +297,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	defer rt.Stop()
 	nestedEntered := make(chan struct{})
 	releaseNested := make(chan struct{})
-	rt.registry.Register("ambiguous_nested_barrier", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
+	rt.registry.Register("ambiguous_nested_barrier", func(_ *builtins.Execution, _ []types.Value) types.Result {
 		close(nestedEntered)
 		<-releaseNested
 		return types.Ok(types.NewInt(0))
@@ -306,10 +307,8 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	ctx.Player = 0
 	ctx.Programmer = 0
 	ctx.IsWizard = true
-	ctx.Task = caller
 	ctx.TaskID = caller.ID
 	ctx.Store = store
-	ctx.Registry = rt.registry
 	ctx.StoreTxn = store.BeginReadOnly(0)
 	rt.acquireTaskExecution(caller)
 	defer rt.releaseTaskExecution(caller.ID)
@@ -319,7 +318,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	rt.acquireExecutionContext(ctx, 93002)
 	nestedDone := make(chan types.Result, 1)
 	go func() {
-		nestedDone <- rt.CallVerbInContext(0, "ambiguous_nested_gc", nil, ctx)
+		nestedDone <- rt.CallVerbInContext(0, "ambiguous_nested_gc", nil, rt.registry.NewExecution(ctx, caller))
 	}()
 	select {
 	case <-nestedEntered:
@@ -327,7 +326,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 		t.Fatal("nested VM did not install its ambiguity blocker and enter verb")
 	}
 
-	// Once the other outer claimant exits, ctx.Task names the sole real physical
+	// Once the other outer claimant exits, the explicit task names the sole real physical
 	// lease. The nested VM's reserved claim/lease must keep provenance ambiguous
 	// until it returns, so its run_gc remains a successful no-op.
 	rt.releaseExecutionContext(ctx, 93002)
@@ -356,7 +355,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	if !ok {
 		t.Fatal("run_gc builtin not registered")
 	}
-	if result := runGC(ctx, nil); result.Flow != types.FlowNormal {
+	if result := runGC(rt.registry.NewExecution(ctx, caller), nil); result.Flow != types.FlowNormal {
 		t.Fatalf("unique-owner run_gc result = %+v, want success", result)
 	}
 	if store.Valid(orphan) {

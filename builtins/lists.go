@@ -8,7 +8,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -19,7 +18,7 @@ import (
 // builtinListappend inserts value after the specified position
 // listappend(list, value [, index]) -> list
 // Index range: 0 to length(list), default: length(list) (appends)
-func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinListappend(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -49,7 +48,7 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 	result := list.InsertAt(index+1, value)
 
 	// Check size limit
-	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -60,7 +59,7 @@ func builtinListappend(ctx *kernel.TaskContext, args []types.Value) types.Result
 // listinsert(list, value [, index]) -> list
 // Index range: 1 to length(list)+1, default: 1 (prepend)
 // Out of bounds indices are clamped
-func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -91,7 +90,7 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 	result := list.InsertAt(index, value)
 
 	// Check size limit
-	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -100,7 +99,7 @@ func builtinListinsert(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinListdelete removes element at index
 // listdelete(list, index) -> list
-func builtinListdelete(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -131,7 +130,7 @@ func builtinListdelete(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinListset replaces element at index
 // listset(list, value, index) -> list
-func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinListset(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -155,7 +154,7 @@ func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result := list.Set(index, value)
 
 	// Check size limit
-	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -164,7 +163,7 @@ func builtinListset(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinSetadd adds value if not already present
 // setadd(list, value) -> list
-func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -187,7 +186,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -196,7 +195,7 @@ func builtinSetadd(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinSetremove removes first occurrence of value
 // setremove(list, value) -> list
-func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -232,7 +231,7 @@ func builtinSetremove(ctx *kernel.TaskContext, args []types.Value) types.Result 
 // is_member: when promotion is on and the pair is mixed int/float, compare as
 // doubles (mongoose utils.cc coercion). handled is false when the fallback
 // (strictEqual) should decide instead.
-func promoteMemberEqual(ctx *kernel.TaskContext, a, b types.Value) (equal bool, handled bool) {
+func promoteMemberEqual(ctx *Execution, a, b types.Value) (equal bool, handled bool) {
 	if ctx == nil || !ctx.RuntimeOptions.PromoteNumbers {
 		return false, false
 	}
@@ -252,7 +251,7 @@ func promoteMemberEqual(ctx *kernel.TaskContext, a, b types.Value) (equal bool, 
 	return toF(a) == toF(b), true
 }
 
-func builtinIsMember(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -333,7 +332,7 @@ func memberEqual(a, b types.Value, caseMatters bool) bool {
 // register_function's type tokens); the sort-key list must be homogeneous and made
 // of scalar sortable values (INT/FLOAT/OBJ/ERR/STR) or E_TYPE; an empty list/empty
 // keys yields {}. String comparison is case-insensitive (strcasecmp), matching Toast.
-func builtinSort(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSort(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -444,7 +443,7 @@ func sortLess(a, b types.Value, natural bool) bool {
 // builtinReverse reverses a list or string
 // reverse(list) -> list
 // reverse(str) -> str
-func builtinReverse(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinReverse(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -471,7 +470,7 @@ func builtinReverse(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinUnique removes duplicate elements
 // unique(list) -> list
-func builtinUnique(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinUnique(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -780,7 +779,7 @@ func isSpaceByte(c byte) bool {
 
 // builtinSlice: slice(list [, index] [, default_value]) → LIST
 // Extracts elements from each item in a list of lists, strings, or maps.
-func builtinSlice(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}

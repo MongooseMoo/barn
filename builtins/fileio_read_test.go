@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -18,7 +17,7 @@ func TestFileReadCapsAllocationAtBytesRemaining(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	opened := builtinFileOpen(ctx, []types.Value{types.NewStr("small.txt"), types.NewStr("r-tf")})
 	if opened.IsError() {
@@ -51,7 +50,7 @@ func TestFileReadRejectsResultAboveStringLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.MaxStringConcat = 100
 	opened := builtinFileOpen(ctx, []types.Value{types.NewStr("large.txt"), types.NewStr("r-tf")})

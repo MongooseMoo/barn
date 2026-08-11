@@ -18,7 +18,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
 	ctx.IsWizard = true

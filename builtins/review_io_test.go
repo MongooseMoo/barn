@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -85,7 +84,7 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 		t.Fatalf("setup WriteFile: %v", err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 
 	readLine1 := func(mode string) string {
@@ -154,7 +153,7 @@ func TestReview_IO_FileReadlinesBinaryMode(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	mgr := wireTestTaskManager(ctx)
 
@@ -241,7 +240,7 @@ func TestReview_IO_QueuedTasksSortOrder(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReview_IO_QueuedTasksIndefiniteSuspendSortsLast(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	mgr := wireTestTaskManager(ctx)
 

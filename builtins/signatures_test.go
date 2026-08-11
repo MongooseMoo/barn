@@ -4,22 +4,21 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
 	r := NewRegistry()
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.Programmer = 7
 	ctx.Registry = r
 
 	called := false
-	var gotCtx *kernel.TaskContext
+	var gotCtx *Execution
 	var gotMessage string
 	var gotUnclean bool
-	r.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+	r.SetShutdownFunc(func(ctx *Execution, message string, unclean bool) error {
 		called = true
 		gotCtx = ctx
 		gotMessage = message
@@ -47,12 +46,12 @@ func TestBuiltinShutdownPassesMessageAndPanicFlag(t *testing.T) {
 
 func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
 	r := NewRegistry()
-	r.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
+	r.SetShutdownFunc(func(ctx *Execution, message string, unclean bool) error {
 		t.Fatalf("shutdown callback should not run")
 		return nil
 	})
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 	result := builtinShutdown(ctx, []types.Value{types.NewInt(1)})
 	if !result.IsError() || result.Error != types.E_TYPE {
@@ -62,7 +61,7 @@ func TestBuiltinShutdownValidatesMessageBeforePermissions(t *testing.T) {
 
 func TestBuiltinDumpDatabaseRequestsCheckpoint(t *testing.T) {
 	r := NewRegistry()
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.Programmer = 7
 	ctx.Registry = r
@@ -108,7 +107,7 @@ func TestBuiltinFinishedTasksPermissionAndValidation(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := kernel.NewTaskContext()
+			ctx := newTestExecution()
 			ctx.IsWizard = tc.isWizard
 			wireTestTaskManager(ctx)
 

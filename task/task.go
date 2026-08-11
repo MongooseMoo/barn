@@ -305,8 +305,6 @@ func NewTaskFull(id int64, owner types.ObjID, program *bytecode.Program, tickLim
 		Program:       program,
 		Context:       ctx,
 	}
-	// Set ctx.Task to this task so builtins can access it.
-	ctx.Task = t
 	return t
 }
 

@@ -3,12 +3,11 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestTofloatRejectsNonFiniteStringValues(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 
 	for _, input := range []string{"inf", "-inf", "nan", "Infinity", "1e999"} {
 		t.Run(input, func(t *testing.T) {
@@ -30,7 +29,7 @@ func TestTofloatRejectsNonFiniteStringValues(t *testing.T) {
 }
 
 func TestTointStringOverflowClamps(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 
 	tests := []struct {
 		input string
@@ -58,7 +57,7 @@ func TestTointStringOverflowClamps(t *testing.T) {
 }
 
 func TestToobjStringOverflowClamps(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	tests := []struct {
 		input string
 		want  types.ObjID
@@ -85,7 +84,7 @@ func TestToobjStringOverflowClamps(t *testing.T) {
 }
 
 func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	result := builtinToliteral(ctx, []types.Value{types.NewAnon(12)})
 	if result.IsError() {
 		t.Fatalf("toliteral failed: %v", result.Error)
@@ -96,7 +95,7 @@ func TestToliteralHidesAnonymousObjectIdentity(t *testing.T) {
 }
 
 func TestToliteralHidesNestedAnonymousMapKeyIdentity(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	first := types.NewAnon(1)
 	second := types.NewAnon(2)
 	mapping := types.NewMap([][2]types.Value{
@@ -114,7 +113,7 @@ func TestToliteralHidesNestedAnonymousMapKeyIdentity(t *testing.T) {
 }
 
 func TestToliteralSortsMixedMapKeysCanonically(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	mapping := types.NewMap([][2]types.Value{
 		{types.NewObj(-1), types.NewObj(-1)},
 		{types.NewStr("2"), types.NewEmptyList()},
@@ -133,8 +132,8 @@ func TestToliteralSortsMixedMapKeysCanonically(t *testing.T) {
 }
 
 func TestAnonymousObjectNumericConversionsReturnTypeError(t *testing.T) {
-	ctx := kernel.NewTaskContext()
-	for name, convert := range map[string]func(*kernel.TaskContext, []types.Value) types.Result{
+	ctx := newTestExecution()
+	for name, convert := range map[string]func(*Execution, []types.Value) types.Result{
 		"toint":   builtinToint,
 		"toobj":   builtinToobj,
 		"tofloat": builtinTofloat,
@@ -149,7 +148,7 @@ func TestAnonymousObjectNumericConversionsReturnTypeError(t *testing.T) {
 }
 
 func TestTostrHidesAnonymousObjectIdentity(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	result := builtinTostr(ctx, []types.Value{types.NewAnon(12)})
 	if result.IsError() {
 		t.Fatalf("tostr failed: %v", result.Error)
@@ -160,7 +159,7 @@ func TestTostrHidesAnonymousObjectIdentity(t *testing.T) {
 }
 
 func TestWaifStringAndLiteralForms(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	waif := types.NewWaif(12, 34)
 
 	t.Run("tostr", func(t *testing.T) {

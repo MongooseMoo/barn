@@ -40,11 +40,10 @@ func TestRuntimesOwnIsolatedTaskManagers(t *testing.T) {
 	assertQueuedTask := func(t *testing.T, rt *Runtime, wantID int64) {
 		t.Helper()
 		ctx := kernel.NewTaskContext()
-		ctx.Registry = rt.registry
 		ctx.Programmer = types.ObjID(0)
 		ctx.IsWizard = true
 
-		result, ok := rt.registry.CallByName("queued_tasks", ctx, nil)
+		result, ok := rt.registry.CallByNameWithExecution("queued_tasks", rt.registry.NewExecution(ctx, nil), nil)
 		if !ok {
 			t.Fatal("queued_tasks is not registered")
 		}

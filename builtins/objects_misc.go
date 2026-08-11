@@ -1,14 +1,13 @@
 package builtins
 
 import (
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // builtinRenumber implements renumber(obj) - wizard only
 // Reassigns object to lowest available object ID
 // Returns the new object ID
-func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -104,7 +103,7 @@ func builtinRenumber(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinNewWaif implements new_waif() - creates a new waif instance
 // The waif's class is the caller (the object whose verb called new_waif)
 // The waif's owner is the programmer (task permissions)
-func builtinNewWaif(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinNewWaif(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -142,7 +141,7 @@ func builtinNewWaif(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinObjectBytes implements object_bytes(object)
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
-func builtinObjectBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 1 {

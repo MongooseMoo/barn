@@ -34,14 +34,14 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 	ctx.Programmer = player
 	ctx.IsWizard = true
 	ctx.Store = store
-	ctx.Registry = rt.Registry()
+	execution := rt.Registry().NewExecution(ctx, nil)
 
-	if result, ok := rt.Registry().CallByName("set_connection_option", ctx, []types.Value{
+	if result, ok := rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 		types.NewObj(player), types.NewStr("hold-input"), types.NewInt(1),
 	}); !ok || result.IsError() {
 		t.Fatalf("set hold-input: ok=%v result=%+v", ok, result)
 	}
-	if result, ok := rt.Registry().CallByName("set_connection_option", ctx, []types.Value{
+	if result, ok := rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 		types.NewObj(player), types.NewStr("flush-command"), types.NewStr(".flush"),
 	}); !ok || result.IsError() {
 		t.Fatalf("set flush-command: ok=%v result=%+v", ok, result)
@@ -49,10 +49,10 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 
 	t.Cleanup(func() {
 		processor.processInput(command.InputEvent{ConnID: conn.ID, Player: player, Line: ".flush"})
-		rt.Registry().CallByName("set_connection_option", ctx, []types.Value{
+		rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 			types.NewObj(player), types.NewStr("hold-input"), types.NewInt(0),
 		})
-		rt.Registry().CallByName("set_connection_option", ctx, []types.Value{
+		rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 			types.NewObj(player), types.NewStr("flush-command"), types.NewStr(""),
 		})
 	})

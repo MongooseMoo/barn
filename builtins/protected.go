@@ -81,7 +81,7 @@ func LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 // LoadProtectedBuiltinsForTask refreshes protected-builtin flags through the
 // active task view so same-task $server_options writes are visible when
 // load_server_options() runs.
-func LoadProtectedBuiltinsForTask(ctx *kernel.TaskContext) {
+func LoadProtectedBuiltinsForTask(ctx *Execution) {
 	if ctx == nil {
 		applyProtectedBuiltins(nil)
 		return
@@ -113,14 +113,14 @@ func LoadProtectedBuiltinsForTask(ctx *kernel.TaskContext) {
 		},
 	)
 	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
-		pending := pendingServerOptions(ctx)
+		pending := pendingServerOptions(ctx.TaskContext)
 		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()
 			enqueuePendingEffect(ctx, kernel.PendingEffect{
 				Kind:          kernel.PendingEffectServerOptions,
 				ServerOptions: snapshot,
 			})
-			pending = pendingServerOptions(ctx)
+			pending = pendingServerOptions(ctx.TaskContext)
 		}
 		pending.ProtectedBuiltins = flags
 		return

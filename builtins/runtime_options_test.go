@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/config"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func runtimeOptionCtx(options config.Options) *kernel.TaskContext {
-	ctx := kernel.NewTaskContext()
+func runtimeOptionCtx(options config.Options) *Execution {
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.RuntimeOptions = options
 	return ctx

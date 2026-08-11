@@ -72,12 +72,12 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	t.Context.Programmer = top.Programmer
 	t.Context.Verb = top.Verb
 	t.Context.IsWizard = s.isWizard(top.Programmer)
-	t.Context.Task = t
 
 	machine, err := vm.RestoreVMSnapshot(saved.VM, s.store, s.registry, t.Context)
 	if err != nil {
 		return err
 	}
+	machine.Task = t
 	t.SetBytecodeVM(machine)
 
 	if saved.State == task.TaskQueued {
@@ -141,10 +141,10 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	t.Context.Programmer = saved.Programmer
 	t.Context.Verb = saved.Verb
 	t.Context.IsWizard = s.isWizard(saved.Programmer)
-	t.Context.Task = t
 
 	machine := vm.NewVM(s.store, s.registry)
 	machine.Context = t.Context
+	machine.Task = t
 	machine.TickLimit = ticks
 	configureVMStackLimit(machine)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)

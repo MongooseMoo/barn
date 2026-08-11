@@ -1,15 +1,15 @@
 package builtins
 
 import (
-	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/types"
 	"strings"
+
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
 )
 
 // builtinProperties implements properties(object)
 // Returns list of property names defined on object (not inherited)
-func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinProperties(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -50,7 +50,7 @@ func builtinProperties(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinPropertyInfo implements property_info(object, name)
 // Returns {owner, perms} where perms is a string like "rw"
-func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -102,7 +102,7 @@ func builtinPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Resu
 
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
 // info can be {owner, perms}, just perms string, or just owner ObjValue
-func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -215,7 +215,7 @@ func builtinSetPropertyInfo(ctx *kernel.TaskContext, args []types.Value) types.R
 
 // builtinAddProperty implements add_property(object, name, value, info)
 // Adds a new property to object
-func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 4 {
@@ -362,7 +362,7 @@ func builtinAddProperty(ctx *kernel.TaskContext, args []types.Value) types.Resul
 
 // builtinDeleteProperty implements delete_property(object, name)
 // Removes property from object
-func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -419,7 +419,7 @@ func builtinDeleteProperty(ctx *kernel.TaskContext, args []types.Value) types.Re
 
 // builtinClearProperty implements clear_property(object, name)
 // Clears property to inherit from parent
-func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -494,7 +494,7 @@ func builtinClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Res
 // builtinIsClearProperty implements is_clear_property(object, name)
 // Tests if property is cleared (inheriting)
 // Returns 1 if property is clear or only inherited, 0 if has local value
-func builtinIsClearProperty(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

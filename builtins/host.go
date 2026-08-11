@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -10,9 +9,9 @@ import (
 // shutdown). Named so the signatures are written once, not at every field,
 // setter, and use site.
 type (
-	GCHook         func(ctx *kernel.TaskContext) error
+	GCHook         func(ctx *Execution) error
 	CheckpointHook func() error
-	ShutdownHook   func(ctx *kernel.TaskContext, message string, unclean bool) error
+	ShutdownHook   func(ctx *Execution, message string, unclean bool) error
 )
 
 // TaskLister supplies the task collections inspected by task builtins.
@@ -61,17 +60,16 @@ type Host struct {
 	Shutdown     ShutdownHook
 }
 
-// hostOf returns the Host wired onto the task's registry, or the zero Host when
-// no registry is present. The type assertion guards the kernel<->builtins import
-// cycle, which forces ctx.Registry to be typed as interface{}.
-func hostOf(ctx *kernel.TaskContext) Host {
-	if r, ok := ctx.Registry.(*Registry); ok {
-		return r.host
+// hostOf returns the Host wired onto the execution's registry, or the zero Host
+// when no registry is present.
+func hostOf(ctx *Execution) Host {
+	if ctx != nil && ctx.Registry != nil {
+		return ctx.Registry.host
 	}
 	return Host{}
 }
 
-func taskManagerOf(ctx *kernel.TaskContext) TaskManager {
+func taskManagerOf(ctx *Execution) TaskManager {
 	return hostOf(ctx).TaskManager
 }
 

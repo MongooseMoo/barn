@@ -6,11 +6,10 @@ import (
 	neturl "net/url"
 	"time"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func builtinCurl(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCurl(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}

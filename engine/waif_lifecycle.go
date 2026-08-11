@@ -8,6 +8,7 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
 )
@@ -43,11 +44,15 @@ func (s *Runtime) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.
 	}
 
 	live := s.liveWaifs(siblingWaifs, rootVMs...)
+	var owner *task.Task
+	if len(rootVMs) > 0 && rootVMs[0] != nil {
+		owner = rootVMs[0].Task
+	}
 	for _, waif := range pending {
 		if waifInList(waif, live) {
 			continue
 		}
-		s.callWaifRecycle(ctx, waif)
+		s.callWaifRecycle(ctx, owner, waif)
 	}
 }
 
@@ -59,6 +64,7 @@ func (s *Runtime) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.
 type pendingWaifEntry struct {
 	waif          types.Value
 	ctx           *kernel.TaskContext
+	task          *task.Task
 	ownRefs       []types.Value
 	shutdownRoots []types.Value
 }
@@ -102,8 +108,12 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 		return
 	}
 	for _, waif := range pending {
+		var owner *task.Task
+		if ownVM != nil {
+			owner = ownVM.Task
+		}
 		s.pendingWaifBatch = append(s.pendingWaifBatch, pendingWaifEntry{
-			waif: waif, ctx: ctx, ownRefs: ownRefs, shutdownRoots: shutdownRoots,
+			waif: waif, ctx: ctx, task: owner, ownRefs: ownRefs, shutdownRoots: shutdownRoots,
 		})
 	}
 	s.pendingWaifMu.Unlock()
@@ -122,9 +132,11 @@ func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM 
 		return
 	}
 	var ownRefs map[types.ObjID]struct{}
+	var owner *task.Task
 	if ownVM != nil {
 		ownRefs = make(map[types.ObjID]struct{})
 		vm.CollectAnonymousRefsFromVM(ownVM, ownRefs)
+		owner = ownVM.Task
 	}
 	s.pendingWaifMu.Lock()
 	if s.shutdownRequested {
@@ -140,7 +152,7 @@ func (s *Runtime) deferAnonGC(ctx *kernel.TaskContext, minID types.ObjID, ownVM 
 		return
 	}
 	s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{
-		Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs, TaskOwned: ownVM == nil,
+		Ctx: s.gcRecycleContext(ctx), MinID: minID, OwnRefs: ownRefs, TaskOwned: ownVM == nil, Task: owner,
 	})
 	s.pendingWaifMu.Unlock()
 }
@@ -191,10 +203,8 @@ func (s *Runtime) gcRecycleContext(parent *kernel.TaskContext) *kernel.TaskConte
 	gcCtx.Programmer = parent.Programmer
 	gcCtx.IsWizard = parent.IsWizard
 	gcCtx.ThisObj = parent.ThisObj
-	gcCtx.Task = parent.Task
 	gcCtx.TaskID = parent.TaskID
 	gcCtx.Store = s.store
-	gcCtx.Registry = s.registry
 	gcCtx.RuntimeOptions = s.options
 	gcCtx.DeferredGC = true
 	return gcCtx
@@ -280,12 +290,12 @@ func (s *Runtime) flushDeferredGC() {
 			if waifInList(entry.waif, live) {
 				continue
 			}
-			s.callWaifRecycle(entry.ctx, entry.waif)
+			s.callWaifRecycle(entry.ctx, entry.task, entry.waif)
 			s.pendingWaifMu.Lock()
 			shutdown := s.shutdownRequested
 			if shutdown {
 				for _, remaining := range waifBatch[index:] {
-					if remaining.ctx != nil && remaining.ctx.Task != nil {
+					if remaining.ctx != nil && remaining.task != nil {
 						s.pendingShutdownRoots = append(s.pendingShutdownRoots, remaining.shutdownRoots...)
 					}
 				}
@@ -389,14 +399,12 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 		ctx.Player = waif.Owner()
 		ctx.Programmer = waif.Owner()
 		ctx.Store = s.store
-		ctx.Registry = s.registry
 		ctx.RuntimeOptions = s.options
 		s.pendingWaifBatch = append(s.pendingWaifBatch, pendingWaifEntry{waif: waif, ctx: ctx})
 	}
 	for id := range anons {
 		ctx := kernel.NewTaskContext()
 		ctx.Store = s.store
-		ctx.Registry = s.registry
 		ctx.RuntimeOptions = s.options
 		ctx.DeferredGC = true
 		s.pendingAnonGC = append(s.pendingAnonGC, vm.AnonGCRequest{Ctx: ctx, MinID: id})
@@ -426,7 +434,7 @@ func collectLoadedFinalizationRoots(value types.Value, waifs *[]types.Value, ano
 	}
 }
 
-func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Value) {
+func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *task.Task, waif types.Value) {
 	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
 	if err != nil {
 		return
@@ -451,15 +459,14 @@ func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, waif types.Valu
 	recycleCtx.ThisObj = waif.Class()
 	recycleCtx.ThisValue = waif
 	recycleCtx.Verb = ":recycle"
-	recycleCtx.Task = parentCtx.Task
 	recycleCtx.TaskID = parentCtx.TaskID
 	recycleCtx.Store = s.store
-	recycleCtx.Registry = s.registry
 	recycleCtx.RuntimeOptions = s.options
 	recycleCtx.DeferredGC = true
 
 	recycleVM := vm.NewVM(s.store, s.registry)
 	recycleVM.Context = recycleCtx
+	recycleVM.Task = parentTask
 	recycleVM.TickLimit = 300000
 	frame := recycleVM.PrepareVerbFrame(prog, waif.Class(), player, parentCtx.ThisObj, ":recycle", defObjID, nil)
 	frame.VerbDebug = verb.Perms.Has(dbstore.VerbDebug)

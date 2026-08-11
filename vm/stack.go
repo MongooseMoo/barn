@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -112,10 +111,8 @@ func (vm *VM) Return(value types.Value) {
 			vm.Context.IsWizard = frame.SavedIsWizard
 		}
 		// Pop activation frame from task call stack
-		if vm.Context != nil && vm.Context.Task != nil {
-			if t, ok := vm.Context.Task.(*task.Task); ok {
-				t.PopFrame()
-			}
+		if vm.Task != nil {
+			vm.Task.PopFrame()
 		}
 		vm.SP = frame.BasePointer
 		vm.popFrame()
@@ -133,10 +130,8 @@ func (vm *VM) Return(value types.Value) {
 		vm.Context.IsWizard = frame.SavedIsWizard
 
 		// Pop activation frame from task call stack
-		if vm.Context.Task != nil {
-			if t, ok := vm.Context.Task.(*task.Task); ok {
-				t.PopFrame()
-			}
+		if vm.Task != nil {
+			vm.Task.PopFrame()
 		}
 	}
 

@@ -9,6 +9,8 @@ package vm
 //   go tool pprof -top -nodecount=25 /tmp/cpu.prof
 
 import (
+	"testing"
+
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
@@ -16,7 +18,6 @@ import (
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"testing"
 )
 
 var vmBenchWorkloads = []struct {
@@ -55,11 +56,10 @@ func BenchmarkVM(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				ctx := kernel.NewTaskContext()
 				ctx.Store = store
-				ctx.Registry = registry
 				ctx.TicksRemaining = 1 << 60
-				ctx.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 				m := NewVM(store, registry)
 				m.Context = ctx
+				m.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 				m.TickLimit = 1 << 60
 				res := m.Run(prog)
 				if res.Flow == types.FlowException {

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -19,7 +19,7 @@ func TestExecuteVerbTaskSyncReturnsRecoveredTaskPanic(t *testing.T) {
 		[]string{"panic_for_command_test();"}))
 
 	runtime := NewRuntime(store)
-	runtime.Registry().Register("panic_for_command_test", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
+	runtime.Registry().Register("panic_for_command_test", func(_ *builtins.Execution, _ []types.Value) types.Result {
 		panic("command task exploded")
 	})
 

@@ -15,15 +15,10 @@ import (
 // unwinds to, the eval boundary rather than being caught by a verb above it
 // (matching ToastStunt).
 func (vm *VM) buildTraceback(includeEvalFrame bool) types.Value {
-	if vm.Context == nil || vm.Context.Task == nil {
+	if vm.Context == nil || vm.Task == nil {
 		return types.NewList([]types.Value{})
 	}
-	t, ok := vm.Context.Task.(*task.Task)
-	if !ok {
-		return types.NewList([]types.Value{})
-	}
-
-	stack := t.GetCallStack()
+	stack := vm.Task.GetCallStack()
 	frames := make([]types.Value, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
 		f := stack[i]
@@ -74,10 +69,8 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 	}
 
 	var taskStack []task.ActivationFrame
-	if vm.Context != nil && vm.Context.Task != nil {
-		if t, ok := vm.Context.Task.(*task.Task); ok {
-			taskStack = t.GetCallStack()
-		}
+	if vm.Task != nil {
+		taskStack = vm.Task.GetCallStack()
 	}
 
 	stack := make([]task.ActivationFrame, 0, len(vm.Frames))

@@ -4,11 +4,10 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func verbMetadataTxnTestContext(t *testing.T) (*kernel.TaskContext, *dbstore.Store) {
+func verbMetadataTxnTestContext(t *testing.T) (*Execution, *dbstore.Store) {
 	t.Helper()
 
 	store := dbstore.NewStore()
@@ -36,7 +35,7 @@ func verbMetadataTxnTestContext(t *testing.T) (*kernel.TaskContext, *dbstore.Sto
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.Player = 0
 	ctx.Programmer = 0
@@ -126,7 +125,7 @@ func TestDeleteVerbAuthorityRevocationConflictsBeforeMutation(t *testing.T) {
 		t.Fatalf("conflicted delete mutated live store: %v", err)
 	}
 
-	retry := kernel.NewTaskContext()
+	retry := newTestExecution()
 	retry.Store = store
 	retry.StoreTxn = store.BeginReadOnly(0)
 	retry.Programmer = 0
@@ -236,7 +235,7 @@ func TestDeleteVerbConcurrentListGenerationDoesNotRetarget(t *testing.T) {
 	}
 }
 
-func stagedDeleteFlushConflictContext(t *testing.T) (*kernel.TaskContext, *dbstore.Store) {
+func stagedDeleteFlushConflictContext(t *testing.T) (*Execution, *dbstore.Store) {
 	t.Helper()
 	ctx, store := verbMetadataTxnTestContext(t)
 	if _, errCode := ctx.StoreTxn.ObjectName(0); errCode != types.E_NONE {
@@ -325,7 +324,7 @@ func TestVerbMetadataSetupWithStagedPropertiesCommits(t *testing.T) {
 		t.Fatalf("AddVerb failed: %v", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.Player = 10
 	ctx.Programmer = 10

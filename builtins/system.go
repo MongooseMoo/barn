@@ -12,9 +12,6 @@ import (
 	"strings"
 	"time"
 
-	kernel "github.com/MongooseMoo/barn/kernel"
-
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -25,7 +22,7 @@ import (
 // builtinGetenv implements getenv(name)
 // Returns environment variable value or 0 if not found
 // Requires wizard permissions
-func builtinGetenv(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinGetenv(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -62,7 +59,7 @@ func builtinGetenv(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinTaskLocal implements task_local()
 // Returns the task-local storage for the current task
 // Requires wizard permissions
-func builtinTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTaskLocal(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -79,18 +76,13 @@ func builtinTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	// Get task-local from task
-	if t, ok := ctx.Task.(*task.Task); ok {
-		return types.Ok(t.GetTaskLocal())
-	}
-
-	// Should never reach here - return empty map
-	return types.Ok(types.NewEmptyMap())
+	return types.Ok(ctx.Task.GetTaskLocal())
 }
 
 // builtinSetTaskLocal implements set_task_local(value)
 // Sets the task-local storage for the current task
 // Requires wizard permissions
-func builtinSetTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetTaskLocal(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -107,18 +99,13 @@ func builtinSetTaskLocal(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Set task-local in task
-	if t, ok := ctx.Task.(*task.Task); ok {
-		t.SetTaskLocal(args[0])
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Should never reach here
+	ctx.Task.SetTaskLocal(args[0])
 	return types.Ok(types.NewInt(0))
 }
 
 // builtinTaskID implements task_id()
 // Returns the current task's ID
-func builtinTaskID(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTaskID(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -126,7 +113,7 @@ func builtinTaskID(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	if ctx.TaskID > 0 {
 		return types.Ok(types.NewInt(ctx.TaskID))
 	}
-	if t, ok := ctx.Task.(*task.Task); ok && t.ID > 0 {
+	if t := ctx.Task; t != nil && t.ID > 0 {
 		return types.Ok(types.NewInt(t.ID))
 	}
 	// Top-level eval compatibility: task_id() is always a positive integer.
@@ -135,7 +122,7 @@ func builtinTaskID(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinTicksLeft implements ticks_left()
 // Returns the number of ticks remaining for the current task
-func builtinTicksLeft(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTicksLeft(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -145,12 +132,10 @@ func builtinTicksLeft(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	}
 
 	// Get from task if available (more accurate)
-	if ctx.Task != nil {
-		if t, ok := ctx.Task.(*task.Task); ok {
-			left := t.TicksLeft()
-			if left > 0 {
-				return types.Ok(types.NewInt(left))
-			}
+	if t := ctx.Task; t != nil {
+		left := t.TicksLeft()
+		if left > 0 {
+			return types.Ok(types.NewInt(left))
 		}
 	}
 
@@ -160,18 +145,16 @@ func builtinTicksLeft(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinSecondsLeft implements seconds_left()
 // Returns the number of seconds remaining for the current task
-func builtinSecondsLeft(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSecondsLeft(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
 
 	// Get from task if available
-	if ctx.Task != nil {
-		if t, ok := ctx.Task.(*task.Task); ok {
-			left := int64(t.SecondsLeft())
-			if left > 0 {
-				return types.Ok(types.NewInt(left))
-			}
+	if t := ctx.Task; t != nil {
+		left := int64(t.SecondsLeft())
+		if left > 0 {
+			return types.Ok(types.NewInt(left))
 		}
 	}
 
@@ -182,7 +165,7 @@ func builtinSecondsLeft(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // builtinExec implements exec(command [, input [, env]]) -> LIST
 // Executes external command and returns {exit_code, stdout, stderr}
 // Requires wizard permissions
-func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinExec(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -254,8 +237,8 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Get the task so we can suspend it
-	t, ok := ctx.Task.(*task.Task)
-	if !ok {
+	t := ctx.Task
+	if t == nil {
 		// No task context (shouldn't happen in normal execution) — fall back to synchronous
 		return execCommand(resolvedPath, cmdArgs, input, environment)
 	}
@@ -484,7 +467,7 @@ func execCommandWithContext(ctx context.Context, program string, args []string, 
 
 // builtinTime implements time()
 // Returns the current time as a Unix timestamp (seconds since epoch)
-func builtinTime(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTime(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -494,7 +477,7 @@ func builtinTime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinFtime implements ftime([time])
 // Returns current time as float (seconds since epoch with fractional seconds)
 // If time is provided, returns that time as a float
-func builtinFtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinFtime(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		now := time.Now()
 		secs := float64(now.Unix()) + float64(now.Nanosecond())/1e9
@@ -512,7 +495,7 @@ func builtinFtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinCtime implements ctime([time])
 // Converts a Unix timestamp to a human-readable string
-func builtinCtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCtime(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -534,7 +517,7 @@ func builtinCtime(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns server version information
 // With no args: returns version string like "1.0.0"
 // With arg: returns specific version info (not fully implemented yet)
-func builtinServerVersion(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 	const versionString = "1.0.0-barn"
 	options := ctx.RuntimeOptions
 	featureNames := options.FeatureNames()
@@ -594,7 +577,7 @@ func boolOptionState(v bool) string {
 
 // builtinServerLog implements server_log(message)
 // Logs a message to the server log. Requires wizard permissions.
-func builtinServerLog(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinServerLog(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -621,7 +604,7 @@ func builtinServerLog(ctx *kernel.TaskContext, args []types.Value) types.Result 
 // Reloads server configuration from $server_options object.
 // Reads properties like max_string_concat and caches them globally.
 // Requires wizard permissions.
-func builtinLoadServerOptions(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinLoadServerOptions(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -642,7 +625,7 @@ func builtinLoadServerOptions(ctx *kernel.TaskContext, args []types.Value) types
 
 // builtinVerbCacheStats implements verb_cache_stats()
 // Returns a compatibility structure where element 5 is a 17-int stats vector.
-func builtinVerbCacheStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinVerbCacheStats(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {
@@ -667,7 +650,7 @@ func builtinVerbCacheStats(ctx *kernel.TaskContext, args []types.Value) types.Re
 
 // builtinResetMaxObject implements reset_max_object()
 // Recomputes max/high-water object IDs from current live objects.
-func builtinResetMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinResetMaxObject(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 0 {

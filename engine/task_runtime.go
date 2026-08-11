@@ -129,8 +129,6 @@ retryAttempt:
 		executionCtx = ctx
 	}
 
-	// Attach task to context so builtins can access task_local
-	ctx.Task = t
 	ctx.TaskID = t.ID
 	ctx.Store = s.store
 	// Release any txn left on this context from a previous attempt/run before
@@ -149,7 +147,6 @@ retryAttempt:
 	}
 	ctx.LiveStoreMutated = false
 	ctx.IrreversibleSideEffect = false
-	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
 
 	// A task resuming after suspend runs under background limits: Toast treats
@@ -204,6 +201,7 @@ retryAttempt:
 		}
 		// Attach task context (may have been updated since VM was created)
 		bcVM.Context = ctx
+		bcVM.Task = t
 		if bcVM.IsYielded() {
 			// If this task was read()-suspended, deliver the input line
 			if !t.WakeValue.IsNone() {
@@ -249,6 +247,7 @@ retryAttempt:
 		// Create bytecode VM
 		bcVM = vm.NewVM(s.store, s.registry)
 		bcVM.Context = ctx
+		bcVM.Task = t
 		bcVM.TickLimit = t.TicksLimit
 		configureVMStackLimit(bcVM)
 
@@ -316,7 +315,7 @@ retryAttempt:
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(ctx)
+				builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
 				if os.Getenv("BARN_DEBUG_RETRY") != "" {
 					slog.Warn("DEBUG-RETRY",
@@ -339,10 +338,10 @@ retryAttempt:
 	}
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(ctx)
+		builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(ctx)
+		builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 	}
 	if committed && committedWrites && ctx.StoreTxn != nil {
 		ctx.StoreTxn.Release()
@@ -393,10 +392,10 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 			s.discardCreatedForks(t)
-			builtins.DiscardPendingEffects(ctx)
+			builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 		} else {
 			t.CreatedForks = nil
-			builtins.FlushPendingEffects(ctx)
+			builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
@@ -423,14 +422,14 @@ retryAttempt:
 				t.SetState(task.TaskKilled)
 				t.SetBytecodeVM(nil)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(ctx)
+				builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 				return nil
 			}
 			// The commit published this slice's forks; the runtime owns them now.
 			// Leaving them on the task would let a later conflict-retry discard forks
 			// that are already durable (yin() suspends mid-verb, so a retry can follow).
 			t.CreatedForks = nil
-			builtins.FlushPendingEffects(ctx)
+			builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
@@ -584,9 +583,9 @@ retryAttempt:
 				t.Result = result
 				t.SetState(task.TaskKilled)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(ctx)
+				builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 			} else {
-				builtins.FlushPendingEffects(ctx)
+				builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
 			}
 		}
 
@@ -657,7 +656,6 @@ func (state taskRetryState) restore(t *task.Task) {
 	t.StartTime = time.Now()
 	t.Context = cloneTaskContextForRetry(state.context)
 	if t.Context != nil {
-		t.Context.Task = t
 		t.Context.TaskID = t.ID
 	}
 }
@@ -669,7 +667,6 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 	clone := *ctx
 	clone.StoreTxn = nil
 	clone.PendingEffects = nil
-	clone.CallerVM = nil
 	return &clone
 }
 

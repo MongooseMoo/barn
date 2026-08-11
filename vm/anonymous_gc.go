@@ -1,12 +1,13 @@
 package vm
 
 import (
+	"sort"
+
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"sort"
 )
 
 // collectAnonymousRefsForGC finds anonymous object references inside value trees.
@@ -90,8 +91,8 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 		collectAnonymousRefsForGC(exec.Context.MapFirstKey, out)
 		collectAnonymousRefsForGC(exec.Context.MapLastKey, out)
 		collectAnonymousRefsForGC(exec.Context.TaskLocal, out)
-		if owner, ok := exec.Context.Task.(*task.Task); ok && owner != nil {
-			collectAnonymousRefsForGC(owner.GetTaskLocal(), out)
+		if exec.Task != nil {
+			collectAnonymousRefsForGC(exec.Task.GetTaskLocal(), out)
 		}
 	}
 }
@@ -175,8 +176,8 @@ func collectDirectFinalizationRootsFromVM(exec *VM, refs map[types.ObjID]struct{
 		collect(exec.Context.MapFirstKey)
 		collect(exec.Context.MapLastKey)
 		collect(exec.Context.TaskLocal)
-		if owner, ok := exec.Context.Task.(*task.Task); ok && owner != nil {
-			collect(owner.GetTaskLocal())
+		if exec.Task != nil {
+			collect(exec.Task.GetTaskLocal())
 		}
 	}
 }
@@ -400,7 +401,7 @@ func pendingFinalizationValueInList(needle types.Value, values []types.Value) bo
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
 func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext) {
-	AutoRecycleOrphanAnonymousSince(store, registry, ctx, 0, nil)
+	AutoRecycleOrphanAnonymousSince(store, registry, registry.NewExecution(ctx, nil), 0, nil)
 }
 
 // AnonGCRequest is one deferred orphan-anonymous collection request: recycle
@@ -412,6 +413,7 @@ func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Reg
 // the *VM (which a concurrent flush must never touch).
 type AnonGCRequest struct {
 	Ctx       *kernel.TaskContext
+	Task      *task.Task
 	MinID     types.ObjID
 	OwnRefs   map[types.ObjID]struct{}
 	TaskOwned bool
@@ -467,9 +469,9 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 	// per request preserves request/context order with O(candidate count) memory.
 	frozenCandidates := store.AnonymousRecycleCandidates(reachable, minFloor)
 
-	recycleFrozenAnonymousCandidates(requests, frozenCandidates, func(ctx *kernel.TaskContext, id types.ObjID) {
+	recycleFrozenAnonymousCandidates(requests, frozenCandidates, func(request AnonGCRequest, id types.ObjID) {
 		// Best-effort cleanup: recycle() handles missing/already-invalid objects.
-		_ = recycleFn(ctx, []types.Value{types.NewAnon(id)})
+		_ = recycleFn(registry.NewExecution(request.Ctx, request.Task), []types.Value{types.NewAnon(id)})
 	})
 }
 
@@ -477,7 +479,7 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 // through request contexts in request order. Filtering by each floor and global
 // de-duplication reproduce the old per-request behavior without retaining one
 // candidate slice per request.
-func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates []types.ObjID, recycle func(*kernel.TaskContext, types.ObjID)) {
+func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates []types.ObjID, recycle func(AnonGCRequest, types.ObjID)) {
 	recycled := make(map[types.ObjID]struct{}, len(frozenCandidates))
 	for _, req := range requests {
 		if req.Ctx == nil {
@@ -491,7 +493,7 @@ func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates
 				continue
 			}
 			recycled[id] = struct{}{}
-			recycle(req.Ctx, id)
+			recycle(req, id)
 		}
 	}
 }
@@ -503,10 +505,11 @@ func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates
 // siblingRefs holds anonymous IDs already collected from other tasks' VMs (under the
 // engine lock, so they were snapshotted without racing those tasks). localVMs are
 // VMs owned by the calling goroutine (this task's own VM), safe to walk here.
-func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
-	if ctx == nil || store == nil || registry == nil {
+func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, execution *builtins.Execution, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
+	if execution == nil || execution.TaskContext == nil || store == nil || registry == nil {
 		return
 	}
+	ctx := execution.TaskContext
 
 	// Fast path: recycle candidates are restricted to anonymous objects with
 	// ids >= minID, so when the finished task created none the reachability
@@ -522,8 +525,8 @@ func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Re
 	for id := range siblingRefs {
 		liveRefs[id] = struct{}{}
 	}
-	if callerVM, ok := ctx.CallerVM.(*VM); ok {
-		collectAnonymousRefsFromVM(callerVM, liveRefs)
+	if execution.CollectAnonymousRefs != nil {
+		execution.CollectAnonymousRefs(liveRefs)
 	}
 	for _, exec := range localVMs {
 		collectAnonymousRefsFromVM(exec, liveRefs)
@@ -542,6 +545,6 @@ func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Re
 
 	for _, id := range candidates {
 		// Best-effort cleanup: recycle() handles missing/already-invalid objects.
-		_ = recycleFn(ctx, []types.Value{types.NewAnon(id)})
+		_ = recycleFn(execution, []types.Value{types.NewAnon(id)})
 	}
 }

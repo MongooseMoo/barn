@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -58,7 +58,7 @@ func TestRunTaskBatchRunsConfiguredWorkersInParallel(t *testing.T) {
 
 	var entered atomic.Int32
 	release := make(chan struct{})
-	s.registry.Register("parallel_gate", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("parallel_gate", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if entered.Add(1) == 2 {
 			close(release)
 		}
@@ -268,7 +268,7 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store read transaction")
 		}
@@ -444,14 +444,14 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	s.Registry().SetTaskYielder(s)
-	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
 	})
-	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("stage_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store transaction")
 		}
@@ -563,14 +563,14 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	s.registry.Register("mutate_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
 	})
-	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("stage_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store transaction")
 		}
@@ -624,7 +624,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	mutateCalls := 0
-	s.registry.Register("mutate_snapshot_value_once", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("mutate_snapshot_value_once", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		mutateCalls++
 		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -632,7 +632,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 		ctx.LiveStoreMutated = true
 		return types.Ok(types.NewInt(0))
 	})
-	s.registry.Register("stage_snapshot_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("stage_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store transaction")
 		}
@@ -683,7 +683,7 @@ func TestRunTaskDoesNotRetryAfterIrreversibleSideEffect(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	s.registry.Register("mutate_read_value", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	s.registry.Register("mutate_read_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		value, errCode := ctx.Store.PropertyValue(0, "read_value")
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
