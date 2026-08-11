@@ -230,7 +230,7 @@ func builtinExec(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 	// Get input if provided
 	var input string
-	if len(args) == 2 {
+	if len(args) >= 2 {
 		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
 		}
