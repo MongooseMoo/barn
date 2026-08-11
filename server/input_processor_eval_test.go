@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -90,7 +90,7 @@ func TestIntrinsicEvalFramesErrorResultsExactlyOnce(t *testing.T) {
 
 func TestIntrinsicEvalFramesRecoveredPanicExactlyOnce(t *testing.T) {
 	got := runIntrinsicEvalWithRuntimeSetup(t, `eval_test_panic(); return 1;`, func(rt *engine.Runtime) {
-		rt.Registry().Register("eval_test_panic", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
+		rt.Registry().Register("eval_test_panic", func(_ *builtins.Execution, _ []types.Value) types.Result {
 			panic("induced eval panic")
 		})
 	})

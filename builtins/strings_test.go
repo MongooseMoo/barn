@@ -4,7 +4,6 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -63,7 +62,7 @@ func TestMooPatternPercentWordBoundaryEscapes(t *testing.T) {
 }
 
 func TestSubstituteRejectsMalformedMatchData(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	template := types.NewStr("x")
 
 	tests := []struct {
@@ -115,7 +114,7 @@ func TestSubstituteRejectsMalformedMatchData(t *testing.T) {
 }
 
 func TestSubstituteUnusedCaptureSubstitutesEmptyString(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	groups := make([]types.Value, 9)
 	for i := range groups {
 		groups[i] = types.NewList([]types.Value{types.NewInt(0), types.NewInt(-1)})

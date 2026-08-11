@@ -45,10 +45,10 @@ func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 
 // ctxWithConnManager returns a task context whose registry has the given
 // connection manager wired, mirroring how the server wires its registry.
-func ctxWithConnManager(cm ConnectionManager) *kernel.TaskContext {
+func ctxWithConnManager(cm ConnectionManager) *Execution {
 	r := NewRegistry()
 	r.SetConnectionManager(cm)
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 	return ctx
 }

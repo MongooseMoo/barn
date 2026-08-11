@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -16,7 +15,7 @@ import (
 
 // builtinAbs returns absolute value
 // abs(number) -> int|float
-func builtinAbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAbs(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -38,7 +37,7 @@ func builtinAbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinMin returns the smallest value
 // min(num1, num2, ...) -> int|float
-func builtinMin(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMin(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -73,7 +72,7 @@ func builtinMin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinMax returns the largest value
 // max(num1, num2, ...) -> int|float
-func builtinMax(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMax(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -110,7 +109,7 @@ func builtinMax(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // random() -> int (32-bit)
 // random(max) -> int (1 to max)
 // random(min, max) -> int (min to max)
-func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRandom(ctx *Execution, args []types.Value) types.Result {
 	switch len(args) {
 	case 0:
 		// Random positive integer in full 64-bit range [1, MaxInt64]
@@ -158,7 +157,7 @@ func builtinRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinSqrt returns square root
 // sqrt(value) -> float
-func builtinSqrt(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSqrt(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -176,7 +175,7 @@ func builtinSqrt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinSin returns sine of angle (radians)
 // sin(angle) -> float
-func builtinSin(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSin(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -191,7 +190,7 @@ func builtinSin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinCos returns cosine of angle (radians)
 // cos(angle) -> float
-func builtinCos(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCos(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -206,7 +205,7 @@ func builtinCos(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinTan returns tangent of angle (radians)
 // tan(angle) -> float
-func builtinTan(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTan(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -226,7 +225,7 @@ func builtinTan(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinAsin returns arc sine
 // asin(value) -> float
-func builtinAsin(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAsin(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -244,7 +243,7 @@ func builtinAsin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinAcos returns arc cosine
 // acos(value) -> float
-func builtinAcos(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAcos(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -263,7 +262,7 @@ func builtinAcos(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinAtan returns arc tangent
 // atan(value) -> float
 // atan(y, x) -> float (two-argument form)
-func builtinAtan(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAtan(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -288,7 +287,7 @@ func builtinAtan(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinSinh returns hyperbolic sine
 // sinh(value) -> float
-func builtinSinh(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSinh(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -303,7 +302,7 @@ func builtinSinh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinCosh returns hyperbolic cosine
 // cosh(value) -> float
-func builtinCosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCosh(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -318,7 +317,7 @@ func builtinCosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinTanh returns hyperbolic tangent
 // tanh(value) -> float
-func builtinTanh(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTanh(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -333,7 +332,7 @@ func builtinTanh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinExp returns e raised to power
 // exp(value) -> float
-func builtinExp(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinExp(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -353,7 +352,7 @@ func builtinExp(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinLog returns natural logarithm
 // log(value) -> float
-func builtinLog(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinLog(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -374,7 +373,7 @@ func builtinLog(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinLog10 returns base-10 logarithm
 // log10(value) -> float
-func builtinLog10(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinLog10(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -395,7 +394,7 @@ func builtinLog10(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinCeil rounds up to nearest integer
 // ceil(float) -> float
-func builtinCeil(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCeil(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -410,7 +409,7 @@ func builtinCeil(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinFloor rounds down to nearest integer
 // floor(float) -> float
-func builtinFloor(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinFloor(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -425,7 +424,7 @@ func builtinFloor(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinTrunc truncates towards zero
 // trunc(float) -> float
-func builtinTrunc(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTrunc(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -440,7 +439,7 @@ func builtinTrunc(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinFloatstr formats a float as a string
 // floatstr(float, precision [, scientific]) -> str
-func builtinFloatstr(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinFloatstr(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -479,7 +478,7 @@ func builtinFloatstr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // toNumericFloat converts a value to float64 for math operations
 // Returns NaN if not numeric
-func builtinAcosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAcosh(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -493,7 +492,7 @@ func builtinAcosh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Acosh(f)))
 }
 
-func builtinAsinh(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAsinh(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -504,7 +503,7 @@ func builtinAsinh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Asinh(f)))
 }
 
-func builtinAtanh(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAtanh(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -521,7 +520,7 @@ func builtinAtanh(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Atanh(f)))
 }
 
-func builtinAtan2(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAtan2(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -534,7 +533,7 @@ func builtinAtan2(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Atan2(args[0].Float(), args[1].Float())))
 }
 
-func builtinCbrt(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCbrt(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -544,7 +543,7 @@ func builtinCbrt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Cbrt(args[0].Float())))
 }
 
-func builtinRound(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRound(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -554,7 +553,7 @@ func builtinRound(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Round(args[0].Float())))
 }
 
-func builtinFrandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinFrandom(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -580,7 +579,7 @@ func builtinFrandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(min + f*(max-min)))
 }
 
-func builtinReseedRandom(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinReseedRandom(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -593,7 +592,7 @@ func builtinReseedRandom(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	return types.Ok(types.NewInt(0))
 }
 
-func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinChr(ctx *Execution, args []types.Value) types.Result {
 	var out strings.Builder
 
 	var appendValue func(v types.Value) types.ErrorCode
@@ -638,7 +637,7 @@ func builtinChr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewStr(out.String()))
 }
 
-func builtinAllMembers(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAllMembers(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -669,7 +668,7 @@ func builtinAllMembers(ctx *kernel.TaskContext, args []types.Value) types.Result
 	return types.Ok(types.NewList(result))
 }
 
-func builtinDistance(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDistance(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -710,7 +709,7 @@ func builtinDistance(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	return types.Ok(types.NewFloat(math.Sqrt(total)))
 }
 
-func builtinRelativeHeading(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRelativeHeading(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -766,7 +765,7 @@ func builtinRelativeHeading(ctx *kernel.TaskContext, args []types.Value) types.R
 	}))
 }
 
-func builtinSimplexNoise(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSimplexNoise(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

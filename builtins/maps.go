@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -14,7 +13,7 @@ import (
 // Toast walks the rbtree (mapforeach) with NO separate sort; Keys() is that
 // traversal, so re-sorting here would diverge (CompareMapKeys ranks err/float
 // and bool/str opposite Toast's runtime type ordinals).
-func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMapkeys(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -27,7 +26,7 @@ func builtinMapkeys(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinMapvalues returns a list of all values in the map, sorted by key order
 // mapvalues(map) -> list
-func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMapvalues(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -64,7 +63,7 @@ func builtinMapvalues(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinMapdelete returns a new map with the key removed
 // mapdelete(map, key) -> map
-func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMapdelete(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -98,7 +97,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 			}
 			result = result.MapDelete(key)
 		}
-		if err := CheckMapLimitForTask(ctx, result); err != types.E_NONE {
+		if err := CheckMapLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)
@@ -117,7 +116,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	result := m.MapDelete(key)
 
 	// Check the map limit, independently of the list value byte limit.
-	if err := CheckMapLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckMapLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -126,7 +125,7 @@ func builtinMapdelete(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinMaphaskey tests if a key exists in the map
 // maphaskey(map, key) -> int (1 if found, 0 if not)
-func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMaphaskey(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -160,7 +159,7 @@ func builtinMaphaskey(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinMapmerge merges two maps (map2 values override map1 on duplicates)
 // mapmerge(map1, map2) -> map
-func builtinMapmerge(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMapmerge(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

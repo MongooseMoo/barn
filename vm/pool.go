@@ -58,15 +58,11 @@ func AcquireVM(store *dbstore.Store, registry *builtins.Registry) *VM {
 // pool a VM that may still be referenced:
 //
 //   - a yielded VM (suspend/fork) can still be Resume()d by whoever holds it;
-//   - a VM still installed as ctx.CallerVM is reachable from a builtin;
 //   - an oversized VM would pin its backing arrays.
 //
 // Declining is not an error — the VM is simply left to the garbage collector.
 func ReleaseVM(machine *VM) {
 	if machine == nil || machine.yielded {
-		return
-	}
-	if machine.Context != nil && machine.Context.CallerVM == machine {
 		return
 	}
 	if cap(machine.Stack) > maxPooledStackCap || cap(machine.Frames) > maxPooledFramesCap {

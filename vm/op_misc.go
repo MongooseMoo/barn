@@ -38,22 +38,22 @@ func (vm *VM) executeCallBuiltin() error {
 		vm.syncTaskLineNumbers()
 	}
 
-	// Set CallerVM so builtins like eval() can push frames on this VM
-	if vm.Context != nil {
-		vm.Context.CallerVM = vm
+	// Supply runtime services explicitly for this builtin invocation.
+	execution := vm.Builtins.NewExecution(vm.Context, vm.Task)
+	execution.PushEval = vm.pushEval
+	execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
+		CollectAnonymousRefsFromVM(vm, out)
 	}
-
-	// Call builtin
-	result := vm.Builtins.CallByID(int(funcID), vm.Context, args)
+	if vm.Context == nil || !vm.Context.DeferredGC {
+		execution.PendingFinalizations = func() []types.Value {
+			return CollectPendingFinalizationValues(vm.Store, vm)
+		}
+	}
+	result := vm.Builtins.CallByIDWithExecution(int(funcID), execution, args)
 	if vm.Context != nil && vm.Context.BuiltinTicksConsumed != 0 {
 		vm.Ticks += vm.Context.BuiltinTicksConsumed
 		vm.Context.BuiltinTicksConsumed = 0
 		vm.syncContextTicks()
-	}
-
-	// Clear CallerVM after the call
-	if vm.Context != nil {
-		vm.Context.CallerVM = nil
 	}
 
 	if result.Flow == types.FlowException {

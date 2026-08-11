@@ -11,7 +11,7 @@ func TestCryptRejectsWorkAboveServerLimits(t *testing.T) {
 	cacheServerOptionsDefaults()
 	t.Cleanup(cacheServerOptionsDefaults)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	for _, salt := range []string{
 		"$2y$15$......................",
@@ -29,7 +29,7 @@ func TestCryptChargesTicksBeforeHashing(t *testing.T) {
 	cacheServerOptionsDefaults()
 	t.Cleanup(cacheServerOptionsDefaults)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.TicksRemaining = 4
 	result := builtinCrypt(ctx, []types.Value{
@@ -63,7 +63,7 @@ func TestCryptUsesPendingServerOptions(t *testing.T) {
 
 	snapshot := defaultServerOptionsSnapshot()
 	snapshot.MaxCryptBcryptCost = 4
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind:          kernel.PendingEffectServerOptions,

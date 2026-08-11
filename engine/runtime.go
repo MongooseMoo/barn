@@ -128,7 +128,11 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		shutdownReady:          make(chan struct{}),
 	}
 
-	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, tc *kernel.TaskContext) types.Result {
+	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
+		var tc *kernel.TaskContext
+		if execution != nil {
+			tc = execution.TaskContext
+		}
 		player := types.ObjNothing
 		if tc != nil {
 			player = tc.Player
@@ -136,8 +140,8 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 				player = tc.Programmer
 			}
 		}
-		if tc != nil && tc.StoreTxn != nil && tc.Task != nil {
-			return s.CallVerbInContext(objID, verbName, args, tc)
+		if tc != nil && tc.StoreTxn != nil && execution.Task != nil {
+			return s.CallVerbInContext(objID, verbName, args, execution)
 		}
 		// A no-transaction recycle context needs standalone server-hook semantics,
 		// but inherits the sweep barrier instead of acquiring vmStartMu. Transaction
@@ -154,7 +158,8 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		}
 		return s.CallVerb(objID, verbName, args, player)
 	})
-	s.registry.SetRunGCFunc(func(ctx *kernel.TaskContext) error {
+	s.registry.SetRunGCFunc(func(execution *builtins.Execution) error {
+		ctx := execution.TaskContext
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
 		if !s.gcSweepMu.TryLock() {
@@ -164,10 +169,7 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		s.vmStartMu.Lock()
 		defer s.vmStartMu.Unlock()
 
-		var current *task.Task
-		if ctx != nil {
-			current, _ = ctx.Task.(*task.Task)
-		}
+		current := execution.Task
 		if ownerID, claimed, attributable := s.executionContextClaim(ctx); claimed && !attributable {
 			return nil
 		} else if claimed {
@@ -197,7 +199,7 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		}
 		s.acquireSweepContext(ctx)
 		defer s.releaseSweepContext(ctx)
-		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, ctx, 0, siblingAnon)
+		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, execution, 0, siblingAnon)
 		return renewTransaction()
 	})
 	s.startWorkers()
@@ -270,7 +272,7 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 // acquireInheritedTaskExecution records a synchronously nested standalone VM
 // under an execution lease that already passed vmStartMu. It must not acquire
 // vmStartMu again, but the extra refcount makes run_gc fail closed while both
-// the outer and inner VMs hold roots and TaskContext.CallerVM names only one.
+// the outer and inner VMs both hold roots for the same task.
 func (s *Runtime) acquireInheritedTaskExecution(taskID int64) {
 	s.mu.Lock()
 	s.executingTasks[taskID]++
@@ -373,7 +375,6 @@ func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 		return
 	}
 	ctx.Store = s.store
-	ctx.Registry = s.registry
 	ctx.RuntimeOptions = s.options
 	// With() formats these once per task rather than once per record.
 	ctx.Log = slog.Default().With(
@@ -396,6 +397,13 @@ func (s *Runtime) BeginShutdown(exec *vm.VM) <-chan struct{} {
 	if exec != nil && (exec.Context == nil || !exec.Context.DeferredGC) {
 		callerRoots = vm.CollectPendingFinalizationValues(s.store, exec)
 	}
+	return s.BeginShutdownWithRoots(callerRoots)
+}
+
+// BeginShutdownWithRoots closes ordinary finalization ownership using roots
+// supplied by the active execution, without exposing its concrete VM to the
+// server lifecycle layer.
+func (s *Runtime) BeginShutdownWithRoots(callerRoots []types.Value) <-chan struct{} {
 	s.pendingWaifMu.Lock()
 	ready := s.shutdownReady
 	if s.shutdownPublished {

@@ -3,12 +3,11 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestParseJsonNullMapsToENone(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 
 	res := builtinParseJson(ctx, []types.Value{types.NewStr(`null`)})
 	if res.IsError() {

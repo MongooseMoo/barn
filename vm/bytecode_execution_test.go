@@ -19,14 +19,11 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	if ctx == nil {
 		ctx = kernel.NewTaskContext()
 	}
-	if ctx.Task == nil {
-		ctx.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
-	}
+	taskValue := task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 
 	registry := BuildVMRegistry()
 	registry.SetTaskManager(task.NewManager())
 	ctx.Store = store
-	ctx.Registry = registry
 
 	prog, diagnostics := compiler.CompileMOO([]string{code}, registry)
 	if len(diagnostics) > 0 {
@@ -35,6 +32,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 
 	machine := NewVM(store, registry)
 	machine.Context = ctx
+	machine.Task = taskValue
 	result := machine.Run(prog)
 	for result.Flow == types.FlowSuspend || result.Flow == types.FlowFork {
 		if result.Flow == types.FlowFork && result.ForkInfo != nil && result.ForkInfo.VarName != "" {
@@ -543,7 +541,7 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 	machine := NewVM(store, registry)
 	machine.MaxStackDepth = 1
 	machine.Context = kernel.NewTaskContext()
-	machine.Context.Task = taskValue
+	machine.Task = taskValue
 
 	result := machine.Run(program)
 	if result.Flow != types.FlowReturn || result.Val.String() != `"caught"` {
@@ -819,7 +817,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	registry := BuildVMRegistry()
 	registry.SetTaskManager(task.NewManager())
 	ctx := kernel.NewTaskContext()
-	ctx.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 
 	program, diagnostics := compiler.CompileMOO([]string{`suspend(); return 9;`}, registry)
 	if len(diagnostics) > 0 {
@@ -828,6 +826,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 
 	machine := NewVM(store, registry)
 	machine.Context = ctx
+	machine.Task = taskValue
 	// Model a stack that previously grew past its current live region. These
 	// reference-bearing values must not remain reachable while the VM sleeps.
 	machine.Stack = []types.Value{
@@ -855,9 +854,8 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	registry := BuildVMRegistry()
 	registry.SetTaskManager(task.NewManager())
 	ctx := kernel.NewTaskContext()
-	ctx.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
+	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
-	ctx.Registry = registry
 	program, diagnostics := compiler.CompileMOO([]string{`
 		try
 			suspend();
@@ -872,6 +870,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 
 	machine := NewVM(store, registry)
 	machine.Context = ctx
+	machine.Task = taskValue
 	if result := machine.Run(program); result.Flow != types.FlowSuspend {
 		t.Fatalf("initial result = %#v, want suspend", result)
 	}

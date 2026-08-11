@@ -7,13 +7,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 // builtinTypeof returns the type code of a value
 // typeof(value) -> int (TYPE_INT=0, TYPE_OBJ=1, TYPE_STR=2, etc.)
-func builtinTypeof(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTypeof(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -24,7 +23,7 @@ func builtinTypeof(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinTostr converts values to strings and concatenates them
 // tostr(value, ...) -> str
 // Accepts any number of arguments (0 or more), converts each to string, concatenates
-func builtinTostr(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTostr(ctx *Execution, args []types.Value) types.Result {
 	// tostr() with no args returns empty string
 	if len(args) == 0 {
 		return types.Ok(types.NewStr(""))
@@ -36,7 +35,7 @@ func builtinTostr(ctx *kernel.TaskContext, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	UpdateContextLimits(ctx)
+	UpdateContextLimits(ctx.TaskContext)
 	resultStr := result.String()
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
@@ -93,7 +92,7 @@ func valueToStr(val types.Value) string {
 // toint(float) -> int (truncate to integer)
 // toint(obj) -> int (object ID)
 // toint(int) -> int (identity)
-func builtinToint(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinToint(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -153,7 +152,7 @@ func builtinToint(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // tofloat(int) -> float (convert to float)
 // tofloat(str) -> float (parse string as float)
 // tofloat(float) -> float (identity)
-func builtinTofloat(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -197,7 +196,7 @@ func builtinTofloat(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinToliteral converts a value to its MOO literal string representation
 // toliteral(value) -> str
-func builtinToliteral(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinToliteral(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -205,7 +204,7 @@ func builtinToliteral(ctx *kernel.TaskContext, args []types.Value) types.Result 
 	resultStr := publicLiteral(args[0])
 
 	// Check string length limit (update from load_server_options cache first)
-	UpdateContextLimits(ctx)
+	UpdateContextLimits(ctx.TaskContext)
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -243,7 +242,7 @@ func publicLiteral(value types.Value) string {
 // toobj(int) -> obj (object with that ID)
 // toobj(str) -> obj (parse "#123" format)
 // toobj(obj) -> obj (identity)
-func builtinToobj(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinToobj(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -293,7 +292,7 @@ func builtinToobj(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinEqual tests deep equality of two values
 // equal(val1, val2) -> bool
 // For maps, this is case-SENSITIVE (unlike == operator)
-func builtinEqual(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinEqual(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}

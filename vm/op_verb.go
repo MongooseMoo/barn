@@ -226,15 +226,14 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 			break
 		}
 	}
-	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
-		if t, ok := vm.Context.Task.(*task.Task); ok {
-			SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
-			SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
-		}
+	if !insideEval && vm.Task != nil {
+		t := vm.Task
+		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
+		SetLocalBySlot(frame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
 	} else {
 		SetLocalBySlot(frame, prog.BuiltinSlots.Argstr, types.NewStr(""))
 		SetLocalBySlot(frame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
@@ -265,21 +264,19 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 	}
 
 	// Push activation frame onto task call stack (if we have a task)
-	if vm.Context != nil && vm.Context.Task != nil {
-		if t, ok := vm.Context.Task.(*task.Task); ok {
-			actFrame := task.ActivationFrame{
-				This:       objID,
-				ThisValue:  thisValue, // Store waif/primitive/anonymous value for callers()/queued_tasks()
-				Player:     player,
-				Programmer: verb.Owner,
-				Caller:     callerObj,
-				Verb:       lookupVerbName,
-				VerbLoc:    defObjID,
-				Args:       args,
-				LineNumber: 0,
-			}
-			t.PushFrame(actFrame)
+	if vm.Task != nil {
+		actFrame := task.ActivationFrame{
+			This:       objID,
+			ThisValue:  thisValue, // Store waif/primitive/anonymous value for callers()/queued_tasks()
+			Player:     player,
+			Programmer: verb.Owner,
+			Caller:     callerObj,
+			Verb:       lookupVerbName,
+			VerbLoc:    defObjID,
+			Args:       args,
+			LineNumber: 0,
 		}
+		vm.Task.PushFrame(actFrame)
 	}
 
 	vm.pushFrame(frame)
@@ -448,15 +445,14 @@ func (vm *VM) executePass() error {
 			break
 		}
 	}
-	if !insideEval && vm.Context != nil && vm.Context.Task != nil {
-		if t, ok := vm.Context.Task.(*task.Task); ok {
-			SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
-			SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
-			SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
-			SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
-			SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
-			SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
-		}
+	if !insideEval && vm.Task != nil {
+		t := vm.Task
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(t.Argstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(t.Dobjstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobjstr, types.NewStr(t.Iobjstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Prepstr, types.NewStr(t.Prepstr))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobj, types.NewObj(t.Dobj))
+		SetLocalBySlot(newFrame, prog.BuiltinSlots.Iobj, types.NewObj(t.Iobj))
 	} else {
 		SetLocalBySlot(newFrame, prog.BuiltinSlots.Argstr, types.NewStr(""))
 		SetLocalBySlot(newFrame, prog.BuiltinSlots.Dobjstr, types.NewStr(""))
@@ -490,21 +486,19 @@ func (vm *VM) executePass() error {
 	}
 
 	// Push activation frame onto task call stack (if we have a task)
-	if vm.Context != nil && vm.Context.Task != nil {
-		if t, ok := vm.Context.Task.(*task.Task); ok {
-			actFrame := task.ActivationFrame{
-				This:       frame.This,
-				ThisValue:  passThisValue,
-				Player:     frame.Player,
-				Programmer: verb.Owner,
-				Caller:     frame.Caller,
-				Verb:       verbName,
-				VerbLoc:    defObjID,
-				Args:       passArgs,
-				LineNumber: 0,
-			}
-			t.PushFrame(actFrame)
+	if vm.Task != nil {
+		actFrame := task.ActivationFrame{
+			This:       frame.This,
+			ThisValue:  passThisValue,
+			Player:     frame.Player,
+			Programmer: verb.Owner,
+			Caller:     frame.Caller,
+			Verb:       verbName,
+			VerbLoc:    defObjID,
+			Args:       passArgs,
+			LineNumber: 0,
 		}
+		vm.Task.PushFrame(actFrame)
 	}
 
 	vm.pushFrame(newFrame)

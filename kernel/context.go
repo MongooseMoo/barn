@@ -50,18 +50,6 @@ type TaskContext struct {
 	// Server-initiated frames are excluded from callers() results
 	ServerInitiated bool
 
-	// Task is a reference to the actual Task object (if this context is part of a task)
-	// This allows builtins to access the call stack, suspend/resume, etc.
-	// Import cycle prevention: This is stored as interface{} and cast to *task.Task when needed
-	Task interface{}
-
-	// CallerVM is a reference to the VM that is currently calling a builtin.
-	// This allows eval() to push a frame on the calling VM instead of creating
-	// a separate VM, matching Toast's behavior where eval() adds an activation
-	// to the same activation stack.
-	// Import cycle prevention: This is stored as interface{} (should be *vm.VM)
-	CallerVM interface{}
-
 	// Store is a reference to the object database (if available)
 	// This allows builtins and limits to read server options from $server_options
 	Store *dbstore.Store
@@ -88,11 +76,6 @@ type TaskContext struct {
 	// PendingEffects holds commit-deferred external effects in source call order.
 	// Failed commits discard the log; successful commits replay it sequentially.
 	PendingEffects []PendingEffect
-
-	// Registry is a reference to the builtins registry (if available).
-	// This allows builtins to call other builtins or look up function info.
-	// Import cycle prevention: This is stored as interface{} (should be *builtins.Registry)
-	Registry interface{}
 
 	// MaxStringConcat is the maximum string length allowed by string-producing builtins
 	// When a string operation would produce a result longer than this, E_QUOTA is returned
@@ -161,8 +144,9 @@ type PendingServerOptions struct {
 }
 
 // NewTaskContext creates a new task context with default values.
-// Store and Registry are intentionally left nil; callers with access to those
-// dependencies must populate them before invoking store-backed builtins.
+// Store is intentionally left nil; callers with access to it must populate it
+// before invoking store-backed builtins. Runtime services are supplied outside
+// TaskContext by the engine and VM.
 func NewTaskContext() *TaskContext {
 	return &TaskContext{
 		TicksRemaining:  300000, // Default tick limit (increased to handle long loops without suspend)

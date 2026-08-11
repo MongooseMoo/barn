@@ -206,7 +206,7 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 	registry := builtins.NewRegistry()
 	var createdByHook types.ObjID
 	recycleCalls := 0
-	registry.Register("recycle", func(_ *kernel.TaskContext, args []types.Value) types.Result {
+	registry.Register("recycle", func(_ *builtins.Execution, args []types.Value) types.Result {
 		recycleCalls++
 		if len(args) != 1 || args[0].Type() != types.TYPE_ANON {
 			return types.Err(types.E_INVARG)
@@ -229,7 +229,6 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 
 	ctx := kernel.NewTaskContext()
 	ctx.Store = store
-	ctx.Registry = registry
 	const requestCount = 128
 	requests := make([]AnonGCRequest, requestCount)
 	for i := range requests {
@@ -261,7 +260,7 @@ func TestRecycleFrozenAnonymousCandidatesAllocationsDoNotScaleWithRequests(t *te
 	for i := range candidates {
 		candidates[i] = types.ObjID(i + 1)
 	}
-	recycle := func(_ *kernel.TaskContext, _ types.ObjID) {}
+	recycle := func(_ AnonGCRequest, _ types.ObjID) {}
 
 	allocs := testing.AllocsPerRun(50, func() {
 		recycleFrozenAnonymousCandidates(requests, candidates, recycle)

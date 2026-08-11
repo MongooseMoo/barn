@@ -3,13 +3,12 @@ package builtins
 import (
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestFileListReturnsEmptyListWhenSandboxDirectoryIsMissing(t *testing.T) {
 	t.Chdir(t.TempDir())
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 
 	result := builtinFileList(ctx, []types.Value{types.NewStr("."), types.NewFloat(1.5)})

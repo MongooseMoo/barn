@@ -93,7 +93,7 @@ func TestCryptRoundsHonored(t *testing.T) {
 }
 
 func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	first := builtinValueHash(ctx, []types.Value{types.NewAnon(12)})
 	second := builtinValueHash(ctx, []types.Value{types.NewAnon(13)})
 	if first.IsError() || second.IsError() {
@@ -105,7 +105,7 @@ func TestValueHashHidesAnonymousObjectIdentity(t *testing.T) {
 }
 
 func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
 		ServerOptions: kernel.PendingServerOptions{
@@ -115,7 +115,7 @@ func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		builtin    func(*kernel.TaskContext, []types.Value) types.Result
+		builtin    func(*Execution, []types.Value) types.Result
 		args       []types.Value
 		wantLength int
 	}{
@@ -141,7 +141,7 @@ func TestHashAndHMACResultsIgnoreStringConcatLimit(t *testing.T) {
 }
 
 func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	decoded := types.NewList([]types.Value{types.NewInt(120), types.NewInt(120)})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,
@@ -157,7 +157,7 @@ func TestDecodeBinaryFullyNumericUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestDecodeBinaryGroupedUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	decoded := types.NewList([]types.Value{types.NewStr("xx")})
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind: kernel.PendingEffectServerOptions,

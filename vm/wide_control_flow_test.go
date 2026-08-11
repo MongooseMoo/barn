@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -83,7 +82,7 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 
 	store := dbstore.NewStore()
 	parent := NewVM(store, registry)
-	parent.Context = bytecodeTestContext(store, registry)
+	parent.Context, parent.Task = bytecodeTestContext(store)
 	result := parent.Run(program)
 	if result.Flow != types.FlowFork || result.ForkInfo == nil {
 		t.Fatalf("parent result = flow %v, error %v, want fork", result.Flow, result.Error)
@@ -104,15 +103,13 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 	}
 
 	child := NewVM(store, registry)
-	child.Context = bytecodeTestContext(store, registry)
+	child.Context, child.Task = bytecodeTestContext(store)
 	childResult := child.Run(childProgram)
 	requireInt(t, childResult, 70)
 }
 
-func bytecodeTestContext(store *dbstore.Store, registry *builtins.Registry) *kernel.TaskContext {
+func bytecodeTestContext(store *dbstore.Store) (*kernel.TaskContext, *task.Task) {
 	ctx := kernel.NewTaskContext()
-	ctx.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 	ctx.Store = store
-	ctx.Registry = registry
-	return ctx
+	return ctx, task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 }

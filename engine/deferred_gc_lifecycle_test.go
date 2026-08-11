@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -112,7 +113,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	release := func() { releaseOnce.Do(func() { close(releaseSweep) }) }
 	defer release()
 	var sweepOnce sync.Once
-	rt.registry.Register("recycle", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	rt.registry.Register("recycle", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		sweepOnce.Do(func() {
 			nestedSweepVerb <- rt.registry.CallVerb(0, "sweep_probe", nil, ctx)
 			runGC, ok := rt.registry.Get("run_gc")
@@ -134,7 +135,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	})
 
 	taskEntered := make(chan types.ObjID, 1)
-	rt.registry.Register("gc_task_started", func(_ *kernel.TaskContext, args []types.Value) types.Result {
+	rt.registry.Register("gc_task_started", func(_ *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 1 || args[0].Type() != types.TYPE_ANON {
 			return types.Err(types.E_INVARG)
 		}
@@ -151,7 +152,6 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	gcCtx.Programmer = 0
 	gcCtx.IsWizard = true
 	gcCtx.Store = store
-	gcCtx.Registry = rt.registry
 	// Two requests are intentional. The first request computes its candidates and
 	// then blocks in recycle(); without a start barrier, a newly-running VM can
 	// create a second anonymous object before the second request computes its
@@ -257,7 +257,7 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseSweep) }) }
 	defer release()
-	rt.registry.Register("recycle", func(_ *kernel.TaskContext, args []types.Value) types.Result {
+	rt.registry.Register("recycle", func(_ *builtins.Execution, args []types.Value) types.Result {
 		close(sweepEntered)
 		<-releaseSweep
 		if err := store.Recycle(args[0].Obj()); err != nil {
@@ -271,7 +271,6 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	gcCtx.Programmer = 0
 	gcCtx.IsWizard = true
 	gcCtx.Store = store
-	gcCtx.Registry = rt.registry
 	rt.deferAnonGC(gcCtx, candidate, nil)
 	sweepDone := make(chan struct{})
 	go func() {
@@ -285,7 +284,7 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	}
 
 	evalEntered := make(chan struct{})
-	rt.registry.Register("gc_eval_started", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
+	rt.registry.Register("gc_eval_started", func(_ *builtins.Execution, _ []types.Value) types.Result {
 		close(evalEntered)
 		return types.Ok(types.NewInt(0))
 	})
@@ -360,7 +359,7 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseSweep) }) }
 	defer release()
-	rt.registry.Register("recycle", func(_ *kernel.TaskContext, args []types.Value) types.Result {
+	rt.registry.Register("recycle", func(_ *builtins.Execution, args []types.Value) types.Result {
 		close(sweepEntered)
 		<-releaseSweep
 		if err := store.Recycle(args[0].Obj()); err != nil {
@@ -369,7 +368,7 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	})
 	hookEntered := make(chan struct{})
-	rt.registry.Register("gc_server_hook_started", func(_ *kernel.TaskContext, _ []types.Value) types.Result {
+	rt.registry.Register("gc_server_hook_started", func(_ *builtins.Execution, _ []types.Value) types.Result {
 		close(hookEntered)
 		return types.Ok(types.NewInt(0))
 	})
@@ -382,7 +381,6 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 	gcCtx.Programmer = 0
 	gcCtx.IsWizard = true
 	gcCtx.Store = store
-	gcCtx.Registry = rt.registry
 	rt.deferAnonGC(gcCtx, candidate, nil)
 	sweepDone := make(chan struct{})
 	go func() {

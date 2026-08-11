@@ -7,7 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -80,7 +79,7 @@ func unparsePrepSpec(prepStr string) string {
 
 // builtinRespondTo: respond_to(object, verb_name) → INT
 // Returns 1 if the object has the verb (directly or via inheritance), 0 otherwise
-func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -129,7 +128,7 @@ func builtinRespondTo(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinVerbs: verbs(object) → LIST
 // Returns list of verb names defined on object
-func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinVerbs(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -167,7 +166,7 @@ func builtinVerbs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinVerbInfo: verb_info(object, name-or-index) → LIST
 // Returns {owner, perms, names}
 // name-or-index can be a string (verb name) or integer (1-based index)
-func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -227,7 +226,7 @@ func builtinVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinVerbArgs: verb_args(object, name-or-index) → LIST
 // Returns {dobj, prep, iobj}
 // name-or-index can be a string (verb name) or integer (1-based index)
-func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinVerbArgs(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -284,7 +283,7 @@ func builtinVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinVerbCode: verb_code(object, name-or-index [, fully_paren [, indent]]) → LIST
 // Returns verb source code as list of lines.
 // name-or-index can be a string (verb name) or integer (1-based verb index).
-func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -351,7 +350,7 @@ func builtinVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Adds a new verb to object and returns 1-based verb index
 // info: {owner, perms, names}
 // args: {dobj, prep, iobj}
-func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -508,7 +507,7 @@ func builtinAddVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
-func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 2 {
@@ -575,7 +574,7 @@ func builtinDeleteVerb(ctx *kernel.TaskContext, args []types.Value) types.Result
 // builtinSetVerbInfo: set_verb_info(object, name, info) → none
 // Changes verb metadata
 // info: {owner, perms, names}
-func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -649,7 +648,7 @@ func builtinSetVerbInfo(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // builtinSetVerbArgs: set_verb_args(object, name, args) → none
 // Changes verb argument specification
 // args: {dobj, prep, iobj}
-func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -717,7 +716,7 @@ func builtinSetVerbArgs(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // builtinSetVerbCode: set_verb_code(object, name, code) → LIST
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
-func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
 
 	if len(args) != 3 {
@@ -786,7 +785,7 @@ func builtinSetVerbCode(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	// Compile the code. Toast verb_code() returns source without semicolons for
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
 	compileLines := lines
-	registry, _ := ctx.Registry.(*Registry)
+	registry := ctx.Registry
 	_, diagnostics := compiler.CompileMOO(compileLines, registry)
 	if len(diagnostics) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
@@ -911,7 +910,7 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 
 // builtinDisassemble: disassemble(object, name) → LIST
 // Returns bytecode disassembly (wizard only)
-func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDisassemble(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -964,7 +963,7 @@ func builtinDisassemble(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Err(types.E_PERM)
 	}
 
-	registry, _ := ctx.Registry.(*Registry)
+	registry := ctx.Registry
 	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, registry)
 	if len(diagnostics) > 0 {
 		return types.Err(types.E_INVARG)

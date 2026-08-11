@@ -1,9 +1,10 @@
 package builtins
 
 import (
+	"testing"
+
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"testing"
 )
 
 func resetHTTPTestState(player types.ObjID) {

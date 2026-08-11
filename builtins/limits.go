@@ -276,7 +276,7 @@ func LoadServerOptionsFromStore(store *dbstore.Store) int {
 
 // LoadServerOptionsForTask reads limits through the active task view so
 // same-task updates to $server_options take effect before the task commits.
-func LoadServerOptionsForTask(ctx *kernel.TaskContext) int {
+func LoadServerOptionsForTask(ctx *Execution) int {
 	if ctx == nil {
 		return loadServerOptions(nil, nil)
 	}
@@ -344,7 +344,7 @@ func UpdateContextLimits(ctx *kernel.TaskContext) {
 
 // builtinValueBytes implements the value_bytes(value) builtin.
 // Returns the size in bytes of any MOO value.
-func builtinValueBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinValueBytes(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}

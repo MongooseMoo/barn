@@ -110,7 +110,7 @@ func parseConnectionTarget(v types.Value) (types.ObjID, bool) {
 	}
 }
 
-func resolveConnection(ctx *kernel.TaskContext, player types.ObjID) Connection {
+func resolveConnection(ctx *Execution, player types.ObjID) Connection {
 	cm := hostOf(ctx).ConnManager
 	if cm == nil {
 		return nil
@@ -782,7 +782,7 @@ func listenerDescriptorEqual(left, right listener.Descriptor) bool {
 }
 
 // notify(player, message [, no_flush [, no_newline]]) -> int
-func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -835,7 +835,7 @@ func builtinNotify(ctx *kernel.TaskContext, args []types.Value) types.Result {
 }
 
 // listeners([find]) -> list of listener maps.
-func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinListeners(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -927,7 +927,7 @@ func builtinListeners(ctx *kernel.TaskContext, args []types.Value) types.Result 
 }
 
 // connected_players([show_all]) -> list.
-func builtinConnectedPlayers(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinConnectedPlayers(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -959,7 +959,7 @@ func builtinConnectedPlayers(ctx *kernel.TaskContext, args []types.Value) types.
 }
 
 // connection_name(player [, method]) -> str.
-func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinConnectionName(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1012,7 +1012,7 @@ func builtinConnectionName(ctx *kernel.TaskContext, args []types.Value) types.Re
 }
 
 // boot_player(player) -> int.
-func builtinBootPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1046,7 +1046,7 @@ func builtinBootPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result
 }
 
 // switch_player(old_player, new_player [, silent]) -> none.
-func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1090,7 +1090,7 @@ func builtinSwitchPlayer(ctx *kernel.TaskContext, args []types.Value) types.Resu
 }
 
 // idle_seconds(player) -> int.
-func builtinIdleSeconds(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinIdleSeconds(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1115,7 +1115,7 @@ func builtinIdleSeconds(ctx *kernel.TaskContext, args []types.Value) types.Resul
 }
 
 // connected_seconds(player) -> int.
-func builtinConnectedSeconds(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinConnectedSeconds(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1140,7 +1140,7 @@ func builtinConnectedSeconds(ctx *kernel.TaskContext, args []types.Value) types.
 }
 
 // connection_info(player) -> map.
-func builtinConnectionInfo(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinConnectionInfo(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1203,7 +1203,7 @@ func builtinConnectionInfo(ctx *kernel.TaskContext, args []types.Value) types.Re
 }
 
 // connection_name_lookup(player [, rewrite]) -> int.
-func builtinConnectionNameLookup(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinConnectionNameLookup(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1230,7 +1230,7 @@ func builtinConnectionNameLookup(ctx *kernel.TaskContext, args []types.Value) ty
 }
 
 // set_connection_option(conn, option, value) -> int.
-func builtinSetConnectionOption(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1298,7 +1298,7 @@ func builtinSetConnectionOption(ctx *kernel.TaskContext, args []types.Value) typ
 }
 
 // connection_option(conn, option) -> value.
-func builtinConnectionOption(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1331,7 +1331,7 @@ func builtinConnectionOption(ctx *kernel.TaskContext, args []types.Value) types.
 }
 
 // read_http([type [, connection]]) -> map | E_PERM | E_ARGS | E_TYPE | E_INVARG.
-func builtinReadHTTP(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1381,8 +1381,8 @@ func builtinReadHTTP(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	t, ok := ctx.Task.(*task.Task)
-	if !ok {
+	t := ctx.Task
+	if t == nil {
 		return types.Err(types.E_INVARG)
 	}
 

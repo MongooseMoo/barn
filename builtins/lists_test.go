@@ -12,8 +12,8 @@ import (
 // verified live 2026-07-01: is_member(1, {1.0}) and is_member(1.0, {1}) => 1.
 // Strict Toast master: both => 0.
 func TestIsMemberPromoteNumbers(t *testing.T) {
-	strict := kernel.NewTaskContext()
-	promote := kernel.NewTaskContext()
+	strict := newTestExecution()
+	promote := newTestExecution()
 	promote.RuntimeOptions.PromoteNumbers = true
 
 	lst := types.NewList([]types.Value{types.NewFloat(1.0)})
@@ -37,7 +37,7 @@ func TestIsMemberPromoteNumbers(t *testing.T) {
 }
 
 func TestListappendClampsExplicitPosition(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1), types.NewInt(2)})
 	tests := []struct {
 		position int64
@@ -75,7 +75,7 @@ func TestListappendClampsExplicitPosition(t *testing.T) {
 }
 
 func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
 	limit := ValueBytes(list.Append(value))
@@ -93,7 +93,7 @@ func TestSetaddUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
 	limit := ValueBytes(list.InsertAt(1, value))
@@ -111,7 +111,7 @@ func TestListinsertUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewInt(2)
 	limit := ValueBytes(list.InsertAt(list.Len()+1, value))
@@ -129,7 +129,7 @@ func TestListappendUsesPendingListValueByteLimit(t *testing.T) {
 }
 
 func TestListsetUsesPendingListValueByteLimit(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	list := types.NewList([]types.Value{types.NewInt(1)})
 	value := types.NewList([]types.Value{types.NewInt(2)})
 	limit := ValueBytes(list.Set(1, value))

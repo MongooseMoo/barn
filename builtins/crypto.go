@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 
 	cryptbcrypt "github.com/go-crypt/x/bcrypt"
@@ -29,7 +28,7 @@ import (
 // builtinEncodeBase64 encodes a string to base64
 // encode_base64(str [, url_safe]) -> str
 // Input string may contain ~XX binary escapes which are decoded first
-func builtinEncodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinEncodeBase64(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -60,7 +59,7 @@ func builtinEncodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	UpdateContextLimits(ctx)
+	UpdateContextLimits(ctx.TaskContext)
 	if err := ctx.CheckStringLimit(len(encoded)); err != types.E_NONE {
 		return types.Err(err)
 	}
@@ -71,7 +70,7 @@ func builtinEncodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 // builtinDecodeBase64 decodes a base64 string
 // decode_base64(str [, url_safe]) -> str
 // Returns a binary string with ~XX escapes for non-printable bytes
-func builtinDecodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDecodeBase64(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -120,7 +119,7 @@ func builtinDecodeBase64(ctx *kernel.TaskContext, args []types.Value) types.Resu
 // encode_binary(str) -> str
 // encode_binary(list of strings/ints) -> str
 // encode_binary(val1, val2, ...) -> str (varargs)
-func builtinEncodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinEncodeBinary(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		return types.Ok(types.NewStr(""))
 	}
@@ -161,7 +160,7 @@ func builtinEncodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	UpdateContextLimits(ctx)
+	UpdateContextLimits(ctx.TaskContext)
 	resultStr := result.String()
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
@@ -190,7 +189,7 @@ func encodeByteHex(b byte) string {
 // builtinDecodeBinary decodes a ~XX binary-encoded string
 // decode_binary(str) -> list grouping printable chars as strings, non-printable as ints
 // decode_binary(str, "as_str") -> str (raw bytes as string)
-func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinDecodeBinary(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -238,7 +237,7 @@ func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 		}
 		result := types.NewList(elements)
 		// Check size limit
-		if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
+		if err := CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 			return types.Err(err)
 		}
 		return types.Ok(result)
@@ -269,7 +268,7 @@ func builtinDecodeBinary(ctx *kernel.TaskContext, args []types.Value) types.Resu
 
 	result := types.NewList(elements)
 	// Check size limit
-	if err := CheckListLimitForTask(ctx, result); err != types.E_NONE {
+	if err := CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -321,7 +320,7 @@ func hexValue(c byte) int {
 // - SHA256 ($5$)
 // - SHA512 ($6$)
 // - bcrypt ($2a$, $2x$, $2y$)
-func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -356,7 +355,7 @@ func builtinCrypt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	maxBcryptCost, maxSHARounds := GetCryptWorkLimits()
-	if pending := pendingServerOptions(ctx); pending != nil {
+	if pending := pendingServerOptions(ctx.TaskContext); pending != nil {
 		maxBcryptCost = pending.MaxCryptBcryptCost
 		maxSHARounds = pending.MaxCryptSHARounds
 	}
@@ -977,7 +976,7 @@ func getHasher(algo string) (hash.Hash, bool) {
 
 // builtinStringHash hashes a string with specified algorithm
 // string_hash(str [, algo [, binary]]) -> str
-func builtinStringHash(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinStringHash(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1021,7 +1020,7 @@ func builtinStringHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinBinaryHash hashes a binary string with specified algorithm
 // binary_hash(str [, algo [, binary]]) -> str
-func builtinBinaryHash(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinBinaryHash(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1071,7 +1070,7 @@ func builtinBinaryHash(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinValueHash hashes any MOO value with specified algorithm
 // value_hash(val [, algo [, binary]]) -> str
-func builtinValueHash(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinValueHash(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1119,7 +1118,7 @@ func builtinValueHash(ctx *kernel.TaskContext, args []types.Value) types.Result 
 
 // builtinStringHmac computes HMAC for a string
 // string_hmac(str, key [, algo [, binary]]) -> str
-func builtinStringHmac(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinStringHmac(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1175,7 +1174,7 @@ func builtinStringHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinBinaryHmac computes HMAC for a binary string
 // binary_hmac(str, key [, algo [, binary]]) -> str
-func builtinBinaryHmac(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinBinaryHmac(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1236,7 +1235,7 @@ func builtinBinaryHmac(ctx *kernel.TaskContext, args []types.Value) types.Result
 
 // builtinValueHmac computes HMAC for any MOO value
 // value_hmac(val, key [, algo [, binary]]) -> str
-func builtinValueHmac(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinValueHmac(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1311,7 +1310,7 @@ func getHmacFunc(algo string) (func() hash.Hash, bool) {
 
 // builtinSalt generates a salt string for crypt
 // salt(prefix, random_data) -> str
-func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSalt(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1447,7 +1446,7 @@ func builtinSalt(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinRandomBytes generates random bytes
 // random_bytes(count) -> str (binary encoded)
-func builtinRandomBytes(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRandomBytes(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -1466,7 +1465,7 @@ func builtinRandomBytes(ctx *kernel.TaskContext, args []types.Value) types.Resul
 	// Check string length limit before generating bytes (update from load_server_options cache first)
 	// The encoded string will be longer than count due to ~XX escapes
 	// but checking count first prevents unnecessary work
-	UpdateContextLimits(ctx)
+	UpdateContextLimits(ctx.TaskContext)
 	if errCode := ctx.CheckStringLimit(count); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}

@@ -19,10 +19,10 @@ func TestBuildTracebackInvalidatesAnonymousThis(t *testing.T) {
 		Player:     2,
 	})
 	ctx := kernel.NewTaskContext()
-	ctx.Task = taskValue
 
 	machine := NewVM(nil, nil)
 	machine.Context = ctx
+	machine.Task = taskValue
 	traceback := machine.buildTraceback(false)
 	thisValue := traceback.Get(1).Get(1)
 	if thisValue.Type() != types.TYPE_ANON {

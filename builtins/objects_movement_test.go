@@ -4,16 +4,15 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func newMoveTestContext(t *testing.T) (*kernel.TaskContext, *dbstore.Store) {
+func newMoveTestContext(t *testing.T) (*Execution, *dbstore.Store) {
 	t.Helper()
 
 	store := dbstore.NewStore()
 	registry := NewRegistry()
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.Registry = registry
 	ctx.IsWizard = true

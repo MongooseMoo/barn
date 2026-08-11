@@ -8,7 +8,7 @@ import (
 )
 
 func TestMapvaluesMissingCompositeKeysReturnRange(t *testing.T) {
-	ctx := &kernel.TaskContext{}
+	ctx := newTestExecution()
 	emptyMap := types.NewEmptyMap()
 
 	for _, tc := range []struct {
@@ -28,7 +28,7 @@ func TestMapvaluesMissingCompositeKeysReturnRange(t *testing.T) {
 }
 
 func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
-	ctx := &kernel.TaskContext{}
+	ctx := newTestExecution()
 	registry := NewRegistry()
 	emptyMap := types.NewEmptyMap()
 
@@ -40,7 +40,8 @@ func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
 		{name: "map", key: types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(2)}})},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, ok := registry.CallByName("mapvalues", ctx, []types.Value{emptyMap, tc.key})
+			ctx.Registry = registry
+			result, ok := registry.CallByNameWithExecution("mapvalues", ctx, []types.Value{emptyMap, tc.key})
 			if !ok {
 				t.Fatal("mapvalues not registered")
 			}
@@ -52,7 +53,7 @@ func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
 }
 
 func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
-	ctx := &kernel.TaskContext{}
+	ctx := newTestExecution()
 	mapping := types.NewEmptyMap()
 	mapping = mapping.MapSet(types.NewBool(true), types.NewStr("boolean one"))
 	mapping = mapping.MapSet(types.NewInt(1), types.NewStr("integer one"))
@@ -83,7 +84,7 @@ func TestMaphaskeyPreservesToastMixedBooleanIntegerReachability(t *testing.T) {
 }
 
 func TestMultiKeyMapdeleteRaisesMissingKeyDetail(t *testing.T) {
-	ctx := &kernel.TaskContext{}
+	ctx := newTestExecution()
 	mapping := types.NewMap([][2]types.Value{
 		{types.NewInt(1), types.NewStr("one")},
 		{types.NewInt(2), types.NewStr("two")},
@@ -129,7 +130,7 @@ func TestMapdeleteUsesPendingMapValueByteLimit(t *testing.T) {
 		{name: "enforces map limit", mapLimit: ValueBytes(resultMap) - 1, wantErr: types.E_QUOTA},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			ctx := kernel.NewTaskContext()
+			ctx := newTestExecution()
 			ctx.PendingEffects = []kernel.PendingEffect{{
 				Kind: kernel.PendingEffectServerOptions,
 				ServerOptions: kernel.PendingServerOptions{

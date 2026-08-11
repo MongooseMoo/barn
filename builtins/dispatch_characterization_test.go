@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -89,11 +88,11 @@ func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
 
 func TestCallByIDInvalidIDErrors(t *testing.T) {
 	r := NewRegistry()
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 
 	for _, id := range []int{-1, 1 << 30, 1 << 20} {
-		res := r.CallByID(id, ctx, nil)
+		res := r.CallByIDWithExecution(id, ctx, nil)
 		if !res.IsError() || res.Error != types.E_VERBNF {
 			t.Fatalf("CallByID(%d) = %+v, want E_VERBNF", id, res)
 		}
@@ -102,7 +101,7 @@ func TestCallByIDInvalidIDErrors(t *testing.T) {
 
 func TestCallByIDValidatesArgCountAndType(t *testing.T) {
 	r := NewRegistry()
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 
 	id, ok := r.GetID("sqlite_close") // signature: minArg 1, maxArg 1, argTypes {TYPE_INT}
@@ -111,17 +110,17 @@ func TestCallByIDValidatesArgCountAndType(t *testing.T) {
 	}
 
 	// Wrong arg count -> E_ARGS (validation runs before the builtin body).
-	res := r.CallByID(id, ctx, nil)
+	res := r.CallByIDWithExecution(id, ctx, nil)
 	if !res.IsError() || res.Error != types.E_ARGS {
 		t.Fatalf("sqlite_close() = %+v, want E_ARGS", res)
 	}
-	res = r.CallByID(id, ctx, []types.Value{types.NewInt(1), types.NewInt(2)})
+	res = r.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(1), types.NewInt(2)})
 	if !res.IsError() || res.Error != types.E_ARGS {
 		t.Fatalf("sqlite_close(1,2) = %+v, want E_ARGS", res)
 	}
 
 	// Wrong arg type -> E_TYPE.
-	res = r.CallByID(id, ctx, []types.Value{types.NewStr("x")})
+	res = r.CallByIDWithExecution(id, ctx, []types.Value{types.NewStr("x")})
 	if !res.IsError() || res.Error != types.E_TYPE {
 		t.Fatalf("sqlite_close(\"x\") = %+v, want E_TYPE", res)
 	}
@@ -130,10 +129,10 @@ func TestCallByIDValidatesArgCountAndType(t *testing.T) {
 // CallByName must validate identically to CallByID.
 func TestCallByNameValidatesArgs(t *testing.T) {
 	r := NewRegistry()
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 
-	res, ok := r.CallByName("sqlite_close", ctx, []types.Value{types.NewStr("x")})
+	res, ok := r.CallByNameWithExecution("sqlite_close", ctx, []types.Value{types.NewStr("x")})
 	if !ok {
 		t.Fatal("sqlite_close not found by name")
 	}
@@ -141,7 +140,7 @@ func TestCallByNameValidatesArgs(t *testing.T) {
 		t.Fatalf("sqlite_close(\"x\") by name = %+v, want E_TYPE", res)
 	}
 
-	if _, ok := r.CallByName("no_such_builtin", ctx, nil); ok {
+	if _, ok := r.CallByNameWithExecution("no_such_builtin", ctx, nil); ok {
 		t.Fatal("CallByName(unknown) returned ok=true")
 	}
 }
@@ -157,23 +156,23 @@ func TestProtectedBuiltinNonWizardDeniedWizardFallsThrough(t *testing.T) {
 	}
 
 	// Non-wizard caller, this != #0, no #0:bf_abs verb -> E_PERM.
-	nonwiz := kernel.NewTaskContext()
+	nonwiz := newTestExecution()
 	nonwiz.Registry = r
 	nonwiz.Store = store
 	nonwiz.ThisObj = types.ObjID(1)
 	nonwiz.IsWizard = false
-	res := r.CallByID(id, nonwiz, []types.Value{types.NewInt(-5)})
+	res := r.CallByIDWithExecution(id, nonwiz, []types.Value{types.NewInt(-5)})
 	if !res.IsError() || res.Error != types.E_PERM {
 		t.Fatalf("protected abs, non-wizard = %+v, want E_PERM", res)
 	}
 
 	// Wizard caller, no wrapper verb -> falls through to the real builtin.
-	wiz := kernel.NewTaskContext()
+	wiz := newTestExecution()
 	wiz.Registry = r
 	wiz.Store = store
 	wiz.ThisObj = types.ObjID(1)
 	wiz.IsWizard = true
-	res = r.CallByID(id, wiz, []types.Value{types.NewInt(-5)})
+	res = r.CallByIDWithExecution(id, wiz, []types.Value{types.NewInt(-5)})
 	if !res.IsNormal() {
 		t.Fatalf("protected abs, wizard fallthrough = %+v, want normal", res)
 	}
@@ -200,7 +199,7 @@ func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 
 	sentinel := types.NewInt(99887766)
 	called := false
-	r.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result {
+	r.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
 		called = true
 		if objID != types.ObjID(0) || verbName != "bf_abs" {
 			t.Fatalf("redirect called %d:%s, want #0:bf_abs", objID, verbName)
@@ -209,13 +208,13 @@ func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 	})
 
 	id, _ := r.GetID("abs")
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 	ctx.Store = store
 	ctx.ThisObj = types.ObjID(1)
 	ctx.IsWizard = false
 
-	res := r.CallByID(id, ctx, []types.Value{types.NewInt(-5)})
+	res := r.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(-5)})
 	if !called {
 		t.Fatal("redirect verb caller was not invoked")
 	}
@@ -232,13 +231,13 @@ func TestProtectedBuiltinThisZeroRunsRealBuiltin(t *testing.T) {
 	store := protectBuiltinViaStore(t, "abs")
 	id, _ := r.GetID("abs")
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Registry = r
 	ctx.Store = store
 	ctx.ThisObj = types.ObjID(0)
 	ctx.IsWizard = false
 
-	res := r.CallByID(id, ctx, []types.Value{types.NewInt(-5)})
+	res := r.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(-5)})
 	if !res.IsNormal() || res.Val.Int() != 5 {
 		t.Fatalf("this==#0 protected abs(-5) = %+v, want 5", res)
 	}

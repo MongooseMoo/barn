@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -139,7 +139,7 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 	rt := NewRuntime(store)
 	t.Cleanup(rt.Stop)
 	t.Cleanup(func() { removeTasksForOwner(rt, 0) })
-	rt.registry.Register("commit_subject_b", func(_ *kernel.TaskContext, args []types.Value) types.Result {
+	rt.registry.Register("commit_subject_b", func(_ *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 0 {
 			return types.Err(types.E_ARGS)
 		}
@@ -225,7 +225,7 @@ func TestRunGCCommitsStagedAnonymousEdgeBeforeLiveSweep(t *testing.T) {
 	rt := NewRuntime(store)
 	t.Cleanup(rt.Stop)
 	t.Cleanup(func() { removeTasksForOwner(rt, 0) })
-	rt.registry.Register("stage_cycle_edge", func(ctx *kernel.TaskContext, args []types.Value) types.Result {
+	rt.registry.Register("stage_cycle_edge", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if len(args) != 0 || ctx.StoreTxn == nil {
 			return types.Err(types.E_INVARG)
 		}

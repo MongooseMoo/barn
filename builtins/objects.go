@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -20,10 +19,10 @@ import (
 //
 // - Float or Map is always E_TYPE
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
-func builtinCreate(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
-	registry, ok := ctx.Registry.(*Registry)
-	if !ok {
+	registry := ctx.Registry
+	if registry == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -344,10 +343,10 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
 
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
-func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
-	registry, ok := ctx.Registry.(*Registry)
-	if !ok {
+	registry := ctx.Registry
+	if registry == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -512,7 +511,7 @@ func builtinRecycle(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Tests if an object exists and is not recycled
 // Accepts both ObjValue and IntValue (integers are implicitly converted to object IDs)
 // Waifs are never valid (always returns 0)
-func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinValid(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -543,7 +542,7 @@ func builtinValid(ctx *kernel.TaskContext, args []types.Value) types.Result {
 
 // builtinMaxObject implements max_object()
 // Returns the highest allocated object as an object value.
-func builtinMaxObject(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinMaxObject(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}

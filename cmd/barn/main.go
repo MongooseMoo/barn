@@ -649,7 +649,6 @@ func evalExpression(store *dbstore.Store, expr string, options config.Options) {
 
 	ctx := kernel.NewTaskContext()
 	ctx.Store = store
-	ctx.Registry = registry
 	ctx.RuntimeOptions = options
 
 	machine := vm.NewVM(store, registry)

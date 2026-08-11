@@ -21,7 +21,6 @@ import (
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
-	"github.com/MongooseMoo/barn/vm"
 )
 
 // Server represents the MOO server
@@ -139,10 +138,14 @@ func (s *Server) LoadDatabase() error {
 	// dump_database() does not report success until the requested checkpoint is
 	// durable and available for managed restart adoption.
 	reg.SetDumpFunc(func() error { return s.checkpoint() })
-	reg.SetShutdownFunc(func(ctx *kernel.TaskContext, message string, unclean bool) error {
-		var callerVM *vm.VM
-		if ctx != nil {
-			callerVM, _ = ctx.CallerVM.(*vm.VM)
+	reg.SetShutdownFunc(func(execution *builtins.Execution, message string, unclean bool) error {
+		var ctx *kernel.TaskContext
+		var callerRoots []types.Value
+		if execution != nil {
+			ctx = execution.TaskContext
+			if !ctx.DeferredGC && execution.PendingFinalizations != nil {
+				callerRoots = execution.PendingFinalizations()
+			}
 		}
 		shutdownMessage := "Server shutdown"
 		if ctx != nil {
@@ -161,8 +164,8 @@ func (s *Server) LoadDatabase() error {
 		if panicMessage == "" {
 			panicMessage = shutdownMessage
 		}
-		ready := s.runtime.BeginShutdown(callerVM)
-		if ctx != nil && (ctx.DeferredGC || ctx.Task != nil) {
+		ready := s.runtime.BeginShutdownWithRoots(callerRoots)
+		if ctx != nil && (ctx.DeferredGC || execution.Task != nil) {
 			s.backgroundWG.Add(1)
 			go func() {
 				defer s.backgroundWG.Done()

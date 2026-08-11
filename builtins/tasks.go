@@ -4,8 +4,6 @@ import (
 	"sort"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -18,7 +16,7 @@ type TaskYielder interface {
 // builtinQueuedTasks: queued_tasks() → LIST
 // Returns list of currently queued tasks
 // Each entry: {task_id, start_time, x, y, z, programmer, verb_loc, verb_name, line, this}
-func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -87,7 +85,7 @@ func builtinQueuedTasks(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // builtinKillTask: kill_task(task_id) → none
 // Kills the specified task
 // Requires permission: must be task owner or wizard
-func builtinKillTask(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -122,7 +120,7 @@ func builtinKillTask(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Returns the value passed to resume() when the task is resumed.
 // If no seconds are specified, suspension is indefinite until resume().
 // suspend(0) yields and resumes on the next scheduler cycle.
-func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSuspend(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -133,8 +131,8 @@ func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	t, ok := ctx.Task.(*task.Task)
-	if !ok {
+	t := ctx.Task
+	if t == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -171,7 +169,7 @@ func builtinSuspend(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // Resumes a suspended task with the given value
 // The value (or 0 if not specified) is returned from suspend()
 // Requires permission: must be task owner or wizard
-func builtinResume(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinResume(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -203,7 +201,7 @@ func builtinResume(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinSetTaskPerms: set_task_perms(who) → none
 // Changes the permission context for the current task
 // Wizard only - allows running code with different permissions
-func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinSetTaskPerms(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -237,7 +235,7 @@ func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Resu
 	// Also update the current CallStack frame's Programmer so that
 	// caller_perms() reflects the new permissions (matches Toast's
 	// behavior where set_task_perms updates RUN_ACTIV.progr).
-	if t, ok := ctx.Task.(*task.Task); ok {
+	if t := ctx.Task; t != nil {
 		t.SetTopFrameProgrammer(args[0].ID())
 	}
 
@@ -247,7 +245,7 @@ func builtinSetTaskPerms(ctx *kernel.TaskContext, args []types.Value) types.Resu
 // builtinCallerPerms: caller_perms() → OBJ
 // Returns the programmer of the calling frame (not the current frame)
 // This is used for permission checks - returns who called this verb
-func builtinCallerPerms(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCallerPerms(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -258,8 +256,8 @@ func builtinCallerPerms(ctx *kernel.TaskContext, args []types.Value) types.Resul
 		return types.Ok(types.NewObj(ctx.Programmer))
 	}
 
-	t, ok := ctx.Task.(*task.Task)
-	if !ok {
+	t := ctx.Task
+	if t == nil {
 		return types.Ok(types.NewObj(ctx.Programmer))
 	}
 
@@ -286,7 +284,7 @@ func builtinCallerPerms(ctx *kernel.TaskContext, args []types.Value) types.Resul
 // Returns the call stack
 // Each entry: {this, verb_name, programmer, verb_loc, player, line_number}
 // If include_line_numbers is false (default true), line_number is omitted
-func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinCallers(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -306,8 +304,8 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		return types.Ok(types.NewList([]types.Value{}))
 	}
 
-	t, ok := ctx.Task.(*task.Task)
-	if !ok {
+	t := ctx.Task
+	if t == nil {
 		if ctx.Verb == "" {
 			return types.Ok(syntheticEvalCallers(ctx, includeLineNumbers))
 		}
@@ -372,7 +370,7 @@ func builtinCallers(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // marker ({#-1, "eval", #-1, #-1, player}) and the root "eval" command frame,
 // whose `this`/verb_loc is the player's location and whose programmer is the
 // player ({location, "eval", player, location, player}).
-func evalWrapperFrames(ctx *kernel.TaskContext, includeLineNumbers bool) []types.Value {
+func evalWrapperFrames(ctx *Execution, includeLineNumbers bool) []types.Value {
 	location := types.ObjNothing
 	if ctx.Store != nil {
 		loc, errCode := locationForRead(ctx, ctx.Player)
@@ -402,7 +400,7 @@ func evalWrapperFrames(ctx *kernel.TaskContext, includeLineNumbers bool) []types
 // evalUserCodeFrame returns the representation of the eval'd user-code activation
 // itself ({#-1, "", player, #-1, player}) — Toast shows this when callers() is
 // invoked from a verb that was called by the eval.
-func evalUserCodeFrame(ctx *kernel.TaskContext, includeLineNumbers bool) types.Value {
+func evalUserCodeFrame(ctx *Execution, includeLineNumbers bool) types.Value {
 	base := []types.Value{
 		types.NewObj(types.ObjNothing), // this
 		types.NewStr(""),               // verb (empty for eval'd code)
@@ -416,13 +414,13 @@ func evalUserCodeFrame(ctx *kernel.TaskContext, includeLineNumbers bool) types.V
 	return types.NewList(base)
 }
 
-func syntheticEvalCallers(ctx *kernel.TaskContext, includeLineNumbers bool) types.Value {
+func syntheticEvalCallers(ctx *Execution, includeLineNumbers bool) types.Value {
 	return types.NewList(evalWrapperFrames(ctx, includeLineNumbers))
 }
 
 // builtinRaise: raise(error [, message [, value]]) → none
 // Raises an error, stopping execution until caught by try/except
-func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRaise(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -461,7 +459,7 @@ func builtinRaise(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinTaskStack: task_stack(task_id [, include_line_numbers [, include_vars]]) → LIST
 // Returns the call stack for a suspended task
 // Each frame is a map with keys: this, verb, programmer, verb_loc, player, line_number
-func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -541,7 +539,7 @@ func builtinTaskStack(ctx *kernel.TaskContext, args []types.Value) types.Result 
 // Mirrors ToastStunt bf_yield_if_needed (execute.cc), including validating
 // min_ticks/min_seconds against the fg_ticks/fg_seconds limits only when at
 // least one argument is supplied.
-func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	if len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -582,8 +580,8 @@ func builtinYin(ctx *kernel.TaskContext, args []types.Value) types.Result {
 		}
 	}
 
-	t, ok := ctx.Task.(*task.Task)
-	if !ok || t == nil {
+	t := ctx.Task
+	if t == nil {
 		return types.Ok(types.NewInt(0))
 	}
 

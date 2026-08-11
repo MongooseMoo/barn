@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -37,7 +36,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 		t.Fatalf("create should not start protected")
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
 	ctx.IsWizard = true

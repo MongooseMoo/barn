@@ -103,11 +103,11 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
-	ctx.Registry = registry
-	ctx.Task = task.NewTask(1, player, 30000, 1)
+	taskValue := task.NewTask(1, player, 30000, 1)
 
 	machine := NewVM(store, registry)
 	machine.Context = ctx
+	machine.Task = taskValue
 	frame := machine.PrepareVerbFrame(prog, types.ObjNothing, player, player, "", types.ObjNothing, []types.Value{})
 	SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
 	SetLocalByName(frame, prog, "player", types.NewObj(player))
@@ -163,11 +163,11 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	ctx.IsWizard = true
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
-	ctx.Registry = registry
-	ctx.Task = task.NewTask(1, player, 30000, 1)
+	taskValue := task.NewTask(1, player, 30000, 1)
 
 	machine := NewVM(store, registry)
 	machine.Context = ctx
+	machine.Task = taskValue
 	frame := machine.PrepareVerbFrame(prog, types.ObjNothing, player, player, "", types.ObjNothing, []types.Value{})
 	SetLocalByName(frame, prog, "this", types.NewObj(types.ObjNothing))
 	SetLocalByName(frame, prog, "player", types.NewObj(player))

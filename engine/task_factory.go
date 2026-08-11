@@ -273,7 +273,9 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	t.Context.Programmer = programmer
 	t.Context.Verb = forkInfo.Verb
 	t.Context.IsWizard = s.isWizard(programmer)
-	t.Context.Task = t // Attach task to context for task_local access
+	if childVM, ok := t.BytecodeVMValue().(*vm.VM); ok {
+		childVM.Task = t
+	}
 
 	// Push initial activation frame for the fork body.
 	// This matches Toast: forked tasks include a frame for the verb

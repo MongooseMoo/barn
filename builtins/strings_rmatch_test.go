@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -28,7 +27,7 @@ func TestBuiltinRmatchReturnsRightmostMatch(t *testing.T) {
 		{name: "alternation", subject: "ab", pattern: "ab%|b", wantStart: 2, wantEnd: 2},
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			result := builtinRmatch(ctx, []types.Value{types.NewStr(tc.subject), types.NewStr(tc.pattern)})
@@ -72,7 +71,7 @@ func TestBuiltinRmatchMatchesLegacySuffixSemantics(t *testing.T) {
 		{subject: "é", pattern: "."},
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	for _, tc := range tests {
 		got := builtinRmatch(ctx, []types.Value{types.NewStr(tc.subject), types.NewStr(tc.pattern)})
 		want := legacyRmatchForTest(tc.subject, tc.pattern)
@@ -109,7 +108,7 @@ func legacyRmatchForTest(subject, pattern string) types.Value {
 }
 
 func TestBuiltinRmatchLargeInputHasBoundedAllocations(t *testing.T) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	args := []types.Value{types.NewStr(strings.Repeat("x", 8*1024)), types.NewStr("x")}
 
 	// Prime the regexp cache so this measures each rmatch call, not compilation.
@@ -128,7 +127,7 @@ func TestBuiltinRmatchLargeInputHasBoundedAllocations(t *testing.T) {
 }
 
 func BenchmarkBuiltinRmatch200KB(b *testing.B) {
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	args := []types.Value{types.NewStr(strings.Repeat("x", 200*1024)), types.NewStr("x")}
 	b.ReportAllocs()
 	b.ResetTimer()

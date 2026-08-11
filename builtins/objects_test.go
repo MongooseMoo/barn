@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -14,7 +13,7 @@ func TestMaxObjectReturnsObjectValue(t *testing.T) {
 		t.Fatalf("Add root failed: %v", err)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 
 	res := builtinMaxObject(ctx, nil)
@@ -39,7 +38,7 @@ func TestMoveInvalidObjectsReturnInvarg(t *testing.T) {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.Registry = NewRegistry()
 
@@ -79,7 +78,7 @@ func TestRecycleRequiresObjectControl(t *testing.T) {
 		}
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.Registry = NewRegistry()
 	ctx.Programmer = 3
@@ -113,14 +112,14 @@ func TestRecyclePropagatesHookErrorAfterDestroyingObject(t *testing.T) {
 	}
 
 	registry := NewRegistry()
-	registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *kernel.TaskContext) types.Result {
+	registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
 		if objID != 4 || verbName != "recycle" {
 			t.Fatalf("hook call = #%d:%s, want #4:recycle", objID, verbName)
 		}
 		return types.Err(types.E_DIV)
 	})
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.Registry = registry
 	ctx.Programmer = 2
@@ -145,7 +144,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.StoreTxn = store.BeginReadOnly(0)
 	ctx.IsWizard = true

@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -122,8 +121,8 @@ func CollectWaifsFromVM(exec *VM, out *[]types.Value) {
 		collectWaifsForGC(exec.Context.MapFirstKey, out)
 		collectWaifsForGC(exec.Context.MapLastKey, out)
 		collectWaifsForGC(exec.Context.TaskLocal, out)
-		if owner, ok := exec.Context.Task.(*task.Task); ok && owner != nil {
-			collectWaifsForGC(owner.GetTaskLocal(), out)
+		if exec.Task != nil {
+			collectWaifsForGC(exec.Task.GetTaskLocal(), out)
 		}
 	}
 }

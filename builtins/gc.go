@@ -3,8 +3,6 @@ package builtins
 import (
 	"runtime"
 
-	kernel "github.com/MongooseMoo/barn/kernel"
-
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -15,7 +13,7 @@ import (
 // builtinRunGC implements run_gc()
 // Triggers garbage collection (wizard only)
 // Returns 0 on success
-func builtinRunGC(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinRunGC(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
@@ -43,7 +41,7 @@ func builtinRunGC(ctx *kernel.TaskContext, args []types.Value) types.Result {
 // builtinGCStats implements gc_stats()
 // Returns GC statistics map (wizard only)
 // Returns map with color keys: green, yellow, black, gray, white, purple, pink
-func builtinGCStats(ctx *kernel.TaskContext, args []types.Value) types.Result {
+func builtinGCStats(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}

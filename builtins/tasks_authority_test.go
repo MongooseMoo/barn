@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -37,7 +36,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		Player:     2,
 	})
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.Task = taskValue
 	ctx.Programmer = 2
@@ -78,7 +77,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		VerbLoc:    0,
 		Player:     2,
 	})
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.Store = store
 	ctx.Programmer = 2
 	ctx.Player = 2
@@ -136,7 +135,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	})
 	programmerThreeTask.SetState(task.TaskQueued)
 
-	wizard := kernel.NewTaskContext()
+	wizard := newTestExecution()
 	wizard.Programmer = 99
 	wizard.IsWizard = true
 	manager := wireTestTaskManager(wizard)
@@ -185,7 +184,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 		t.Fatal("wizard queued_tasks(1) did not expose another programmer's task")
 	}
 
-	programmer := kernel.NewTaskContext()
+	programmer := newTestExecution()
 	programmer.Programmer = 2
 	programmer.Registry = wizard.Registry
 
@@ -237,7 +236,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 	})
 	taskValue.SetState(task.TaskSuspended)
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.TaskID = 1
 	ctx.Programmer = 2
 	manager := wireTestTaskManager(ctx)

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -16,7 +15,7 @@ import (
 //	; set_verb_code(player,"scratch",{"x = 1;"})           => {}
 //	; set_verb_code(player,"scratch",{"x = foo(1,2,3);"})  => {"Line 1:  Unknown built-in function: foo"}
 //	; verb_code(player,"scratch")                          => {"x = 1;"}   (UNCHANGED)
-func b2aTestContext(t *testing.T) (*kernel.TaskContext, *dbstore.Store, types.ObjID) {
+func b2aTestContext(t *testing.T) (*Execution, *dbstore.Store, types.ObjID) {
 	t.Helper()
 
 	store := dbstore.NewStore()
@@ -38,7 +37,7 @@ func b2aTestContext(t *testing.T) (*kernel.TaskContext, *dbstore.Store, types.Ob
 		t.Fatalf("AddVerb failed: %v", code)
 	}
 
-	ctx := kernel.NewTaskContext()
+	ctx := newTestExecution()
 	ctx.IsWizard = true
 	ctx.Player = objID
 	ctx.Programmer = objID

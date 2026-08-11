@@ -3,8 +3,8 @@ package engine
 import (
 	"testing"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -19,7 +19,7 @@ func TestRunTaskDoesNotRecommitAfterTerminalCommitFailure(t *testing.T) {
 
 	s := NewRuntime(store)
 	defer s.Stop()
-	s.registry.Register("force_terminal_commit", func(ctx *kernel.TaskContext, _ []types.Value) types.Result {
+	s.registry.Register("force_terminal_commit", func(ctx *builtins.Execution, _ []types.Value) types.Result {
 		if errCode := ctx.StoreTxn.SetObjectName(0, "private"); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
