@@ -74,6 +74,12 @@ func writeCheckpoint(
 		return fmt.Errorf("write database: %w", err)
 	}
 
+	if err := tempFile.Sync(); err != nil {
+		tempFile.Close()
+		os.Remove(tempPath)
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+
 	if err := tempFile.Close(); err != nil {
 		os.Remove(tempPath)
 		return fmt.Errorf("close temp file: %w", err)
@@ -81,6 +87,9 @@ func writeCheckpoint(
 
 	if err := os.Rename(tempPath, outPath); err != nil {
 		return fmt.Errorf("rename temp to output: %w", err)
+	}
+	if err := syncParentDirectory(outPath); err != nil {
+		return fmt.Errorf("sync output directory: %w", err)
 	}
 	return nil
 }
