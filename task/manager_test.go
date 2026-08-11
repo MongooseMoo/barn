@@ -10,6 +10,7 @@ func TestFindReadingTaskChoosesOldestQueueSequence(t *testing.T) {
 	const player types.ObjID = 7
 	manager := NewManager()
 	var oldest *Task
+	var nextOldest *Task
 
 	for sequence := int64(64); sequence >= 1; sequence-- {
 		candidate := NewTask(1000+sequence, 2, 100, 5)
@@ -19,6 +20,8 @@ func TestFindReadingTaskChoosesOldestQueueSequence(t *testing.T) {
 		manager.RegisterTask(candidate)
 		if sequence == 1 {
 			oldest = candidate
+		} else if sequence == 2 {
+			nextOldest = candidate
 		}
 	}
 
@@ -26,6 +29,13 @@ func TestFindReadingTaskChoosesOldestQueueSequence(t *testing.T) {
 		if got := manager.FindReadingTask(player); got != oldest {
 			t.Fatalf("FindReadingTask() = task %d with sequence %d, want oldest task %d with sequence %d", got.ID, got.QueueSeq, oldest.ID, oldest.QueueSeq)
 		}
+	}
+
+	// Once the first reader is no longer waiting, selection advances in FIFO
+	// order rather than falling back to whichever map entry is visited first.
+	oldest.SetReadingPlayer(0)
+	if got := manager.FindReadingTask(player); got != nextOldest {
+		t.Fatalf("FindReadingTask() after oldest reader left = task %d with sequence %d, want next-oldest task %d with sequence %d", got.ID, got.QueueSeq, nextOldest.ID, nextOldest.QueueSeq)
 	}
 }
 
