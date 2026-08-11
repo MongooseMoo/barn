@@ -1,9 +1,10 @@
 package main
 
 import (
-	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/profile"
 	"testing"
+
+	"github.com/MongooseMoo/barn/internal/listener"
+	"github.com/MongooseMoo/barn/profile"
 )
 
 func TestBuildListenerSpecsUsesPortShorthand(t *testing.T) {
@@ -12,7 +13,7 @@ func TestBuildListenerSpecsUsesPortShorthand(t *testing.T) {
 		t.Fatalf("build listener specs: %v", err)
 	}
 	if len(specs) != 1 ||
-		specs[0].Protocol != builtins.ListenerProtocolTCP ||
+		specs[0].Protocol != listener.ProtocolTCP ||
 		specs[0].Port != 7777 {
 		t.Fatalf("unexpected specs: %+v", specs)
 	}
@@ -29,7 +30,7 @@ func TestBuildListenerSpecsParsesRepeatableListenFlags(t *testing.T) {
 	if len(specs) != 2 {
 		t.Fatalf("got %d specs, want 2", len(specs))
 	}
-	if specs[0].Protocol != builtins.ListenerProtocolTCP ||
+	if specs[0].Protocol != listener.ProtocolTCP ||
 		specs[0].Interface != "127.0.0.1" ||
 		specs[0].Port != 7788 {
 		t.Fatalf("unexpected tcp spec: %+v", specs[0])
