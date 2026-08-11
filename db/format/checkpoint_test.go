@@ -32,6 +32,9 @@ func TestWriteCheckpointWritesOnlyToNewFile(t *testing.T) {
 	if _, err := LoadDatabase(path + ".new"); err != nil {
 		t.Fatalf("load output checkpoint: %v", err)
 	}
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("temporary checkpoint %s should be renamed away", path+".tmp")
+	}
 }
 
 func TestWriteCheckpointPreservesAnonymousGraphsRootedOnlyBySuspendedTasks(t *testing.T) {
