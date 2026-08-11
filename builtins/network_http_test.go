@@ -137,9 +137,30 @@ func TestParseHTTPResponseChunked(t *testing.T) {
 }
 
 func TestParseHTTPChunkedBodyRejectsOverflowingSize(t *testing.T) {
-	data := []byte("7FFFFFFFFFFFFFFF\r\nAAAA\r\n0\r\n\r\n")
-	if body, consumed, complete := parseHTTPChunkedBody(data, 0); complete {
-		t.Fatalf("unexpected complete parse: body %q, consumed %d", body, consumed)
+	tests := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "maximum int64",
+			data: "7FFFFFFFFFFFFFFF\r\nAAAA\r\n0\r\n\r\n",
+		},
+		{
+			name: "larger than int64",
+			data: "FFFFFFFFFFFFFFFF\r\nAAAA\r\n0\r\n\r\n",
+		},
+		{
+			name: "one byte beyond available data",
+			data: "5\r\nAAAA\r\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if body, consumed, complete := parseHTTPChunkedBody([]byte(test.data), 0); complete {
+				t.Fatalf("unexpected complete parse: body %q, consumed %d", body, consumed)
+			}
+		})
 	}
 }
 
