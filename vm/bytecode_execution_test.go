@@ -269,6 +269,42 @@ func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	}
 }
 
+func TestRangeAssignmentAllowsEndPastCollectionLength(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want string
+	}{
+		{"list from first", `value = {1, 2, 3}; value[1..5] = {9}; return value;`, `{9}`},
+		{"list from middle", `value = {1, 2, 3}; value[2..5] = {9}; return value;`, `{1, 9}`},
+		{"string from first", `value = "abc"; value[1..5] = "X"; return value;`, `"X"`},
+		{"string from middle", `value = "abc"; value[2..5] = "X"; return value;`, `"aX"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := runBytecodeProgram(t, test.code, nil, nil)
+			if result.Flow != types.FlowReturn || result.Val.String() != test.want {
+				t.Fatalf("range assignment result = flow %v, value %v, error %v; want %s", result.Flow, result.Val, result.Error, test.want)
+			}
+		})
+	}
+}
+
+func TestRangeAssignmentRejectsStartPastCollectionAppendPosition(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+	}{
+		{"list", `value = {1, 2, 3}; value[5..1] = {9}; return value;`},
+		{"string", `value = "abc"; value[5..1] = "X"; return value;`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requireError(t, runBytecodeProgram(t, test.code, nil, nil), types.E_RANGE)
+		})
+	}
+}
+
 func TestCaughtErrorDiscardsPartialExpressionOperands(t *testing.T) {
 	code := `return {` +
 		"`max(1, @5) ! E_TYPE => 11'," +
