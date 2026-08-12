@@ -209,7 +209,7 @@ func assertWaifKeys(t *testing.T, got []Value, want ...Value) {
 	}
 	for i := range want {
 		if got[i].Type() != TYPE_WAIF || got[i].WaifIdentity() != want[i].WaifIdentity() {
-			t.Fatalf("key %d has identity %p, want %p", i+1, got[i].WaifIdentity(), want[i].WaifIdentity())
+			t.Fatalf("key %d has identity %s, want %s", i+1, got[i].WaifIdentity(), want[i].WaifIdentity())
 		}
 	}
 }
@@ -411,6 +411,26 @@ func TestWaifIdentity(t *testing.T) {
 	w1copy.SetProperty("x", NewInt(7))
 	if got, ok := w1.GetProperty("x"); !ok || !got.Equal(NewInt(7)) {
 		t.Error("waif identity copies must share the property map")
+	}
+}
+
+func TestWaifIdentitySerialization(t *testing.T) {
+	original := NewWaif(5, 2)
+	encoded := original.WaifIdentity().String()
+	if len(encoded) != 32 {
+		t.Fatalf("serialized identity length = %d, want 32", len(encoded))
+	}
+
+	identity, err := ParseWaifIdentity(encoded)
+	if err != nil {
+		t.Fatalf("ParseWaifIdentity: %v", err)
+	}
+	restored := NewWaifWithIdentity(original.Class(), original.Owner(), identity)
+	if restored.WaifIdentity() != original.WaifIdentity() {
+		t.Fatal("restored WAIF did not preserve identity")
+	}
+	if !restored.Equal(original) {
+		t.Fatal("WAIF equality did not follow restored identity")
 	}
 }
 
