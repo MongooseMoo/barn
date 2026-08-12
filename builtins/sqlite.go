@@ -42,15 +42,6 @@ var sqliteLimitNames = map[string]int64{
 	"LIMIT_WORKER_THREADS":      11,
 }
 
-var sqliteState = struct {
-	mu      sync.Mutex
-	nextID  int64
-	handles map[int64]*sqliteHandle
-}{
-	nextID:  1,
-	handles: make(map[int64]*sqliteHandle),
-}
-
 func defaultSQLiteLimits() map[int64]int64 {
 	return map[int64]int64{
 		0:  1000000000,
@@ -80,14 +71,14 @@ func newSQLiteHandle(id int64, path string, db *sql.DB, conn *sql.Conn) *sqliteH
 	return handle
 }
 
-func getSQLiteHandle(v types.Value) (*sqliteHandle, types.ErrorCode) {
+func getSQLiteHandle(ctx *Execution, v types.Value) (*sqliteHandle, types.ErrorCode) {
 	if v.Type() != types.TYPE_INT {
 		return nil, types.E_TYPE
 	}
 
-	sqliteState.mu.Lock()
-	handle := sqliteState.handles[v.Int()]
-	sqliteState.mu.Unlock()
+	ctx.Registry.runtime.sqlite.Lock()
+	handle := ctx.Registry.runtime.sqlite.handles[v.Int()]
+	ctx.Registry.runtime.sqlite.Unlock()
 	if handle == nil {
 		return nil, types.E_INVARG
 	}
@@ -356,11 +347,11 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		return sqliteOpenError(err.Error())
 	}
 
-	sqliteState.mu.Lock()
-	id := sqliteState.nextID
-	sqliteState.nextID++
-	sqliteState.handles[id] = newSQLiteHandle(id, path, db, conn)
-	sqliteState.mu.Unlock()
+	ctx.Registry.runtime.sqlite.Lock()
+	id := ctx.Registry.runtime.sqlite.nextID
+	ctx.Registry.runtime.sqlite.nextID++
+	ctx.Registry.runtime.sqlite.handles[id] = newSQLiteHandle(id, path, db, conn)
+	ctx.Registry.runtime.sqlite.Unlock()
 	return types.Ok(types.NewInt(id))
 }
 
@@ -372,7 +363,7 @@ func builtinSqliteClose(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -381,9 +372,9 @@ func builtinSqliteClose(ctx *Execution, args []types.Value) types.Result {
 	handle.closed = true
 	handle.mu.Unlock()
 
-	sqliteState.mu.Lock()
-	delete(sqliteState.handles, handle.id)
-	sqliteState.mu.Unlock()
+	ctx.Registry.runtime.sqlite.Lock()
+	delete(ctx.Registry.runtime.sqlite.handles, handle.id)
+	ctx.Registry.runtime.sqlite.Unlock()
 
 	return runSQLiteAsync(ctx, func() types.Result {
 		handle.mu.Lock()
@@ -410,12 +401,12 @@ func builtinSqliteHandles(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	sqliteState.mu.Lock()
-	ids := make([]int64, 0, len(sqliteState.handles))
-	for id := range sqliteState.handles {
+	ctx.Registry.runtime.sqlite.Lock()
+	ids := make([]int64, 0, len(ctx.Registry.runtime.sqlite.handles))
+	for id := range ctx.Registry.runtime.sqlite.handles {
 		ids = append(ids, id)
 	}
-	sqliteState.mu.Unlock()
+	ctx.Registry.runtime.sqlite.Unlock()
 
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	out := make([]types.Value, 0, len(ids))
@@ -433,7 +424,7 @@ func builtinSqliteInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -459,7 +450,7 @@ func builtinSqliteQuery(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code == types.E_INVARG {
 		// An invalid handle yields the error value, not a raise (Toast).
 		return types.Ok(types.NewErr(types.E_INVARG))
@@ -486,7 +477,7 @@ func builtinSqliteExecute(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code == types.E_INVARG {
 		// An invalid handle yields the error value, not a raise (Toast).
 		return types.Ok(types.NewErr(types.E_INVARG))
@@ -516,7 +507,7 @@ func builtinSqliteLastInsertRowID(ctx *Execution, args []types.Value) types.Resu
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -544,7 +535,7 @@ func builtinSqliteLimit(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -573,7 +564,7 @@ func builtinSqliteInterrupt(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	handle, code := getSQLiteHandle(args[0])
+	handle, code := getSQLiteHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}

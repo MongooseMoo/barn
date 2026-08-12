@@ -8,27 +8,7 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func resetSQLiteTestState(t *testing.T) {
-	t.Helper()
-
-	sqliteState.mu.Lock()
-	handles := make([]*sqliteHandle, 0, len(sqliteState.handles))
-	for _, handle := range sqliteState.handles {
-		handles = append(handles, handle)
-	}
-	sqliteState.handles = make(map[int64]*sqliteHandle)
-	sqliteState.nextID = 1
-	sqliteState.mu.Unlock()
-
-	for _, handle := range handles {
-		if handle.conn != nil {
-			_ = handle.conn.Close()
-		}
-		if handle.db != nil {
-			_ = handle.db.Close()
-		}
-	}
-}
+func resetSQLiteTestState(t *testing.T) { t.Helper() }
 
 // TestSqliteOpenRefusesSandboxEscape confirms the sole sqlite path entry point
 // (sqlite_open) rejects a traversal escape with E_INVARG, matching the fileio
@@ -150,9 +130,9 @@ func TestSqliteCloseWaitsOffTaskGoroutine(t *testing.T) {
 	ctx, taskValue := sqliteAsyncCtx()
 	handle := newSQLiteHandle(1, ":memory:", nil, nil)
 	handle.activeOps = 1
-	sqliteState.mu.Lock()
-	sqliteState.handles[handle.id] = handle
-	sqliteState.mu.Unlock()
+	ctx.Registry.runtime.sqlite.Lock()
+	ctx.Registry.runtime.sqlite.handles[handle.id] = handle
+	ctx.Registry.runtime.sqlite.Unlock()
 
 	returned := make(chan types.Result, 1)
 	go func() {
