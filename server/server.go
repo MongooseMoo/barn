@@ -79,7 +79,10 @@ func (s *Server) LoadDatabase() error {
 		return fmt.Errorf("load database: %w", err)
 	}
 
-	s.store = database.NewStoreFromDatabase()
+	s.store, err = database.NewStoreFromDatabase()
+	if err != nil {
+		return fmt.Errorf("construct store from database: %w", err)
+	}
 	s.runtime = engine.NewRuntimeWithOptions(s.store, s.options)
 	s.input = NewInputProcessor(s.store, s.runtime)
 	s.connManager = NewConnectionManager(int(s.listenerSpecs[0].Port))

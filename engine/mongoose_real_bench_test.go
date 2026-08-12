@@ -230,7 +230,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase(%s): %v", dbPath, err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	t.Logf("loaded %s in %s", dbPath, time.Since(loadStart))
 
 	// Pick real player objects with a valid location.

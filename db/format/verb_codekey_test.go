@@ -52,7 +52,11 @@ func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase: %v", err)
 	}
-	obj := loaded.NewStoreFromDatabase().Snapshot().Objects[objID]
+	loadedStore, err := loaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatalf("construct store: %v", err)
+	}
+	obj := loadedStore.Snapshot().Objects[objID]
 	if obj == nil {
 		t.Fatalf("reloaded object #%d missing", objID)
 	}
