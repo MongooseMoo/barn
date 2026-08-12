@@ -153,23 +153,13 @@ func (vm *VM) executeRangeSet() error {
 		newVals := value
 
 		length := coll.Len()
-		isInverted := startIdx > endIdx+1
 
 		// Bounds check
-		if !isInverted {
-			if startIdx < 1 || startIdx > int64(length)+1 {
-				return fmt.Errorf("E_RANGE: list range start out of bounds")
-			}
-			if endIdx < 0 || endIdx > int64(length) {
-				return fmt.Errorf("E_RANGE: list range end out of bounds")
-			}
-		} else {
-			if startIdx < 1 || startIdx > int64(length)+1 {
-				return fmt.Errorf("E_RANGE: list range start out of bounds")
-			}
-			if endIdx < 0 || endIdx > int64(length) {
-				return fmt.Errorf("E_RANGE: list range end out of bounds")
-			}
+		if startIdx < 1 || startIdx > int64(length)+1 {
+			return fmt.Errorf("E_RANGE: list range start out of bounds")
+		}
+		if endIdx < 0 {
+			return fmt.Errorf("E_RANGE: list range end out of bounds")
 		}
 
 		// Build new list: [1..start-1] + newVals + [end+1..$]
@@ -200,23 +190,13 @@ func (vm *VM) executeRangeSet() error {
 
 		s := coll.Str()
 		strLen := int64(len(s))
-		isInverted := startIdx > endIdx+1
 
 		// Bounds check
-		if !isInverted {
-			if startIdx < 1 || startIdx > strLen+1 {
-				return fmt.Errorf("E_RANGE: string range start out of bounds")
-			}
-			if endIdx < 0 {
-				return fmt.Errorf("E_RANGE: string range end out of bounds")
-			}
-		} else {
-			if startIdx < 1 || startIdx > strLen+1 {
-				return fmt.Errorf("E_RANGE: string range start out of bounds")
-			}
-			if endIdx < 0 {
-				return fmt.Errorf("E_RANGE: string range end out of bounds")
-			}
+		if startIdx < 1 || startIdx > strLen+1 {
+			return fmt.Errorf("E_RANGE: string range start out of bounds")
+		}
+		if endIdx < 0 {
+			return fmt.Errorf("E_RANGE: string range end out of bounds")
 		}
 
 		// Clamp endIdx to actual string length for slicing
