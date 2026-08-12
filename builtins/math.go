@@ -593,6 +593,8 @@ func builtinReseedRandom(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinChr(ctx *Execution, args []types.Value) types.Result {
+	// Toast registers chr() with an arity of 0..N. Keep the empty call and
+	// variadic forms valid; appendValue also deliberately handles nested lists.
 	var out strings.Builder
 
 	var appendValue func(v types.Value) types.ErrorCode
