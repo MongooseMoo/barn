@@ -8,6 +8,7 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine/internal/finalization"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
@@ -39,7 +40,7 @@ func TestBeginShutdownTransfersUnclaimedDeferredRoots(t *testing.T) {
 	runtime := NewRuntime(store)
 	t.Cleanup(runtime.Stop)
 	waif := types.NewWaif(9, 3)
-	runtime.lifecycle.pendingWaifs = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	runtime.lifecycle.PendingWaifs = []finalization.PendingWaif{{Waif: waif, Ctx: kernel.NewTaskContext()}}
 	var mu sync.Mutex
 	var handedOff []types.Value
 	runtime.SetPendingFinalizationSink(func(values []types.Value) {
@@ -100,7 +101,7 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 		return nil
 	})
 	waif := types.NewWaif(9, 3)
-	runtime.lifecycle.pendingWaifs = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	runtime.lifecycle.PendingWaifs = []finalization.PendingWaif{{Waif: waif, Ctx: kernel.NewTaskContext()}}
 	var handedOff []types.Value
 	runtime.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
 

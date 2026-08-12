@@ -114,7 +114,7 @@ func TestReadyTaskBatchesGroupCommutingPropertyWrites(t *testing.T) {
 	first := task.NewTaskFull(1201, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
 	second := task.NewTaskFull(1202, 7, compileTestProgram(t, s.registry, "#1.b = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -138,7 +138,7 @@ func TestReadyTaskBatchesCoScheduleConflictingRetryableWrites(t *testing.T) {
 	first := task.NewTaskFull(1211, 7, compileTestProgram(t, s.registry, "#1.a = 2;"), ticks, seconds)
 	second := task.NewTaskFull(1212, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -160,7 +160,7 @@ func TestReadyTaskBatchesGroupRetryableUnknownTasks(t *testing.T) {
 	first := task.NewTaskFull(1221, 7, compileTestProgram(t, s.registry, "notify(player, \"x\");"), ticks, seconds)
 	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 1 {
 		t.Fatalf("batch count = %d, want 1", len(batches))
@@ -182,7 +182,7 @@ func TestReadyTaskBatchesKeepNonRetryableUnknownSolo(t *testing.T) {
 	first.IsForked = true // not conflict-retryable
 	second := task.NewTaskFull(1222, 7, compileTestProgram(t, s.registry, "#1.a = 3;"), ticks, seconds)
 
-	batches := s.readyTaskBatches([]*task.Task{first, second})
+	batches := s.scheduler.Plan([]*task.Task{first, second})
 
 	if len(batches) != 2 {
 		t.Fatalf("batch count = %d, want 2", len(batches))
@@ -825,25 +825,10 @@ return 42;
 }
 
 func removeTasksForOwner(s *Runtime, owner types.ObjID) {
-	var ids []int64
-	s.mu.Lock()
-	for id, task := range s.tasks {
+	for _, task := range s.taskManager.Snapshot() {
 		if task != nil && task.Owner == owner {
 			task.Kill()
-			ids = append(ids, id)
-			delete(s.tasks, id)
+			s.taskManager.RemoveTaskIf(task.ID, task)
 		}
-	}
-	s.mu.Unlock()
-
-	mgr := s.taskManager
-	for _, task := range mgr.GetAllTasks() {
-		if task != nil && task.Owner == owner {
-			task.Kill()
-			ids = append(ids, task.ID)
-		}
-	}
-	for _, id := range ids {
-		mgr.RemoveTask(id)
 	}
 }

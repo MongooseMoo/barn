@@ -83,9 +83,6 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 	} else {
 		t.SetState(task.TaskSuspended)
 		t.WakeTime = saved.StartTime
-		s.mu.Lock()
-		s.tasks[t.ID] = t
-		s.mu.Unlock()
 		s.taskManager.RegisterTask(t)
 	}
 	for {
