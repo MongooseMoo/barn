@@ -1,7 +1,6 @@
 package builtins
 
 import (
-	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -828,7 +827,6 @@ func builtinSlice(ctx *Execution, args []types.Value) types.Result {
 				}
 				result = append(result, types.NewStr(string(runes[i-1])))
 			default:
-				fmt.Printf("[SLICE DEBUG] E_INVARG: element not list/str: %T = %v\n", elem, elem)
 				return types.Err(types.E_INVARG)
 			}
 		}
