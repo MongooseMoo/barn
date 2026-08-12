@@ -810,6 +810,12 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 		}
 		return nil
 	}
+	if target, ok := n.Target.(*verb.IndexTarget); ok {
+		return c.compileIndexAssign(target, n.Value)
+	}
+	if target, ok := n.Target.(*verb.RangeTarget); ok {
+		return c.compileRangeAssign(target, n.Value)
+	}
 
 	// Compile value
 	if err := c.compileNode(n.Value); err != nil {
@@ -828,318 +834,6 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 		c.emitByte(byte(idx))
 	case *verb.DestructuringTarget:
 		return c.compileDestructuringTarget(target)
-	case *verb.IndexTarget:
-		// Index assignment: coll[idx] = value  OR  nested: coll[i][j]... = value
-		// Walk the IndexExpr chain to find the base variable and collect indices
-		var indices []verb.Expr
-		var baseTarget verb.CollectionTarget = target
-		for {
-			ie, ok := baseTarget.(*verb.IndexTarget)
-			if !ok {
-				break
-			}
-			indices = append(indices, ie.Index)
-			baseTarget = ie.Collection
-		}
-
-		// Determine base type: variable or property
-		var baseVarIdx int
-		var basePropTarget *verb.PropertyTarget
-
-		if baseIdent, ok := baseTarget.(*verb.VariableTarget); ok {
-			// Variable-based: x[i] = val
-			baseVarIdx = c.declareVariable(baseIdent.Name)
-		} else if property, ok := baseTarget.(*verb.PropertyTarget); ok {
-			// Property-based: obj.prop[i] = val
-			// Read the property value into a temp variable, use it as the base,
-			// then write the modified temp back to the property after index ops.
-			basePropTarget = property
-
-			// Stack currently: [value, value_copy]
-			// Store value_copy into temp so we can use the stack for GET_PROP
-			tmpValHold := c.declareInternalVariable("__prop_idx_val")
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(tmpValHold))
-			// Stack: [value]
-
-			// Compile obj expression, emit GET_PROP to read current property value
-			if err := c.compileNode(property.Object); err != nil {
-				return err
-			}
-			if property.Name != "" {
-				c.emitStaticNameOperation(bytecode.OP_GET_PROP, bytecode.OP_GET_PROP_WIDE, property.Name)
-			} else if property.NameExpr != nil {
-				if err := c.compileNode(property.NameExpr); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_GET_PROP_DYNAMIC)
-			} else {
-				return fmt.Errorf("property expression has neither static name nor dynamic expression")
-			}
-			// Stack: [value, prop_value]
-
-			// Store property value into a temp that acts as the "base variable"
-			baseVarIdx = c.declareInternalVariable("__prop_idx_base")
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(baseVarIdx))
-			// Stack: [value]
-
-			// Restore the value_copy onto the stack for the index assignment code below
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpValHold))
-			// Stack: [value, value_copy]
-		} else {
-			return fmt.Errorf("index assignment target must be a variable or property")
-		}
-
-		// indices are collected outermost-first: for x[i][j], indices = [j, i]
-		// Reverse to get base-to-deepest order: [i, j]
-		for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
-			indices[left], indices[right] = indices[right], indices[left]
-		}
-
-		depth := len(indices)
-
-		if depth == 1 {
-			// Single-level index assignment (original fast path)
-			// Stack currently: [value, value_copy]
-			// Compile the index expression -> [value, value_copy, index]
-			oldContextVar := c.indexContextVar
-			oldBoundaryContext := c.indexBoundaryContext
-			if containsIndexBoundary(indices[0]) {
-				tempIdx := c.declareInternalVariable(c.tempVar("idxsetctx"))
-				c.emit(bytecode.OP_GET_VAR)
-				c.emitByte(byte(baseVarIdx))
-				c.emit(bytecode.OP_SET_VAR)
-				c.emitByte(byte(tempIdx))
-				c.indexContextVar = tempIdx
-				c.indexBoundaryContext = indexBoundaryIndex
-			}
-			if err := c.compileNode(indices[0]); err != nil {
-				return err
-			}
-			c.indexContextVar = oldContextVar
-			c.indexBoundaryContext = oldBoundaryContext
-			// VM will: pop index, pop value_copy, read coll from locals[baseVarIdx],
-			// set coll[index] = value_copy, store modified coll back
-			c.emit(bytecode.OP_INDEX_SET)
-			c.emitByte(byte(baseVarIdx))
-		} else {
-			// Nested index assignment: x[i1][i2]...[iN] = val
-			// Desugar into temp variables using existing opcodes.
-			//
-			// Stack currently: [value, value_copy]
-
-			// 1. Store value_copy into a temp variable
-			tmpVal := c.declareInternalVariable("__nested_val")
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(tmpVal))
-			// Stack: [value]
-
-			// 2. Evaluate each index into a temp variable
-			tmpIndices := make([]int, depth)
-			for k := 0; k < depth; k++ {
-				oldContextVar := c.indexContextVar
-				oldBoundaryContext := c.indexBoundaryContext
-				if containsIndexBoundary(indices[k]) {
-					tempIdx := c.declareInternalVariable(c.tempVar("nestedidxctx"))
-					c.emit(bytecode.OP_GET_VAR)
-					c.emitByte(byte(baseVarIdx))
-					c.emit(bytecode.OP_SET_VAR)
-					c.emitByte(byte(tempIdx))
-					c.indexContextVar = tempIdx
-					c.indexBoundaryContext = indexBoundaryIndex
-				}
-				if err := c.compileNode(indices[k]); err != nil {
-					return err
-				}
-				c.indexContextVar = oldContextVar
-				c.indexBoundaryContext = oldBoundaryContext
-				tmpIndices[k] = c.declareInternalVariable(fmt.Sprintf("__nested_idx_%d", k))
-				c.emit(bytecode.OP_SET_VAR)
-				c.emitByte(byte(tmpIndices[k]))
-			}
-			// Stack: [value]
-
-			// 3. Traverse down: read intermediate collections
-			// For x[i][j][k], we need intermediates:
-			//   inter_0 = x[i]          (depth-2 intermediates needed)
-			//   inter_1 = inter_0[j]
-			// Then set: inter_1[k] = val, inter_0[j] = inter_1, x[i] = inter_0
-			tmpInter := make([]int, depth-1)
-			for k := 0; k < depth-1; k++ {
-				if k == 0 {
-					// Read from base variable
-					c.emit(bytecode.OP_GET_VAR)
-					c.emitByte(byte(baseVarIdx))
-				} else {
-					// Read from previous intermediate
-					c.emit(bytecode.OP_GET_VAR)
-					c.emitByte(byte(tmpInter[k-1]))
-				}
-				c.emit(bytecode.OP_GET_VAR)
-				c.emitByte(byte(tmpIndices[k]))
-				c.emit(bytecode.OP_INDEX)
-				tmpInter[k] = c.declareInternalVariable(fmt.Sprintf("__nested_inter_%d", k))
-				c.emit(bytecode.OP_SET_VAR)
-				c.emitByte(byte(tmpInter[k]))
-			}
-			// Stack: [value]
-
-			// 4. Set at deepest level: lastIntermediate[lastIndex] = val
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpVal))
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpIndices[depth-1]))
-			c.emit(bytecode.OP_INDEX_SET)
-			c.emitByte(byte(tmpInter[depth-2]))
-			// Stack: [value]
-
-			// 5. Rebuild going back up
-			for k := depth - 2; k >= 1; k-- {
-				// tmpInter[k-1][tmpIndices[k]] = tmpInter[k]
-				c.emit(bytecode.OP_GET_VAR)
-				c.emitByte(byte(tmpInter[k]))
-				c.emit(bytecode.OP_GET_VAR)
-				c.emitByte(byte(tmpIndices[k]))
-				c.emit(bytecode.OP_INDEX_SET)
-				c.emitByte(byte(tmpInter[k-1]))
-			}
-
-			// 6. Set base: x[tmpIndices[0]] = tmpInter[0]
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpInter[0]))
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpIndices[0]))
-			c.emit(bytecode.OP_INDEX_SET)
-			c.emitByte(byte(baseVarIdx))
-			// Stack: [value] (the original value remains as expression result)
-		}
-
-		// If the base was a property, write the modified temp back to the property
-		if basePropTarget != nil {
-			// Stack: [value]
-			// Load the modified base temp (now has the updated collection)
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(baseVarIdx))
-			// Stack: [value, modified_collection]
-
-			// Compile the object expression again
-			if err := c.compileNode(basePropTarget.Object); err != nil {
-				return err
-			}
-			// Stack: [value, modified_collection, obj]
-
-			// Emit SET_PROP: pops obj, pops modified_collection, writes property
-			if basePropTarget.Name != "" {
-				c.emitStaticNameOperation(bytecode.OP_SET_PROP, bytecode.OP_SET_PROP_WIDE, basePropTarget.Name)
-			} else if basePropTarget.NameExpr != nil {
-				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_SET_PROP_DYNAMIC)
-			}
-			// Stack: [value] (original assigned value remains as expression result)
-		}
-	case *verb.RangeTarget:
-		// Range assignment: coll[start..end] = value
-		if nestedIndex, ok := target.Collection.(*verb.IndexTarget); ok {
-			return c.compileNestedRangeAssign(nestedIndex, target.Start, target.End)
-		}
-
-		var varIdx int
-		var basePropTarget *verb.PropertyTarget
-
-		if baseIdent, ok := target.Collection.(*verb.VariableTarget); ok {
-			// Variable-based: x[2..3] = val
-			varIdx = c.declareVariable(baseIdent.Name)
-		} else if property, ok := target.Collection.(*verb.PropertyTarget); ok {
-			// Property-based: obj.prop[2..3] = val
-			// Read the property into a temp, do range-set on temp, write back.
-			basePropTarget = property
-
-			// Stack currently: [value, value_copy]
-			// Store value_copy into temp so we can use the stack for GET_PROP
-			tmpValHold := c.declareInternalVariable("__prop_range_val")
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(tmpValHold))
-			// Stack: [value]
-
-			// Compile obj expression, emit GET_PROP to read current property value
-			if err := c.compileNode(property.Object); err != nil {
-				return err
-			}
-			if property.Name != "" {
-				c.emitStaticNameOperation(bytecode.OP_GET_PROP, bytecode.OP_GET_PROP_WIDE, property.Name)
-			} else if property.NameExpr != nil {
-				if err := c.compileNode(property.NameExpr); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_GET_PROP_DYNAMIC)
-			} else {
-				return fmt.Errorf("property expression has neither static name nor dynamic expression")
-			}
-			// Stack: [value, prop_value]
-
-			// Store property value into a temp that acts as the "base variable"
-			varIdx = c.declareInternalVariable("__prop_range_base")
-			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(varIdx))
-			// Stack: [value]
-
-			// Restore the value_copy onto the stack for the range assignment code below
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpValHold))
-			// Stack: [value, value_copy]
-		} else {
-			return fmt.Errorf("range assignment target must be a variable or property")
-		}
-
-		// Stack currently: [value, value_copy]
-		// Compile start index, resolving $ to collection length
-		if err := c.compileRangeIndex(target.Start, varIdx); err != nil {
-			return err
-		}
-		// Stack: [value, value_copy, start]
-
-		// Compile end index, resolving $ to collection length
-		if err := c.compileRangeIndex(target.End, varIdx); err != nil {
-			return err
-		}
-		// Stack: [value, value_copy, start, end]
-
-		// Emit bytecode.OP_RANGE_SET with variable index
-		// VM will: pop end, start, value_copy; read coll from locals[varIdx];
-		// replace coll[start..end] with value_copy; store back to locals[varIdx]
-		// The original 'value' remains on stack as expression result
-		c.emit(bytecode.OP_RANGE_SET)
-		c.emitByte(byte(varIdx))
-
-		// If the base was a property, write the modified temp back to the property
-		if basePropTarget != nil {
-			// Stack: [value]
-			// Load the modified base temp (now has the updated collection)
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(varIdx))
-			// Stack: [value, modified_collection]
-
-			// Compile the object expression again
-			if err := c.compileNode(basePropTarget.Object); err != nil {
-				return err
-			}
-			// Stack: [value, modified_collection, obj]
-
-			// Emit SET_PROP: pops obj, pops modified_collection, writes property
-			if basePropTarget.Name != "" {
-				c.emitStaticNameOperation(bytecode.OP_SET_PROP, bytecode.OP_SET_PROP_WIDE, basePropTarget.Name)
-			} else if basePropTarget.NameExpr != nil {
-				if err := c.compileNode(basePropTarget.NameExpr); err != nil {
-					return err
-				}
-				c.emit(bytecode.OP_SET_PROP_DYNAMIC)
-			}
-			// Stack: [value] (original assigned value remains as expression result)
-		}
 	default:
 		return fmt.Errorf("invalid assignment target: %T", target)
 	}
@@ -1175,166 +869,277 @@ func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	return err
 }
 
-// compileNestedRangeAssign compiles a nested range assignment:
-//
-//	outer[i][j]...[start..end] = value
-//
-// by desugaring through temporary variables and existing INDEX/RANGE_SET opcodes,
-// then rebuilding every parent collection back to the root.
-func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end verb.Expr) error {
+type propertyWriteback struct {
+	objectVar int
+	nameVar   int
+	name      string
+}
+
+// prepareCollectionBase evaluates a collection target before the assignment
+// value. Property objects and dynamic names are retained for the eventual
+// write-back, so no target expression is evaluated twice.
+func (c *lowerer) prepareCollectionBase(target verb.CollectionTarget) (int, *propertyWriteback, error) {
+	if variable, ok := target.(*verb.VariableTarget); ok {
+		return c.declareVariable(variable.Name), nil, nil
+	}
+	property, ok := target.(*verb.PropertyTarget)
+	if !ok {
+		return 0, nil, fmt.Errorf("collection assignment target must be a variable or property")
+	}
+
+	if err := c.compileNode(property.Object); err != nil {
+		return 0, nil, err
+	}
+	writeback := &propertyWriteback{
+		objectVar: c.declareInternalVariable(c.tempVar("collectionobj")),
+		nameVar:   -1,
+		name:      property.Name,
+	}
+	c.emit(bytecode.OP_SET_VAR)
+	c.emitByte(byte(writeback.objectVar))
+
+	if property.Name == "" {
+		if property.NameExpr == nil {
+			return 0, nil, fmt.Errorf("property expression has neither static name nor dynamic expression")
+		}
+		if err := c.compileNode(property.NameExpr); err != nil {
+			return 0, nil, err
+		}
+		writeback.nameVar = c.declareInternalVariable(c.tempVar("collectionname"))
+		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(writeback.nameVar))
+	}
+
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(writeback.objectVar))
+	if property.Name != "" {
+		c.emitStaticNameOperation(bytecode.OP_GET_PROP, bytecode.OP_GET_PROP_WIDE, property.Name)
+	} else {
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(writeback.nameVar))
+		c.emit(bytecode.OP_GET_PROP_DYNAMIC)
+	}
+	baseVar := c.declareInternalVariable(c.tempVar("collectionbase"))
+	c.emit(bytecode.OP_SET_VAR)
+	c.emitByte(byte(baseVar))
+	return baseVar, writeback, nil
+}
+
+func (c *lowerer) emitCollectionWriteback(baseVar int, writeback *propertyWriteback) {
+	if writeback == nil {
+		return
+	}
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(baseVar))
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(writeback.objectVar))
+	if writeback.name != "" {
+		c.emitStaticNameOperation(bytecode.OP_SET_PROP, bytecode.OP_SET_PROP_WIDE, writeback.name)
+	} else {
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(writeback.nameVar))
+		c.emit(bytecode.OP_SET_PROP_DYNAMIC)
+	}
+}
+
+func (c *lowerer) compileIndexForCollection(expr verb.Expr, collectionVar int) error {
+	oldContextVar := c.indexContextVar
+	oldBoundaryContext := c.indexBoundaryContext
+	defer func() {
+		c.indexContextVar = oldContextVar
+		c.indexBoundaryContext = oldBoundaryContext
+	}()
+	if containsIndexBoundary(expr) {
+		c.indexContextVar = collectionVar
+		c.indexBoundaryContext = indexBoundaryIndex
+	}
+	return c.compileNode(expr)
+}
+
+func (c *lowerer) compileIndexAssign(target *verb.IndexTarget, value verb.Expr) error {
 	var indices []verb.Expr
-	var baseTarget verb.CollectionTarget = indexTarget
+	var base verb.CollectionTarget = target
 	for {
-		indexed, ok := baseTarget.(*verb.IndexTarget)
+		index, ok := base.(*verb.IndexTarget)
 		if !ok {
 			break
 		}
-		indices = append(indices, indexed.Index)
-		baseTarget = indexed.Collection
+		indices = append(indices, index.Index)
+		base = index.Collection
 	}
 	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
 		indices[left], indices[right] = indices[right], indices[left]
 	}
 
-	var baseVarIdx int
-	var basePropTarget *verb.PropertyTarget
-
-	// If the base is a property, load it into a temp base variable.
-	if baseIdent, ok := baseTarget.(*verb.VariableTarget); ok {
-		baseVarIdx = c.declareVariable(baseIdent.Name)
-	} else if property, ok := baseTarget.(*verb.PropertyTarget); ok {
-		basePropTarget = property
-
-		// Stack currently: [value, value_copy]
-		tmpValHold := c.declareInternalVariable("__prop_nested_range_val")
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(tmpValHold))
-		// Stack: [value]
-
-		if err := c.compileNode(property.Object); err != nil {
+	baseVar, writeback, err := c.prepareCollectionBase(base)
+	if err != nil {
+		return err
+	}
+	indexVars := make([]int, len(indices))
+	intermediateVars := make([]int, len(indices)-1)
+	collectionVar := baseVar
+	for i, index := range indices {
+		if err := c.compileIndexForCollection(index, collectionVar); err != nil {
 			return err
 		}
-		if property.Name != "" {
-			c.emitStaticNameOperation(bytecode.OP_GET_PROP, bytecode.OP_GET_PROP_WIDE, property.Name)
-		} else if property.NameExpr != nil {
-			if err := c.compileNode(property.NameExpr); err != nil {
-				return err
-			}
-			c.emit(bytecode.OP_GET_PROP_DYNAMIC)
-		} else {
-			return fmt.Errorf("property expression has neither static name nor dynamic expression")
-		}
-		// Stack: [value, prop_value]
-
-		baseVarIdx = c.declareInternalVariable("__prop_nested_range_base")
+		indexVars[i] = c.declareInternalVariable(c.tempVar("assignindex"))
 		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(baseVarIdx))
-		// Stack: [value]
-
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(tmpValHold))
-		// Stack: [value, value_copy]
-	} else {
-		return fmt.Errorf("range assignment target must be a variable or property")
-	}
-
-	// Preserve value_copy for RANGE_SET while keeping original assigned value on stack.
-	tmpAssignedVal := c.declareInternalVariable("__nested_range_assigned")
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(tmpAssignedVal))
-	// Stack: [value]
-
-	// Resolve every index once, from the root toward the range target.
-	tmpIndices := make([]int, len(indices))
-	for k, index := range indices {
-		oldContextVar := c.indexContextVar
-		oldBoundaryContext := c.indexBoundaryContext
-		if containsIndexBoundary(index) {
-			tempIdx := c.declareInternalVariable(c.tempVar("nestedrangectx"))
+		c.emitByte(byte(indexVars[i]))
+		if i < len(indices)-1 {
 			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(baseVarIdx))
+			c.emitByte(byte(collectionVar))
+			c.emit(bytecode.OP_GET_VAR)
+			c.emitByte(byte(indexVars[i]))
+			c.emit(bytecode.OP_INDEX)
+			intermediateVars[i] = c.declareInternalVariable(c.tempVar("assignintermediate"))
 			c.emit(bytecode.OP_SET_VAR)
-			c.emitByte(byte(tempIdx))
-			c.indexContextVar = tempIdx
-			c.indexBoundaryContext = indexBoundaryIndex
+			c.emitByte(byte(intermediateVars[i]))
+			collectionVar = intermediateVars[i]
 		}
-		if err := c.compileNode(index); err != nil {
-			return err
-		}
-		c.indexContextVar = oldContextVar
-		c.indexBoundaryContext = oldBoundaryContext
-		tmpIndices[k] = c.declareInternalVariable(fmt.Sprintf("__nested_range_index_%d", k))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(tmpIndices[k]))
 	}
 
-	// Traverse to the collection whose range is being replaced.
-	tmpCollections := make([]int, len(indices))
-	for k := range indices {
-		if k == 0 {
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(baseVarIdx))
-		} else {
-			c.emit(bytecode.OP_GET_VAR)
-			c.emitByte(byte(tmpCollections[k-1]))
-		}
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(tmpIndices[k]))
-		c.emit(bytecode.OP_INDEX)
-		tmpCollections[k] = c.declareInternalVariable(fmt.Sprintf("__nested_range_collection_%d", k))
-		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(tmpCollections[k]))
-	}
-	tmpInnerVar := tmpCollections[len(tmpCollections)-1]
-	// Stack: [value]
-
-	// Perform inner range assignment.
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(tmpAssignedVal))
-	if err := c.compileRangeIndex(start, tmpInnerVar); err != nil {
+	if err := c.compileNode(value); err != nil {
 		return err
 	}
-	if err := c.compileRangeIndex(end, tmpInnerVar); err != nil {
-		return err
-	}
-	c.emit(bytecode.OP_RANGE_SET)
-	c.emitByte(byte(tmpInnerVar))
-	// Stack: [value]
-
-	// Rebuild modified collections from the deepest parent back to the root.
-	for k := len(indices) - 1; k >= 1; k-- {
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(tmpCollections[k]))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(tmpIndices[k]))
-		c.emit(bytecode.OP_INDEX_SET)
-		c.emitByte(byte(tmpCollections[k-1]))
-	}
+	c.emit(bytecode.OP_DUP)
 	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(tmpCollections[0]))
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(tmpIndices[0]))
+	c.emitByte(byte(indexVars[len(indexVars)-1]))
 	c.emit(bytecode.OP_INDEX_SET)
-	c.emitByte(byte(baseVarIdx))
-	// Stack: [value]
+	c.emitByte(byte(collectionVar))
 
-	// If base was a property, persist modified base temp back onto the object property.
-	if basePropTarget != nil {
+	for i := len(intermediateVars) - 1; i >= 0; i-- {
+		childVar := intermediateVars[i]
+		parentVar := baseVar
+		if i > 0 {
+			parentVar = intermediateVars[i-1]
+		}
 		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(baseVarIdx))
-		if err := c.compileNode(basePropTarget.Object); err != nil {
-			return err
+		c.emitByte(byte(childVar))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(indexVars[i]))
+		c.emit(bytecode.OP_INDEX_SET)
+		c.emitByte(byte(parentVar))
+	}
+	c.emitCollectionWriteback(baseVar, writeback)
+	return nil
+}
+
+func (c *lowerer) compileRangeAssign(target *verb.RangeTarget, value verb.Expr) error {
+	if nested, ok := target.Collection.(*verb.IndexTarget); ok {
+		return c.compileNestedRangeAssign(nested, target.Start, target.End, value)
+	}
+	baseVar, writeback, err := c.prepareCollectionBase(target.Collection)
+	if err != nil {
+		return err
+	}
+	if err := c.compileRangeIndex(target.Start, baseVar); err != nil {
+		return err
+	}
+	startVar := c.declareInternalVariable(c.tempVar("rangestart"))
+	c.emit(bytecode.OP_SET_VAR)
+	c.emitByte(byte(startVar))
+	if err := c.compileRangeIndex(target.End, baseVar); err != nil {
+		return err
+	}
+	endVar := c.declareInternalVariable(c.tempVar("rangeend"))
+	c.emit(bytecode.OP_SET_VAR)
+	c.emitByte(byte(endVar))
+
+	if err := c.compileNode(value); err != nil {
+		return err
+	}
+	c.emit(bytecode.OP_DUP)
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(startVar))
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(endVar))
+	c.emit(bytecode.OP_RANGE_SET)
+	c.emitByte(byte(baseVar))
+	c.emitCollectionWriteback(baseVar, writeback)
+	return nil
+}
+
+// compileNestedRangeAssign lowers nested range assignments while retaining all
+// target components before evaluating value.
+func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end, value verb.Expr) error {
+	var indices []verb.Expr
+	var base verb.CollectionTarget = indexTarget
+	for {
+		index, ok := base.(*verb.IndexTarget)
+		if !ok {
+			break
 		}
-		if basePropTarget.Name != "" {
-			c.emitStaticNameOperation(bytecode.OP_SET_PROP, bytecode.OP_SET_PROP_WIDE, basePropTarget.Name)
-		} else if basePropTarget.NameExpr != nil {
-			if err := c.compileNode(basePropTarget.NameExpr); err != nil {
-				return err
-			}
-			c.emit(bytecode.OP_SET_PROP_DYNAMIC)
-		}
+		indices = append(indices, index.Index)
+		base = index.Collection
+	}
+	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
+		indices[left], indices[right] = indices[right], indices[left]
 	}
 
+	baseVar, writeback, err := c.prepareCollectionBase(base)
+	if err != nil {
+		return err
+	}
+	indexVars := make([]int, len(indices))
+	collectionVars := make([]int, len(indices))
+	collectionVar := baseVar
+	for i, index := range indices {
+		if err := c.compileIndexForCollection(index, collectionVar); err != nil {
+			return err
+		}
+		indexVars[i] = c.declareInternalVariable(c.tempVar("nestedrangeindex"))
+		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(indexVars[i]))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(collectionVar))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(indexVars[i]))
+		c.emit(bytecode.OP_INDEX)
+		collectionVars[i] = c.declareInternalVariable(c.tempVar("nestedrangecollection"))
+		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(collectionVars[i]))
+		collectionVar = collectionVars[i]
+	}
+	innerVar := collectionVars[len(collectionVars)-1]
+
+	if err := c.compileRangeIndex(start, innerVar); err != nil {
+		return err
+	}
+	startVar := c.declareInternalVariable(c.tempVar("nestedrangestart"))
+	c.emit(bytecode.OP_SET_VAR)
+	c.emitByte(byte(startVar))
+	if err := c.compileRangeIndex(end, innerVar); err != nil {
+		return err
+	}
+	endVar := c.declareInternalVariable(c.tempVar("nestedrangeend"))
+	c.emit(bytecode.OP_SET_VAR)
+	c.emitByte(byte(endVar))
+
+	if err := c.compileNode(value); err != nil {
+		return err
+	}
+	c.emit(bytecode.OP_DUP)
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(startVar))
+	c.emit(bytecode.OP_GET_VAR)
+	c.emitByte(byte(endVar))
+	c.emit(bytecode.OP_RANGE_SET)
+	c.emitByte(byte(innerVar))
+
+	for i := len(collectionVars) - 1; i >= 0; i-- {
+		childVar := collectionVars[i]
+		parentVar := baseVar
+		if i > 0 {
+			parentVar = collectionVars[i-1]
+		}
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(childVar))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(indexVars[i]))
+		c.emit(bytecode.OP_INDEX_SET)
+		c.emitByte(byte(parentVar))
+	}
+	c.emitCollectionWriteback(baseVar, writeback)
 	return nil
 }
 
