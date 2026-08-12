@@ -19,7 +19,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error constructing store: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Check wizard (#2)
 	wizard, ok := store.Get(2)

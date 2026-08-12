@@ -2,6 +2,7 @@ package format
 
 import (
 	"bufio"
+	"errors"
 	"github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 	"os"
@@ -9,6 +10,29 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestNewStoreFromDatabaseReturnsAddError(t *testing.T) {
+	first := store.NewObjectBuilder(1)
+	duplicate := store.NewObjectBuilder(1)
+	database := &Database{Objects: map[types.ObjID]*store.ObjectBuilder{
+		1: first,
+		2: duplicate,
+	}}
+
+	got, err := database.NewStoreFromDatabase()
+	if err == nil {
+		t.Fatal("NewStoreFromDatabase() error = nil, want rejected duplicate object")
+	}
+	if got != nil {
+		t.Fatalf("NewStoreFromDatabase() store = %v, want nil", got)
+	}
+	if !strings.Contains(err.Error(), "add loaded object #1") {
+		t.Fatalf("NewStoreFromDatabase() error = %q, want object identity and operation", err)
+	}
+	if cause := errors.Unwrap(err); cause == nil || !strings.Contains(cause.Error(), "already exists") {
+		t.Fatalf("NewStoreFromDatabase() cause = %v, want wrapped Store.Add error", cause)
+	}
+}
 
 func TestLoadDatabase(t *testing.T) {
 	// Use the toastcore.db from cow_py
@@ -269,7 +293,7 @@ func TestVerbInheritance(t *testing.T) {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 
 	// Test that #39 (player_db) can find find_exact verb from parent #37
 	verb, _, err := store.FindVerb(types.ObjID(39), "find_exact")
@@ -325,7 +349,7 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 		t.Fatalf("Failed to load database: %v", err)
 	}
 
-	objectStore := loaded.NewStoreFromDatabase()
+	objectStore, _ := loaded.NewStoreFromDatabase()
 	if _, ok := objectStore.Get(101); !ok {
 		t.Fatal("Object #101 not found")
 	}
@@ -352,7 +376,7 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to reload round-tripped database: %v", err)
 	}
-	reloadedStore := reloaded.NewStoreFromDatabase()
+	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	if _, ok := reloadedStore.Get(101); !ok {
 		t.Fatal("Reloaded object #101 not found")
 	}
