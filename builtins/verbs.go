@@ -8,27 +8,8 @@ import (
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
+	languageverb "github.com/MongooseMoo/barn/verb"
 )
-
-// Preposition list matching ToastStunt's prep_list
-// Index corresponds to PrepSpec value
-var prepList = []string{
-	"with/using",               // 0
-	"at/to",                    // 1
-	"in front of",              // 2
-	"in/inside/into",           // 3
-	"on top of/on/onto/upon",   // 4
-	"out of/from inside/from",  // 5
-	"over",                     // 6
-	"through",                  // 7
-	"under/underneath/beneath", // 8
-	"behind",                   // 9
-	"beside",                   // 10
-	"for/about",                // 11
-	"is",                       // 12
-	"as",                       // 13
-	"off/off of",               // 14
-}
 
 // matchArgSpec validates argument spec string (this/none/any)
 func matchArgSpec(s string) bool {
@@ -38,37 +19,21 @@ func matchArgSpec(s string) bool {
 
 // matchPrepSpec validates and returns prep index or -1 if invalid
 func matchPrepSpec(s string) int {
-	lower := strings.ToLower(s)
-	if lower == "none" || lower == "any" {
+	prep, ok := languageverb.ParsePrepositionAlias(s)
+	if !ok {
+		return -1
+	}
+	if prep == languageverb.PrepositionNone || prep == languageverb.PrepositionAny {
 		return -2 // Special value for none/any
 	}
-
-	// Check each prep in prepList
-	for idx, prepStr := range prepList {
-		aliases := strings.Split(prepStr, "/")
-		for _, alias := range aliases {
-			if strings.ToLower(alias) == lower {
-				return idx
-			}
-		}
-	}
-	return -1 // Not found
+	return int(prep)
 }
 
 // unparsePrepSpec returns the full prep string for a prep value stored in verb
 func unparsePrepSpec(prepStr string) string {
-	lower := strings.ToLower(prepStr)
-	if lower == "none" || lower == "any" {
-		return lower
-	}
-
-	// Find matching prep in list and return full string
-	for _, fullPrep := range prepList {
-		aliases := strings.Split(fullPrep, "/")
-		for _, alias := range aliases {
-			if strings.ToLower(alias) == lower {
-				return fullPrep
-			}
+	if prep, ok := languageverb.ParsePreposition(prepStr); ok {
+		if canonical, ok := prep.Canonical(); ok {
+			return canonical
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
+	languageverb "github.com/MongooseMoo/barn/verb"
 )
 
 // VerbMatch is the result of verb lookup
@@ -84,8 +85,8 @@ func prepMatches(verbPrep string, cmdPrep PrepSpec) bool {
 		return cmdPrep == PrepNone
 	}
 
-	// Otherwise, try to match the prep name against parser-owned aliases.
-	if prep, ok := PrepSpecForAlias(verbPrepLower); ok {
+	// Otherwise, try to match the prep name against the shared aliases.
+	if prep, ok := languageverb.ParsePrepositionAlias(verbPrepLower); ok {
 		return prep == cmdPrep
 	}
 
