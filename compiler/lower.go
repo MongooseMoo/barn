@@ -302,7 +302,7 @@ func (c *lowerer) endScope() {
 }
 
 // declareVariable declares a variable in current scope.
-// If the variable count exceeds 255 (the maximum addressable by a single byte),
+// If the variable count exceeds 256 (the maximum addressable by a single byte),
 // sets c.err and returns 0 as a safe fallback index.
 func (c *lowerer) declareVariable(name string) int {
 	key := strings.ToUpper(name)
@@ -313,9 +313,9 @@ func (c *lowerer) declareVariable(name string) int {
 
 	// Check overflow before adding
 	idx := len(c.program.VarNames)
-	if idx > 254-len(c.internalVariables) {
+	if idx > 255-len(c.internalVariables) {
 		if c.err == nil {
-			c.err = fmt.Errorf("too many local variables (max 255)")
+			c.err = fmt.Errorf("too many local variables (max 256)")
 		}
 		return 0 // safe fallback; c.err will be checked at Compile boundary
 	}
@@ -352,10 +352,10 @@ func (c *lowerer) declareInternalVariable(name string) int {
 		return idx
 	}
 
-	idx := 254 - len(c.internalVariables)
+	idx := 255 - len(c.internalVariables)
 	if idx < len(c.program.VarNames) {
 		if c.err == nil {
-			c.err = fmt.Errorf("too many local variables (max 255 including compiler temporaries)")
+			c.err = fmt.Errorf("too many local variables (max 256 including compiler temporaries)")
 		}
 		return 0
 	}
@@ -1628,7 +1628,7 @@ func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
 	// single-clause try/except that leaves the result on the stack.
 	//
 	// With default:
-	//   bytecode.OP_TRY_EXCEPT_WIDE 1 [codes...] [0 = no var] [handler_ip:uint32]
+	//   bytecode.OP_TRY_EXCEPT_LOCAL_WIDE 1 [codes...] [0 = no var:uint16] [handler_ip:uint32]
 	//   [expr]
 	//   bytecode.OP_END_EXCEPT 1
 	//   bytecode.OP_JUMP [end]
@@ -1636,7 +1636,7 @@ func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
 	//   end:
 	//
 	// Without default (return the error value):
-	//   bytecode.OP_TRY_EXCEPT_WIDE 1 [codes...] [var+1] [handler_ip:uint32]
+	//   bytecode.OP_TRY_EXCEPT_LOCAL_WIDE 1 [codes...] [var+1:uint16] [handler_ip:uint32]
 	//   [expr]
 	//   bytecode.OP_END_EXCEPT 1
 	//   bytecode.OP_JUMP [end]
@@ -1650,7 +1650,7 @@ func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
 	}
 
 	// Emit bytecode.OP_TRY_EXCEPT with 1 clause
-	c.emit(bytecode.OP_TRY_EXCEPT_WIDE)
+	c.emit(bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
 	c.emitByte(1) // 1 clause
 
 	codes, err := lowerErrorNames(n.Codes)
@@ -1670,9 +1670,9 @@ func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
 
 	// Variable index: 0 means no variable, idx+1 means store in local[idx]
 	if n.Default == nil {
-		c.emitByte(byte(errVarIdx + 1))
+		c.emitShort(uint16(errVarIdx + 1))
 	} else {
-		c.emitByte(0) // no variable needed
+		c.emitShort(0) // no variable needed
 	}
 
 	// Handler IP placeholder (absolute)
@@ -2245,7 +2245,7 @@ func (c *lowerer) compileTry(n *verb.TryStmt) error {
 		}
 	} else {
 		numHandlers := len(n.Handlers)
-		c.emit(bytecode.OP_TRY_EXCEPT_WIDE)
+		c.emit(bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
 		c.emitByte(byte(numHandlers))
 
 		handlerOffsetPatches := make([]int, numHandlers)
@@ -2265,9 +2265,9 @@ func (c *lowerer) compileTry(n *verb.TryStmt) error {
 
 			if handler.Variable != "" {
 				idx := c.declareVariable(handler.Variable)
-				c.emitByte(byte(idx + 1))
+				c.emitShort(uint16(idx + 1))
 			} else {
-				c.emitByte(0)
+				c.emitShort(0)
 			}
 
 			handlerOffsetPatches[i] = len(c.program.Code)
@@ -2572,7 +2572,7 @@ func (c *lowerer) compileFork(n *verb.ForkStmt) error {
 	//
 	// Bytecode layout:
 	//   [delay expression]         -- evaluates delay, pushes onto stack
-	//   bytecode.OP_FORK_WIDE <varIdx> <bodyLen:uint32> -- pops delay, validates, sets var=0, jumps over body
+	//   bytecode.OP_FORK_LOCAL_WIDE <varIdx:uint16> <bodyLen:uint32> -- pops delay, validates, sets var=0, jumps over body
 	//   [body statements]          -- compiled but skipped at runtime (for future scheduling)
 	//
 	// varIdx: 0 = anonymous fork, idx+1 = store task ID (0) in locals[idx]
@@ -2589,9 +2589,9 @@ func (c *lowerer) compileFork(n *verb.ForkStmt) error {
 		varIdx = c.declareVariable(n.VarName) + 1 // +1 so 0 means "no variable"
 	}
 
-	// Emit bytecode.OP_FORK with variable index and placeholder body length
-	c.emit(bytecode.OP_FORK_WIDE)
-	c.emitByte(byte(varIdx))
+	// Emit the local-wide fork with variable index and placeholder body length.
+	c.emit(bytecode.OP_FORK_LOCAL_WIDE)
+	c.emitShort(uint16(varIdx))
 	bodyLenPatch := len(c.program.Code)
 	c.emitWide(^uint32(0)) // placeholder for body length
 

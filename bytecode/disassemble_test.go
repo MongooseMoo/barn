@@ -79,7 +79,7 @@ func TestExtractCompiledForkRebasesHandlersAfterCompactCallVerb(t *testing.T) {
 
 	forkIP := -1
 	for _, line := range bytecode.Disassemble(program) {
-		if strings.HasSuffix(line, "FORK_WIDE") {
+		if strings.HasSuffix(line, "FORK_LOCAL_WIDE") {
 			if _, err := fmt.Sscanf(line, "%d:", &forkIP); err != nil {
 				t.Fatalf("parse fork IP from %q: %v", line, err)
 			}
@@ -87,11 +87,11 @@ func TestExtractCompiledForkRebasesHandlersAfterCompactCallVerb(t *testing.T) {
 		}
 	}
 	if forkIP < 0 {
-		t.Fatalf("disassembly missing FORK_WIDE:\n%s", strings.Join(bytecode.Disassemble(program), "\n"))
+		t.Fatalf("disassembly missing FORK_LOCAL_WIDE:\n%s", strings.Join(bytecode.Disassemble(program), "\n"))
 	}
-	const forkOperands = 5
+	const forkOperands = 6
 	bodyIP := forkIP + 1 + forkOperands
-	bodyLen := int(binary.BigEndian.Uint32(program.Code[forkIP+2 : forkIP+6]))
+	bodyLen := int(binary.BigEndian.Uint32(program.Code[forkIP+3 : forkIP+7]))
 	child := program.ExtractForkBody(bodyIP, bodyLen)
 	if child == nil {
 		t.Fatal("ExtractForkBody rejected compiler-produced fork body")

@@ -745,16 +745,16 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeCallVerbWide()
 
 	// Fork
-	case bytecode.OP_FORK, bytecode.OP_FORK_WIDE:
-		return vm.executeFork(op == bytecode.OP_FORK_WIDE)
+	case bytecode.OP_FORK, bytecode.OP_FORK_WIDE, bytecode.OP_FORK_LOCAL_WIDE:
+		return vm.executeFork(op != bytecode.OP_FORK, op == bytecode.OP_FORK_LOCAL_WIDE)
 
 	// Pass (parent verb call)
 	case bytecode.OP_PASS:
 		return vm.executePass()
 
 	// Exception handling
-	case bytecode.OP_TRY_EXCEPT, bytecode.OP_TRY_EXCEPT_WIDE:
-		return vm.executeTryExcept(op == bytecode.OP_TRY_EXCEPT_WIDE)
+	case bytecode.OP_TRY_EXCEPT, bytecode.OP_TRY_EXCEPT_WIDE, bytecode.OP_TRY_EXCEPT_LOCAL_WIDE:
+		return vm.executeTryExcept(op != bytecode.OP_TRY_EXCEPT, op == bytecode.OP_TRY_EXCEPT_LOCAL_WIDE)
 	case bytecode.OP_END_EXCEPT:
 		return vm.executeEndExcept()
 	case bytecode.OP_TRY_FINALLY, bytecode.OP_TRY_FINALLY_WIDE:

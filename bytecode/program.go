@@ -215,18 +215,22 @@ func rebaseAbsoluteHandlerIPs(code []byte, bodyIP int) bool {
 					return false
 				}
 			}
-		case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE:
+		case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
 			// Operands: numClauses, then per clause:
 			// numCodes, codes..., var+1, handlerIP (short or uint32).
 			end := ip + operandCount
 			clauses := int(code[ip])
 			pos := ip + 1
 			ipBytes := 2
-			if op == OP_TRY_EXCEPT_WIDE {
+			if op == OP_TRY_EXCEPT_WIDE || op == OP_TRY_EXCEPT_LOCAL_WIDE {
 				ipBytes = 4
 			}
+			varBytes := 1
+			if op == OP_TRY_EXCEPT_LOCAL_WIDE {
+				varBytes = 2
+			}
 			for c := 0; c < clauses && pos < end; c++ {
-				ipPos := pos + 1 + int(code[pos]) + 1
+				ipPos := pos + 1 + int(code[pos]) + varBytes
 				if ipPos+ipBytes > end {
 					break
 				}
