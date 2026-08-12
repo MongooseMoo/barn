@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"sort"
+	"sync"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
@@ -297,22 +298,29 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewObj(newID))
 }
 
-func beginRecycle(ctx *Execution, id types.ObjID) bool {
-	state := &ctx.Registry.runtime.recycle
-	state.Lock()
-	defer state.Unlock()
-	if state.ids[id] > 0 {
+var recycleState struct {
+	mu  sync.Mutex
+	ids map[types.ObjID]int
+}
+
+func init() {
+	recycleState.ids = make(map[types.ObjID]int)
+}
+
+func beginRecycle(id types.ObjID) bool {
+	recycleState.mu.Lock()
+	defer recycleState.mu.Unlock()
+	if recycleState.ids[id] > 0 {
 		return false
 	}
-	state.ids[id] = 1
+	recycleState.ids[id] = 1
 	return true
 }
 
-func endRecycle(ctx *Execution, id types.ObjID) {
-	state := &ctx.Registry.runtime.recycle
-	state.Lock()
-	defer state.Unlock()
-	delete(state.ids, id)
+func endRecycle(id types.ObjID) {
+	recycleState.mu.Lock()
+	defer recycleState.mu.Unlock()
+	delete(recycleState.ids, id)
 }
 
 func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
@@ -351,11 +359,11 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := args[0].ID()
-	if !beginRecycle(ctx, objID) {
+	if !beginRecycle(objID) {
 		// Recursive recycle(this) on the same target fails.
 		return types.Err(types.E_INVARG)
 	}
-	defer endRecycle(ctx, objID)
+	defer endRecycle(objID)
 
 	if !validForRead(ctx, objID) {
 		// Object doesn't exist or was already recycled - both are E_INVARG.
