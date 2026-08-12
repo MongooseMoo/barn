@@ -45,7 +45,7 @@ type Compiler struct {
 func New(builtinIDs map[string]int) *Compiler {
 	snapshot := make(map[string]int, len(builtinIDs))
 	for name, id := range builtinIDs {
-		snapshot[name] = id
+		snapshot[canonicalIdentifier(name)] = id
 	}
 	return &Compiler{
 		builtinIDs: snapshot,
