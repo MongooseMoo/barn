@@ -86,8 +86,9 @@ func (c *Connection) Flush() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, msg := range c.outputBuffer {
+	for i, msg := range c.outputBuffer {
 		if err := c.transport.WriteLine(msg); err != nil {
+			c.outputBuffer = c.outputBuffer[i:]
 			return err
 		}
 	}
