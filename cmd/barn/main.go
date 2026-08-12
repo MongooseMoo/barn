@@ -39,6 +39,7 @@ func main() {
 	flag.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "Minimum log level: debug, info, warn, or error")
 	flag.StringVar(&cfg.LogDir, "log-dir", cfg.LogDir, "Directory for JSON log files (empty disables the file sink)")
 	flag.StringVar(&cfg.DebugAddr, "debug-addr", cfg.DebugAddr, "Address for the pprof/expvar endpoint (\"off\" to disable)")
+	flag.StringVar(&cfg.OperatorAddr, "operator-addr", cfg.OperatorAddr, "Address for passive liveness/readiness probes (\"off\" to disable)")
 	flag.BoolVar(&cfg.TraceEnabled, "trace", false, "Enable execution tracing")
 	flag.StringVar(&cfg.TraceFilter, "trace-filter", "", "Trace filter pattern")
 	flag.StringVar(&cfg.VerbCode, "verb-code", "", "Dump verb code for #obj:verb")

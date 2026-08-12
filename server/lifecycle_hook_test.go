@@ -16,6 +16,15 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
+type recordingLifecycle struct {
+	states []string
+}
+
+func (l *recordingLifecycle) Ready()    { l.states = append(l.states, "ready") }
+func (l *recordingLifecycle) Draining() { l.states = append(l.states, "draining") }
+func (l *recordingLifecycle) Stopped()  { l.states = append(l.states, "stopped") }
+func (l *recordingLifecycle) Failed()   { l.states = append(l.states, "failed") }
+
 func TestCallServerStartedRunsHookBeforeReturning(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
@@ -146,6 +155,7 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 	input := NewInputProcessor(store, rt)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	lifecycle := &recordingLifecycle{}
 	s := &Server{
 		store:          store,
 		runtime:        rt,
@@ -155,6 +165,7 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 		checkpointChan: make(chan struct{}, 1),
 		ctx:            ctx,
 		cancel:         cancel,
+		lifecycle:      lifecycle,
 	}
 
 	if err := s.Start(); err == nil {
@@ -166,6 +177,9 @@ func TestStartRollsBackBindFailure(t *testing.T) {
 	s.mu.Unlock()
 	if running {
 		t.Fatalf("server remained running after bind failure")
+	}
+	if got := lifecycle.states; len(got) != 1 || got[0] != "failed" {
+		t.Fatalf("lifecycle states = %v, want [failed]", got)
 	}
 	if infos := s.connManager.ListenerInfos(); len(infos) != 0 {
 		t.Fatalf("listeners after bind failure = %+v, want none", infos)
@@ -209,12 +223,14 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 
 	rt := engine.NewRuntime(store)
 	rt.Registry().SetConnectionManager(cm)
+	lifecycle := &recordingLifecycle{}
 	s := &Server{
 		store:           store,
 		runtime:         rt,
 		input:           NewInputProcessor(store, rt),
 		connManager:     cm,
 		shutdownMessage: "Maintenance",
+		lifecycle:       lifecycle,
 	}
 
 	if err := s.shutdown(); err != nil {
@@ -239,6 +255,9 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 
 	if !listener.closed {
 		t.Fatalf("listener was not closed")
+	}
+	if got := lifecycle.states; len(got) != 1 || got[0] != "stopped" {
+		t.Fatalf("lifecycle states = %v, want [stopped]", got)
 	}
 	if infos := cm.ListenerInfos(); len(infos) != 0 {
 		t.Fatalf("listeners after shutdown = %+v, want none", infos)

@@ -42,7 +42,20 @@ type Server struct {
 	checkpointChan     chan struct{}
 	ctx                context.Context
 	cancel             context.CancelFunc
+	lifecycle          LifecycleObserver
 }
+
+// LifecycleObserver reports application lifecycle boundaries to passive
+// operator probes. Implementations must be concurrency safe and non-blocking.
+type LifecycleObserver interface {
+	Ready()
+	Draining()
+	Stopped()
+	Failed()
+}
+
+// SetLifecycleObserver installs a per-server lifecycle observer.
+func (s *Server) SetLifecycleObserver(observer LifecycleObserver) { s.lifecycle = observer }
 
 var ErrPanicShutdown = errors.New("panic shutdown")
 
@@ -227,6 +240,9 @@ func (s *Server) Start() error {
 	// Bind listener sockets before server_started so MOO code can inspect
 	// listeners(), but do not accept connections until the hook returns.
 	if err := s.connManager.BindListeners(s.listenerSpecs); err != nil {
+		if s.lifecycle != nil {
+			s.lifecycle.Failed()
+		}
 		s.cancel()
 		s.connManager.CloseListeners()
 		s.input.Stop()
@@ -246,6 +262,9 @@ func (s *Server) Start() error {
 	}
 
 	// Start listening for connections
+	if s.lifecycle != nil {
+		s.lifecycle.Ready()
+	}
 	s.connManager.StartAccepting()
 
 	s.backgroundWG.Add(1)
@@ -363,6 +382,9 @@ func (s *Server) Shutdown(message string) {
 		return
 	}
 	s.shutdownMessage = message
+	if s.lifecycle != nil {
+		s.lifecycle.Draining()
+	}
 	s.mu.Unlock()
 
 	slog.Info("initiating shutdown", slog.String("message", message))
@@ -408,6 +430,9 @@ func (s *Server) shutdown() error {
 	s.mu.Lock()
 	s.running = false
 	s.mu.Unlock()
+	if s.lifecycle != nil {
+		s.lifecycle.Stopped()
+	}
 
 	slog.Info("shutdown complete")
 	return nil
@@ -415,6 +440,9 @@ func (s *Server) shutdown() error {
 
 // Panic performs emergency shutdown
 func (s *Server) Panic(message string) error {
+	if s.lifecycle != nil {
+		s.lifecycle.Draining()
+	}
 	// The Go stack is the only record of where the server actually tripped;
 	// the message alone says that it died, not why.
 	slog.Error("PANIC: "+message,
@@ -432,6 +460,9 @@ func (s *Server) Panic(message string) error {
 	s.mu.Lock()
 	s.terminalErr = err
 	s.mu.Unlock()
+	if s.lifecycle != nil {
+		s.lifecycle.Failed()
+	}
 	s.cancel()
 	return err
 }

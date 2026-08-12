@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -64,12 +63,7 @@ func logLevelHandler(w http.ResponseWriter, r *http.Request) {
 // for its side effects, because that only populates http.DefaultServeMux — and
 // exposing pprof on a mux the rest of the program might serve publicly is how it
 // ends up on the open internet.
-func startDebugEndpoint(addr string) (*http.Server, error) {
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("listen on %s: %w", addr, err)
-	}
-
+func debugMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/debug/vars", expvar.Handler())
 	mux.HandleFunc("/debug/loglevel", logLevelHandler)
@@ -79,15 +73,7 @@ func startDebugEndpoint(addr string) (*http.Server, error) {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-	srv := &http.Server{Handler: mux}
-	slog.Info("debug endpoint listening", slog.String("addr", listener.Addr().String()))
-
-	go func() {
-		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Warn("debug endpoint stopped", slog.Any("err", err))
-		}
-	}()
-	return srv, nil
+	return mux
 }
 
 func BuildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]listener.Spec, error) {
@@ -629,7 +615,7 @@ type Config struct {
 	PortProvided                                                               bool
 	ConfigPath, ProfileID, ProfileManifest, ProfileRegistry                    string
 	ListProfiles                                                               bool
-	LogLevel, LogDir, DebugAddr                                                string
+	LogLevel, LogDir, DebugAddr, OperatorAddr                                  string
 	TraceEnabled                                                               bool
 	TraceFilter                                                                string
 	VerbCode, ListVerbs, ObjectInfo, Eval, DumpObjectRaw, VerbLookup, Ancestry string
@@ -640,7 +626,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{DatabasePath: "Test.db", Port: 7777, ProfileRegistry: "profiles/barn/profiles.json", LogLevel: "info", LogDir: "logs", DebugAddr: "127.0.0.1:0", CheckpointInterval: 3600}
+	return Config{DatabasePath: "Test.db", Port: 7777, ProfileRegistry: "profiles/barn/profiles.json", LogLevel: "info", LogDir: "logs", DebugAddr: "127.0.0.1:0", OperatorAddr: "127.0.0.1:0", CheckpointInterval: 3600}
 }
 
 // Run executes a configured Barn invocation. It never terminates the process;
@@ -758,17 +744,28 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		trace.Init(false, nil, nil)
 	}
 	if cfg.DebugAddr != "off" && cfg.DebugAddr != "" {
-		debugSrv, err := startDebugEndpoint(cfg.DebugAddr)
+		debugSrv, err := startHTTPEndpoint("debug", cfg.DebugAddr, debugMux())
 		if err != nil {
 			slog.Warn("debug endpoint unavailable", slog.Any("err", err))
 		} else {
-			defer debugSrv.Close()
+			defer debugSrv.shutdown()
+		}
+	}
+	state := newLifecycle()
+	if cfg.OperatorAddr != "off" && cfg.OperatorAddr != "" {
+		operatorSrv, err := startHTTPEndpoint("operator", cfg.OperatorAddr, operatorMux(state))
+		if err != nil {
+			slog.Warn("operator endpoint unavailable", slog.Any("err", err))
+		} else {
+			defer operatorSrv.shutdown()
 		}
 	}
 	srv, err := server.NewServerWithOptions(cfg.DatabasePath, specs, cfg.CheckpointInterval, options)
 	if err != nil {
+		state.Failed()
 		return fmt.Errorf("create server: %w", err)
 	}
+	srv.SetLifecycleObserver(state)
 	if cfg.ProfileManifest != "" {
 		manifest, err := profile.BuildManifest(profile.BuildInput{ProfileID: cfg.ProfileID, ImplementationRef: gitImplementationRef(), DatabasePath: cfg.DatabasePath, ConfigPath: cfg.ConfigPath, Options: options})
 		if err != nil {
@@ -779,6 +776,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		}
 	}
 	if err := srv.LoadDatabase(); err != nil {
+		state.Failed()
 		return fmt.Errorf("load database: %w", err)
 	}
 	done := make(chan struct{})
