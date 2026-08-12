@@ -184,6 +184,31 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 		t.Fatal("wizard queued_tasks(1) did not expose another programmer's task")
 	}
 
+	extendedTwoArgResult := builtinQueuedTasks(
+		wizard,
+		[]types.Value{types.NewInt(1), types.NewInt(0)},
+	)
+	if extendedTwoArgResult.IsError() {
+		t.Fatalf("queued_tasks(1, 0) failed: %v", extendedTwoArgResult.Error)
+	}
+	extendedTwoArgFound := false
+	for _, entry := range extendedTwoArgResult.Val.Elements() {
+		if entry.Get(1).Int() != programmerTwoTaskID {
+			continue
+		}
+		extendedTwoArgFound = true
+		if entry.Len() != 11 {
+			t.Fatalf("queued_tasks(1, 0) entry length = %d, want 11", entry.Len())
+		}
+		marker, ok := entry.Get(11).MapGet(types.NewStr("marker"))
+		if !ok || marker.Str() != "programmer-two" {
+			t.Fatalf("queued_tasks(1, 0) marker = %v, %v; want programmer-two, true", marker, ok)
+		}
+	}
+	if !extendedTwoArgFound {
+		t.Fatal("wizard queued_tasks(1, 0) did not expose another programmer's task")
+	}
+
 	programmer := newTestExecution()
 	programmer.Programmer = 2
 	programmer.Registry = wizard.Registry
