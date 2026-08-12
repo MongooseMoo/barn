@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"log/slog"
@@ -15,6 +14,8 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/engine/internal/finalization"
+	"github.com/MongooseMoo/barn/engine/internal/scheduler"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
@@ -24,12 +25,10 @@ import (
 
 // Runtime manages task and VM execution.
 type Runtime struct {
-	tasks                   map[int64]*task.Task
 	taskManager             *task.Manager
-	lifecycle               lifecycleCoordinator
-	waiting                 *TaskQueue
+	lifecycle               finalization.Coordinator
+	scheduler               *scheduler.Scheduler
 	nextTaskID              int64
-	queueSeq                int64
 	registry                *builtins.Registry
 	store                   *dbstore.Store
 	pendingFinalizationSink func([]types.Value)
@@ -37,25 +36,12 @@ type Runtime struct {
 	tracebackSender         func(types.ObjID, types.ErrorCode, []task.ActivationFrame)
 	taskOutputFlusher       func(types.ObjID, string)
 	options                 config.Options
-	taskWork                chan taskWorkItem
-	workersWG               sync.WaitGroup
-	workerCount             int
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 }
 
 const ambiguousExecutionOwnerID int64 = -1 << 63
-
-type taskWorkItem struct {
-	task    *task.Task
-	results chan<- taskRunResult
-}
-
-type taskRunResult struct {
-	task *task.Task
-	err  error
-}
 
 // NewRuntime creates an execution runtime with default options.
 func NewRuntime(store *dbstore.Store) *Runtime {
@@ -77,16 +63,12 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 	registry.SetTaskManager(manager)
 
 	s := &Runtime{
-		tasks:       make(map[int64]*task.Task),
 		taskManager: manager,
-		lifecycle:   newLifecycleCoordinator(),
-		waiting:     NewTaskQueue(),
+		lifecycle:   finalization.NewCoordinator(),
 		nextTaskID:  1,
 		registry:    registry,
 		store:       store,
 		options:     options,
-		taskWork:    make(chan taskWorkItem),
-		workerCount: workerCount,
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -125,12 +107,12 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		ctx := execution.TaskContext
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
-		if !s.lifecycle.sweepMu.TryLock() {
+		if !s.lifecycle.SweepMu.TryLock() {
 			return nil
 		}
-		defer s.lifecycle.sweepMu.Unlock()
-		s.lifecycle.vmStartMu.Lock()
-		defer s.lifecycle.vmStartMu.Unlock()
+		defer s.lifecycle.SweepMu.Unlock()
+		s.lifecycle.VMStartMu.Lock()
+		defer s.lifecycle.VMStartMu.Unlock()
 
 		current := execution.Task
 		if ownerID, claimed, attributable := s.executionContextClaim(ctx); claimed && !attributable {
@@ -165,31 +147,9 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, execution, 0, siblingAnon)
 		return renewTransaction()
 	})
-	s.startWorkers()
+	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
 
 	return s
-}
-
-func (s *Runtime) startWorkers() {
-	for i := 0; i < s.workerCount; i++ {
-		s.workersWG.Add(1)
-		go s.workerLoop()
-	}
-}
-
-func (s *Runtime) workerLoop() {
-	defer s.workersWG.Done()
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case work := <-s.taskWork:
-			work.results <- taskRunResult{
-				task: work.task,
-				err:  s.runTask(work.task),
-			}
-		}
-	}
 }
 
 // Registry returns the runtime's builtin registry so the owning server can
@@ -207,28 +167,28 @@ func (s *Runtime) newTaskID() int64 {
 func (s *Runtime) LiveTaskCount() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return int64(len(s.tasks))
+	return int64(s.taskManager.Len())
 }
 
 func (s *Runtime) acquireTaskExecution(t *task.Task) {
-	if s.lifecycle.executionStartObserver != nil {
-		s.lifecycle.executionStartObserver()
+	if s.lifecycle.ExecutionStartObserver != nil {
+		s.lifecycle.ExecutionStartObserver()
 	}
-	s.lifecycle.vmStartMu.Lock()
-	defer s.lifecycle.vmStartMu.Unlock()
+	s.lifecycle.VMStartMu.Lock()
+	defer s.lifecycle.VMStartMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lifecycle.executingTasks[t.ID]++
+	s.lifecycle.ExecutingTasks[t.ID]++
 	t.SetState(task.TaskRunning)
 }
 
 func (s *Runtime) releaseTaskExecution(taskID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if count := s.lifecycle.executingTasks[taskID]; count > 1 {
-		s.lifecycle.executingTasks[taskID] = count - 1
+	if count := s.lifecycle.ExecutingTasks[taskID]; count > 1 {
+		s.lifecycle.ExecutingTasks[taskID] = count - 1
 	} else {
-		delete(s.lifecycle.executingTasks, taskID)
+		delete(s.lifecycle.ExecutingTasks, taskID)
 	}
 }
 
@@ -238,7 +198,7 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 // the outer and inner VMs both hold roots for the same task.
 func (s *Runtime) acquireInheritedTaskExecution(taskID int64) {
 	s.mu.Lock()
-	s.lifecycle.executingTasks[taskID]++
+	s.lifecycle.ExecutingTasks[taskID]++
 	s.mu.Unlock()
 }
 
@@ -247,10 +207,10 @@ func (s *Runtime) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64)
 		return
 	}
 	s.mu.Lock()
-	owners := s.lifecycle.executionContexts[ctx]
+	owners := s.lifecycle.ExecutionContexts[ctx]
 	if owners == nil {
 		owners = make(map[int64]int)
-		s.lifecycle.executionContexts[ctx] = owners
+		s.lifecycle.ExecutionContexts[ctx] = owners
 	}
 	owners[taskID]++
 	s.mu.Unlock()
@@ -261,13 +221,13 @@ func (s *Runtime) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64)
 		return
 	}
 	s.mu.Lock()
-	owners := s.lifecycle.executionContexts[ctx]
+	owners := s.lifecycle.ExecutionContexts[ctx]
 	if count := owners[taskID]; count > 1 {
 		owners[taskID] = count - 1
 	} else if count == 1 {
 		delete(owners, taskID)
 		if len(owners) == 0 {
-			delete(s.lifecycle.executionContexts, ctx)
+			delete(s.lifecycle.ExecutionContexts, ctx)
 		}
 	}
 	s.mu.Unlock()
@@ -288,7 +248,7 @@ func (s *Runtime) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	owners := s.lifecycle.executionContexts[ctx]
+	owners := s.lifecycle.ExecutionContexts[ctx]
 	if len(owners) == 0 {
 		return 0, false, false
 	}
@@ -306,7 +266,7 @@ func (s *Runtime) acquireSweepContext(ctx *kernel.TaskContext) {
 		return
 	}
 	s.mu.Lock()
-	s.lifecycle.sweepContexts[ctx]++
+	s.lifecycle.SweepContexts[ctx]++
 	s.mu.Unlock()
 }
 
@@ -315,10 +275,10 @@ func (s *Runtime) releaseSweepContext(ctx *kernel.TaskContext) {
 		return
 	}
 	s.mu.Lock()
-	if count := s.lifecycle.sweepContexts[ctx]; count > 1 {
-		s.lifecycle.sweepContexts[ctx] = count - 1
+	if count := s.lifecycle.SweepContexts[ctx]; count > 1 {
+		s.lifecycle.SweepContexts[ctx] = count - 1
 	} else {
-		delete(s.lifecycle.sweepContexts, ctx)
+		delete(s.lifecycle.SweepContexts, ctx)
 	}
 	s.mu.Unlock()
 }
@@ -328,7 +288,7 @@ func (s *Runtime) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
 		return false
 	}
 	s.mu.Lock()
-	owned := s.lifecycle.sweepContexts[ctx] > 0
+	owned := s.lifecycle.SweepContexts[ctx] > 0
 	s.mu.Unlock()
 	return owned
 }
@@ -349,7 +309,7 @@ func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 // Stop cancels runtime-owned task contexts.
 func (s *Runtime) Stop() {
 	s.cancel()
-	s.workersWG.Wait()
+	s.scheduler.Stop()
 }
 
 // BeginShutdown closes ordinary finalization ownership and returns a channel
@@ -367,20 +327,20 @@ func (s *Runtime) BeginShutdown(exec *vm.VM) <-chan struct{} {
 // supplied by the active execution, without exposing its concrete VM to the
 // server lifecycle layer.
 func (s *Runtime) BeginShutdownWithRoots(callerRoots []types.Value) <-chan struct{} {
-	s.lifecycle.mu.Lock()
-	ready := s.lifecycle.shutdownReady
-	if s.lifecycle.shutdownPublished {
-		s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	ready := s.lifecycle.ShutdownReady
+	if s.lifecycle.ShutdownPublished {
+		s.lifecycle.Mu.Unlock()
 		s.appendPendingFinalizations(callerRoots)
 		return ready
 	}
-	s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, callerRoots...)
-	s.lifecycle.shutdownRequested = true
+	s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, callerRoots...)
+	s.lifecycle.ShutdownRequested = true
 	publish := s.canPublishShutdownLocked()
 	if publish {
-		s.lifecycle.shutdownPublishing = true
+		s.lifecycle.ShutdownPublishing = true
 	}
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 	if publish {
 		s.publishShutdown()
 	}
@@ -388,61 +348,61 @@ func (s *Runtime) BeginShutdownWithRoots(callerRoots []types.Value) <-chan struc
 }
 
 func (s *Runtime) beginFinalizationProducer() {
-	s.lifecycle.mu.Lock()
-	s.lifecycle.activeFinalizationProducers++
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	s.lifecycle.ActiveFinalizationProducers++
+	s.lifecycle.Mu.Unlock()
 }
 
 func (s *Runtime) finishFinalizationProducer() {
-	s.lifecycle.mu.Lock()
-	if s.lifecycle.activeFinalizationProducers <= 0 {
-		s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Lock()
+	if s.lifecycle.ActiveFinalizationProducers <= 0 {
+		s.lifecycle.Mu.Unlock()
 		panic("engine finalization producer underflow")
 	}
-	s.lifecycle.activeFinalizationProducers--
+	s.lifecycle.ActiveFinalizationProducers--
 	publish := s.canPublishShutdownLocked()
 	if publish {
-		s.lifecycle.shutdownPublishing = true
+		s.lifecycle.ShutdownPublishing = true
 	}
-	s.lifecycle.mu.Unlock()
+	s.lifecycle.Mu.Unlock()
 	if publish {
 		s.publishShutdown()
 	}
 }
 
 func (s *Runtime) canPublishShutdownLocked() bool {
-	return s.lifecycle.shutdownRequested && !s.lifecycle.shutdownPublishing && !s.lifecycle.shutdownPublished &&
-		!s.lifecycle.gcRunning && s.lifecycle.activeFinalizationProducers == 0
+	return s.lifecycle.ShutdownRequested && !s.lifecycle.ShutdownPublishing && !s.lifecycle.ShutdownPublished &&
+		!s.lifecycle.GCRunning && s.lifecycle.ActiveFinalizationProducers == 0
 }
 
 func (s *Runtime) publishShutdown() {
 	for {
-		s.lifecycle.mu.Lock()
-		if s.lifecycle.gcRunning || s.lifecycle.activeFinalizationProducers != 0 {
-			s.lifecycle.shutdownPublishing = false
-			s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Lock()
+		if s.lifecycle.GCRunning || s.lifecycle.ActiveFinalizationProducers != 0 {
+			s.lifecycle.ShutdownPublishing = false
+			s.lifecycle.Mu.Unlock()
 			return
 		}
 		pending := s.takeDeferredFinalizationRootsLocked()
-		pending = append(pending, s.lifecycle.pendingShutdownRoots...)
-		s.lifecycle.pendingShutdownRoots = nil
-		s.lifecycle.mu.Unlock()
+		pending = append(pending, s.lifecycle.PendingShutdownRoots...)
+		s.lifecycle.PendingShutdownRoots = nil
+		s.lifecycle.Mu.Unlock()
 		s.appendPendingFinalizations(pending)
 
-		s.lifecycle.mu.Lock()
-		if len(s.lifecycle.pendingShutdownRoots) != 0 || len(s.lifecycle.pendingWaifs) != 0 || len(s.lifecycle.pendingAnonGC) != 0 {
-			s.lifecycle.mu.Unlock()
+		s.lifecycle.Mu.Lock()
+		if len(s.lifecycle.PendingShutdownRoots) != 0 || len(s.lifecycle.PendingWaifs) != 0 || len(s.lifecycle.PendingAnonGC) != 0 {
+			s.lifecycle.Mu.Unlock()
 			continue
 		}
-		if s.lifecycle.gcRunning || s.lifecycle.activeFinalizationProducers != 0 {
-			s.lifecycle.shutdownPublishing = false
-			s.lifecycle.mu.Unlock()
+		if s.lifecycle.GCRunning || s.lifecycle.ActiveFinalizationProducers != 0 {
+			s.lifecycle.ShutdownPublishing = false
+			s.lifecycle.Mu.Unlock()
 			return
 		}
-		s.lifecycle.shutdownPublished = true
-		s.lifecycle.shutdownPublishing = false
-		close(s.lifecycle.shutdownReady)
-		s.lifecycle.mu.Unlock()
+		s.lifecycle.ShutdownPublished = true
+		s.lifecycle.ShutdownPublishing = false
+		close(s.lifecycle.ShutdownReady)
+		s.lifecycle.Mu.Unlock()
 		return
 	}
 }
@@ -456,9 +416,9 @@ func (s *Runtime) appendPendingFinalizations(values []types.Value) {
 // ShutdownRequested distinguishes lifecycle publication from generic runtime
 // cancellation; only an explicit lifecycle request transfers task roots.
 func (s *Runtime) ShutdownRequested() bool {
-	s.lifecycle.mu.Lock()
-	defer s.lifecycle.mu.Unlock()
-	return s.lifecycle.shutdownRequested
+	s.lifecycle.Mu.Lock()
+	defer s.lifecycle.Mu.Unlock()
+	return s.lifecycle.ShutdownRequested
 }
 
 func (s *Runtime) SetPendingFinalizationSink(sink func([]types.Value)) {
@@ -484,50 +444,7 @@ func (s *Runtime) SetTaskOutputFlusher(flusher func(types.ObjID, string)) {
 // draining an arbitrarily large ready snapshot first. A single MOO task still
 // runs atomically until completion or suspension.
 func (s *Runtime) ProcessReadyTasks() int {
-	s.mu.Lock()
-
-	now := time.Now()
-	var readyTasks []*task.Task
-
-	for s.waiting.Len() > 0 {
-		t := s.waiting.Peek()
-		if t.StartTime.After(now) {
-			break
-		}
-		heap.Pop(s.waiting)
-		if !t.TryClaimQueued() {
-			continue
-		}
-		readyTasks = append(readyTasks, t)
-	}
-
-	heapReady := make(map[int64]bool, len(readyTasks))
-	for _, t := range readyTasks {
-		heapReady[t.ID] = true
-	}
-
-	for _, t := range s.tasks {
-		if heapReady[t.ID] {
-			continue
-		}
-
-		if t.WakeDue(now) {
-			if t.Resume(types.NewInt(0)) && t.TryClaimQueued() {
-				readyTasks = append(readyTasks, t)
-			}
-			continue
-		}
-
-		if t.GetState() == task.TaskQueued && (t.StmtIndex > 0 || t.BytecodeVMValue() != nil) {
-			if (t.WakeTime.IsZero() || !t.WakeTime.After(now)) && !t.StartTime.After(now) {
-				if t.TryClaimQueued() {
-					readyTasks = append(readyTasks, t)
-				}
-			}
-		}
-	}
-
-	s.mu.Unlock()
+	readyTasks := s.scheduler.Ready(time.Now(), s.taskManager.Snapshot())
 
 	s.runReadyTasks(readyTasks)
 	// Every task in the pass has joined by now (runTaskBatch waits on all of them),
@@ -541,124 +458,20 @@ func (s *Runtime) runReadyTasks(readyTasks []*task.Task) {
 	if len(readyTasks) == 0 {
 		return
 	}
-	for _, batch := range s.readyTaskBatches(readyTasks) {
+	for _, batch := range s.scheduler.Plan(readyTasks) {
 		s.runTaskBatch(batch)
 	}
 }
 
-type readyTaskCandidate struct {
-	task      *task.Task
-	footprint accessFootprint
-	// optimistic reports whether this task may be co-scheduled with others even
-	// without a proven-commuting footprint, relying on commit-time conflict
-	// detection and retry. Only fresh AST tasks (taskIsConflictRetryable) qualify.
-	optimistic bool
-}
-
-func (s *Runtime) readyTaskBatches(readyTasks []*task.Task) [][]*task.Task {
-	if s.workerCount <= 1 {
-		batches := make([][]*task.Task, 0, len(readyTasks))
-		for _, t := range readyTasks {
-			batches = append(batches, []*task.Task{t})
-		}
-		return batches
-	}
-
-	var batches [][]*task.Task
-	var current []readyTaskCandidate
-	flush := func() {
-		if len(current) == 0 {
-			return
-		}
-		batch := make([]*task.Task, 0, len(current))
-		for _, candidate := range current {
-			batch = append(batch, candidate.task)
-		}
-		batches = append(batches, batch)
-		current = nil
-	}
-
-	for _, t := range readyTasks {
-		candidate := readyTaskCandidate{
-			task:       t,
-			footprint:  analyzeTaskAccessFootprint(t),
-			optimistic: taskIsConflictRetryable(t),
-		}
-		if !candidateCanJoinBatch(candidate, current) {
-			flush()
-		}
-		current = append(current, candidate)
-		if len(current) >= s.workerCount {
-			flush()
-		}
-	}
-	flush()
-	return batches
-}
-
-// candidateCanJoinBatch decides whether a ready task may run in parallel with the
-// tasks already gathered for the current batch. Two regimes:
-//
-//   - Both sides have a known property footprint: require PROVEN commutativity, so
-//     these tasks never conflict at commit (the conflict-free fast path).
-//   - Either side is "unknown" (a verb call, fork, opaque builtin, or dynamic
-//     property target — i.e. almost every real command): fall back to OPTIMISTIC
-//     co-scheduling, which is only sound when every task in the batch is conflict
-//     -retryable. If two of them happen to write the same datum, the loser's commit
-//     fails read-set validation and it re-runs against the winner's writes. A
-//     non-retryable task (resumed/forked) cannot re-run, so it stays solo.
-func candidateCanJoinBatch(candidate readyTaskCandidate, batch []readyTaskCandidate) bool {
-	if len(batch) == 0 {
-		return true
-	}
-	if candidate.footprint.unknown || batchHasUnknownFootprint(batch) {
-		if !candidate.optimistic {
-			return false
-		}
-		for _, existing := range batch {
-			if !existing.optimistic {
-				return false
-			}
-		}
-		return true
-	}
-	for _, existing := range batch {
-		if !accessFootprintsCommute(candidate.footprint, existing.footprint) {
-			return false
-		}
-	}
-	return true
-}
-
-func batchHasUnknownFootprint(batch []readyTaskCandidate) bool {
-	for _, existing := range batch {
-		if existing.footprint.unknown {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Runtime) runTaskBatch(readyTasks []*task.Task) {
-	results := make(chan taskRunResult, len(readyTasks))
-	for _, t := range readyTasks {
-		s.taskWork <- taskWorkItem{task: t, results: results}
-	}
-
-	byID := make(map[int64]taskRunResult, len(readyTasks))
-	for range readyTasks {
-		result := <-results
-		byID[result.task.ID] = result
-	}
-
-	for _, t := range readyTasks {
-		result := byID[t.ID]
-		if result.err != nil {
+	for _, result := range s.scheduler.Run(readyTasks) {
+		t := result.Task
+		if result.Err != nil {
 			slog.Error("task error",
 				slog.Int64("task_id", t.ID),
 				slog.Int64("this", int64(t.This)),
 				slog.String("verb", t.VerbName),
-				slog.Any("err", result.err))
+				slog.Any("err", result.Err))
 		}
 
 		if s.taskOutputFlusher != nil {
@@ -692,11 +505,11 @@ func (s *Runtime) YieldReadyTasks() int {
 func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.lifecycle.executingTasks) != 0 {
+	if len(s.lifecycle.ExecutingTasks) != 0 {
 		return nil, nil, false
 	}
 	anonRefs = make(map[types.ObjID]struct{})
-	for _, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
 		}
@@ -722,13 +535,13 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, count := range s.lifecycle.executingTasks {
+	for id, count := range s.lifecycle.ExecutingTasks {
 		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
 			return nil, false
 		}
 	}
 	anonRefs = make(map[types.ObjID]struct{})
-	for _, sibling := range s.tasks {
+	for _, sibling := range s.taskManager.Snapshot() {
 		if sibling == nil || (exclude != nil && sibling.ID == exclude.ID) {
 			continue
 		}
@@ -761,13 +574,13 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for id, count := range s.lifecycle.executingTasks {
+	for id, count := range s.lifecycle.ExecutingTasks {
 		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
 			return nil, nil, false
 		}
 	}
 	anonRefs = make(map[types.ObjID]struct{})
-	for _, queued := range s.tasks {
+	for _, queued := range s.taskManager.Snapshot() {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue
 		}

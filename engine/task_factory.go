@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"container/heap"
 	"fmt"
 	"log/slog"
 	"time"
@@ -33,13 +32,8 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	defer s.mu.Unlock()
 
 	t.SetState(task.TaskQueued)
-	s.tasks[t.ID] = t
-	s.queueSeq++
-	t.SetQueueSeq(s.queueSeq)
-	heap.Push(s.waiting, t)
-
-	// Register with this runtime's task manager so builtins can find it.
 	s.taskManager.RegisterTask(t)
+	s.scheduler.Enqueue(t)
 
 	return t.ID
 }
@@ -90,9 +84,6 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 	t.ForkCreator = s
 
 	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
 	s.taskManager.RegisterTask(t)
 
 	if err := s.runTask(t); err != nil {
@@ -160,9 +151,6 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	// settled before the I/O loop reads the next line, matching ToastStunt's
 	// run-to-suspend-or-completion login semantics.
 	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
 	s.taskManager.RegisterTask(t)
 
 	if onStart != nil {
@@ -299,11 +287,8 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 
 // ResumeTask resumes a suspended task
 func (s *Runtime) ResumeTask(taskID int64, value types.Value) error {
-	s.mu.Lock()
-	t, exists := s.tasks[taskID]
-	s.mu.Unlock()
-
-	if !exists {
+	t := s.taskManager.GetTask(taskID)
+	if t == nil {
 		return ErrNotSuspended
 	}
 
@@ -315,11 +300,8 @@ func (s *Runtime) ResumeTask(taskID int64, value types.Value) error {
 
 // KillTask kills a running task
 func (s *Runtime) KillTask(taskID int64, killerID types.ObjID) error {
-	s.mu.Lock()
-	t, exists := s.tasks[taskID]
-	s.mu.Unlock()
-
-	if !exists {
+	t := s.taskManager.GetTask(taskID)
+	if t == nil {
 		return ErrNotSuspended
 	}
 
@@ -344,22 +326,11 @@ func (s *Runtime) CancelLoginTasksFor(connID types.ObjID) {
 	// Collect candidates: tasks owned by this connID (login-hook tasks run with
 	// Owner == connID) and any task currently reading from this connID.
 	var victims []*task.Task
-	s.mu.Lock()
-	for id, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
 		}
 		if t.Owner == connID || t.ReadingPlayerValue() == connID {
-			victims = append(victims, t)
-			delete(s.tasks, id)
-		}
-	}
-	s.mu.Unlock()
-
-	// Also sweep the owned manager for read()-suspended tasks bound to this
-	// connID that the runtime may not own (defense in depth).
-	for _, t := range s.taskManager.GetAllTasks() {
-		if t != nil && t.ReadingPlayerValue() == connID {
 			victims = append(victims, t)
 		}
 	}
@@ -409,24 +380,14 @@ func (s *Runtime) ResumeReadingTask(player types.ObjID, line string) bool {
 // forever — an unbounded-growth / DoS vector on the pre-auth path. Only
 // terminal tasks are removed; suspended/queued/running tasks are left intact.
 func (s *Runtime) CleanupFinishedTasks() {
-	var finished []int64
-	s.mu.Lock()
-	for id, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
-			delete(s.tasks, id)
 			continue
 		}
 		st := t.GetState()
 		if st == task.TaskCompleted || st == task.TaskKilled {
-			finished = append(finished, id)
-			delete(s.tasks, id)
+			s.taskManager.RemoveTaskIf(t.ID, t)
 		}
-	}
-	s.mu.Unlock()
-
-	mgr := s.taskManager
-	for _, id := range finished {
-		mgr.RemoveTask(id)
 	}
 }
 
@@ -437,9 +398,7 @@ func (s *Runtime) IsTaskLive(taskID int64) bool {
 	if taskID == 0 {
 		return false
 	}
-	s.mu.Lock()
-	t := s.tasks[taskID]
-	s.mu.Unlock()
+	t := s.taskManager.GetTask(taskID)
 	if t == nil {
 		return false
 	}
@@ -449,9 +408,7 @@ func (s *Runtime) IsTaskLive(taskID int64) bool {
 
 // GetTask retrieves a task by ID
 func (s *Runtime) GetTask(taskID int64) *task.Task {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.tasks[taskID]
+	return s.taskManager.GetTask(taskID)
 }
 
 // TaskSnapshots returns immutable task snapshots for checkpoint serialization.
@@ -459,7 +416,7 @@ func (s *Runtime) TaskSnapshots() (queued []task.Snapshot, suspended []task.Snap
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, t := range s.tasks {
+	for _, t := range s.taskManager.Snapshot() {
 		snapshot := t.PersistenceSnapshot()
 		if snapshot.State == task.TaskCompleted || snapshot.State == task.TaskKilled {
 			continue

@@ -40,16 +40,39 @@ func (m *Manager) RemoveTask(id int64) {
 	delete(m.tasks, id)
 }
 
-// GetAllTasks returns all tasks (for debugging)
-func (m *Manager) GetAllTasks() []*Task {
+// RemoveTaskIf removes id only when it still names expected. It is used by
+// lifecycle cleanup paths which must not remove a newer task reusing the ID.
+func (m *Manager) RemoveTaskIf(id int64, expected *Task) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tasks[id] != expected {
+		return false
+	}
+	delete(m.tasks, id)
+	return true
+}
+
+// Snapshot returns a stable copy of the manager's current task catalog.
+func (m *Manager) Snapshot() []*Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	tasks := make([]*Task, 0, len(m.tasks))
-	for _, task := range m.tasks {
-		tasks = append(tasks, task)
+	for _, t := range m.tasks {
+		tasks = append(tasks, t)
 	}
 	return tasks
+}
+
+// Len returns the number of tasks in the catalog.
+func (m *Manager) Len() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.tasks)
+}
+
+// GetAllTasks returns all tasks (for debugging)
+func (m *Manager) GetAllTasks() []*Task {
+	return m.Snapshot()
 }
 
 // GetQueuedTasks returns all queued (waiting) tasks

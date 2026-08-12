@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -442,9 +441,7 @@ retryAttempt:
 			// when it yielded — otherwise it sorts by its original StartTime and
 			// unfairly preempts tasks (e.g. a just-forked task) that became ready
 			// while it was running.
-			s.queueSeq++
-			t.PrepareYieldRequeue(s.queueSeq, time.Now())
-			heap.Push(s.waiting, t)
+			s.scheduler.RequeueYield(t, time.Now())
 		}
 		s.mu.Unlock()
 		// The task manager has already been notified via builtinSuspend
@@ -709,21 +706,11 @@ func (s *Runtime) discardCreatedForks(parent *task.Task) {
 	created := append([]int64(nil), parent.CreatedForks...)
 	parent.CreatedForks = nil
 
-	s.mu.Lock()
 	for _, id := range created {
-		if child := s.tasks[id]; child != nil {
+		if child := s.taskManager.GetTask(id); child != nil {
 			child.Kill()
-			delete(s.tasks, id)
+			s.taskManager.RemoveTaskIf(id, child)
 		}
-	}
-	s.mu.Unlock()
-
-	mgr := s.taskManager
-	for _, id := range created {
-		if child := mgr.GetTask(id); child != nil {
-			child.Kill()
-		}
-		mgr.RemoveTask(id)
 	}
 }
 
@@ -777,9 +764,6 @@ func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMat
 
 	// Register task
 	t.SetState(task.TaskQueued)
-	s.mu.Lock()
-	s.tasks[t.ID] = t
-	s.mu.Unlock()
 	s.taskManager.RegisterTask(t)
 
 	// Run synchronously on the runtime goroutine.
