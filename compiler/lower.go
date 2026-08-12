@@ -1730,10 +1730,9 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 	// index / property) keep the general value-producing path below.
 	if assign, ok := n.Expr.(*verb.AssignExpr); ok {
 		if ident, ok := assign.Target.(*verb.VariableTarget); ok {
-			// Self-concat idiom: s = s + expr. This statement does not need the
-			// assignment's result value, so emit a string-append opcode directly.
-			// Runtime type checks preserve normal `+` errors if either operand is
-			// not a string.
+			// Self-add idiom: x = x + expr. This statement does not need the
+			// assignment's result value, so emit the compact compatibility opcode.
+			// Its VM handler shares the normal `+` implementation for every type.
 			if bin, ok := assign.Value.(*verb.BinaryExpr); ok && bin.Operator == verb.BinaryAdd {
 				if leftIdent, ok := bin.Left.(*verb.IdentifierExpr); ok && leftIdent.Name == ident.Name {
 					idx := c.declareVariable(ident.Name)

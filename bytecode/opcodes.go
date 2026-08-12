@@ -126,7 +126,7 @@ const (
 	OP_LIST_RANGE                                   // Pop end, start; push {start..end} list
 	OP_LIST_APPEND                                  // Pop elem, list; push list with elem appended
 	OP_LIST_EXTEND                                  // Pop src, list; push list with all elements of src appended
-	OP_STRING_APPEND                                // Pop suffix, string; push string with suffix appended
+	OP_STRING_APPEND                                // Compatibility opcode for self-add; semantically identical to OP_ADD
 )
 
 // Fork

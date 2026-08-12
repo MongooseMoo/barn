@@ -108,56 +108,10 @@ func (vm *VM) executeAdd() error {
 }
 
 func (vm *VM) executeStringAppend() error {
-	b := vm.Pop()
-	a := vm.Pop()
-
-	// Numeric-first: this handler is also reached by the `x = x + expr`
-	// self-accumulation peephole for int/float accumulators, so test the
-	// numeric types before string to avoid a failed StrValue assertion every
-	// iteration of a numeric hot loop (mirrors executeAdd's ordering). Pure
-	// reordering — no behavior change: a Value has exactly one dynamic type, so
-	// no operand matches two branches, and the string-a + non-string-b early
-	// E_TYPE below still fires unchanged.
-	if a.Type() == types.TYPE_INT {
-		if b.Type() == types.TYPE_INT {
-			vm.Push(types.NewInt(a.Int() + b.Int()))
-			return nil
-		}
-	}
-	if a.Type() == types.TYPE_FLOAT {
-		if b.Type() == types.TYPE_FLOAT {
-			vm.Push(types.NewFloat(a.Float() + b.Float()))
-			return nil
-		}
-	}
-
-	if a.Type() == types.TYPE_STR {
-		if b.Type() != types.TYPE_STR {
-			return fmt.Errorf("E_TYPE: invalid operands for +")
-		}
-
-		if errCode := vm.registryForLimits().CheckStringLength(a.Len() + b.Len()); errCode != types.E_NONE {
-			return fmt.Errorf("E_QUOTA: string too long")
-		}
-		vm.Push(a.StrAppend(b))
-		return nil
-	}
-
-	if a.Type() == types.TYPE_LIST {
-		if b.Type() == types.TYPE_LIST {
-			aElems := a.Elements()
-			bElems := b.Elements()
-			newElems := make([]types.Value, len(aElems)+len(bElems))
-			copy(newElems, aElems)
-			copy(newElems[len(aElems):], bElems)
-			vm.Push(types.NewList(newElems))
-			return nil
-		}
-		vm.Push(a.Append(b))
-		return nil
-	}
-
-	return fmt.Errorf("E_TYPE: invalid operands for +")
+	// OP_STRING_APPEND is retained for bytecode compatibility, but the
+	// self-add peephole can route every kind of addition here. Keep a single
+	// implementation so options, quotas, and arithmetic errors cannot drift.
+	return vm.executeAdd()
 }
 
 func (vm *VM) executeSub() error {
