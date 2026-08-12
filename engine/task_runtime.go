@@ -13,7 +13,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/command"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
@@ -761,7 +760,7 @@ func (s *Runtime) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) typ
 
 // ExecuteVerbTaskSync creates and immediately runs a command verb task on the runtime goroutine.
 func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
-	program, diagnostics := compiler.CompileMOOWithKey(match.Verb.Code, match.Verb.CodeKey, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(match.Verb.Code, match.Verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("verb compile error: %s", diagnostics[0].Error())
 	}

@@ -6,21 +6,14 @@ import (
 	"github.com/MongooseMoo/barn/bytecode"
 )
 
-type mutableRegistry map[string]int
-
-func (r mutableRegistry) GetID(name string) (int, bool) {
-	id, ok := r[name]
-	return id, ok
-}
-
 func TestCompileMOOScopesCacheToRegistry(t *testing.T) {
 	source := []string{"return issue_87_registry_target();"}
 
-	first, diagnostics := CompileMOO(source, mutableRegistry{"issue_87_registry_target": 17})
+	first, diagnostics := New(map[string]int{"issue_87_registry_target": 17}).CompileMOO(source)
 	if len(diagnostics) != 0 {
 		t.Fatalf("first CompileMOO() diagnostics = %v", diagnostics)
 	}
-	second, diagnostics := CompileMOO(source, mutableRegistry{"issue_87_registry_target": 23})
+	second, diagnostics := New(map[string]int{"issue_87_registry_target": 23}).CompileMOO(source)
 	if len(diagnostics) != 0 {
 		t.Fatalf("second CompileMOO() diagnostics = %v", diagnostics)
 	}
@@ -33,16 +26,17 @@ func TestCompileMOOScopesCacheToRegistry(t *testing.T) {
 	}
 }
 
-func TestCompileMOOInvalidatesCacheAfterRegistryMutation(t *testing.T) {
+func TestCompilerSnapshotsRegistryLayout(t *testing.T) {
 	source := []string{"return issue_87_mutated_target();"}
-	registry := mutableRegistry{"issue_87_mutated_target": 31}
+	registry := map[string]int{"issue_87_mutated_target": 31}
+	beforeCompiler := New(registry)
 
-	before, diagnostics := CompileMOO(source, registry)
+	before, diagnostics := beforeCompiler.CompileMOO(source)
 	if len(diagnostics) != 0 {
 		t.Fatalf("CompileMOO() before mutation diagnostics = %v", diagnostics)
 	}
 	registry["issue_87_mutated_target"] = 47
-	after, diagnostics := CompileMOO(source, registry)
+	after, diagnostics := New(registry).CompileMOO(source)
 	if len(diagnostics) != 0 {
 		t.Fatalf("CompileMOO() after mutation diagnostics = %v", diagnostics)
 	}
@@ -52,6 +46,13 @@ func TestCompileMOOInvalidatesCacheAfterRegistryMutation(t *testing.T) {
 	}
 	if got := compiledBuiltinID(t, after); got != 47 {
 		t.Fatalf("builtin ID after mutation = %d, want 47", got)
+	}
+	unchanged, diagnostics := beforeCompiler.CompileMOO(source)
+	if len(diagnostics) != 0 {
+		t.Fatalf("original compiler after mutation diagnostics = %v", diagnostics)
+	}
+	if got := compiledBuiltinID(t, unchanged); got != 31 {
+		t.Fatalf("original compiler builtin ID after external mutation = %d, want immutable 31", got)
 	}
 }
 

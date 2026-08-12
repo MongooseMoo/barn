@@ -9,7 +9,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/command"
-	"github.com/MongooseMoo/barn/compiler"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
@@ -384,7 +383,7 @@ return #0.fork_value;
 
 	s := NewRuntime(store)
 	defer s.Stop()
-	prog, diagnostics := compiler.CompileMOO(strings.Split(source, "\n"), s.registry)
+	prog, diagnostics := s.registry.Compiler().CompileMOO(strings.Split(source, "\n"))
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}

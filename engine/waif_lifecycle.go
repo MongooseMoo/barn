@@ -1,16 +1,14 @@
 package engine
 
 import (
-	"sort"
-	"time"
-
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
+	"sort"
+	"time"
 )
 
 func sameWaif(a, b types.Value) bool {
@@ -443,7 +441,7 @@ func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *tas
 		return
 	}
 
-	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
+	prog, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return
 	}

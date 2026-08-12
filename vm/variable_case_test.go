@@ -4,18 +4,17 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
 
 func TestVariableNamesAreCaseInsensitiveAcrossTypeConstantSpellings(t *testing.T) {
 	registry := builtins.NewRegistry()
-	program, diagnostics := compiler.CompileMOO([]string{
+	program, diagnostics := registry.Compiler().CompileMOO([]string{
 		"waif = 41;",
 		"ANON = 42;",
 		"return {WAIF, anon};",
-	}, registry)
+	})
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile diagnostics = %v", diagnostics)
 	}

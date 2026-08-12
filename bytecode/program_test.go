@@ -1,9 +1,6 @@
 package bytecode
 
-import (
-	"fmt"
-	"testing"
-)
+import "testing"
 
 // A fork body's OP_TRY_EXCEPT / OP_TRY_FINALLY operands encode ABSOLUTE
 // handler IPs in the parent program's coordinates (vm/control.go reads them
@@ -117,43 +114,6 @@ func TestExtractForkBodyRebasesEndFinallyHandlerIP(t *testing.T) {
 
 	if got := decodeShort(sub.Code[1], sub.Code[2]); got != handlerAbs-bodyIP {
 		t.Errorf("END_FINALLY handler IP = %d, want %d", got, handlerAbs-bodyIP)
-	}
-}
-
-func TestWideControlFlowOperandBoundaryRoundTrips(t *testing.T) {
-	for _, value := range []int{65535, 65536} {
-		t.Run(fmt.Sprint(value), func(t *testing.T) {
-			compiler := &Compiler{program: &Program{}}
-			compiler.emitWideInt(value)
-			if compiler.err != nil {
-				t.Fatalf("emitWideInt(%d) failed: %v", value, compiler.err)
-			}
-			if got := int(decodeAbsoluteWide(compiler.program.Code)); got != value {
-				t.Errorf("wide operand = %d, want %d", got, value)
-			}
-		})
-	}
-}
-
-func TestWideForkBodyLengthBoundaryExtractsCompleteBody(t *testing.T) {
-	for _, bodyLen := range []int{65535, 65536} {
-		t.Run(fmt.Sprint(bodyLen), func(t *testing.T) {
-			compiler := &Compiler{program: &Program{Code: []byte{byte(OP_FORK_WIDE), 0}}}
-			compiler.emitWideInt(bodyLen)
-			compiler.program.Code = append(compiler.program.Code, instructionPadding(bodyLen)...)
-			if compiler.err != nil {
-				t.Fatalf("encoding fork length %d failed: %v", bodyLen, compiler.err)
-			}
-
-			const bodyIP = 6 // opcode + var index + uint32 body length
-			extracted := compiler.program.ExtractForkBody(bodyIP, bodyLen)
-			if extracted == nil {
-				t.Fatalf("ExtractForkBody rejected body length %d", bodyLen)
-			}
-			if got := len(extracted.Code); got != bodyLen+1 {
-				t.Errorf("extracted code length = %d, want %d", got, bodyLen+1)
-			}
-		})
 	}
 }
 

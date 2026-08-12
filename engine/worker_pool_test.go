@@ -11,23 +11,22 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
-func compileTestProgram(t *testing.T, registry bytecode.Registry, code string) *bytecode.Program {
+func compileTestProgram(t *testing.T, registry *builtins.Registry, code string) *bytecode.Program {
 	t.Helper()
-	prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), registry)
+	prog, diagnostics := registry.Compiler().CompileMOO(strings.Split(code, "\n"))
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO() failed: %v", diagnostics[0])
 	}
 	return prog
 }
 
-func newReadyTestTask(t *testing.T, registry bytecode.Registry, id int64, owner types.ObjID) *task.Task {
+func newReadyTestTask(t *testing.T, registry *builtins.Registry, id int64, owner types.ObjID) *task.Task {
 	t.Helper()
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(id, owner, compileTestProgram(t, registry, "return 1;"), ticks, seconds)

@@ -44,7 +44,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 		}
 	}()
 
-	prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), s.registry)
+	prog, diagnostics := s.registry.Compiler().CompileMOO(strings.Split(code, "\n"))
 	if len(diagnostics) > 0 {
 		kind := "Compile error"
 		if diagnostics[0].Stage == compiler.SyntaxStage {

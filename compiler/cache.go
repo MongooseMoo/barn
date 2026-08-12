@@ -57,5 +57,3 @@ func (c *programCache) put(key sourcekey.Key, program *bytecode.Program) {
 		delete(c.entries, oldest.Value.(*cacheEntry).key)
 	}
 }
-
-var mooProgramCache = newProgramCache(mooCacheCapacity)

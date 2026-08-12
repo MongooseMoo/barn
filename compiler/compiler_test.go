@@ -2,17 +2,9 @@ package compiler
 
 import "testing"
 
-type testRegistry struct{}
-
-func (testRegistry) GetID(string) (int, bool) { return 0, true }
-
-type rejectingRegistry struct{}
-
-func (rejectingRegistry) GetID(string) (int, bool) { return 0, false }
-
 func TestCompileMOOOwnsCompleteSourceCompilation(t *testing.T) {
 	source := []string{"x = 1;", "return x;"}
-	program, diagnostics := CompileMOO(source, testRegistry{})
+	program, diagnostics := New(nil).CompileMOO(source)
 	if len(diagnostics) != 0 {
 		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 	}
@@ -31,11 +23,12 @@ func TestCompileMOOOwnsCompleteSourceCompilation(t *testing.T) {
 
 func TestCompileMOOCachesBySourceContent(t *testing.T) {
 	source := []string{"return 987654321;"}
-	first, diagnostics := CompileMOO(source, testRegistry{})
+	compiler := New(nil)
+	first, diagnostics := compiler.CompileMOO(source)
 	if len(diagnostics) != 0 {
 		t.Fatalf("first CompileMOO() diagnostics = %v", diagnostics)
 	}
-	second, diagnostics := CompileMOO(append([]string(nil), source...), testRegistry{})
+	second, diagnostics := compiler.CompileMOO(append([]string(nil), source...))
 	if len(diagnostics) != 0 {
 		t.Fatalf("second CompileMOO() diagnostics = %v", diagnostics)
 	}
@@ -45,7 +38,8 @@ func TestCompileMOOCachesBySourceContent(t *testing.T) {
 }
 
 func TestCompileMOOReturnsStructuredDiagnostics(t *testing.T) {
-	_, diagnostics := CompileMOO([]string{"return 1;", "if ("}, testRegistry{})
+	compiler := New(nil)
+	_, diagnostics := compiler.CompileMOO([]string{"return 1;", "if ("})
 	if len(diagnostics) != 1 {
 		t.Fatalf("syntax diagnostic count = %d, want 1", len(diagnostics))
 	}
@@ -53,7 +47,7 @@ func TestCompileMOOReturnsStructuredDiagnostics(t *testing.T) {
 		t.Fatalf("syntax diagnostic = %+v", diagnostics[0])
 	}
 
-	_, diagnostics = CompileMOO([]string{"return missing_builtin();"}, rejectingRegistry{})
+	_, diagnostics = compiler.CompileMOO([]string{"return missing_builtin();"})
 	if len(diagnostics) != 1 {
 		t.Fatalf("compile diagnostic count = %d, want 1", len(diagnostics))
 	}

@@ -35,11 +35,29 @@ func (d Diagnostic) Error() string {
 	return fmt.Sprintf("Line %d:  %s", line, d.Message)
 }
 
+// Compiler owns one immutable builtin-ID view and its bounded source cache.
+type Compiler struct {
+	builtinIDs map[string]int
+	cache      *programCache
+}
+
+// New constructs a compiler for one builtin registry layout.
+func New(builtinIDs map[string]int) *Compiler {
+	snapshot := make(map[string]int, len(builtinIDs))
+	for name, id := range builtinIDs {
+		snapshot[name] = id
+	}
+	return &Compiler{
+		builtinIDs: snapshot,
+		cache:      newProgramCache(mooCacheCapacity),
+	}
+}
+
 // CompileMOO parses, lowers, source-attaches, and caches one MOO verb body.
 // It hashes the full source to find the cache entry; callers on the verb-call
 // hot path should hold a precomputed key and use CompileMOOWithKey instead.
-func CompileMOO(sourceLines []string, registry bytecode.Registry) (*bytecode.Program, []Diagnostic) {
-	return CompileMOOWithKey(sourceLines, sourcekey.Of(sourceLines), registry)
+func (c *Compiler) CompileMOO(sourceLines []string) (*bytecode.Program, []Diagnostic) {
+	return c.CompileMOOWithKey(sourceLines, sourcekey.Of(sourceLines))
 }
 
 // CompileMOOWithKey is CompileMOO for callers that already hold the content key
@@ -50,11 +68,11 @@ func CompileMOO(sourceLines []string, registry bytecode.Registry) (*bytecode.Pro
 //
 // The key MUST be the key of sourceLines: it is the sole cache identity, so a
 // key that describes different source serves that other source's program.
-func CompileMOOWithKey(sourceLines []string, key sourcekey.Key, registry bytecode.Registry) (*bytecode.Program, []Diagnostic) {
+func (c *Compiler) CompileMOOWithKey(sourceLines []string, key sourcekey.Key) (*bytecode.Program, []Diagnostic) {
 	if !key.IsSet() {
 		key = sourcekey.Of(sourceLines)
 	}
-	if program, ok := mooProgramCache.get(key); ok {
+	if program, ok := c.cache.get(key); ok {
 		return program, nil
 	}
 
@@ -63,12 +81,12 @@ func CompileMOOWithKey(sourceLines []string, key sourcekey.Key, registry bytecod
 		return nil, []Diagnostic{syntaxDiagnostic(err)}
 	}
 
-	compiled, err := bytecode.NewCompilerWithRegistry(registry).CompileProgram(program)
+	compiled, err := newLowerer(c.builtinIDs).compileProgram(program)
 	if err != nil {
 		return nil, []Diagnostic{compileDiagnostic(err)}
 	}
 	compiled.Source = append([]string(nil), sourceLines...)
-	mooProgramCache.put(key, compiled)
+	c.cache.put(key, compiled)
 	return compiled, nil
 }
 
@@ -86,7 +104,7 @@ func syntaxDiagnostic(err error) Diagnostic {
 }
 
 func compileDiagnostic(err error) Diagnostic {
-	var unknownBuiltin *bytecode.UnknownBuiltinError
+	var unknownBuiltin *UnknownBuiltinError
 	if errors.As(err, &unknownBuiltin) {
 		return Diagnostic{
 			Stage:    BytecodeStage,

@@ -1,12 +1,10 @@
 package engine
 
 import (
-	"testing"
-
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"testing"
 )
 
 // On the concurrent (MVCC) scheduler, a pass runs all ready optimistic tasks in
@@ -14,7 +12,7 @@ import (
 // complete in a single ProcessReadyTasks call.
 func TestProcessReadyTasksRunsAllReadyTasksInOnePass(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
-	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile task: %v", diagnostics)
 	}

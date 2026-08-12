@@ -8,7 +8,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -66,7 +65,7 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return types.Result{}, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}
@@ -127,7 +126,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
 
-	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return 0, fmt.Errorf("compile %s on #%d: %s", verbName, defObjID, diagnostics[0].Error())
 	}

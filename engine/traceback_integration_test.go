@@ -1,13 +1,11 @@
 package engine
 
 import (
-	"strings"
-	"testing"
-
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"strings"
+	"testing"
 )
 
 // A verb that raises an uncaught error must produce exactly one log record
@@ -163,7 +161,7 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 		dbstore.VerbArgs{This: "this", Prep: "none", That: "this"}, spinCode))
 
 	s := NewRuntime(store)
-	program, diagnostics := compiler.CompileMOO(spinCode, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO(spinCode)
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile spin: %v", diagnostics)
 	}

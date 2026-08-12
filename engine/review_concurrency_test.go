@@ -6,16 +6,14 @@ package engine
 // Race: go test -race ./engine/ -run TestReview_ -v
 
 import (
+	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
+	"github.com/MongooseMoo/barn/types"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/MongooseMoo/barn/compiler"
-	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
-	"github.com/MongooseMoo/barn/types"
 )
 
 // -----------------------------------------------------------------------------
@@ -35,7 +33,7 @@ func TestReview_DoneChannelClosedOnSuspend(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
 
-	program, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"suspend(100);"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile: %v", diagnostics)
 	}
@@ -86,7 +84,7 @@ func TestReview_IDCollisionManagerAndRuntimeCountersAreIndependent(t *testing.T)
 		t.Fatalf("eval task ID = %v, want {1, 100}", line)
 	}
 
-	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile: %v", diagnostics)
 	}
@@ -126,7 +124,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 
 	// taskA: suspend(100) — its runTask will write taskA.BytecodeVM = bcVM at line 239.
-	programA, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)
+	programA, diagnostics := s.registry.Compiler().CompileMOO([]string{"suspend(100);"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile taskA: %v", diagnostics)
 	}
@@ -143,7 +141,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 
 	// taskB: return 1 — completes quickly; its runTask calls liveTaskVMs at the
 	// GC boundary (task_runtime.go:307), which reads taskA.BytecodeVM.
-	programB, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	programB, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile taskB: %v", diagnostics)
 	}

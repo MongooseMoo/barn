@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/command"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
 	"github.com/MongooseMoo/barn/task"
@@ -722,7 +721,7 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 		conn.Send("Verb not found")
 		return true
 	}
-	_, diagnostics := compiler.CompileMOO(lines, p.runtime.Registry())
+	_, diagnostics := p.runtime.Registry().Compiler().CompileMOO(lines)
 	if len(diagnostics) > 0 {
 		for _, diagnostic := range diagnostics {
 			conn.Send(diagnostic.Error())
