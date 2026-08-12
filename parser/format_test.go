@@ -3,6 +3,7 @@ package parser_test
 import (
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,6 +37,45 @@ func TestFormatMOOPreservesSemanticIRAcrossParserCorpus(t *testing.T) {
 	for _, source := range sources {
 		t.Run(source, func(t *testing.T) { assertCanonicalRoundTrip(t, source) })
 	}
+}
+
+func TestFormatMOOPreservesMOOStringLiteralBytes(t *testing.T) {
+	values := []string{
+		"column1\tcolumn2",
+		"line1\nline2",
+		"carriage\rreturn",
+		"high\x80byte",
+		`embedded "quote"`,
+		`embedded \backslash`,
+	}
+
+	for _, value := range values {
+		t.Run(strconv.Quote(value), func(t *testing.T) {
+			source := "return " + mooStringLiteral(value) + ";"
+			assertCanonicalRoundTrip(t, source)
+
+			program, err := parser.NewParser(source).ParseProgram()
+			if err != nil {
+				t.Fatalf("ParseProgram() error = %v", err)
+			}
+			if got := strings.Join(parser.FormatMOO(program), "\n"); got != source {
+				t.Fatalf("FormatMOO() = %q, want byte-preserving output %q", got, source)
+			}
+		})
+	}
+}
+
+func mooStringLiteral(value string) string {
+	var literal strings.Builder
+	literal.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		if value[i] == '"' || value[i] == '\\' {
+			literal.WriteByte('\\')
+		}
+		literal.WriteByte(value[i])
+	}
+	literal.WriteByte('"')
+	return literal.String()
 }
 
 func TestFormatMOOPreservesCanonicalBitwiseAndSpelling(t *testing.T) {
