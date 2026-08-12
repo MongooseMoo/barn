@@ -1,64 +1,40 @@
 package command
 
 import (
-	"github.com/MongooseMoo/barn/types"
 	"strings"
 	"unicode"
+
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // PrepSpec represents a preposition specification
-type PrepSpec int
+type PrepSpec = verb.Preposition
 
 const (
-	PrepWith      PrepSpec = 0  // with/using
-	PrepAt        PrepSpec = 1  // at/to
-	PrepInFrontOf PrepSpec = 2  // in front of
-	PrepIn        PrepSpec = 3  // in/inside/into
-	PrepOn        PrepSpec = 4  // on top of/on/onto/upon
-	PrepFrom      PrepSpec = 5  // out of/from inside/from
-	PrepOver      PrepSpec = 6  // over
-	PrepThrough   PrepSpec = 7  // through
-	PrepUnder     PrepSpec = 8  // under/underneath/beneath
-	PrepBehind    PrepSpec = 9  // behind
-	PrepBeside    PrepSpec = 10 // beside
-	PrepFor       PrepSpec = 11 // for/about
-	PrepIs        PrepSpec = 12 // is
-	PrepAs        PrepSpec = 13 // as
-	PrepOff       PrepSpec = 14 // off/off of
+	PrepWith      = verb.PrepositionWith
+	PrepAt        = verb.PrepositionAt
+	PrepInFrontOf = verb.PrepositionInFrontOf
+	PrepIn        = verb.PrepositionIn
+	PrepOn        = verb.PrepositionOn
+	PrepFrom      = verb.PrepositionFrom
+	PrepOver      = verb.PrepositionOver
+	PrepThrough   = verb.PrepositionThrough
+	PrepUnder     = verb.PrepositionUnder
+	PrepBehind    = verb.PrepositionBehind
+	PrepBeside    = verb.PrepositionBeside
+	PrepFor       = verb.PrepositionFor
+	PrepIs        = verb.PrepositionIs
+	PrepAs        = verb.PrepositionAs
+	PrepOff       = verb.PrepositionOff
 
-	PrepNone PrepSpec = -1 // No preposition found
-	PrepAny  PrepSpec = -2 // Matches any preposition (for verb definitions)
+	PrepNone = verb.PrepositionNone
+	PrepAny  = verb.PrepositionAny
 )
 
-// Preposition aliases - index matches PrepSpec values
-var prepositions = [][]string{
-	{"with", "using"},                   // 0 - PrepWith
-	{"at", "to"},                        // 1 - PrepAt
-	{"in front of"},                     // 2 - PrepInFrontOf
-	{"in", "inside", "into"},            // 3 - PrepIn
-	{"on top of", "on", "onto", "upon"}, // 4 - PrepOn
-	{"out of", "from inside", "from"},   // 5 - PrepFrom
-	{"over"},                            // 6 - PrepOver
-	{"through"},                         // 7 - PrepThrough
-	{"under", "underneath", "beneath"},  // 8 - PrepUnder
-	{"behind"},                          // 9 - PrepBehind
-	{"beside"},                          // 10 - PrepBeside
-	{"for", "about"},                    // 11 - PrepFor
-	{"is"},                              // 12 - PrepIs
-	{"as"},                              // 13 - PrepAs
-	{"off", "off of"},                   // 14 - PrepOff
-}
-
 func PrepSpecForAlias(alias string) (PrepSpec, bool) {
-	alias = strings.ToLower(alias)
-	for prepIdx, aliases := range prepositions {
-		for _, candidate := range aliases {
-			if alias == candidate {
-				return PrepSpec(prepIdx), true
-			}
-		}
-	}
-	return PrepNone, false
+	prep, ok := verb.ParsePrepositionAlias(alias)
+	return prep, ok && prep >= 0
 }
 
 // ParsedCommand is the structured representation of a parsed player command
@@ -88,7 +64,8 @@ func NewParsedCommand() *ParsedCommand {
 // Returns (PrepSpec, startIndex, endIndex, prepstr) or (PrepNone, -1, -1, "")
 func findPreposition(words []string) (PrepSpec, int, int, string) {
 	for i := range words {
-		for prepIdx, aliases := range prepositions {
+		for _, prep := range verb.Prepositions() {
+			aliases := prep.Aliases()
 			for _, alias := range aliases {
 				aliasWords := strings.Fields(alias)
 				if len(aliasWords) == 0 || i+len(aliasWords) > len(words) {
@@ -102,7 +79,7 @@ func findPreposition(words []string) (PrepSpec, int, int, string) {
 					}
 				}
 				if match {
-					return PrepSpec(prepIdx), i, i + len(aliasWords), alias
+					return prep, i, i + len(aliasWords), alias
 				}
 			}
 		}
