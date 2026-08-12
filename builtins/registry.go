@@ -61,7 +61,8 @@ type Registry struct {
 	// implement itself (networking, scheduling, lifecycle). The registry's owner
 	// wires it after construction via the Set* methods; builtins read it via
 	// hostOf(ctx). See host.go.
-	host Host
+	host    Host
+	runtime *registryRuntime
 }
 
 // NewRegistry creates a new builtin function registry
@@ -69,6 +70,7 @@ func NewRegistry() *Registry {
 	r := &Registry{
 		funcs:    make(map[string]BuiltinFunc),
 		nameToID: make(map[string]int),
+		runtime:  newRegistryRuntime(),
 	}
 
 	// Register type conversion builtins
