@@ -1372,10 +1372,9 @@ func builtinSalt(ctx *Execution, args []types.Value) types.Result {
 			parts := strings.SplitN(prefixStr, "$", 4)
 			if len(parts) >= 3 {
 				var rounds int
-				_, err := strings.CutPrefix(parts[2], "rounds=")
-				if err {
-					roundsStr := parts[2][7:]
-					roundsStr = strings.TrimSuffix(roundsStr, "$")
+				after, found := strings.CutPrefix(parts[2], "rounds=")
+				if found {
+					roundsStr := strings.TrimSuffix(after, "$")
 					n := 0
 					for _, c := range roundsStr {
 						if c >= '0' && c <= '9' {
