@@ -496,8 +496,7 @@ func unparseLiteral(v *verb.LiteralExpr) string {
 		}
 		return formatted
 	case verb.LiteralString:
-		// Need proper string escaping
-		return strconv.Quote(v.StringValue)
+		return quoteMOOString(v.StringValue)
 	case verb.LiteralBool:
 		if v.BoolValue {
 			return "true"
@@ -510,6 +509,23 @@ func unparseLiteral(v *verb.LiteralExpr) string {
 	default:
 		return "<unknown literal>"
 	}
+}
+
+// quoteMOOString emits a string literal using MOO's escape rules. A backslash
+// only quotes the byte immediately following it, so only quotes and backslashes
+// need escaping; all other bytes must be preserved verbatim.
+func quoteMOOString(value string) string {
+	var quoted strings.Builder
+	quoted.Grow(len(value) + 2)
+	quoted.WriteByte('"')
+	for i := 0; i < len(value); i++ {
+		if value[i] == '"' || value[i] == '\\' {
+			quoted.WriteByte('\\')
+		}
+		quoted.WriteByte(value[i])
+	}
+	quoted.WriteByte('"')
+	return quoted.String()
 }
 
 // unparseArgs converts argument expressions to a comma-separated string
