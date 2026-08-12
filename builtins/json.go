@@ -9,8 +9,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-const parseJSONTabSentinel = "\uE000"
-
 // builtinGenerateJson converts MOO value to JSON string
 // Signature: generate_json(value [, options]) → STR
 func builtinGenerateJson(ctx *Execution, args []types.Value) types.Result {
@@ -210,10 +208,18 @@ func builtinParseJson(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	jsonStr := strVal.Str()
-	// Preserve distinction between JSON "\t" escapes and "\u0009":
-	// - "\t" should decode to a literal tab character
-	// - "\u0009" should round-trip to MOO binary escape ~09
-	jsonStr = strings.ReplaceAll(jsonStr, "\\t", "\\uE000")
+	// Go decodes the short control escapes and their equivalent Unicode escapes
+	// identically. Toast does not: \b, \f, \n, and \r become MOO binary escape
+	// text, while \t and all \uXXXX escapes become their actual UTF-8 bytes.
+	// Tag only the four short escapes while the JSON escape boundaries are still
+	// visible. The tag is selected after a preliminary decode so legitimate JSON
+	// text can never collide with it.
+	var preliminary interface{}
+	if err := json.NewDecoder(strings.NewReader(jsonStr)).Decode(&preliminary); err != nil {
+		return types.Err(types.E_INVARG)
+	}
+	controlTag := unusedJSONControlTag(preliminary)
+	jsonStr = tagJSONShortControlEscapes(jsonStr, controlTag)
 
 	// Use json.Decoder to parse just one JSON value, ignoring trailing chars
 	// This matches ToastStunt behavior where parse_json("12abc") returns 12
@@ -247,19 +253,14 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 		return types.NewFloat(val)
 
 	case string:
-		// Keep literal tabs for explicit "\t" escapes (tagged with sentinel).
-		if strings.Contains(val, parseJSONTabSentinel) {
-			val = strings.ReplaceAll(val, parseJSONTabSentinel, "\t")
-			return types.NewStr(val)
-		}
+		val = encodeParsedJSONString(val)
 		if embeddedTypes {
 			// Check for type annotations
 			if parsed, ok := parseEmbeddedType(val); ok {
 				return parsed
 			}
 		}
-		// Convert non-printable and non-ASCII bytes to ~XX format
-		return types.NewStr(encodeBinaryEscapes(val))
+		return types.NewStr(val)
 
 	case []interface{}:
 		// JSON array becomes MOO list
@@ -273,6 +274,7 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 		// JSON object becomes MOO map
 		pairs := make([][2]types.Value, 0, len(val))
 		for k, v := range val {
+			k = encodeParsedJSONString(k)
 			// In embedded mode, keys may have type annotations too
 			var keyVal types.Value
 			if embeddedTypes {
@@ -295,6 +297,118 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 		// Unknown type - return 0
 		return types.NewInt(0)
 	}
+}
+
+const jsonControlTagBase = "\uE000barn-json-control-"
+
+var jsonShortControls = map[byte]string{'b': "~08", 'f': "~0C", 'n': "~0A", 'r': "~0D"}
+
+// unusedJSONControlTag returns a prefix absent from every decoded string and
+// object key. This makes the tagging pass safe even for documents containing
+// private-use characters or text resembling an earlier tag.
+func unusedJSONControlTag(v interface{}) string {
+	for n := 0; ; n++ {
+		tag := fmt.Sprintf("%s%d-", jsonControlTagBase, n)
+		if !jsonValueContains(v, tag) {
+			return tag
+		}
+	}
+}
+
+func jsonValueContains(v interface{}, needle string) bool {
+	switch value := v.(type) {
+	case string:
+		return strings.Contains(value, needle)
+	case []interface{}:
+		for _, item := range value {
+			if jsonValueContains(item, needle) {
+				return true
+			}
+		}
+	case map[string]interface{}:
+		for key, item := range value {
+			if strings.Contains(key, needle) || jsonValueContains(item, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func tagJSONShortControlEscapes(s, tag string) string {
+	var result strings.Builder
+	inString := false
+	for i := 0; i < len(s); i++ {
+		if s[i] == '"' {
+			inString = !inString
+			result.WriteByte(s[i])
+			continue
+		}
+		if inString && s[i] == '\\' && i+1 < len(s) {
+			next := s[i+1]
+			if replacement, ok := jsonShortControls[next]; ok {
+				result.WriteString(tag)
+				result.WriteByte(next)
+				result.WriteString(replacement)
+				i++
+				continue
+			}
+			result.WriteByte(s[i])
+			i++
+			result.WriteByte(s[i])
+			continue
+		}
+		result.WriteByte(s[i])
+	}
+	return result.String()
+}
+
+func encodeParsedJSONString(s string) string {
+	var result strings.Builder
+	for len(s) > 0 {
+		start := strings.Index(s, jsonControlTagBase)
+		if start < 0 {
+			result.WriteString(encodeJSONDecodedBytes(s))
+			break
+		}
+		result.WriteString(encodeJSONDecodedBytes(s[:start]))
+		s = s[start:]
+		suffix := s[len(jsonControlTagBase):]
+		dash := strings.IndexByte(suffix, '-')
+		if dash < 1 || dash+1 >= len(suffix) {
+			result.WriteString(jsonControlTagBase)
+			s = suffix
+			continue
+		}
+		control := suffix[dash+1]
+		replacement, ok := jsonShortControls[control]
+		markerLen := len(jsonControlTagBase) + dash + 2 + len(replacement)
+		if !ok || markerLen > len(s) || s[markerLen-len(replacement):markerLen] != replacement {
+			result.WriteString(jsonControlTagBase)
+			s = suffix
+			continue
+		}
+		result.WriteString(replacement)
+		s = s[markerLen:]
+	}
+	return result.String()
+}
+
+func encodeJSONDecodedBytes(s string) string {
+	var result strings.Builder
+	for _, b := range []byte(s) {
+		switch {
+		case b == '\t':
+			result.WriteByte(b)
+		case b == '~':
+			result.WriteString("~7E")
+		case b < 32 || b > 126:
+			fmt.Fprintf(&result, "~%02X", b)
+		default:
+			result.WriteByte(b)
+		}
+	}
+	return result.String()
 }
 
 // parseEmbeddedType parses a type-annotated string like "123|int" or "#5|obj"
@@ -370,26 +484,6 @@ func normalizeJSONEscapes(s string) string {
 		} else {
 			result.WriteByte(s[i])
 			i++
-		}
-	}
-	return result.String()
-}
-
-// encodeBinaryEscapes converts non-printable and non-ASCII bytes to ~XX format
-// This is the inverse of decodeBinaryEscapes
-func encodeBinaryEscapes(s string) string {
-	var result strings.Builder
-	for _, b := range []byte(s) {
-		if b == '~' {
-			result.WriteString("~7E")
-		} else if b < 32 || b > 126 {
-			// Non-printable or non-ASCII: encode as ~XX
-			const hexDigits = "0123456789ABCDEF"
-			result.WriteByte('~')
-			result.WriteByte(hexDigits[b>>4])
-			result.WriteByte(hexDigits[b&0xF])
-		} else {
-			result.WriteByte(b)
 		}
 	}
 	return result.String()
