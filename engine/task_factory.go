@@ -16,16 +16,16 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-func foregroundTaskLimits() (int64, float64) {
-	return builtins.GetTaskLimits(false)
+func foregroundTaskLimits(registry *builtins.Registry) (int64, float64) {
+	return registry.GetTaskLimits(false)
 }
 
-func backgroundTaskLimits() (int64, float64) {
-	return builtins.GetTaskLimits(true)
+func backgroundTaskLimits(registry *builtins.Registry) (int64, float64) {
+	return registry.GetTaskLimits(true)
 }
 
-func configureVMStackLimit(machine *vm.VM) {
-	machine.MaxStackDepth = builtins.GetMaxStackDepth(machine.Store)
+func configureVMStackLimit(machine *vm.VM, registry *builtins.Registry) {
+	machine.MaxStackDepth = registry.GetMaxStackDepth(machine.Store)
 }
 
 // QueueTask adds a task to the execution runtime.
@@ -48,7 +48,7 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 // CreateForegroundTask creates a foreground task (user command)
 func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Program) int64 {
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(s.registry)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
@@ -75,7 +75,7 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 	}
 
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(s.registry)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
@@ -133,7 +133,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	}
 
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(s.registry)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()
@@ -179,7 +179,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 // CreateBackgroundTask creates a background task (fork)
 func (s *Runtime) CreateBackgroundTask(player types.ObjID, program *bytecode.Program, delay time.Duration) int64 {
 	taskID := s.newTaskID()
-	ticks, seconds := backgroundTaskLimits()
+	ticks, seconds := backgroundTaskLimits(s.registry)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now().Add(delay)
@@ -223,14 +223,14 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 			firstLine = line
 		}
 
-		ticks, seconds := backgroundTaskLimits()
+		ticks, seconds := backgroundTaskLimits(s.registry)
 		t = task.NewTaskFull(taskID, forkInfo.Player, nil, ticks, seconds)
 		s.populateTaskContextDependencies(t.Context)
 
 		// Create a pre-configured VM for the child
 		childVM := vm.NewVM(s.store, s.registry)
 		childVM.TickLimit = ticks
-		configureVMStackLimit(childVM)
+		configureVMStackLimit(childVM, s.registry)
 
 		// Set up the child frame with inherited variables
 		frame := childVM.PrepareVerbFrame(forkProg,

@@ -123,7 +123,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
 
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 
 	// taskA: suspend(100) — its runTask will write taskA.BytecodeVM = bcVM at line 239.
 	programA, diagnostics := compiler.CompileMOO([]string{"suspend(100);"}, s.registry)

@@ -524,7 +524,7 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 	if cm := hostOf(ctx).ConnManager; cm == nil || cm.GetConnection(player) == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if HasPendingHTTPRead(player) || heldInputEnabled(player) {
+	if ctx.Registry.HasPendingHTTPRead(player) || ctx.Registry.heldInputEnabled(player) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -653,7 +653,7 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	options := getConnectionOptions(target)
+	options := ctx.Registry.getConnectionOptions(target)
 	if len(args) == 2 {
 		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)

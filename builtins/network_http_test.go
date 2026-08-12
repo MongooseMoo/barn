@@ -7,16 +7,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-func resetHTTPTestState(player types.ObjID) {
-	connectionOptionState.mu.Lock()
-	delete(connectionOptionState.byPlayer, player)
-	connectionOptionState.mu.Unlock()
-
-	httpHeldInputState.mu.Lock()
-	delete(httpHeldInputState.byPlayer, player)
-	httpHeldInputState.mu.Unlock()
-}
-
 func mustMapValue(t *testing.T, value types.Value) types.Value {
 	t.Helper()
 	if value.Type() != types.TYPE_MAP {
@@ -177,16 +167,15 @@ func FuzzParseHTTPChunkedBody(f *testing.F) {
 
 func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 	player := types.ObjID(7)
-	resetHTTPTestState(player)
-	t.Cleanup(func() { resetHTTPTestState(player) })
+	r := NewRegistry()
 
-	setConnectionOption(player, "hold-input", types.NewInt(1))
-	if handled, _ := HandleHeldInput(player, "~ZZ~!!", false); !handled {
+	r.setConnectionOption(player, "hold-input", types.NewInt(1))
+	if handled, _ := r.HandleHeldInput(player, "~ZZ~!!", false); !handled {
 		t.Fatal("expected held input to be intercepted")
 	}
 
 	readTask := task.NewTask(99, player, 1000, 5)
-	value, complete := prepareHTTPRead(player, "request", readTask)
+	value, complete := r.prepareHTTPRead(player, "request", readTask)
 	if !complete {
 		t.Fatal("expected read to complete immediately")
 	}
@@ -201,16 +190,15 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 
 func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 	player := types.ObjID(8)
-	resetHTTPTestState(player)
-	t.Cleanup(func() { resetHTTPTestState(player) })
+	r := NewRegistry()
 
 	pending := task.NewTask(101, player, 1000, 5)
-	if value, complete := prepareHTTPRead(player, "request", pending); complete {
+	if value, complete := r.prepareHTTPRead(player, "request", pending); complete {
 		t.Fatalf("expected incomplete request to suspend, got %v", value)
 	}
 	task.NewManager().SuspendTask(pending, -1)
 
-	CloseHeldHTTPInput(player)
+	r.CloseHeldHTTPInput(player)
 
 	if got := pending.GetState(); got != task.TaskKilled {
 		t.Fatalf("disconnected HTTP read state = %s, want killed", got)
@@ -219,27 +207,26 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 
 func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	player := types.ObjID(8)
-	resetHTTPTestState(player)
-	t.Cleanup(func() { resetHTTPTestState(player) })
+	r := NewRegistry()
 
-	setConnectionOption(player, "hold-input", types.NewInt(1))
-	if handled, _ := HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false); !handled {
+	r.setConnectionOption(player, "hold-input", types.NewInt(1))
+	if handled, _ := r.HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false); !handled {
 		t.Fatal("expected partial input to be intercepted")
 	}
 
 	stalled := task.NewTask(101, player, 1000, 5)
-	if value, complete := prepareHTTPRead(player, "request", stalled); complete {
+	if value, complete := r.prepareHTTPRead(player, "request", stalled); complete {
 		t.Fatalf("expected partial request to suspend, got %v", value)
 	}
 	task.NewManager().SuspendTask(stalled, -1)
-	CancelHTTPReadTask(stalled.ID)
+	r.CancelHTTPReadTask(stalled.ID)
 
-	if handled, _ := HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {
+	if handled, _ := r.HandleHeldInput(player, "GET /2~0D~0Afoo: bar~0D~0A~0D~0A", false); !handled {
 		t.Fatal("expected fresh input to be intercepted")
 	}
 
 	fresh := task.NewTask(102, player, 1000, 5)
-	value, complete := prepareHTTPRead(player, "request", fresh)
+	value, complete := r.prepareHTTPRead(player, "request", fresh)
 	if !complete {
 		t.Fatal("expected fresh request to parse immediately")
 	}

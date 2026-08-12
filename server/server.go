@@ -191,8 +191,8 @@ func (s *Server) LoadDatabase() error {
 	// before any verb runs, matching Toast's boot-time load_server_options() /
 	// load_server_protect_function_flags(). The MOO may refresh these later by
 	// calling load_server_options().
-	builtins.LoadServerOptionsFromStore(s.store)
-	builtins.LoadProtectedBuiltinsFromStore(s.store)
+	s.runtime.Registry().LoadServerOptionsFromStore(s.store)
+	s.runtime.Registry().LoadProtectedBuiltinsFromStore(s.store)
 
 	s.runtime.LoadQueuedTasks(database.QueuedTasks)
 	s.runtime.LoadSuspendedTasks(database.SuspendedTasks)
@@ -398,6 +398,9 @@ func (s *Server) shutdown() error {
 
 	s.runtime.Stop()
 	s.backgroundWG.Wait()
+	if err := s.runtime.Registry().Close(); err != nil {
+		slog.Warn("closing builtin registry", slog.Any("err", err))
+	}
 
 	s.mu.Lock()
 	s.running = false

@@ -155,7 +155,7 @@ retryAttempt:
 	// the start time used for the deadline below) so ticks_left()/seconds_left()
 	// and the hard deadline reflect a fresh background slice.
 	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); ok && savedVM.IsYielded() {
-		bgTicks, bgSeconds := backgroundTaskLimits()
+		bgTicks, bgSeconds := backgroundTaskLimits(s.registry)
 		t.TicksLimit = bgTicks
 		t.TicksUsed = 0
 		t.SecondsLimit = bgSeconds
@@ -249,7 +249,7 @@ retryAttempt:
 		bcVM.Context = ctx
 		bcVM.Task = t
 		bcVM.TickLimit = t.TicksLimit
-		configureVMStackLimit(bcVM)
+		configureVMStackLimit(bcVM, s.registry)
 
 		if t.VerbName != "" {
 			// Command verbs derive args from raw words; server-initiated hooks can
@@ -770,7 +770,7 @@ func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMat
 	}
 
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(s.registry)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()

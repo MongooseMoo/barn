@@ -47,7 +47,7 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 		return fmt.Errorf("VM has no activations")
 	}
 	rootProgram := saved.VM.Frames[0].Program
-	ticks, seconds := backgroundTaskLimits()
+	ticks, seconds := backgroundTaskLimits(s.registry)
 	t := task.NewTaskFull(saved.ID, saved.Owner, &rootProgram, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = saved.StartTime
@@ -108,7 +108,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 		return fmt.Errorf("%s", diagnostics[0].Error())
 	}
 
-	ticks, seconds := backgroundTaskLimits()
+	ticks, seconds := backgroundTaskLimits(s.registry)
 	t := task.NewTaskFull(saved.ID, saved.Player, prog, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 
@@ -146,7 +146,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	machine.Context = t.Context
 	machine.Task = t
 	machine.TickLimit = ticks
-	configureVMStackLimit(machine)
+	configureVMStackLimit(machine, s.registry)
 	frame := machine.PrepareVerbFrame(prog, saved.This, saved.Player, saved.Player, saved.Verb, saved.VerbLoc, nil)
 	for name, value := range saved.Variables {
 		vm.SetLocalByName(frame, prog, name, value)

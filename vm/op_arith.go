@@ -2,9 +2,9 @@ package vm
 
 import (
 	"fmt"
-	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/types"
 	"math"
+
+	"github.com/MongooseMoo/barn/types"
 )
 
 // Arithmetic operations
@@ -67,7 +67,7 @@ func (vm *VM) executeAdd() error {
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
 			resultStr := a.Str() + b.Str()
-			if errCode := builtins.CheckStringLength(len(resultStr)); errCode != types.E_NONE {
+			if errCode := vm.registryForLimits().CheckStringLength(len(resultStr)); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
 			vm.Push(types.NewStr(resultStr))
@@ -136,7 +136,7 @@ func (vm *VM) executeStringAppend() error {
 			return fmt.Errorf("E_TYPE: invalid operands for +")
 		}
 
-		if errCode := builtins.CheckStringLength(a.Len() + b.Len()); errCode != types.E_NONE {
+		if errCode := vm.registryForLimits().CheckStringLength(a.Len() + b.Len()); errCode != types.E_NONE {
 			return fmt.Errorf("E_QUOTA: string too long")
 		}
 		vm.Push(a.StrAppend(b))

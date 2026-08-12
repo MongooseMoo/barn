@@ -19,7 +19,7 @@ func TestBooleanMapKeysSurviveBothInsertionOrders(t *testing.T) {
 			mapping := types.NewEmptyMap()
 			for _, key := range test.keys {
 				var err types.ErrorCode
-				mapping, err = setAtIndex(nil, mapping, key, types.NewStr(key.String()))
+				mapping, err = setAtIndex(nil, nil, mapping, key, types.NewStr(key.String()))
 				if err != types.E_NONE {
 					t.Fatalf("set key %s: %s", key, err)
 				}

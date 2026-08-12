@@ -233,17 +233,6 @@ func TestMongooseRealWorkload(t *testing.T) {
 	store := database.NewStoreFromDatabase()
 	t.Logf("loaded %s in %s", dbPath, time.Since(loadStart))
 
-	// Mirror server boot (server.go LoadServerOptions/LoadProtectedBuiltins):
-	// mongoose protects valid/create/match/... and overrides them with
-	// #0-reachable bf_* wrappers. Skipping this ran the raw builtins and
-	// manufactured E_TYPE storms production Barn never produces.
-	builtins.LoadServerOptionsFromStore(store)
-	builtins.LoadProtectedBuiltinsFromStore(store)
-	t.Cleanup(func() {
-		builtins.LoadServerOptionsFromStore(nil)
-		builtins.LoadProtectedBuiltinsFromStore(nil)
-	})
-
 	// Pick real player objects with a valid location.
 	var candidates []types.ObjID
 	for _, pid := range store.Players() {
@@ -285,6 +274,9 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
 	s := newRuntimeWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
+	// Mirror server boot: this registry must load the snapshot it executes.
+	s.Registry().LoadServerOptionsFromStore(store)
+	s.Registry().LoadProtectedBuiltinsFromStore(store)
 
 	// Mirror server boot's #0:server_started (server.go callServerStarted) —
 	// it activates services including $sql_utils, which opens the SQLite

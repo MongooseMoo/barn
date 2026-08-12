@@ -207,7 +207,7 @@ func (vm *VM) executeSetPropNamed(propName string) error {
 	}
 
 	// Check for built-in property assignment first
-	if isBuiltin, errCode := setBuiltinProperty(vm.Store, txn, objID, propName, value, vm.Context); isBuiltin {
+	if isBuiltin, errCode := setBuiltinProperty(vm.Builtins, vm.Store, txn, objID, propName, value, vm.Context); isBuiltin {
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: cannot set built-in property %s", errCode, propName)
 		}
@@ -482,13 +482,13 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets mutable server-maintained object properties.
-func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(registry *builtins.Registry, store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
 		if value.Type() != types.TYPE_STR {
 			return true, types.E_TYPE
 		}
-		if errCode := checkBuiltinPropertyOwner(store, txn, objID, "name", ctx, true); errCode != types.E_NONE {
+		if errCode := checkBuiltinPropertyOwner(registry, store, txn, objID, "name", ctx, true); errCode != types.E_NONE {
 			return true, errCode
 		}
 		if txn != nil {
@@ -528,7 +528,7 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 		}
 		return true, store.SetObjectFlag(objID, flag, value.Truthy())
 	case "r", "w", "f", "a":
-		if errCode := checkBuiltinPropertyOwner(store, txn, objID, strings.ToLower(name), ctx, false); errCode != types.E_NONE {
+		if errCode := checkBuiltinPropertyOwner(registry, store, txn, objID, strings.ToLower(name), ctx, false); errCode != types.E_NONE {
 			return true, errCode
 		}
 		flags := map[string]dbstore.ObjectFlags{"r": dbstore.FlagRead, "w": dbstore.FlagWrite, "f": dbstore.FlagFertile, "a": dbstore.FlagAnonymous}
@@ -542,11 +542,11 @@ func setBuiltinProperty(store *dbstore.Store, txn *dbstore.StoreTxn, objID types
 	}
 }
 
-func checkBuiltinPropertyOwner(store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
+func checkBuiltinPropertyOwner(registry *builtins.Registry, store *dbstore.Store, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
 	if ctx == nil || ctx.IsWizard {
 		return types.E_NONE
 	}
-	if builtins.IsProtectedBuiltin(name) {
+	if registry.IsProtectedBuiltin(name) {
 		return types.E_PERM
 	}
 	var owner types.ObjID

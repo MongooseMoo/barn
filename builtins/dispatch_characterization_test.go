@@ -15,10 +15,10 @@ import (
 // IsProtectedBuiltin. They must stay green across that refactor unchanged.
 
 // protectBuiltinViaStore builds a store whose #0.server_options points at an
-// object carrying protect_<name>=1, then drives the real loader so the global
-// protected set is populated exactly the way the running server does it. The
+// object carrying protect_<name>=1, then drives the real loader so the
+// registry's protected set is populated exactly the way the running server does it. The
 // returned store also has #0 present so FindVerb(#0, ...) works.
-func protectBuiltinViaStore(t *testing.T, name string) *dbstore.Store {
+func protectBuiltinViaStore(t *testing.T, r *Registry, name string) *dbstore.Store {
 	t.Helper()
 	store := dbstore.NewStore()
 
@@ -42,8 +42,8 @@ func protectBuiltinViaStore(t *testing.T, name string) *dbstore.Store {
 		t.Fatalf("define protect_%s: %v", name, code)
 	}
 
-	LoadProtectedBuiltinsFromStore(store)
-	if !IsProtectedBuiltin(name) {
+	r.LoadProtectedBuiltinsFromStore(store)
+	if !r.IsProtectedBuiltin(name) {
 		t.Fatalf("setup: %q not protected after load", name)
 	}
 	return store
@@ -55,9 +55,8 @@ func protectBuiltinViaStore(t *testing.T, name string) *dbstore.Store {
 // LoadProtectedBuiltinsFromStore's atomic store, validating the memory-model
 // contract documented in protected.go.
 func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
-	defer LoadProtectedBuiltinsFromStore(nil)
-
-	store := protectBuiltinViaStore(t, "abs")
+	r := NewRegistry()
+	store := protectBuiltinViaStore(t, r, "abs")
 	var wg sync.WaitGroup
 
 	// Readers.
@@ -66,8 +65,8 @@ func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 5000; j++ {
-				_ = IsProtectedBuiltin("abs")
-				_ = IsProtectedBuiltin("tostr")
+				_ = r.IsProtectedBuiltin("abs")
+				_ = r.IsProtectedBuiltin("tostr")
 			}
 		}()
 	}
@@ -77,9 +76,9 @@ func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
 		defer wg.Done()
 		for j := 0; j < 2000; j++ {
 			if j%2 == 0 {
-				LoadProtectedBuiltinsFromStore(store)
+				r.LoadProtectedBuiltinsFromStore(store)
 			} else {
-				LoadProtectedBuiltinsFromStore(nil)
+				r.LoadProtectedBuiltinsFromStore(nil)
 			}
 		}
 	}()
@@ -147,9 +146,8 @@ func TestCallByNameValidatesArgs(t *testing.T) {
 
 func TestProtectedBuiltinNonWizardDeniedWizardFallsThrough(t *testing.T) {
 	r := NewRegistry()
-	defer LoadProtectedBuiltinsFromStore(nil) // reset global protected set
 
-	store := protectBuiltinViaStore(t, "abs")
+	store := protectBuiltinViaStore(t, r, "abs")
 	id, ok := r.GetID("abs")
 	if !ok {
 		t.Fatal("abs not registered")
@@ -183,9 +181,8 @@ func TestProtectedBuiltinNonWizardDeniedWizardFallsThrough(t *testing.T) {
 
 func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 	r := NewRegistry()
-	defer LoadProtectedBuiltinsFromStore(nil)
 
-	store := protectBuiltinViaStore(t, "abs")
+	store := protectBuiltinViaStore(t, r, "abs")
 	// Add #0:bf_abs so the redirect path resolves the wrapper verb.
 	verb := dbstore.NewVerb(
 		"bf_abs", []string{"bf_abs"}, types.ObjID(0),
@@ -226,9 +223,8 @@ func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 // caller this == #0 must always run the real builtin even when protected.
 func TestProtectedBuiltinThisZeroRunsRealBuiltin(t *testing.T) {
 	r := NewRegistry()
-	defer LoadProtectedBuiltinsFromStore(nil)
 
-	store := protectBuiltinViaStore(t, "abs")
+	store := protectBuiltinViaStore(t, r, "abs")
 	id, _ := r.GetID("abs")
 
 	ctx := newTestExecution()

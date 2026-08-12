@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/MongooseMoo/barn/internal/listener"
 	"github.com/MongooseMoo/barn/kernel"
@@ -62,20 +61,6 @@ type InputForcer interface {
 	ForceInput(player types.ObjID, line string, atFront bool)
 }
 
-var connectionOptionState = struct {
-	mu       sync.RWMutex
-	byPlayer map[types.ObjID]map[string]types.Value
-}{
-	byPlayer: make(map[types.ObjID]map[string]types.Value),
-}
-
-var heldCommandState = struct {
-	mu       sync.Mutex
-	byPlayer map[types.ObjID][]string
-}{
-	byPlayer: make(map[types.ObjID][]string),
-}
-
 type httpReadWaiter struct {
 	task *task.Task
 	kind string
@@ -90,13 +75,6 @@ type httpHeldInput struct {
 type httpWake struct {
 	task  *task.Task
 	value types.Value
-}
-
-var httpHeldInputState = struct {
-	mu       sync.Mutex
-	byPlayer map[types.ObjID]*httpHeldInput
-}{
-	byPlayer: make(map[types.ObjID]*httpHeldInput),
 }
 
 func parseConnectionTarget(v types.Value) (types.ObjID, bool) {
@@ -150,10 +128,11 @@ func defaultConnectionOptions() map[string]types.Value {
 	}
 }
 
-func getConnectionOptions(player types.ObjID) map[string]types.Value {
-	connectionOptionState.mu.RLock()
-	defer connectionOptionState.mu.RUnlock()
-	existing, ok := connectionOptionState.byPlayer[player]
+func (r *Registry) getConnectionOptions(player types.ObjID) map[string]types.Value {
+	state := &r.runtime.connectionOptions
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	existing, ok := state.byPlayer[player]
 	if !ok {
 		return defaultConnectionOptions()
 	}
@@ -166,47 +145,43 @@ func getConnectionOptions(player types.ObjID) map[string]types.Value {
 	return out
 }
 
-func setConnectionOption(player types.ObjID, name string, value types.Value) {
-	connectionOptionState.mu.Lock()
-	defer connectionOptionState.mu.Unlock()
+func (r *Registry) setConnectionOption(player types.ObjID, name string, value types.Value) {
+	state := &r.runtime.connectionOptions
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	existing, ok := connectionOptionState.byPlayer[player]
+	existing, ok := state.byPlayer[player]
 	if !ok {
 		existing = defaultConnectionOptions()
-		connectionOptionState.byPlayer[player] = existing
+		state.byPlayer[player] = existing
 	}
 	existing[name] = value
 }
 
-func drainHeldCommands(player types.ObjID) []string {
-	heldCommandState.mu.Lock()
-	defer heldCommandState.mu.Unlock()
-	lines := append([]string(nil), heldCommandState.byPlayer[player]...)
-	delete(heldCommandState.byPlayer, player)
+func (r *Registry) drainHeldCommands(player types.ObjID) []string {
+	state := &r.runtime.heldCommands
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	lines := append([]string(nil), state.byPlayer[player]...)
+	delete(state.byPlayer, player)
 	return lines
 }
 
-func clearHeldCommands(player types.ObjID) {
-	heldCommandState.mu.Lock()
-	defer heldCommandState.mu.Unlock()
-	delete(heldCommandState.byPlayer, player)
+func (r *Registry) heldInputEnabled(player types.ObjID) bool {
+	return r.getConnectionOptions(player)["hold-input"].Truthy()
 }
 
-func heldInputEnabled(player types.ObjID) bool {
-	return getConnectionOptions(player)["hold-input"].Truthy()
-}
-
-func ConnectionOptionTruthy(player types.ObjID, name string) bool {
-	options := getConnectionOptions(player)
+func (r *Registry) ConnectionOptionTruthy(player types.ObjID, name string) bool {
+	options := r.getConnectionOptions(player)
 	value, ok := options[name]
 	return ok && value.Truthy()
 }
 
-func getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
-	state, ok := httpHeldInputState.byPlayer[player]
+func (r *Registry) getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
+	state, ok := r.runtime.heldHTTPInput.byPlayer[player]
 	if !ok {
 		state = &httpHeldInput{}
-		httpHeldInputState.byPlayer[player] = state
+		r.runtime.heldHTTPInput.byPlayer[player] = state
 	}
 	return state
 }
@@ -488,7 +463,7 @@ func parseHTTPMessage(kind string, data []byte) (types.Value, int, bool) {
 	return parseHTTPResponse(data)
 }
 
-func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWake {
+func (r *Registry) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWake {
 	pruneHTTPWaitersLocked(state)
 	wakes := make([]httpWake, 0)
 	for len(state.waiters) > 0 {
@@ -511,29 +486,30 @@ func collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWa
 		wakes = append(wakes, httpWake{task: waiter.task, value: value})
 	}
 
-	if !heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
-		delete(httpHeldInputState.byPlayer, player)
+	if !r.heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
+		delete(r.runtime.heldHTTPInput.byPlayer, player)
 	}
 	return wakes
 }
 
-func HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
-	options := getConnectionOptions(player)
+func (r *Registry) HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
+	options := r.getConnectionOptions(player)
 	if flush := options["flush-command"]; flush.Type() == types.TYPE_STR && flush.Str() != "" && strings.EqualFold(line, flush.Str()) {
-		lines := drainHeldCommands(player)
+		lines := r.drainHeldCommands(player)
 		if lines == nil {
 			lines = []string{}
 		}
 		return true, lines
 	}
 
-	held := heldInputEnabled(player)
+	held := r.heldInputEnabled(player)
 
 	hadWaiter, wakes, handled := func() (bool, []httpWake, bool) {
-		httpHeldInputState.mu.Lock()
-		defer httpHeldInputState.mu.Unlock()
+		stateSet := &r.runtime.heldHTTPInput
+		stateSet.mu.Lock()
+		defer stateSet.mu.Unlock()
 
-		state := httpHeldInputState.byPlayer[player]
+		state := stateSet.byPlayer[player]
 		if state != nil {
 			pruneHTTPWaitersLocked(state)
 		}
@@ -547,7 +523,7 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []str
 			return false, nil, false
 		}
 
-		state = getOrCreateHeldHTTPInput(player)
+		state = r.getOrCreateHeldHTTPInput(player)
 		decoded, invalid := decodeBinaryString(line)
 		if invalid {
 			state.invalidCount++
@@ -557,7 +533,7 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []str
 			state.buffer = append(state.buffer, decoded...)
 		}
 
-		return hadWaiter, collectHTTPWakeupsLocked(player, state), true
+		return hadWaiter, r.collectHTTPWakeupsLocked(player, state), true
 	}()
 	if !handled {
 		return false, nil
@@ -570,27 +546,29 @@ func HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []str
 	// Hold the line as a pending command only when hold-input is on and there was
 	// no active read_http waiter to consume it.
 	if held && !hadWaiter {
-		heldCommandState.mu.Lock()
+		state := &r.runtime.heldCommands
+		state.mu.Lock()
 		if atFront {
-			heldCommandState.byPlayer[player] = append([]string{line}, heldCommandState.byPlayer[player]...)
+			state.byPlayer[player] = append([]string{line}, state.byPlayer[player]...)
 		} else {
-			heldCommandState.byPlayer[player] = append(heldCommandState.byPlayer[player], line)
+			state.byPlayer[player] = append(state.byPlayer[player], line)
 		}
-		heldCommandState.mu.Unlock()
+		state.mu.Unlock()
 	}
 	return true, nil
 }
 
-func prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
-	httpHeldInputState.mu.Lock()
-	defer httpHeldInputState.mu.Unlock()
+func (r *Registry) prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
+	stateSet := &r.runtime.heldHTTPInput
+	stateSet.mu.Lock()
+	defer stateSet.mu.Unlock()
 
-	state := getOrCreateHeldHTTPInput(player)
+	state := r.getOrCreateHeldHTTPInput(player)
 	pruneHTTPWaitersLocked(state)
 	if state.invalidCount > 0 {
 		state.invalidCount--
-		if !heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
-			delete(httpHeldInputState.byPlayer, player)
+		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
+			delete(stateSet.byPlayer, player)
 		}
 		return types.NewInt(0), true
 	}
@@ -600,8 +578,8 @@ func prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value
 		if consumed > 0 {
 			state.buffer = append([]byte(nil), state.buffer[consumed:]...)
 		}
-		if !heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
-			delete(httpHeldInputState.byPlayer, player)
+		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && len(state.waiters) == 0 && state.invalidCount == 0 {
+			delete(stateSet.byPlayer, player)
 		}
 		return value, true
 	}
@@ -623,11 +601,12 @@ func pruneHTTPWaitersLocked(state *httpHeldInput) {
 	state.waiters = kept
 }
 
-func HasPendingHTTPRead(player types.ObjID) bool {
-	httpHeldInputState.mu.Lock()
-	defer httpHeldInputState.mu.Unlock()
+func (r *Registry) HasPendingHTTPRead(player types.ObjID) bool {
+	stateSet := &r.runtime.heldHTTPInput
+	stateSet.mu.Lock()
+	defer stateSet.mu.Unlock()
 
-	state := httpHeldInputState.byPlayer[player]
+	state := stateSet.byPlayer[player]
 	if state == nil {
 		return false
 	}
@@ -635,11 +614,12 @@ func HasPendingHTTPRead(player types.ObjID) bool {
 	return len(state.waiters) > 0
 }
 
-func CancelHTTPReadTask(taskID int64) {
-	httpHeldInputState.mu.Lock()
-	defer httpHeldInputState.mu.Unlock()
+func (r *Registry) CancelHTTPReadTask(taskID int64) {
+	stateSet := &r.runtime.heldHTTPInput
+	stateSet.mu.Lock()
+	defer stateSet.mu.Unlock()
 
-	for player, state := range httpHeldInputState.byPlayer {
+	for player, state := range stateSet.byPlayer {
 		if len(state.waiters) == 0 {
 			continue
 		}
@@ -657,28 +637,30 @@ func CancelHTTPReadTask(taskID int64) {
 			state.buffer = nil
 			state.invalidCount = 0
 		}
-		if !heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
-			delete(httpHeldInputState.byPlayer, player)
+		if !r.heldInputEnabled(player) && len(state.buffer) == 0 && state.invalidCount == 0 && len(state.waiters) == 0 {
+			delete(stateSet.byPlayer, player)
 		}
 	}
 }
 
-func ClearAllHeldHTTPInput() {
-	httpHeldInputState.mu.Lock()
-	defer httpHeldInputState.mu.Unlock()
-	httpHeldInputState.byPlayer = make(map[types.ObjID]*httpHeldInput)
+func (r *Registry) ClearAllHeldHTTPInput() {
+	state := &r.runtime.heldHTTPInput
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.byPlayer = make(map[types.ObjID]*httpHeldInput)
 }
 
-func CloseHeldHTTPInput(player types.ObjID) {
-	httpHeldInputState.mu.Lock()
-	state := httpHeldInputState.byPlayer[player]
+func (r *Registry) CloseHeldHTTPInput(player types.ObjID) {
+	stateSet := &r.runtime.heldHTTPInput
+	stateSet.mu.Lock()
+	state := stateSet.byPlayer[player]
 	if state == nil {
-		httpHeldInputState.mu.Unlock()
+		stateSet.mu.Unlock()
 		return
 	}
 	waiters := append([]httpReadWaiter(nil), state.waiters...)
-	delete(httpHeldInputState.byPlayer, player)
-	httpHeldInputState.mu.Unlock()
+	delete(stateSet.byPlayer, player)
+	stateSet.mu.Unlock()
 
 	for _, waiter := range waiters {
 		if waiter.task != nil {
@@ -1283,14 +1265,14 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 		}
 	}
 
-	setConnectionOption(player, name, args[2])
+	ctx.Registry.setConnectionOption(player, name, args[2])
 	if name == "binary" && args[2].Truthy() {
 		if wakeConn, ok := conn.(inputWakeConnection); ok {
 			wakeConn.WakeInputReader()
 		}
 	}
 	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !args[2].Truthy() && forcer != nil {
-		for _, line := range drainHeldCommands(player) {
+		for _, line := range ctx.Registry.drainHeldCommands(player) {
 			forcer.ForceInput(player, line, false)
 		}
 	}
@@ -1322,7 +1304,7 @@ func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	options := getConnectionOptions(player)
+	options := ctx.Registry.getConnectionOptions(player)
 	value, ok := options[name]
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -1377,7 +1359,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if mgr.FindReadingTask(connection) != nil || HasPendingHTTPRead(connection) {
+	if mgr.FindReadingTask(connection) != nil || ctx.Registry.HasPendingHTTPRead(connection) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1386,7 +1368,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	value, complete := prepareHTTPRead(connection, typeStr, t)
+	value, complete := ctx.Registry.prepareHTTPRead(connection, typeStr, t)
 	if complete {
 		return types.Ok(value)
 	}

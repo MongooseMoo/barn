@@ -110,7 +110,7 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	CancelHTTPReadTask(taskID)
+	ctx.Registry.CancelHTTPReadTask(taskID)
 
 	return types.Ok(types.NewInt(0))
 }
@@ -573,7 +573,7 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if len(args) >= 1 {
-		fgTicks, fgSeconds := GetTaskLimits(false)
+		fgTicks, fgSeconds := ctx.Registry.GetTaskLimits(false)
 		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
 			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
 			return types.Err(types.E_INVARG)

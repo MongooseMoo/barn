@@ -36,7 +36,7 @@ func TestRunTaskDoesNotRecommitAfterTerminalCommitFailure(t *testing.T) {
 		return types.Ok(types.None)
 	})
 
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	running := task.NewTaskFull(94002, 0, compileTestProgram(t, s.registry, `
 force_terminal_commit();
 return 1;
