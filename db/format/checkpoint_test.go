@@ -19,7 +19,11 @@ func TestWriteCheckpointWritesOnlyToNewFile(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "checkpoint.db")
-	if err := WriteCheckpoint(path, loaded.NewStoreFromDatabase(), nil, nil, nil); err != nil {
+	loadedStore, err := loaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatalf("construct store: %v", err)
+	}
+	if err := WriteCheckpoint(path, loadedStore, nil, nil, nil); err != nil {
 		t.Fatalf("WriteCheckpoint failed: %v", err)
 	}
 
@@ -149,7 +153,7 @@ func TestWriteCheckpointPreservesAnonymousGraphsRootedOnlyBySuspendedTasks(t *te
 		t.Fatalf("task-held anonymous ids = %v, want both emitted cycle members", heldIDs)
 	}
 
-	reloadedStore := reloaded.NewStoreFromDatabase()
+	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	markers := make(map[string]struct{}, 2)
 	for id := range heldIDs {
 		marker, errCode := reloadedStore.PropertyValue(id, "marker")

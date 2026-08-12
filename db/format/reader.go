@@ -36,12 +36,13 @@ type waifLoadData struct {
 	propsByIndex map[int]types.Value
 }
 
-// NewStoreFromDatabase creates a Store from a loaded database
-func (database *Database) NewStoreFromDatabase() *store.Store {
+// NewStoreFromDatabase creates a Store from a loaded database.
+func (database *Database) NewStoreFromDatabase() (*store.Store, error) {
 	s := store.NewStore()
 	for _, b := range database.Objects {
-		if err := s.Add(b.Build()); err != nil {
-			panic(err)
+		obj := b.Build()
+		if err := s.Add(obj); err != nil {
+			return nil, fmt.Errorf("add loaded object #%d: %w", b.ID(), err)
 		}
 	}
 	// Ingest anonymous objects out-of-band. They are kept separate from the
@@ -52,7 +53,7 @@ func (database *Database) NewStoreFromDatabase() *store.Store {
 		s.AddAnonymous(b.Build())
 	}
 	s.SetPendingFinalizations(database.PendingFinalizations)
-	return s
+	return s, nil
 }
 
 // QueuedTask represents a task waiting to run
