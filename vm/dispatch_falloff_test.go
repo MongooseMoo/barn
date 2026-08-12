@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 )
 
 // These tests pin the behavior that the C5 dispatch-loop change relies on: the
@@ -49,7 +48,7 @@ func TestEveryCompiledProgramEndsWithTerminator(t *testing.T) {
 	}
 	registry := BuildVMRegistry()
 	for _, src := range cases {
-		prog, diagnostics := compiler.CompileMOO([]string{src}, registry)
+		prog, diagnostics := registry.Compiler().CompileMOO([]string{src})
 		if len(diagnostics) > 0 {
 			t.Fatalf("src %q: compile failed: %v", src, diagnostics)
 		}

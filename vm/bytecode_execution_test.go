@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -25,7 +24,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	registry.SetTaskManager(task.NewManager())
 	ctx.Store = store
 
-	prog, diagnostics := compiler.CompileMOO([]string{code}, registry)
+	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
@@ -526,13 +525,13 @@ func TestBytecodeVerbCallExceptions(t *testing.T) {
 func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 	store := newBytecodeVerbStore()
 	registry := BuildVMRegistry()
-	program, diagnostics := compiler.CompileMOO([]string{`
+	program, diagnostics := registry.Compiler().CompileMOO([]string{`
 		try
 			#0:test_return();
 		except (E_MAXREC)
 			return "caught";
 		endtry
-	`}, registry)
+	`})
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
@@ -605,7 +604,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 		t.Fatalf("find inherited verb: %v", err)
 	}
 	registry := BuildVMRegistry()
-	prog, diagnostics := compiler.CompileMOO(verb.Code, registry)
+	prog, diagnostics := registry.Compiler().CompileMOO(verb.Code)
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile inherited verb: %v", diagnostics)
 	}
@@ -819,7 +818,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 
-	program, diagnostics := compiler.CompileMOO([]string{`suspend(); return 9;`}, registry)
+	program, diagnostics := registry.Compiler().CompileMOO([]string{`suspend(); return 9;`})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
@@ -856,14 +855,14 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
-	program, diagnostics := compiler.CompileMOO([]string{`
+	program, diagnostics := registry.Compiler().CompileMOO([]string{`
 		try
 			suspend();
 			return "returned";
 		except error (E_INTRPT)
 			return error[1];
 		endtry
-	`}, registry)
+	`})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}

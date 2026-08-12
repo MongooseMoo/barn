@@ -1,14 +1,12 @@
 package vm
 
 import (
-	"reflect"
-	"testing"
-
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"reflect"
+	"testing"
 )
 
 // dirtyVM sets every field of a VM to a detectably non-zero value. The
@@ -207,7 +205,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 		ctx := kernel.NewTaskContext()
 		ctx.Store = store
 
-		prog, diagnostics := compiler.CompileMOO([]string{code}, registry)
+		prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
 		if len(diagnostics) > 0 {
 			t.Fatalf("compile failed: %v", diagnostics)
 		}

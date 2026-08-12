@@ -2,15 +2,13 @@ package engine
 
 import (
 	"fmt"
-	"log/slog"
-	"sync/atomic"
-	"time"
-
-	"github.com/MongooseMoo/barn/compiler"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 	"github.com/MongooseMoo/barn/vm"
+	"log/slog"
+	"sync/atomic"
+	"time"
 )
 
 func (s *Runtime) LoadQueuedTasks(queued []*dbformat.QueuedTask) {
@@ -103,7 +101,7 @@ func (s *Runtime) loadSuspendedTask(saved task.Snapshot) error {
 }
 
 func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
-	prog, diagnostics := compiler.CompileMOO(saved.Code, s.registry)
+	prog, diagnostics := s.registry.Compiler().CompileMOO(saved.Code)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("%s", diagnostics[0].Error())
 	}

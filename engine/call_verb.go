@@ -6,7 +6,6 @@ import (
 	"runtime/debug"
 
 	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/metrics"
@@ -60,7 +59,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 		return types.Err(types.E_VERBNF)
 	}
 
-	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
+	prog, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		slog.Error("verb compile error",
 			slog.String("verb", verbName),
@@ -249,7 +248,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 
 	// Compile verb to bytecode, keyed by the store's content key.
-	prog, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, s.registry)
+	prog, diagnostics := s.registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		slog.Error("verb failed to compile",
 			slog.String("verb", verbName),

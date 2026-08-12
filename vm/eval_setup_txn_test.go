@@ -1,16 +1,14 @@
 package vm
 
 import (
-	"path/filepath"
-	"strings"
-	"testing"
-
-	"github.com/MongooseMoo/barn/compiler"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"path/filepath"
+	"strings"
+	"testing"
 )
 
 const auditProxySetupSource = `
@@ -92,7 +90,7 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 	}
 
 	registry := BuildVMRegistry()
-	prog, diagnostics := compiler.CompileMOO(strings.Split(auditProxySetupSource, "\n"), registry)
+	prog, diagnostics := registry.Compiler().CompileMOO(strings.Split(auditProxySetupSource, "\n"))
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}
@@ -152,7 +150,7 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	}
 
 	registry := BuildVMRegistry()
-	prog, diagnostics := compiler.CompileMOO(strings.Split(auditWaifCallersSource, "\n"), registry)
+	prog, diagnostics := registry.Compiler().CompileMOO(strings.Split(auditWaifCallersSource, "\n"))
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics[0])
 	}

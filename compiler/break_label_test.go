@@ -1,4 +1,4 @@
-package bytecode_test
+package compiler_test
 
 import (
 	"strings"
@@ -6,10 +6,6 @@ import (
 
 	"github.com/MongooseMoo/barn/compiler"
 )
-
-type stubRegistry struct{}
-
-func (stubRegistry) GetID(string) (int, bool) { return 0, false }
 
 // F21: `break ID;` must resolve/validate its loop name exactly like `continue ID;`.
 // ToastStunt's check_loop_name (parser.y:1187-1209) raises
@@ -26,7 +22,7 @@ func TestBreakUnknownLoopNameIsCompileError(t *testing.T) {
 		"endwhile",
 		"return 0;",
 	}
-	_, diagnostics := compiler.CompileMOO(src, stubRegistry{})
+	_, diagnostics := compiler.New(nil).CompileMOO(src)
 	if len(diagnostics) == 0 {
 		t.Fatalf("BUG: `break nonexistent;` compiled without error; want \"Invalid loop name\"")
 	}
@@ -44,7 +40,7 @@ func TestContinueUnknownLoopNameIsCompileError(t *testing.T) {
 		"endwhile",
 		"return 0;",
 	}
-	_, diagnostics := compiler.CompileMOO(src, stubRegistry{})
+	_, diagnostics := compiler.New(nil).CompileMOO(src)
 	if len(diagnostics) == 0 {
 		t.Fatalf("`continue nonexistent;` compiled without error; want \"Invalid loop name\"")
 	}
@@ -61,7 +57,7 @@ func TestLabeledBreakAndContinueCompile(t *testing.T) {
 		{"for i in ({1, 2})", "continue i;", "endfor", "return 0;"},
 		{"while (1)", "break;", "endwhile", "return 0;"},
 	} {
-		if _, diagnostics := compiler.CompileMOO(src, stubRegistry{}); len(diagnostics) > 0 {
+		if _, diagnostics := compiler.New(nil).CompileMOO(src); len(diagnostics) > 0 {
 			t.Fatalf("valid loop %v failed to compile: %v", src, diagnostics)
 		}
 	}

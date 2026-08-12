@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -75,7 +74,7 @@ func TestOversizedForkChildExecutesCompleteBody(t *testing.T) {
 		"return 70; endfork return 0;"
 	registry := BuildVMRegistry()
 	registry.SetTaskManager(task.NewManager())
-	program, diagnostics := compiler.CompileMOO([]string{code}, registry)
+	program, diagnostics := registry.Compiler().CompileMOO([]string{code})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics)
 	}

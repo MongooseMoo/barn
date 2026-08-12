@@ -1,4 +1,4 @@
-package bytecode_test
+package compiler_test
 
 import (
 	"math"
@@ -68,7 +68,7 @@ func TestMOOCompilationContractCharacterizesEveryNodeFamily(t *testing.T) {
 		"return {integer, floating, string, boolean, object, err};",
 	}
 
-	compiled, diagnostics := compiler.CompileMOO(source, stubRegistry{})
+	compiled, diagnostics := compiler.New(nil).CompileMOO(source)
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics)
 	}
@@ -87,7 +87,7 @@ func TestMOOCompilationContractCharacterizesEveryNodeFamily(t *testing.T) {
 }
 
 func TestMOOCompilationContractPreservesEmptyProgram(t *testing.T) {
-	compiled, diagnostics := compiler.CompileMOO([]string{}, stubRegistry{})
+	compiled, diagnostics := compiler.New(nil).CompileMOO([]string{})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO(empty) failed: %v", diagnostics)
 	}
@@ -100,9 +100,9 @@ func TestMOOCompilationContractPreservesEmptyProgram(t *testing.T) {
 }
 
 func TestMOOCompilationContractKeepsAdjacentFloatConstantsDistinct(t *testing.T) {
-	compiled, diagnostics := compiler.CompileMOO([]string{
+	compiled, diagnostics := compiler.New(nil).CompileMOO([]string{
 		"return {1.0, 1.0000000000000002};",
-	}, stubRegistry{})
+	})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO failed: %v", diagnostics)
 	}
@@ -128,10 +128,10 @@ func TestMOOCompilationContractKeepsAdjacentFloatConstantsDistinct(t *testing.T)
 }
 
 func TestMOOCompilationContractReportsParseLine(t *testing.T) {
-	_, diagnostics := compiler.CompileMOO([]string{
+	_, diagnostics := compiler.New(nil).CompileMOO([]string{
 		"value = 1;",
 		"value = ;",
-	}, stubRegistry{})
+	})
 	if len(diagnostics) != 1 {
 		t.Fatalf("diagnostics = %v, want exactly one", diagnostics)
 	}

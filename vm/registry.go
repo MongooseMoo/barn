@@ -5,7 +5,6 @@ import (
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -38,7 +37,7 @@ func BuildVMRegistry() *builtins.Registry {
 		}
 
 		code := joinLines(lines)
-		prog, diagnostics := compiler.CompileMOO(strings.Split(code, "\n"), registry)
+		prog, diagnostics := registry.Compiler().CompileMOO(strings.Split(code, "\n"))
 		if len(diagnostics) > 0 {
 			return types.Ok(types.NewList([]types.Value{
 				types.NewInt(0),

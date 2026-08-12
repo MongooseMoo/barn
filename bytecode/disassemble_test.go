@@ -9,7 +9,7 @@ import (
 )
 
 func TestDisassembleDecodesCompiledProgram(t *testing.T) {
-	program, diagnostics := compiler.CompileMOO([]string{"x = 1;", "return x;"}, stubRegistry{})
+	program, diagnostics := compiler.New(nil).CompileMOO([]string{"x = 1;", "return x;"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 	}
@@ -30,12 +30,12 @@ func TestDisassembleDecodesCompiledProgram(t *testing.T) {
 }
 
 func TestDisassembleUsesToastOperatorMnemonics(t *testing.T) {
-	program, diagnostics := compiler.CompileMOO([]string{
+	program, diagnostics := compiler.New(nil).CompileMOO([]string{
 		`"foobar"[^..$];`,
 		`~123;`,
 		`1 << 2;`,
 		`1 >> 2;`,
-	}, stubRegistry{})
+	})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 	}
@@ -49,14 +49,14 @@ func TestDisassembleUsesToastOperatorMnemonics(t *testing.T) {
 }
 
 func TestDisassembleDecodesEndFinallyHandlerOperands(t *testing.T) {
-	program, diagnostics := compiler.CompileMOO([]string{
+	program, diagnostics := compiler.New(nil).CompileMOO([]string{
 		"try",
 		"  x = 1;",
 		"finally",
 		"  x = 2;",
 		"endtry",
 		"return x;",
-	}, stubRegistry{})
+	})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 	}

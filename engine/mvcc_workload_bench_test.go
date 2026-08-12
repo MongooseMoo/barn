@@ -39,6 +39,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/config"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -241,7 +242,7 @@ func (r workloadResult) abortRate() float64 {
 // compileShapes precompiles all six command programs for one player. The
 // programs are immutable and reused across every task the player runs, so
 // compilation (MOO parsing) is kept OUT of the timed window.
-func compileShapes(t *testing.T, reg bytecode.Registry, fx *mongooseFixture, playerID types.ObjID) [shapeCount]*bytecode.Program {
+func compileShapes(t *testing.T, reg *builtins.Registry, fx *mongooseFixture, playerID types.ObjID) [shapeCount]*bytecode.Program {
 	t.Helper()
 	src := [shapeCount]string{
 		shLook:  fmt.Sprintf("loc = #%d.location; loc:look(); return 1;", playerID),

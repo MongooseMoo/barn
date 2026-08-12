@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/parser"
 	"github.com/MongooseMoo/barn/types"
@@ -786,11 +785,11 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 	// many DB-loaded verbs; accept that form when restoring saved verb code.
 	compileLines := lines
 	registry := ctx.Registry
-	_, diagnostics := compiler.CompileMOO(compileLines, registry)
+	_, diagnostics := registry.Compiler().CompileMOO(compileLines)
 	if len(diagnostics) > 0 {
 		if normalized := normalizeVerbSourceLines(lines); normalized != nil {
 			compileLines = normalized
-			_, diagnostics = compiler.CompileMOO(compileLines, registry)
+			_, diagnostics = registry.Compiler().CompileMOO(compileLines)
 		}
 	}
 	if len(diagnostics) > 0 {
@@ -964,7 +963,7 @@ func builtinDisassemble(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	registry := ctx.Registry
-	program, diagnostics := compiler.CompileMOOWithKey(verb.Code, verb.CodeKey, registry)
+	program, diagnostics := registry.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return types.Err(types.E_INVARG)
 	}

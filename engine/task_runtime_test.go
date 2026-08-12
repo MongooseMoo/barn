@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/MongooseMoo/barn/builtins"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -25,7 +24,7 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
 
-	program, diagnostics := compiler.CompileMOO([]string{"return 1;"}, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return 1;"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
@@ -56,7 +55,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	mgr := s.taskManager
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
-	program, diagnostics := compiler.CompileMOO([]string{"suspend(); return 42;"}, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"suspend(); return 42;"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile: %v", diagnostics)
 	}
@@ -120,7 +119,7 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 	})
 	s.registry.SetProcessStdin(builtins.NewProcessStdin(reader))
 
-	program, diagnostics := compiler.CompileMOO([]string{"return read_stdin();"}, s.registry)
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return read_stdin();"})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
@@ -167,7 +166,7 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	store := dbstore.NewStore()
 	s := NewRuntime(store)
 
-	program, diagnostics := compiler.CompileMOO([]string{
+	program, diagnostics := s.registry.Compiler().CompileMOO([]string{
 		"fork (0)",
 		"  suspend(0);",
 		"  fork (0)",
@@ -176,7 +175,7 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 		"  suspend(0);",
 		"endfork",
 		"return 1;",
-	}, s.registry)
+	})
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}

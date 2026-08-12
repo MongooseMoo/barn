@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
@@ -59,7 +58,7 @@ func staticNameBoundaryStore(t *testing.T) *dbstore.Store {
 
 func assertStaticNameEncoding(t *testing.T, source string, constantCount int, wantOpcode string) {
 	t.Helper()
-	program, diagnostics := compiler.CompileMOO([]string{source}, BuildVMRegistry())
+	program, diagnostics := BuildVMRegistry().Compiler().CompileMOO([]string{source})
 	if len(diagnostics) > 0 {
 		t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 	}
@@ -129,7 +128,7 @@ func TestDynamicPropertyAndVerbNamesRemainExecutable(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			program, diagnostics := compiler.CompileMOO([]string{tc.code}, BuildVMRegistry())
+			program, diagnostics := BuildVMRegistry().Compiler().CompileMOO([]string{tc.code})
 			if len(diagnostics) > 0 {
 				t.Fatalf("CompileMOO() diagnostics = %v", diagnostics)
 			}

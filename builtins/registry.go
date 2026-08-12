@@ -1,7 +1,10 @@
 package builtins
 
 import (
+	"sync"
+
 	"github.com/MongooseMoo/barn/bytecode"
+	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
@@ -63,6 +66,9 @@ type Registry struct {
 	// hostOf(ctx). See host.go.
 	host    Host
 	runtime *registryRuntime
+
+	compilerMu     sync.Mutex
+	sourceCompiler *compiler.Compiler
 }
 
 // NewRegistry creates a new builtin function registry
@@ -369,6 +375,9 @@ func NewRegistry() *Registry {
 
 // Register adds a builtin function to the registry
 func (r *Registry) Register(name string, fn BuiltinFunc) {
+	r.compilerMu.Lock()
+	defer r.compilerMu.Unlock()
+
 	invoke := fn
 	if builtinHasIrreversibleSideEffect(name) {
 		invoke = func(ctx *Execution, args []types.Value) types.Result {
@@ -405,6 +414,24 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	r.entries = append(r.entries, entry)
 	r.funcs[name] = stored
 	r.nameToID[name] = id
+	r.sourceCompiler = nil
+}
+
+// Compiler returns the source compiler for the registry's current builtin-ID
+// layout. Register invalidates it so a later compilation cannot reuse bytecode
+// produced before the layout changed.
+func (r *Registry) Compiler() *compiler.Compiler {
+	r.compilerMu.Lock()
+	defer r.compilerMu.Unlock()
+	if r.sourceCompiler != nil {
+		return r.sourceCompiler
+	}
+	builtinIDs := make(map[string]int, len(r.nameToID))
+	for name, id := range r.nameToID {
+		builtinIDs[name] = id
+	}
+	r.sourceCompiler = compiler.New(builtinIDs)
+	return r.sourceCompiler
 }
 
 // builtinHasIrreversibleSideEffect reports builtins whose real implementation

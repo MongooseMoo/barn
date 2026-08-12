@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MongooseMoo/barn/compiler"
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -338,7 +337,7 @@ func dumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 func evalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
 	registry := vm.BuildVMRegistry()
 	registry.SetTaskManager(task.NewManager())
-	prog, diagnostics := compiler.CompileMOO([]string{"return " + expr + ";"}, registry)
+	prog, diagnostics := registry.Compiler().CompileMOO([]string{"return " + expr + ";"})
 	if len(diagnostics) > 0 {
 		fmt.Fprintf(errOut, "Compile error: %s\n", diagnostics[0].Error())
 		return errors.New("inspection failed")
