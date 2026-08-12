@@ -24,27 +24,9 @@ import (
 
 // Runtime manages task and VM execution.
 type Runtime struct {
-	tasks       map[int64]*task.Task
-	taskManager *task.Manager
-	// executingTasks counts physical VM-execution leases by task ID. Counts, rather
-	// than a boolean set, remain truthful if the duplicate-dispatch defect tracked
-	// separately in #30 runs the same task twice. Logical task state may become
-	// suspended before runTask finishes mutating and publishing its VM. Every access
-	// is protected by mu.
-	executingTasks map[int64]int
-	// gcSweepMu serializes every anonymous/waif sweep. vmStartMu closes the
-	// root-snapshot gap by preventing a new VM execution lease from being
-	// published until the sweep and its recycle hooks are complete. The strict
-	// lock order is gcSweepMu -> vmStartMu -> mu -> task locks.
-	gcSweepMu sync.Mutex
-	vmStartMu sync.Mutex
-	// Context ownership is runtime-private provenance for every leased VM path.
-	// It lets nested verb calls inherit an existing execution lease or sweep
-	// barrier instead of acquiring vmStartMu recursively (which would deadlock
-	// during recycle hooks).
-	executionOwnedContexts  map[*kernel.TaskContext]map[int64]int
-	sweepOwnedContexts      map[*kernel.TaskContext]int
-	executionStartObserver  func() // test-only observation before vmStartMu acquisition
+	tasks                   map[int64]*task.Task
+	taskManager             *task.Manager
+	lifecycle               lifecycleCoordinator
 	waiting                 *TaskQueue
 	nextTaskID              int64
 	queueSeq                int64
@@ -61,22 +43,6 @@ type Runtime struct {
 	mu                      sync.Mutex
 	ctx                     context.Context
 	cancel                  context.CancelFunc
-
-	// Deferred GC: task completion/suspend enqueue their pending waifs and
-	// orphan-anonymous collection requests here instead of paying a full-db
-	// sweep per task; flushDeferredGC settles both batches on an interval.
-	pendingWaifMu               sync.Mutex
-	shutdownRequested           bool
-	shutdownPublishing          bool
-	shutdownPublished           bool
-	shutdownReady               chan struct{}
-	activeFinalizationProducers int
-	gcRunning                   bool
-	pendingShutdownRoots        []types.Value
-	pendingWaifBatch            []pendingWaifEntry
-	pendingAnonGC               []vm.AnonGCRequest
-	lastGCSweep                 time.Time
-	lastGCCost                  time.Duration
 }
 
 const ambiguousExecutionOwnerID int64 = -1 << 63
@@ -111,21 +77,18 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 	registry.SetTaskManager(manager)
 
 	s := &Runtime{
-		tasks:                  make(map[int64]*task.Task),
-		taskManager:            manager,
-		executingTasks:         make(map[int64]int),
-		executionOwnedContexts: make(map[*kernel.TaskContext]map[int64]int),
-		sweepOwnedContexts:     make(map[*kernel.TaskContext]int),
-		waiting:                NewTaskQueue(),
-		nextTaskID:             1,
-		registry:               registry,
-		store:                  store,
-		options:                options,
-		taskWork:               make(chan taskWorkItem),
-		workerCount:            workerCount,
-		ctx:                    ctx,
-		cancel:                 cancel,
-		shutdownReady:          make(chan struct{}),
+		tasks:       make(map[int64]*task.Task),
+		taskManager: manager,
+		lifecycle:   newLifecycleCoordinator(),
+		waiting:     NewTaskQueue(),
+		nextTaskID:  1,
+		registry:    registry,
+		store:       store,
+		options:     options,
+		taskWork:    make(chan taskWorkItem),
+		workerCount: workerCount,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
@@ -162,12 +125,12 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		ctx := execution.TaskContext
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
-		if !s.gcSweepMu.TryLock() {
+		if !s.lifecycle.sweepMu.TryLock() {
 			return nil
 		}
-		defer s.gcSweepMu.Unlock()
-		s.vmStartMu.Lock()
-		defer s.vmStartMu.Unlock()
+		defer s.lifecycle.sweepMu.Unlock()
+		s.lifecycle.vmStartMu.Lock()
+		defer s.lifecycle.vmStartMu.Unlock()
 
 		current := execution.Task
 		if ownerID, claimed, attributable := s.executionContextClaim(ctx); claimed && !attributable {
@@ -248,24 +211,24 @@ func (s *Runtime) LiveTaskCount() int64 {
 }
 
 func (s *Runtime) acquireTaskExecution(t *task.Task) {
-	if s.executionStartObserver != nil {
-		s.executionStartObserver()
+	if s.lifecycle.executionStartObserver != nil {
+		s.lifecycle.executionStartObserver()
 	}
-	s.vmStartMu.Lock()
-	defer s.vmStartMu.Unlock()
+	s.lifecycle.vmStartMu.Lock()
+	defer s.lifecycle.vmStartMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.executingTasks[t.ID]++
+	s.lifecycle.executingTasks[t.ID]++
 	t.SetState(task.TaskRunning)
 }
 
 func (s *Runtime) releaseTaskExecution(taskID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if count := s.executingTasks[taskID]; count > 1 {
-		s.executingTasks[taskID] = count - 1
+	if count := s.lifecycle.executingTasks[taskID]; count > 1 {
+		s.lifecycle.executingTasks[taskID] = count - 1
 	} else {
-		delete(s.executingTasks, taskID)
+		delete(s.lifecycle.executingTasks, taskID)
 	}
 }
 
@@ -275,7 +238,7 @@ func (s *Runtime) releaseTaskExecution(taskID int64) {
 // the outer and inner VMs both hold roots for the same task.
 func (s *Runtime) acquireInheritedTaskExecution(taskID int64) {
 	s.mu.Lock()
-	s.executingTasks[taskID]++
+	s.lifecycle.executingTasks[taskID]++
 	s.mu.Unlock()
 }
 
@@ -284,10 +247,10 @@ func (s *Runtime) acquireExecutionContext(ctx *kernel.TaskContext, taskID int64)
 		return
 	}
 	s.mu.Lock()
-	owners := s.executionOwnedContexts[ctx]
+	owners := s.lifecycle.executionContexts[ctx]
 	if owners == nil {
 		owners = make(map[int64]int)
-		s.executionOwnedContexts[ctx] = owners
+		s.lifecycle.executionContexts[ctx] = owners
 	}
 	owners[taskID]++
 	s.mu.Unlock()
@@ -298,13 +261,13 @@ func (s *Runtime) releaseExecutionContext(ctx *kernel.TaskContext, taskID int64)
 		return
 	}
 	s.mu.Lock()
-	owners := s.executionOwnedContexts[ctx]
+	owners := s.lifecycle.executionContexts[ctx]
 	if count := owners[taskID]; count > 1 {
 		owners[taskID] = count - 1
 	} else if count == 1 {
 		delete(owners, taskID)
 		if len(owners) == 0 {
-			delete(s.executionOwnedContexts, ctx)
+			delete(s.lifecycle.executionContexts, ctx)
 		}
 	}
 	s.mu.Unlock()
@@ -325,7 +288,7 @@ func (s *Runtime) executionContextClaim(ctx *kernel.TaskContext) (ownerID int64,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	owners := s.executionOwnedContexts[ctx]
+	owners := s.lifecycle.executionContexts[ctx]
 	if len(owners) == 0 {
 		return 0, false, false
 	}
@@ -343,7 +306,7 @@ func (s *Runtime) acquireSweepContext(ctx *kernel.TaskContext) {
 		return
 	}
 	s.mu.Lock()
-	s.sweepOwnedContexts[ctx]++
+	s.lifecycle.sweepContexts[ctx]++
 	s.mu.Unlock()
 }
 
@@ -352,10 +315,10 @@ func (s *Runtime) releaseSweepContext(ctx *kernel.TaskContext) {
 		return
 	}
 	s.mu.Lock()
-	if count := s.sweepOwnedContexts[ctx]; count > 1 {
-		s.sweepOwnedContexts[ctx] = count - 1
+	if count := s.lifecycle.sweepContexts[ctx]; count > 1 {
+		s.lifecycle.sweepContexts[ctx] = count - 1
 	} else {
-		delete(s.sweepOwnedContexts, ctx)
+		delete(s.lifecycle.sweepContexts, ctx)
 	}
 	s.mu.Unlock()
 }
@@ -365,7 +328,7 @@ func (s *Runtime) isSweepOwnedContext(ctx *kernel.TaskContext) bool {
 		return false
 	}
 	s.mu.Lock()
-	owned := s.sweepOwnedContexts[ctx] > 0
+	owned := s.lifecycle.sweepContexts[ctx] > 0
 	s.mu.Unlock()
 	return owned
 }
@@ -404,20 +367,20 @@ func (s *Runtime) BeginShutdown(exec *vm.VM) <-chan struct{} {
 // supplied by the active execution, without exposing its concrete VM to the
 // server lifecycle layer.
 func (s *Runtime) BeginShutdownWithRoots(callerRoots []types.Value) <-chan struct{} {
-	s.pendingWaifMu.Lock()
-	ready := s.shutdownReady
-	if s.shutdownPublished {
-		s.pendingWaifMu.Unlock()
+	s.lifecycle.mu.Lock()
+	ready := s.lifecycle.shutdownReady
+	if s.lifecycle.shutdownPublished {
+		s.lifecycle.mu.Unlock()
 		s.appendPendingFinalizations(callerRoots)
 		return ready
 	}
-	s.pendingShutdownRoots = append(s.pendingShutdownRoots, callerRoots...)
-	s.shutdownRequested = true
+	s.lifecycle.pendingShutdownRoots = append(s.lifecycle.pendingShutdownRoots, callerRoots...)
+	s.lifecycle.shutdownRequested = true
 	publish := s.canPublishShutdownLocked()
 	if publish {
-		s.shutdownPublishing = true
+		s.lifecycle.shutdownPublishing = true
 	}
-	s.pendingWaifMu.Unlock()
+	s.lifecycle.mu.Unlock()
 	if publish {
 		s.publishShutdown()
 	}
@@ -425,61 +388,61 @@ func (s *Runtime) BeginShutdownWithRoots(callerRoots []types.Value) <-chan struc
 }
 
 func (s *Runtime) beginFinalizationProducer() {
-	s.pendingWaifMu.Lock()
-	s.activeFinalizationProducers++
-	s.pendingWaifMu.Unlock()
+	s.lifecycle.mu.Lock()
+	s.lifecycle.activeFinalizationProducers++
+	s.lifecycle.mu.Unlock()
 }
 
 func (s *Runtime) finishFinalizationProducer() {
-	s.pendingWaifMu.Lock()
-	if s.activeFinalizationProducers <= 0 {
-		s.pendingWaifMu.Unlock()
+	s.lifecycle.mu.Lock()
+	if s.lifecycle.activeFinalizationProducers <= 0 {
+		s.lifecycle.mu.Unlock()
 		panic("engine finalization producer underflow")
 	}
-	s.activeFinalizationProducers--
+	s.lifecycle.activeFinalizationProducers--
 	publish := s.canPublishShutdownLocked()
 	if publish {
-		s.shutdownPublishing = true
+		s.lifecycle.shutdownPublishing = true
 	}
-	s.pendingWaifMu.Unlock()
+	s.lifecycle.mu.Unlock()
 	if publish {
 		s.publishShutdown()
 	}
 }
 
 func (s *Runtime) canPublishShutdownLocked() bool {
-	return s.shutdownRequested && !s.shutdownPublishing && !s.shutdownPublished &&
-		!s.gcRunning && s.activeFinalizationProducers == 0
+	return s.lifecycle.shutdownRequested && !s.lifecycle.shutdownPublishing && !s.lifecycle.shutdownPublished &&
+		!s.lifecycle.gcRunning && s.lifecycle.activeFinalizationProducers == 0
 }
 
 func (s *Runtime) publishShutdown() {
 	for {
-		s.pendingWaifMu.Lock()
-		if s.gcRunning || s.activeFinalizationProducers != 0 {
-			s.shutdownPublishing = false
-			s.pendingWaifMu.Unlock()
+		s.lifecycle.mu.Lock()
+		if s.lifecycle.gcRunning || s.lifecycle.activeFinalizationProducers != 0 {
+			s.lifecycle.shutdownPublishing = false
+			s.lifecycle.mu.Unlock()
 			return
 		}
 		pending := s.takeDeferredFinalizationRootsLocked()
-		pending = append(pending, s.pendingShutdownRoots...)
-		s.pendingShutdownRoots = nil
-		s.pendingWaifMu.Unlock()
+		pending = append(pending, s.lifecycle.pendingShutdownRoots...)
+		s.lifecycle.pendingShutdownRoots = nil
+		s.lifecycle.mu.Unlock()
 		s.appendPendingFinalizations(pending)
 
-		s.pendingWaifMu.Lock()
-		if len(s.pendingShutdownRoots) != 0 || len(s.pendingWaifBatch) != 0 || len(s.pendingAnonGC) != 0 {
-			s.pendingWaifMu.Unlock()
+		s.lifecycle.mu.Lock()
+		if len(s.lifecycle.pendingShutdownRoots) != 0 || len(s.lifecycle.pendingWaifs) != 0 || len(s.lifecycle.pendingAnonGC) != 0 {
+			s.lifecycle.mu.Unlock()
 			continue
 		}
-		if s.gcRunning || s.activeFinalizationProducers != 0 {
-			s.shutdownPublishing = false
-			s.pendingWaifMu.Unlock()
+		if s.lifecycle.gcRunning || s.lifecycle.activeFinalizationProducers != 0 {
+			s.lifecycle.shutdownPublishing = false
+			s.lifecycle.mu.Unlock()
 			return
 		}
-		s.shutdownPublished = true
-		s.shutdownPublishing = false
-		close(s.shutdownReady)
-		s.pendingWaifMu.Unlock()
+		s.lifecycle.shutdownPublished = true
+		s.lifecycle.shutdownPublishing = false
+		close(s.lifecycle.shutdownReady)
+		s.lifecycle.mu.Unlock()
 		return
 	}
 }
@@ -493,9 +456,9 @@ func (s *Runtime) appendPendingFinalizations(values []types.Value) {
 // ShutdownRequested distinguishes lifecycle publication from generic runtime
 // cancellation; only an explicit lifecycle request transfers task roots.
 func (s *Runtime) ShutdownRequested() bool {
-	s.pendingWaifMu.Lock()
-	defer s.pendingWaifMu.Unlock()
-	return s.shutdownRequested
+	s.lifecycle.mu.Lock()
+	defer s.lifecycle.mu.Unlock()
+	return s.lifecycle.shutdownRequested
 }
 
 func (s *Runtime) SetPendingFinalizationSink(sink func([]types.Value)) {
@@ -729,7 +692,7 @@ func (s *Runtime) YieldReadyTasks() int {
 func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRefs []types.Value, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.executingTasks) != 0 {
+	if len(s.lifecycle.executingTasks) != 0 {
 		return nil, nil, false
 	}
 	anonRefs = make(map[types.ObjID]struct{})
@@ -759,7 +722,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 func (s *Runtime) collectExplicitGlobalGCSiblingRefs(exclude *task.Task) (anonRefs map[types.ObjID]struct{}, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, count := range s.executingTasks {
+	for id, count := range s.lifecycle.executingTasks {
 		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
 			return nil, false
 		}
@@ -798,7 +761,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for id, count := range s.executingTasks {
+	for id, count := range s.lifecycle.executingTasks {
 		if count > 0 && (exclude == nil || id != exclude.ID || count != 1) {
 			return nil, nil, false
 		}
