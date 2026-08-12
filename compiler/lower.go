@@ -1165,24 +1165,34 @@ func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	return err
 }
 
-// compileNestedRangeAssign compiles one-level nested range assignment:
+// compileNestedRangeAssign compiles a nested range assignment:
 //
-//	outer[idx][start..end] = value
+//	outer[i][j]...[start..end] = value
 //
-// by desugaring through temporary variables and existing INDEX/RANGE_SET opcodes.
+// by desugaring through temporary variables and existing INDEX/RANGE_SET opcodes,
+// then rebuilding every parent collection back to the root.
 func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start, end verb.Expr) error {
-	// For now, support one nested index level (x[i][a..b]); deeper forms can be added later.
-	if _, deeper := indexTarget.Collection.(*verb.IndexTarget); deeper {
-		return fmt.Errorf("range assignment target nesting depth > 1 is not supported")
+	var indices []verb.Expr
+	var baseTarget verb.CollectionTarget = indexTarget
+	for {
+		indexed, ok := baseTarget.(*verb.IndexTarget)
+		if !ok {
+			break
+		}
+		indices = append(indices, indexed.Index)
+		baseTarget = indexed.Collection
+	}
+	for left, right := 0, len(indices)-1; left < right; left, right = left+1, right-1 {
+		indices[left], indices[right] = indices[right], indices[left]
 	}
 
 	var baseVarIdx int
 	var basePropTarget *verb.PropertyTarget
 
 	// If the base is a property, load it into a temp base variable.
-	if baseIdent, ok := indexTarget.Collection.(*verb.VariableTarget); ok {
+	if baseIdent, ok := baseTarget.(*verb.VariableTarget); ok {
 		baseVarIdx = c.declareVariable(baseIdent.Name)
-	} else if property, ok := indexTarget.Collection.(*verb.PropertyTarget); ok {
+	} else if property, ok := baseTarget.(*verb.PropertyTarget); ok {
 		basePropTarget = property
 
 		// Stack currently: [value, value_copy]
@@ -1224,38 +1234,48 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	c.emitByte(byte(tmpAssignedVal))
 	// Stack: [value]
 
-	// Resolve outer index once and store it.
-	oldContextVar := c.indexContextVar
-	oldBoundaryContext := c.indexBoundaryContext
-	if containsIndexBoundary(indexTarget.Index) {
-		tempIdx := c.declareInternalVariable(c.tempVar("nestedrangectx"))
-		c.emit(bytecode.OP_GET_VAR)
-		c.emitByte(byte(baseVarIdx))
+	// Resolve every index once, from the root toward the range target.
+	tmpIndices := make([]int, len(indices))
+	for k, index := range indices {
+		oldContextVar := c.indexContextVar
+		oldBoundaryContext := c.indexBoundaryContext
+		if containsIndexBoundary(index) {
+			tempIdx := c.declareInternalVariable(c.tempVar("nestedrangectx"))
+			c.emit(bytecode.OP_GET_VAR)
+			c.emitByte(byte(baseVarIdx))
+			c.emit(bytecode.OP_SET_VAR)
+			c.emitByte(byte(tempIdx))
+			c.indexContextVar = tempIdx
+			c.indexBoundaryContext = indexBoundaryIndex
+		}
+		if err := c.compileNode(index); err != nil {
+			return err
+		}
+		c.indexContextVar = oldContextVar
+		c.indexBoundaryContext = oldBoundaryContext
+		tmpIndices[k] = c.declareInternalVariable(fmt.Sprintf("__nested_range_index_%d", k))
 		c.emit(bytecode.OP_SET_VAR)
-		c.emitByte(byte(tempIdx))
-		c.indexContextVar = tempIdx
-		c.indexBoundaryContext = indexBoundaryIndex
+		c.emitByte(byte(tmpIndices[k]))
 	}
-	if err := c.compileNode(indexTarget.Index); err != nil {
-		return err
+
+	// Traverse to the collection whose range is being replaced.
+	tmpCollections := make([]int, len(indices))
+	for k := range indices {
+		if k == 0 {
+			c.emit(bytecode.OP_GET_VAR)
+			c.emitByte(byte(baseVarIdx))
+		} else {
+			c.emit(bytecode.OP_GET_VAR)
+			c.emitByte(byte(tmpCollections[k-1]))
+		}
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(tmpIndices[k]))
+		c.emit(bytecode.OP_INDEX)
+		tmpCollections[k] = c.declareInternalVariable(fmt.Sprintf("__nested_range_collection_%d", k))
+		c.emit(bytecode.OP_SET_VAR)
+		c.emitByte(byte(tmpCollections[k]))
 	}
-	c.indexContextVar = oldContextVar
-	c.indexBoundaryContext = oldBoundaryContext
-
-	tmpOuterIndex := c.declareInternalVariable("__nested_range_index")
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(tmpOuterIndex))
-	// Stack: [value]
-
-	// Load outer[idx] into a temp inner collection.
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(baseVarIdx))
-	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(tmpOuterIndex))
-	c.emit(bytecode.OP_INDEX)
-	tmpInnerVar := c.declareInternalVariable("__nested_range_inner")
-	c.emit(bytecode.OP_SET_VAR)
-	c.emitByte(byte(tmpInnerVar))
+	tmpInnerVar := tmpCollections[len(tmpCollections)-1]
 	// Stack: [value]
 
 	// Perform inner range assignment.
@@ -1271,11 +1291,19 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	c.emitByte(byte(tmpInnerVar))
 	// Stack: [value]
 
-	// Write modified inner collection back to outer[idx].
+	// Rebuild modified collections from the deepest parent back to the root.
+	for k := len(indices) - 1; k >= 1; k-- {
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(tmpCollections[k]))
+		c.emit(bytecode.OP_GET_VAR)
+		c.emitByte(byte(tmpIndices[k]))
+		c.emit(bytecode.OP_INDEX_SET)
+		c.emitByte(byte(tmpCollections[k-1]))
+	}
 	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(tmpInnerVar))
+	c.emitByte(byte(tmpCollections[0]))
 	c.emit(bytecode.OP_GET_VAR)
-	c.emitByte(byte(tmpOuterIndex))
+	c.emitByte(byte(tmpIndices[0]))
 	c.emit(bytecode.OP_INDEX_SET)
 	c.emitByte(byte(baseVarIdx))
 	// Stack: [value]
