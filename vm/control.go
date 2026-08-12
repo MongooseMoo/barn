@@ -11,7 +11,8 @@ import (
 // executeFork handles OP_FORK: evaluate delay, then yield to the execution engine.
 //
 // Bytecode format: OP_FORK <varIdx:byte> <bodyLen:short> (legacy) or
-// OP_FORK_WIDE <varIdx:byte> <bodyLen:uint32> (new compilation).
+// OP_FORK_WIDE <varIdx:byte> <bodyLen:uint32> or
+// OP_FORK_LOCAL_WIDE <varIdx:uint16> <bodyLen:uint32> (new compilation).
 // Stack: [delay] (delay value on top)
 //
 // Yields a FlowFork result with ForkInfo containing the fork body location,
@@ -22,8 +23,13 @@ import (
 //
 // The fork variable is NOT set here — it is set by SetForkResult() with the
 // actual child task ID assigned by the execution engine.
-func (vm *VM) executeFork(wide bool) error {
-	varIdx := int(vm.FetchByte())
+func (vm *VM) executeFork(wide, wideLocal bool) error {
+	var varIdx int
+	if wideLocal {
+		varIdx = int(vm.ReadShort())
+	} else {
+		varIdx = int(vm.FetchByte())
+	}
 	bodyLen := vm.readControlFlowOperand(wide)
 
 	// Pop and validate the delay value
@@ -172,7 +178,7 @@ func oneLineForkBody(source string) string {
 }
 
 // executeTryExcept handles OP_TRY_EXCEPT: push exception handlers onto ExceptStack
-func (vm *VM) executeTryExcept(wide bool) error {
+func (vm *VM) executeTryExcept(wide, wideLocal bool) error {
 	frame := vm.CurrentFrame()
 	numClauses := int(vm.FetchByte())
 	handlers := make([]bytecode.Handler, numClauses)
@@ -184,8 +190,13 @@ func (vm *VM) executeTryExcept(wide bool) error {
 			codes[j] = types.ErrorCode(vm.FetchByte())
 		}
 
-		varByte := vm.FetchByte()
-		varIndex := int(varByte) - 1 // 0 = no variable -> -1
+		var varOperand int
+		if wideLocal {
+			varOperand = int(vm.ReadShort())
+		} else {
+			varOperand = int(vm.FetchByte())
+		}
+		varIndex := varOperand - 1 // 0 = no variable -> -1
 
 		// Read handler IP (absolute).
 		handlerIP := vm.readControlFlowOperand(wide)
