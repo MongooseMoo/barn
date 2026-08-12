@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/MongooseMoo/barn/types"
 )
@@ -40,15 +39,6 @@ func (h *mooFileHandle) canWrite() bool {
 		return true // read-write mode
 	}
 	return h.mode[0] == 'w' || h.mode[0] == 'a'
-}
-
-var fileState = struct {
-	mu      sync.Mutex
-	nextID  int64
-	handles map[int64]*mooFileHandle
-}{
-	nextID:  1,
-	handles: make(map[int64]*mooFileHandle),
 }
 
 func resolveFilePath(rel string) string {
@@ -153,13 +143,13 @@ func parseFileOpenMode(mode string) (int, bool, error) {
 	return flags, binary, nil
 }
 
-func getFileHandle(v types.Value) (*mooFileHandle, types.ErrorCode) {
+func getFileHandle(ctx *Execution, v types.Value) (*mooFileHandle, types.ErrorCode) {
 	if v.Type() != types.TYPE_INT {
 		return nil, types.E_TYPE
 	}
-	fileState.mu.Lock()
-	defer fileState.mu.Unlock()
-	handle := fileState.handles[v.Int()]
+	ctx.Registry.runtime.files.Lock()
+	defer ctx.Registry.runtime.files.Unlock()
+	handle := ctx.Registry.runtime.files.handles[v.Int()]
 	if handle == nil {
 		return nil, types.E_INVARG
 	}
@@ -223,11 +213,11 @@ func builtinFileOpen(ctx *Execution, args []types.Value) types.Result {
 	if err != nil {
 		return types.Err(types.E_FILE)
 	}
-	fileState.mu.Lock()
-	id := fileState.nextID
-	fileState.nextID++
-	fileState.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Str(), binary: binary}
-	fileState.mu.Unlock()
+	ctx.Registry.runtime.files.Lock()
+	id := ctx.Registry.runtime.files.nextID
+	ctx.Registry.runtime.files.nextID++
+	ctx.Registry.runtime.files.handles[id] = &mooFileHandle{id: id, file: f, name: path, mode: mode.Str(), binary: binary}
+	ctx.Registry.runtime.files.Unlock()
 	return types.Ok(types.NewInt(id))
 }
 
@@ -238,14 +228,14 @@ func builtinFileClose(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
 	_ = h.file.Close()
-	fileState.mu.Lock()
-	delete(fileState.handles, h.id)
-	fileState.mu.Unlock()
+	ctx.Registry.runtime.files.Lock()
+	delete(ctx.Registry.runtime.files.handles, h.id)
+	ctx.Registry.runtime.files.Unlock()
 	return types.Ok(types.NewInt(0))
 }
 
@@ -256,7 +246,7 @@ func builtinFileName(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -270,7 +260,7 @@ func builtinFileOpenmode(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -284,7 +274,7 @@ func builtinFileRead(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -341,7 +331,7 @@ func builtinFileReadline(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -382,7 +372,7 @@ func builtinFileReadlines(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -441,7 +431,7 @@ func builtinFileWrite(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -476,7 +466,7 @@ func builtinFileWriteline(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -510,7 +500,7 @@ func builtinFileFlush(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -552,7 +542,7 @@ func builtinFileSeek(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -582,7 +572,7 @@ func builtinFileTell(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -600,7 +590,7 @@ func builtinFileEOF(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -618,10 +608,10 @@ func builtinFileEOF(ctx *Execution, args []types.Value) types.Result {
 	return types.Ok(types.NewInt(0))
 }
 
-func fileStatFromValue(v types.Value) (os.FileInfo, types.ErrorCode) {
+func fileStatFromValue(ctx *Execution, v types.Value) (os.FileInfo, types.ErrorCode) {
 	switch v.Type() {
 	case types.TYPE_INT:
-		h, code := getFileHandle(v)
+		h, code := getFileHandle(ctx, v)
 		if code != types.E_NONE {
 			return nil, code
 		}
@@ -652,7 +642,7 @@ func builtinFileSize(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	st, code := fileStatFromValue(args[0])
+	st, code := fileStatFromValue(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -666,7 +656,7 @@ func builtinFileMode(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	st, code := fileStatFromValue(args[0])
+	st, code := fileStatFromValue(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -680,7 +670,7 @@ func builtinFileLastModify(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	st, code := fileStatFromValue(args[0])
+	st, code := fileStatFromValue(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -708,7 +698,7 @@ func builtinFileStat(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	st, code := fileStatFromValue(args[0])
+	st, code := fileStatFromValue(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -732,7 +722,7 @@ func builtinFileType(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	st, code := fileStatFromValue(args[0])
+	st, code := fileStatFromValue(ctx, args[0])
 	if code == types.E_FILE {
 		return types.Ok(types.NewInt(0))
 	}
@@ -928,12 +918,12 @@ func builtinFileHandles(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	fileState.mu.Lock()
-	ids := make([]int64, 0, len(fileState.handles))
-	for id := range fileState.handles {
+	ctx.Registry.runtime.files.Lock()
+	ids := make([]int64, 0, len(ctx.Registry.runtime.files.handles))
+	for id := range ctx.Registry.runtime.files.handles {
 		ids = append(ids, id)
 	}
-	fileState.mu.Unlock()
+	ctx.Registry.runtime.files.Unlock()
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	out := make([]types.Value, 0, len(ids))
 	for _, id := range ids {
@@ -949,7 +939,7 @@ func builtinFileCountLines(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
@@ -977,7 +967,7 @@ func builtinFileGrep(ctx *Execution, args []types.Value) types.Result {
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
-	h, code := getFileHandle(args[0])
+	h, code := getFileHandle(ctx, args[0])
 	if code != types.E_NONE {
 		return types.Err(code)
 	}
