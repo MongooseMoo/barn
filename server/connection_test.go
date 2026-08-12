@@ -1,7 +1,9 @@
 package server
 
 import (
+	"errors"
 	"io"
+	"reflect"
 	"testing"
 
 	"github.com/MongooseMoo/barn/types"
@@ -13,6 +15,48 @@ func (stubTransport) ReadLine() (string, error) { return "", io.EOF }
 func (stubTransport) WriteLine(string) error    { return nil }
 func (stubTransport) Close() error              { return nil }
 func (stubTransport) RemoteAddr() string        { return "127.0.0.1:7777" }
+
+type failOnceTransport struct {
+	failAt int
+	writes []string
+}
+
+func (t *failOnceTransport) ReadLine() (string, error) { return "", io.EOF }
+func (t *failOnceTransport) WriteLine(line string) error {
+	t.writes = append(t.writes, line)
+	if len(t.writes) == t.failAt {
+		return errors.New("transient write failure")
+	}
+	return nil
+}
+func (t *failOnceTransport) Close() error       { return nil }
+func (t *failOnceTransport) RemoteAddr() string { return "127.0.0.1:7777" }
+
+func TestFlushResumesAfterPartialWriteFailure(t *testing.T) {
+	transport := &failOnceTransport{failAt: 3}
+	conn := NewConnection(1, transport)
+	for _, line := range []string{"one", "two", "three", "four"} {
+		conn.Buffer(line)
+	}
+
+	if err := conn.Flush(); err == nil {
+		t.Fatal("first Flush() error = nil, want transient write failure")
+	}
+	if got := conn.BufferedOutputLength(); got != 2 {
+		t.Fatalf("buffered lines after failed Flush() = %d, want 2", got)
+	}
+
+	if err := conn.Flush(); err != nil {
+		t.Fatalf("second Flush(): %v", err)
+	}
+	if got := conn.BufferedOutputLength(); got != 0 {
+		t.Fatalf("buffered lines after successful retry = %d, want 0", got)
+	}
+	wantWrites := []string{"one", "two", "three", "three", "four"}
+	if !reflect.DeepEqual(transport.writes, wantWrites) {
+		t.Fatalf("WriteLine() calls = %q, want %q", transport.writes, wantWrites)
+	}
+}
 
 func TestSwitchPlayerDisconnectRestoresPreviousConnection(t *testing.T) {
 	cm := NewConnectionManager(7777)
