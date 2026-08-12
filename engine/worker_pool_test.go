@@ -825,26 +825,10 @@ return 42;
 }
 
 func removeTasksForOwner(s *Runtime, owner types.ObjID) {
-	var ids []int64
-	s.mu.Lock()
 	for _, task := range s.taskManager.Snapshot() {
-		id := task.ID
 		if task != nil && task.Owner == owner {
 			task.Kill()
-			ids = append(ids, id)
-			s.taskManager.RemoveTask(id)
+			s.taskManager.RemoveTaskIf(task.ID, task)
 		}
-	}
-	s.mu.Unlock()
-
-	mgr := s.taskManager
-	for _, task := range mgr.GetAllTasks() {
-		if task != nil && task.Owner == owner {
-			task.Kill()
-			ids = append(ids, task.ID)
-		}
-	}
-	for _, id := range ids {
-		mgr.RemoveTask(id)
 	}
 }
