@@ -35,7 +35,7 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	t.SetState(task.TaskQueued)
 	s.tasks[t.ID] = t
 	s.queueSeq++
-	t.QueueSeq = s.queueSeq
+	t.SetQueueSeq(s.queueSeq)
 	heap.Push(s.waiting, t)
 
 	// Register with this runtime's task manager so builtins can find it.

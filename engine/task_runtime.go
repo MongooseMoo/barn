@@ -85,8 +85,8 @@ func (s *Runtime) runTask(t *task.Task) (retErr error) {
 
 	retryState := captureTaskRetryState(t)
 	defer func() {
-		if t.Context != nil && t.Context.StoreTxn != nil {
-			t.Context.StoreTxn.Release()
+		if ctx := t.ContextValue(); ctx != nil && ctx.StoreTxn != nil {
+			ctx.StoreTxn.Release()
 		}
 	}()
 	attempt := 0
@@ -115,7 +115,7 @@ retryAttempt:
 		s.mu.Unlock()
 	}
 
-	ctx := t.Context
+	ctx := t.ContextValue()
 	if ctx == nil {
 		t.SetState(task.TaskKilled)
 		return errors.New("task has no context")
@@ -155,11 +155,7 @@ retryAttempt:
 	// and the hard deadline reflect a fresh background slice.
 	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); ok && savedVM.IsYielded() {
 		bgTicks, bgSeconds := backgroundTaskLimits(s.registry)
-		t.TicksLimit = bgTicks
-		t.TicksUsed = 0
-		t.SecondsLimit = bgSeconds
-		t.SecondsUsed = 0
-		t.StartTime = time.Now()
+		t.ResetExecutionBudget(bgTicks, bgSeconds, time.Now())
 		savedVM.TickLimit = bgTicks
 		savedVM.Ticks = 0
 	}
@@ -173,13 +169,13 @@ retryAttempt:
 	// t.StartTime itself is left untouched since it's spec-visible via
 	// queued_tasks() and used for scheduling order
 	// (engine/task_queue.go's readyTime()).
-	budgetAnchor := t.StartTime
+	budgetAnchor, secondsLimit := t.ExecutionBudget()
 	if now := time.Now(); budgetAnchor.Before(now) {
 		budgetAnchor = now
 	}
-	deadline := budgetAnchor.Add(time.Duration(t.SecondsLimit * float64(time.Second)))
+	deadline := budgetAnchor.Add(time.Duration(secondsLimit * float64(time.Second)))
 	taskCtx, cancel := context.WithDeadline(s.ctx, deadline)
-	t.CancelFunc = cancel
+	t.SetCancelFunc(cancel)
 	defer cancel()
 
 	var result types.Result
@@ -446,11 +442,8 @@ retryAttempt:
 			// when it yielded — otherwise it sorts by its original StartTime and
 			// unfairly preempts tasks (e.g. a just-forked task) that became ready
 			// while it was running.
-			if t.WakeTime.IsZero() {
-				t.WakeTime = time.Now()
-			}
 			s.queueSeq++
-			t.QueueSeq = s.queueSeq
+			t.PrepareYieldRequeue(s.queueSeq, time.Now())
 			heap.Push(s.waiting, t)
 		}
 		s.mu.Unlock()
@@ -557,9 +550,7 @@ retryAttempt:
 			}
 		}
 		// Clean up call stack after traceback has been sent
-		for len(t.CallStack) > 0 {
-			t.PopFrame()
-		}
+		t.ClearCallStack()
 	} else {
 		t.SetState(task.TaskCompleted)
 	}
@@ -626,14 +617,15 @@ func captureTaskRetryState(t *task.Task) taskRetryState {
 	if t == nil {
 		return taskRetryState{}
 	}
+	ctx, stack, local, wake, ticks, seconds := t.RetryStateSnapshot()
 	state := taskRetryState{
 		canRetry:     taskIsConflictRetryable(t),
-		context:      cloneTaskContextForRetry(t.Context),
-		callStack:    cloneActivationFramesForRetry(t.CallStack),
-		taskLocal:    t.TaskLocal,
-		wakeValue:    t.WakeValue,
-		ticksLimit:   t.TicksLimit,
-		secondsLimit: t.SecondsLimit,
+		context:      cloneTaskContextForRetry(ctx),
+		callStack:    cloneActivationFramesForRetry(stack),
+		taskLocal:    local,
+		wakeValue:    wake,
+		ticksLimit:   ticks,
+		secondsLimit: seconds,
 	}
 	return state
 }
@@ -643,20 +635,11 @@ func (state taskRetryState) restore(t *task.Task) {
 		return
 	}
 	t.SetBytecodeVM(nil)
-	t.Result = types.Result{}
-	t.CallStack = cloneActivationFramesForRetry(state.callStack)
-	t.TaskLocal = state.taskLocal
-	t.WakeValue = state.wakeValue
-	t.CreatedForks = nil
-	t.TicksLimit = state.ticksLimit
-	t.TicksUsed = 0
-	t.SecondsLimit = state.secondsLimit
-	t.SecondsUsed = 0
-	t.StartTime = time.Now()
-	t.Context = cloneTaskContextForRetry(state.context)
-	if t.Context != nil {
-		t.Context.TaskID = t.ID
+	ctx := cloneTaskContextForRetry(state.context)
+	if ctx != nil {
+		ctx.TaskID = t.ID
 	}
+	t.RestoreRetryState(ctx, cloneActivationFramesForRetry(state.callStack), state.taskLocal, state.wakeValue, state.ticksLimit, state.secondsLimit)
 }
 
 func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {

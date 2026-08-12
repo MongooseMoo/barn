@@ -23,17 +23,26 @@ func (tq TaskQueue) Len() int { return len(tq) }
 // — rather than the original start time — lets suspend(0) yield to an already
 // ready forked task whose fork time precedes the suspender's wake time.
 func readyTime(t *task.Task) time.Time {
-	if !t.WakeTime.IsZero() {
-		return t.WakeTime
+	startTime, wakeTime, _ := t.SchedulingSnapshot()
+	if !wakeTime.IsZero() {
+		return wakeTime
 	}
-	return t.StartTime
+	return startTime
 }
 
 func (tq TaskQueue) Less(i, j int) bool {
-	ti, tj := readyTime(tq[i]), readyTime(tq[j])
+	tiStart, tiWake, tiSeq := tq[i].SchedulingSnapshot()
+	tjStart, tjWake, tjSeq := tq[j].SchedulingSnapshot()
+	ti, tj := tiStart, tjStart
+	if !tiWake.IsZero() {
+		ti = tiWake
+	}
+	if !tjWake.IsZero() {
+		tj = tjWake
+	}
 	if ti.Equal(tj) {
 		// Deterministic tie-break: earlier-enqueued task runs first (FIFO).
-		return tq[i].QueueSeq < tq[j].QueueSeq
+		return tiSeq < tjSeq
 	}
 	return ti.Before(tj)
 }

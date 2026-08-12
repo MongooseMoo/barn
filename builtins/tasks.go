@@ -2,6 +2,7 @@ package builtins
 
 import (
 	"sort"
+	"time"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
@@ -42,23 +43,34 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	tasks := mgr.GetQueuedTasks()
+	type queuedTaskSnapshot struct {
+		startTime time.Time
+		queueSeq  int64
+		id        int64
+		info      types.Value
+	}
+	snapshots := make([]queuedTaskSnapshot, 0, len(tasks))
+	for _, queuedTask := range tasks {
+		startTime, queueSeq, id, info := queuedTask.QueuedTaskSnapshot(includeVariables)
+		snapshots = append(snapshots, queuedTaskSnapshot{startTime, queueSeq, id, info})
+	}
 	// Toast returns waiting tasks in ascending start-time order (earliest
 	// first). It never sorts in bf_queued_tasks (tasks.cc:2571-2581); the
 	// ordering comes from waiting_tasks, which enqueue_waiting keeps sorted
 	// ascending by start_tv (tasks.cc:1193-1204). Match that here.
-	sort.SliceStable(tasks, func(i, j int) bool {
-		if !tasks[i].StartTime.Equal(tasks[j].StartTime) {
-			return tasks[i].StartTime.Before(tasks[j].StartTime)
+	sort.SliceStable(snapshots, func(i, j int) bool {
+		if !snapshots[i].startTime.Equal(snapshots[j].startTime) {
+			return snapshots[i].startTime.Before(snapshots[j].startTime)
 		}
-		if tasks[i].QueueSeq != tasks[j].QueueSeq {
-			return tasks[i].QueueSeq < tasks[j].QueueSeq
+		if snapshots[i].queueSeq != snapshots[j].queueSeq {
+			return snapshots[i].queueSeq < snapshots[j].queueSeq
 		}
-		return tasks[i].ID < tasks[j].ID
+		return snapshots[i].id < snapshots[j].id
 	})
 
-	result := make([]types.Value, 0, len(tasks))
-	for _, t := range tasks {
-		info := t.ToQueuedTaskInfo(includeVariables)
+	result := make([]types.Value, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		info := snapshot.info
 		if !ctx.IsWizard && info.Get(5).Obj() != ctx.Programmer {
 			continue
 		}

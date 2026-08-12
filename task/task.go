@@ -366,6 +366,47 @@ func (t *Task) GetCallStack() []ActivationFrame {
 	return stack
 }
 
+// ClearCallStack removes every activation frame atomically.
+func (t *Task) ClearCallStack() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.CallStack = nil
+}
+
+// RetryStateSnapshot returns the task fields needed to reconstruct a failed
+// optimistic execution attempt. Slice storage is copied before releasing the
+// lock so a concurrent observer never aliases a changing CallStack.
+func (t *Task) RetryStateSnapshot() (*kernel.TaskContext, []ActivationFrame, types.Value, types.Value, int64, float64) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	stack := append([]ActivationFrame(nil), t.CallStack...)
+	return t.Context, stack, t.TaskLocal, t.WakeValue, t.TicksLimit, t.SecondsLimit
+}
+
+// RestoreRetryState atomically publishes all task-owned state for a retry.
+func (t *Task) RestoreRetryState(ctx *kernel.TaskContext, stack []ActivationFrame, local, wake types.Value, ticks int64, seconds float64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.Result = types.Result{}
+	t.CallStack = stack
+	t.TaskLocal = local
+	t.WakeValue = wake
+	t.CreatedForks = nil
+	t.TicksLimit = ticks
+	t.TicksUsed = 0
+	t.SecondsLimit = seconds
+	t.SecondsUsed = 0
+	t.StartTime = time.Now()
+	t.Context = ctx
+}
+
+// ContextValue returns the current execution context pointer safely.
+func (t *Task) ContextValue() *kernel.TaskContext {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.Context
+}
+
 // SetTopFrameProgrammer updates the programmer of the current activation frame.
 // The update must happen while holding the lock: returning a pointer into
 // CallStack would allow a concurrent append to move the slice before the caller
@@ -415,6 +456,59 @@ func (t *Task) TicksLeft() int64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.TicksLimit - t.TicksUsed
+}
+
+// ResetExecutionBudget starts a fresh execution slice and returns the values
+// needed to construct its deadline. Keeping this update atomic prevents task
+// introspection from observing a mixture of old and new limits.
+func (t *Task) ResetExecutionBudget(ticks int64, seconds float64, start time.Time) (time.Time, float64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.TicksLimit = ticks
+	t.TicksUsed = 0
+	t.SecondsLimit = seconds
+	t.SecondsUsed = 0
+	t.StartTime = start
+	return t.StartTime, t.SecondsLimit
+}
+
+// ExecutionBudget returns a consistent deadline budget snapshot.
+func (t *Task) ExecutionBudget() (time.Time, float64) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.StartTime, t.SecondsLimit
+}
+
+// SetCancelFunc publishes the cancellation function safely.
+func (t *Task) SetCancelFunc(cancel context.CancelFunc) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.CancelFunc = cancel
+}
+
+// SetQueueSeq records the runtime's enqueue sequence under the task lock.
+func (t *Task) SetQueueSeq(sequence int64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.QueueSeq = sequence
+}
+
+// PrepareYieldRequeue stamps a zero-delay suspension and its enqueue order as
+// one atomic scheduling update.
+func (t *Task) PrepareYieldRequeue(sequence int64, now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.WakeTime.IsZero() {
+		t.WakeTime = now
+	}
+	t.QueueSeq = sequence
+}
+
+// SchedulingSnapshot returns immutable heap ordering keys.
+func (t *Task) SchedulingSnapshot() (time.Time, time.Time, int64) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.StartTime, t.WakeTime, t.QueueSeq
 }
 
 // SecondsLeft returns remaining seconds
@@ -593,6 +687,19 @@ func (t *Task) Kill() {
 func (t *Task) ToQueuedTaskInfo(includeVariables bool) types.Value {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	return t.toQueuedTaskInfoLocked(includeVariables)
+}
+
+// QueuedTaskSnapshot atomically captures both a task's sort keys and its
+// queued_tasks() representation. Callers can sort these immutable snapshots
+// without comparing fields that another worker may be changing.
+func (t *Task) QueuedTaskSnapshot(includeVariables bool) (time.Time, int64, int64, types.Value) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.StartTime, t.QueueSeq, t.ID, t.toQueuedTaskInfoLocked(includeVariables)
+}
+
+func (t *Task) toQueuedTaskInfoLocked(includeVariables bool) types.Value {
 
 	// Get information from the top frame if call stack exists
 	var verbName string
