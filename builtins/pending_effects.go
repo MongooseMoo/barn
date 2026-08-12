@@ -79,9 +79,9 @@ func FlushPendingEffects(ctx *Execution) {
 			}
 		case kernel.PendingEffectServerOptions:
 			snapshot := effect.ServerOptions
-			applyServerOptionsSnapshot(&snapshot)
+			ctx.Registry.applyServerOptionsSnapshot(&snapshot)
 			if snapshot.ProtectedBuiltins != nil {
-				applyProtectedBuiltins(snapshot.ProtectedBuiltins)
+				ctx.Registry.applyProtectedBuiltins(snapshot.ProtectedBuiltins)
 			}
 		}
 	}

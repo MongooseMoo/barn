@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/command"
 	"github.com/MongooseMoo/barn/compiler"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -134,7 +133,7 @@ func (p *InputProcessor) HandleConnection(conn *Connection) {
 		var line string
 		var isOutOfBand bool
 		var err error
-		if conn.IsLoggedIn() && builtins.ConnectionOptionTruthy(player, "binary") {
+		if conn.IsLoggedIn() && p.runtime.Registry().ConnectionOptionTruthy(player, "binary") {
 			if binaryTransport, ok := conn.transport.(BinaryTransport); ok {
 				line, err = binaryTransport.ReadChunk()
 			} else {
@@ -276,7 +275,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	oob := strings.HasPrefix(input.Line, "#$#")
-	disableOOB := builtins.ConnectionOptionTruthy(input.Player, "disable-oob")
+	disableOOB := p.runtime.Registry().ConnectionOptionTruthy(input.Player, "disable-oob")
 	if input.IsOutOfBand || (oob && !disableOOB) {
 		if !disableOOB {
 			p.processOutOfBand(input)
@@ -284,7 +283,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		return
 	}
 	if !(oob && !disableOOB) {
-		handled, flushed := builtins.HandleHeldInput(input.Player, input.Line, false)
+		handled, flushed := p.runtime.Registry().HandleHeldInput(input.Player, input.Line, false)
 		if handled {
 			if flushed != nil && p.connManager != nil {
 				if conn := p.connManager.getConnectionByConnID(input.ConnID); conn != nil {
@@ -363,9 +362,9 @@ func (p *InputProcessor) deliverToReadingTask(player types.ObjID, line string) b
 
 func (p *InputProcessor) ForceInput(player types.ObjID, line string, atFront bool) {
 	oob := strings.HasPrefix(line, "#$#")
-	disableOOB := builtins.ConnectionOptionTruthy(player, "disable-oob")
+	disableOOB := p.runtime.Registry().ConnectionOptionTruthy(player, "disable-oob")
 	if !(oob && !disableOOB) {
-		handled, _ := builtins.HandleHeldInput(player, line, atFront)
+		handled, _ := p.runtime.Registry().HandleHeldInput(player, line, atFront)
 		if handled {
 			return
 		}
@@ -448,7 +447,7 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	p.runtime.CancelLoginTasksFor(types.ObjID(-conn.ID))
 
 	cm.detachOutboundClient(conn.ID)
-	builtins.CloseHeldHTTPInput(player)
+	p.runtime.Registry().CloseHeldHTTPInput(player)
 
 	if wasLoggedIn {
 		trace.Connection("DISCONNECT", conn.ID, player, "")

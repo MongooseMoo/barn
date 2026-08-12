@@ -13,6 +13,10 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
+func newTestRegistry() *builtins.Registry {
+	return builtins.NewRegistry()
+}
+
 func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
 	s := NewRuntime(dbstore.NewStore())
 	defer s.Stop()
@@ -60,9 +64,6 @@ func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
 }
 
 func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {
-	builtins.LoadServerOptionsFromStore(nil)
-	t.Cleanup(func() { builtins.LoadServerOptionsFromStore(nil) })
-
 	store := dbstore.NewStore()
 	system := dbstore.NewObjectBuilder(0)
 	system.SetProperty("server_options", dbstore.NewProperty(
@@ -80,7 +81,7 @@ func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {
 	}
 
 	machine := vm.NewVM(store, builtins.NewRegistry())
-	configureVMStackLimit(machine)
+	configureVMStackLimit(machine, newTestRegistry())
 	if machine.MaxStackDepth != 60 {
 		t.Fatalf("VM max stack depth = %d, want live $server_options value 60", machine.MaxStackDepth)
 	}
@@ -127,7 +128,7 @@ func TestTaskSnapshotsExcludeKilledSuspendedVMTask(t *testing.T) {
 	s := NewRuntime(store)
 	defer s.Stop()
 
-	ticks, seconds := backgroundTaskLimits()
+	ticks, seconds := backgroundTaskLimits(newTestRegistry())
 	killed := task.NewTaskFull(
 		6200,
 		3,

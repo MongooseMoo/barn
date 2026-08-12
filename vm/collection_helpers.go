@@ -14,7 +14,10 @@ func isObjLike(v types.Value) bool {
 	return v.Type() == types.TYPE_OBJ || v.Type() == types.TYPE_ANON
 }
 
-func setAtIndex(ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
+func setAtIndex(registry *builtins.Registry, ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
+	if registry == nil {
+		registry = builtins.NewRegistry()
+	}
 	switch coll.Type() {
 	case types.TYPE_LIST:
 		if index.Type() != types.TYPE_INT {
@@ -25,7 +28,7 @@ func setAtIndex(ctx *kernel.TaskContext, coll types.Value, index types.Value, va
 			return types.None, types.E_RANGE
 		}
 		result := coll.Set(i, value)
-		if err := builtins.CheckListLimit(result); err != types.E_NONE {
+		if err := registry.CheckListLimit(result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE
@@ -43,7 +46,7 @@ func setAtIndex(ctx *kernel.TaskContext, coll types.Value, index types.Value, va
 			return types.None, types.E_INVARG
 		}
 		newStr := s[:i-1] + value.Str() + s[i:]
-		if err := builtins.CheckStringLimit(newStr); err != types.E_NONE {
+		if err := registry.CheckStringLimit(newStr); err != types.E_NONE {
 			return types.None, err
 		}
 		return types.NewStr(newStr), types.E_NONE
@@ -53,7 +56,7 @@ func setAtIndex(ctx *kernel.TaskContext, coll types.Value, index types.Value, va
 			return types.None, types.E_TYPE
 		}
 		result := coll.MapSet(index, value)
-		if err := builtins.CheckListLimitForTask(ctx, result); err != types.E_NONE {
+		if err := registry.CheckListLimitForTask(ctx, result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE

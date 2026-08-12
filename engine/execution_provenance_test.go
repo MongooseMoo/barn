@@ -58,7 +58,7 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	})
 
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	running := task.NewTaskFull(94001, 0, compileTestProgram(t, rt.registry, `
 before = #0.retry_value;
 force_retry_conflict();

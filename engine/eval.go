@@ -65,7 +65,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.
 	mgr := s.taskManager
-	ticks, secondsLimit := foregroundTaskLimits()
+	ticks, secondsLimit := foregroundTaskLimits(s.registry)
 	t := task.NewTask(s.newTaskID(), player, ticks, secondsLimit)
 	mgr.RegisterTask(t)
 	defer mgr.RemoveTask(t.ID)
@@ -82,7 +82,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	bcVM.Context = ctx
 	bcVM.Task = t
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM)
+	configureVMStackLimit(bcVM, s.registry)
 
 	// Top-level eval still has intrinsic command variables in Toast:
 	// player/caller/this/verb/args and command parser placeholders.

@@ -55,7 +55,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	s := NewRuntime(store)
 	mgr := s.taskManager
 
-	ticks, seconds := foregroundTaskLimits()
+	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	program, diagnostics := compiler.CompileMOO([]string{"suspend(); return 42;"}, s.registry)
 	if len(diagnostics) > 0 {
 		t.Fatalf("compile: %v", diagnostics)

@@ -125,9 +125,9 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	bcVM := vm.AcquireVM(s.store, s.registry)
 	bcVM.Context = parentCtx
 	bcVM.Task = parentTask
-	ticks, _ := foregroundTaskLimits()
+	ticks, _ := foregroundTaskLimits(s.registry)
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM)
+	configureVMStackLimit(bcVM, s.registry)
 
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
 	frame.IsVerbCall = true
@@ -315,9 +315,9 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	bcVM := vm.AcquireVM(s.store, s.registry)
 	bcVM.Context = ctx
 	bcVM.Task = t
-	ticks, _ := foregroundTaskLimits()
+	ticks, _ := foregroundTaskLimits(s.registry)
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM)
+	configureVMStackLimit(bcVM, s.registry)
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	// Toast sets caller = #-1 in server-initiated hook calls (do_command etc.);

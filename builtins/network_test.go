@@ -12,16 +12,9 @@ import (
 
 func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 	player := types.ObjID(424242)
-	connectionOptionState.mu.Lock()
-	delete(connectionOptionState.byPlayer, player)
-	connectionOptionState.mu.Unlock()
-	t.Cleanup(func() {
-		connectionOptionState.mu.Lock()
-		delete(connectionOptionState.byPlayer, player)
-		connectionOptionState.mu.Unlock()
-	})
+	r := NewRegistry()
 
-	setConnectionOption(player, "binary", types.NewInt(0))
+	r.setConnectionOption(player, "binary", types.NewInt(0))
 	start := make(chan struct{})
 	var workers sync.WaitGroup
 	workers.Add(2)
@@ -29,14 +22,14 @@ func TestConnectionOptionsConcurrentReadWrite(t *testing.T) {
 		defer workers.Done()
 		<-start
 		for i := 0; i < 10000; i++ {
-			_ = getConnectionOptions(player)
+			_ = r.getConnectionOptions(player)
 		}
 	}()
 	go func() {
 		defer workers.Done()
 		<-start
 		for i := 0; i < 10000; i++ {
-			setConnectionOption(player, "binary", types.NewInt(int64(i&1)))
+			r.setConnectionOption(player, "binary", types.NewInt(int64(i&1)))
 		}
 	}()
 	close(start)
@@ -784,33 +777,24 @@ func TestListenersIncludesProtocolMetadataAndFiltersByDescriptor(t *testing.T) {
 
 func TestFlushCommandMatchesCaseInsensitivelyAndClearsPendingCommands(t *testing.T) {
 	player := types.ObjID(424243)
-	clearHeldCommands(player)
-	connectionOptionState.mu.Lock()
-	delete(connectionOptionState.byPlayer, player)
-	connectionOptionState.mu.Unlock()
-	t.Cleanup(func() {
-		clearHeldCommands(player)
-		connectionOptionState.mu.Lock()
-		delete(connectionOptionState.byPlayer, player)
-		connectionOptionState.mu.Unlock()
-	})
+	r := NewRegistry()
 
-	setConnectionOption(player, "hold-input", types.NewInt(1))
-	setConnectionOption(player, "flush-command", types.NewStr(".flush"))
-	if handled, _ := HandleHeldInput(player, "auditflush first", false); !handled {
+	r.setConnectionOption(player, "hold-input", types.NewInt(1))
+	r.setConnectionOption(player, "flush-command", types.NewStr(".flush"))
+	if handled, _ := r.HandleHeldInput(player, "auditflush first", false); !handled {
 		t.Fatal("first command was not held")
 	}
-	if handled, _ := HandleHeldInput(player, "auditflush second", false); !handled {
+	if handled, _ := r.HandleHeldInput(player, "auditflush second", false); !handled {
 		t.Fatal("second command was not held")
 	}
-	handled, flushed := HandleHeldInput(player, ".FlUsH", false)
+	handled, flushed := r.HandleHeldInput(player, ".FlUsH", false)
 	if !handled {
 		t.Fatal("mixed-case flush command was not handled")
 	}
 	if len(flushed) != 2 || flushed[0] != "auditflush first" || flushed[1] != "auditflush second" {
 		t.Fatalf("flushed commands = %q, want queued commands in input order", flushed)
 	}
-	if pending := drainHeldCommands(player); len(pending) != 0 {
+	if pending := r.drainHeldCommands(player); len(pending) != 0 {
 		t.Fatalf("pending commands after mixed-case flush = %q, want none", pending)
 	}
 }
