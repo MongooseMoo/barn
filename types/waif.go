@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"runtime"
 	"sync"
 	"unsafe"
 )
@@ -127,6 +128,15 @@ func ParseWaifIdentity(encoded string) (WaifIdentity, error) {
 // waif return equal tokens; independently created waifs return distinct tokens.
 // It is only meaningful when Type()==TYPE_WAIF.
 func (v Value) WaifIdentity() WaifIdentity { return v.waifRep().identity }
+
+// AddWaifCleanup arranges for cleanup to run after this waif becomes
+// unreachable. The callback must not retain v (directly or indirectly).
+//
+// This is intentionally the only lifecycle hook exposed for waifRep: callers
+// can observe liveness without keeping the backing allocation alive.
+func (v Value) AddWaifCleanup(cleanup func()) {
+	runtime.AddCleanup(v.waifRep(), func(func()) { cleanup() }, cleanup)
+}
 
 // PropertyNames returns the names of all properties set on this waif.
 func (v Value) PropertyNames() []string {

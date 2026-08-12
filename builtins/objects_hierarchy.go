@@ -811,16 +811,18 @@ func builtinWaifStats(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 	byClass := store.WaifCountByClass()
-	entries := make([]types.Value, 0, len(byClass))
-	for classID, count := range byClass {
-		entries = append(entries, types.NewMap([][2]types.Value{
-			{types.NewStr("class"), types.NewObj(classID)},
-			{types.NewStr("count"), types.NewInt(int64(count))},
-		}))
+	total := 0
+	for _, count := range byClass {
+		total += count
 	}
 	result := types.NewMap([][2]types.Value{
-		{types.NewStr("total"), types.NewInt(int64(store.WaifCount()))},
-		{types.NewStr("classes"), types.NewList(entries)},
+		{types.NewStr("total"), types.NewInt(int64(total))},
+		// Barn has no deferred WAIF-recycling queue: unreachable WAIFs are
+		// removed by a Go cleanup, so none remain pending after removal.
+		{types.NewStr("pending_recycle"), types.NewInt(0)},
 	})
+	for classID, count := range byClass {
+		result = result.MapSet(types.NewObj(classID), types.NewInt(int64(count)))
+	}
 	return types.Ok(result)
 }
