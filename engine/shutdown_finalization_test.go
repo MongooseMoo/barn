@@ -39,7 +39,7 @@ func TestBeginShutdownTransfersUnclaimedDeferredRoots(t *testing.T) {
 	runtime := NewRuntime(store)
 	t.Cleanup(runtime.Stop)
 	waif := types.NewWaif(9, 3)
-	runtime.pendingWaifBatch = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	runtime.lifecycle.pendingWaifs = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
 	var mu sync.Mutex
 	var handedOff []types.Value
 	runtime.SetPendingFinalizationSink(func(values []types.Value) {
@@ -100,7 +100,7 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 		return nil
 	})
 	waif := types.NewWaif(9, 3)
-	runtime.pendingWaifBatch = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
+	runtime.lifecycle.pendingWaifs = []pendingWaifEntry{{waif: waif, ctx: kernel.NewTaskContext()}}
 	var handedOff []types.Value
 	runtime.SetPendingFinalizationSink(func(values []types.Value) { handedOff = append(handedOff, values...) })
 

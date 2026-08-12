@@ -34,7 +34,7 @@ func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var starts atomic.Int32
-	s.executionStartObserver = func() {
+	s.lifecycle.executionStartObserver = func() {
 		starts.Add(1)
 		entered <- struct{}{}
 		<-release
