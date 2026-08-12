@@ -28,7 +28,8 @@ func (e *UnknownBuiltinError) Error() string {
 type lowerer struct {
 	program              *bytecode.Program
 	constants            map[string]int       // Constant deduplication (exact typed value -> index)
-	variables            map[string]int       // Variable name -> index mapping
+	variables            map[string]int       // Source variable name -> index mapping
+	internalVariables    map[string]int       // Compiler-only local name -> index mapping
 	loops                []loopContext        // Loop context stack for break/continue
 	scopes               []scope              // Variable scope stack
 	tempCount            int                  // Counter for unique temporary variable names
@@ -73,12 +74,13 @@ func newLowerer(registry map[string]int) *lowerer {
 			VarNames:  make([]string, 0, 16),
 			LineInfo:  make([]bytecode.LineEntry, 0, 32),
 		},
-		constants:       make(map[string]int),
-		variables:       make(map[string]int),
-		loops:           make([]loopContext, 0, 8),
-		scopes:          make([]scope, 0, 8),
-		registry:        registry,
-		indexContextVar: -1,
+		constants:         make(map[string]int),
+		variables:         make(map[string]int),
+		internalVariables: make(map[string]int),
+		loops:             make([]loopContext, 0, 8),
+		scopes:            make([]scope, 0, 8),
+		registry:          registry,
+		indexContextVar:   -1,
 	}
 }
 
@@ -311,7 +313,7 @@ func (c *lowerer) declareVariable(name string) int {
 
 	// Check overflow before adding
 	idx := len(c.program.VarNames)
-	if idx > 255 {
+	if idx > 254-len(c.internalVariables) {
 		if c.err == nil {
 			c.err = fmt.Errorf("too many local variables (max 255)")
 		}
@@ -337,6 +339,31 @@ func (c *lowerer) declareVariable(name string) int {
 		c.scopes[len(c.scopes)-1].Variables[key] = idx
 	}
 
+	return idx
+}
+
+// declareInternalVariable allocates a compiler-only local from the top of the
+// one-byte local operand range. Internal locals live outside VarNames and the
+// source-variable lookup table, so no legal MOO identifier can alias or expose
+// compiler bookkeeping. Repeated internal names intentionally reuse a slot
+// when their lifetimes are known not to overlap.
+func (c *lowerer) declareInternalVariable(name string) int {
+	if idx, ok := c.internalVariables[name]; ok {
+		return idx
+	}
+
+	idx := 254 - len(c.internalVariables)
+	if idx < len(c.program.VarNames) {
+		if c.err == nil {
+			c.err = fmt.Errorf("too many local variables (max 255 including compiler temporaries)")
+		}
+		return 0
+	}
+
+	c.internalVariables[name] = idx
+	if idx+1 > c.program.NumLocals {
+		c.program.NumLocals = idx + 1
+	}
 	return idx
 }
 
@@ -741,7 +768,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 		if err := c.compileNode(target.Object); err != nil {
 			return err
 		}
-		objectVar := c.declareVariable(fmt.Sprintf("__propassignobj_depth_%d__", depth))
+		objectVar := c.declareInternalVariable(fmt.Sprintf("__propassignobj_depth_%d__", depth))
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(objectVar))
 
@@ -753,7 +780,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 			if err := c.compileNode(target.NameExpr); err != nil {
 				return err
 			}
-			nameVar = c.declareVariable(fmt.Sprintf("__propassignname_depth_%d__", depth))
+			nameVar = c.declareInternalVariable(fmt.Sprintf("__propassignname_depth_%d__", depth))
 			c.emit(bytecode.OP_SET_VAR)
 			c.emitByte(byte(nameVar))
 		}
@@ -820,7 +847,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 
 			// Stack currently: [value, value_copy]
 			// Store value_copy into temp so we can use the stack for GET_PROP
-			tmpValHold := c.declareVariable("__prop_idx_val")
+			tmpValHold := c.declareInternalVariable("__prop_idx_val")
 			c.emit(bytecode.OP_SET_VAR)
 			c.emitByte(byte(tmpValHold))
 			// Stack: [value]
@@ -842,7 +869,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 			// Stack: [value, prop_value]
 
 			// Store property value into a temp that acts as the "base variable"
-			baseVarIdx = c.declareVariable("__prop_idx_base")
+			baseVarIdx = c.declareInternalVariable("__prop_idx_base")
 			c.emit(bytecode.OP_SET_VAR)
 			c.emitByte(byte(baseVarIdx))
 			// Stack: [value]
@@ -870,7 +897,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 			oldContextVar := c.indexContextVar
 			oldBoundaryContext := c.indexBoundaryContext
 			if containsIndexBoundary(indices[0]) {
-				tempIdx := c.declareVariable(c.tempVar("idxsetctx"))
+				tempIdx := c.declareInternalVariable(c.tempVar("idxsetctx"))
 				c.emit(bytecode.OP_GET_VAR)
 				c.emitByte(byte(baseVarIdx))
 				c.emit(bytecode.OP_SET_VAR)
@@ -894,7 +921,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 			// Stack currently: [value, value_copy]
 
 			// 1. Store value_copy into a temp variable
-			tmpVal := c.declareVariable("__nested_val")
+			tmpVal := c.declareInternalVariable("__nested_val")
 			c.emit(bytecode.OP_SET_VAR)
 			c.emitByte(byte(tmpVal))
 			// Stack: [value]
@@ -905,7 +932,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 				oldContextVar := c.indexContextVar
 				oldBoundaryContext := c.indexBoundaryContext
 				if containsIndexBoundary(indices[k]) {
-					tempIdx := c.declareVariable(c.tempVar("nestedidxctx"))
+					tempIdx := c.declareInternalVariable(c.tempVar("nestedidxctx"))
 					c.emit(bytecode.OP_GET_VAR)
 					c.emitByte(byte(baseVarIdx))
 					c.emit(bytecode.OP_SET_VAR)
@@ -918,7 +945,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 				}
 				c.indexContextVar = oldContextVar
 				c.indexBoundaryContext = oldBoundaryContext
-				tmpIndices[k] = c.declareVariable(fmt.Sprintf("__nested_idx_%d", k))
+				tmpIndices[k] = c.declareInternalVariable(fmt.Sprintf("__nested_idx_%d", k))
 				c.emit(bytecode.OP_SET_VAR)
 				c.emitByte(byte(tmpIndices[k]))
 			}
@@ -943,7 +970,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 				c.emit(bytecode.OP_GET_VAR)
 				c.emitByte(byte(tmpIndices[k]))
 				c.emit(bytecode.OP_INDEX)
-				tmpInter[k] = c.declareVariable(fmt.Sprintf("__nested_inter_%d", k))
+				tmpInter[k] = c.declareInternalVariable(fmt.Sprintf("__nested_inter_%d", k))
 				c.emit(bytecode.OP_SET_VAR)
 				c.emitByte(byte(tmpInter[k]))
 			}
@@ -1023,7 +1050,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 
 			// Stack currently: [value, value_copy]
 			// Store value_copy into temp so we can use the stack for GET_PROP
-			tmpValHold := c.declareVariable("__prop_range_val")
+			tmpValHold := c.declareInternalVariable("__prop_range_val")
 			c.emit(bytecode.OP_SET_VAR)
 			c.emitByte(byte(tmpValHold))
 			// Stack: [value]
@@ -1045,7 +1072,7 @@ func (c *lowerer) compileAssign(n *verb.AssignExpr) error {
 			// Stack: [value, prop_value]
 
 			// Store property value into a temp that acts as the "base variable"
-			varIdx = c.declareVariable("__prop_range_base")
+			varIdx = c.declareInternalVariable("__prop_range_base")
 			c.emit(bytecode.OP_SET_VAR)
 			c.emitByte(byte(varIdx))
 			// Stack: [value]
@@ -1121,7 +1148,7 @@ func (c *lowerer) compileRangeIndex(expr verb.Expr, varIdx int) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 
-	tempIdx := c.declareVariable(c.tempVar("rngsetctx"))
+	tempIdx := c.declareInternalVariable(c.tempVar("rngsetctx"))
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(varIdx))
 	c.emit(bytecode.OP_SET_VAR)
@@ -1159,7 +1186,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		basePropTarget = property
 
 		// Stack currently: [value, value_copy]
-		tmpValHold := c.declareVariable("__prop_nested_range_val")
+		tmpValHold := c.declareInternalVariable("__prop_nested_range_val")
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(tmpValHold))
 		// Stack: [value]
@@ -1179,7 +1206,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 		}
 		// Stack: [value, prop_value]
 
-		baseVarIdx = c.declareVariable("__prop_nested_range_base")
+		baseVarIdx = c.declareInternalVariable("__prop_nested_range_base")
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(baseVarIdx))
 		// Stack: [value]
@@ -1192,7 +1219,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	}
 
 	// Preserve value_copy for RANGE_SET while keeping original assigned value on stack.
-	tmpAssignedVal := c.declareVariable("__nested_range_assigned")
+	tmpAssignedVal := c.declareInternalVariable("__nested_range_assigned")
 	c.emit(bytecode.OP_SET_VAR)
 	c.emitByte(byte(tmpAssignedVal))
 	// Stack: [value]
@@ -1201,7 +1228,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 	if containsIndexBoundary(indexTarget.Index) {
-		tempIdx := c.declareVariable(c.tempVar("nestedrangectx"))
+		tempIdx := c.declareInternalVariable(c.tempVar("nestedrangectx"))
 		c.emit(bytecode.OP_GET_VAR)
 		c.emitByte(byte(baseVarIdx))
 		c.emit(bytecode.OP_SET_VAR)
@@ -1215,7 +1242,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	c.indexContextVar = oldContextVar
 	c.indexBoundaryContext = oldBoundaryContext
 
-	tmpOuterIndex := c.declareVariable("__nested_range_index")
+	tmpOuterIndex := c.declareInternalVariable("__nested_range_index")
 	c.emit(bytecode.OP_SET_VAR)
 	c.emitByte(byte(tmpOuterIndex))
 	// Stack: [value]
@@ -1226,7 +1253,7 @@ func (c *lowerer) compileNestedRangeAssign(indexTarget *verb.IndexTarget, start,
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(tmpOuterIndex))
 	c.emit(bytecode.OP_INDEX)
-	tmpInnerVar := c.declareVariable("__nested_range_inner")
+	tmpInnerVar := c.declareInternalVariable("__nested_range_inner")
 	c.emit(bytecode.OP_SET_VAR)
 	c.emitByte(byte(tmpInnerVar))
 	// Stack: [value]
@@ -1390,7 +1417,7 @@ func (c *lowerer) compileIndex(n *verb.IndexExpr) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 	if hasIndexBoundary {
-		tempIdx := c.declareVariable(c.tempVar("idxctx"))
+		tempIdx := c.declareInternalVariable(c.tempVar("idxctx"))
 		c.emit(bytecode.OP_DUP)
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
@@ -1426,7 +1453,7 @@ func (c *lowerer) compileRange(n *verb.RangeExpr) error {
 	oldContextVar := c.indexContextVar
 	oldBoundaryContext := c.indexBoundaryContext
 	if hasIndexBoundary {
-		tempIdx := c.declareVariable(c.tempVar("rngctx"))
+		tempIdx := c.declareInternalVariable(c.tempVar("rngctx"))
 		c.emit(bytecode.OP_DUP)
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(tempIdx))
@@ -1522,7 +1549,7 @@ func (c *lowerer) compileVerbCall(n *verb.VerbCallExpr) error {
 		if err := c.compileNode(n.VerbExpr); err != nil {
 			return err
 		}
-		nameVar = c.declareVariable(c.tempVar("verbcallname"))
+		nameVar = c.declareInternalVariable(c.tempVar("verbcallname"))
 		c.emit(bytecode.OP_SET_VAR)
 		c.emitByte(byte(nameVar))
 	}
@@ -1619,7 +1646,7 @@ func (c *lowerer) compileCatch(n *verb.CatchExpr) error {
 	// For the no-default case, we need a temp variable to receive the error
 	var errVarIdx int
 	if n.Default == nil {
-		errVarIdx = c.declareVariable(c.tempVar("catch_err"))
+		errVarIdx = c.declareInternalVariable(c.tempVar("catch_err"))
 	}
 
 	// Emit bytecode.OP_TRY_EXCEPT with 1 clause
@@ -1804,7 +1831,7 @@ func (c *lowerer) compileIf(n *verb.IfStmt) error {
 
 func (c *lowerer) compileWhile(n *verb.WhileStmt) error {
 	// Declare temp variable for loop result (break expr value or default 0)
-	resultVar := c.declareVariable(c.tempVar("loop_result"))
+	resultVar := c.declareInternalVariable(c.tempVar("loop_result"))
 	// Initialize to 0 (default loop result when no break expr)
 	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
 		c.emit(op)
@@ -1965,11 +1992,11 @@ func containsTargetIndexBoundary(target verb.Target) bool {
 // Compiles to equivalent while loop pattern.
 func (c *lowerer) compileRangeLoop(n *verb.RangeLoopStmt) error {
 	// Hidden variable for end bound
-	endVar := c.declareVariable(c.tempVar("end"))
+	endVar := c.declareInternalVariable(c.tempVar("end"))
 	valueVar := c.declareVariable(n.Value)
 
 	// Declare temp variable for loop result (break expr value or default 0)
-	resultVar := c.declareVariable(c.tempVar("loop_result"))
+	resultVar := c.declareInternalVariable(c.tempVar("loop_result"))
 	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
 		c.emit(op)
 	}
@@ -2038,10 +2065,10 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	hasIndex := n.Index != ""
 
 	// Hidden variables (unique per loop to support nesting)
-	listVar := c.declareVariable(c.tempVar("list"))
-	isPairsVar := c.declareVariable(c.tempVar("pairs"))
-	idxVar := c.declareVariable(c.tempVar("idx"))
-	lenVar := c.declareVariable(c.tempVar("len"))
+	listVar := c.declareInternalVariable(c.tempVar("list"))
+	isPairsVar := c.declareInternalVariable(c.tempVar("pairs"))
+	idxVar := c.declareInternalVariable(c.tempVar("idx"))
+	lenVar := c.declareInternalVariable(c.tempVar("len"))
 	valueVar := c.declareVariable(n.Value)
 	var indexVar int
 	if hasIndex {
@@ -2049,7 +2076,7 @@ func (c *lowerer) compileCollectionLoop(n *verb.CollectionLoopStmt) error {
 	}
 
 	// Declare temp variable for loop result (break expr value or default 0)
-	resultVar := c.declareVariable(c.tempVar("loop_result"))
+	resultVar := c.declareInternalVariable(c.tempVar("loop_result"))
 	if op, ok := bytecode.MakeImmediateOpcode(0); ok {
 		c.emit(op)
 	}
@@ -2331,10 +2358,10 @@ func (c *lowerer) compileDestructuringTarget(target *verb.DestructuringTarget) e
 	}
 	hasRest := restIndex >= 0
 
-	listVar := c.declareVariable(c.tempVar("scatter_list"))
-	lenVar := c.declareVariable(c.tempVar("scatter_len"))
-	leftVar := c.declareVariable(c.tempVar("scatter_left"))
-	rightVar := c.declareVariable(c.tempVar("scatter_right"))
+	listVar := c.declareInternalVariable(c.tempVar("scatter_list"))
+	lenVar := c.declareInternalVariable(c.tempVar("scatter_len"))
+	leftVar := c.declareInternalVariable(c.tempVar("scatter_left"))
+	rightVar := c.declareInternalVariable(c.tempVar("scatter_right"))
 
 	c.emit(bytecode.OP_SET_VAR)
 	c.emitByte(byte(listVar))
@@ -2654,7 +2681,7 @@ func (c *lowerer) compileListRange(n *verb.ListRangeExpr) error {
 // compileMap compiles a map literal: [key -> value, ...]
 func (c *lowerer) compileMap(n *verb.MapExpr) error {
 	// Build map incrementally in a temp local via bytecode.OP_INDEX_SET.
-	tmp := c.declareVariable(c.tempVar("maplit"))
+	tmp := c.declareInternalVariable(c.tempVar("maplit"))
 	c.emit(bytecode.OP_MAKE_MAP)
 	c.emitByte(0)
 	c.emit(bytecode.OP_SET_VAR)
