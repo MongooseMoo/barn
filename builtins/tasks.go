@@ -22,7 +22,7 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	includeVariables := false
-	if len(args) == 1 {
+	if len(args) >= 1 {
 		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
@@ -31,9 +31,6 @@ func builtinQueuedTasks(ctx *Execution, args []types.Value) types.Result {
 
 	countMode := false
 	if len(args) == 2 {
-		if args[0].Type() != types.TYPE_INT {
-			return types.Err(types.E_TYPE)
-		}
 		if args[1].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
