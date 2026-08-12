@@ -35,3 +35,41 @@ func TestChrReturnsRawByteString(t *testing.T) {
 		t.Fatalf("encode_binary(chr(200)) = %q, want ~C8", got)
 	}
 }
+
+func TestChrAcceptsToastVariadicArity(t *testing.T) {
+	ctx := newTestExecution()
+	ctx.IsWizard = true
+
+	tests := []struct {
+		name string
+		args []types.Value
+		want string
+	}{
+		{name: "no arguments", want: ""},
+		{
+			name: "multiple arguments",
+			args: []types.Value{types.NewInt('a'), types.NewStr("bc")},
+			want: "abc",
+		},
+		{
+			name: "nested list",
+			args: []types.Value{types.NewList([]types.Value{
+				types.NewInt('a'),
+				types.NewList([]types.Value{types.NewInt('b'), types.NewStr("c")}),
+			})},
+			want: "abc",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			res := builtinChr(ctx, test.args)
+			if res.IsError() {
+				t.Fatalf("builtinChr() failed: %v", res.Error)
+			}
+			if got := res.Val.Str(); got != test.want {
+				t.Fatalf("builtinChr() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
