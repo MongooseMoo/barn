@@ -31,16 +31,6 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-// defaultGOGCPercent is Barn's on-by-default GC budget. The Go default
-// (GOGC=100) makes the collector the binding constraint on 32-core throughput
-// because the VM heap-boxes values; a measured 32-worker sweep on the realistic
-// verb-call path showed parallel speedup rising with the budget:
-// 100->4.56x, 200->6.78x, 400->8.50x, 800->9.76x, off->11.41x. 400 buys ~8.5x
-// at ~4x heap growth between collections — a balanced default for unknown
-// deployment RAM (operators can push -gogc toward 800 with -gomemlimit-mib as a
-// backstop). The durable fix (unboxing values) is deferred.
-const defaultGOGCPercent = 400
-
 // logLevelHandler reads and sets the log level of the running server, so that a
 // server can be turned up to debug while it misbehaves and turned back down
 // afterwards — without a restart, which would destroy the state you wanted to
@@ -101,17 +91,6 @@ func startDebugEndpoint(addr string) (*http.Server, error) {
 	return srv, nil
 }
 
-type stringListFlag []string
-
-func (f *stringListFlag) String() string {
-	return strings.Join(*f, ",")
-}
-
-func (f *stringListFlag) Set(value string) error {
-	*f = append(*f, value)
-	return nil
-}
-
 func BuildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]listener.Spec, error) {
 	if len(listenFlags) == 0 {
 		return listener.DefaultSpecs(port), nil
@@ -129,17 +108,6 @@ func BuildListenerSpecs(port int, listenFlags []string, portProvided bool) ([]li
 		listenerSpecs = append(listenerSpecs, spec)
 	}
 	return listenerSpecs, nil
-}
-
-func flagWasProvided(name string) bool {
-	short := "-" + name
-	long := "--" + name
-	for _, arg := range os.Args[1:] {
-		if arg == short || arg == long || strings.HasPrefix(arg, short+"=") || strings.HasPrefix(arg, long+"=") {
-			return true
-		}
-	}
-	return false
 }
 
 func formatListenerSpecs(specs []listener.Spec) string {
