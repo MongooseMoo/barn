@@ -248,7 +248,7 @@ func (v Value) Equal(other Value) bool {
 	case TYPE_BOOL:
 		return other.tag == TYPE_BOOL && v.n == other.n
 	case TYPE_STR:
-		return other.tag == TYPE_STR && compareFoldedASCII(v.strRep().str(), other.strRep().str()) == 0
+		return other.tag == TYPE_STR && compareFoldedASCII(normalizeBinaryString(v.strRep().str()), normalizeBinaryString(other.strRep().str())) == 0
 	case TYPE_LIST:
 		return other.tag == TYPE_LIST && v.sliceList().equal(other.sliceList())
 	case TYPE_MAP:
@@ -261,6 +261,36 @@ func (v Value) Equal(other Value) bool {
 		return other.tag == tagUnbound
 	default:
 		return false
+	}
+}
+
+func normalizeBinaryString(s string) string {
+	var result strings.Builder
+	for i := 0; i < len(s); i++ {
+		if i+2 < len(s) && s[i] == '~' {
+			hi, hiOK := asciiHex(s[i+1])
+			lo, loOK := asciiHex(s[i+2])
+			if hiOK && loOK && hi<<4|lo < 0x20 {
+				result.WriteByte(hi<<4 | lo)
+				i += 2
+				continue
+			}
+		}
+		result.WriteByte(s[i])
+	}
+	return result.String()
+}
+
+func asciiHex(b byte) (byte, bool) {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0', true
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10, true
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10, true
+	default:
+		return 0, false
 	}
 }
 
