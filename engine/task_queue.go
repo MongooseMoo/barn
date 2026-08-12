@@ -3,7 +3,6 @@ package engine
 import (
 	"container/heap"
 	"github.com/MongooseMoo/barn/task"
-	"time"
 )
 
 // TaskQueue is a priority queue for tasks ordered by the time each task next
@@ -17,18 +16,6 @@ func NewTaskQueue() *TaskQueue {
 }
 
 func (tq TaskQueue) Len() int { return len(tq) }
-
-// readyTime is the moment a task next becomes runnable: its wake time when
-// suspended, otherwise its (possibly fork-delayed) start time. Ordering by this
-// — rather than the original start time — lets suspend(0) yield to an already
-// ready forked task whose fork time precedes the suspender's wake time.
-func readyTime(t *task.Task) time.Time {
-	startTime, wakeTime, _ := t.SchedulingSnapshot()
-	if !wakeTime.IsZero() {
-		return wakeTime
-	}
-	return startTime
-}
 
 func (tq TaskQueue) Less(i, j int) bool {
 	tiStart, tiWake, tiSeq := tq[i].SchedulingSnapshot()
