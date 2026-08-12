@@ -597,9 +597,8 @@ func (s *Store) Renumber(oldID, newID types.ObjID) error {
 // a clear slot inherits the first non-clear value from an ancestor.
 
 func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
+	identity := waif.WaifIdentity()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.waifRegistry == nil {
 		s.waifRegistry = make(map[types.ObjID]map[types.WaifIdentity]struct{})
 	}
@@ -608,7 +607,24 @@ func (s *Store) RegisterWaif(classID types.ObjID, waif types.Value) {
 		s.waifRegistry[classID] = make(map[types.WaifIdentity]struct{})
 	}
 
-	s.waifRegistry[classID][waif.WaifIdentity()] = struct{}{}
+	if _, registered := s.waifRegistry[classID][identity]; registered {
+		s.mu.Unlock()
+		return
+	}
+	s.waifRegistry[classID][identity] = struct{}{}
+	s.mu.Unlock()
+
+	waif.AddWaifCleanup(func() { s.unregisterWaif(classID, identity) })
+}
+
+func (s *Store) unregisterWaif(classID types.ObjID, identity types.WaifIdentity) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	waifs := s.waifRegistry[classID]
+	delete(waifs, identity)
+	if len(waifs) == 0 {
+		delete(s.waifRegistry, classID)
+	}
 }
 
 // WaifCount returns the total number of live waifs across all classes
@@ -632,7 +648,9 @@ func (s *Store) WaifCountByClass() map[types.ObjID]int {
 
 	result := make(map[types.ObjID]int)
 	for classID, waifs := range s.waifRegistry {
-		result[classID] = len(waifs)
+		if len(waifs) != 0 {
+			result[classID] = len(waifs)
+		}
 	}
 	return result
 }
