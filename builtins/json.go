@@ -489,26 +489,6 @@ func normalizeJSONEscapes(s string) string {
 	return result.String()
 }
 
-// encodeBinaryEscapes converts non-printable and non-ASCII bytes to ~XX format
-// This is the inverse of decodeBinaryEscapes
-func encodeBinaryEscapes(s string) string {
-	var result strings.Builder
-	for _, b := range []byte(s) {
-		if b == '~' {
-			result.WriteString("~7E")
-		} else if b < 32 || b > 126 {
-			// Non-printable or non-ASCII: encode as ~XX
-			const hexDigits = "0123456789ABCDEF"
-			result.WriteByte('~')
-			result.WriteByte(hexDigits[b>>4])
-			result.WriteByte(hexDigits[b&0xF])
-		} else {
-			result.WriteByte(b)
-		}
-	}
-	return result.String()
-}
-
 // decodeBinaryEscapes converts MOO binary escapes (~XX) to actual bytes
 // Only decodes control characters (0x00-0x1F) so JSON can escape them as \uXXXX
 // Other escapes (~20-~7F, ~80-~FF) stay as literal text
