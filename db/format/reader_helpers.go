@@ -3,11 +3,13 @@ package format
 import (
 	"bufio"
 	"fmt"
-	"github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/types"
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/verb"
 )
 
 // readInt reads an integer from the next line
@@ -47,24 +49,6 @@ func readLine(r *bufio.Reader) (string, error) {
 	return strings.TrimRight(line, "\n\r"), nil
 }
 
-var mooPrepositions = []string{
-	"with/using",
-	"at/to",
-	"in front of",
-	"in/inside/into",
-	"on top of/on/onto/upon",
-	"out of/from inside/from",
-	"over",
-	"through",
-	"under/underneath/beneath",
-	"behind",
-	"beside",
-	"for/about",
-	"is",
-	"as",
-	"off/off of",
-}
-
 func argSpecFromCode(spec int) string {
 	switch spec {
 	case 0:
@@ -92,28 +76,18 @@ func argSpecToCode(spec string) int {
 }
 
 func prepFromCode(prep int) string {
-	switch {
-	case prep == -1:
-		return "none"
-	case prep == -2:
-		return "any"
-	case prep >= 0 && prep < len(mooPrepositions):
-		return mooPrepositions[prep]
-	default:
-		return "none"
+	if value, ok := verb.PrepositionFromCode(prep); ok {
+		if canonical, ok := value.Canonical(); ok {
+			return canonical
+		}
 	}
+	return "none"
 }
 
 func prepToCode(prep string) int {
-	if prep == "none" {
-		return -1
-	}
-	if prep == "any" {
-		return -2
-	}
-	for i, p := range mooPrepositions {
-		if prep == p {
-			return i
+	if value, ok := verb.ParsePreposition(prep); ok {
+		if code, ok := value.Code(); ok {
+			return code
 		}
 	}
 	return -1
