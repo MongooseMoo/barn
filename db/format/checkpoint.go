@@ -84,9 +84,19 @@ func writeCheckpoint(
 		os.Remove(tempPath)
 		return fmt.Errorf("close temp file: %w", err)
 	}
+	sidecarTempPath := tempPath + waifIdentitySidecarSuffix
+	if err := writeWaifIdentitySidecar(sidecarTempPath, tempPath, writer.waifIdentities); err != nil {
+		os.Remove(tempPath)
+		os.Remove(sidecarTempPath)
+		return err
+	}
 
 	if err := os.Rename(tempPath, outPath); err != nil {
+		os.Remove(sidecarTempPath)
 		return fmt.Errorf("rename temp to output: %w", err)
+	}
+	if err := os.Rename(sidecarTempPath, outPath+waifIdentitySidecarSuffix); err != nil {
+		return fmt.Errorf("rename WAIF identity sidecar to output: %w", err)
 	}
 	if err := syncParentDirectory(outPath); err != nil {
 		return fmt.Errorf("sync output directory: %w", err)
