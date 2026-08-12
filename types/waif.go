@@ -1,9 +1,21 @@
 package types
 
 import (
+	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"sync"
 	"unsafe"
 )
+
+const waifIdentitySize = 16
+
+var waifIdentitySource = struct {
+	sync.Mutex
+	reader *bufio.Reader
+}{reader: bufio.NewReaderSize(rand.Reader, 4096)}
 
 // waifRep is the heap payload behind a TYPE_WAIF Value. WAIFs are prototype-based
 // lightweight objects with mutable properties and REFERENCE semantics, matching
@@ -16,6 +28,7 @@ import (
 // copies only the ref, so all copies reference the SAME waif. This is NOT
 // copy-on-write.
 type waifRep struct {
+	identity   WaifIdentity
 	class      ObjID            // the waif's class object
 	owner      ObjID            // the waif's owner (the programmer who created it)
 	properties map[string]Value // property values
@@ -24,7 +37,26 @@ type waifRep struct {
 // NewWaif creates a waif value with the given class and owner. Each call allocates
 // a distinct underlying waifRep, so two NewWaif results are independent references.
 func NewWaif(class ObjID, owner ObjID) Value {
+	var identity WaifIdentity
+	waifIdentitySource.Lock()
+	_, err := io.ReadFull(waifIdentitySource.reader, identity.swiss[:])
+	waifIdentitySource.Unlock()
+	if err != nil {
+		panic(fmt.Sprintf("mint WAIF identity: %v", err))
+	}
+	return newWaifWithIdentity(class, owner, identity)
+}
+
+// NewWaifWithIdentity restores a waif with an identity previously returned by
+// ParseWaifIdentity. It is intended for persistence readers; ordinary callers
+// should use NewWaif so that a fresh, unguessable identity is minted.
+func NewWaifWithIdentity(class ObjID, owner ObjID, identity WaifIdentity) Value {
+	return newWaifWithIdentity(class, owner, identity)
+}
+
+func newWaifWithIdentity(class ObjID, owner ObjID, identity WaifIdentity) Value {
 	return Value{tag: TYPE_WAIF, ref: unsafe.Pointer(&waifRep{
+		identity:   identity,
 		class:      class,
 		owner:      owner,
 		properties: make(map[string]Value),
@@ -35,16 +67,11 @@ func (w *waifRep) literal() string {
 	return fmt.Sprintf("<waif #%d>", w.class)
 }
 
-// equal implements waif equality as REFERENCE IDENTITY, matching ToastStunt: two
-// waif Vars are equal iff they hold the same `Waif *` pointer — Toast does NOT
-// deep-compare property contents. See utils.cc:478 (`equality`: `return lhs.v.waif
-// == rhs.v.waif;`) and utils.cc:431 (the `compare` path: `return lhs.v.waif ==
-// rhs.v.waif ? 0 : 1;`). Since a waif Value's ref points at a single shared
-// waifRep, identity is simply waifRep pointer equality. Two independently created
-// waifs (distinct waifRep) are NOT equal even if their class/owner/properties are
-// identical (finding F14).
+// equal implements waif identity equality. This remains MOO-visible reference
+// equality like ToastStunt, but the swiss number lets that reference identity
+// survive when the backing waifRep is reconstructed after a process boundary.
 func (w *waifRep) equal(other *waifRep) bool {
-	return w == other
+	return w.identity == other.identity
 }
 
 // ---- Value-level waif API ----------------------------------------------
@@ -74,18 +101,32 @@ func (v Value) SetProperty(name string, value Value) Value {
 	return v
 }
 
-// WaifIdentity is an opaque, comparable identity token for a waif. Its pointer
-// remains private to types, so callers can compare and map-key identities without
-// depending on the waif's representation. Keeping the pointer in the token (and
-// not converting it to uintptr) also keeps the payload visible to the GC.
+// WaifIdentity is an opaque, comparable, process-independent identity token for
+// a waif. Its 128-bit swiss number is unguessable and can be persisted without
+// retaining or exposing the waif's Go allocation.
 type WaifIdentity struct {
-	ref unsafe.Pointer
+	swiss [waifIdentitySize]byte
+}
+
+// String returns the canonical hexadecimal serialization of an identity.
+func (identity WaifIdentity) String() string { return hex.EncodeToString(identity.swiss[:]) }
+
+// ParseWaifIdentity parses the canonical hexadecimal serialization of a WAIF
+// identity.
+func ParseWaifIdentity(encoded string) (WaifIdentity, error) {
+	var identity WaifIdentity
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil || len(decoded) != len(identity.swiss) {
+		return WaifIdentity{}, fmt.Errorf("invalid WAIF identity %q", encoded)
+	}
+	copy(identity.swiss[:], decoded)
+	return identity, nil
 }
 
 // WaifIdentity returns the stable identity token for this waif. Copies of one
 // waif return equal tokens; independently created waifs return distinct tokens.
 // It is only meaningful when Type()==TYPE_WAIF.
-func (v Value) WaifIdentity() WaifIdentity { return WaifIdentity{ref: v.ref} }
+func (v Value) WaifIdentity() WaifIdentity { return v.waifRep().identity }
 
 // PropertyNames returns the names of all properties set on this waif.
 func (v Value) PropertyNames() []string {

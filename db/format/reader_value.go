@@ -172,8 +172,14 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 			// WAIFs nested inside it), so it must be findable by index.
 			// This matches Toast's order: saved_waifs[waif_count++] = w,
 			// then read properties.
-			waif := types.NewWaif(class, owner)
 			wIdx := len(database.savedWaifs)
+			database.loadedWaifCount++
+			var waif types.Value
+			if wIdx < len(database.waifIdentities) {
+				waif = types.NewWaifWithIdentity(class, owner, database.waifIdentities[wIdx])
+			} else {
+				waif = types.NewWaif(class, owner)
+			}
 			database.savedWaifs = append(database.savedWaifs, waifLoadData{
 				waif: waif,
 			})

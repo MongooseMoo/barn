@@ -37,6 +37,42 @@ func TestWriteCheckpointWritesOnlyToNewFile(t *testing.T) {
 	}
 }
 
+func TestWriteCheckpointPreservesWaifIdentityWithoutChangingPortableDump(t *testing.T) {
+	objectStore := dbstore.NewStore()
+	waif := types.NewWaif(9, 3)
+	other := types.NewWaif(9, 3)
+	objectStore.SetPendingFinalizations([]types.Value{waif, other})
+	path := filepath.Join(t.TempDir(), "waif-identity.db")
+	if err := WriteCheckpoint(path, objectStore, nil, nil, nil); err != nil {
+		t.Fatalf("WriteCheckpoint: %v", err)
+	}
+
+	raw, err := os.ReadFile(path + ".new")
+	if err != nil {
+		t.Fatalf("read portable checkpoint: %v", err)
+	}
+	if !strings.Contains(string(raw), "13\nc 0\n") || !strings.Contains(string(raw), "13\nc 1\n") {
+		t.Fatalf("checkpoint changed portable WAIF marker:\n%s", raw)
+	}
+	if strings.Contains(string(raw), waif.WaifIdentity().String()) {
+		t.Fatal("portable database contains Barn-private WAIF identity")
+	}
+
+	reloaded, err := LoadDatabase(path + ".new")
+	if err != nil {
+		t.Fatalf("LoadDatabase: %v", err)
+	}
+	if got := reloaded.PendingFinalizations[0].WaifIdentity(); got != waif.WaifIdentity() {
+		t.Fatalf("identity after checkpoint = %s, want %s", got, waif.WaifIdentity())
+	}
+	if got := reloaded.PendingFinalizations[1].WaifIdentity(); got != other.WaifIdentity() {
+		t.Fatalf("second identity after checkpoint = %s, want %s", got, other.WaifIdentity())
+	}
+	if reloaded.PendingFinalizations[0].WaifIdentity() == reloaded.PendingFinalizations[1].WaifIdentity() {
+		t.Fatal("distinct WAIFs became identical after checkpoint")
+	}
+}
+
 func TestWriteCheckpointPreservesAnonymousGraphsRootedOnlyBySuspendedTasks(t *testing.T) {
 	objectStore := dbstore.NewStore()
 	for _, builder := range []*dbstore.ObjectBuilder{

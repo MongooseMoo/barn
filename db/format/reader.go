@@ -27,6 +27,10 @@ type Database struct {
 	// savedWaifs tracks WAIFs during loading for reference resolution.
 	// Index corresponds to the WAIF save index in the database file.
 	savedWaifs []waifLoadData
+	// waifIdentities is loaded from Barn's optional checkpoint sidecar. Its
+	// order matches the portable dump's c N definition order.
+	waifIdentities  []types.WaifIdentity
+	loadedWaifCount int
 }
 
 // waifLoadData holds a WAIF and its raw indexed properties during loading.
@@ -88,9 +92,16 @@ func LoadDatabase(path string) (*Database, error) {
 	defer f.Close()
 
 	reader := bufio.NewReader(f)
-	database, err := parseDatabase(reader)
+	identities, err := readWaifIdentitySidecar(path)
 	if err != nil {
 		return nil, err
+	}
+	database, err := parseDatabaseWithWaifIdentities(reader, identities)
+	if err != nil {
+		return nil, err
+	}
+	if len(identities) > 0 && len(identities) != database.loadedWaifCount {
+		return nil, fmt.Errorf("WAIF identity sidecar has %d entries, database has %d WAIF definitions", len(identities), database.loadedWaifCount)
 	}
 	for _, msg := range database.startupRepairLogs {
 		slog.Warn(msg, slog.String("src", "startup_repair"))
@@ -99,9 +110,10 @@ func LoadDatabase(path string) (*Database, error) {
 }
 
 // parseDatabase parses database from reader
-func parseDatabase(r *bufio.Reader) (*Database, error) {
+func parseDatabaseWithWaifIdentities(r *bufio.Reader, identities []types.WaifIdentity) (*Database, error) {
 	database := &Database{
-		Objects: make(map[types.ObjID]*store.ObjectBuilder),
+		Objects:        make(map[types.ObjID]*store.ObjectBuilder),
+		waifIdentities: identities,
 	}
 
 	// Read header
