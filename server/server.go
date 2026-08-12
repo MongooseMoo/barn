@@ -398,9 +398,6 @@ func (s *Server) shutdown() error {
 
 	s.runtime.Stop()
 	s.backgroundWG.Wait()
-	if err := s.runtime.Registry().Close(); err != nil {
-		slog.Warn("closing builtin registry", slog.Any("err", err))
-	}
 
 	s.mu.Lock()
 	s.running = false
