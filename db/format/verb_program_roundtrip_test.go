@@ -94,7 +94,7 @@ func TestRoundTripPreservesEmptyVerbCodeSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
-	rStore := reloaded.NewStoreFromDatabase()
+	rStore, _ := reloaded.NewStoreFromDatabase()
 	rSnap := rStore.Snapshot()
 	rObj := rSnap.Objects[objID]
 	if rObj == nil {

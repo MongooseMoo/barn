@@ -15,7 +15,7 @@ func TestRoundTripPreservesLastMove(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	objectStore := loaded.NewStoreFromDatabase()
+	objectStore, _ := loaded.NewStoreFromDatabase()
 	const movedObject = types.ObjID(0)
 	source, locationErr := objectStore.Location(movedObject)
 	if locationErr != types.E_NONE {
@@ -45,7 +45,11 @@ func TestRoundTripPreservesLastMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
-	lastMove, errCode := reloaded.NewStoreFromDatabase().LastMove(movedObject)
+	reloadedStore, err := reloaded.NewStoreFromDatabase()
+	if err != nil {
+		t.Fatalf("construct store: %v", err)
+	}
+	lastMove, errCode := reloadedStore.LastMove(movedObject)
 	if errCode != types.E_NONE {
 		t.Fatalf("LastMove failed: %v", errCode)
 	}
@@ -65,7 +69,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	objectStore := loaded.NewStoreFromDatabase()
+	objectStore, _ := loaded.NewStoreFromDatabase()
 	_, parentOK := objectStore.Get(1)
 	_, childOK := objectStore.Get(0)
 	if !parentOK || !childOK {
@@ -101,7 +105,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("Reload failed: %v", err)
 	}
 
-	reloadedStore := reloaded.NewStoreFromDatabase()
+	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	if _, ok := reloadedStore.Get(1); !ok {
 		t.Fatalf("reloaded parent missing")
 	}
@@ -135,7 +139,7 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	objectStore := loaded.NewStoreFromDatabase()
+	objectStore, _ := loaded.NewStoreFromDatabase()
 	const classID = types.ObjID(0)
 	if ec := objectStore.DefineProperty(classID, "anon_marker", store.NewProperty(types.NewStr("class-marker"), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty anon_marker: %v", ec)
@@ -172,7 +176,7 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload failed: %v", err)
 	}
-	reloadedStore := reloaded.NewStoreFromDatabase()
+	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	anonRef, ok, propErr := reloadedStore.LocalProperty(classID, "saved_anon")
 	if propErr != types.E_NONE || !ok {
 		t.Fatalf("reloaded saved_anon missing: ok=%v err=%v", ok, propErr)
@@ -196,7 +200,7 @@ func TestRoundTripPreservesPendingAnonymousCycle(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	objectStore := loaded.NewStoreFromDatabase()
+	objectStore, _ := loaded.NewStoreFromDatabase()
 	anonA, errCode := objectStore.CreateObject([]types.ObjID{0}, 3, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject A: %v", errCode)
@@ -236,7 +240,7 @@ func TestRoundTripPreservesPendingAnonymousCycle(t *testing.T) {
 	if got := len(reloaded.AnonymousObjs); got != 2 {
 		t.Fatalf("anonymous objects = %d, want 2", got)
 	}
-	reloadedStore := reloaded.NewStoreFromDatabase()
+	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	root := reloaded.PendingFinalizations[0]
 	if root.Type() != types.TYPE_ANON || !reloadedStore.Valid(root.ID()) {
 		t.Fatalf("pending root = %v, want valid anonymous object", root)
@@ -267,7 +271,7 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	objectStore := loaded.NewStoreFromDatabase()
+	objectStore, _ := loaded.NewStoreFromDatabase()
 	_, parentOK := objectStore.Get(1)
 	_, childOK := objectStore.Get(0)
 	if !parentOK || !childOK {
@@ -309,7 +313,7 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reload round1: %v", err)
 	}
-	objectStore = reloaded1.NewStoreFromDatabase()
+	objectStore, _ = reloaded1.NewStoreFromDatabase()
 
 	// Simulate disconnect: clear conn_state. This removes it from obj.properties
 	// but leaves it in obj.propOrder.
@@ -336,7 +340,7 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 		t.Fatalf("Reload round2: %v", err)
 	}
 
-	finalStore := reloaded2.NewStoreFromDatabase()
+	finalStore, _ := reloaded2.NewStoreFromDatabase()
 	prop, ok, _ := finalStore.LocalProperty(0, "sentinel")
 	if !ok {
 		t.Fatalf("reloaded child missing sentinel after clear+checkpoint")

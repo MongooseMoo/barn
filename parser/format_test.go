@@ -83,7 +83,7 @@ func TestFormatMOOPreservesRepresentativeDatabaseVerbs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase() error = %v", err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	objects := store.All()
 	sort.Slice(objects, func(i, j int) bool { return objects[i].ID < objects[j].ID })
 

@@ -20,7 +20,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error loading database: %v\n", err)
 		os.Exit(1)
 	}
-	store := database.NewStoreFromDatabase()
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error constructing store: %v\n", err)
+		os.Exit(1)
+	}
 
 	origMax := store.MaxObject()
 	origPlayers := len(store.Players())
@@ -51,7 +55,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error reloading database: %v\n", err)
 		os.Exit(1)
 	}
-	store2 := database2.NewStoreFromDatabase()
+	store2, err := database2.NewStoreFromDatabase()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error constructing reloaded store: %v\n", err)
+		os.Exit(1)
+	}
 
 	newMax := store2.MaxObject()
 	newPlayers := len(store2.Players())

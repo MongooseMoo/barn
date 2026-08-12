@@ -147,7 +147,7 @@ func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
@@ -194,7 +194,7 @@ func TestMoveAcceptUsesCurrentTaskTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
@@ -237,7 +237,7 @@ func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
@@ -296,7 +296,7 @@ func TestCommandEvalRunGCCyclicAnonymousChainCompletes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("LoadDatabase failed: %v", err)
 			}
-			store := database.NewStoreFromDatabase()
+			store, _ := database.NewStoreFromDatabase()
 			s := NewRuntime(store)
 			defer s.Stop()
 
