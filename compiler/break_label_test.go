@@ -62,3 +62,14 @@ func TestLabeledBreakAndContinueCompile(t *testing.T) {
 		}
 	}
 }
+
+func TestLoopTargetsAreCaseInsensitive(t *testing.T) {
+	for _, src := range [][]string{
+		{"for Item in ({1})", "break iTeM;", "endfor", "return 7;"},
+		{"for Item, IndeX in ({1})", "continue InDeX;", "endfor", "return 7;"},
+	} {
+		if _, diagnostics := compiler.New(nil).CompileMOO(src); len(diagnostics) > 0 {
+			t.Fatalf("mixed-case loop target %v failed to compile: %v", src, diagnostics)
+		}
+	}
+}
