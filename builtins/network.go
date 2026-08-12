@@ -167,13 +167,6 @@ func (r *Registry) drainHeldCommands(player types.ObjID) []string {
 	return lines
 }
 
-func (r *Registry) clearHeldCommands(player types.ObjID) {
-	state := &r.runtime.heldCommands
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	delete(state.byPlayer, player)
-}
-
 func (r *Registry) heldInputEnabled(player types.ObjID) bool {
 	return r.getConnectionOptions(player)["hold-input"].Truthy()
 }
