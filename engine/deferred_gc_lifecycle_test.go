@@ -35,9 +35,9 @@ func TestRunTaskSettlesDeferredAnonymousGCAfterExecutionLeaseRelease(t *testing.
 	if store.Valid(orphanID) {
 		t.Fatalf("anonymous orphan #%d remained valid after synchronous runTask returned", orphanID)
 	}
-	rt.lifecycle.mu.Lock()
-	pending := len(rt.lifecycle.pendingAnonGC)
-	rt.lifecycle.mu.Unlock()
+	rt.lifecycle.Mu.Lock()
+	pending := len(rt.lifecycle.PendingAnonGC)
+	rt.lifecycle.Mu.Unlock()
 	if pending != 0 {
 		t.Fatalf("pending anonymous GC batches after synchronous runTask = %d, want 0", pending)
 	}
@@ -72,9 +72,9 @@ func TestRunTaskPanicAfterGCDeferralStillSettlesAfterLeaseRelease(t *testing.T) 
 	if store.Valid(orphanID) {
 		t.Fatalf("anonymous orphan #%d remained valid after recovered task panic", orphanID)
 	}
-	rt.lifecycle.mu.Lock()
-	pending := len(rt.lifecycle.pendingAnonGC)
-	rt.lifecycle.mu.Unlock()
+	rt.lifecycle.Mu.Lock()
+	pending := len(rt.lifecycle.PendingAnonGC)
+	rt.lifecycle.Mu.Unlock()
 	if pending != 0 {
 		t.Fatalf("pending anonymous GC batches after recovered task panic = %d, want 0", pending)
 	}
@@ -190,7 +190,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	taskID := rt.CreateBackgroundTask(0, program, 0)
 	startAttempted := make(chan struct{})
 	var attemptOnce sync.Once
-	rt.lifecycle.executionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
+	rt.lifecycle.ExecutionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
 	processed := make(chan int, 1)
 	go func() {
 		processed <- rt.ProcessReadyTasks()
@@ -290,7 +290,7 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 	})
 	startAttempted := make(chan struct{})
 	var attemptOnce sync.Once
-	rt.lifecycle.executionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
+	rt.lifecycle.ExecutionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
 	evalDone := make(chan string, 1)
 	go func() {
 		evalDone <- rt.EvalCommandOutput(0, "gc_eval_started(); return 1;")
@@ -374,7 +374,7 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 	})
 	startAttempted := make(chan struct{})
 	var attemptOnce sync.Once
-	rt.lifecycle.executionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
+	rt.lifecycle.ExecutionStartObserver = func() { attemptOnce.Do(func() { close(startAttempted) }) }
 
 	gcCtx := kernel.NewTaskContext()
 	gcCtx.Player = 0

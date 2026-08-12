@@ -195,10 +195,10 @@ resumeLoop:
 	anonCreated := s.store.AnonCreationCount() != anonFloor
 	if anonCreated || len(pending) > 0 {
 		func() {
-			s.lifecycle.sweepMu.Lock()
-			defer s.lifecycle.sweepMu.Unlock()
-			s.lifecycle.vmStartMu.Lock()
-			defer s.lifecycle.vmStartMu.Unlock()
+			s.lifecycle.SweepMu.Lock()
+			defer s.lifecycle.SweepMu.Unlock()
+			s.lifecycle.VMStartMu.Lock()
+			defer s.lifecycle.VMStartMu.Unlock()
 
 			siblingAnon, siblingWaifs, quiescent := s.collectSiblingGCRefs(t)
 			if !quiescent {

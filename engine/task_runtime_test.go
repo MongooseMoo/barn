@@ -32,7 +32,7 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	taskID := s.CreateBackgroundTask(types.ObjNothing, program, 0)
 
 	s.mu.Lock()
-	bgTask := s.tasks[taskID]
+	bgTask := s.taskManager.GetTask(taskID)
 	bgTask.StartTime = time.Now().Add(-10 * time.Minute)
 	s.mu.Unlock()
 
@@ -65,7 +65,7 @@ func TestIndefiniteSuspendNotAutoWokenThenResumeRuns(t *testing.T) {
 	tk.StartTime = time.Now()
 	tk.ForkCreator = s
 	s.mu.Lock()
-	s.tasks[tk.ID] = tk
+	s.taskManager.RegisterTask(tk)
 	s.mu.Unlock()
 	tk.SetState(task.TaskQueued)
 	mgr.RegisterTask(tk)
@@ -128,10 +128,10 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 	t.Cleanup(func() {
 		s.taskManager.RemoveTask(taskID)
 		s.mu.Lock()
-		delete(s.tasks, taskID)
+		s.taskManager.RemoveTask(taskID)
 		s.mu.Unlock()
 	})
-	readTask := s.tasks[taskID]
+	readTask := s.taskManager.GetTask(taskID)
 
 	if got := s.ProcessReadyTasks(); got != 1 {
 		t.Fatalf("initial scheduler pass ran %d tasks, want 1", got)
@@ -185,7 +185,8 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	defer func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		for id := range s.tasks {
+		for _, catalogTask := range s.taskManager.Snapshot() {
+			id := catalogTask.ID
 			mgr.RemoveTask(id)
 		}
 	}()
@@ -193,12 +194,12 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	if got := s.ProcessReadyTasks(); got != 1 {
 		t.Fatalf("initial scheduler pass ran %d tasks, want 1", got)
 	}
-	if got := s.tasks[parentID].GetState(); got != task.TaskCompleted {
+	if got := s.taskManager.GetTask(parentID).GetState(); got != task.TaskCompleted {
 		t.Fatalf("parent state = %v, want TaskCompleted", got)
 	}
 
 	var outer *task.Task
-	for _, queued := range s.tasks {
+	for _, queued := range s.taskManager.Snapshot() {
 		if queued.IsForked {
 			outer = queued
 			break
@@ -222,7 +223,7 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	}
 
 	forkedCount := 0
-	for _, queued := range s.tasks {
+	for _, queued := range s.taskManager.Snapshot() {
 		if !queued.IsForked {
 			continue
 		}
