@@ -134,7 +134,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	taskA.StartTime = time.Now()
 	taskA.ForkCreator = s
 	s.mu.Lock()
-	s.tasks[taskA.ID] = taskA
+	s.taskManager.RegisterTask(taskA)
 	s.mu.Unlock()
 	taskA.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(taskA)
@@ -151,7 +151,7 @@ func TestReview_BytecodeVMDataRaceLiveTaskVMsVsRunTask(t *testing.T) {
 	taskB.StartTime = time.Now()
 	taskB.ForkCreator = s
 	s.mu.Lock()
-	s.tasks[taskB.ID] = taskB
+	s.taskManager.RegisterTask(taskB)
 	s.mu.Unlock()
 	taskB.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(taskB)
