@@ -159,107 +159,111 @@ const (
 // uses these 32-bit forms uniformly: choosing the width before the target is
 // known avoids relocating already-emitted bytecode during backpatching.
 const (
-	OP_AND_WIDE             OpCode = OP_CALL_VERB_WIDE + 1 + iota // Short-circuit AND [offset:uint32]
-	OP_OR_WIDE                                                    // Short-circuit OR [offset:uint32]
-	OP_JUMP_WIDE                                                  // Forward jump [offset:uint32]
-	OP_JUMP_IF_FALSE_WIDE                                         // Pop; jump forward if false [offset:uint32]
-	OP_JUMP_IF_TRUE_WIDE                                          // Pop; jump forward if true [offset:uint32]
-	OP_LOOP_WIDE                                                  // Backward jump [offset:uint32]
-	OP_FOR_RANGE_CHECK_WIDE                                       // Range condition [valueVar,endVar,exitOffset:uint32]
-	OP_FOR_RANGE_NEXT_WIDE                                        // Range increment [valueVar,endVar,loopOffset:uint32]
-	OP_TRY_EXCEPT_WIDE                                            // Exception handlers [numClauses, metadata with handlerIP:uint32]
-	OP_TRY_FINALLY_WIDE                                           // Finally handler [handlerIP:uint32]
-	OP_END_FINALLY_WIDE                                           // Finish finally handler [handlerIP:uint32]
-	OP_FORK_WIDE                                                  // Fork statement [varIdx:byte, bodyLen:uint32]
+	OP_AND_WIDE              OpCode = OP_CALL_VERB_WIDE + 1 + iota // Short-circuit AND [offset:uint32]
+	OP_OR_WIDE                                                     // Short-circuit OR [offset:uint32]
+	OP_JUMP_WIDE                                                   // Forward jump [offset:uint32]
+	OP_JUMP_IF_FALSE_WIDE                                          // Pop; jump forward if false [offset:uint32]
+	OP_JUMP_IF_TRUE_WIDE                                           // Pop; jump forward if true [offset:uint32]
+	OP_LOOP_WIDE                                                   // Backward jump [offset:uint32]
+	OP_FOR_RANGE_CHECK_WIDE                                        // Range condition [valueVar,endVar,exitOffset:uint32]
+	OP_FOR_RANGE_NEXT_WIDE                                         // Range increment [valueVar,endVar,loopOffset:uint32]
+	OP_TRY_EXCEPT_WIDE                                             // Exception handlers [numClauses, metadata with handlerIP:uint32]
+	OP_TRY_FINALLY_WIDE                                            // Finally handler [handlerIP:uint32]
+	OP_END_FINALLY_WIDE                                            // Finish finally handler [handlerIP:uint32]
+	OP_FORK_WIDE                                                   // Fork statement [varIdx:byte, bodyLen:uint32]
+	OP_TRY_EXCEPT_LOCAL_WIDE                                       // Exception handlers [numClauses, metadata with varIdx:uint16, handlerIP:uint32]
+	OP_FORK_LOCAL_WIDE                                             // Fork statement [varIdx:uint16, bodyLen:uint32]
 )
 
 // OpCodeNames maps opcodes to their string names for debugging
 var OpCodeNames = map[OpCode]string{
-	OP_PUSH:                 "PUSH",
-	OP_POP:                  "POP",
-	OP_DUP:                  "DUP",
-	OP_GET_VAR:              "GET_VAR",
-	OP_SET_VAR:              "SET_VAR",
-	OP_GET_PROP:             "GET_PROP",
-	OP_SET_PROP:             "SET_PROP",
-	OP_ADD:                  "ADD",
-	OP_SUB:                  "SUB",
-	OP_MUL:                  "MUL",
-	OP_DIV:                  "DIV",
-	OP_MOD:                  "MOD",
-	OP_POW:                  "POW",
-	OP_NEG:                  "NEG",
-	OP_EQ:                   "EQ",
-	OP_NE:                   "NE",
-	OP_LT:                   "LT",
-	OP_LE:                   "LE",
-	OP_GT:                   "GT",
-	OP_GE:                   "GE",
-	OP_IN:                   "IN",
-	OP_NOT:                  "NOT",
-	OP_AND:                  "AND",
-	OP_OR:                   "OR",
-	OP_BITOR:                "BITOR",
-	OP_BITAND:               "BITAND",
-	OP_BITXOR:               "BITXOR",
-	OP_BITNOT:               "BITNOT",
-	OP_SHL:                  "SHL",
-	OP_SHR:                  "SHR",
-	OP_JUMP:                 "JUMP",
-	OP_JUMP_IF_FALSE:        "JUMP_IF_FALSE",
-	OP_JUMP_IF_TRUE:         "JUMP_IF_TRUE",
-	OP_RETURN:               "RETURN",
-	OP_RETURN_NONE:          "RETURN_NONE",
-	OP_LOOP:                 "LOOP",
-	OP_FOR_RANGE_CHECK:      "FOR_RANGE_CHECK",
-	OP_FOR_LIST_LOAD:        "FOR_LIST_LOAD",
-	OP_FOR_LIST_LOAD_KV:     "FOR_LIST_LOAD_KV",
-	OP_FOR_RANGE_NEXT:       "FOR_RANGE_NEXT",
-	OP_BREAK:                "DEAD_BREAK",
-	OP_CONTINUE:             "DEAD_CONTINUE",
-	OP_TRY_EXCEPT:           "TRY_EXCEPT",
-	OP_END_EXCEPT:           "END_EXCEPT",
-	OP_TRY_FINALLY:          "TRY_FINALLY",
-	OP_END_FINALLY:          "END_FINALLY",
-	OP_CATCH:                "DEAD_CATCH",
-	OP_RAISE:                "DEAD_RAISE",
-	OP_CALL_BUILTIN:         "CALL_BUILTIN",
-	OP_CALL_VERB:            "CALL_VERB",
-	OP_SCATTER:              "SCATTER",
-	OP_MAKE_LIST:            "MAKE_LIST",
-	OP_MAKE_MAP:             "MAKE_MAP",
-	OP_INDEX:                "INDEX",
-	OP_INDEX_SET:            "INDEX_SET",
-	OP_RANGE:                "RANGE",
-	OP_RANGE_SET:            "RANGE_SET",
-	OP_LENGTH:               "LENGTH",
-	OP_INDEX_MARKER:         "INDEX_MARKER",
-	OP_SPLICE:               "SPLICE",
-	OP_ITER_PREP:            "ITER_PREP",
-	OP_LIST_RANGE:           "LIST_RANGE",
-	OP_LIST_APPEND:          "LIST_APPEND",
-	OP_LIST_EXTEND:          "LIST_EXTEND",
-	OP_STRING_APPEND:        "STRING_APPEND",
-	OP_FORK:                 "FORK",
-	OP_PASS:                 "PASS",
-	OP_GET_PROP_DYNAMIC:     "GET_PROP_DYNAMIC",
-	OP_SET_PROP_DYNAMIC:     "SET_PROP_DYNAMIC",
-	OP_CALL_VERB_DYNAMIC:    "CALL_VERB_DYNAMIC",
-	OP_GET_PROP_WIDE:        "GET_PROP_WIDE",
-	OP_SET_PROP_WIDE:        "SET_PROP_WIDE",
-	OP_CALL_VERB_WIDE:       "CALL_VERB_WIDE",
-	OP_AND_WIDE:             "AND_WIDE",
-	OP_OR_WIDE:              "OR_WIDE",
-	OP_JUMP_WIDE:            "JUMP_WIDE",
-	OP_JUMP_IF_FALSE_WIDE:   "JUMP_IF_FALSE_WIDE",
-	OP_JUMP_IF_TRUE_WIDE:    "JUMP_IF_TRUE_WIDE",
-	OP_LOOP_WIDE:            "LOOP_WIDE",
-	OP_FOR_RANGE_CHECK_WIDE: "FOR_RANGE_CHECK_WIDE",
-	OP_FOR_RANGE_NEXT_WIDE:  "FOR_RANGE_NEXT_WIDE",
-	OP_TRY_EXCEPT_WIDE:      "TRY_EXCEPT_WIDE",
-	OP_TRY_FINALLY_WIDE:     "TRY_FINALLY_WIDE",
-	OP_END_FINALLY_WIDE:     "END_FINALLY_WIDE",
-	OP_FORK_WIDE:            "FORK_WIDE",
+	OP_PUSH:                  "PUSH",
+	OP_POP:                   "POP",
+	OP_DUP:                   "DUP",
+	OP_GET_VAR:               "GET_VAR",
+	OP_SET_VAR:               "SET_VAR",
+	OP_GET_PROP:              "GET_PROP",
+	OP_SET_PROP:              "SET_PROP",
+	OP_ADD:                   "ADD",
+	OP_SUB:                   "SUB",
+	OP_MUL:                   "MUL",
+	OP_DIV:                   "DIV",
+	OP_MOD:                   "MOD",
+	OP_POW:                   "POW",
+	OP_NEG:                   "NEG",
+	OP_EQ:                    "EQ",
+	OP_NE:                    "NE",
+	OP_LT:                    "LT",
+	OP_LE:                    "LE",
+	OP_GT:                    "GT",
+	OP_GE:                    "GE",
+	OP_IN:                    "IN",
+	OP_NOT:                   "NOT",
+	OP_AND:                   "AND",
+	OP_OR:                    "OR",
+	OP_BITOR:                 "BITOR",
+	OP_BITAND:                "BITAND",
+	OP_BITXOR:                "BITXOR",
+	OP_BITNOT:                "BITNOT",
+	OP_SHL:                   "SHL",
+	OP_SHR:                   "SHR",
+	OP_JUMP:                  "JUMP",
+	OP_JUMP_IF_FALSE:         "JUMP_IF_FALSE",
+	OP_JUMP_IF_TRUE:          "JUMP_IF_TRUE",
+	OP_RETURN:                "RETURN",
+	OP_RETURN_NONE:           "RETURN_NONE",
+	OP_LOOP:                  "LOOP",
+	OP_FOR_RANGE_CHECK:       "FOR_RANGE_CHECK",
+	OP_FOR_LIST_LOAD:         "FOR_LIST_LOAD",
+	OP_FOR_LIST_LOAD_KV:      "FOR_LIST_LOAD_KV",
+	OP_FOR_RANGE_NEXT:        "FOR_RANGE_NEXT",
+	OP_BREAK:                 "DEAD_BREAK",
+	OP_CONTINUE:              "DEAD_CONTINUE",
+	OP_TRY_EXCEPT:            "TRY_EXCEPT",
+	OP_END_EXCEPT:            "END_EXCEPT",
+	OP_TRY_FINALLY:           "TRY_FINALLY",
+	OP_END_FINALLY:           "END_FINALLY",
+	OP_CATCH:                 "DEAD_CATCH",
+	OP_RAISE:                 "DEAD_RAISE",
+	OP_CALL_BUILTIN:          "CALL_BUILTIN",
+	OP_CALL_VERB:             "CALL_VERB",
+	OP_SCATTER:               "SCATTER",
+	OP_MAKE_LIST:             "MAKE_LIST",
+	OP_MAKE_MAP:              "MAKE_MAP",
+	OP_INDEX:                 "INDEX",
+	OP_INDEX_SET:             "INDEX_SET",
+	OP_RANGE:                 "RANGE",
+	OP_RANGE_SET:             "RANGE_SET",
+	OP_LENGTH:                "LENGTH",
+	OP_INDEX_MARKER:          "INDEX_MARKER",
+	OP_SPLICE:                "SPLICE",
+	OP_ITER_PREP:             "ITER_PREP",
+	OP_LIST_RANGE:            "LIST_RANGE",
+	OP_LIST_APPEND:           "LIST_APPEND",
+	OP_LIST_EXTEND:           "LIST_EXTEND",
+	OP_STRING_APPEND:         "STRING_APPEND",
+	OP_FORK:                  "FORK",
+	OP_PASS:                  "PASS",
+	OP_GET_PROP_DYNAMIC:      "GET_PROP_DYNAMIC",
+	OP_SET_PROP_DYNAMIC:      "SET_PROP_DYNAMIC",
+	OP_CALL_VERB_DYNAMIC:     "CALL_VERB_DYNAMIC",
+	OP_GET_PROP_WIDE:         "GET_PROP_WIDE",
+	OP_SET_PROP_WIDE:         "SET_PROP_WIDE",
+	OP_CALL_VERB_WIDE:        "CALL_VERB_WIDE",
+	OP_AND_WIDE:              "AND_WIDE",
+	OP_OR_WIDE:               "OR_WIDE",
+	OP_JUMP_WIDE:             "JUMP_WIDE",
+	OP_JUMP_IF_FALSE_WIDE:    "JUMP_IF_FALSE_WIDE",
+	OP_JUMP_IF_TRUE_WIDE:     "JUMP_IF_TRUE_WIDE",
+	OP_LOOP_WIDE:             "LOOP_WIDE",
+	OP_FOR_RANGE_CHECK_WIDE:  "FOR_RANGE_CHECK_WIDE",
+	OP_FOR_RANGE_NEXT_WIDE:   "FOR_RANGE_NEXT_WIDE",
+	OP_TRY_EXCEPT_WIDE:       "TRY_EXCEPT_WIDE",
+	OP_TRY_FINALLY_WIDE:      "TRY_FINALLY_WIDE",
+	OP_END_FINALLY_WIDE:      "END_FINALLY_WIDE",
+	OP_FORK_WIDE:             "FORK_WIDE",
+	OP_TRY_EXCEPT_LOCAL_WIDE: "TRY_EXCEPT_LOCAL_WIDE",
+	OP_FORK_LOCAL_WIDE:       "FORK_LOCAL_WIDE",
 }
 
 // String returns the name of an opcode
@@ -294,11 +298,13 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		return 3
 	case OP_FORK_WIDE:
 		return 5
+	case OP_FORK_LOCAL_WIDE:
+		return 6
 	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
 		return 4
 	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE:
 		return 6
-	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE:
+	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE, OP_TRY_EXCEPT_LOCAL_WIDE:
 		if len(remaining) == 0 {
 			return 0
 		}
@@ -307,10 +313,14 @@ func instructionOperandCount(op OpCode, remaining []byte) int {
 		for clause := 0; clause < clauses && count < len(remaining); clause++ {
 			codes := int(remaining[count])
 			ipBytes := 2
-			if op == OP_TRY_EXCEPT_WIDE {
+			if op == OP_TRY_EXCEPT_WIDE || op == OP_TRY_EXCEPT_LOCAL_WIDE {
 				ipBytes = 4
 			}
-			count += 1 + codes + 1 + ipBytes
+			varBytes := 1
+			if op == OP_TRY_EXCEPT_LOCAL_WIDE {
+				varBytes = 2
+			}
+			count += 1 + codes + varBytes + ipBytes
 		}
 		return count
 	default:
