@@ -7,11 +7,7 @@ import (
 )
 
 // TestStringAppendRoutingCharacterization locks the observable behavior of the
-// OP_STRING_APPEND handler (executeStringAppend) reached via the self-accumulation
-// peephole `x = x + expr` (bytecode/compiler.go). These are characterization
-// tests: they encode current master behavior and MUST stay green across the
-// numeric-first reorder of executeStringAppend, which is a pure reordering with
-// no behavior change.
+// compatibility opcode reached via the self-accumulation peephole `x = x + expr`.
 func TestStringAppendRoutingCharacterization(t *testing.T) {
 	cases := []struct {
 		name string
@@ -42,9 +38,6 @@ func TestStringAppendRoutingCharacterization(t *testing.T) {
 			wantErr: types.E_TYPE,
 		},
 		{
-			// Mixed numeric self-append under default (non-promote) settings.
-			// Observed master behavior: E_TYPE (executeStringAppend has no
-			// PROMOTE_NUMBERS branch). Locked here, not assumed away.
 			name:    "mixed int+float self-append raises E_TYPE under default settings",
 			code:    `x = 0; x = x + 1.5; return x;`,
 			wantErr: types.E_TYPE,
@@ -68,5 +61,29 @@ func TestStringAppendRoutingCharacterization(t *testing.T) {
 				t.Fatalf("got %s, want %s", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSelfAddMatchesAddFloatOverflow(t *testing.T) {
+	for _, code := range []string{
+		`value = 1.0e308; value = value + 1.0e308; return value;`,
+		`value = 1.0e308; result = value + 1.0e308; return result;`,
+	} {
+		result := runBytecodeProgram(t, code, nil, nil)
+		if result.Flow != types.FlowException || result.Error != types.E_FLOAT {
+			t.Fatalf("code %q: got flow=%v error=%v val=%v, want E_FLOAT", code, result.Flow, result.Error, result.Val)
+		}
+	}
+}
+
+func TestSelfAddMatchesAddWithPromotedNumbers(t *testing.T) {
+	for _, code := range []string{
+		`value = 0; value = value + 1.5; return value;`,
+		`value = 0; result = value + 1.5; return result;`,
+	} {
+		result := runBytecodeProgram(t, code, nil, promoteCtx())
+		if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_FLOAT || result.Val.Float() != 1.5 {
+			t.Fatalf("code %q: got flow=%v error=%v val=%v, want float 1.5", code, result.Flow, result.Error, result.Val)
+		}
 	}
 }
