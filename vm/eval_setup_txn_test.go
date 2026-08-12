@@ -78,7 +78,7 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
@@ -138,7 +138,7 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
-	store := database.NewStoreFromDatabase()
+	store, _ := database.NewStoreFromDatabase()
 	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)

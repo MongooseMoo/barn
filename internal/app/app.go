@@ -697,7 +697,10 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("load database: %w", err)
 		}
-		store := database.NewStoreFromDatabase()
+		store, err := database.NewStoreFromDatabase()
+		if err != nil {
+			return fmt.Errorf("construct store from database: %w", err)
+		}
 		// Inspection helpers retain the established textual contracts.
 		if cfg.VerbCode != "" {
 			err := dumpVerbCode(out, errOut, store, cfg.VerbCode)
@@ -804,7 +807,11 @@ func dumpDatabase(source, target string) error {
 		return fmt.Errorf("create dump file: %w", err)
 	}
 	defer f.Close()
-	if err := dbformat.NewWriter(f, database.NewStoreFromDatabase().Snapshot()).WriteDatabase(); err != nil {
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		return fmt.Errorf("construct store from database: %w", err)
+	}
+	if err := dbformat.NewWriter(f, store.Snapshot()).WriteDatabase(); err != nil {
 		return fmt.Errorf("write database: %w", err)
 	}
 	return nil

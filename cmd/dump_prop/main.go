@@ -23,7 +23,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error loading database: %v\n", err)
 		os.Exit(1)
 	}
-	store := database.NewStoreFromDatabase()
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error constructing store: %v\n", err)
+		os.Exit(1)
+	}
 
 	var objNum int
 	fmt.Sscanf(args[0], "%d", &objNum)

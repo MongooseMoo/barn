@@ -16,7 +16,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 
-	store := loaded.NewStoreFromDatabase()
+	store, _ := loaded.NewStoreFromDatabase()
 	ctx := kernel.NewTaskContext()
 	ctx.Player = 3
 	ctx.Programmer = 3
@@ -50,7 +50,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("Reload failed: %v", err)
 	}
 
-	reloadedStore := reloaded.NewStoreFromDatabase()
+	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	if _, ok := reloadedStore.Get(0); !ok {
 		t.Fatal("reloaded child missing")
 	}

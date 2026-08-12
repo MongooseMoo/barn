@@ -53,12 +53,19 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if err != nil {
 			return types.None, err
 		}
-		elements := make([]types.Value, count)
+		if count < 0 {
+			return types.None, fmt.Errorf("invalid list count %d", count)
+		}
+		// Do not trust the on-disk count as an allocation size. Building the
+		// result incrementally lets truncated or corrupt input fail while reading
+		// an element instead of attempting an attacker-controlled allocation.
+		elements := make([]types.Value, 0)
 		for i := 0; i < count; i++ {
-			elements[i], err = database.readValue(r)
+			element, err := database.readValue(r)
 			if err != nil {
-				return types.None, err
+				return types.None, fmt.Errorf("read list element %d of %d: %w", i, count, err)
 			}
+			elements = append(elements, element)
 		}
 		return types.NewList(elements), nil
 
@@ -101,17 +108,22 @@ func (database *Database) readValueAfterType(r *bufio.Reader, typeCode int) (typ
 		if err != nil {
 			return types.None, err
 		}
-		pairs := make([][2]types.Value, count)
+		if count < 0 {
+			return types.None, fmt.Errorf("invalid map count %d", count)
+		}
+		// As with lists, grow only as successfully decoded pairs arrive rather
+		// than allocating directly from an untrusted database-file count.
+		pairs := make([][2]types.Value, 0)
 		for i := 0; i < count; i++ {
 			key, err := database.readValue(r)
 			if err != nil {
-				return types.None, err
+				return types.None, fmt.Errorf("read map pair %d of %d key: %w", i, count, err)
 			}
 			val, err := database.readValue(r)
 			if err != nil {
-				return types.None, err
+				return types.None, fmt.Errorf("read map pair %d of %d value: %w", i, count, err)
 			}
-			pairs[i] = [2]types.Value{key, val}
+			pairs = append(pairs, [2]types.Value{key, val})
 		}
 		return types.NewMap(pairs), nil
 
