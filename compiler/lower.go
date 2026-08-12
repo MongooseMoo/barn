@@ -66,6 +66,13 @@ type scope struct {
 	Parent    *scope
 }
 
+// canonicalIdentifier returns the semantic identity of a MOO identifier.
+// Source spelling is retained on syntax nodes and in diagnostics; only name
+// resolution uses this key.
+func canonicalIdentifier(name string) string {
+	return strings.ToUpper(name)
+}
+
 func newLowerer(registry map[string]int) *lowerer {
 	return &lowerer{
 		program: &bytecode.Program{
@@ -305,7 +312,7 @@ func (c *lowerer) endScope() {
 // If the variable count exceeds 255 (the maximum addressable by a single byte),
 // sets c.err and returns 0 as a safe fallback index.
 func (c *lowerer) declareVariable(name string) int {
-	key := strings.ToUpper(name)
+	key := canonicalIdentifier(name)
 	// Check if already exists in global variable table
 	if idx, ok := c.variables[key]; ok {
 		return idx
@@ -369,7 +376,7 @@ func (c *lowerer) declareInternalVariable(name string) int {
 
 // resolveVariable resolves a variable name to its index
 func (c *lowerer) resolveVariable(name string) (int, bool) {
-	idx, ok := c.variables[strings.ToUpper(name)]
+	idx, ok := c.variables[canonicalIdentifier(name)]
 	return idx, ok
 }
 
@@ -415,9 +422,12 @@ func (c *lowerer) findLoopByTarget(name string) *loopContext {
 		return c.currentLoop()
 	}
 
+	target := canonicalIdentifier(name)
 	for i := len(c.loops) - 1; i >= 0; i-- {
 		loop := &c.loops[i]
-		if loop.Label == name || loop.ValueName == name || loop.IndexName == name {
+		if canonicalIdentifier(loop.Label) == target ||
+			canonicalIdentifier(loop.ValueName) == target ||
+			canonicalIdentifier(loop.IndexName) == target {
 			return loop
 		}
 	}
@@ -583,7 +593,7 @@ func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
 	}
 
 	// Check for built-in type constants (OBJ, STR, INT, etc.)
-	if val, ok := builtinConstants[strings.ToUpper(n.Name)]; ok {
+	if val, ok := builtinConstants[canonicalIdentifier(n.Name)]; ok {
 		c.emitConstant(val)
 		return nil
 	}
@@ -1339,7 +1349,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	// Special-case pass(): emit bytecode.OP_PASS instead of bytecode.OP_CALL_BUILTIN.
 	// bytecode.OP_PASS is handled natively by the VM — looks up the parent verb,
 	// compiles it to bytecode, and pushes a new frame.
-	if n.Name == "pass" {
+	if canonicalIdentifier(n.Name) == canonicalIdentifier("pass") {
 		hasSplice := hasSpliceArgs(n.Args)
 		if !hasSplice && len(n.Args) > 254 {
 			return fmt.Errorf("too many arguments (max 254)")
@@ -1379,7 +1389,7 @@ func (c *lowerer) compileBuiltinCall(n *verb.BuiltinCallExpr) error {
 	}
 
 	// Resolve function name to numeric ID at compile time
-	funcID, ok := c.registry[n.Name]
+	funcID, ok := c.registry[canonicalIdentifier(n.Name)]
 	if !ok {
 		return &UnknownBuiltinError{Name: n.Name, Line: n.Pos.Line}
 	}
@@ -1763,7 +1773,7 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 			// Runtime type checks preserve normal `+` errors if either operand is
 			// not a string.
 			if bin, ok := assign.Value.(*verb.BinaryExpr); ok && bin.Operator == verb.BinaryAdd {
-				if leftIdent, ok := bin.Left.(*verb.IdentifierExpr); ok && leftIdent.Name == ident.Name {
+				if leftIdent, ok := bin.Left.(*verb.IdentifierExpr); ok && canonicalIdentifier(leftIdent.Name) == canonicalIdentifier(ident.Name) {
 					idx := c.declareVariable(ident.Name)
 					c.emit(bytecode.OP_GET_VAR)
 					c.emitByte(byte(idx))
@@ -1784,7 +1794,7 @@ func (c *lowerer) compileExprStmt(n *verb.ExprStmt) error {
 			// identical (v's elements followed by the trailing items).
 			if list, ok := assign.Value.(*verb.ListExpr); ok && len(list.Elements) > 0 {
 				if sp, ok := list.Elements[0].(*verb.SpliceExpr); ok {
-					if spIdent, ok := sp.Expr.(*verb.IdentifierExpr); ok && spIdent.Name == ident.Name {
+					if spIdent, ok := sp.Expr.(*verb.IdentifierExpr); ok && canonicalIdentifier(spIdent.Name) == canonicalIdentifier(ident.Name) {
 						idx := c.declareVariable(ident.Name)
 						c.emit(bytecode.OP_GET_VAR)
 						c.emitByte(byte(idx))
