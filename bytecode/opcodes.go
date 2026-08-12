@@ -274,6 +274,50 @@ func (op OpCode) String() string {
 	return "UNKNOWN"
 }
 
+// instructionOperandCount is the authoritative description of each encoded
+// instruction's operands. All bytecode walkers must use it so that debugging,
+// instruction-boundary validation, and address rebasing stay in sync.
+func instructionOperandCount(op OpCode, remaining []byte) int {
+	switch op {
+	case OP_PUSH, OP_GET_VAR, OP_SET_VAR, OP_GET_PROP, OP_SET_PROP,
+		OP_END_EXCEPT, OP_MAKE_LIST, OP_MAKE_MAP, OP_INDEX_SET, OP_RANGE_SET,
+		OP_INDEX_MARKER, OP_ITER_PREP, OP_PASS, OP_CALL_VERB_DYNAMIC:
+		return 1
+	case OP_AND, OP_OR, OP_JUMP, OP_JUMP_IF_FALSE, OP_JUMP_IF_TRUE, OP_LOOP,
+		OP_TRY_FINALLY, OP_END_FINALLY, OP_GET_PROP_WIDE, OP_SET_PROP_WIDE,
+		OP_CALL_BUILTIN, OP_CALL_VERB:
+		return 2
+	case OP_AND_WIDE, OP_OR_WIDE, OP_JUMP_WIDE, OP_JUMP_IF_FALSE_WIDE,
+		OP_JUMP_IF_TRUE_WIDE, OP_LOOP_WIDE, OP_TRY_FINALLY_WIDE, OP_END_FINALLY_WIDE:
+		return 4
+	case OP_SCATTER, OP_FORK, OP_CALL_VERB_WIDE:
+		return 3
+	case OP_FORK_WIDE:
+		return 5
+	case OP_FOR_RANGE_CHECK, OP_FOR_RANGE_NEXT, OP_FOR_LIST_LOAD, OP_FOR_LIST_LOAD_KV:
+		return 4
+	case OP_FOR_RANGE_CHECK_WIDE, OP_FOR_RANGE_NEXT_WIDE:
+		return 6
+	case OP_TRY_EXCEPT, OP_TRY_EXCEPT_WIDE:
+		if len(remaining) == 0 {
+			return 0
+		}
+		count := 1
+		clauses := int(remaining[0])
+		for clause := 0; clause < clauses && count < len(remaining); clause++ {
+			codes := int(remaining[count])
+			ipBytes := 2
+			if op == OP_TRY_EXCEPT_WIDE {
+				ipBytes = 4
+			}
+			count += 1 + codes + 1 + ipBytes
+		}
+		return count
+	default:
+		return 0
+	}
+}
+
 // IsImmediateInt checks if an opcode is an immediate integer
 func IsImmediateInt(op OpCode) bool {
 	return int(op) >= int(OP_IMM_BASE) && int(op) < int(OP_IMM_BASE)+OP_IMM_RANGE
