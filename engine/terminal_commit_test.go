@@ -53,7 +53,7 @@ return 1;
 	if running.Result.Flow != types.FlowException || running.Result.Error != types.E_INVIND {
 		t.Errorf("terminal task result = %+v, want E_INVIND exception", running.Result)
 	}
-	if got, errCode := store.ObjectName(0); errCode != types.E_NONE || got != "" {
+	if got, errCode := store.DirectTxn().ObjectName(0); errCode != types.E_NONE || got != "" {
 		t.Errorf("terminal commit published name = %q, %v; want empty, E_NONE", got, errCode)
 	}
 }

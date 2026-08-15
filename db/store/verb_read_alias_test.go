@@ -26,7 +26,7 @@ func TestAliasedVerbReadCommits(t *testing.T) {
 		t.Fatalf("AddVerb: %v", ec)
 	}
 	p := NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)
-	if ec := s.DefineProperty(obj, "counter", p); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(obj, "counter", p); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 

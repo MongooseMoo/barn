@@ -27,7 +27,7 @@ func newReviewCtx(t *testing.T) (*Execution, *dbstore.Store) {
 // mustCreate creates a live object and fails the test on error.
 func mustCreate(t *testing.T, store *dbstore.Store, parents []types.ObjID, owner types.ObjID) types.ObjID {
 	t.Helper()
-	id, ec := store.CreateObject(parents, owner, false)
+	id, ec := store.DirectTxn().CreateObject(parents, owner, false)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject: %s", ec)
 	}
@@ -105,7 +105,7 @@ func TestReview_SetVerbInfoMutatesAncestorVerb(t *testing.T) {
 	child := mustCreate(t, store, []types.ObjID{parent}, types.ObjNothing)
 
 	// Inspect parent's verb before the call
-	verbBefore, err := store.FindVerbOnObject(parent, "look")
+	verbBefore, err := store.DirectTxn().FindVerbOnObject(parent, "look")
 	if err != nil {
 		t.Fatalf("parent verb 'look' not found: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestReview_SetVerbInfoMutatesAncestorVerb(t *testing.T) {
 		}),
 	})
 
-	verbAfter, err := store.FindVerbOnObject(parent, "look")
+	verbAfter, err := store.DirectTxn().FindVerbOnObject(parent, "look")
 	if err != nil {
 		t.Fatalf("parent verb 'look' vanished after set_verb_info: %v", err)
 	}

@@ -54,7 +54,7 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	// builtin reads and mutates the LIVE store, so mixing the two in one task would let
 	// the coarse builtin see stale live state. Pure-move tasks (the hot path) stay
 	// decentralized; mixed tasks fall back to the coarse move so live stays consistent.
-	decentralized := tx != nil && !ctx.LiveStoreMutated
+	decentralized := !ctx.LiveStoreMutated
 
 	// Check for recursive move (moving into self or descendant). Through the txn when
 	// decentralized (records read deps so two concurrent moves cannot each create a
@@ -63,7 +63,7 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	if decentralized {
 		recursive = tx.HasContentDescendant(whatVal.ID(), whereVal.ID())
 	} else {
-		recursive = store.HasContentDescendant(whatVal.ID(), whereVal.ID())
+		recursive = store.DirectTxn().HasContentDescendant(whatVal.ID(), whereVal.ID())
 	}
 	if recursive {
 		return types.Err(types.E_RECMOVE)
@@ -91,18 +91,16 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		// uses the coarse path and does not retry), and adopt the changed relationship
 		// facets into the transaction's cache.
 		oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
-		if errCode := store.MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		markLiveStoreMutated(ctx)
-		if tx != nil {
-			adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
-			if oldLocationErr == types.E_NONE {
-				adoptIDs = append(adoptIDs, oldLocation)
-			}
-			if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-				return types.Err(errCode)
-			}
+		adoptIDs := []types.ObjID{whatVal.ID(), whereVal.ID()}
+		if oldLocationErr == types.E_NONE {
+			adoptIDs = append(adoptIDs, oldLocation)
+		}
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
 		}
 	}
 
@@ -124,8 +122,6 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 // With 3+ args: also filters by player flag
 // With 4 args: inverts the parent check
 func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 1 || len(args) > 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -180,14 +176,8 @@ func builtinOccupants(ctx *Execution, args []types.Value) types.Result {
 			return false
 		}
 
-		tx := readTxn(ctx)
 		for _, parentID := range parents {
-			hasAncestor := false
-			if tx != nil {
-				hasAncestor = tx.HasAncestor(objID, parentID)
-			} else {
-				hasAncestor = store.HasAncestor(objID, parentID)
-			}
+			hasAncestor := readTxn(ctx).HasAncestor(objID, parentID)
 			if hasAncestor {
 				return true
 			}

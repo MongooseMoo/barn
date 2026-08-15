@@ -43,8 +43,8 @@ func TestTxnCreateDecentralized(t *testing.T) {
 	if !containsObjID(s.load(parent).children, newID) {
 		t.Errorf("parent #%d children = %v, missing new object #%d", parent, s.load(parent).children, newID)
 	}
-	if s.MaxObject() < newID {
-		t.Errorf("store MaxObject() = %v, want >= %v", s.MaxObject(), newID)
+	if s.DirectTxn().MaxObject() < newID {
+		t.Errorf("store MaxObject() = %v, want >= %v", s.DirectTxn().MaxObject(), newID)
 	}
 }
 

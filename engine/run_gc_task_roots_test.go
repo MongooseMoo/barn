@@ -23,25 +23,25 @@ func TestExplicitRunGCPreservesAnonymousCycleHeldBySuspendedSiblingVMs(t *testin
 		t.Fatalf("add root: %v", err)
 	}
 
-	anonA, errCode := store.CreateObject(nil, 0, true)
+	anonA, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous A: %v", errCode)
 	}
-	anonB, errCode := store.CreateObject(nil, 0, true)
+	anonB, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous B: %v", errCode)
 	}
-	if errCode := store.DefineProperty(anonA, "next", dbstore.NewProperty(types.NewAnon(anonB), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(anonA, "next", dbstore.NewProperty(types.NewAnon(anonB), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define A.next: %v", errCode)
 	}
-	if errCode := store.DefineProperty(anonB, "next", dbstore.NewProperty(types.NewAnon(anonA), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(anonB, "next", dbstore.NewProperty(types.NewAnon(anonA), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define B.next: %v", errCode)
 	}
 	for name, value := range map[string]types.Value{
 		"hold_left":  types.NewAnon(anonA),
 		"hold_right": types.NewAnon(anonB),
 	} {
-		if errCode := store.DefineProperty(0, name, dbstore.NewProperty(value, 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(0, name, dbstore.NewProperty(value, 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #%d.%s: %v", 0, name, errCode)
 		}
 	}
@@ -63,7 +63,7 @@ func TestExplicitRunGCPreservesAnonymousCycleHeldBySuspendedSiblingVMs(t *testin
 		}
 	}
 	for _, property := range []string{"hold_left", "hold_right"} {
-		if errCode := store.DeleteDefinedProperty(0, property); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DeleteDefinedProperty(0, property); errCode != types.E_NONE {
 			t.Fatalf("delete #%d.%s: %v", 0, property, errCode)
 		}
 	}
@@ -72,7 +72,7 @@ func TestExplicitRunGCPreservesAnonymousCycleHeldBySuspendedSiblingVMs(t *testin
 		t.Fatalf("run_gc eval output = %q, want successful return", line)
 	}
 	for _, id := range []types.ObjID{anonA, anonB} {
-		if !store.Valid(id) {
+		if !store.DirectTxn().Valid(id) {
 			t.Errorf("task-owned anonymous object #%d was recycled by explicit run_gc", id)
 		}
 	}
@@ -88,11 +88,11 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		t.Fatalf("add root: %v", err)
 	}
 
-	held, errCode := store.CreateObject(nil, 0, true)
+	held, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}
-	orphan, errCode := store.CreateObject(nil, 0, true)
+	orphan, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create orphan candidate: %v", errCode)
 	}
@@ -100,7 +100,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		"hold_handoff": types.NewAnon(held),
 		"hold_orphan":  types.NewAnon(orphan),
 	} {
-		if errCode := store.DefineProperty(0, name, dbstore.NewProperty(value, 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(0, name, dbstore.NewProperty(value, 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #0.%s: %v", name, errCode)
 		}
 	}
@@ -161,7 +161,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		t.Fatal("deferred GC admitted active suspend handoff")
 	}
 	for _, property := range []string{"hold_handoff", "hold_orphan"} {
-		if errCode := store.DeleteDefinedProperty(0, property); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DeleteDefinedProperty(0, property); errCode != types.E_NONE {
 			t.Fatalf("delete #0.%s: %v", property, errCode)
 		}
 	}
@@ -170,7 +170,7 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 		t.Fatalf("run_gc eval output = %q, want successful return", line)
 	}
 	for _, id := range []types.ObjID{held, orphan} {
-		if !store.Valid(id) {
+		if !store.DirectTxn().Valid(id) {
 			t.Fatalf("anonymous object #%d was recycled during active suspend handoff", id)
 		}
 	}
@@ -194,10 +194,10 @@ func TestExplicitRunGCSkipsSweepDuringSiblingSuspendHandoff(t *testing.T) {
 	if line := rt.EvalCommandOutput(0, "run_gc(); return 1;"); line != "{1, 1}" {
 		t.Fatalf("post-handoff run_gc eval output = %q, want successful return", line)
 	}
-	if !store.Valid(held) {
+	if !store.DirectTxn().Valid(held) {
 		t.Fatalf("saved suspended VM's anonymous object #%d was recycled", held)
 	}
-	if store.Valid(orphan) {
+	if store.DirectTxn().Valid(orphan) {
 		t.Fatalf("separate orphan candidate #%d survived quiescent global GC", orphan)
 	}
 }
@@ -277,7 +277,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	orphan, errCode := store.CreateObject(nil, 0, true)
+	orphan, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create orphan: %v", errCode)
 	}
@@ -342,7 +342,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("nested ambiguous VM did not complete")
 	}
-	if !store.Valid(orphan) {
+	if !store.DirectTxn().Valid(orphan) {
 		t.Fatalf("orphan #%d was swept after ambiguity lost an outer claimant", orphan)
 	}
 	if ownerID, ok := rt.executionContextOwner(ctx); !ok || ownerID != caller.ID {
@@ -358,7 +358,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	if result := runGC(rt.registry.NewExecution(ctx, caller), nil); result.Flow != types.FlowNormal {
 		t.Fatalf("unique-owner run_gc result = %+v, want success", result)
 	}
-	if store.Valid(orphan) {
+	if store.DirectTxn().Valid(orphan) {
 		t.Fatalf("orphan #%d survived after provenance became uniquely attributable", orphan)
 	}
 }
@@ -373,7 +373,7 @@ func newInitializeRunGCStore(t *testing.T) (*dbstore.Store, types.ObjID) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	prototype, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	prototype, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("create initialized prototype: %v", errCode)
 	}
@@ -430,7 +430,7 @@ func TestRunGCSweepRecycleHookRetainsTaskTransaction(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	class, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	class, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous class: %v", errCode)
 	}
@@ -461,7 +461,7 @@ func TestRunGCSweepRecycleHookRetainsTaskTransaction(t *testing.T) {
 	if running.Result.Flow != types.FlowReturn || running.Result.Val.Type() != types.TYPE_INT || running.Result.Val.Int() != 42 {
 		t.Fatalf("task result after sweep recycle hook = %+v, want shared-transaction value 42", running.Result)
 	}
-	marker, errCode := store.PropertyValue(0, "sweep_marker")
+	marker, errCode := store.DirectTxn().PropertyValue(0, "sweep_marker")
 	if errCode != types.E_NONE || marker.Type() != types.TYPE_INT || marker.Int() != 42 {
 		t.Fatalf("persisted sweep marker = %v (%v), want 42", marker, errCode)
 	}

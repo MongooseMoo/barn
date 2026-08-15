@@ -42,7 +42,7 @@ func TestMoveInvalidArgumentsMatchToast(t *testing.T) {
 			name: "nonexistent positive destination",
 			prepare: func(t *testing.T, store *dbstore.Store) []types.Value {
 				t.Helper()
-				what, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
+				what, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
 				if errCode != types.E_NONE {
 					t.Fatalf("CreateObject returned %s", errCode)
 				}
@@ -54,7 +54,7 @@ func TestMoveInvalidArgumentsMatchToast(t *testing.T) {
 			name: "negative destination other than nothing",
 			prepare: func(t *testing.T, store *dbstore.Store) []types.Value {
 				t.Helper()
-				what, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
+				what, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
 				if errCode != types.E_NONE {
 					t.Fatalf("CreateObject returned %s", errCode)
 				}
@@ -66,11 +66,11 @@ func TestMoveInvalidArgumentsMatchToast(t *testing.T) {
 			name: "recycled destination",
 			prepare: func(t *testing.T, store *dbstore.Store) []types.Value {
 				t.Helper()
-				what, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
+				what, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
 				if errCode != types.E_NONE {
 					t.Fatalf("CreateObject returned %s", errCode)
 				}
-				where, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
+				where, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
 				if errCode != types.E_NONE {
 					t.Fatalf("CreateObject returned %s", errCode)
 				}
@@ -85,7 +85,7 @@ func TestMoveInvalidArgumentsMatchToast(t *testing.T) {
 			name: "invalid object",
 			prepare: func(t *testing.T, store *dbstore.Store) []types.Value {
 				t.Helper()
-				where, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
+				where, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, types.ObjNothing, false)
 				if errCode != types.E_NONE {
 					t.Fatalf("CreateObject returned %s", errCode)
 				}

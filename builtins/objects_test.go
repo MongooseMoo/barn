@@ -33,7 +33,7 @@ func TestMoveInvalidObjectsReturnInvarg(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -88,7 +88,7 @@ func TestRecycleRequiresObjectControl(t *testing.T) {
 	if !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("nonowner recycle = %+v, want E_PERM", result)
 	}
-	if !store.Valid(4) {
+	if !store.DirectTxn().Valid(4) {
 		t.Fatal("permission-denied recycle invalidated target")
 	}
 
@@ -129,7 +129,7 @@ func TestRecyclePropagatesHookErrorAfterDestroyingObject(t *testing.T) {
 	if !result.IsError() || result.Error != types.E_DIV {
 		t.Fatalf("recycle result = %+v, want E_DIV", result)
 	}
-	if store.Valid(4) {
+	if store.DirectTxn().Valid(4) {
 		t.Fatal("recycle hook error left target valid")
 	}
 }
@@ -139,7 +139,7 @@ func TestObjectBytesSeesStagedProperties(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}

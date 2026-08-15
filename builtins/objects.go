@@ -168,13 +168,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	}
 	parents = validParents
 
-	var duplicateProps bool
-	var errCode types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		duplicateProps, errCode = tx.HasDuplicateDefinedPropertyAmong(parents)
-	} else {
-		duplicateProps, errCode = store.HasDuplicateDefinedPropertyAmong(parents)
-	}
+	duplicateProps, errCode := readTxn(ctx).HasDuplicateDefinedPropertyAmong(parents)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -240,7 +234,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 
 	var newID types.ObjID
 	tx := readTxn(ctx)
-	if tx != nil && !ctx.LiveStoreMutated && !anonymous {
+	if !ctx.LiveStoreMutated && !anonymous {
 		// Decentralized create: stage the new NUMBERED object so it commits on the fast
 		// path. No live mutation, no adopt — the staged object is in the txn cache for
 		// read-your-writes (and for :initialize below). A later coarse builtin flushes
@@ -261,19 +255,21 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(errCode)
 		}
 		var ec types.ErrorCode
-		newID, ec = store.CreateObject(parents, owner, anonymous)
+		if anonymous {
+			newID, ec = tx.CreateObject(parents, owner, true)
+		} else {
+			newID, ec = store.DirectTxn().CreateObject(parents, owner)
+		}
 		if ec != types.E_NONE {
 			return types.Err(types.E_QUOTA)
 		}
 		markLiveStoreMutated(ctx)
-		if tx != nil {
-			if ec := tx.AdoptLiveObject(newID); ec != types.E_NONE {
-				return types.Err(ec)
-			}
-			adoptIDs := append([]types.ObjID{newID}, parents...)
-			if ec := tx.AdoptLiveRelationships(adoptIDs...); ec != types.E_NONE {
-				return types.Err(ec)
-			}
+		if ec := tx.AdoptLiveObject(newID); ec != types.E_NONE {
+			return types.Err(ec)
+		}
+		adoptIDs := append([]types.ObjID{newID}, parents...)
+		if ec := tx.AdoptLiveRelationships(adoptIDs...); ec != types.E_NONE {
+			return types.Err(ec)
 		}
 	}
 
@@ -385,24 +381,23 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	var oldChildren []types.ObjID
 	var oldContents []types.ObjID
 	oldLocation := types.ObjNothing
-	if tx := readTxn(ctx); tx != nil {
-		var errCode types.ErrorCode
-		oldParents, errCode = tx.Parents(objID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldChildren, errCode = tx.Children(objID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldContents, errCode = tx.Contents(objID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldLocation, errCode = tx.Location(objID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	tx := readTxn(ctx)
+	var errCode types.ErrorCode
+	oldParents, errCode = tx.Parents(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldChildren, errCode = tx.Children(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldContents, errCode = tx.Contents(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldLocation, errCode = tx.Location(objID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Invoke :recycle before destroying the object. Recycling still completes if
@@ -415,13 +410,7 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
 	anonRefs := make(map[types.ObjID]types.Value)
-	var propValues []types.Value
-	var errCode types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		propValues, errCode = tx.PropertyValues(objID)
-	} else {
-		propValues, errCode = store.PropertyValues(objID)
-	}
+	propValues, errCode := tx.PropertyValues(objID)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -452,11 +441,10 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	// task (the common create;recycle build shape); otherwise the coarse store.Recycle,
 	// which reparents children and boots player connections. The anon cascade above
 	// sets liveMutated when it fires, so objects holding anon refs correctly go coarse.
-	tx := readTxn(ctx)
 	isPlayer, _ := hasObjectFlagForRead(ctx, objID, dbstore.FlagUser)
 	isAnon, _ := objectIsAnonymousForRead(ctx, objID)
 	decentralized := false
-	if tx != nil && !ctx.LiveStoreMutated && !isPlayer && !isAnon {
+	if !ctx.LiveStoreMutated && !isPlayer && !isAnon {
 		// Anonymous objects live out-of-band with no numbered slot, so the decentralized
 		// committer (which publishes into numbered slots) can't tombstone one — they stay
 		// coarse. Players stay coarse too (the connection boot is an irreversible side
@@ -483,17 +471,15 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_INVARG)
 		}
 		markLiveStoreMutated(ctx)
-		if tx != nil {
-			tx.ForgetObject(objID)
-			adoptIDs := append([]types.ObjID{}, oldParents...)
-			adoptIDs = append(adoptIDs, oldChildren...)
-			adoptIDs = append(adoptIDs, oldContents...)
-			if oldLocation != types.ObjNothing {
-				adoptIDs = append(adoptIDs, oldLocation)
-			}
-			if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-				return types.Err(errCode)
-			}
+		tx.ForgetObject(objID)
+		adoptIDs := append([]types.ObjID{}, oldParents...)
+		adoptIDs = append(adoptIDs, oldChildren...)
+		adoptIDs = append(adoptIDs, oldContents...)
+		if oldLocation != types.ObjNothing {
+			adoptIDs = append(adoptIDs, oldLocation)
+		}
+		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+			return types.Err(errCode)
 		}
 		if cm := hostOf(ctx).ConnManager; cm != nil {
 			_ = cm.RecyclePlayer(objID)
@@ -549,9 +535,6 @@ func builtinMaxObject(ctx *Execution, args []types.Value) types.Result {
 
 	// Read through the transaction so a decentralized create() staged earlier in this
 	// verb is visible to max_object() (read-your-writes).
-	maxID := ctx.Store.MaxObject()
-	if tx := readTxn(ctx); tx != nil {
-		maxID = tx.MaxObject()
-	}
+	maxID := readTxn(ctx).MaxObject()
 	return types.Ok(types.NewObj(types.ObjID(maxID)))
 }

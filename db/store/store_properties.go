@@ -83,7 +83,7 @@ func (s *Store) reseedInheritedPropertiesLocked(obj *Object) {
 // FindProperty resolves a property (with inheritance) and returns a flat,
 // read-only PropertyView value. The store never hands out a live *Property to
 // external callers.
-func (s *Store) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
+func (s *Store) findProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -144,7 +144,7 @@ func validLiveObject(obj *Object) bool {
 // DefinedPropertyNames returns properties defined directly on an object in
 // definition order.
 
-func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
+func (s *Store) definedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -166,7 +166,7 @@ func (s *Store) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCo
 // DefinedPropertyNamesInAncestry returns every property name defined on objID
 // or its ancestors.
 
-func (s *Store) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
+func (s *Store) definedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -204,7 +204,7 @@ func (s *Store) definedPropertyNamesInAncestryLocked(start []types.ObjID) map[st
 	return names
 }
 
-func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
+func (s *Store) hasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -228,7 +228,7 @@ func (s *Store) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types
 	return false, types.E_NONE
 }
 
-func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
+func (s *Store) hasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -251,7 +251,7 @@ func (s *Store) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parent
 	return false, types.E_NONE
 }
 
-func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
+func (s *Store) hasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -287,15 +287,15 @@ func (s *Store) HasChparentDescendantPropertyConflict(objID types.ObjID, names m
 	return check(obj), types.E_NONE
 }
 
-func (s *Store) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
-	prop, errCode := s.FindProperty(objID, name)
+func (s *Store) propertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
+	prop, errCode := s.findProperty(objID, name)
 	if errCode != types.E_NONE {
 		return types.None, errCode
 	}
 	return prop.Value, types.E_NONE
 }
 
-func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
+func (s *Store) propertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -311,7 +311,7 @@ func (s *Store) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCod
 	return values, types.E_NONE
 }
 
-func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
+func (s *Store) truthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -362,7 +362,7 @@ func (s *Store) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix s
 
 // LocalProperty returns a flat read-only view of a property slot defined or
 // inherited directly on objID (not resolved up the parent chain).
-func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
+func (s *Store) localProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -381,7 +381,7 @@ func (s *Store) LocalProperty(objID types.ObjID, name string) (PropertyView, boo
 // object.
 
 func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
-	prop, ok, err := s.LocalProperty(objID, name)
+	prop, ok, err := s.localProperty(objID, name)
 	if err != types.E_NONE || !ok || !prop.Defined {
 		return PropertyView{}, false, err
 	}
@@ -389,7 +389,7 @@ func (s *Store) DefinedProperty(objID types.ObjID, name string) (PropertyView, b
 }
 
 func (s *Store) HasLocalProperty(objID types.ObjID, name string) (bool, types.ErrorCode) {
-	_, ok, err := s.LocalProperty(objID, name)
+	_, ok, err := s.localProperty(objID, name)
 	return ok, err
 }
 
@@ -401,7 +401,7 @@ func (s *Store) IsPropertyDefinedOnObject(objID types.ObjID, name string) (bool,
 // PropertyClearState reports whether an existing inherited property is clear on
 // the target object. A missing local slot means the property is inherited.
 
-func (s *Store) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
+func (s *Store) propertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -421,7 +421,7 @@ func (s *Store) PropertyClearState(objID types.ObjID, name string) (bool, types.
 
 // SetPropertyInfo updates owner and/or permissions on a local property slot.
 
-func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
+func (s *Store) setPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -450,7 +450,7 @@ func (s *Store) SetPropertyInfo(objID types.ObjID, name string, owner *types.Obj
 // SetPropertyValue updates an existing local property slot or creates a local
 // override for an inherited property.
 
-func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
+func (s *Store) setPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -488,7 +488,7 @@ func (s *Store) SetPropertyValue(objID types.ObjID, name string, value types.Val
 // DefineProperty adds a new property definition to an object and propagates
 // inherited clear slots to existing descendants.
 
-func (s *Store) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
+func (s *Store) defineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -530,7 +530,7 @@ func (s *Store) definePropertyLocked(objID types.ObjID, name string, prop Proper
 // DeleteDefinedProperty removes a property defined directly on an object and
 // removes inherited copies from descendants.
 
-func (s *Store) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
+func (s *Store) deleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -566,7 +566,7 @@ func (s *Store) deleteDefinedPropertyLocked(objID types.ObjID, name string, ts u
 // ClearPropertyOverride removes a local inherited-property slot so reads fall
 // through to the parent chain.
 
-func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
+func (s *Store) clearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -584,7 +584,7 @@ func (s *Store) ClearPropertyOverride(objID types.ObjID, name string) types.Erro
 	return types.E_NONE
 }
 
-func (s *Store) HasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
+func (s *Store) hasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

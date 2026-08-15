@@ -49,15 +49,15 @@ func main() {
 
 	fmt.Printf("Object #%d: %s\n", objNum, obj.Name)
 
-	view, err := store.FindVerbOnObject(types.ObjID(objNum), verbName)
+	view, err := store.DirectTxn().FindVerbOnObject(types.ObjID(objNum), verbName)
 	if err != nil {
 		// Try with colon prefix
-		view, err = store.FindVerbOnObject(types.ObjID(objNum), ":"+verbName)
+		view, err = store.DirectTxn().FindVerbOnObject(types.ObjID(objNum), ":"+verbName)
 	}
 	if err != nil {
 		fmt.Printf("Verb '%s' not found on #%d\n", verbName, objNum)
 		fmt.Println("Available verbs:")
-		if names, errCode := store.VerbNames(types.ObjID(objNum)); errCode == types.E_NONE {
+		if names, errCode := store.DirectTxn().VerbNames(types.ObjID(objNum)); errCode == types.E_NONE {
 			for _, name := range names {
 				fmt.Printf("  %s\n", name)
 			}

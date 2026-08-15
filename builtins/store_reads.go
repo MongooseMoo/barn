@@ -6,9 +6,7 @@ import (
 )
 
 func readTxn(ctx *Execution) *dbstore.StoreTxn {
-	if ctx == nil {
-		return nil
-	}
+	ctx.ensureStoreTxn()
 	return ctx.StoreTxn
 }
 
@@ -22,9 +20,7 @@ func markLiveStoreMutated(ctx *Execution) {
 		return
 	}
 	ctx.LiveStoreMutated = true
-	if tx := readTxn(ctx); tx != nil {
-		tx.MarkLiveMutated()
-	}
+	readTxn(ctx).MarkLiveMutated()
 }
 
 // flushStagedBeforeCoarse ensures the live store reflects this task's staged
@@ -38,7 +34,7 @@ func markLiveStoreMutated(ctx *Execution) {
 // when nothing is staged.
 func flushStagedBeforeCoarse(ctx *Execution) types.ErrorCode {
 	tx := readTxn(ctx)
-	if tx == nil || !tx.HasStagedTopology() {
+	if !tx.HasStagedTopology() {
 		return types.E_NONE
 	}
 	if tx.HasStagedVerbDeletes() {
@@ -60,45 +56,27 @@ func flushStagedBeforeCoarse(ctx *Execution) types.ErrorCode {
 }
 
 func objectExistsForRead(ctx *Execution, objID types.ObjID) types.ErrorCode {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.ObjectExists(objID)
-	}
-	return ctx.Store.ObjectExists(objID)
+	return readTxn(ctx).ObjectExists(objID)
 }
 
 func validForRead(ctx *Execution, objID types.ObjID) bool {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.Valid(objID)
-	}
-	return ctx.Store.Valid(objID)
+	return readTxn(ctx).Valid(objID)
 }
 
 func isRecycledForRead(ctx *Execution, objID types.ObjID) bool {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.IsRecycled(objID)
-	}
-	return ctx.Store.IsRecycled(objID)
+	return readTxn(ctx).IsRecycled(objID)
 }
 
 func objectOwnerForRead(ctx *Execution, objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.ObjectOwner(objID)
-	}
-	return ctx.Store.ObjectOwner(objID)
+	return readTxn(ctx).ObjectOwner(objID)
 }
 
 func objectIsAnonymousForRead(ctx *Execution, objID types.ObjID) (bool, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.ObjectIsAnonymous(objID)
-	}
-	return ctx.Store.ObjectIsAnonymous(objID)
+	return readTxn(ctx).ObjectIsAnonymous(objID)
 }
 
 func hasObjectFlagForRead(ctx *Execution, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.HasObjectFlag(objID, flag)
-	}
-	return ctx.Store.HasObjectFlag(objID, flag)
+	return readTxn(ctx).HasObjectFlag(objID, flag)
 }
 
 func objectAllowsForRead(ctx *Execution, objID types.ObjID, flag dbstore.ObjectFlags) (bool, types.ErrorCode) {
@@ -112,12 +90,7 @@ func objectAllowsForRead(ctx *Execution, objID types.ObjID, flag dbstore.ObjectF
 	if dbstore.ObjectAllows(owner, 0, ctx.Programmer, false, flag) {
 		return true, types.E_NONE
 	}
-	var flags dbstore.ObjectFlags
-	if tx := readTxn(ctx); tx != nil {
-		flags, errCode = tx.ObjectFlags(objID)
-	} else {
-		flags, errCode = ctx.Store.ObjectFlags(objID)
-	}
+	flags, errCode := readTxn(ctx).ObjectFlags(objID)
 	if errCode != types.E_NONE {
 		return false, errCode
 	}
@@ -125,73 +98,43 @@ func objectAllowsForRead(ctx *Execution, objID types.ObjID, flag dbstore.ObjectF
 }
 
 func parentForRead(ctx *Execution, objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.Parent(objID)
-	}
-	return ctx.Store.Parent(objID)
+	return readTxn(ctx).Parent(objID)
 }
 
 func parentsForRead(ctx *Execution, objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.Parents(objID)
-	}
-	return ctx.Store.Parents(objID)
+	return readTxn(ctx).Parents(objID)
 }
 
 func childrenForRead(ctx *Execution, objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.Children(objID)
-	}
-	return ctx.Store.Children(objID)
+	return readTxn(ctx).Children(objID)
 }
 
 func locationForRead(ctx *Execution, objID types.ObjID) (types.ObjID, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.Location(objID)
-	}
-	return ctx.Store.Location(objID)
+	return readTxn(ctx).Location(objID)
 }
 
 func definedPropertyNamesForRead(ctx *Execution, objID types.ObjID) ([]string, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.DefinedPropertyNames(objID)
-	}
-	return ctx.Store.DefinedPropertyNames(objID)
+	return readTxn(ctx).DefinedPropertyNames(objID)
 }
 
 func findPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.PropertyView, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.FindProperty(objID, name)
-	}
-	return ctx.Store.FindProperty(objID, name)
+	return readTxn(ctx).FindProperty(objID, name)
 }
 
 func localPropertyForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.PropertyView, bool, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.LocalProperty(objID, name)
-	}
-	return ctx.Store.LocalProperty(objID, name)
+	return readTxn(ctx).LocalProperty(objID, name)
 }
 
 func propertyClearStateForRead(ctx *Execution, objID types.ObjID, name string) (bool, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.PropertyClearState(objID, name)
-	}
-	return ctx.Store.PropertyClearState(objID, name)
+	return readTxn(ctx).PropertyClearState(objID, name)
 }
 
 func verbNamesForRead(ctx *Execution, objID types.ObjID) ([]string, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.VerbNames(objID)
-	}
-	return ctx.Store.VerbNames(objID)
+	return readTxn(ctx).VerbNames(objID)
 }
 
 func findVerbForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.VerbView, types.ObjID, error) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.FindVerb(objID, name)
-	}
-	return ctx.Store.FindVerb(objID, name)
+	return readTxn(ctx).FindVerb(objID, name)
 }
 
 // findCallableVerbForRead resolves the verb that would actually answer
@@ -200,36 +143,21 @@ func findVerbForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.Ve
 // findVerbForRead but uses the call-dispatch walk, reading through the task's
 // snapshot transaction when one is present.
 func findCallableVerbForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.VerbView, types.ObjID, error) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.FindCallableVerb(objID, name)
-	}
-	return ctx.Store.FindCallableVerb(objID, name)
+	return readTxn(ctx).FindCallableVerb(objID, name)
 }
 
 func findVerbOnObjectForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.VerbView, error) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.FindVerbOnObject(objID, name)
-	}
-	return ctx.Store.FindVerbOnObject(objID, name)
+	return readTxn(ctx).FindVerbOnObject(objID, name)
 }
 
 func resolveVerbOnObjectForRead(ctx *Execution, objID types.ObjID, name string) (dbstore.ResolvedVerb, error) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.ResolveVerbOnObject(objID, name)
-	}
-	return ctx.Store.ResolveVerbOnObject(objID, name)
+	return readTxn(ctx).ResolveVerbOnObject(objID, name)
 }
 
 func verbByIndexForRead(ctx *Execution, objID types.ObjID, index int) (dbstore.VerbView, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.VerbByIndex(objID, index)
-	}
-	return ctx.Store.VerbByIndex(objID, index)
+	return readTxn(ctx).VerbByIndex(objID, index)
 }
 
 func resolveVerbByIndexForRead(ctx *Execution, objID types.ObjID, index int) (dbstore.ResolvedVerb, types.ErrorCode) {
-	if tx := readTxn(ctx); tx != nil {
-		return tx.ResolveVerbByIndex(objID, index)
-	}
-	return ctx.Store.ResolveVerbByIndex(objID, index)
+	return readTxn(ctx).ResolveVerbByIndex(objID, index)
 }

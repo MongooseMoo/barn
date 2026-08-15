@@ -271,7 +271,7 @@ func TestRunTaskUsesStableReadTransaction(t *testing.T) {
 		if ctx.StoreTxn == nil {
 			t.Fatal("task context did not have a store read transaction")
 		}
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("new")); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("new")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
@@ -307,7 +307,7 @@ return {first, #0.snapshot_value};
 		}
 	}
 
-	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
+	liveValue, errCode := store.DirectTxn().PropertyValue(0, "snapshot_value")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
@@ -444,7 +444,7 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 	defer s.Stop()
 	s.Registry().SetTaskYielder(s)
 	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
@@ -540,7 +540,7 @@ return 0;
 	if err := s.runTask(queued); err != nil {
 		t.Fatalf("runTask failed: %v", err)
 	}
-	value, errCode := store.PropertyValue(0, "yield_progress")
+	value, errCode := store.DirectTxn().PropertyValue(0, "yield_progress")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %s", errCode)
 	}
@@ -563,7 +563,7 @@ func TestRunTaskRollsBackForksOnTransactionConflict(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
@@ -625,7 +625,7 @@ func TestRunTaskDoesNotRetryAfterLiveMutationConflict(t *testing.T) {
 	mutateCalls := 0
 	s.registry.Register("mutate_snapshot_value_once", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		mutateCalls++
-		if errCode := ctx.Store.SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		ctx.LiveStoreMutated = true
@@ -659,7 +659,7 @@ return before;
 	if mutateCalls != 1 {
 		t.Fatalf("mutate calls = %d, want one non-retried attempt", mutateCalls)
 	}
-	liveValue, errCode := store.PropertyValue(0, "snapshot_value")
+	liveValue, errCode := store.DirectTxn().PropertyValue(0, "snapshot_value")
 	if errCode != types.E_NONE {
 		t.Fatalf("live PropertyValue failed: %s", errCode)
 	}
@@ -683,11 +683,11 @@ func TestRunTaskDoesNotRetryAfterIrreversibleSideEffect(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	s.registry.Register("mutate_read_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
-		value, errCode := ctx.Store.PropertyValue(0, "read_value")
+		value, errCode := ctx.Store.DirectTxn().PropertyValue(0, "read_value")
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		if errCode := ctx.Store.SetPropertyValue(0, "read_value", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
+		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "read_value", types.NewInt(value.Int()+1)); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		return types.Ok(types.NewInt(0))
@@ -815,7 +815,7 @@ return 42;
 	if queued.Result.Flow != types.FlowReturn || queued.Result.Val.Int() != 42 {
 		t.Fatalf("result = flow %v value %v err %v, want return 42", queued.Result.Flow, queued.Result.Val, queued.Result.Error)
 	}
-	value, errCode := store.PropertyValue(0, "value")
+	value, errCode := store.DirectTxn().PropertyValue(0, "value")
 	if errCode != types.E_NONE {
 		t.Fatalf("PropertyValue failed: %v", errCode)
 	}

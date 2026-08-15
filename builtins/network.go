@@ -793,7 +793,7 @@ func builtinNotify(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(1))
 	}
 
-	if ctx != nil && ctx.StoreTxn != nil {
+	if ctx != nil && !readTxn(ctx).IsDirect() {
 		enqueuePendingEffect(ctx, kernel.PendingEffect{
 			Kind: kernel.PendingEffectNotification,
 			Notification: kernel.PendingNotification{
@@ -1014,7 +1014,7 @@ func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 	if resolveConnection(ctx, player) == nil {
 		return types.Ok(types.NewInt(0))
 	}
-	if ctx != nil && ctx.StoreTxn != nil {
+	if ctx != nil && !readTxn(ctx).IsDirect() {
 		enqueuePendingEffect(ctx, kernel.PendingEffect{
 			Kind:       kernel.PendingEffectBootPlayer,
 			BootPlayer: player,
@@ -1054,7 +1054,7 @@ func builtinSwitchPlayer(ctx *Execution, args []types.Value) types.Result {
 	if resolveConnection(ctx, args[0].ID()) == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if ctx != nil && ctx.StoreTxn != nil {
+	if ctx != nil && !readTxn(ctx).IsDirect() {
 		enqueuePendingEffect(ctx, kernel.PendingEffect{
 			Kind: kernel.PendingEffectConnectionSwitch,
 			ConnectionSwitch: kernel.PendingConnectionSwitch{

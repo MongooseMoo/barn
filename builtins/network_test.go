@@ -43,6 +43,8 @@ func ctxWithConnManager(cm ConnectionManager) *Execution {
 	r.SetConnectionManager(cm)
 	ctx := newTestExecution()
 	ctx.Registry = r
+	ctx.Store = dbstore.NewStore()
+	ctx.StoreTxn = ctx.Store.DirectTxn()
 	return ctx
 }
 

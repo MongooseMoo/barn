@@ -80,7 +80,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 	wizardID := types.ObjID(3)
 
 	mk := func(parents []types.ObjID) types.ObjID {
-		id, ec := store.CreateObject(parents, wizardID, false)
+		id, ec := store.DirectTxn().CreateObject(parents, wizardID, false)
 		if ec != types.E_NONE {
 			t.Fatalf("CreateObject(%v) failed: %v", parents, ec)
 		}
@@ -93,7 +93,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 
 	defInt := func(id types.ObjID, name string, perms dbstore.PropertyPerms) {
 		p := dbstore.NewProperty(types.NewInt(0), wizardID, perms, false, true)
-		if ec := store.DefineProperty(id, name, p); ec != types.E_NONE {
+		if ec := store.DirectTxn().DefineProperty(id, name, p); ec != types.E_NONE {
 			t.Fatalf("DefineProperty(%s on #%d) failed: %v", name, id, ec)
 		}
 	}
@@ -155,7 +155,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 		}
 	}
 	poolProp := dbstore.NewProperty(types.NewList(pool), wizardID, dbstore.PropRead, false, true)
-	if ec := store.DefineProperty(sysID, "destpool", poolProp); ec != types.E_NONE {
+	if ec := store.DirectTxn().DefineProperty(sysID, "destpool", poolProp); ec != types.E_NONE {
 		t.Fatalf("DefineProperty(destpool) failed: %v", ec)
 	}
 
@@ -167,7 +167,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 	for i := range playerIDs {
 		pid := mk([]types.ObjID{playerGenID})
 		dest := pool[setupRNG.Intn(len(pool))].ID()
-		if ec := store.MoveObject(pid, dest, 0); ec != types.E_NONE {
+		if ec := store.DirectTxn().MoveObject(pid, dest, 0); ec != types.E_NONE {
 			t.Fatalf("MoveObject(player) failed: %v", ec)
 		}
 		playerIDs[i] = pid
@@ -178,7 +178,7 @@ func buildMongooseFixture(t *testing.T, rooms, players, objsPerRoom int) *mongoo
 	for i := 0; i < total; i++ {
 		oid := mk([]types.ObjID{rootID})
 		dest := pool[setupRNG.Intn(len(pool))].ID()
-		if ec := store.MoveObject(oid, dest, 0); ec != types.E_NONE {
+		if ec := store.DirectTxn().MoveObject(oid, dest, 0); ec != types.E_NONE {
 			t.Fatalf("MoveObject(obj) failed: %v", ec)
 		}
 	}

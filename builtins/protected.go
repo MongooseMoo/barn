@@ -52,14 +52,14 @@ func (r *Registry) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 	}
 	flags := collectProtectedBuiltins(
 		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
-			prop, err := store.FindProperty(objID, name)
+			prop, err := store.DirectTxn().FindProperty(objID, name)
 			if err != types.E_NONE {
 				return dbstore.PropertyView{}, false
 			}
 			return prop, true
 		},
 		func(objID types.ObjID, prefix string) (map[string]bool, bool) {
-			flags, errCode := store.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
+			flags, errCode := store.DirectTxn().TruthyPropertiesWithPrefixInAncestry(objID, prefix)
 			if errCode != types.E_NONE {
 				return nil, false
 			}
@@ -86,24 +86,14 @@ func (r *Registry) LoadProtectedBuiltinsForTask(ctx *Execution) {
 			return prop, true
 		},
 		func(objID types.ObjID, prefix string) (map[string]bool, bool) {
-			if ctx.StoreTxn != nil {
-				flags, errCode := ctx.StoreTxn.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
-				if errCode == types.E_NONE {
-					return flags, true
-				}
-				return nil, false
-			}
-			if ctx.Store == nil {
-				return nil, false
-			}
-			flags, errCode := ctx.Store.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
+			flags, errCode := ctx.StoreTxn.TruthyPropertiesWithPrefixInAncestry(objID, prefix)
 			if errCode != types.E_NONE {
 				return nil, false
 			}
 			return flags, true
 		},
 	)
-	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() {
 		pending := pendingServerOptions(ctx.TaskContext)
 		if pending == nil {
 			snapshot := defaultServerOptionsSnapshot()

@@ -18,14 +18,14 @@ func TestCheckpointKeepsSuspendedTaskWaifAndAnonymousRootsTaskOwned(t *testing.T
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("add WAIF class: %v", err)
 	}
-	if errCode := store.DefineProperty(9, ":anonymous", dbstore.NewProperty(types.None, 3, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(9, ":anonymous", dbstore.NewProperty(types.None, 3, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define WAIF property: %v", errCode)
 	}
-	anonID, errCode := store.CreateObject(nil, 3, true)
+	anonID, errCode := store.DirectTxn().CreateObject(nil, 3, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}
-	directAnonID, errCode := store.CreateObject(nil, 3, true)
+	directAnonID, errCode := store.DirectTxn().CreateObject(nil, 3, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create direct anonymous object: %v", errCode)
 	}

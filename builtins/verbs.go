@@ -460,10 +460,8 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	if errCode := readTxn(ctx).AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(int64(index)))
@@ -472,8 +470,6 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteVerb: delete_verb(object, name) → none
 // Removes verb from object
 func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -519,16 +515,7 @@ func builtinDeleteVerb(ctx *Execution, args []types.Value) types.Result {
 	if !allowed {
 		return types.Err(types.E_PERM)
 	}
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.DeleteResolvedVerb(resolved); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		return types.Ok(types.NewInt(0))
-	}
-
-	// Direct-call contexts without a StoreTxn retain the one-lock fallback: live
-	// authority and exact generation are validated atomically with deletion.
-	if errCode := store.DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
+	if errCode := readTxn(ctx).DeleteResolvedVerbAuthorized(resolved, ctx.Programmer, ctx.IsWizard); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 
@@ -600,10 +587,8 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	if errCode := readTxn(ctx).AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -668,10 +653,8 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveVerbs(objID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	if errCode := readTxn(ctx).AdoptLiveVerbs(objID); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -681,8 +664,6 @@ func builtinSetVerbArgs(ctx *Execution, args []types.Value) types.Result {
 // Sets verb source code
 // Returns empty list on success, or list of compile errors
 func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -776,22 +757,12 @@ func builtinSetVerbCode(ctx *Execution, args []types.Value) types.Result {
 
 	switch args[1].Type() {
 	case types.TYPE_STR:
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetVerbCode(objID, args[1].Str(), storedLines)
-		} else {
-			errCode = store.SetVerbCode(objID, args[1].Str(), storedLines)
-		}
+		errCode := readTxn(ctx).SetVerbCode(objID, args[1].Str(), storedLines)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 	case types.TYPE_INT:
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
-		} else {
-			errCode = store.SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
-		}
+		errCode := readTxn(ctx).SetVerbCodeByIndex(objID, int(args[1].Int())-1, storedLines)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}

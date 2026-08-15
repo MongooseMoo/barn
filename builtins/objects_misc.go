@@ -48,28 +48,27 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 	var oldAnonymousChildren []types.ObjID
 	var oldContents []types.ObjID
 	oldLocation := types.ObjNothing
-	if tx := readTxn(ctx); tx != nil {
-		var errCode types.ErrorCode
-		oldParents, errCode = tx.Parents(oldID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldChildren, errCode = tx.Children(oldID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldAnonymousChildren, errCode = tx.AnonymousChildren(oldID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldContents, errCode = tx.Contents(oldID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		oldLocation, errCode = tx.Location(oldID)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	tx := readTxn(ctx)
+	var errCode types.ErrorCode
+	oldParents, errCode = tx.Parents(oldID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldChildren, errCode = tx.Children(oldID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldAnonymousChildren, errCode = tx.AnonymousChildren(oldID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldContents, errCode = tx.Contents(oldID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	oldLocation, errCode = tx.Location(oldID)
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	// Renumber the object
@@ -78,23 +77,21 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		tx.MoveStagedProperties(oldID, newID)
-		tx.ForgetObject(oldID)
-		if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		tx.ApplyStagedProperties(newID)
-		adoptIDs := append([]types.ObjID{newID}, oldParents...)
-		adoptIDs = append(adoptIDs, oldChildren...)
-		adoptIDs = append(adoptIDs, oldAnonymousChildren...)
-		adoptIDs = append(adoptIDs, oldContents...)
-		if oldLocation != types.ObjNothing {
-			adoptIDs = append(adoptIDs, oldLocation)
-		}
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	tx.MoveStagedProperties(oldID, newID)
+	tx.ForgetObject(oldID)
+	if errCode := tx.AdoptLiveObject(newID); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	tx.ApplyStagedProperties(newID)
+	adoptIDs := append([]types.ObjID{newID}, oldParents...)
+	adoptIDs = append(adoptIDs, oldChildren...)
+	adoptIDs = append(adoptIDs, oldAnonymousChildren...)
+	adoptIDs = append(adoptIDs, oldContents...)
+	if oldLocation != types.ObjNothing {
+		adoptIDs = append(adoptIDs, oldLocation)
+	}
+	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewObj(newID))
@@ -143,8 +140,6 @@ func builtinNewWaif(ctx *Execution, args []types.Value) types.Result {
 // Returns the approximate memory size of an object in bytes
 // Requires wizard permissions
 func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
@@ -174,13 +169,7 @@ func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	var bytes int
-	var errCode types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		bytes, errCode = tx.ObjectByteEstimate(objID)
-	} else {
-		bytes, errCode = store.ObjectByteEstimate(objID)
-	}
+	bytes, errCode := readTxn(ctx).ObjectByteEstimate(objID)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}

@@ -26,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	origMax := store.MaxObject()
+	origMax := store.DirectTxn().MaxObject()
 	origPlayers := len(store.Players())
 	origAll := len(store.All())
 	fmt.Printf("Loaded: maxObj=#%d, players=%d, objects=%d\n", origMax, origPlayers, origAll)
@@ -61,7 +61,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	newMax := store2.MaxObject()
+	newMax := store2.DirectTxn().MaxObject()
 	newPlayers := len(store2.Players())
 	newAll := len(store2.All())
 	fmt.Printf("Reloaded: maxObj=#%d, players=%d, objects=%d\n", newMax, newPlayers, newAll)

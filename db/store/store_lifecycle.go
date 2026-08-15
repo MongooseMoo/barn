@@ -6,7 +6,7 @@ import (
 	"slices"
 )
 
-func (s *Store) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
+func (s *Store) createObject(parents []types.ObjID, owner types.ObjID, anonymous bool) (types.ObjID, types.ErrorCode) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -66,13 +66,13 @@ func (s *Store) NextID() types.ObjID {
 // MaxObject returns the highest allocated object ID
 // Includes recycled objects (high-water mark)
 
-func (s *Store) MaxObject() types.ObjID {
+func (s *Store) maxObject() types.ObjID {
 	return s.maxObjectID()
 }
 
 // Valid checks if an object exists and is not recycled
 
-func (s *Store) Valid(id types.ObjID) bool {
+func (s *Store) valid(id types.ObjID) bool {
 	// Negative IDs are sentinels (nothing, ambiguous, failed_match)
 	if id < 0 {
 		return false
@@ -96,7 +96,7 @@ func (s *Store) Valid(id types.ObjID) bool {
 // IsRecycled checks if an object ID was recycled (vs never existed)
 // Returns true only if the object existed and was recycled
 
-func (s *Store) IsRecycled(id types.ObjID) bool {
+func (s *Store) isRecycled(id types.ObjID) bool {
 	if id < 0 {
 		return false
 	}

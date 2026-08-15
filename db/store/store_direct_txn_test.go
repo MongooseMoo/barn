@@ -40,6 +40,46 @@ func TestDirectTxnWritesThroughWithoutStaging(t *testing.T) {
 	}
 }
 
+func TestDirectTxnReseedPreservesLiveInheritedProperties(t *testing.T) {
+	s := NewStore()
+	if err := s.Add(NewObject(0, types.ObjNothing)); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+
+	tx := s.DirectTxn()
+	parent, errCode := tx.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject parent: %s", errCode)
+	}
+	child, errCode := tx.CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject child: %s", errCode)
+	}
+	if errCode := tx.DefineProperty(parent, "inherited", NewProperty(types.NewStr("value"), parent, PropRead, false, true)); errCode != types.E_NONE {
+		t.Fatalf("DefineProperty: %s", errCode)
+	}
+	if errCode := s.ChangeParents(child, []types.ObjID{parent}); errCode != types.E_NONE {
+		t.Fatalf("ChangeParents: %s", errCode)
+	}
+	if _, ok, errCode := tx.LocalProperty(child, "inherited"); errCode != types.E_NONE || !ok {
+		t.Fatalf("LocalProperty before reseed: ok=%v err=%s", ok, errCode)
+	}
+	if errCode := tx.ReseedInheritedProperties(child); errCode != types.E_NONE {
+		t.Fatalf("ReseedInheritedProperties: %s", errCode)
+	}
+	if _, ok, errCode := tx.LocalProperty(child, "inherited"); errCode != types.E_NONE || !ok {
+		t.Fatalf("LocalProperty after reseed: ok=%v err=%s", ok, errCode)
+	}
+
+	value, errCode := tx.PropertyValue(child, "inherited")
+	if errCode != types.E_NONE {
+		t.Fatalf("PropertyValue: %s", errCode)
+	}
+	if got := value.Str(); got != "value" {
+		t.Fatalf("inherited value = %q, want value", got)
+	}
+}
+
 func TestStoreDoesNotMirrorTransactionRuntimeSurface(t *testing.T) {
 	storeType := reflect.TypeOf((*Store)(nil))
 	txnType := reflect.TypeOf((*StoreTxn)(nil))

@@ -61,8 +61,8 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
-	store.DefineProperty(system, "created", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
-	store.DefineProperty(system, "connected", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
+	store.DirectTxn().DefineProperty(system, "created", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
+	store.DirectTxn().DefineProperty(system, "connected", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
 
@@ -78,11 +78,11 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 
 	s.loginPlayer(conn, 2, true)
 
-	createdVal, _ := store.PropertyValue(system, "created")
+	createdVal, _ := store.DirectTxn().PropertyValue(system, "created")
 	if (createdVal.Type() != types.TYPE_OBJ && createdVal.Type() != types.TYPE_ANON) || createdVal.Obj() != 2 {
 		t.Fatalf("created hook value = %v, want #2", createdVal)
 	}
-	connectedVal, _ := store.PropertyValue(system, "connected")
+	connectedVal, _ := store.DirectTxn().PropertyValue(system, "connected")
 	if (connectedVal.Type() != types.TYPE_OBJ && connectedVal.Type() != types.TYPE_ANON) || connectedVal.Obj() != 2 {
 		t.Fatalf("connected hook value = %v, want #2", connectedVal)
 	}
@@ -92,7 +92,7 @@ func TestUserConnectedUsesServerInitiatedCallerFrame(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(system, "connected_frame", dbstore.NewProperty(types.NewList(nil), 2,
+	if errCode := store.DirectTxn().DefineProperty(system, "connected_frame", dbstore.NewProperty(types.NewList(nil), 2,
 		dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define connected_frame: %v", errCode)
 	}
@@ -102,7 +102,7 @@ func TestUserConnectedUsesServerInitiatedCallerFrame(t *testing.T) {
 	processor := NewInputProcessor(store, rt)
 	processor.callUserHook(system, "user_connected", 2)
 
-	got, errCode := store.PropertyValue(system, "connected_frame")
+	got, errCode := store.DirectTxn().PropertyValue(system, "connected_frame")
 	if errCode != types.E_NONE {
 		t.Fatalf("read connected_frame: %v", errCode)
 	}
@@ -123,7 +123,7 @@ func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	disconnectedPlayer := addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	otherPlayer := addTestObject(t, store, 3, dbstore.FlagUser)
-	if errCode := store.DefineProperty(system, "disconnected_frames", dbstore.NewProperty(types.NewList(nil), 2,
+	if errCode := store.DirectTxn().DefineProperty(system, "disconnected_frames", dbstore.NewProperty(types.NewList(nil), 2,
 		dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define disconnected_frames: %v", errCode)
 	}
@@ -162,7 +162,7 @@ func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
 		t.Fatalf("disconnected player still resolves to connection %v", conn)
 	}
 
-	got, errCode := store.PropertyValue(system, "disconnected_frames")
+	got, errCode := store.DirectTxn().PropertyValue(system, "disconnected_frames")
 	if errCode != types.E_NONE {
 		t.Fatalf("read disconnected_frames: %v", errCode)
 	}
@@ -186,7 +186,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 	oldHandler := addTestObject(t, store, 10, dbstore.FlagWizard)
 	newHandler := addTestObject(t, store, 11, dbstore.FlagWizard)
 	for _, name := range []string{"old_disconnect_frames", "new_connected_frames", "hook_order"} {
-		if errCode := store.DefineProperty(system, name, dbstore.NewProperty(types.NewList(nil), 2,
+		if errCode := store.DirectTxn().DefineProperty(system, name, dbstore.NewProperty(types.NewList(nil), 2,
 			dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define %s: %v", name, errCode)
 		}
@@ -230,7 +230,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 	newConn.SetListener(newHandler, 7789, false)
 	processor.loginPlayer(newConn, player, false)
 
-	oldFrames, errCode := store.PropertyValue(system, "old_disconnect_frames")
+	oldFrames, errCode := store.DirectTxn().PropertyValue(system, "old_disconnect_frames")
 	if errCode != types.E_NONE {
 		t.Fatalf("read old_disconnect_frames: %v", errCode)
 	}
@@ -246,7 +246,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 		t.Fatalf("old disconnect frames = %s, want %s", oldFrames.String(), wantOldFrames.String())
 	}
 
-	newFrames, errCode := store.PropertyValue(system, "new_connected_frames")
+	newFrames, errCode := store.DirectTxn().PropertyValue(system, "new_connected_frames")
 	if errCode != types.E_NONE {
 		t.Fatalf("read new_connected_frames: %v", errCode)
 	}
@@ -262,7 +262,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 		t.Fatalf("new connected frames = %s, want %s", newFrames.String(), wantNewFrames.String())
 	}
 
-	order, errCode := store.PropertyValue(system, "hook_order")
+	order, errCode := store.DirectTxn().PropertyValue(system, "hook_order")
 	if errCode != types.E_NONE {
 		t.Fatalf("read hook_order: %v", errCode)
 	}
@@ -280,7 +280,7 @@ func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
 	for _, name := range []string{"forked", "resumed", "continued"} {
-		if errCode := store.DefineProperty(system, name, dbstore.NewProperty(types.NewInt(0), 2,
+		if errCode := store.DirectTxn().DefineProperty(system, name, dbstore.NewProperty(types.NewInt(0), 2,
 			dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define %s: %v", name, errCode)
 		}
@@ -308,7 +308,7 @@ func TestUserConnectedResumesAfterNestedSuspendWithPendingFork(t *testing.T) {
 	}
 
 	for _, name := range []string{"forked", "resumed", "continued"} {
-		value, errCode := store.PropertyValue(system, name)
+		value, errCode := store.DirectTxn().PropertyValue(system, name)
 		if errCode != types.E_NONE {
 			t.Fatalf("read %s: %v", name, errCode)
 		}

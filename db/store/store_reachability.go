@@ -118,7 +118,7 @@ func (s *Store) HasAnonymousAtOrAbove(minID types.ObjID) bool {
 	return found
 }
 
-func (s *Store) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
+func (s *Store) expandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if len(refs) == 0 {
 		return
 	}
@@ -139,6 +139,10 @@ func (s *Store) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, 
 // that is reachable through the task's in-flight anonymous graph.
 func (tx *StoreTxn) ExpandAnonymousReachability(reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if tx == nil || len(refs) == 0 {
+		return
+	}
+	if tx.direct {
+		tx.store.expandAnonymousReachability(reachable, refs)
 		return
 	}
 

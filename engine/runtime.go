@@ -85,7 +85,7 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 				player = tc.Programmer
 			}
 		}
-		if tc != nil && tc.StoreTxn != nil && execution.Task != nil {
+		if tc != nil && execution.Task != nil {
 			return s.CallVerbInContext(objID, verbName, args, execution)
 		}
 		// A no-transaction recycle context needs standalone server-hook semantics,
@@ -125,7 +125,7 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 			return nil
 		}
 		renewTransaction := func() error {
-			if ctx == nil || ctx.StoreTxn == nil {
+			if ctx == nil {
 				return nil
 			}
 			next, publishedWrites, errCode := ctx.StoreTxn.CommitAndRenew()
@@ -298,6 +298,7 @@ func (s *Runtime) populateTaskContextDependencies(ctx *kernel.TaskContext) {
 		return
 	}
 	ctx.Store = s.store
+	ctx.StoreTxn = s.store.DirectTxn()
 	ctx.RuntimeOptions = s.options
 	// With() formats these once per task rather than once per record.
 	ctx.Log = slog.Default().With(
@@ -600,7 +601,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 }
 
 func (s *Runtime) isWizard(objID types.ObjID) bool {
-	hasWizard, errCode := s.store.HasObjectFlag(objID, dbstore.FlagWizard)
+	hasWizard, errCode := s.store.DirectTxn().HasObjectFlag(objID, dbstore.FlagWizard)
 	return errCode == types.E_NONE && hasWizard
 }
 

@@ -20,7 +20,7 @@ func newMetadataPermissionFixture(t *testing.T, targetFlag dbstore.ObjectFlags) 
 	store := dbstore.NewStore()
 	create := func(owner types.ObjID) types.ObjID {
 		t.Helper()
-		id, errCode := store.CreateObject([]types.ObjID{types.ObjNothing}, owner, false)
+		id, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, owner, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject: %s", errCode)
 		}
@@ -28,20 +28,20 @@ func newMetadataPermissionFixture(t *testing.T, targetFlag dbstore.ObjectFlags) 
 	}
 
 	owner := create(types.ObjNothing)
-	if errCode := store.SetObjectOwner(owner, owner); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectOwner(owner, owner); errCode != types.E_NONE {
 		t.Fatalf("SetObjectOwner(owner): %s", errCode)
 	}
 	target := create(owner)
 	intruder := create(owner)
-	if errCode := store.SetObjectOwner(intruder, intruder); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectOwner(intruder, intruder); errCode != types.E_NONE {
 		t.Fatalf("SetObjectOwner(intruder): %s", errCode)
 	}
 	if targetFlag != 0 {
-		if errCode := store.SetObjectFlag(target, targetFlag, true); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetObjectFlag(target, targetFlag, true); errCode != types.E_NONE {
 			t.Fatalf("SetObjectFlag(target): %s", errCode)
 		}
 	}
-	if errCode := store.DefineProperty(
+	if errCode := store.DirectTxn().DefineProperty(
 		target,
 		"existing",
 		dbstore.NewProperty(types.NewInt(1), owner, dbstore.PropRead|dbstore.PropWrite, false, true),
@@ -147,7 +147,7 @@ func TestObjectMetadataBuiltinsDenyUnauthorizedProgrammerWithoutMutation(t *test
 			if _, exists, errCode := f.ctx.StoreTxn.LocalProperty(f.target, "existing"); errCode != types.E_NONE || !exists {
 				t.Fatalf("denied delete_property mutated store: exists=%v error=%s", exists, errCode)
 			}
-			if _, errCode := f.store.FindVerbOnObject(f.target, "existing"); errCode != nil {
+			if _, errCode := f.store.DirectTxn().FindVerbOnObject(f.target, "existing"); errCode != nil {
 				t.Fatalf("denied delete_verb mutated store: %v", errCode)
 			}
 		})
@@ -237,7 +237,7 @@ func TestDeleteVerbWithoutTransactionUsesAtomicLiveFallback(t *testing.T) {
 				if !result.IsNormal() {
 					t.Fatalf("delete_verb no-txn fallback = %+v, want success", result)
 				}
-				if _, err := f.store.FindVerbOnObject(f.target, "existing"); err == nil {
+				if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "existing"); err == nil {
 					t.Fatal("authorized no-txn fallback left verb live")
 				}
 				return
@@ -245,7 +245,7 @@ func TestDeleteVerbWithoutTransactionUsesAtomicLiveFallback(t *testing.T) {
 			if !result.IsError() || result.Error != test.want {
 				t.Fatalf("delete_verb no-txn fallback = %+v, want %s", result, test.want)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err != nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "existing"); err != nil {
 				t.Fatalf("denied no-txn fallback removed verb: %v", err)
 			}
 		})
@@ -261,7 +261,7 @@ func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 	if errCode != types.E_NONE {
 		t.Fatalf("stage CreateObject: %s", errCode)
 	}
-	if f.store.Valid(staged) {
+	if f.store.DirectTxn().Valid(staged) {
 		t.Fatalf("staged object #%d unexpectedly exists in live store before denial", staged)
 	}
 
@@ -272,7 +272,7 @@ func TestDeniedDeleteVerbDoesNotFlushStagedTopology(t *testing.T) {
 	if !result.IsError() || result.Error != types.E_PERM {
 		t.Fatalf("unauthorized delete_verb = %+v, want E_PERM", result)
 	}
-	if f.store.Valid(staged) {
+	if f.store.DirectTxn().Valid(staged) {
 		t.Fatalf("denied delete_verb flushed staged object #%d to live store", staged)
 	}
 }
@@ -402,7 +402,7 @@ func TestAuthorizedDeleteVerbCommitsWithStagedTopologyAndSurvivorCode(t *testing
 			if errCode != types.E_NONE {
 				t.Fatalf("stage CreateObject: %s", errCode)
 			}
-			if f.store.Valid(staged) {
+			if f.store.DirectTxn().Valid(staged) {
 				t.Fatalf("staged object #%d unexpectedly exists in live store before delete_verb", staged)
 			}
 
@@ -413,10 +413,10 @@ func TestAuthorizedDeleteVerbCommitsWithStagedTopologyAndSurvivorCode(t *testing
 			if !result.IsNormal() {
 				t.Fatalf("authorized staged delete_verb = %+v, want success", result)
 			}
-			if f.store.Valid(staged) {
+			if f.store.DirectTxn().Valid(staged) {
 				t.Fatalf("delete_verb published staged object #%d before commit", staged)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err != nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "existing"); err != nil {
 				t.Fatalf("delete_verb mutated live target before commit: %v", err)
 			}
 			if _, err := f.ctx.StoreTxn.FindVerbOnObject(f.target, "existing"); err == nil {
@@ -425,13 +425,13 @@ func TestAuthorizedDeleteVerbCommitsWithStagedTopologyAndSurvivorCode(t *testing
 			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				t.Fatalf("Commit: %s", errCode)
 			}
-			if !f.store.Valid(staged) {
+			if !f.store.DirectTxn().Valid(staged) {
 				t.Fatalf("commit did not publish staged object #%d", staged)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err == nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "existing"); err == nil {
 				t.Fatal("commit left the resolved target in the store")
 			}
-			survivor, err := f.store.FindVerbOnObject(f.target, "survivor")
+			survivor, err := f.store.DirectTxn().FindVerbOnObject(f.target, "survivor")
 			if err != nil {
 				t.Fatalf("FindVerbOnObject(survivor): %v", err)
 			}
@@ -477,16 +477,16 @@ func TestDeleteVerbDeletesLoadedMultiAliasByResolvedDescriptor(t *testing.T) {
 			if !result.IsNormal() {
 				t.Fatalf("delete_verb loaded multi-alias by %s = %+v, want success", test.name, result)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "glance"); err != nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "glance"); err != nil {
 				t.Fatalf("staged delete mutated live multi-alias verb: %v", err)
 			}
 			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				t.Fatalf("Commit: %s", errCode)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "glance"); err == nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "glance"); err == nil {
 				t.Fatal("delete_verb left the resolved loaded multi-alias verb in the store")
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "existing"); err != nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "existing"); err != nil {
 				t.Fatalf("delete_verb removed the wrong verb: %v", err)
 			}
 		})
@@ -528,16 +528,16 @@ func TestDeleteVerbDeletesExactResolvedVerbWhenAliasesOverlap(t *testing.T) {
 			if !result.IsNormal() {
 				t.Fatalf("delete_verb overlapping alias by %s = %+v, want success", test.name, result)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "peek"); err != nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "peek"); err != nil {
 				t.Fatalf("staged delete mutated live overlapping target: %v", err)
 			}
 			if errCode := f.ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				t.Fatalf("Commit: %s", errCode)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "look"); err != nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "look"); err != nil {
 				t.Fatalf("delete_verb removed the earlier overlapping verb: %v", err)
 			}
-			if _, err := f.store.FindVerbOnObject(f.target, "peek"); err == nil {
+			if _, err := f.store.DirectTxn().FindVerbOnObject(f.target, "peek"); err == nil {
 				t.Fatal("delete_verb left the exactly resolved verb in the store")
 			}
 		})

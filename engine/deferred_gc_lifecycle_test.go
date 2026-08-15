@@ -32,7 +32,7 @@ func TestRunTaskSettlesDeferredAnonymousGCAfterExecutionLeaseRelease(t *testing.
 	if err := rt.runTask(rt.GetTask(taskID)); err != nil {
 		t.Fatalf("runTask failed: %v", err)
 	}
-	if store.Valid(orphanID) {
+	if store.DirectTxn().Valid(orphanID) {
 		t.Fatalf("anonymous orphan #%d remained valid after synchronous runTask returned", orphanID)
 	}
 	rt.lifecycle.Mu.Lock()
@@ -69,7 +69,7 @@ func TestRunTaskPanicAfterGCDeferralStillSettlesAfterLeaseRelease(t *testing.T) 
 	if state := taskWithPanic.GetState(); state != task.TaskKilled {
 		t.Fatalf("task state after recovered panic = %v, want killed", state)
 	}
-	if store.Valid(orphanID) {
+	if store.DirectTxn().Valid(orphanID) {
 		t.Fatalf("anonymous orphan #%d remained valid after recovered task panic", orphanID)
 	}
 	rt.lifecycle.Mu.Lock()
@@ -143,7 +143,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 		return types.Ok(types.NewInt(0))
 	})
 
-	firstCandidate, errCode := store.CreateObject(nil, 0, true)
+	firstCandidate, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create first sweep candidate: %v", errCode)
 	}
@@ -230,7 +230,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	if state := rt.GetTask(taskID).GetState(); state != task.TaskSuspended {
 		t.Fatalf("task state = %v, want suspended", state)
 	}
-	if !store.Valid(heldID) {
+	if !store.DirectTxn().Valid(heldID) {
 		t.Fatalf("suspended VM's anonymous root #%d was recycled", heldID)
 	}
 }
@@ -247,7 +247,7 @@ func TestDeferredGCSweepBlocksEvalVMStart(t *testing.T) {
 
 	rt := NewRuntime(store)
 	defer rt.Stop()
-	candidate, errCode := store.CreateObject(nil, 0, true)
+	candidate, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create sweep candidate: %v", errCode)
 	}
@@ -350,7 +350,7 @@ func TestDeferredGCSweepBlocksServerHookVMStart(t *testing.T) {
 
 	rt := NewRuntime(store)
 	defer rt.Stop()
-	candidate, errCode := store.CreateObject(nil, 0, true)
+	candidate, errCode := store.DirectTxn().CreateObject(nil, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create sweep candidate: %v", errCode)
 	}

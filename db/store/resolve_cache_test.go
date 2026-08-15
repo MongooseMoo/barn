@@ -232,7 +232,7 @@ func TestVerbResolveCacheIsCaseInsensitive(t *testing.T) {
 func TestVerbResolveCacheBypassedAfterStagedWrite(t *testing.T) {
 	s := testChainStore(t)
 	addVerbT(t, s, 0, []string{"look"}, VerbRead|VerbExecute)
-	if ec := s.DefineProperty(0, "x", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "x", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
@@ -268,7 +268,7 @@ func TestVerbResolveCacheBypassedAfterStagedWrite(t *testing.T) {
 // never served from a pre-write memo entry.
 func TestPropertyResolveReadsOwnStagedWrite(t *testing.T) {
 	s := testChainStore(t)
-	if ec := s.DefineProperty(0, "x", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "x", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
@@ -290,7 +290,7 @@ func TestPropertyResolveCacheHitPreservesReadSetThroughClearChain(t *testing.T) 
 	s := testChainStore(t)
 	// Defined on #0, so #1 and #2 hold inherited CLEAR slots: the walk must pass
 	// through both and land on #0's value.
-	if ec := s.DefineProperty(0, "desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
@@ -339,7 +339,7 @@ func TestPropertyResolveCacheNegativeEntryPreservesReadSet(t *testing.T) {
 
 func TestPropertyResolveCacheIsCaseInsensitive(t *testing.T) {
 	s := testChainStore(t)
-	if ec := s.DefineProperty(0, "Desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "Desc", NewProperty(types.NewStr("root"), 0, PropRead, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
@@ -523,7 +523,7 @@ func TestWalkScratchReuseAcrossManyWalks(t *testing.T) {
 		}
 	}
 	addVerbT(t, s, 0, []string{"deep"}, VerbRead|VerbExecute)
-	if ec := s.DefineProperty(0, "deepprop", NewProperty(types.NewInt(5), 0, PropRead, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "deepprop", NewProperty(types.NewInt(5), 0, PropRead, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 

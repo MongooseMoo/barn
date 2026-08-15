@@ -85,7 +85,7 @@ func TestStoreTxnTerminalPreflightFailureAndValidationConflictRemainDistinct(t *
 		if errCode := tx.SetObjectName(0, "private"); errCode != types.E_NONE {
 			t.Fatalf("SetObjectName stage: %v", errCode)
 		}
-		if errCode := s.SetObjectName(0, "concurrent"); errCode != types.E_NONE {
+		if errCode := s.DirectTxn().SetObjectName(0, "concurrent"); errCode != types.E_NONE {
 			t.Fatalf("SetObjectName concurrent: %v", errCode)
 		}
 
@@ -126,7 +126,7 @@ func TestStoreTxnCommitAndRenewTerminalFailureKeepsOriginalUnreleased(t *testing
 	if tx.HasWrites() {
 		t.Error("terminal CommitAndRenew left the transaction recommittable")
 	}
-	if got, errCode := s.ObjectName(0); errCode != types.E_NONE || got != "live" {
+	if got, errCode := s.DirectTxn().ObjectName(0); errCode != types.E_NONE || got != "live" {
 		t.Errorf("terminal CommitAndRenew published name = %q, %v; want live, E_NONE", got, errCode)
 	}
 	if again, againPublished, againErr := tx.CommitAndRenew(); again != tx || againPublished || againErr != types.E_INVIND {

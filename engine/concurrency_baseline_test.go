@@ -164,7 +164,7 @@ func buildConcurrencyStore(t *testing.T, n, loop int) (*dbstore.Store, []types.O
 	verbCode := []string{fmt.Sprintf("x = 0; for i in [1..%d]; x = x + i; endfor; return x;", loop)}
 	ids := make([]types.ObjID, n)
 	for k := 0; k < n; k++ {
-		id, errCode := store.CreateObject(nil, 3, false)
+		id, errCode := store.DirectTxn().CreateObject(nil, 3, false)
 		if errCode != types.E_NONE {
 			t.Fatalf("CreateObject failed: %v", errCode)
 		}

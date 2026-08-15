@@ -185,6 +185,9 @@ func (vm *VM) ensureContextDependencies() {
 		vm.Context = kernel.NewTaskContext()
 	}
 	vm.Context.Store = vm.Store
+	if vm.Context.StoreTxn == nil && vm.Store != nil {
+		vm.Context.StoreTxn = vm.Store.DirectTxn()
+	}
 }
 
 // PrepareVerbFrame creates and pushes an initial frame for a verb without starting

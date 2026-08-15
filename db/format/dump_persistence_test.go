@@ -17,13 +17,13 @@ func TestRoundTripPreservesLastMove(t *testing.T) {
 
 	objectStore, _ := loaded.NewStoreFromDatabase()
 	const movedObject = types.ObjID(0)
-	source, locationErr := objectStore.Location(movedObject)
+	source, locationErr := objectStore.DirectTxn().Location(movedObject)
 	if locationErr != types.E_NONE {
 		t.Fatalf("Location failed: %v", locationErr)
 	}
 	const destination = types.ObjID(1)
 	before := time.Now().Unix()
-	if errCode := objectStore.MoveObject(movedObject, destination, 0); errCode != types.E_NONE {
+	if errCode := objectStore.DirectTxn().MoveObject(movedObject, destination, 0); errCode != types.E_NONE {
 		t.Fatalf("MoveObject failed: %v", errCode)
 	}
 	after := time.Now().Unix()
@@ -49,7 +49,7 @@ func TestRoundTripPreservesLastMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct store: %v", err)
 	}
-	lastMove, errCode := reloadedStore.LastMove(movedObject)
+	lastMove, errCode := reloadedStore.DirectTxn().LastMove(movedObject)
 	if errCode != types.E_NONE {
 		t.Fatalf("LastMove failed: %v", errCode)
 	}
@@ -79,10 +79,10 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 	propName := "persist_prop"
 	// Add the property on the parent at runtime (propagates a clear inherited slot
 	// to the child), then give the child a non-clear local override.
-	if errCode := objectStore.DefineProperty(1, propName, store.NewProperty(types.NewStr("base"), 3, 0, false, true)); errCode != types.E_NONE {
+	if errCode := objectStore.DirectTxn().DefineProperty(1, propName, store.NewProperty(types.NewStr("base"), 3, 0, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty(parent) failed: %v", errCode)
 	}
-	if errCode := objectStore.SetPropertyValue(0, propName, types.NewStr("child-override")); errCode != types.E_NONE {
+	if errCode := objectStore.DirectTxn().SetPropertyValue(0, propName, types.NewStr("child-override")); errCode != types.E_NONE {
 		t.Fatalf("SetPropertyValue(child) failed: %v", errCode)
 	}
 
@@ -113,7 +113,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("reloaded child missing")
 	}
 
-	parentProp, ok, _ := reloadedStore.LocalProperty(1, propName)
+	parentProp, ok, _ := reloadedStore.DirectTxn().LocalProperty(1, propName)
 	if !ok {
 		t.Fatalf("reloaded parent missing %q", propName)
 	}
@@ -121,7 +121,7 @@ func TestRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatalf("reloaded parent %q unexpectedly clear", propName)
 	}
 
-	childProp, ok, _ := reloadedStore.LocalProperty(0, propName)
+	childProp, ok, _ := reloadedStore.DirectTxn().LocalProperty(0, propName)
 	if !ok {
 		t.Fatalf("reloaded child missing %q", propName)
 	}
@@ -141,21 +141,21 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 
 	objectStore, _ := loaded.NewStoreFromDatabase()
 	const classID = types.ObjID(0)
-	if ec := objectStore.DefineProperty(classID, "anon_marker", store.NewProperty(types.NewStr("class-marker"), 3, 0, false, true)); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().DefineProperty(classID, "anon_marker", store.NewProperty(types.NewStr("class-marker"), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty anon_marker: %v", ec)
 	}
-	if ec := objectStore.DefineProperty(classID, "saved_anon", store.NewProperty(types.NewInt(0), 3, 0, false, true)); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().DefineProperty(classID, "saved_anon", store.NewProperty(types.NewInt(0), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty saved_anon: %v", ec)
 	}
 
-	anonID, ec := objectStore.CreateObject([]types.ObjID{classID}, 3, true)
+	anonID, ec := objectStore.DirectTxn().CreateObject([]types.ObjID{classID}, 3, true)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject anonymous: %v", ec)
 	}
-	if ec := objectStore.SetPropertyValue(anonID, "anon_marker", types.NewStr("anonymous-marker")); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().SetPropertyValue(anonID, "anon_marker", types.NewStr("anonymous-marker")); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue anonymous override: %v", ec)
 	}
-	if ec := objectStore.SetPropertyValue(classID, "saved_anon", types.NewAnon(anonID)); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().SetPropertyValue(classID, "saved_anon", types.NewAnon(anonID)); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue saved_anon: %v", ec)
 	}
 
@@ -177,15 +177,15 @@ func TestRoundTripPreservesAnonymousInheritedOverride(t *testing.T) {
 		t.Fatalf("Reload failed: %v", err)
 	}
 	reloadedStore, _ := reloaded.NewStoreFromDatabase()
-	anonRef, ok, propErr := reloadedStore.LocalProperty(classID, "saved_anon")
+	anonRef, ok, propErr := reloadedStore.DirectTxn().LocalProperty(classID, "saved_anon")
 	if propErr != types.E_NONE || !ok {
 		t.Fatalf("reloaded saved_anon missing: ok=%v err=%v", ok, propErr)
 	}
-	if anonRef.Value.Type() != types.TYPE_ANON || !reloadedStore.Valid(anonRef.Value.ID()) {
+	if anonRef.Value.Type() != types.TYPE_ANON || !reloadedStore.DirectTxn().Valid(anonRef.Value.ID()) {
 		t.Fatalf("reloaded saved_anon = %v, want valid anonymous object", anonRef.Value)
 	}
 
-	override, ok, propErr := reloadedStore.LocalProperty(anonRef.Value.ID(), "anon_marker")
+	override, ok, propErr := reloadedStore.DirectTxn().LocalProperty(anonRef.Value.ID(), "anon_marker")
 	if propErr != types.E_NONE || !ok {
 		t.Fatalf("reloaded anonymous override missing: ok=%v err=%v", ok, propErr)
 	}
@@ -201,18 +201,18 @@ func TestRoundTripPreservesPendingAnonymousCycle(t *testing.T) {
 	}
 
 	objectStore, _ := loaded.NewStoreFromDatabase()
-	anonA, errCode := objectStore.CreateObject([]types.ObjID{0}, 3, true)
+	anonA, errCode := objectStore.DirectTxn().CreateObject([]types.ObjID{0}, 3, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject A: %v", errCode)
 	}
-	anonB, errCode := objectStore.CreateObject([]types.ObjID{0}, 3, true)
+	anonB, errCode := objectStore.DirectTxn().CreateObject([]types.ObjID{0}, 3, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject B: %v", errCode)
 	}
-	if errCode := objectStore.DefineProperty(anonA, "next", store.NewProperty(types.NewAnon(anonB), 3, store.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := objectStore.DirectTxn().DefineProperty(anonA, "next", store.NewProperty(types.NewAnon(anonB), 3, store.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty A.next: %v", errCode)
 	}
-	if errCode := objectStore.DefineProperty(anonB, "next", store.NewProperty(types.NewAnon(anonA), 3, store.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := objectStore.DirectTxn().DefineProperty(anonB, "next", store.NewProperty(types.NewAnon(anonA), 3, store.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty B.next: %v", errCode)
 	}
 	objectStore.AppendPendingFinalizations([]types.Value{types.NewAnon(anonA)})
@@ -242,14 +242,14 @@ func TestRoundTripPreservesPendingAnonymousCycle(t *testing.T) {
 	}
 	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	root := reloaded.PendingFinalizations[0]
-	if root.Type() != types.TYPE_ANON || !reloadedStore.Valid(root.ID()) {
+	if root.Type() != types.TYPE_ANON || !reloadedStore.DirectTxn().Valid(root.ID()) {
 		t.Fatalf("pending root = %v, want valid anonymous object", root)
 	}
-	next, ok, propErr := reloadedStore.LocalProperty(root.ID(), "next")
-	if propErr != types.E_NONE || !ok || next.Value.Type() != types.TYPE_ANON || !reloadedStore.Valid(next.Value.ID()) {
+	next, ok, propErr := reloadedStore.DirectTxn().LocalProperty(root.ID(), "next")
+	if propErr != types.E_NONE || !ok || next.Value.Type() != types.TYPE_ANON || !reloadedStore.DirectTxn().Valid(next.Value.ID()) {
 		t.Fatalf("pending root next = %#v, ok=%v err=%v", next, ok, propErr)
 	}
-	back, ok, propErr := reloadedStore.LocalProperty(next.Value.ID(), "next")
+	back, ok, propErr := reloadedStore.DirectTxn().LocalProperty(next.Value.ID(), "next")
 	if propErr != types.E_NONE || !ok || !back.Value.Equal(root) {
 		t.Fatalf("pending cycle back edge = %#v, ok=%v err=%v, want %v", back, ok, propErr, root)
 	}
@@ -280,19 +280,19 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 
 	// Define two properties on the parent; both propagate cleared inherited
 	// slots to the child's properties map (but not yet to its propOrder).
-	if ec := objectStore.DefineProperty(1, "conn_state", store.NewProperty(types.NewStr("active"), 3, 0, false, true)); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().DefineProperty(1, "conn_state", store.NewProperty(types.NewStr("active"), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty conn_state: %v", ec)
 	}
-	if ec := objectStore.DefineProperty(1, "sentinel", store.NewProperty(types.NewStr("base"), 3, 0, false, true)); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().DefineProperty(1, "sentinel", store.NewProperty(types.NewStr("base"), 3, 0, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty sentinel: %v", ec)
 	}
 
 	// Give the child local overrides for both, then checkpoint+reload so that
 	// propOrder is populated on the child (as it would be in a real DB load).
-	if ec := objectStore.SetPropertyValue(0, "conn_state", types.NewStr("connected")); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().SetPropertyValue(0, "conn_state", types.NewStr("connected")); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue conn_state: %v", ec)
 	}
-	if ec := objectStore.SetPropertyValue(0, "sentinel", types.NewStr("expected-value")); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().SetPropertyValue(0, "sentinel", types.NewStr("expected-value")); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue sentinel: %v", ec)
 	}
 
@@ -317,7 +317,7 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 
 	// Simulate disconnect: clear conn_state. This removes it from obj.properties
 	// but leaves it in obj.propOrder.
-	if ec := objectStore.ClearPropertyOverride(0, "conn_state"); ec != types.E_NONE {
+	if ec := objectStore.DirectTxn().ClearPropertyOverride(0, "conn_state"); ec != types.E_NONE {
 		t.Fatalf("ClearPropertyOverride: %v", ec)
 	}
 
@@ -341,7 +341,7 @@ func TestRoundTripPreservesSiblingAfterClear(t *testing.T) {
 	}
 
 	finalStore, _ := reloaded2.NewStoreFromDatabase()
-	prop, ok, _ := finalStore.LocalProperty(0, "sentinel")
+	prop, ok, _ := finalStore.DirectTxn().LocalProperty(0, "sentinel")
 	if !ok {
 		t.Fatalf("reloaded child missing sentinel after clear+checkpoint")
 	}

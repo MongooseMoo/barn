@@ -15,7 +15,7 @@ func newCoarseAtomicTestStore(t *testing.T) *Store {
 			t.Fatalf("Add(#%d): %v", id, err)
 		}
 	}
-	if errCode := s.SetObjectName(0, "live"); errCode != types.E_NONE {
+	if errCode := s.DirectTxn().SetObjectName(0, "live"); errCode != types.E_NONE {
 		t.Fatalf("SetObjectName setup: %v", errCode)
 	}
 	return s
@@ -53,15 +53,15 @@ func TestStoreTxnCoarsePreflightIsAtomicBeforeClockOrPublication(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			s := newCoarseAtomicTestStore(t)
 			tx := stageCoarsePreflightFailure(t, s)
-			beforeClock := s.ReadTimestamp()
+			beforeClock := s.DirectTxn().ReadTimestamp()
 
 			if errCode := test.run(tx); errCode != types.E_VERBNF {
 				t.Fatalf("coarse %s = %v, want E_VERBNF", test.name, errCode)
 			}
-			if got := s.ReadTimestamp(); got != beforeClock {
+			if got := s.DirectTxn().ReadTimestamp(); got != beforeClock {
 				t.Errorf("coarse %s clock = %d, want unchanged %d", test.name, got, beforeClock)
 			}
-			if got, errCode := s.ObjectName(0); errCode != types.E_NONE || got != "live" {
+			if got, errCode := s.DirectTxn().ObjectName(0); errCode != types.E_NONE || got != "live" {
 				t.Errorf("coarse %s live name = %q, %v; want live, E_NONE", test.name, got, errCode)
 			}
 		})

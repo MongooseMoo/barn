@@ -30,7 +30,7 @@ func TestReview_DeleteVerbInheritedSilentSuccess(t *testing.T) {
 	}
 
 	// #1: child inheriting from #0
-	childID, ec := s.CreateObject([]types.ObjID{0}, 0, false)
+	childID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject child: %v", ec)
 	}
@@ -48,7 +48,7 @@ func TestReview_DeleteVerbInheritedSilentSuccess(t *testing.T) {
 	}
 
 	// Additionally confirm the parent's verb was not touched.
-	_, definer, err := s.FindVerb(0, "look")
+	_, definer, err := s.DirectTxn().FindVerb(0, "look")
 	if err != nil {
 		t.Errorf("parent verb 'look' missing after DeleteVerb on child: %v", err)
 	} else if definer != 0 {
@@ -73,7 +73,7 @@ func TestReview_SetVerbCodeMutatesAncestor(t *testing.T) {
 	}
 
 	// #1: child inheriting from #0
-	childID, ec := s.CreateObject([]types.ObjID{0}, 0, false)
+	childID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject child: %v", ec)
 	}
@@ -81,13 +81,13 @@ func TestReview_SetVerbCodeMutatesAncestor(t *testing.T) {
 	// SetVerbCode on the child for an inherited verb should return E_VERBNF.
 	// Instead it mutates the ancestor's verb.
 	newCode := []string{"return 2;"}
-	ec = s.SetVerbCode(childID, "look", newCode)
+	ec = s.DirectTxn().SetVerbCode(childID, "look", newCode)
 	if ec == types.E_NONE {
 		t.Errorf("SetVerbCode on inherited verb returned E_NONE; want E_VERBNF")
 	}
 
 	// Even if SetVerbCode returns E_NONE, verify the parent's code is untouched.
-	parentVerb, err := s.FindVerbOnObject(0, "look")
+	parentVerb, err := s.DirectTxn().FindVerbOnObject(0, "look")
 	if err != nil {
 		t.Fatalf("parent verb 'look' not found: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestReview_SetVerbInfoMutatesAncestor(t *testing.T) {
 	}
 
 	// #1: child inheriting from #0
-	childID, ec := s.CreateObject([]types.ObjID{0}, 0, false)
+	childID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject child: %v", ec)
 	}
@@ -126,7 +126,7 @@ func TestReview_SetVerbInfoMutatesAncestor(t *testing.T) {
 	}
 
 	// Verify the parent verb is untouched.
-	parentVerb, err := s.FindVerbOnObject(0, "look")
+	parentVerb, err := s.DirectTxn().FindVerbOnObject(0, "look")
 	if err != nil {
 		t.Fatalf("parent verb 'look' not found: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestReview_RuntimeAnonLostAtSnapshot(t *testing.T) {
 	}
 
 	// Create an anonymous object at runtime (as the VM would do)
-	anonID, ec := s.CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
+	anonID, ec := s.DirectTxn().CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject anonymous: %v", ec)
 	}
@@ -160,7 +160,7 @@ func TestReview_RuntimeAnonLostAtSnapshot(t *testing.T) {
 	// Store a reference to the anon object in #0's property so it is
 	// reference-reachable from a non-anonymous object (required for serialisation).
 	anonRef := types.NewAnon(anonID)
-	if ec := s.DefineProperty(0, "anon_ref", NewProperty(anonRef, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "anon_ref", NewProperty(anonRef, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty anon_ref: %v", ec)
 	}
 
@@ -214,7 +214,7 @@ func TestReview_RenumberRewritesVerbAndPropOwners(t *testing.T) {
 		t.Fatalf("AddVerb greet on #0: %v", ec)
 	}
 	// A property on #0 owned by #1.
-	if ec := s.DefineProperty(0, "color", NewProperty(types.NewStr("red"), 1, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "color", NewProperty(types.NewStr("red"), 1, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty color: %v", ec)
 	}
 
@@ -225,7 +225,7 @@ func TestReview_RenumberRewritesVerbAndPropOwners(t *testing.T) {
 
 	// The renumbered object's own owner is unchanged here (#0), but the verb and
 	// property owners that pointed at #1 MUST now point at #2.
-	verb, err := s.FindVerbOnObject(0, "greet")
+	verb, err := s.DirectTxn().FindVerbOnObject(0, "greet")
 	if err != nil {
 		t.Fatalf("FindVerbOnObject greet: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestReview_RenumberRewritesVerbAndPropOwners(t *testing.T) {
 		t.Errorf("verb owner = #%d after renumber, want #2 (Toast rewrites verbdef owners)", verb.Owner)
 	}
 
-	prop, _, ec := s.LocalProperty(0, "color")
+	prop, _, ec := s.DirectTxn().LocalProperty(0, "color")
 	if ec != types.E_NONE {
 		t.Fatalf("LocalProperty color: %v", ec)
 	}
@@ -270,14 +270,14 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 
 	// Store a reference to #1 in a property of #0.
 	refTo1 := types.NewObj(1)
-	if ec := s.DefineProperty(0, "ref", NewProperty(refTo1, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "ref", NewProperty(refTo1, 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty ref: %v", ec)
 	}
 
 	// Also create a STRUCTURAL reference to #1: move #0 inside #1 so #0.location
 	// == #1. Renumber must rewrite this built-in slot (the positive control that
 	// keeps the property-value negative below honest).
-	if ec := s.MoveObject(0, 1, 0); ec != types.E_NONE {
+	if ec := s.DirectTxn().MoveObject(0, 1, 0); ec != types.E_NONE {
 		t.Fatalf("MoveObject #0 into #1: %v", ec)
 	}
 
@@ -287,7 +287,7 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 	}
 
 	// Positive control: the structural location slot DID update to #2.
-	loc, ec := s.Location(0)
+	loc, ec := s.DirectTxn().Location(0)
 	if ec != types.E_NONE {
 		t.Fatalf("Location(0) after renumber: %v", ec)
 	}
@@ -298,7 +298,7 @@ func TestReview_RenumberDoesNotUpdatePropertyValues(t *testing.T) {
 	// After renumber, #0's "ref" property value is NOT rewritten: it still holds
 	// the stale id #1, matching ToastStunt's db_renumber_object (see citation
 	// above). The MOO programmer is responsible for fixing property-value refs.
-	prop, ec := s.FindProperty(0, "ref")
+	prop, ec := s.DirectTxn().FindProperty(0, "ref")
 	if ec != types.E_NONE {
 		t.Fatalf("FindProperty ref after renumber: %v", ec)
 	}

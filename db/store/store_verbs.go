@@ -166,7 +166,7 @@ func (s *Store) VerbCandidatesInAncestry(objID types.ObjID) ([]VerbCandidate, ty
 // FindVerb resolves a verb (following the inheritance chain) and returns a flat,
 // read-only VerbView value plus the object it was found on. The store never
 // hands out a live *Verb to external callers.
-func (s *Store) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+func (s *Store) findVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -181,7 +181,7 @@ func (s *Store) FindVerb(objID types.ObjID, verbName string) (VerbView, types.Ob
 // Unlike FindVerb, a same-named verb without execute permission does not
 // shadow an executable verb of the same name defined further up the
 // ancestry chain; the search continues past it. See findCallableVerbLocked.
-func (s *Store) FindCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+func (s *Store) findCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -282,7 +282,7 @@ func (s *Store) findVerbWalkFromQueueLocked(queue []types.ObjID, verbName string
 // when the name resolves only to an inherited verb. Matching honors aliases and
 // the `*` wildcard, exactly like FindVerb but limited to this one object.
 
-func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
+func (s *Store) findVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -295,7 +295,7 @@ func (s *Store) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, 
 
 // ResolveVerbOnObject resolves verbName on objID itself and returns an opaque
 // reference suitable for DeleteResolvedVerb.
-func (s *Store) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
+func (s *Store) resolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -342,7 +342,7 @@ func (s *Store) findVerbOnObjectLocked(objID types.ObjID, verbName string) (*Ver
 	return nil, fmt.Errorf("verb not found: %s", verbName)
 }
 
-func (s *Store) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
+func (s *Store) verbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -358,7 +358,7 @@ func (s *Store) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 	return names, types.E_NONE
 }
 
-func (s *Store) VerbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
+func (s *Store) verbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -374,7 +374,7 @@ func (s *Store) VerbByIndex(objID types.ObjID, index int) (VerbView, types.Error
 
 // ResolveVerbByIndex resolves an index on objID to an opaque reference suitable
 // for DeleteResolvedVerb.
-func (s *Store) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
+func (s *Store) resolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -448,7 +448,7 @@ func (s *Store) DeleteVerb(objID types.ObjID, name string) types.ErrorCode {
 // DeleteResolvedVerb deletes exactly the definition previously selected by a
 // ResolveVerb call. If the object's verb list changed after resolution, it
 // fails without mutation instead of applying a stale index to another verb.
-func (s *Store) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
+func (s *Store) deleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -461,7 +461,7 @@ func (s *Store) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 // callers stage deletion on StoreTxn so commit validation precedes mutation.
 // Identity validation precedes authority validation so a stale or missing
 // descriptor retains delete_verb's E_VERBNF-before-E_PERM precedence.
-func (s *Store) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
+func (s *Store) deleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -610,7 +610,7 @@ func (s *Store) SetVerbArgs(objID types.ObjID, name string, argSpec VerbArgs) ty
 // the verb (it moved to github.com/MongooseMoo/barn/bytecode), so this only writes persistent source.
 // In a full landing this would also bump a per-verb code epoch to invalidate the
 // relocated cache; the spike proves topology only.
-func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
+func (s *Store) setVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -638,7 +638,7 @@ func (s *Store) SetVerbCode(objID types.ObjID, name string, lines []string) type
 	return types.E_NONE
 }
 
-func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
+func (s *Store) setVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -666,7 +666,7 @@ func (s *Store) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string)
 // same db_find_callable_verb lookup obj:verb() dispatch uses, so a
 // non-executable same-named verb on an intermediate ancestor must not shadow
 // an executable one defined further up the chain.
-func (s *Store) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+func (s *Store) findParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

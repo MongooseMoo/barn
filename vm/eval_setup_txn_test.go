@@ -79,12 +79,12 @@ func TestAuditProxySetupSourceCommitsInTransaction(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 	store, _ := database.NewStoreFromDatabase()
-	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	player, errCode := store.DirectTxn().CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
 	}
 	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
-		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetObjectFlag(player, flag, true); errCode != types.E_NONE {
 			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
 		}
 	}
@@ -139,12 +139,12 @@ func TestWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 		t.Fatalf("LoadDatabase failed: %v", err)
 	}
 	store, _ := database.NewStoreFromDatabase()
-	player, errCode := store.CreateObject([]types.ObjID{1}, 0, false)
+	player, errCode := store.DirectTxn().CreateObject([]types.ObjID{1}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject player failed: %v", errCode)
 	}
 	for _, flag := range []dbstore.ObjectFlags{dbstore.FlagWizard, dbstore.FlagProgrammer, dbstore.FlagUser, dbstore.FlagRead, dbstore.FlagWrite} {
-		if errCode := store.SetObjectFlag(player, flag, true); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetObjectFlag(player, flag, true); errCode != types.E_NONE {
 			t.Fatalf("SetObjectFlag %v failed: %v", flag, errCode)
 		}
 	}

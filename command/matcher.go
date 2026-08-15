@@ -28,7 +28,7 @@ func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID,
 			return types.ObjFailedMatch
 		}
 		// Check if object exists
-		if store.Valid(types.ObjID(num)) {
+		if store.DirectTxn().Valid(types.ObjID(num)) {
 			return types.ObjID(num)
 		}
 		return types.ObjFailedMatch
@@ -43,13 +43,13 @@ func MatchObject(store *dbstore.Store, player types.ObjID, location types.ObjID,
 		return location
 	}
 
-	inventory, errCode := store.Contents(player)
+	inventory, errCode := store.DirectTxn().Contents(player)
 	if errCode != types.E_NONE {
 		return types.ObjFailedMatch
 	}
 
 	roomContents := make([]types.ObjID, 0)
-	if contents, errCode := store.Contents(location); errCode == types.E_NONE {
+	if contents, errCode := store.DirectTxn().Contents(location); errCode == types.E_NONE {
 		roomContents = append(roomContents, contents...)
 	}
 
@@ -74,7 +74,7 @@ func findExactMatches(store *dbstore.Store, inventory []types.ObjID, room []type
 	var matches []types.ObjID
 
 	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
-		name, errCode := store.ObjectName(objID)
+		name, errCode := store.DirectTxn().ObjectName(objID)
 		if errCode != types.E_NONE {
 			continue
 		}
@@ -110,7 +110,7 @@ func findPrefixMatches(store *dbstore.Store, inventory []types.ObjID, room []typ
 	var matches []types.ObjID
 
 	for _, objID := range append(append([]types.ObjID{}, inventory...), room...) {
-		name, errCode := store.ObjectName(objID)
+		name, errCode := store.DirectTxn().ObjectName(objID)
 		if errCode != types.E_NONE {
 			continue
 		}

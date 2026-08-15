@@ -13,7 +13,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	anon, errCode := store.CreateObject([]types.ObjID{0}, 1, true)
+	anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 1, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}
@@ -51,7 +51,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	if thisValue.Type() != types.TYPE_ANON {
 		t.Fatalf("redacted this type = %v, want ANON", thisValue.Type())
 	}
-	if store.Valid(thisValue.ID()) {
+	if store.DirectTxn().Valid(thisValue.ID()) {
 		t.Fatalf("redacted this = %s is still valid", thisValue.String())
 	}
 }
@@ -61,7 +61,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	anon, errCode := store.CreateObject([]types.ObjID{0}, 1, true)
+	anon, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 1, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous object: %v", errCode)
 	}

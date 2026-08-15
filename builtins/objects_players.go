@@ -78,8 +78,6 @@ func builtinIsPlayer(ctx *Execution, args []types.Value) types.Result {
 // Sets or clears the player flag on an object
 // Waifs can't have player flag set (E_TYPE)
 func builtinSetPlayerFlag(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -116,32 +114,19 @@ func builtinSetPlayerFlag(ctx *Execution, args []types.Value) types.Result {
 
 	// Set or clear the player flag
 	clearingPlayerFlag := !args[1].Truthy()
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.SetObjectFlag(objVal.ID(), dbstore.FlagUser, !clearingPlayerFlag); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		if cm := hostOf(ctx).ConnManager; clearingPlayerFlag && cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
+	tx := readTxn(ctx)
+	if errCode := tx.SetObjectFlag(objVal.ID(), dbstore.FlagUser, !clearingPlayerFlag); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if cm := hostOf(ctx).ConnManager; clearingPlayerFlag && cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
+		if tx.IsDirect() {
+			_ = cm.BootPlayer(objVal.ID())
+		} else {
 			enqueuePendingEffect(ctx, kernel.PendingEffect{
 				Kind:       kernel.PendingEffectBootPlayer,
 				BootPlayer: objVal.ID(),
 			})
 		}
-		return types.Ok(types.NewInt(0))
 	}
-	if !clearingPlayerFlag {
-		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, true); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-	} else {
-		if errCode := store.SetObjectFlag(objVal.ID(), dbstore.FlagUser, false); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		// Clearing the player flag on a currently-connected player terminates
-		// its live connection (matching Toast).
-		if cm := hostOf(ctx).ConnManager; cm != nil && resolveConnection(ctx, objVal.ID()) != nil {
-			_ = cm.BootPlayer(objVal.ID())
-		}
-	}
-
 	return types.Ok(types.NewInt(0))
 }

@@ -19,10 +19,10 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 		if builtins.IsBuiltinProperty(name) {
 			t.Fatalf("IsBuiltinProperty(%q) = true, want false", name)
 		}
-		if value, ok := getBuiltinProperty(store, nil, 0, name); ok {
+		if value, ok := getBuiltinProperty(store.DirectTxn(), 0, name); ok {
 			t.Fatalf("getBuiltinProperty(%q) = (%v, true), want false", name, value)
 		}
-		if handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 0, name, types.NewInt(1), nil); handled || errCode != types.E_NONE {
+		if handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 0, name, types.NewInt(1), nil); handled || errCode != types.E_NONE {
 			t.Fatalf("setBuiltinProperty(%q) = (%v, %v), want (false, E_NONE)", name, handled, errCode)
 		}
 	}
@@ -30,14 +30,14 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 	if !builtins.IsBuiltinProperty("last_move") {
 		t.Fatalf("IsBuiltinProperty(last_move) = false, want true")
 	}
-	value, ok := getBuiltinProperty(store, nil, 0, "last_move")
+	value, ok := getBuiltinProperty(store.DirectTxn(), 0, "last_move")
 	if !ok {
 		t.Fatalf("getBuiltinProperty(last_move) ok = false, want true")
 	}
 	if value.Type() != types.TYPE_MAP {
 		t.Fatalf("last_move = %T, want MapValue", value)
 	}
-	handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 0, "last_move", types.NewList(nil), nil)
+	handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 0, "last_move", types.NewList(nil), nil)
 	if !handled || errCode != types.E_PERM {
 		t.Fatalf("setBuiltinProperty(last_move) = (%v, %v), want (true, E_PERM)", handled, errCode)
 	}
@@ -64,7 +64,7 @@ func TestBuiltinPropertyWritePermissions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := builtinPropertyTestStore(t, false)
 			ctx := &kernel.TaskContext{Programmer: 2, Store: store}
-			handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, tt.name, tt.value, ctx)
+			handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, tt.name, tt.value, ctx)
 			if !handled || errCode != types.E_PERM {
 				t.Fatalf("setBuiltinProperty(%q) = (%v, %v), want (true, E_PERM)", tt.name, handled, errCode)
 			}
@@ -80,7 +80,7 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 			if name == "name" {
 				value = types.NewStr("renamed")
 			}
-			if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_NONE {
+			if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_NONE {
 				t.Fatalf("owner setting %q returned %v", name, errCode)
 			}
 		})
@@ -93,18 +93,18 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 			if name == "owner" {
 				value = types.NewObj(2)
 			}
-			if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+			if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
 				t.Fatalf("owner setting %q returned %v, want E_PERM", name, errCode)
 			}
 		})
 	}
 
 	store := builtinPropertyTestStore(t, true)
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, "name", types.NewStr("renamed"), &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "name", types.NewStr("renamed"), &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
 		t.Fatalf("owner renaming player returned %v, want E_PERM", errCode)
 	}
 	wizard := &kernel.TaskContext{Programmer: 0, IsWizard: true, Store: store}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, "wizard", types.NewInt(1), wizard); errCode != types.E_NONE {
+	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "wizard", types.NewInt(1), wizard); errCode != types.E_NONE {
 		t.Fatalf("wizard setting wizard returned %v", errCode)
 	}
 }
@@ -112,13 +112,13 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 func TestBuiltinPropertyErrorOrdering(t *testing.T) {
 	store := builtinPropertyTestStore(t, false)
 	nonWizard := &kernel.TaskContext{Programmer: 2, Store: store}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, "owner", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
+	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "owner", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
 		t.Fatalf("invalid owner value returned %v, want E_TYPE before E_PERM", errCode)
 	}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, "name", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
+	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "name", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
 		t.Fatalf("invalid name value returned %v, want E_TYPE before E_PERM", errCode)
 	}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store, nil, 1, "wizard", types.NewStr("truthy"), nonWizard); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "wizard", types.NewStr("truthy"), nonWizard); errCode != types.E_PERM {
 		t.Fatalf("non-wizard wizard assignment returned %v, want E_PERM before value handling", errCode)
 	}
 }
@@ -129,17 +129,17 @@ func TestBuiltinPropertyProtectionOption(t *testing.T) {
 	if err := store.Add(options); err != nil {
 		t.Fatalf("Add server options: %v", err)
 	}
-	if errCode := store.DefineProperty(3, "protect_r", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(3, "protect_r", dbstore.NewProperty(types.NewInt(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty(protect_r): %v", errCode)
 	}
-	if errCode := store.DefineProperty(0, "server_options", dbstore.NewProperty(types.NewObj(3), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "server_options", dbstore.NewProperty(types.NewObj(3), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty(server_options): %v", errCode)
 	}
 	registry := builtins.NewRegistry()
 	registry.LoadProtectedBuiltinsFromStore(store)
 
 	ctx := &kernel.TaskContext{Programmer: 1, Store: store}
-	if _, errCode := setBuiltinProperty(registry, store, nil, 1, "r", types.NewInt(1), ctx); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(registry, store.DirectTxn(), 1, "r", types.NewInt(1), ctx); errCode != types.E_PERM {
 		t.Fatalf("owner setting protected r returned %v, want E_PERM", errCode)
 	}
 }
@@ -153,7 +153,7 @@ func builtinPropertyTestStore(t *testing.T, user bool) *dbstore.Store {
 			t.Fatalf("Add(%d): %v", id, err)
 		}
 		if id == 1 && user {
-			if errCode := store.SetObjectFlag(id, dbstore.FlagUser, true); errCode != types.E_NONE {
+			if errCode := store.DirectTxn().SetObjectFlag(id, dbstore.FlagUser, true); errCode != types.E_NONE {
 				t.Fatalf("SetObjectFlag(%d): %v", id, errCode)
 			}
 		}
