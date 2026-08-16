@@ -15,9 +15,6 @@ func isObjLike(v types.Value) bool {
 }
 
 func setAtIndex(registry *builtins.Registry, ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
-	if registry == nil {
-		registry = builtins.NewRegistry()
-	}
 	switch coll.Type() {
 	case types.TYPE_LIST:
 		if index.Type() != types.TYPE_INT {

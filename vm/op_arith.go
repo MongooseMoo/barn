@@ -67,7 +67,7 @@ func (vm *VM) executeAdd() error {
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
 			resultStr := a.Str() + b.Str()
-			if errCode := vm.registryForLimits().CheckStringLength(len(resultStr)); errCode != types.E_NONE {
+			if errCode := vm.Builtins.CheckStringLength(len(resultStr)); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
 			vm.Push(types.NewStr(resultStr))

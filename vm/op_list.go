@@ -10,7 +10,7 @@ func (vm *VM) executeMakeList() error {
 	count := vm.FetchByte()
 	elements := vm.PopN(int(count))
 	result := types.NewList(elements)
-	if errCode := vm.registryForLimits().CheckListLimit(result); errCode != types.E_NONE {
+	if errCode := vm.Builtins.CheckListLimit(result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
 	vm.Push(result)
@@ -31,7 +31,7 @@ func (vm *VM) executeMakeMap() error {
 	}
 
 	result := types.NewMap(pairs)
-	if errCode := vm.registryForLimits().CheckMapLimit(result); errCode != types.E_NONE {
+	if errCode := vm.Builtins.CheckMapLimit(result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: map too large")
 	}
 	vm.Push(result)
@@ -67,7 +67,7 @@ func (vm *VM) executeListAppend() error {
 	// Append (COW). list.Append maintains the cached byte-size incrementally so
 	// the quota check below stays O(1) instead of re-walking the whole list.
 	result := listVal.Append(elem)
-	if errCode := vm.registryForLimits().CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
+	if errCode := vm.Builtins.CheckListLimitForTask(vm.Context, result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
 
@@ -92,7 +92,7 @@ func (vm *VM) executeListExtend() error {
 	// Concat (COW). list.Concat maintains the cached byte-size incrementally so
 	// the quota check below stays O(1) instead of re-walking the whole list.
 	result := listVal.Concat(srcVal)
-	if errCode := vm.registryForLimits().CheckListLimit(result); errCode != types.E_NONE {
+	if errCode := vm.Builtins.CheckListLimit(result); errCode != types.E_NONE {
 		return fmt.Errorf("E_QUOTA: list too large")
 	}
 
