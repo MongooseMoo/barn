@@ -254,7 +254,7 @@ func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	machine := NewVM(nil, nil)
+	machine := NewVM(nil, BuildVMRegistry())
 	machine.Context = ctx
 	machine.pushFrame(&StackFrame{
 		Program: &bytecode.Program{Code: []byte{0}},

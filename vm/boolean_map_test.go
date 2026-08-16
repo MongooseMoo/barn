@@ -16,10 +16,11 @@ func TestBooleanMapKeysSurviveBothInsertionOrders(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			registry := BuildVMRegistry()
 			mapping := types.NewEmptyMap()
 			for _, key := range test.keys {
 				var err types.ErrorCode
-				mapping, err = setAtIndex(nil, nil, mapping, key, types.NewStr(key.String()))
+				mapping, err = setAtIndex(registry, nil, mapping, key, types.NewStr(key.String()))
 				if err != types.E_NONE {
 					t.Fatalf("set key %s: %s", key, err)
 				}

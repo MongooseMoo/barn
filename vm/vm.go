@@ -103,13 +103,6 @@ func NewVM(store *dbstore.Store, registry *builtins.Registry) *VM {
 	}
 }
 
-func (vm *VM) registryForLimits() *builtins.Registry {
-	if vm.Builtins != nil {
-		return vm.Builtins
-	}
-	return builtins.NewRegistry()
-}
-
 func (vm *VM) checkFrameLimit() error {
 	if vm.MaxStackDepth > 0 && len(vm.Frames) >= vm.MaxStackDepth {
 		return MooError{Code: types.E_MAXREC}
