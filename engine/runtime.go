@@ -85,7 +85,7 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 				player = tc.Programmer
 			}
 		}
-		if tc != nil && execution.Task != nil {
+		if tc != nil && execution.Task != nil && tc.StoreTxn != nil && !tc.StoreTxn.IsDirect() {
 			return s.CallVerbInContext(objID, verbName, args, execution)
 		}
 		// A no-transaction recycle context needs standalone server-hook semantics,

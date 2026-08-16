@@ -11,6 +11,7 @@ import (
 	"github.com/MongooseMoo/barn/kernel"
 	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
+	"github.com/MongooseMoo/barn/vm"
 )
 
 func TestRunTaskSettlesDeferredAnonymousGCAfterExecutionLeaseRelease(t *testing.T) {
@@ -77,6 +78,58 @@ func TestRunTaskPanicAfterGCDeferralStillSettlesAfterLeaseRelease(t *testing.T) 
 	rt.lifecycle.Mu.Unlock()
 	if pending != 0 {
 		t.Fatalf("pending anonymous GC batches after recovered task panic = %d, want 0", pending)
+	}
+}
+
+func TestDeferredAnonymousGCRecycleUsesStandaloneCallerWithCompletedTask(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetLocation(types.ObjNothing)
+	root.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
+	root.SetProperty("recycle_caller", dbstore.NewProperty(types.NewObj(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true))
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	class, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous class: %v", errCode)
+	}
+	if _, errCode := store.AddVerb(class, dbstore.NewVerb(
+		"recycle",
+		[]string{"recycle"},
+		0,
+		dbstore.VerbRead|dbstore.VerbExecute|dbstore.VerbDebug,
+		dbstore.VerbArgs{This: "this", Prep: "none", That: "none"},
+		[]string{"#0.recycle_caller = caller;"},
+	)); errCode != types.E_NONE {
+		t.Fatalf("add recycle verb: %v", errCode)
+	}
+	candidate, errCode := store.DirectTxn().CreateObject([]types.ObjID{class}, 0, true)
+	if errCode != types.E_NONE {
+		t.Fatalf("create anonymous candidate: %v", errCode)
+	}
+
+	rt := NewRuntime(store)
+	defer rt.Stop()
+	ctx := kernel.NewTaskContext()
+	ctx.Player = 0
+	ctx.Programmer = 0
+	ctx.IsWizard = true
+	ctx.ThisObj = 0
+	ctx.Store = store
+	completed := task.NewTask(98001, 0, 1000, 10)
+	completed.SetState(task.TaskCompleted)
+	machine := vm.NewVM(store, rt.registry)
+	machine.Context = ctx
+	machine.Task = completed
+
+	rt.deferAnonGC(ctx, candidate, machine)
+	rt.flushDeferredGC()
+
+	caller, errCode := store.DirectTxn().PropertyValue(0, "recycle_caller")
+	if errCode != types.E_NONE || caller.Type() != types.TYPE_OBJ || caller.Obj() != types.ObjNothing {
+		t.Fatalf("deferred :recycle caller = %v (%v), want #-1", caller, errCode)
 	}
 }
 
