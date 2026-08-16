@@ -2,7 +2,7 @@ package store
 
 import "github.com/MongooseMoo/barn/types"
 
-func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
+func (s *Store) objectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -14,6 +14,9 @@ func (s *Store) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) ObjectByteEstimate(objID types.ObjID) (int, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.objectByteEstimate(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND

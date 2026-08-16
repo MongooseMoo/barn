@@ -518,13 +518,13 @@ func (p *InputProcessor) processPreLogin(input command.InputEvent) {
 // do_login_command verb (or it cannot be dispatched).
 func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 	handler := conn.ListenerObject()
-	if errCode := p.store.ObjectExists(handler); errCode != types.E_NONE {
+	if errCode := p.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return
 	}
 
 	// No login handler: preserve the existing synchronous fallback.
 	if !p.store.HasLocalVerb(handler, "do_login_command") {
-		maxBeforeLogin := p.store.MaxObject()
+		maxBeforeLogin := p.store.DirectTxn().MaxObject()
 		player, _ := p.callDoLoginCommand(conn, line)
 		if player > 0 {
 			p.loginPlayer(conn, player, player > maxBeforeLogin)
@@ -539,7 +539,7 @@ func (p *InputProcessor) dispatchLoginCommand(conn *Connection, line string) {
 		args[i] = types.NewStr(word)
 	}
 
-	maxBeforeLogin := p.store.MaxObject()
+	maxBeforeLogin := p.store.DirectTxn().MaxObject()
 	onStart := func(taskID int64) {
 		conn.SetLoginTaskID(taskID)
 	}
@@ -585,7 +585,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 	}
 
 	player := conn.GetPlayer()
-	location, errCode := p.store.Location(player)
+	location, errCode := p.store.DirectTxn().Location(player)
 	if errCode != types.E_NONE {
 		return
 	}
@@ -728,7 +728,7 @@ func (p *InputProcessor) processProgrammingInput(conn *Connection, line string) 
 		}
 		return true
 	}
-	if errCode := p.store.SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
+	if errCode := p.store.DirectTxn().SetVerbCode(target, verbName, lines); errCode != types.E_NONE {
 		conn.Send("Verb not found")
 		return true
 	}

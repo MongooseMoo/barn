@@ -39,7 +39,7 @@ func immutFixture(t *testing.T, n int) (*Store, []types.ObjID) {
 	}
 	ids := make([]types.ObjID, n)
 	for i := range ids {
-		id, ec := s.CreateObject(nil, 0, false)
+		id, ec := s.DirectTxn().CreateObject(nil, 0, false)
 		if ec != types.E_NONE {
 			t.Fatalf("CreateObject: %v", ec)
 		}
@@ -51,7 +51,7 @@ func immutFixture(t *testing.T, n int) (*Store, []types.ObjID) {
 func TestMovePublishesNewImageNotInPlace(t *testing.T) {
 	s, ids := immutFixture(t, 3)
 	roomA, roomB, thing := ids[0], ids[1], ids[2]
-	if ec := s.MoveObject(thing, roomA, 0); ec != types.E_NONE {
+	if ec := s.DirectTxn().MoveObject(thing, roomA, 0); ec != types.E_NONE {
 		t.Fatalf("initial move: %v", ec)
 	}
 
@@ -60,7 +60,7 @@ func TestMovePublishesNewImageNotInPlace(t *testing.T) {
 	thingLocBefore := oldThing.location
 	aContentsBefore := append([]types.ObjID(nil), oldA.contents...)
 
-	if ec := s.MoveObject(thing, roomB, 0); ec != types.E_NONE {
+	if ec := s.DirectTxn().MoveObject(thing, roomB, 0); ec != types.E_NONE {
 		t.Fatalf("move to B: %v", ec)
 	}
 
@@ -87,7 +87,7 @@ func TestMovePublishesNewImageNotInPlace(t *testing.T) {
 func TestReadAliasSurvivesConcurrentMutation(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	id := ids[0]
-	if ec := s.DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 
@@ -100,7 +100,7 @@ func TestReadAliasSurvivesConcurrentMutation(t *testing.T) {
 	}
 
 	// Mutate the same object through the store; this republishes a fresh image.
-	if ec := s.SetPropertyValue(id, "foo", types.NewInt(999)); ec != types.E_NONE {
+	if ec := s.DirectTxn().SetPropertyValue(id, "foo", types.NewInt(999)); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue: %v", ec)
 	}
 
@@ -146,7 +146,7 @@ func TestSetObjectNamePublishesNewImage(t *testing.T) {
 	id := ids[0]
 	old := s.load(id)
 	nameBefore := old.name
-	if ec := s.SetObjectName(id, "renamed"); ec != types.E_NONE {
+	if ec := s.DirectTxn().SetObjectName(id, "renamed"); ec != types.E_NONE {
 		t.Fatalf("SetObjectName: %v", ec)
 	}
 	if old.name != nameBefore {
@@ -163,7 +163,7 @@ func TestCreateObjectPublishesNewParentImage(t *testing.T) {
 	parent := ids[0]
 	oldParent := s.load(parent)
 	childrenBefore := append([]types.ObjID(nil), oldParent.children...)
-	child, ec := s.CreateObject([]types.ObjID{parent}, 0, false)
+	child, ec := s.DirectTxn().CreateObject([]types.ObjID{parent}, 0, false)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject: %v", ec)
 	}
@@ -211,7 +211,7 @@ func TestDefinePropertyPublishesNewImage(t *testing.T) {
 	old := s.load(id)
 	propsBefore := len(old.properties)
 	orderBefore := append([]string(nil), old.propOrder...)
-	if ec := s.DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 	if len(old.properties) != propsBefore {
@@ -226,7 +226,7 @@ func TestDefinePropertyPublishesNewImage(t *testing.T) {
 func TestSetPropertyValuePublishesNewImage(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	id := ids[0]
-	if ec := s.DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 	old := s.load(id)
@@ -234,7 +234,7 @@ func TestSetPropertyValuePublishesNewImage(t *testing.T) {
 	if !ok {
 		t.Fatal("foo not found after define")
 	}
-	if ec := s.SetPropertyValue(id, "foo", types.NewInt(2)); ec != types.E_NONE {
+	if ec := s.DirectTxn().SetPropertyValue(id, "foo", types.NewInt(2)); ec != types.E_NONE {
 		t.Fatalf("SetPropertyValue: %v", ec)
 	}
 	_, propAfter, _ := propertyByName(old.properties, "foo")
@@ -247,12 +247,12 @@ func TestSetPropertyValuePublishesNewImage(t *testing.T) {
 func TestDeleteDefinedPropertyPublishesNewImage(t *testing.T) {
 	s, ids := immutFixture(t, 1)
 	id := ids[0]
-	if ec := s.DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(id, "foo", NewProperty(types.NewInt(1), 0, PropRead|PropWrite, false, true)); ec != types.E_NONE {
 		t.Fatalf("DefineProperty: %v", ec)
 	}
 	old := s.load(id)
 	propsBefore := len(old.properties)
-	if ec := s.DeleteDefinedProperty(id, "foo"); ec != types.E_NONE {
+	if ec := s.DirectTxn().DeleteDefinedProperty(id, "foo"); ec != types.E_NONE {
 		t.Fatalf("DeleteDefinedProperty: %v", ec)
 	}
 	if len(old.properties) != propsBefore {
@@ -286,7 +286,7 @@ func TestSetVerbCodePublishesNewImage(t *testing.T) {
 	old := s.load(id)
 	oldVerb := old.verbs["look"]
 	codeBefore := append([]string(nil), oldVerb.code...)
-	if ec := s.SetVerbCode(id, "look", []string{"return 42;"}); ec != types.E_NONE {
+	if ec := s.DirectTxn().SetVerbCode(id, "look", []string{"return 42;"}); ec != types.E_NONE {
 		t.Fatalf("SetVerbCode: %v", ec)
 	}
 	if !stringsEqual(oldVerb.code, codeBefore) {

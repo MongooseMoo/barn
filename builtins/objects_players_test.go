@@ -13,7 +13,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -31,7 +31,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 		t.Fatalf("set_player_flag failed: %v", res.Error)
 	}
 
-	liveFlag, errCode := store.HasObjectFlag(obj, dbstore.FlagUser)
+	liveFlag, errCode := store.DirectTxn().HasObjectFlag(obj, dbstore.FlagUser)
 	if errCode != types.E_NONE {
 		t.Fatalf("live HasObjectFlag failed: %v", errCode)
 	}
@@ -49,7 +49,7 @@ func TestSetPlayerFlagStagesThroughTransaction(t *testing.T) {
 	if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 		t.Fatalf("Commit failed: %v", errCode)
 	}
-	liveFlag, errCode = store.HasObjectFlag(obj, dbstore.FlagUser)
+	liveFlag, errCode = store.DirectTxn().HasObjectFlag(obj, dbstore.FlagUser)
 	if errCode != types.E_NONE {
 		t.Fatalf("live HasObjectFlag after commit failed: %v", errCode)
 	}
@@ -65,11 +65,11 @@ func TestSetPlayerFlagClearDefersBootThroughTransaction(t *testing.T) {
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
 	}
-	obj, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
-	if errCode := store.SetObjectFlag(obj, dbstore.FlagUser, true); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectFlag(obj, dbstore.FlagUser, true); errCode != types.E_NONE {
 		t.Fatalf("SetObjectFlag failed: %v", errCode)
 	}
 

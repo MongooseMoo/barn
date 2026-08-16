@@ -52,18 +52,11 @@ func (vm *VM) executeIndex() error {
 		if vm.Store == nil {
 			return fmt.Errorf("E_INVIND: no object store available")
 		}
-		txn := vm.storeTxn()
-		var owner types.ObjID
-		var errCode types.ErrorCode
-		if txn != nil {
-			owner, errCode = txn.ObjectOwner(collection.Class())
-		} else {
-			owner, errCode = vm.Store.ObjectOwner(collection.Class())
-		}
+		owner, errCode := vm.Context.StoreTxn.ObjectOwner(collection.Class())
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: invalid waif class", errCode.String())
 		}
-		ownerIsWizard, errCode := hasObjectFlagForRead(vm.Store, txn, owner, dbstore.FlagWizard)
+		ownerIsWizard, errCode := hasObjectFlagForRead(vm.Context.StoreTxn, owner, dbstore.FlagWizard)
 		if errCode != types.E_NONE {
 			return fmt.Errorf("%s: invalid waif class owner", errCode.String())
 		}

@@ -169,7 +169,7 @@ func dumpVerbCode(out, errOut io.Writer, store *dbstore.Store, spec string) erro
 		return errors.New("inspection failed")
 	}
 
-	verb, defObjID, err := store.FindVerb(objID, verbName)
+	verb, defObjID, err := store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		fmt.Fprintf(errOut, "Error: %v\n", err)
 		return errors.New("inspection failed")
@@ -204,7 +204,7 @@ func dumpListVerbs(out, errOut io.Writer, store *dbstore.Store, spec string) err
 	fmt.Fprintf(out, "Count: %d\n\n", obj.VerbCount)
 
 	for i := 0; i < obj.VerbCount; i++ {
-		view, errCode := store.VerbByIndex(objID, i)
+		view, errCode := store.DirectTxn().VerbByIndex(objID, i)
 		if errCode != types.E_NONE {
 			continue
 		}
@@ -260,7 +260,7 @@ func dumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	fmt.Fprintln(out)
 
 	// Parents
-	parents, _ := store.Parents(objID)
+	parents, _ := store.DirectTxn().Parents(objID)
 	fmt.Fprintf(out, "Parents:  ")
 	if len(parents) == 0 {
 		fmt.Fprintln(out, "(none)")
@@ -275,7 +275,7 @@ func dumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	}
 
 	// Children
-	children, _ := store.Children(objID)
+	children, _ := store.DirectTxn().Children(objID)
 	fmt.Fprintf(out, "Children: ")
 	if len(children) == 0 {
 		fmt.Fprintln(out, "(none)")
@@ -290,11 +290,11 @@ func dumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	}
 
 	// Properties
-	propNames, _ := store.DefinedPropertyNames(objID)
+	propNames, _ := store.DirectTxn().DefinedPropertyNames(objID)
 	fmt.Fprintf(out, "\n--- Properties (%d) ---\n", len(propNames))
 	sort.Strings(propNames)
 	for _, name := range propNames {
-		prop, ok, _ := store.LocalProperty(objID, name)
+		prop, ok, _ := store.DirectTxn().LocalProperty(objID, name)
 		if !ok {
 			continue
 		}
@@ -309,7 +309,7 @@ func dumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 	// Verbs
 	fmt.Fprintf(out, "\n--- Verbs (%d) ---\n", obj.VerbCount)
 	for i := 0; i < obj.VerbCount; i++ {
-		view, errCode := store.VerbByIndex(objID, i)
+		view, errCode := store.DirectTxn().VerbByIndex(objID, i)
 		if errCode != types.E_NONE {
 			continue
 		}
@@ -331,6 +331,7 @@ func evalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 
 	ctx := kernel.NewTaskContext()
 	ctx.Store = store
+	ctx.StoreTxn = store.DirectTxn()
 	ctx.RuntimeOptions = options
 
 	machine := vm.NewVM(store, registry)
@@ -362,9 +363,9 @@ func dumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 		return errors.New("inspection failed")
 	}
 
-	parents, _ := store.Parents(objID)
-	children, _ := store.Children(objID)
-	contents, _ := store.Contents(objID)
+	parents, _ := store.DirectTxn().Parents(objID)
+	children, _ := store.DirectTxn().Children(objID)
+	contents, _ := store.DirectTxn().Contents(objID)
 
 	fmt.Fprintf(out, "=== Raw Object Data #%d ===\n", objID)
 	fmt.Fprintf(out, "ID:         %d\n", obj.ID)
@@ -403,7 +404,7 @@ func dumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 
 	fmt.Fprintf(out, "\nVerbList:   %d verbs\n", obj.VerbCount)
 	for i := 0; i < obj.VerbCount; i++ {
-		view, errCode := store.VerbByIndex(objID, i)
+		view, errCode := store.DirectTxn().VerbByIndex(objID, i)
 		if errCode != types.E_NONE {
 			continue
 		}
@@ -411,13 +412,13 @@ func dumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 			i, view.Name, len(view.Names), view.Owner, len(view.Code))
 	}
 
-	verbNames, _ := store.VerbNames(objID)
+	verbNames, _ := store.DirectTxn().VerbNames(objID)
 	fmt.Fprintf(out, "\nVerbs map:  %d entries\n", len(verbNames))
 
-	propNames, _ := store.DefinedPropertyNames(objID)
+	propNames, _ := store.DirectTxn().DefinedPropertyNames(objID)
 	fmt.Fprintf(out, "\nProperties: %d entries\n", len(propNames))
 	for _, name := range propNames {
-		prop, ok, _ := store.LocalProperty(objID, name)
+		prop, ok, _ := store.DirectTxn().LocalProperty(objID, name)
 		if !ok {
 			continue
 		}
@@ -447,7 +448,7 @@ func verbLookupCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 	fmt.Fprintf(out, "Starting object: #%d (%s)\n", objID, obj.Name)
 
 	// Try to find the verb
-	verb, defObjID, err := store.FindVerb(objID, verbName)
+	verb, defObjID, err := store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		fmt.Fprintf(out, "\nResult: NOT FOUND\n")
 		fmt.Fprintf(out, "Error: %v\n", err)
@@ -473,7 +474,7 @@ func verbLookupCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 			indent := strings.Repeat("  ", depth)
 			fmt.Fprintf(out, "%s#%d (%s) - %d verbs\n", indent, current, currentObj.Name, currentObj.VerbCount)
 
-			currentParents, _ := store.Parents(current)
+			currentParents, _ := store.DirectTxn().Parents(current)
 			if len(currentParents) == 0 {
 				break
 			}
@@ -511,7 +512,7 @@ func verbLookupCommand(out, errOut io.Writer, store *dbstore.Store, spec string)
 			indent := strings.Repeat("  ", depth)
 			fmt.Fprintf(out, "%s#%d (%s)\n", indent, current, currentObj.Name)
 
-			currentParents, _ := store.Parents(current)
+			currentParents, _ := store.DirectTxn().Parents(current)
 			if len(currentParents) == 0 {
 				fmt.Fprintf(out, "  [no parent, but verb is on #%d?]\n", defObjID)
 				break
@@ -574,7 +575,7 @@ func ancestryCommand(out, errOut io.Writer, store *dbstore.Store, spec string) e
 		fmt.Fprintf(out, "%s       owner=#%d, verbs=%d, props=%d\n",
 			indent, currentObj.Owner, currentObj.VerbCount, currentObj.PropertyCount)
 
-		currentParents, _ := store.Parents(current)
+		currentParents, _ := store.DirectTxn().Parents(current)
 		if len(currentParents) == 0 {
 			fmt.Fprintf(out, "%s       (root object - no parent)\n", indent)
 			break

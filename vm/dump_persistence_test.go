@@ -55,7 +55,7 @@ func TestEvalRoundTripPreservesRuntimeAddedInheritedOverride(t *testing.T) {
 		t.Fatal("reloaded child missing")
 	}
 
-	prop, ok, _ := reloadedStore.LocalProperty(0, "persist_prop")
+	prop, ok, _ := reloadedStore.DirectTxn().LocalProperty(0, "persist_prop")
 	if !ok {
 		t.Fatalf("reloaded child missing persist_prop")
 	}

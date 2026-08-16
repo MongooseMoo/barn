@@ -186,5 +186,8 @@ func (tx *StoreTxn) release() {
 // multiple times and safe to never call (the finalizer backstop releases a
 // dropped txn eventually). After Release the txn must not be used to read again.
 func (tx *StoreTxn) Release() {
+	if tx == nil || tx.direct {
+		return
+	}
 	tx.release()
 }

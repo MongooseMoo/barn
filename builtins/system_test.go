@@ -55,7 +55,7 @@ func TestLoadServerOptionsDoesNotPublishStagedValuesAfterFailedCommit(t *testing
 		t.Fatalf("load_server_options result = flow %v err %v, want return", result.Flow, result.Error)
 	}
 
-	if errCode := store.SetPropertyValue(0, "conflict_marker", types.NewStr("live")); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(0, "conflict_marker", types.NewStr("live")); errCode != types.E_NONE {
 		t.Fatalf("live SetPropertyValue conflict_marker failed: %s", errCode)
 	}
 	if errCode := ctx.StoreTxn.SetPropertyValue(0, "conflict_marker", types.NewStr("task")); errCode != types.E_NONE {

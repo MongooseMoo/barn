@@ -296,7 +296,7 @@ func TestVerbInheritance(t *testing.T) {
 	store, _ := database.NewStoreFromDatabase()
 
 	// Test that #39 (player_db) can find find_exact verb from parent #37
-	verb, _, err := store.FindVerb(types.ObjID(39), "find_exact")
+	verb, _, err := store.DirectTxn().FindVerb(types.ObjID(39), "find_exact")
 	if err != nil {
 		t.Errorf("Error finding verb: %v", err)
 	} else if verb.Names[0] != "find_exact" {
@@ -353,7 +353,7 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	if _, ok := objectStore.Get(101); !ok {
 		t.Fatal("Object #101 not found")
 	}
-	beforeProp, ok, _ := objectStore.LocalProperty(101, "index_cache")
+	beforeProp, ok, _ := objectStore.DirectTxn().LocalProperty(101, "index_cache")
 	if !ok {
 		t.Fatal(`Object #101 missing property "index_cache"`)
 	}
@@ -380,7 +380,7 @@ func TestRoundTripPreservesInheritedOverrideProperty(t *testing.T) {
 	if _, ok := reloadedStore.Get(101); !ok {
 		t.Fatal("Reloaded object #101 not found")
 	}
-	afterProp, ok, _ := reloadedStore.LocalProperty(101, "index_cache")
+	afterProp, ok, _ := reloadedStore.DirectTxn().LocalProperty(101, "index_cache")
 	if !ok {
 		t.Fatal(`Reloaded object #101 missing property "index_cache"`)
 	}

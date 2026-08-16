@@ -25,17 +25,17 @@ func requireLastMove(t *testing.T, value types.Value, source types.ObjID, before
 func TestMoveObjectRecordsLastMove(t *testing.T) {
 	s, ids := immutFixture(t, 3)
 	source, destination, thing := ids[0], ids[1], ids[2]
-	if ec := s.MoveObject(thing, source, 0); ec != types.E_NONE {
+	if ec := s.DirectTxn().MoveObject(thing, source, 0); ec != types.E_NONE {
 		t.Fatalf("seed move: %v", ec)
 	}
 
 	before := time.Now().Unix()
-	if ec := s.MoveObject(thing, destination, 0); ec != types.E_NONE {
+	if ec := s.DirectTxn().MoveObject(thing, destination, 0); ec != types.E_NONE {
 		t.Fatalf("move: %v", ec)
 	}
 	after := time.Now().Unix()
 
-	lastMove, ec := s.LastMove(thing)
+	lastMove, ec := s.DirectTxn().LastMove(thing)
 	if ec != types.E_NONE {
 		t.Fatalf("LastMove: %v", ec)
 	}
@@ -66,7 +66,7 @@ func TestTxnMoveObjectRecordsLastMoveBeforeAndAfterCommit(t *testing.T) {
 	if ec := tx.Commit(); ec != types.E_NONE {
 		t.Fatalf("commit: %v", ec)
 	}
-	persisted, ec := s.LastMove(thing)
+	persisted, ec := s.DirectTxn().LastMove(thing)
 	if ec != types.E_NONE {
 		t.Fatalf("store LastMove: %v", ec)
 	}

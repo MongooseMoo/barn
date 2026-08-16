@@ -69,9 +69,9 @@ func TestCollectPendingFinalizationValuesSkipsPersistentAnonymousRefs(t *testing
 		}
 	}
 
-	store.DefineProperty(4, "two", dbstore.NewProperty(types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false))
-	store.DefineProperty(0, "one", dbstore.NewProperty(types.NewObj(4), 0, dbstore.PropRead, false, false))
-	store.DefineProperty(5, "foo", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, false))
+	store.DirectTxn().DefineProperty(4, "two", dbstore.NewProperty(types.NewMap([][2]types.Value{{types.NewStr("foo"), types.NewAnon(5)}}), 0, dbstore.PropRead, false, false))
+	store.DirectTxn().DefineProperty(0, "one", dbstore.NewProperty(types.NewObj(4), 0, dbstore.PropRead, false, false))
+	store.DirectTxn().DefineProperty(5, "foo", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, false))
 
 	exec := NewVM(store, nil)
 	exec.Frames = []*StackFrame{
@@ -100,10 +100,10 @@ func TestCollectPendingFinalizationValuesKeepsOneRootForCyclicBareAnonymousLocal
 			t.Fatalf("add object: %v", err)
 		}
 	}
-	if errCode := store.DefineProperty(4, "next", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(4, "next", dbstore.NewProperty(types.NewAnon(5), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define A.next: %v", errCode)
 	}
-	if errCode := store.DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define B.next: %v", errCode)
 	}
 
@@ -137,7 +137,7 @@ func TestCollectPendingFinalizationValuesChoosesReachabilityRootBeforeLowerIDLea
 			t.Fatalf("add object: %v", err)
 		}
 	}
-	if errCode := store.DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(5, "next", dbstore.NewProperty(types.NewAnon(4), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define root.next: %v", errCode)
 	}
 
@@ -163,7 +163,7 @@ func TestExpandAnonymousReachabilityIncludesTransactionPropertyWrites(t *testing
 		}
 	}
 	for _, id := range []types.ObjID{4, 5} {
-		if errCode := store.DefineProperty(id, "next", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(id, "next", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("DefineProperty(%d) = %v", id, errCode)
 		}
 	}
@@ -193,7 +193,7 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 	if err := store.Add(root); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "stash", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "stash", dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define stash: %v", errCode)
 	}
 	const candidateCount = 64
@@ -216,11 +216,11 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 		}
 		if createdByHook == 0 {
 			var errCode types.ErrorCode
-			createdByHook, errCode = store.CreateObject(nil, 0, true)
+			createdByHook, errCode = store.DirectTxn().CreateObject(nil, 0, true)
 			if errCode != types.E_NONE {
 				return types.Err(errCode)
 			}
-			if errCode := store.SetPropertyValue(0, "stash", types.NewAnon(createdByHook)); errCode != types.E_NONE {
+			if errCode := store.DirectTxn().SetPropertyValue(0, "stash", types.NewAnon(createdByHook)); errCode != types.E_NONE {
 				return types.Err(errCode)
 			}
 		}
@@ -239,10 +239,10 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 	if recycleCalls != candidateCount {
 		t.Fatalf("recycle calls = %d, want only %d pre-snapshot candidates across %d requests", recycleCalls, candidateCount, requestCount)
 	}
-	if createdByHook == 0 || !store.Valid(createdByHook) {
+	if createdByHook == 0 || !store.DirectTxn().Valid(createdByHook) {
 		t.Fatalf("recycle-hook-created persistent anonymous object #%d did not survive current batch", createdByHook)
 	}
-	stash, errCode := store.PropertyValue(0, "stash")
+	stash, errCode := store.DirectTxn().PropertyValue(0, "stash")
 	if errCode != types.E_NONE || stash.Type() != types.TYPE_ANON || stash.Obj() != createdByHook {
 		t.Fatalf("persistent stash = %v (%v), want anonymous #%d", stash, errCode, createdByHook)
 	}

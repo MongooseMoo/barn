@@ -29,7 +29,7 @@ func TestRunTaskTransfersExecutionProvenanceAcrossConflictRetry(t *testing.T) {
 		if forceCalls == 1 {
 			// Simulate a concurrent commit after this attempt read retry_value. Do
 			// not mark LiveStoreMutated: this is deliberately a retryable conflict.
-			if errCode := ctx.Store.SetPropertyValue(0, "retry_value", types.NewInt(10)); errCode != types.E_NONE {
+			if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "retry_value", types.NewInt(10)); errCode != types.E_NONE {
 				return types.Err(errCode)
 			}
 		}

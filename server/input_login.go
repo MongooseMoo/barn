@@ -38,7 +38,7 @@ func (s *InputProcessor) shouldCallDoLoginCommand(conn *Connection, line string)
 // Returns the player ObjID if login succeeded, or a negative value on failure.
 func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (types.ObjID, error) {
 	handler := conn.ListenerObject()
-	if errCode := s.store.ObjectExists(handler); errCode != types.E_NONE {
+	if errCode := s.store.DirectTxn().ObjectExists(handler); errCode != types.E_NONE {
 		return types.ObjID(-1), fmt.Errorf("listener object not found")
 	}
 
@@ -80,7 +80,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	if result.Val.Type() == types.TYPE_OBJ || result.Val.Type() == types.TYPE_ANON {
 		playerID := result.Val.Obj()
 		if playerID > 0 {
-			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
+			hasPlayerFlag, errCode := s.store.DirectTxn().HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
 				return playerID, nil
 			}
@@ -118,7 +118,7 @@ func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Res
 	if result.Val.Type() == types.TYPE_OBJ || result.Val.Type() == types.TYPE_ANON {
 		playerID := result.Val.Obj()
 		if playerID > 0 {
-			hasPlayerFlag, errCode := s.store.HasObjectFlag(playerID, dbstore.FlagUser)
+			hasPlayerFlag, errCode := s.store.DirectTxn().HasObjectFlag(playerID, dbstore.FlagUser)
 			if errCode == types.E_NONE && hasPlayerFlag {
 				return playerID
 			}
@@ -341,9 +341,9 @@ func (s *InputProcessor) isTrustedProxyConnection(conn *Connection) bool {
 
 // getServerOption looks up a server option from the server_options property.
 func (s *InputProcessor) getServerOption(listener types.ObjID, name string) (types.Value, bool) {
-	serverOptions, err := s.store.FindProperty(listener, "server_options")
+	serverOptions, err := s.store.DirectTxn().FindProperty(listener, "server_options")
 	if err != types.E_NONE && listener != 0 {
-		serverOptions, err = s.store.FindProperty(0, "server_options")
+		serverOptions, err = s.store.DirectTxn().FindProperty(0, "server_options")
 	}
 	if err != types.E_NONE {
 		return types.None, false
@@ -353,7 +353,7 @@ func (s *InputProcessor) getServerOption(listener types.ObjID, name string) (typ
 		return types.None, false
 	}
 
-	prop, err := s.store.FindProperty(serverOptions.Value.Obj(), name)
+	prop, err := s.store.DirectTxn().FindProperty(serverOptions.Value.Obj(), name)
 	if err != types.E_NONE {
 		return types.None, false
 	}

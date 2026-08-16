@@ -41,6 +41,10 @@ type readTSShard struct {
 type Store struct {
 	mu  sync.RWMutex
 	dir objectDir // segmented lock-free directory: id -> *objectSlot
+	// directTxn is the allocation-free pass-through transaction used when code
+	// executes outside an optimistic task snapshot. Its methods read and write
+	// the live store immediately and never accumulate transaction state.
+	directTxn StoreTxn
 	// maxObjID (highest non-anon id, for max_object()) and highWaterID (highest
 	// allocated id incl. anon, for NextID()) are atomic so a decentralized committer
 	// (holding only store.mu.RLock) can allocate an id and CAS-max them without the
@@ -119,9 +123,21 @@ func NewStore() *Store {
 		recycledID:  []types.ObjID{},
 		history:     make(map[types.ObjID][]objectHistory),
 	}
+	s.directTxn.store = s
+	s.directTxn.direct = true
 	s.maxObjID.Store(-1)
 	s.highWaterID.Store(-1)
 	return s
+}
+
+// DirectTxn returns the store-owned pass-through transaction. It is immutable,
+// safe to share between goroutines, and performs every operation directly on
+// live state without staging, validation, commit, or release bookkeeping.
+func (s *Store) DirectTxn() *StoreTxn {
+	if s == nil {
+		return nil
+	}
+	return &s.directTxn
 }
 
 // maxObjectID returns the highest non-anonymous object id, or -1 if none. Lock-free.
@@ -248,7 +264,7 @@ func (s *Store) EscalationLock() {
 
 func (s *Store) EscalationUnlock() { s.commitGate.Unlock() }
 
-func (s *Store) ReadTimestamp() uint64 {
+func (s *Store) readTimestamp() uint64 {
 	return s.clock.Load()
 }
 
@@ -494,7 +510,7 @@ func (s *Store) insertObjectLocked(obj *Object) {
 	}
 }
 
-func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
+func (s *Store) setObjectName(objID types.ObjID, name string) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -509,7 +525,7 @@ func (s *Store) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
 	return types.E_NONE
 }
 
-func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
+func (s *Store) setObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -524,7 +540,7 @@ func (s *Store) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.Error
 	return types.E_NONE
 }
 
-func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
+func (s *Store) setObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -539,7 +555,7 @@ func (s *Store) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) ty
 	return types.E_NONE
 }
 
-func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
+func (s *Store) setObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -558,7 +574,7 @@ func (s *Store) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool)
 	return types.E_NONE
 }
 
-func (s *Store) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
+func (s *Store) objectName(objID types.ObjID) (string, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -569,7 +585,7 @@ func (s *Store) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 	return obj.name, types.E_NONE
 }
 
-func (s *Store) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+func (s *Store) objectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -580,7 +596,7 @@ func (s *Store) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	return obj.owner, types.E_NONE
 }
 
-func (s *Store) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
+func (s *Store) objectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -591,7 +607,7 @@ func (s *Store) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
 	return obj.flags, types.E_NONE
 }
 
-func (s *Store) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
+func (s *Store) hasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -602,7 +618,7 @@ func (s *Store) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.
 	return obj.flags.Has(flag), types.E_NONE
 }
 
-func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
+func (s *Store) objectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -613,7 +629,7 @@ func (s *Store) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
 	return obj.anonymous, types.E_NONE
 }
 
-func (s *Store) ObjectExists(objID types.ObjID) types.ErrorCode {
+func (s *Store) objectExists(objID types.ObjID) types.ErrorCode {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

@@ -217,9 +217,9 @@ func pendingFinalizationValues(store *dbstore.Store, refs map[types.ObjID]struct
 
 func expandAnonymousReachability(store *dbstore.Store, tx *dbstore.StoreTxn, reachable map[types.ObjID]struct{}, refs map[types.ObjID]struct{}) {
 	if store != nil {
-		store.ExpandAnonymousReachability(reachable, refs)
+		store.DirectTxn().ExpandAnonymousReachability(reachable, refs)
 	}
-	if tx != nil {
+	if !tx.IsDirect() {
 		// Add the owning task's in-flight property graph without replacing the
 		// live expansion: refs from sibling VMs may postdate this transaction's
 		// snapshot and must remain protected by the live-store walk.
@@ -246,7 +246,7 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 	ordered := make([]candidateRoot, 0, len(candidates))
 	for _, candidate := range candidates {
 		closure := make(map[types.ObjID]struct{})
-		store.ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
+		store.DirectTxn().ExpandAnonymousReachability(closure, map[types.ObjID]struct{}{
 			candidate.ID(): {},
 		})
 		ordered = append(ordered, candidateRoot{value: candidate, closure: closure})
@@ -455,7 +455,7 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 			liveRefs[id] = struct{}{}
 		}
 	}
-	expandAnonymousReachability(store, nil, reachable, liveRefs)
+	expandAnonymousReachability(store, store.DirectTxn(), reachable, liveRefs)
 
 	recycleFn, ok := registry.Get("recycle")
 	if !ok {

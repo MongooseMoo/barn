@@ -91,11 +91,11 @@ func TestWriteCheckpointPreservesAnonymousGraphsRootedOnlyBySuspendedTasks(t *te
 		}
 	}
 
-	anonA, errCode := objectStore.CreateObject(nil, 2, true)
+	anonA, errCode := objectStore.DirectTxn().CreateObject(nil, 2, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous A: %v", errCode)
 	}
-	anonB, errCode := objectStore.CreateObject(nil, 2, true)
+	anonB, errCode := objectStore.DirectTxn().CreateObject(nil, 2, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous B: %v", errCode)
 	}
@@ -107,10 +107,10 @@ func TestWriteCheckpointPreservesAnonymousGraphsRootedOnlyBySuspendedTasks(t *te
 		{id: anonA, marker: "A payload", next: anonB},
 		{id: anonB, marker: "B payload", next: anonA},
 	} {
-		if errCode := objectStore.DefineProperty(definition.id, "marker", dbstore.NewProperty(types.NewStr(definition.marker), 2, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		if errCode := objectStore.DirectTxn().DefineProperty(definition.id, "marker", dbstore.NewProperty(types.NewStr(definition.marker), 2, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #%d.marker: %v", definition.id, errCode)
 		}
-		if errCode := objectStore.DefineProperty(definition.id, "next", dbstore.NewProperty(types.NewAnon(definition.next), 2, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		if errCode := objectStore.DirectTxn().DefineProperty(definition.id, "next", dbstore.NewProperty(types.NewAnon(definition.next), 2, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #%d.next: %v", definition.id, errCode)
 		}
 	}
@@ -192,12 +192,12 @@ func TestWriteCheckpointPreservesAnonymousGraphsRootedOnlyBySuspendedTasks(t *te
 	reloadedStore, _ := reloaded.NewStoreFromDatabase()
 	markers := make(map[string]struct{}, 2)
 	for id := range heldIDs {
-		marker, errCode := reloadedStore.PropertyValue(id, "marker")
+		marker, errCode := reloadedStore.DirectTxn().PropertyValue(id, "marker")
 		if errCode != types.E_NONE || marker.Type() != types.TYPE_STR {
 			t.Fatalf("#%d.marker = %v, err=%v", id, marker, errCode)
 		}
 		markers[marker.Str()] = struct{}{}
-		next, errCode := reloadedStore.PropertyValue(id, "next")
+		next, errCode := reloadedStore.DirectTxn().PropertyValue(id, "next")
 		if errCode != types.E_NONE || next.Type() != types.TYPE_ANON {
 			t.Fatalf("#%d.next = %v, err=%v", id, next, errCode)
 		}

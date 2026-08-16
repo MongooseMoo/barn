@@ -31,12 +31,12 @@ func protectBuiltinViaStore(t *testing.T, r *Registry, name string) *dbstore.Sto
 		t.Fatalf("add #2: %v", err)
 	}
 
-	if code := store.DefineProperty(0, "server_options", dbstore.NewProperty(
+	if code := store.DirectTxn().DefineProperty(0, "server_options", dbstore.NewProperty(
 		types.NewObj(types.ObjID(2)), 0, dbstore.PropRead|dbstore.PropWrite, false, true,
 	)); code != types.E_NONE {
 		t.Fatalf("define server_options: %v", code)
 	}
-	if code := store.DefineProperty(2, "protect_"+name, dbstore.NewProperty(
+	if code := store.DirectTxn().DefineProperty(2, "protect_"+name, dbstore.NewProperty(
 		types.NewInt(1), 0, dbstore.PropRead|dbstore.PropWrite, false, true,
 	)); code != types.E_NONE {
 		t.Fatalf("define protect_%s: %v", name, code)

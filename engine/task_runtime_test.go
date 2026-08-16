@@ -43,6 +43,34 @@ func TestRunTaskStaleStartTimeDoesNotExpireDeadline(t *testing.T) {
 	}
 }
 
+func TestQueueTaskInitializesNewTaskFullContextBeforeRetryCapture(t *testing.T) {
+	store := dbstore.NewStore()
+	s := NewRuntime(store)
+	defer s.Stop()
+	program := compileTestProgram(t, s.registry, "return 42;")
+	queued := task.NewTaskFull(99001, types.ObjNothing, program, 1000, 10)
+	if queued.Context.Store != nil {
+		t.Fatal("NewTaskFull unexpectedly populated its context store")
+	}
+
+	s.QueueTask(queued)
+	if queued.Context.Store != store {
+		t.Fatal("QueueTask did not populate the runtime store before execution")
+	}
+	if queued.Context.StoreTxn != store.DirectTxn() {
+		t.Fatal("QueueTask did not populate the direct transaction before retry capture")
+	}
+	if got := s.ProcessReadyTasks(); got != 1 {
+		t.Fatalf("processed tasks = %d, want 1", got)
+	}
+	if got := queued.GetState(); got != task.TaskCompleted {
+		t.Fatalf("queued task state = %v, want completed", got)
+	}
+	if got := queued.Result; got.Flow != types.FlowReturn || got.Val.Type() != types.TYPE_INT || got.Val.Int() != 42 {
+		t.Fatalf("queued task result = %+v, want return 42", got)
+	}
+}
+
 // TestIndefiniteSuspendNotAutoWokenThenResumeRuns verifies F28v2 end-to-end: an
 // indefinite suspend() (no/negative seconds) gets the far-future
 // IndefiniteSuspendStartTime sentinel (so it sorts LAST in queued_tasks,

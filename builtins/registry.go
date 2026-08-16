@@ -25,7 +25,15 @@ type Execution struct {
 
 // NewExecution binds task state and an optional concrete task to this registry.
 func (r *Registry) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execution {
-	return &Execution{TaskContext: ctx, Task: task, Registry: r}
+	execution := &Execution{TaskContext: ctx, Task: task, Registry: r}
+	execution.ensureStoreTxn()
+	return execution
+}
+
+func (ctx *Execution) ensureStoreTxn() {
+	if ctx != nil && ctx.TaskContext != nil && ctx.StoreTxn == nil && ctx.Store != nil {
+		ctx.StoreTxn = ctx.Store.DirectTxn()
+	}
 }
 
 // BuiltinFunc is a function type for builtin functions.
@@ -485,6 +493,7 @@ func (r *Registry) CallByIDWithExecution(id int, ctx *Execution, args []types.Va
 	if ctx == nil || ctx.Registry != r {
 		return types.Err(types.E_INVARG)
 	}
+	ctx.ensureStoreTxn()
 	return r.dispatch(r.entries[id], ctx, args)
 }
 
@@ -503,6 +512,7 @@ func (r *Registry) CallByNameWithExecution(name string, ctx *Execution, args []t
 	if ctx == nil || ctx.Registry != r {
 		return types.Err(types.E_INVARG), true
 	}
+	ctx.ensureStoreTxn()
 	return r.dispatch(r.entries[id], ctx, args), true
 }
 

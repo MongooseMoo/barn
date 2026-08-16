@@ -36,7 +36,7 @@ func benchChainStore(b *testing.B, depth int, verbsPerObject int) *Store {
 	if _, ec := s.AddVerb(0, target); ec != types.E_NONE {
 		b.Fatalf("AddVerb target: %v", ec)
 	}
-	if ec := s.DefineProperty(0, "targetprop", NewProperty(types.NewInt(1), 0, PropRead, false, true)); ec != types.E_NONE {
+	if ec := s.DirectTxn().DefineProperty(0, "targetprop", NewProperty(types.NewInt(1), 0, PropRead, false, true)); ec != types.E_NONE {
 		b.Fatalf("DefineProperty: %v", ec)
 	}
 	return s

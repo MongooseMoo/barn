@@ -15,7 +15,7 @@ import (
 // a key would make every call to it rehash its whole source.
 func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	s := store.NewStore()
-	objID, errCode := s.CreateObject(nil, 0, false)
+	objID, errCode := s.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject: %v", errCode)
 	}
@@ -29,10 +29,10 @@ func TestLoadedVerbsCarryTheirSourceKey(t *testing.T) {
 	if _, errCode = s.AddVerb(objID, mkVerb("second")); errCode != types.E_NONE {
 		t.Fatalf("AddVerb(second): %v", errCode)
 	}
-	if errCode = s.SetVerbCodeByIndex(objID, 0, []string{"return 1;"}); errCode != types.E_NONE {
+	if errCode = s.DirectTxn().SetVerbCodeByIndex(objID, 0, []string{"return 1;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCodeByIndex(first): %v", errCode)
 	}
-	if errCode = s.SetVerbCodeByIndex(objID, 1, []string{"return 2;"}); errCode != types.E_NONE {
+	if errCode = s.DirectTxn().SetVerbCodeByIndex(objID, 1, []string{"return 2;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCodeByIndex(second): %v", errCode)
 	}
 

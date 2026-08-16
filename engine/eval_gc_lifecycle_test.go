@@ -19,12 +19,12 @@ func TestEvalRunGCCallbackCreatedAnonymousSurvivesNextEvalYield(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	class, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	class, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("create numbered class: %v", errCode)
 	}
 	for _, name := range []string{"subject", "stash", "recycle_called", "link"} {
-		if errCode := store.DefineProperty(class, name, dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(class, name, dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #%d.%s: %v", class, name, errCode)
 		}
 	}
@@ -99,12 +99,12 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	class, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	class, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("create numbered class: %v", errCode)
 	}
 	for _, name := range []string{"subject", "recycle_called", "link"} {
-		if errCode := store.DefineProperty(class, name, dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(class, name, dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #%d.%s: %v", class, name, errCode)
 		}
 	}
@@ -119,20 +119,20 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 	if _, errCode := store.AddVerb(class, recycleVerb); errCode != types.E_NONE {
 		t.Fatalf("add inherited recycle verb: %v", errCode)
 	}
-	rootA, errCode := store.CreateObject([]types.ObjID{class}, 0, true)
+	rootA, errCode := store.DirectTxn().CreateObject([]types.ObjID{class}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous root A: %v", errCode)
 	}
-	rootB, errCode := store.CreateObject([]types.ObjID{class}, 0, true)
+	rootB, errCode := store.DirectTxn().CreateObject([]types.ObjID{class}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous root B: %v", errCode)
 	}
 	for _, id := range []types.ObjID{rootA, rootB} {
-		if errCode := store.SetPropertyValue(id, "link", types.NewAnon(id)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().SetPropertyValue(id, "link", types.NewAnon(id)); errCode != types.E_NONE {
 			t.Fatalf("set anonymous #%d self-cycle: %v", id, errCode)
 		}
 	}
-	if errCode := store.SetPropertyValue(class, "subject", types.NewAnon(rootA)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(class, "subject", types.NewAnon(rootA)); errCode != types.E_NONE {
 		t.Fatalf("persist anonymous root A: %v", errCode)
 	}
 
@@ -167,16 +167,16 @@ func TestRunGCValidationConflictDoesNotRecycleNewPersistentRoot(t *testing.T) {
 	if running.Result.Flow != types.FlowException || running.Result.Error != types.E_INVARG {
 		t.Fatalf("run_gc conflict result = %+v, want E_INVARG exception", running.Result)
 	}
-	subject, errCode := store.PropertyValue(class, "subject")
+	subject, errCode := store.DirectTxn().PropertyValue(class, "subject")
 	if errCode != types.E_NONE || subject.Type() != types.TYPE_ANON || subject.Obj() != rootB {
 		t.Fatalf("persisted subject = %v (%v), want anonymous root B #%d", subject, errCode, rootB)
 	}
-	recycleCalled, errCode := store.PropertyValue(class, "recycle_called")
+	recycleCalled, errCode := store.DirectTxn().PropertyValue(class, "recycle_called")
 	if errCode != types.E_NONE || recycleCalled.Type() != types.TYPE_INT || recycleCalled.Int() != 0 {
 		t.Fatalf("persisted recycle count = %v (%v), want 0", recycleCalled, errCode)
 	}
 	for _, id := range []types.ObjID{rootA, rootB} {
-		if !store.Valid(id) {
+		if !store.DirectTxn().Valid(id) {
 			t.Errorf("anonymous object #%d recycled despite validation conflict", id)
 		}
 	}
@@ -191,34 +191,34 @@ func TestRunGCCommitsStagedAnonymousEdgeBeforeLiveSweep(t *testing.T) {
 	if err := store.Add(root.Build()); err != nil {
 		t.Fatalf("add root: %v", err)
 	}
-	class, errCode := store.CreateObject([]types.ObjID{0}, 0, false)
+	class, errCode := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("create numbered class: %v", errCode)
 	}
 	for _, name := range []string{"subject", "link"} {
-		if errCode := store.DefineProperty(class, name, dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		if errCode := store.DirectTxn().DefineProperty(class, name, dbstore.NewProperty(types.NewInt(0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 			t.Fatalf("define #%d.%s: %v", class, name, errCode)
 		}
 	}
-	anchor, errCode := store.CreateObject([]types.ObjID{class}, 0, true)
+	anchor, errCode := store.DirectTxn().CreateObject([]types.ObjID{class}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous anchor: %v", errCode)
 	}
-	left, errCode := store.CreateObject([]types.ObjID{class}, 0, true)
+	left, errCode := store.DirectTxn().CreateObject([]types.ObjID{class}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous cycle left: %v", errCode)
 	}
-	right, errCode := store.CreateObject([]types.ObjID{class}, 0, true)
+	right, errCode := store.DirectTxn().CreateObject([]types.ObjID{class}, 0, true)
 	if errCode != types.E_NONE {
 		t.Fatalf("create anonymous cycle right: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(left, "link", types.NewAnon(right)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(left, "link", types.NewAnon(right)); errCode != types.E_NONE {
 		t.Fatalf("set cycle left -> right: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(right, "link", types.NewAnon(left)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(right, "link", types.NewAnon(left)); errCode != types.E_NONE {
 		t.Fatalf("set cycle right -> left: %v", errCode)
 	}
-	if errCode := store.SetPropertyValue(class, "subject", types.NewAnon(anchor)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetPropertyValue(class, "subject", types.NewAnon(anchor)); errCode != types.E_NONE {
 		t.Fatalf("persist anonymous anchor: %v", errCode)
 	}
 
@@ -245,12 +245,12 @@ func TestRunGCCommitsStagedAnonymousEdgeBeforeLiveSweep(t *testing.T) {
 	if running.Result.Flow != types.FlowReturn || running.Result.Val.Type() != types.TYPE_INT || running.Result.Val.Int() != 1 {
 		t.Fatalf("staged-edge run_gc result = %+v, want return 1", running.Result)
 	}
-	linked, errCode := store.PropertyValue(anchor, "link")
+	linked, errCode := store.DirectTxn().PropertyValue(anchor, "link")
 	if errCode != types.E_NONE || linked.Type() != types.TYPE_ANON || linked.Obj() != left {
 		t.Fatalf("persisted anchor edge = %v (%v), want anonymous left #%d", linked, errCode, left)
 	}
 	for _, id := range []types.ObjID{anchor, left, right} {
-		if !store.Valid(id) {
+		if !store.DirectTxn().Valid(id) {
 			t.Errorf("anonymous object #%d recycled despite committed persistent edge", id)
 		}
 	}

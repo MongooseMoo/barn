@@ -50,11 +50,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 		defObjID types.ObjID
 		err      error
 	)
-	if parentCtx.StoreTxn != nil {
-		verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
-	} else {
-		verb, defObjID, err = s.store.FindVerb(objID, verbName)
-	}
+	verb, defObjID, err = parentCtx.StoreTxn.FindVerb(objID, verbName)
 	if err != nil {
 		return types.Err(types.E_VERBNF)
 	}
@@ -78,11 +74,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	var frameThisValue types.Value
 	var isAnonymous bool
 	var anonErr types.ErrorCode
-	if parentCtx.StoreTxn != nil {
-		isAnonymous, anonErr = parentCtx.StoreTxn.ObjectIsAnonymous(objID)
-	} else {
-		isAnonymous, anonErr = s.store.ObjectIsAnonymous(objID)
-	}
+	isAnonymous, anonErr = parentCtx.StoreTxn.ObjectIsAnonymous(objID)
 	if anonErr == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon
@@ -235,7 +227,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	trace.VerbCall(objID, verbName, args, player, player)
 
 	// Look up the verb to get its owner for programmer permissions
-	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		// Verb not found
 		result := types.Result{
@@ -266,7 +258,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 
 	thisVal := types.NewObj(objID)
 	frameThisValue := types.None
-	if isAnonymous, errCode := s.store.ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
+	if isAnonymous, errCode := s.store.DirectTxn().ObjectIsAnonymous(objID); errCode == types.E_NONE && isAnonymous {
 		anon := types.NewAnon(objID)
 		thisVal = anon
 		frameThisValue = anon
@@ -335,7 +327,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	result = s.drainForks(t, bcVM, result)
 	vm.ReleaseVM(bcVM)
 	committed := true
-	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			committed = false

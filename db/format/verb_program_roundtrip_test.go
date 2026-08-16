@@ -25,7 +25,7 @@ import (
 func TestRoundTripPreservesEmptyVerbCodeSection(t *testing.T) {
 	s := store.NewStore()
 
-	objID, errCode := s.CreateObject(nil, 0, false)
+	objID, errCode := s.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -46,12 +46,12 @@ func TestRoundTripPreservesEmptyVerbCodeSection(t *testing.T) {
 		t.Fatalf("AddVerb(never_programmed): %v", errCode)
 	}
 
-	if errCode = s.SetVerbCodeByIndex(objID, 0, []string{"return 1;"}); errCode != types.E_NONE {
+	if errCode = s.DirectTxn().SetVerbCodeByIndex(objID, 0, []string{"return 1;"}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode(with_code): %v", errCode)
 	}
 	// Empty program: set_verb_code with an empty body. This must still produce a
 	// program entry on write even though the source is empty.
-	if errCode = s.SetVerbCodeByIndex(objID, 1, []string{}); errCode != types.E_NONE {
+	if errCode = s.DirectTxn().SetVerbCodeByIndex(objID, 1, []string{}); errCode != types.E_NONE {
 		t.Fatalf("SetVerbCode(empty_program): %v", errCode)
 	}
 	// index 2 (never_programmed) is intentionally left unprogrammed.

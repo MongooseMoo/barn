@@ -31,6 +31,9 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if ctx := t.ContextValue(); ctx != nil && ctx.Store == nil && ctx.StoreTxn == nil {
+		s.populateTaskContextDependencies(ctx)
+	}
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
 	s.scheduler.Enqueue(t)
@@ -54,7 +57,7 @@ func (s *Runtime) CreateForegroundTask(player types.ObjID, program *bytecode.Pro
 // RunServerVerbTask runs a server-initiated hook verb through the normal
 // engine/task machinery until it completes or reaches its first suspend.
 func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID) (types.Result, error) {
-	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		return types.Result{}, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
@@ -112,7 +115,7 @@ func (s *Runtime) RunServerVerbTask(objID types.ObjID, verbName string, args []t
 // (for disconnect cancellation) before onComplete can clear it on a task that
 // completes synchronously without suspending.
 func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args []types.Value, player types.ObjID, argstr string, onStart func(int64), onComplete func(types.Result)) (int64, error) {
-	verb, defObjID, err := s.store.FindVerb(objID, verbName)
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(objID, verbName)
 	if err != nil {
 		return 0, fmt.Errorf("find verb %s on #%d: %w", verbName, objID, err)
 	}
@@ -227,7 +230,7 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 		// when syncing line numbers to the task's CallStack.
 		frame.IsVerbCall = true
 		// Inherit verb debug flag from the parent verb
-		if forkVerb, _, vErr := s.store.FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
+		if forkVerb, _, vErr := s.store.DirectTxn().FindVerb(forkInfo.ThisObj, forkInfo.Verb); vErr == nil {
 			frame.VerbDebug = forkVerb.Perms.Has(dbstore.VerbDebug)
 		}
 

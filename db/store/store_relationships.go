@@ -26,7 +26,7 @@ func (s *Store) attachChildToParentsLocked(childID types.ObjID, parents []types.
 	}
 }
 
-func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int64) types.ErrorCode {
+func (s *Store) moveObject(whatID types.ObjID, whereID types.ObjID, position int64) types.ErrorCode {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -66,7 +66,7 @@ func (s *Store) MoveObject(whatID types.ObjID, whereID types.ObjID, position int
 	return types.E_NONE
 }
 
-func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+func (s *Store) parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -80,7 +80,7 @@ func (s *Store) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	return obj.parents[0], types.E_NONE
 }
 
-func (s *Store) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+func (s *Store) parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -91,7 +91,7 @@ func (s *Store) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	return append([]types.ObjID(nil), obj.parents...), types.E_NONE
 }
 
-func (s *Store) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+func (s *Store) children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -102,7 +102,7 @@ func (s *Store) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	return append([]types.ObjID(nil), obj.children...), types.E_NONE
 }
 
-func (s *Store) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+func (s *Store) contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -113,7 +113,7 @@ func (s *Store) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
 	return append([]types.ObjID(nil), obj.contents...), types.E_NONE
 }
 
-func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+func (s *Store) location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -124,7 +124,7 @@ func (s *Store) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	return obj.location, types.E_NONE
 }
 
-func (s *Store) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
+func (s *Store) lastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -135,7 +135,7 @@ func (s *Store) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
 	return obj.lastMove, types.E_NONE
 }
 
-func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+func (s *Store) ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -170,7 +170,7 @@ func (s *Store) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, t
 	return result, types.E_NONE
 }
 
-func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+func (s *Store) descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -205,7 +205,7 @@ func (s *Store) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID,
 	return result, types.E_NONE
 }
 
-func (s *Store) HasAncestor(objID, ancestorID types.ObjID) bool {
+func (s *Store) hasAncestor(objID, ancestorID types.ObjID) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -261,7 +261,7 @@ func (s *Store) hasDescendantLocked(obj *Object, descendantID types.ObjID) bool 
 	return false
 }
 
-func (s *Store) HasContentDescendant(objID, targetID types.ObjID) bool {
+func (s *Store) hasContentDescendant(objID, targetID types.ObjID) bool {
 	if objID == targetID {
 		return true
 	}

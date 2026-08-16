@@ -175,13 +175,7 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	// If obj defines a property that new_parent or its ancestors also define, that's E_INVARG
 	// (This is different from inherited properties, which can be shadowed)
 	if newParentVal.ID() != types.ObjNothing {
-		var conflict bool
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			conflict, errCode = tx.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
-		} else {
-			conflict, errCode = store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
-		}
+		conflict, errCode := readTxn(ctx).HasDefinedPropertyConflictWithAncestry(objVal.ID(), []types.ObjID{newParentVal.ID()})
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -193,22 +187,11 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new_parent or its ancestors.
 	if newParentVal.ID() != types.ObjNothing {
-		var newParentProps map[string]bool
-		var conflict bool
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			newParentProps, errCode = tx.DefinedPropertyNamesInAncestry(newParentVal.ID())
-		} else {
-			newParentProps, errCode = store.DefinedPropertyNamesInAncestry(newParentVal.ID())
-		}
+		newParentProps, errCode := readTxn(ctx).DefinedPropertyNamesInAncestry(newParentVal.ID())
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
-		if tx := readTxn(ctx); tx != nil {
-			conflict, errCode = tx.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
-		} else {
-			conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
-		}
+		conflict, errCode := readTxn(ctx).HasChparentDescendantPropertyConflict(objVal.ID(), newParentProps)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -241,27 +224,22 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	} else {
 		newParents = []types.ObjID{newParentVal.ID()}
 	}
-	var oldParents []types.ObjID
-	if tx := readTxn(ctx); tx != nil {
-		var errCode types.ErrorCode
-		oldParents, errCode = tx.Parents(objVal.ID())
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	tx := readTxn(ctx)
+	oldParents, errCode := tx.Parents(objVal.ID())
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx := readTxn(ctx); tx != nil {
-		adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
-		adoptIDs = append(adoptIDs, newParents...)
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
+	adoptIDs = append(adoptIDs, newParents...)
+	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -330,13 +308,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	tx := readTxn(ctx)
-	var duplicateProps bool
-	var errCode types.ErrorCode
-	if tx != nil {
-		duplicateProps, errCode = tx.HasDuplicateDefinedPropertyAmong(newParents)
-	} else {
-		duplicateProps, errCode = store.HasDuplicateDefinedPropertyAmong(newParents)
-	}
+	duplicateProps, errCode := tx.HasDuplicateDefinedPropertyAmong(newParents)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -348,12 +320,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	// If obj defines a property that any new parent or their ancestors also define, that's E_INVARG
 	allNewParentProps := make(map[string]bool)
 	for _, parentID := range newParents {
-		var props map[string]bool
-		if tx != nil {
-			props, errCode = tx.DefinedPropertyNamesInAncestry(parentID)
-		} else {
-			props, errCode = store.DefinedPropertyNamesInAncestry(parentID)
-		}
+		props, errCode := tx.DefinedPropertyNamesInAncestry(parentID)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -362,12 +329,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	var conflict bool
-	if tx != nil {
-		conflict, errCode = tx.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
-	} else {
-		conflict, errCode = store.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
-	}
+	conflict, errCode := tx.HasDefinedPropertyConflictWithAncestry(objVal.ID(), newParents)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -377,11 +339,7 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 
 	// Check for property conflicts: only chparent-added descendants of obj
 	// cannot define properties that are also defined on new parents or their ancestors.
-	if tx != nil {
-		conflict, errCode = tx.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
-	} else {
-		conflict, errCode = store.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
-	}
+	conflict, errCode = tx.HasChparentDescendantPropertyConflict(objVal.ID(), allNewParentProps)
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -394,27 +352,21 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
-	var oldParents []types.ObjID
-	if tx != nil {
-		var errCode types.ErrorCode
-		oldParents, errCode = tx.Parents(objVal.ID())
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	oldParents, errCode := tx.Parents(objVal.ID())
+	if errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 	if errCode := store.ChangeParents(objVal.ID(), newParents); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	markLiveStoreMutated(ctx)
-	if tx != nil {
-		adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
-		adoptIDs = append(adoptIDs, newParents...)
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	adoptIDs := append([]types.ObjID{objVal.ID()}, oldParents...)
+	adoptIDs = append(adoptIDs, newParents...)
+	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if errCode := tx.ReseedInheritedProperties(objVal.ID()); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	return types.Ok(types.NewInt(0))
@@ -423,8 +375,6 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 // builtinAncestors implements ancestors(object [, include_self])
 // Returns list of all ancestors in inheritance order
 func builtinAncestors(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -439,13 +389,7 @@ func builtinAncestors(ctx *Execution, args []types.Value) types.Result {
 		includeSelf = args[1].Truthy()
 	}
 
-	var ancestorIDs []types.ObjID
-	var errCode types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		ancestorIDs, errCode = tx.Ancestors(objVal.ID(), includeSelf)
-	} else {
-		ancestorIDs, errCode = store.Ancestors(objVal.ID(), includeSelf)
-	}
+	ancestorIDs, errCode := readTxn(ctx).Ancestors(objVal.ID(), includeSelf)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -456,8 +400,6 @@ func builtinAncestors(ctx *Execution, args []types.Value) types.Result {
 // builtinDescendants implements descendants(object [, include_self])
 // Returns list of all descendants in inheritance order
 func builtinDescendants(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 1 || len(args) > 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -472,13 +414,7 @@ func builtinDescendants(ctx *Execution, args []types.Value) types.Result {
 		includeSelf = args[1].Truthy()
 	}
 
-	var descendantIDs []types.ObjID
-	var errCode types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		descendantIDs, errCode = tx.Descendants(objVal.ID(), includeSelf)
-	} else {
-		descendantIDs, errCode = store.Descendants(objVal.ID(), includeSelf)
-	}
+	descendantIDs, errCode := readTxn(ctx).Descendants(objVal.ID(), includeSelf)
 	if errCode != types.E_NONE {
 		return types.Err(types.E_INVARG)
 	}
@@ -490,8 +426,6 @@ func builtinDescendants(ctx *Execution, args []types.Value) types.Result {
 // Returns true if object inherits from ancestor, or the matching ancestor object
 // when return_object is truthy.
 func builtinIsa(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 2 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -534,12 +468,7 @@ func builtinIsa(ctx *Execution, args []types.Value) types.Result {
 			continue
 		}
 
-		hasAncestor := false
-		if tx := readTxn(ctx); tx != nil {
-			hasAncestor = tx.HasAncestor(objVal.ID(), ancestorID)
-		} else {
-			hasAncestor = store.HasAncestor(objVal.ID(), ancestorID)
-		}
+		hasAncestor := readTxn(ctx).HasAncestor(objVal.ID(), ancestorID)
 		if hasAncestor {
 			if returnObject {
 				return types.Ok(types.NewObj(ancestorID))
@@ -585,8 +514,6 @@ func builtinLocateByName(ctx *Execution, args []types.Value) types.Result {
 }
 
 func builtinLocations(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) < 1 || len(args) > 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -631,12 +558,7 @@ func builtinLocations(ctx *Execution, args []types.Value) types.Result {
 				break
 			}
 			if checkParent {
-				hasAncestor := false
-				if tx := readTxn(ctx); tx != nil {
-					hasAncestor = tx.HasAncestor(locID, baseID)
-				} else {
-					hasAncestor = store.HasAncestor(locID, baseID)
-				}
+				hasAncestor := readTxn(ctx).HasAncestor(locID, baseID)
 				if locID == baseID || hasAncestor {
 					break
 				}
@@ -694,7 +616,7 @@ func builtinRecycledObjects(ctx *Execution, args []types.Value) types.Result {
 	out := make([]types.Value, 0)
 	upper := store.NextID()
 	for id := types.ObjID(0); id < upper; id++ {
-		if store.IsRecycled(id) {
+		if store.DirectTxn().IsRecycled(id) {
 			out = append(out, types.NewObj(id))
 		}
 	}
@@ -721,7 +643,7 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		if start == types.ObjNothing {
 			return types.Err(types.E_INVARG)
 		}
-		if start > store.MaxObject() {
+		if start > store.DirectTxn().MaxObject() {
 			return types.Err(types.E_INVARG)
 		}
 	}
@@ -732,7 +654,7 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 	}
 	upper := store.NextID()
 	for id := start + 1; id < upper; id++ {
-		if store.IsRecycled(id) {
+		if store.DirectTxn().IsRecycled(id) {
 			return types.Ok(types.NewObj(id))
 		}
 	}
@@ -776,20 +698,19 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 	if err := store.Recreate(obj.ID(), parent, owner); err != nil {
 		return types.Err(types.E_INVARG)
 	}
-	if tx := readTxn(ctx); tx != nil {
-		if errCode := tx.AdoptLiveObject(obj.ID()); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		adoptIDs := []types.ObjID{obj.ID()}
-		if parent != types.ObjNothing {
-			adoptIDs = append(adoptIDs, parent)
-		}
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		if errCode := tx.ReseedInheritedProperties(obj.ID()); errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
+	tx := readTxn(ctx)
+	if errCode := tx.AdoptLiveObject(obj.ID()); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	adoptIDs := []types.ObjID{obj.ID()}
+	if parent != types.ObjNothing {
+		adoptIDs = append(adoptIDs, parent)
+	}
+	if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	if errCode := tx.ReseedInheritedProperties(obj.ID()); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 
 	result := types.Ok(types.NewObj(obj.ID()))

@@ -22,7 +22,7 @@ func TestRunServerVerbTaskRunsBeforeReturning(t *testing.T) {
 	store := dbstore.NewStore()
 	addServerVerbTestObject(t, store, 0, dbstore.FlagWizard)
 	addServerVerbTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
-	if errCode := store.DefineProperty(0, "started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "started", dbstore.NewProperty(types.NewInt(0), 2, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define property: %v", errCode)
 	}
 	store.AddVerb(0, dbstore.NewVerb("server_started", []string{"server_started"}, 2,
@@ -35,7 +35,7 @@ func TestRunServerVerbTaskRunsBeforeReturning(t *testing.T) {
 		t.Fatalf("run server verb task: %v", err)
 	}
 
-	value, errCode := store.PropertyValue(0, "started")
+	value, errCode := store.DirectTxn().PropertyValue(0, "started")
 	if errCode != types.E_NONE {
 		t.Fatalf("read property: %v", errCode)
 	}

@@ -166,7 +166,7 @@ func (s *Server) LoadDatabase() error {
 		shutdownMessage := "Server shutdown"
 		if ctx != nil {
 			caller := fmt.Sprintf("#%d", ctx.Programmer)
-			if name, errCode := s.store.ObjectName(ctx.Programmer); errCode == types.E_NONE && name != "" {
+			if name, errCode := s.store.DirectTxn().ObjectName(ctx.Programmer); errCode == types.E_NONE && name != "" {
 				caller = name
 			}
 			shutdownMessage = "shutdown() called by " + caller

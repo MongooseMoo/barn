@@ -62,12 +62,12 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 	}
 	// Inheritable property the anon writes through its parent #0 (matches how the
 	// coder's regression test and real MOO anon objects carry properties).
-	if errCode := store.DefineProperty(0, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "counter", NewProperty(types.NewInt(0), 0, PropRead|PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty #0.counter failed: %v", errCode)
 	}
 
 	// ONE anonymous object, shared by every writer and reader.
-	anon, ec := store.CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
+	anon, ec := store.DirectTxn().CreateObject([]types.ObjID{0}, 0, true /*anonymous*/)
 	if ec != types.E_NONE {
 		t.Fatalf("CreateObject anonymous failed: %v", ec)
 	}
@@ -165,9 +165,9 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < readsEach && !stop.Load(); i++ {
-				_, _ = store.PropertyValue(anon, "counter")
-				_, _ = store.ObjectName(anon)
-				_ = store.Valid(anon)
+				_, _ = store.DirectTxn().PropertyValue(anon, "counter")
+				_, _ = store.DirectTxn().ObjectName(anon)
+				_ = store.DirectTxn().Valid(anon)
 				tx := store.BeginReadOnly(0)
 				_, _ = tx.PropertyValue(anon, "counter")
 				_, _ = tx.ObjectName(anon)
@@ -181,7 +181,7 @@ func TestConcurrentAnonObjectWritesSerialize(t *testing.T) {
 	// Invariant: every successful increment commit added exactly 1, and stale-read
 	// commits aborted, so the final counter equals the success count. A lost update
 	// (two successes reading the same value) would make final < successes.
-	final, errCode := store.PropertyValue(anon, "counter")
+	final, errCode := store.DirectTxn().PropertyValue(anon, "counter")
 	if errCode != types.E_NONE {
 		t.Fatalf("post-run PropertyValue(anon, counter) = %v, want E_NONE", errCode)
 	}

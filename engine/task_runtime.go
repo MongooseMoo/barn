@@ -84,7 +84,7 @@ func (s *Runtime) runTask(t *task.Task) (retErr error) {
 
 	retryState := captureTaskRetryState(t)
 	defer func() {
-		if ctx := t.ContextValue(); ctx != nil && ctx.StoreTxn != nil {
+		if ctx := t.ContextValue(); ctx != nil {
 			ctx.StoreTxn.Release()
 		}
 	}()
@@ -132,9 +132,7 @@ retryAttempt:
 	// Release any txn left on this context from a previous attempt/run before
 	// beginning a fresh one, so its readTS deregisters from the history-GC floor
 	// promptly (the runtime finalizer is only a backstop).
-	if old := ctx.StoreTxn; old != nil {
-		old.Release()
-	}
+	ctx.StoreTxn.Release()
 	ctx.StoreTxn = s.store.BeginReadOnly(0)
 	if escalated {
 		// Snapshot taken while holding the gate exclusively: no ordinary commit
@@ -261,7 +259,7 @@ retryAttempt:
 
 			// Set verb debug flag from the actual verb permissions, and record the
 			// verb's stored name spec (incl. wildcards) for printed tracebacks.
-			if taskVerb, _, vErr := s.store.FindVerb(t.This, t.VerbName); vErr == nil {
+			if taskVerb, _, vErr := ctx.StoreTxn.FindVerb(t.This, t.VerbName); vErr == nil {
 				frame.VerbDebug = taskVerb.Perms.Has(dbstore.VerbDebug)
 				frame.StoredVerbNames = taskVerb.Names
 			}
@@ -297,7 +295,7 @@ retryAttempt:
 
 	committed := true
 	committedWrites := false
-	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			// A conflict surfaces as E_INVARG (a read-set version moved) OR E_INVIND (a
 			// read-set object was recycled/renumbered out from under us since the
@@ -337,7 +335,7 @@ retryAttempt:
 		s.discardCreatedForks(t)
 		builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
 	}
-	if committed && committedWrites && ctx.StoreTxn != nil {
+	if committed && committedWrites {
 		ctx.StoreTxn.Release()
 		ctx.StoreTxn = s.store.BeginReadOnly(0)
 	}
@@ -346,9 +344,7 @@ retryAttempt:
 	// take the gate normally, including a failure-path txn that lives on.
 	// Release promptly so the world resumes.
 	if escalated {
-		if ctx.StoreTxn != nil {
-			ctx.StoreTxn.ClearCommitGateExemption()
-		}
+		ctx.StoreTxn.ClearCommitGateExemption()
 		s.store.EscalationUnlock()
 		escalated = false
 	}
@@ -381,7 +377,7 @@ retryAttempt:
 	// HasWrites also gates terminal transactions: a failed non-validation
 	// preflight retains its private maps for error handling but must never be
 	// recommitted at a later lifecycle boundary.
-	if result.Flow != types.FlowSuspend && ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+	if result.Flow != types.FlowSuspend && ctx.StoreTxn.HasWrites() {
 		if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 			result = types.Err(errCode)
 			t.Result = result
@@ -409,7 +405,7 @@ retryAttempt:
 		}
 		// A terminal commit failure makes HasWrites false without discarding the
 		// private view, preventing completion cleanup from recommitting it.
-		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+		if ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
 				t.Result = result
@@ -564,7 +560,7 @@ retryAttempt:
 		//
 		// This task's VM is released below, so its references are snapshotted now,
 		// on the goroutine that owns it, rather than walked at flush time.
-		if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+		if ctx.StoreTxn.HasWrites() {
 			if errCode := ctx.StoreTxn.Commit(); errCode != types.E_NONE {
 				result = types.Err(errCode)
 				t.Result = result
@@ -644,7 +640,7 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 		return nil
 	}
 	clone := *ctx
-	clone.StoreTxn = nil
+	clone.StoreTxn = clone.Store.DirectTxn()
 	clone.PendingEffects = nil
 	return &clone
 }

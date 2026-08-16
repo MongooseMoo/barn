@@ -103,8 +103,6 @@ func builtinPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 // builtinSetPropertyInfo implements set_property_info(object, name, info)
 // info can be {owner, perms}, just perms string, or just owner ObjValue
 func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 3 {
 		return types.Err(types.E_ARGS)
 	}
@@ -151,12 +149,7 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 		if err != types.E_NONE {
 			return types.Err(err)
 		}
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetPropertyInfo(objID, propName, nil, &perms)
-		} else {
-			errCode = store.SetPropertyInfo(objID, propName, nil, &perms)
-		}
+		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, nil, &perms)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -164,12 +157,7 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		// Just owner (leave perms unchanged)
 		owner := args[2].ID()
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetPropertyInfo(objID, propName, &owner, nil)
-		} else {
-			errCode = store.SetPropertyInfo(objID, propName, &owner, nil)
-		}
+		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, &owner, nil)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -196,12 +184,7 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(err)
 		}
 		owner := ownerVal.ID()
-		var errCode types.ErrorCode
-		if tx := readTxn(ctx); tx != nil {
-			errCode = tx.SetPropertyInfo(objID, propName, &owner, &perms)
-		} else {
-			errCode = store.SetPropertyInfo(objID, propName, &owner, &perms)
-		}
+		errCode := readTxn(ctx).SetPropertyInfo(objID, propName, &owner, &perms)
 		if errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -216,8 +199,6 @@ func builtinSetPropertyInfo(ctx *Execution, args []types.Value) types.Result {
 // builtinAddProperty implements add_property(object, name, value, info)
 // Adds a new property to object
 func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 4 {
 		return types.Err(types.E_ARGS)
 	}
@@ -274,11 +255,7 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check if property exists in any descendant
-	if tx := readTxn(ctx); tx != nil {
-		if tx.HasDefinedPropertyInDescendants(objID, propName) {
-			return types.Err(types.E_INVARG)
-		}
-	} else if store.HasDefinedPropertyInDescendants(objID, propName) {
+	if readTxn(ctx).HasDefinedPropertyInDescendants(objID, propName) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -344,12 +321,7 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	prop := dbstore.NewProperty(value, owner, perms, false, true)
-	var defineErr types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		defineErr = tx.DefineProperty(objID, propName, prop)
-	} else {
-		defineErr = store.DefineProperty(objID, propName, prop)
-	}
+	defineErr := readTxn(ctx).DefineProperty(objID, propName, prop)
 	if defineErr != types.E_NONE {
 		return types.Err(defineErr)
 	}
@@ -363,8 +335,6 @@ func builtinAddProperty(ctx *Execution, args []types.Value) types.Result {
 // builtinDeleteProperty implements delete_property(object, name)
 // Removes property from object
 func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -401,12 +371,7 @@ func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_PERM)
 	}
 
-	var deleteErr types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		deleteErr = tx.DeleteDefinedProperty(objID, propName)
-	} else {
-		deleteErr = store.DeleteDefinedProperty(objID, propName)
-	}
+	deleteErr := readTxn(ctx).DeleteDefinedProperty(objID, propName)
 	if deleteErr != types.E_NONE {
 		return types.Err(deleteErr)
 	}
@@ -420,8 +385,6 @@ func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
 // builtinClearProperty implements clear_property(object, name)
 // Clears property to inherit from parent
 func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
-
 	if len(args) != 2 {
 		return types.Err(types.E_ARGS)
 	}
@@ -478,12 +441,7 @@ func builtinClearProperty(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	var clearErr types.ErrorCode
-	if tx := readTxn(ctx); tx != nil {
-		clearErr = tx.ClearPropertyOverride(objID, propName)
-	} else {
-		clearErr = store.ClearPropertyOverride(objID, propName)
-	}
+	clearErr := readTxn(ctx).ClearPropertyOverride(objID, propName)
 	if clearErr != types.E_NONE {
 		return types.Err(clearErr)
 	}

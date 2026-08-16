@@ -23,7 +23,7 @@ func BuildVMRegistry() *builtins.Registry {
 		}
 		store := ctx.Store
 
-		hasProgrammer, errCode := store.HasObjectFlag(ctx.Programmer, dbstore.FlagProgrammer)
+		hasProgrammer, errCode := ctx.StoreTxn.HasObjectFlag(ctx.Programmer, dbstore.FlagProgrammer)
 		if errCode != types.E_NONE || !hasProgrammer {
 			return types.Err(types.E_PERM)
 		}

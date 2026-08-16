@@ -38,11 +38,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	prop, ok, _ := store.LocalProperty(types.ObjID(objNum), propName)
+	prop, ok, _ := store.DirectTxn().LocalProperty(types.ObjID(objNum), propName)
 	if !ok {
 		fmt.Printf("Property '%s' not found on #%d\n", propName, objNum)
 		fmt.Println("Available properties:")
-		if names, errCode := store.DefinedPropertyNames(types.ObjID(objNum)); errCode == types.E_NONE {
+		if names, errCode := store.DirectTxn().DefinedPropertyNames(types.ObjID(objNum)); errCode == types.E_NONE {
 			for _, name := range names {
 				fmt.Printf("  %s\n", name)
 			}

@@ -45,7 +45,7 @@ func TestDeepNestedRangeAssignmentWithPropertyRoot(t *testing.T) {
 			types.NewList([]types.Value{types.NewInt(1), types.NewInt(2), types.NewInt(3)}),
 		}),
 	})
-	if errCode := store.DefineProperty(0, "deep_range", dbstore.NewProperty(initial, 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "deep_range", dbstore.NewProperty(initial, 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty() = %v", errCode)
 	}
 

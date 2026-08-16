@@ -130,7 +130,7 @@ func TestFormatMOOPreservesRepresentativeDatabaseVerbs(t *testing.T) {
 	checked := 0
 	for _, object := range objects {
 		for index := 0; index < object.VerbCount && checked < 50; index++ {
-			view, errCode := store.VerbByIndex(object.ID, index)
+			view, errCode := store.DirectTxn().VerbByIndex(object.ID, index)
 			if errCode != types.E_NONE || len(view.Code) == 0 {
 				continue
 			}

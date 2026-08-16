@@ -62,9 +62,9 @@ func (r *Registry) GetTaskLimits(background bool) (int64, float64) {
 
 func (r *Registry) GetMaxStackDepth(store *dbstore.Store) int {
 	if store != nil {
-		serverOpts, errCode := store.FindProperty(0, "server_options")
+		serverOpts, errCode := store.DirectTxn().FindProperty(0, "server_options")
 		if errCode == types.E_NONE && serverOpts.Value.Type() == types.TYPE_OBJ {
-			if option, errCode := store.FindProperty(serverOpts.Value.Obj(), "max_stack_depth"); errCode == types.E_NONE {
+			if option, errCode := store.DirectTxn().FindProperty(serverOpts.Value.Obj(), "max_stack_depth"); errCode == types.E_NONE {
 				if option.Value.Type() == types.TYPE_INT && option.Value.Int() > defaultMaxStackDepth {
 					return int(option.Value.Int())
 				}
@@ -240,7 +240,7 @@ func (r *Registry) LoadServerOptionsFromStore(store *dbstore.Store) int {
 	}
 	return r.loadServerOptions(
 		func(objID types.ObjID, name string) (dbstore.PropertyView, bool) {
-			prop, err := store.FindProperty(objID, name)
+			prop, err := store.DirectTxn().FindProperty(objID, name)
 			if err != types.E_NONE {
 				return dbstore.PropertyView{}, false
 			}
@@ -274,7 +274,7 @@ func (r *Registry) LoadServerOptionsForTask(ctx *Execution) int {
 			return prop, true
 		},
 	)
-	if ctx.StoreTxn != nil && ctx.StoreTxn.HasWrites() {
+	if ctx.StoreTxn.HasWrites() {
 		enqueuePendingEffect(ctx, kernel.PendingEffect{
 			Kind:          kernel.PendingEffectServerOptions,
 			ServerOptions: snapshot,

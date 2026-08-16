@@ -391,12 +391,14 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 		ctx.Player = waif.Owner()
 		ctx.Programmer = waif.Owner()
 		ctx.Store = s.store
+		ctx.StoreTxn = s.store.DirectTxn()
 		ctx.RuntimeOptions = s.options
 		s.lifecycle.PendingWaifs = append(s.lifecycle.PendingWaifs, finalization.PendingWaif{Waif: waif, Ctx: ctx})
 	}
 	for id := range anons {
 		ctx := kernel.NewTaskContext()
 		ctx.Store = s.store
+		ctx.StoreTxn = s.store.DirectTxn()
 		ctx.RuntimeOptions = s.options
 		ctx.DeferredGC = true
 		s.lifecycle.PendingAnonGC = append(s.lifecycle.PendingAnonGC, vm.AnonGCRequest{Ctx: ctx, MinID: id})
@@ -427,7 +429,7 @@ func collectLoadedFinalizationRoots(value types.Value, waifs *[]types.Value, ano
 }
 
 func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *task.Task, waif types.Value) {
-	verb, defObjID, err := s.store.FindVerb(waif.Class(), ":recycle")
+	verb, defObjID, err := s.store.DirectTxn().FindVerb(waif.Class(), ":recycle")
 	if err != nil {
 		return
 	}

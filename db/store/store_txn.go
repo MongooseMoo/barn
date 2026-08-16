@@ -27,6 +27,7 @@ func debugConflict(kind string, objID types.ObjID, name string, want, live uint6
 type StoreTxn struct {
 	readTS                    uint64
 	store                     *Store
+	direct                    bool
 	gateExempt                bool // set on the txn of an escalated attempt; its Commit skips the shared commit gate (the runtime holds it exclusively)
 	objects                   map[types.ObjID]*Object
 	scalarReads               map[types.ObjID]uint64
@@ -98,7 +99,7 @@ func lazySet[K comparable, V any](m *map[K]V, k K, v V) {
 // the specific live object facets changed by their own mutation; unrelated read-set
 // versions must remain at the original snapshot so concurrent changes still conflict.
 func (tx *StoreTxn) MarkLiveMutated() {
-	if tx != nil {
+	if tx != nil && !tx.direct {
 		tx.liveMutated = true
 		// The task mutated the store outside this txn; anything memoized from
 		// the pre-mutation view must not be replayed.
@@ -269,7 +270,17 @@ func (tx *StoreTxn) ReadTimestamp() uint64 {
 	if tx == nil {
 		return 0
 	}
+	if tx.direct {
+		return tx.store.readTimestamp()
+	}
 	return tx.readTS
+}
+
+// IsDirect reports whether this is the store-owned pass-through transaction.
+// Host side effects use it to preserve immediate behavior outside a retryable
+// task while database operations remain single-spelled on StoreTxn.
+func (tx *StoreTxn) IsDirect() bool {
+	return tx != nil && tx.direct
 }
 
 func (tx *StoreTxn) object(objID types.ObjID) *Object {
@@ -371,7 +382,7 @@ func (tx *StoreTxn) objectLocked(objID types.ObjID) *Object {
 }
 
 func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return types.E_NONE
 	}
 	// Replaces the txn's binding for objID without marking it owned.
@@ -403,7 +414,7 @@ func (tx *StoreTxn) AdoptLiveObject(objID types.ObjID) types.ErrorCode {
 }
 
 func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return types.E_NONE
 	}
 	tx.invalidateResolveCaches()
@@ -471,7 +482,7 @@ func (tx *StoreTxn) AdoptLiveVerbs(objID types.ObjID) types.ErrorCode {
 }
 
 func (tx *StoreTxn) AdoptLiveRelationships(objIDs ...types.ObjID) types.ErrorCode {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return types.E_NONE
 	}
 	tx.invalidateResolveCaches()
@@ -614,7 +625,7 @@ func (tx *StoreTxn) HasStagedVerbDeletes() bool {
 }
 
 func (tx *StoreTxn) HasWrites() bool {
-	return tx != nil && tx.terminalErr == types.E_NONE && tx.hasStagedWrites()
+	return tx != nil && !tx.direct && tx.terminalErr == types.E_NONE && tx.hasStagedWrites()
 }
 
 func (tx *StoreTxn) hasStagedWrites() bool {
@@ -692,7 +703,7 @@ func (tx *StoreTxn) writeFootprintHasAnon() bool {
 }
 
 func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return
 	}
 	// Rebinds tx.objects[objID] and drops read marks without marking it owned.
@@ -749,7 +760,7 @@ func (tx *StoreTxn) ForgetObject(objID types.ObjID) {
 }
 
 func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
-	if tx == nil || oldID == newID {
+	if tx == nil || tx.direct || oldID == newID {
 		return
 	}
 	tx.invalidateResolveCaches()
@@ -788,7 +799,7 @@ func (tx *StoreTxn) MoveStagedProperties(oldID, newID types.ObjID) {
 }
 
 func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return
 	}
 	tx.invalidateResolveCaches()
@@ -852,7 +863,7 @@ func (tx *StoreTxn) ApplyStagedProperties(objID types.ObjID) {
 }
 
 func (tx *StoreTxn) ValidationFailed() bool {
-	return tx != nil && tx.validationFail
+	return tx != nil && !tx.direct && tx.validationFail
 }
 
 func cloneObjectForReadTxn(obj *Object) *Object {
@@ -911,6 +922,9 @@ func cloneVerbForReadTxn(verb *Verb) *Verb {
 }
 
 func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
+	if tx.direct {
+		return tx.store.objectExists(objID)
+	}
 	obj := tx.object(objID)
 	if validLiveObject(obj) {
 		return types.E_NONE
@@ -922,10 +936,16 @@ func (tx *StoreTxn) ObjectExists(objID types.ObjID) types.ErrorCode {
 }
 
 func (tx *StoreTxn) Valid(objID types.ObjID) bool {
+	if tx.direct {
+		return tx.store.valid(objID)
+	}
 	return validLiveObject(tx.object(objID))
 }
 
 func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.objectName(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return "", types.E_INVIND
@@ -935,6 +955,9 @@ func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.objectOwner(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -944,6 +967,9 @@ func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode
 }
 
 func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.objectFlags(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return 0, types.E_INVIND
@@ -953,6 +979,9 @@ func (tx *StoreTxn) ObjectFlags(objID types.ObjID) (ObjectFlags, types.ErrorCode
 }
 
 func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.hasObjectFlag(objID, flag)
+	}
 	flags, errCode := tx.ObjectFlags(objID)
 	if errCode != types.E_NONE {
 		return false, errCode
@@ -961,6 +990,9 @@ func (tx *StoreTxn) HasObjectFlag(objID types.ObjID, flag ObjectFlags) (bool, ty
 }
 
 func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.objectIsAnonymous(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -970,6 +1002,9 @@ func (tx *StoreTxn) ObjectIsAnonymous(objID types.ObjID) (bool, types.ErrorCode)
 }
 
 func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setObjectName(objID, name)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -984,6 +1019,9 @@ func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCod
 }
 
 func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setObjectOwner(objID, owner)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -998,6 +1036,9 @@ func (tx *StoreTxn) SetObjectOwner(objID types.ObjID, owner types.ObjID) types.E
 }
 
 func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled bool) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setObjectFlag(objID, flag, enabled)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1016,6 +1057,9 @@ func (tx *StoreTxn) SetObjectFlag(objID types.ObjID, flag ObjectFlags, enabled b
 }
 
 func (tx *StoreTxn) SetObjectLocationRaw(objID types.ObjID, location types.ObjID) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setObjectLocationRaw(objID, location)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1055,7 +1099,11 @@ func (tx *StoreTxn) stageChildrenDelta(objID types.ObjID, d contentsDelta) {
 // Anonymous creation stays coarse (out-of-band, no slot) — callers must not route it
 // here. Retry-safe: on retry the whole txn is dropped and a fresh id is allocated (the
 // abandoned id is wasted, never a live slot).
-func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID) (types.ObjID, types.ErrorCode) {
+func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID, anonymous ...bool) (types.ObjID, types.ErrorCode) {
+	isAnonymous := len(anonymous) > 0 && anonymous[0]
+	if tx.direct || isAnonymous {
+		return tx.store.createObject(parents, owner, isAnonymous)
+	}
 	newID := tx.store.allocateID()
 	if owner == types.ObjNothing {
 		owner = newID
@@ -1100,6 +1148,9 @@ func (tx *StoreTxn) CreateObject(parents []types.ObjID, owner types.ObjID) (type
 // MaxObject returns the highest non-anonymous id visible to this txn, including its own
 // staged creates (read-your-writes for max_object()).
 func (tx *StoreTxn) MaxObject() types.ObjID {
+	if tx.direct {
+		return tx.store.maxObject()
+	}
 	if tx == nil {
 		return -1
 	}
@@ -1115,6 +1166,9 @@ func (tx *StoreTxn) MaxObject() types.ObjID {
 // back to the coarse store.Recycle (which reparents children). Anonymous objects are not
 // routed here. recycledID is appended at commit time (under RLock), not here.
 func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorCode) {
+	if tx.direct {
+		return false, types.E_NONE
+	}
 	obj := tx.object(id)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -1166,6 +1220,9 @@ func (tx *StoreTxn) RecycleObject(id types.ObjID) (handled bool, ec types.ErrorC
 // Mirrors store.MoveObject's imperative order (remove from old, set location, insert
 // into new) so a same-location move re-orders identically.
 func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) types.ErrorCode {
+	if tx.direct {
+		return tx.store.moveObject(whatID, whereID, position)
+	}
 	what := tx.object(whatID)
 	if !validLiveObject(what) {
 		return types.E_INVIND
@@ -1214,6 +1271,9 @@ func (tx *StoreTxn) MoveObject(whatID, whereID types.ObjID, position int64) type
 // on every object walked so a concurrent move that would change the answer conflicts
 // this txn (preventing two concurrent moves from each creating a containment cycle).
 func (tx *StoreTxn) HasContentDescendant(objID, targetID types.ObjID) bool {
+	if tx.direct {
+		return tx.store.hasContentDescendant(objID, targetID)
+	}
 	if objID == targetID {
 		return true
 	}
@@ -1239,6 +1299,9 @@ func (tx *StoreTxn) HasContentDescendant(objID, targetID types.ObjID) bool {
 }
 
 func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.parent(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -1251,6 +1314,9 @@ func (tx *StoreTxn) Parent(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.parents(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1260,6 +1326,9 @@ func (tx *StoreTxn) Parents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) 
 }
 
 func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.children(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1274,6 +1343,9 @@ func (tx *StoreTxn) Children(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 // therefore misses staged creates. An invalid start object is E_INVIND; an ancestor that
 // becomes invalid mid-walk is still listed but not descended through (as in the store).
 func (tx *StoreTxn) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.ancestors(objID, includeSelf)
+	}
 	parents, ec := tx.Parents(objID)
 	if ec != types.E_NONE {
 		return nil, ec
@@ -1302,6 +1374,9 @@ func (tx *StoreTxn) Ancestors(objID types.ObjID, includeSelf bool) ([]types.ObjI
 
 // Descendants is the child-direction counterpart of Ancestors (read-your-writes).
 func (tx *StoreTxn) Descendants(objID types.ObjID, includeSelf bool) ([]types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.descendants(objID, includeSelf)
+	}
 	children, ec := tx.Children(objID)
 	if ec != types.E_NONE {
 		return nil, ec
@@ -1332,6 +1407,9 @@ func (tx *StoreTxn) Descendants(objID types.ObjID, includeSelf bool) ([]types.Ob
 // parents through the txn (read-your-writes), so an inheritance chain this task staged with
 // decentralized creates is honored before commit. Mirrors Store.HasAncestor.
 func (tx *StoreTxn) HasAncestor(objID, ancestorID types.ObjID) bool {
+	if tx.direct {
+		return tx.store.hasAncestor(objID, ancestorID)
+	}
 	if !validLiveObject(tx.object(objID)) || !validLiveObject(tx.object(ancestorID)) {
 		return false
 	}
@@ -1365,6 +1443,9 @@ func (tx *StoreTxn) HasAncestor(objID, ancestorID types.ObjID) bool {
 // including a recycle this task staged decentrally but has not yet committed. Mirrors
 // Store.IsRecycled, which sees only committed live state.
 func (tx *StoreTxn) IsRecycled(id types.ObjID) bool {
+	if tx.direct {
+		return tx.store.isRecycled(id)
+	}
 	if tx.recycleWrites[id] {
 		return true
 	}
@@ -1373,6 +1454,15 @@ func (tx *StoreTxn) IsRecycled(id types.ObjID) bool {
 }
 
 func (tx *StoreTxn) AnonymousChildren(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		tx.store.mu.RLock()
+		defer tx.store.mu.RUnlock()
+		obj := tx.store.liveObjectLocked(objID)
+		if !validLiveObject(obj) {
+			return nil, types.E_INVIND
+		}
+		return append([]types.ObjID(nil), obj.anonymousChildren...), types.E_NONE
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1382,6 +1472,9 @@ func (tx *StoreTxn) AnonymousChildren(objID types.ObjID) ([]types.ObjID, types.E
 }
 
 func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.contents(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1391,6 +1484,9 @@ func (tx *StoreTxn) Contents(objID types.ObjID) ([]types.ObjID, types.ErrorCode)
 }
 
 func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.location(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.ObjNothing, types.E_INVIND
@@ -1400,6 +1496,9 @@ func (tx *StoreTxn) Location(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.lastMove(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return types.None, types.E_INVIND
@@ -1409,6 +1508,9 @@ func (tx *StoreTxn) LastMove(objID types.ObjID) (types.Value, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) FindProperty(objID types.ObjID, name string) (PropertyView, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.findProperty(objID, name)
+	}
 	prop, actualName, errCode := tx.findProperty(objID, name)
 	if errCode != types.E_NONE {
 		return PropertyView{}, errCode
@@ -1504,6 +1606,9 @@ func (tx *StoreTxn) walkProperty(objID types.ObjID, name string) (Property, stri
 }
 
 func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.propertyValue(objID, name)
+	}
 	prop, errCode := tx.FindProperty(objID, name)
 	if errCode != types.E_NONE {
 		return types.None, errCode
@@ -1512,6 +1617,9 @@ func (tx *StoreTxn) PropertyValue(objID types.ObjID, name string) (types.Value, 
 }
 
 func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.propertyValues(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1527,6 +1635,9 @@ func (tx *StoreTxn) PropertyValues(objID types.ObjID) ([]types.Value, types.Erro
 }
 
 func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView, bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.localProperty(objID, name)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return PropertyView{}, false, types.E_INVIND
@@ -1541,6 +1652,9 @@ func (tx *StoreTxn) LocalProperty(objID types.ObjID, name string) (PropertyView,
 }
 
 func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.definedPropertyNames(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1557,6 +1671,9 @@ func (tx *StoreTxn) DefinedPropertyNames(objID types.ObjID) ([]string, types.Err
 }
 
 func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, prefix string) (map[string]bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.truthyPropertiesWithPrefixInAncestry(objID, prefix)
+	}
 	if !validLiveObject(tx.object(objID)) {
 		return nil, types.E_INVIND
 	}
@@ -1601,6 +1718,9 @@ func (tx *StoreTxn) TruthyPropertiesWithPrefixInAncestry(objID types.ObjID, pref
 }
 
 func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.hasDuplicateDefinedPropertyAmong(ids)
+	}
 	seen := make(map[string]bool)
 	for _, id := range ids {
 		obj := tx.object(id)
@@ -1623,6 +1743,9 @@ func (tx *StoreTxn) HasDuplicateDefinedPropertyAmong(ids []types.ObjID) (bool, t
 }
 
 func (tx *StoreTxn) DefinedPropertyNamesInAncestry(objID types.ObjID) (map[string]bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.definedPropertyNamesInAncestry(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -1661,6 +1784,9 @@ func (tx *StoreTxn) definedPropertyNamesInAncestry(start []types.ObjID) map[stri
 }
 
 func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, parentIDs []types.ObjID) (bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.hasDefinedPropertyConflictWithAncestry(objID, parentIDs)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -1682,6 +1808,9 @@ func (tx *StoreTxn) HasDefinedPropertyConflictWithAncestry(objID types.ObjID, pa
 }
 
 func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, names map[string]bool) (bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.hasChparentDescendantPropertyConflict(objID, names)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -1717,6 +1846,9 @@ func (tx *StoreTxn) HasChparentDescendantPropertyConflict(objID types.ObjID, nam
 }
 
 func (tx *StoreTxn) ReseedInheritedProperties(objID types.ObjID) types.ErrorCode {
+	if tx.direct {
+		return types.E_NONE
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1810,6 +1942,9 @@ func (tx *StoreTxn) copyInheritedProperties(parents []types.ObjID) map[string]Pr
 }
 
 func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.propertyClearState(objID, name)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return false, types.E_INVIND
@@ -1827,6 +1962,9 @@ func (tx *StoreTxn) PropertyClearState(objID types.ObjID, name string) (bool, ty
 }
 
 func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types.Value) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setPropertyValue(objID, name, value)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1861,6 +1999,9 @@ func (tx *StoreTxn) SetPropertyValue(objID types.ObjID, name string, value types
 }
 
 func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types.ObjID, perms *PropertyPerms) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setPropertyInfo(objID, name, owner, perms)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1894,6 +2035,9 @@ func (tx *StoreTxn) SetPropertyInfo(objID types.ObjID, name string, owner *types
 }
 
 func (tx *StoreTxn) DefineProperty(objID types.ObjID, name string, prop Property) types.ErrorCode {
+	if tx.direct {
+		return tx.store.defineProperty(objID, name, prop)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1978,6 +2122,9 @@ func (tx *StoreTxn) propagateDefinedProperty(objID types.ObjID, name string, pro
 }
 
 func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.clearPropertyOverride(objID, name)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -1997,6 +2144,9 @@ func (tx *StoreTxn) ClearPropertyOverride(objID types.ObjID, name string) types.
 }
 
 func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name string) bool {
+	if tx.direct {
+		return tx.store.hasDefinedPropertyInDescendants(objID, name)
+	}
 	queue := []types.ObjID{objID}
 	visited := make(map[types.ObjID]bool)
 	for len(queue) > 0 {
@@ -2031,6 +2181,9 @@ func (tx *StoreTxn) HasDefinedPropertyInDescendants(objID types.ObjID, name stri
 }
 
 func (tx *StoreTxn) DeleteDefinedProperty(objID types.ObjID, name string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.deleteDefinedProperty(objID, name)
+	}
 	obj := tx.mutableObject(objID)
 	if !validLiveObject(obj) {
 		return types.E_INVIND
@@ -2107,7 +2260,7 @@ func (tx *StoreTxn) removeInheritedProperty(objID types.ObjID, name string) {
 // Commit will not take the shared commit gate. Only the engine's bounded-
 // escalation path may call this, and only while holding EscalationLock.
 func (tx *StoreTxn) ExemptFromCommitGate() {
-	if tx != nil {
+	if tx != nil && !tx.direct {
 		tx.gateExempt = true
 	}
 }
@@ -2115,7 +2268,7 @@ func (tx *StoreTxn) ExemptFromCommitGate() {
 // ClearCommitGateExemption re-arms the shared gate for a retryable txn that
 // outlived its escalated attempt. Terminal failures are not recommittable.
 func (tx *StoreTxn) ClearCommitGateExemption() {
-	if tx != nil {
+	if tx != nil && !tx.direct {
 		tx.gateExempt = false
 	}
 }
@@ -2130,6 +2283,9 @@ func (tx *StoreTxn) ClearCommitGateExemption() {
 func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errCode types.ErrorCode) {
 	if tx == nil || tx.store == nil {
 		return tx, false, types.E_INVARG
+	}
+	if tx.direct {
+		return tx, false, types.E_NONE
 	}
 	if tx.terminalErr != types.E_NONE {
 		return tx, false, tx.terminalErr
@@ -2154,6 +2310,9 @@ func (tx *StoreTxn) CommitAndRenew() (next *StoreTxn, publishedWrites bool, errC
 
 func (tx *StoreTxn) Commit() (commitErr types.ErrorCode) {
 	if tx == nil {
+		return types.E_NONE
+	}
+	if tx.direct {
 		return types.E_NONE
 	}
 	if tx.terminalErr != types.E_NONE {
@@ -2584,7 +2743,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 // occupancy. Exact verb deletion is rejected because it must cross a validating
 // CommitAndRenew boundary. No-op if nothing is staged.
 func (tx *StoreTxn) FlushStagedToLive() types.ErrorCode {
-	if tx == nil {
+	if tx == nil || tx.direct {
 		return types.E_NONE
 	}
 	if tx.terminalErr != types.E_NONE {
@@ -2801,6 +2960,9 @@ func (tx *StoreTxn) validateVerbDeleteTargetsLocked() types.ErrorCode {
 // caller's transaction-aware object rule; this method owns only exact identity
 // and ordered-list staging. The resolution scan supplies the generation guard.
 func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
+	if tx.direct {
+		return tx.store.deleteResolvedVerb(resolved)
+	}
 	if tx == nil || tx.store == nil || resolved.store != tx.store {
 		return types.E_VERBNF
 	}
@@ -2824,7 +2986,20 @@ func (tx *StoreTxn) DeleteResolvedVerb(resolved ResolvedVerb) types.ErrorCode {
 	return types.E_NONE
 }
 
+// DeleteResolvedVerbAuthorized preserves the direct path's atomic authority and
+// identity validation while snapshot transactions continue to validate identity
+// at commit after the caller's snapshot-based permission check.
+func (tx *StoreTxn) DeleteResolvedVerbAuthorized(resolved ResolvedVerb, programmer types.ObjID, isWizard bool) types.ErrorCode {
+	if tx.direct {
+		return tx.store.deleteResolvedVerbAuthorized(resolved, programmer, isWizard)
+	}
+	return tx.DeleteResolvedVerb(resolved)
+}
+
 func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setVerbCode(objID, name, lines)
+	}
 	verb, definer, err := tx.findVerb(objID, name, false)
 	if err != nil || verb == nil {
 		return types.E_VERBNF
@@ -2843,6 +3018,9 @@ func (tx *StoreTxn) SetVerbCode(objID types.ObjID, name string, lines []string) 
 }
 
 func (tx *StoreTxn) SetVerbCodeByIndex(objID types.ObjID, index int, lines []string) types.ErrorCode {
+	if tx.direct {
+		return tx.store.setVerbCodeByIndex(objID, index, lines)
+	}
 	// stageVerbCode mutates the verb node in place, so resolve it from a txn-private
 	// copy of the object rather than a shared alias.
 	obj := tx.mutableObject(objID)
@@ -2867,6 +3045,9 @@ func (tx *StoreTxn) stageVerbCode(objID types.ObjID, verb *Verb, lines []string)
 }
 
 func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+	if tx.direct {
+		return tx.store.findVerb(objID, verbName)
+	}
 	verb, definer, err := tx.findVerb(objID, verbName, false)
 	if err != nil {
 		return VerbView{}, definer, err
@@ -2879,6 +3060,9 @@ func (tx *StoreTxn) FindVerb(objID types.ObjID, verbName string) (VerbView, type
 // without execute permission does not shadow an executable verb further up the
 // ancestry chain — the walk treats it as a non-match and keeps searching.
 func (tx *StoreTxn) FindCallableVerb(objID types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+	if tx.direct {
+		return tx.store.findCallableVerb(objID, verbName)
+	}
 	verb, definer, err := tx.findVerb(objID, verbName, true)
 	if err != nil {
 		return VerbView{}, definer, err
@@ -2981,6 +3165,9 @@ walk:
 }
 
 func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbView, error) {
+	if tx.direct {
+		return tx.store.findVerbOnObject(objID, verbName)
+	}
 	verb, err := tx.findVerbOnObject(objID, verbName)
 	if err != nil {
 		return VerbView{}, err
@@ -2991,6 +3178,9 @@ func (tx *StoreTxn) FindVerbOnObject(objID types.ObjID, verbName string) (VerbVi
 // ResolveVerbOnObject resolves verbName against the transaction's current
 // object view and returns an opaque reference for exact staged deletion.
 func (tx *StoreTxn) ResolveVerbOnObject(objID types.ObjID, verbName string) (ResolvedVerb, error) {
+	if tx.direct {
+		return tx.store.resolveVerbOnObject(objID, verbName)
+	}
 	verb, err := tx.findVerbOnObject(objID, verbName)
 	if err != nil {
 		return ResolvedVerb{}, err
@@ -3033,6 +3223,9 @@ func (tx *StoreTxn) findVerbOnObject(objID types.ObjID, verbName string) (*Verb,
 }
 
 func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.verbNames(objID)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return nil, types.E_INVIND
@@ -3047,6 +3240,9 @@ func (tx *StoreTxn) VerbNames(objID types.ObjID) ([]string, types.ErrorCode) {
 }
 
 func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.verbByIndex(objID, index)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return VerbView{}, types.E_INVIND
@@ -3063,6 +3259,9 @@ func (tx *StoreTxn) VerbByIndex(objID types.ObjID, index int) (VerbView, types.E
 // ResolveVerbByIndex resolves an index against the transaction's current object
 // view and returns an opaque reference for exact staged deletion.
 func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVerb, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.resolveVerbByIndex(objID, index)
+	}
 	obj := tx.object(objID)
 	if !validLiveObject(obj) {
 		return ResolvedVerb{}, types.E_INVIND
@@ -3077,6 +3276,9 @@ func (tx *StoreTxn) ResolveVerbByIndex(objID types.ObjID, index int) (ResolvedVe
 }
 
 func (tx *StoreTxn) FindParentVerb(verbLoc types.ObjID, verbName string) (VerbView, types.ObjID, error) {
+	if tx.direct {
+		return tx.store.findParentVerb(verbLoc, verbName)
+	}
 	verbLocObj := tx.object(verbLoc)
 	if !validLiveObject(verbLocObj) {
 		return VerbView{}, types.ObjNothing, fmt.Errorf("defining object #%d not found", verbLoc)

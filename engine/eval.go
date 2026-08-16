@@ -60,6 +60,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	ctx.Programmer = player
 	ctx.IsWizard = s.isWizard(player)
 	ctx.Store = s.store
+	ctx.StoreTxn = s.store.DirectTxn()
 	ctx.RuntimeOptions = s.options
 
 	// Create and register a real task so task_id()/resume()/task_local()

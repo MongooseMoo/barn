@@ -168,7 +168,7 @@ func defaultRealShapes() []realShape {
 // --- per-command execution (mirrors input_processor.processCommand) ----------
 
 func runRealCommandLine(s *Runtime, st *dbstore.Store, player types.ObjID, line string) (ok bool, failure string) {
-	loc, ec := st.Location(player)
+	loc, ec := st.DirectTxn().Location(player)
 	if ec != types.E_NONE {
 		return false, "location:" + ec.String()
 	}
@@ -236,7 +236,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// Pick real player objects with a valid location.
 	var candidates []types.ObjID
 	for _, pid := range store.Players() {
-		if loc, ec := store.Location(pid); ec == types.E_NONE && loc > 0 {
+		if loc, ec := store.DirectTxn().Location(pid); ec == types.E_NONE && loc > 0 {
 			candidates = append(candidates, pid)
 		}
 	}

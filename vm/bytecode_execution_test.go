@@ -127,7 +127,7 @@ func TestComputedVerbCallEvaluatesNameBeforeArguments(t *testing.T) {
 
 func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	store := newBytecodeVerbStore()
-	if errCode := store.SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
 		t.Fatalf("SetObjectFlag wizard failed: %v", errCode)
 	}
 	class := dbstore.NewObjectBuilder(1)
@@ -137,13 +137,13 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("store.Add class failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(1, ":last_key", dbstore.NewProperty(types.NewStr(""), 0, 0, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(1, ":last_key", dbstore.NewProperty(types.NewStr(""), 0, 0, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty last_key failed: %v", errCode)
 	}
-	if errCode := store.DefineProperty(1, ":last_value", dbstore.NewProperty(types.NewInt(0), 0, 0, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(1, ":last_value", dbstore.NewProperty(types.NewInt(0), 0, 0, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty last_value failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
@@ -173,7 +173,7 @@ func TestWaifIndexOperationsDispatchToClassHandlers(t *testing.T) {
 
 func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
 	store := newBytecodeVerbStore()
-	if errCode := store.SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().SetObjectFlag(0, dbstore.FlagWizard, true); errCode != types.E_NONE {
 		t.Fatalf("SetObjectFlag wizard failed: %v", errCode)
 	}
 	class := dbstore.NewObjectBuilder(1)
@@ -183,7 +183,7 @@ func TestWaifIndexWithoutHandlerReturnsTypeError(t *testing.T) {
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("store.Add class failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
 
@@ -200,7 +200,7 @@ func TestNonwizardOwnedWaifClassCannotDispatchIndex(t *testing.T) {
 	if err := store.Add(class.Build()); err != nil {
 		t.Fatalf("store.Add class failed: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "waif", dbstore.NewProperty(types.NewWaif(1, 0), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
 		t.Fatalf("DefineProperty waif failed: %v", errCode)
 	}
 	execPerms := dbstore.VerbRead | dbstore.VerbWrite | dbstore.VerbExecute
@@ -589,7 +589,7 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 
 func TestPassWithNoParentRaisesInvind(t *testing.T) {
 	store := newBytecodeVerbStore()
-	obj, errCode := store.CreateObject(nil, 0, false)
+	obj, errCode := store.DirectTxn().CreateObject(nil, 0, false)
 	if errCode != types.E_NONE {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
@@ -635,7 +635,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 		t.Fatalf("add pass source: %s", errCode)
 	}
 
-	verb, defObjID, err := store.FindVerb(3, "pass_caller")
+	verb, defObjID, err := store.DirectTxn().FindVerb(3, "pass_caller")
 	if err != nil {
 		t.Fatalf("find inherited verb: %v", err)
 	}
@@ -662,7 +662,7 @@ func TestBytecodeAnonymousNestedThisCallPreservesCallerIdentity(t *testing.T) {
 	if err := store.Add(anon.Build()); err != nil {
 		t.Fatalf("add anonymous object: %v", err)
 	}
-	if errCode := store.DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+	if errCode := store.DirectTxn().DefineProperty(0, "anon", dbstore.NewProperty(types.NewAnon(1), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
 		t.Fatalf("define anonymous reference: %s", errCode)
 	}
 
