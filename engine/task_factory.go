@@ -31,6 +31,9 @@ func (s *Runtime) QueueTask(t *task.Task) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if ctx := t.ContextValue(); ctx != nil && ctx.Store == nil && ctx.StoreTxn == nil {
+		s.populateTaskContextDependencies(ctx)
+	}
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
 	s.scheduler.Enqueue(t)
