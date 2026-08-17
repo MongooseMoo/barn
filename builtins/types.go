@@ -35,7 +35,7 @@ func builtinTostr(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	resultStr := result.String()
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
@@ -204,7 +204,7 @@ func builtinToliteral(ctx *Execution, args []types.Value) types.Result {
 	resultStr := publicLiteral(args[0])
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if err := ctx.CheckStringLimit(len(resultStr)); err != types.E_NONE {
 		return types.Err(err)
 	}

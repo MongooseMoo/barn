@@ -20,8 +20,8 @@ import (
 // - Owner values < -1 (like -2, -3, -4) are E_INVARG
 func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
-	registry := ctx.Registry
-	if registry == nil {
+	session := ctx.Session
+	if session == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -277,7 +277,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	// The :initialize verb receives the init args and can set up the new object
 	// If verb not found (E_VERBNF), that's fine - just means no initialize
 	// Other errors should be propagated
-	result := registry.CallVerb(newID, "initialize", initArgs, ctx)
+	result := session.CallVerb(newID, "initialize", initArgs, ctx)
 	if result.Flow == types.FlowException {
 		if result.Error != types.E_VERBNF {
 			// Real error - propagate it
@@ -294,10 +294,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 }
 
 func beginRecycle(ctx *Execution, id types.ObjID) bool {
-	return ctx.Registry.startRecycle(id)
+	return ctx.Session.startRecycle(id)
 }
 
-func (r *Registry) startRecycle(id types.ObjID) bool {
+func (r *Session) startRecycle(id types.ObjID) bool {
 	state := &r.runtime.recycle
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -309,10 +309,10 @@ func (r *Registry) startRecycle(id types.ObjID) bool {
 }
 
 func endRecycle(ctx *Execution, id types.ObjID) {
-	ctx.Registry.endRecycle(id)
+	ctx.Session.endRecycle(id)
 }
 
-func (r *Registry) endRecycle(id types.ObjID) {
+func (r *Session) endRecycle(id types.ObjID) {
 	state := &r.runtime.recycle
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -341,8 +341,8 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
 // Destroys an object and invokes :recycle lifecycle hooks.
 func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
-	registry := ctx.Registry
-	if registry == nil {
+	session := ctx.Session
+	if session == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -403,8 +403,8 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	// Invoke :recycle before destroying the object. Recycling still completes if
 	// the hook raises, but the hook exception is returned after cleanup.
 	hookResult := types.Err(types.E_VERBNF)
-	if registry != nil {
-		hookResult = registry.CallVerb(objID, "recycle", []types.Value{}, ctx)
+	if session != nil {
+		hookResult = session.CallVerb(objID, "recycle", []types.Value{}, ctx)
 	}
 
 	// Recycle anonymous objects reachable via property values (including nested

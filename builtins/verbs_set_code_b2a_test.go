@@ -37,12 +37,11 @@ func b2aTestContext(t *testing.T) (*Execution, *dbstore.Store, types.ObjID) {
 		t.Fatalf("AddVerb failed: %v", code)
 	}
 
-	ctx := newTestExecution()
+	ctx := newTestExecutionForSession(NewSession(NewRegistry(), NoHost()))
 	ctx.IsWizard = true
 	ctx.Player = objID
 	ctx.Programmer = objID
 	ctx.Store = store
-	ctx.Registry = NewRegistry()
 	return ctx, store, objID
 }
 

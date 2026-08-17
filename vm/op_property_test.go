@@ -22,7 +22,7 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 		if value, ok := getBuiltinProperty(store.DirectTxn(), 0, name); ok {
 			t.Fatalf("getBuiltinProperty(%q) = (%v, true), want false", name, value)
 		}
-		if handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 0, name, types.NewInt(1), nil); handled || errCode != types.E_NONE {
+		if handled, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 0, name, types.NewInt(1), nil); handled || errCode != types.E_NONE {
 			t.Fatalf("setBuiltinProperty(%q) = (%v, %v), want (false, E_NONE)", name, handled, errCode)
 		}
 	}
@@ -37,7 +37,7 @@ func TestBuiltinPropertyPseudoSetMatchesToast(t *testing.T) {
 	if value.Type() != types.TYPE_MAP {
 		t.Fatalf("last_move = %T, want MapValue", value)
 	}
-	handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 0, "last_move", types.NewList(nil), nil)
+	handled, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 0, "last_move", types.NewList(nil), nil)
 	if !handled || errCode != types.E_PERM {
 		t.Fatalf("setBuiltinProperty(last_move) = (%v, %v), want (true, E_PERM)", handled, errCode)
 	}
@@ -64,7 +64,7 @@ func TestBuiltinPropertyWritePermissions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := builtinPropertyTestStore(t, false)
 			ctx := &kernel.TaskContext{Programmer: 2, Store: store}
-			handled, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, tt.name, tt.value, ctx)
+			handled, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, tt.name, tt.value, ctx)
 			if !handled || errCode != types.E_PERM {
 				t.Fatalf("setBuiltinProperty(%q) = (%v, %v), want (true, E_PERM)", tt.name, handled, errCode)
 			}
@@ -80,7 +80,7 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 			if name == "name" {
 				value = types.NewStr("renamed")
 			}
-			if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_NONE {
+			if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_NONE {
 				t.Fatalf("owner setting %q returned %v", name, errCode)
 			}
 		})
@@ -93,18 +93,18 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 			if name == "owner" {
 				value = types.NewObj(2)
 			}
-			if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+			if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, name, value, &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
 				t.Fatalf("owner setting %q returned %v, want E_PERM", name, errCode)
 			}
 		})
 	}
 
 	store := builtinPropertyTestStore(t, true)
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "name", types.NewStr("renamed"), &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "name", types.NewStr("renamed"), &kernel.TaskContext{Programmer: 1, Store: store}); errCode != types.E_PERM {
 		t.Fatalf("owner renaming player returned %v, want E_PERM", errCode)
 	}
 	wizard := &kernel.TaskContext{Programmer: 0, IsWizard: true, Store: store}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "wizard", types.NewInt(1), wizard); errCode != types.E_NONE {
+	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "wizard", types.NewInt(1), wizard); errCode != types.E_NONE {
 		t.Fatalf("wizard setting wizard returned %v", errCode)
 	}
 }
@@ -112,13 +112,13 @@ func TestBuiltinPropertyOwnerAndWizardRules(t *testing.T) {
 func TestBuiltinPropertyErrorOrdering(t *testing.T) {
 	store := builtinPropertyTestStore(t, false)
 	nonWizard := &kernel.TaskContext{Programmer: 2, Store: store}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "owner", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
+	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "owner", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
 		t.Fatalf("invalid owner value returned %v, want E_TYPE before E_PERM", errCode)
 	}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "name", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
+	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "name", types.NewInt(1), nonWizard); errCode != types.E_TYPE {
 		t.Fatalf("invalid name value returned %v, want E_TYPE before E_PERM", errCode)
 	}
-	if _, errCode := setBuiltinProperty(builtins.NewRegistry(), store.DirectTxn(), 1, "wizard", types.NewStr("truthy"), nonWizard); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(newTestSession(builtins.NewRegistry()), store.DirectTxn(), 1, "wizard", types.NewStr("truthy"), nonWizard); errCode != types.E_PERM {
 		t.Fatalf("non-wizard wizard assignment returned %v, want E_PERM before value handling", errCode)
 	}
 }
@@ -136,10 +136,11 @@ func TestBuiltinPropertyProtectionOption(t *testing.T) {
 		t.Fatalf("DefineProperty(server_options): %v", errCode)
 	}
 	registry := builtins.NewRegistry()
-	registry.LoadProtectedBuiltinsFromStore(store)
+	session := newTestSession(registry)
+	session.LoadProtectedBuiltinsFromStore(store)
 
 	ctx := &kernel.TaskContext{Programmer: 1, Store: store}
-	if _, errCode := setBuiltinProperty(registry, store.DirectTxn(), 1, "r", types.NewInt(1), ctx); errCode != types.E_PERM {
+	if _, errCode := setBuiltinProperty(session, store.DirectTxn(), 1, "r", types.NewInt(1), ctx); errCode != types.E_PERM {
 		t.Fatalf("owner setting protected r returned %v, want E_PERM", errCode)
 	}
 }

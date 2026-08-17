@@ -15,9 +15,8 @@ func newReviewCtx(t *testing.T) (*Execution, *dbstore.Store) {
 	t.Helper()
 	store := dbstore.NewStore()
 	registry := NewRegistry()
-	ctx := newTestExecution()
+	ctx := newTestExecutionForSession(NewSession(registry, NoHost()))
 	ctx.Store = store
-	ctx.Registry = registry
 	ctx.IsWizard = true
 	ctx.Programmer = 0
 	ctx.Player = 0

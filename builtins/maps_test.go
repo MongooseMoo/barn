@@ -30,6 +30,7 @@ func TestMapvaluesMissingCompositeKeysReturnRange(t *testing.T) {
 func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
 	ctx := newTestExecution()
 	registry := NewRegistry()
+	session := NewSession(registry, NoHost())
 	emptyMap := types.NewEmptyMap()
 
 	for _, tc := range []struct {
@@ -41,7 +42,8 @@ func TestMapvaluesDispatchMissingCompositeKeysReturnRange(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx.Registry = registry
-			result, ok := registry.CallByNameWithExecution("mapvalues", ctx, []types.Value{emptyMap, tc.key})
+			ctx.Session = session
+			result, ok := session.CallByNameWithExecution("mapvalues", ctx, []types.Value{emptyMap, tc.key})
 			if !ok {
 				t.Fatal("mapvalues not registered")
 			}

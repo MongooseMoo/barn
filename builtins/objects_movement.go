@@ -9,8 +9,8 @@ import (
 // Moves object to new location
 func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	store := ctx.Store
-	registry := ctx.Registry
-	if registry == nil {
+	session := ctx.Session
+	if session == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -70,7 +70,7 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if whereVal.ID() != types.ObjNothing {
-		result := registry.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
+		result := session.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
 		if result.Flow == types.FlowException {
 			if result.Error != types.E_VERBNF {
 				return result

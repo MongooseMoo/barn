@@ -400,8 +400,8 @@ func pendingFinalizationValueInList(needle types.Value, values []types.Value) bo
 
 // AutoRecycleOrphanAnonymousWith recycles anonymous objects that are not reachable
 // from any persistent non-anonymous object's properties.
-func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, registry *builtins.Registry, ctx *kernel.TaskContext) {
-	AutoRecycleOrphanAnonymousSince(store, registry, registry.NewExecution(ctx, nil), 0, nil)
+func AutoRecycleOrphanAnonymousWith(store *dbstore.Store, session *builtins.Session, ctx *kernel.TaskContext) {
+	AutoRecycleOrphanAnonymousSince(store, session, session.NewExecution(ctx, nil), 0, nil)
 }
 
 // AnonGCRequest is one deferred orphan-anonymous collection request: recycle
@@ -430,8 +430,8 @@ type AnonGCRequest struct {
 // the engine lock. Together with each request's OwnRefs it covers the same root
 // set the inline per-task sweep saw, without walking a *VM here — so a task running
 // concurrently on another goroutine is never read.
-func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Registry, requests []AnonGCRequest, siblingRefs map[types.ObjID]struct{}) {
-	if store == nil || registry == nil || len(requests) == 0 {
+func RecycleOrphanAnonymousBatch(store *dbstore.Store, session *builtins.Session, requests []AnonGCRequest, siblingRefs map[types.ObjID]struct{}) {
+	if store == nil || session == nil || len(requests) == 0 {
 		return
 	}
 
@@ -457,7 +457,7 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 	}
 	expandAnonymousReachability(store, store.DirectTxn(), reachable, liveRefs)
 
-	recycleFn, ok := registry.Get("recycle")
+	recycleFn, ok := session.Registry().Get("recycle")
 	if !ok {
 		return
 	}
@@ -471,7 +471,7 @@ func RecycleOrphanAnonymousBatch(store *dbstore.Store, registry *builtins.Regist
 
 	recycleFrozenAnonymousCandidates(requests, frozenCandidates, func(request AnonGCRequest, id types.ObjID) {
 		// Best-effort cleanup: recycle() handles missing/already-invalid objects.
-		_ = recycleFn(registry.NewExecution(request.Ctx, request.Task), []types.Value{types.NewAnon(id)})
+		_ = recycleFn(session.NewExecution(request.Ctx, request.Task), []types.Value{types.NewAnon(id)})
 	})
 }
 
@@ -505,8 +505,8 @@ func recycleFrozenAnonymousCandidates(requests []AnonGCRequest, frozenCandidates
 // siblingRefs holds anonymous IDs already collected from other tasks' VMs (under the
 // engine lock, so they were snapshotted without racing those tasks). localVMs are
 // VMs owned by the calling goroutine (this task's own VM), safe to walk here.
-func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Registry, execution *builtins.Execution, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
-	if execution == nil || execution.TaskContext == nil || store == nil || registry == nil {
+func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, session *builtins.Session, execution *builtins.Execution, minID types.ObjID, siblingRefs map[types.ObjID]struct{}, localVMs ...*VM) {
+	if execution == nil || execution.TaskContext == nil || store == nil || session == nil {
 		return
 	}
 	ctx := execution.TaskContext
@@ -538,7 +538,7 @@ func AutoRecycleOrphanAnonymousSince(store *dbstore.Store, registry *builtins.Re
 		return
 	}
 
-	recycleFn, ok := registry.Get("recycle")
+	recycleFn, ok := session.Registry().Get("recycle")
 	if !ok {
 		return
 	}

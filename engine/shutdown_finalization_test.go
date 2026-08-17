@@ -92,13 +92,15 @@ func TestDeferredWaifRecycleShutdownReturnsBeforePublication(t *testing.T) {
 		return types.Ok(types.None)
 	})
 	readyResult := make(chan (<-chan struct{}), 1)
-	runtime.registry.SetShutdownFunc(func(ctx *builtins.Execution, _ string, _ bool) error {
-		var roots []types.Value
-		if ctx.PendingFinalizations != nil {
-			roots = ctx.PendingFinalizations()
+	configureTestHost(runtime.session, func(host *builtins.Host) {
+		host.Shutdown = func(ctx *builtins.Execution, _ string, _ bool) error {
+			var roots []types.Value
+			if ctx.PendingFinalizations != nil {
+				roots = ctx.PendingFinalizations()
+			}
+			readyResult <- runtime.BeginShutdownWithRoots(roots)
+			return nil
 		}
-		readyResult <- runtime.BeginShutdownWithRoots(roots)
-		return nil
 	})
 	waif := types.NewWaif(9, 3)
 	runtime.lifecycle.PendingWaifs = []finalization.PendingWaif{{Waif: waif, Ctx: kernel.NewTaskContext()}}

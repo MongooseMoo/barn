@@ -21,7 +21,7 @@ import (
 // owns its own immutable snapshot.
 const protectPrefix = "protect_"
 
-// Registry.runtime.protected holds an IMMUTABLE snapshot of the protected set.
+// Session.runtime.protected holds an IMMUTABLE snapshot of the protected set.
 // The set is read on every builtin call but written only when that registry's
 // database refreshes it, so the classic single-writer/many-reader pattern
 // applies.
@@ -38,14 +38,14 @@ const protectPrefix = "protect_"
 
 // IsProtectedBuiltin reports whether the named builtin is currently protected
 // for this registry. Lock-free: a single atomic load + read-only map index.
-func (r *Registry) IsProtectedBuiltin(name string) bool {
+func (r *Session) IsProtectedBuiltin(name string) bool {
 	return r != nil && r.runtime != nil && (*r.runtime.protected.Load())[name]
 }
 
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
 // flags and replaces the protected-builtin set. Called from
 // LoadServerOptionsFromStore so it stays in sync with Toast's cache refresh.
-func (r *Registry) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
+func (r *Session) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 	if store == nil {
 		r.applyProtectedBuiltins(nil)
 		return
@@ -72,7 +72,7 @@ func (r *Registry) LoadProtectedBuiltinsFromStore(store *dbstore.Store) {
 // LoadProtectedBuiltinsForTask refreshes protected-builtin flags through the
 // active task view so same-task $server_options writes are visible when
 // load_server_options() runs.
-func (r *Registry) LoadProtectedBuiltinsForTask(ctx *Execution) {
+func (r *Session) LoadProtectedBuiltinsForTask(ctx *Execution) {
 	if ctx == nil {
 		r.applyProtectedBuiltins(nil)
 		return
@@ -128,7 +128,7 @@ func collectProtectedBuiltins(findProperty propertyReader, findFlags protectedFl
 	return next
 }
 
-func (r *Registry) applyProtectedBuiltins(next map[string]bool) {
+func (r *Session) applyProtectedBuiltins(next map[string]bool) {
 	if next == nil {
 		next = map[string]bool{}
 	}

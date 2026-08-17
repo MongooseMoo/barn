@@ -127,7 +127,7 @@ func TestServerStartedCanSeeBoundListenersBeforeAccepting(t *testing.T) {
 		store:   store,
 		runtime: engine.NewRuntime(store),
 	}
-	s.runtime.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(s.runtime.Session(), cm)
 
 	if err := s.callServerStarted(); err != nil {
 		t.Fatalf("call server_started: %v", err)
@@ -222,7 +222,7 @@ func TestShutdownStartedRunsBeforeListenersClose(t *testing.T) {
 	defer cm.CloseListeners()
 
 	rt := engine.NewRuntime(store)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
 	lifecycle := &recordingLifecycle{}
 	s := &Server{
 		store:           store,

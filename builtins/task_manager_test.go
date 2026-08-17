@@ -6,11 +6,16 @@ import (
 
 func wireTestTaskManager(ctx *Execution) *task.Manager {
 	manager := task.NewManager()
-	registry := ctx.Registry
-	if registry == nil {
-		registry = NewRegistry()
-		ctx.Registry = registry
+	session := ctx.Session
+	if session == nil {
+		registry := ctx.Registry
+		if registry == nil {
+			registry = NewRegistry()
+			ctx.Registry = registry
+		}
+		session = NewSession(registry, NoHost())
+		ctx.Session = session
 	}
-	registry.SetTaskManager(manager)
+	configureTestHost(session, func(host *Host) { host.TaskManager = manager })
 	return manager
 }

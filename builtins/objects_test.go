@@ -38,9 +38,8 @@ func TestMoveInvalidObjectsReturnInvarg(t *testing.T) {
 		t.Fatalf("CreateObject failed: %v", errCode)
 	}
 
-	ctx := newTestExecution()
+	ctx := newTestExecutionForSession(NewSession(NewRegistry(), NoHost()))
 	ctx.Store = store
-	ctx.Registry = NewRegistry()
 
 	res := builtinMove(ctx, []types.Value{types.NewObj(99999), types.NewObj(obj)})
 	if !res.IsError() || res.Error != types.E_INVARG {
@@ -78,9 +77,8 @@ func TestRecycleRequiresObjectControl(t *testing.T) {
 		}
 	}
 
-	ctx := newTestExecution()
+	ctx := newTestExecutionForSession(NewSession(NewRegistry(), NoHost()))
 	ctx.Store = store
-	ctx.Registry = NewRegistry()
 	ctx.Programmer = 3
 	ctx.Player = 3
 
@@ -112,16 +110,18 @@ func TestRecyclePropagatesHookErrorAfterDestroyingObject(t *testing.T) {
 	}
 
 	registry := NewRegistry()
-	registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
-		if objID != 4 || verbName != "recycle" {
-			t.Fatalf("hook call = #%d:%s, want #4:recycle", objID, verbName)
+	session := NewSession(registry, NoHost())
+	configureTestHost(session, func(host *Host) {
+		host.VerbCaller = func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
+			if objID != 4 || verbName != "recycle" {
+				t.Fatalf("hook call = #%d:%s, want #4:recycle", objID, verbName)
+			}
+			return types.Err(types.E_DIV)
 		}
-		return types.Err(types.E_DIV)
 	})
 
-	ctx := newTestExecution()
+	ctx := newTestExecutionForSession(session)
 	ctx.Store = store
-	ctx.Registry = registry
 	ctx.Programmer = 2
 	ctx.Player = 2
 

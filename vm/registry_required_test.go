@@ -71,7 +71,8 @@ func TestLimitOperationsUseProvidedRegistry(t *testing.T) {
 	}
 
 	registry := BuildVMRegistry()
-	if loaded := registry.LoadServerOptionsFromStore(store); loaded != 3 {
+	session := newTestSession(registry)
+	if loaded := session.LoadServerOptionsFromStore(store); loaded != 3 {
 		t.Fatalf("LoadServerOptionsFromStore loaded %d options, want 3", loaded)
 	}
 
@@ -90,7 +91,7 @@ func TestLimitOperationsUseProvidedRegistry(t *testing.T) {
 			if len(diagnostics) > 0 {
 				t.Fatalf("CompileMOO: %v", diagnostics)
 			}
-			result := NewVM(store, registry).Run(program)
+			result := NewVM(store, session).Run(program)
 			if result.Flow != types.FlowException || result.Error != types.E_QUOTA {
 				t.Fatalf("result = flow %v error %v value %v, want E_QUOTA", result.Flow, result.Error, result.Val)
 			}

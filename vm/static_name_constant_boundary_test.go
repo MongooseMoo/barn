@@ -229,7 +229,7 @@ func TestLegacyDynamicNameSentinelsRemainExecutableAfterPersistence(t *testing.T
 			ctx.Programmer = 0
 			ctx.Store = store
 			registry := BuildVMRegistry()
-			machine := NewVM(store, registry)
+			machine := NewVM(store, newTestSession(registry))
 			machine.Context = ctx
 			machine.Task = task.NewTask(1, 0, ctx.TicksRemaining, 1)
 			result := machine.Run(tc.program)

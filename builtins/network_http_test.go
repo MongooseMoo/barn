@@ -167,7 +167,7 @@ func FuzzParseHTTPChunkedBody(f *testing.F) {
 
 func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 	player := types.ObjID(7)
-	r := NewRegistry()
+	r := NewSession(NewRegistry(), NoHost())
 
 	r.setConnectionOption(player, "hold-input", types.NewInt(1))
 	if handled, _ := r.HandleHeldInput(player, "~ZZ~!!", false); !handled {
@@ -190,7 +190,7 @@ func TestPrepareHTTPReadReturnsZeroAfterInvalidBinaryInput(t *testing.T) {
 
 func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 	player := types.ObjID(8)
-	r := NewRegistry()
+	r := NewSession(NewRegistry(), NoHost())
 
 	pending := task.NewTask(101, player, 1000, 5)
 	if value, complete := r.prepareHTTPRead(player, "request", pending); complete {
@@ -207,7 +207,7 @@ func TestCloseHeldHTTPInputKillsPendingReadTask(t *testing.T) {
 
 func TestKilledHTTPReadClearsBufferAndAllowsFreshParse(t *testing.T) {
 	player := types.ObjID(8)
-	r := NewRegistry()
+	r := NewSession(NewRegistry(), NoHost())
 
 	r.setConnectionOption(player, "hold-input", types.NewInt(1))
 	if handled, _ := r.HandleHeldInput(player, "GET /1~0D~0Aone: two~0D~0A", false); !handled {

@@ -46,7 +46,7 @@ func BuildVMRegistry() *builtins.Registry {
 		}
 
 		if ctx.PushEval == nil {
-			evalVM := NewVM(store, registry)
+			evalVM := NewVM(store, ctx.Session)
 			evalVM.Context = ctx.TaskContext
 			evalVM.Task = ctx.Task
 			evalVM.TickLimit = 30000

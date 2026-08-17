@@ -21,7 +21,7 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
 
 	transport := newRecordingTransport("client")
 	conn := cm.NewConnectionFromTransport(transport)
@@ -34,14 +34,14 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 	ctx.Programmer = player
 	ctx.IsWizard = true
 	ctx.Store = store
-	execution := rt.Registry().NewExecution(ctx, nil)
+	execution := rt.Session().NewExecution(ctx, nil)
 
-	if result, ok := rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
+	if result, ok := rt.Session().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 		types.NewObj(player), types.NewStr("hold-input"), types.NewInt(1),
 	}); !ok || result.IsError() {
 		t.Fatalf("set hold-input: ok=%v result=%+v", ok, result)
 	}
-	if result, ok := rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
+	if result, ok := rt.Session().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 		types.NewObj(player), types.NewStr("flush-command"), types.NewStr(".flush"),
 	}); !ok || result.IsError() {
 		t.Fatalf("set flush-command: ok=%v result=%+v", ok, result)
@@ -49,10 +49,10 @@ func TestFlushCommandReportsAndDiscardsPendingInput(t *testing.T) {
 
 	t.Cleanup(func() {
 		processor.processInput(command.InputEvent{ConnID: conn.ID, Player: player, Line: ".flush"})
-		rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
+		rt.Session().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 			types.NewObj(player), types.NewStr("hold-input"), types.NewInt(0),
 		})
-		rt.Registry().CallByNameWithExecution("set_connection_option", execution, []types.Value{
+		rt.Session().CallByNameWithExecution("set_connection_option", execution, []types.Value{
 			types.NewObj(player), types.NewStr("flush-command"), types.NewStr(""),
 		})
 	})

@@ -212,6 +212,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 	programmer := newTestExecution()
 	programmer.Programmer = 2
 	programmer.Registry = wizard.Registry
+	programmer.Session = wizard.Session
 
 	visibleResult := builtinQueuedTasks(programmer, nil)
 	if visibleResult.IsError() {

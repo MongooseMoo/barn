@@ -5,6 +5,7 @@ import (
 	"time"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -119,7 +120,7 @@ func builtinKillTask(ctx *Execution, args []types.Value) types.Result {
 	if errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
-	ctx.Registry.CancelHTTPReadTask(taskID)
+	ctx.Session.CancelHTTPReadTask(taskID)
 
 	return types.Ok(types.NewInt(0))
 }
@@ -582,7 +583,7 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if len(args) >= 1 {
-		fgTicks, fgSeconds := ctx.Registry.GetTaskLimits(false)
+		fgTicks, fgSeconds := ctx.Session.GetTaskLimits(false)
 		if seconds < 0 || minTicks <= 0 || minSeconds <= 0 ||
 			minTicks >= fgTicks || float64(minSeconds) >= fgSeconds {
 			return types.Err(types.E_INVARG)
@@ -604,4 +605,168 @@ func builtinYin(ctx *Execution, args []types.Value) types.Result {
 	}
 	mgr.SuspendTask(t, seconds)
 	return types.Suspend(seconds)
+}
+
+func builtinTaskPerms(ctx *Execution, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+	return types.Ok(types.NewObj(ctx.Programmer))
+}
+
+func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
+	if len(args) > 1 {
+		return types.Err(types.E_ARGS)
+	}
+
+	if len(args) == 0 {
+		// queue_info() with no argument is allowed for non-wizards (Toast).
+		players := []types.ObjID{}
+		seen := map[types.ObjID]struct{}{}
+		if ctx.Player > 0 {
+			seen[ctx.Player] = struct{}{}
+			players = append(players, ctx.Player)
+		}
+		if cm := hostOf(ctx).ConnManager; cm != nil {
+			for _, p := range cm.ConnectedPlayers(false) {
+				if _, ok := seen[p]; ok {
+					continue
+				}
+				seen[p] = struct{}{}
+				players = append(players, p)
+			}
+		}
+		out := make([]types.Value, 0, len(players))
+		for _, p := range players {
+			out = append(out, types.NewObj(p))
+		}
+		return types.Ok(types.NewList(out))
+	}
+
+	target, ok := parseConnectionTarget(args[0])
+	if !ok {
+		return types.Err(types.E_TYPE)
+	}
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+
+	if !ctx.IsWizard {
+		if target != ctx.Player {
+			return types.Err(types.E_PERM)
+		}
+		return types.Ok(types.NewInt(countBackgroundTasksFor(mgr, target)))
+	}
+
+	connected := 0
+	if resolveConnection(ctx, target) != nil {
+		connected = 1
+	} else if target != ctx.Player {
+		// Toast behavior for wizard querying non-connected/nonexistent player.
+		return types.Ok(types.NewInt(0))
+	}
+
+	return types.Ok(types.NewMap([][2]types.Value{
+		{types.NewStr("player"), types.NewObj(target)},
+		{types.NewStr("connected"), types.NewInt(int64(connected))},
+		{types.NewStr("num_bg_tasks"), types.NewInt(countBackgroundTasksFor(mgr, target))},
+	}))
+}
+
+func countBackgroundTasksFor(tasks TaskLister, player types.ObjID) int64 {
+	count := int64(0)
+	for _, t := range tasks.GetQueuedTasks() {
+		if t.Owner == player {
+			count++
+		}
+	}
+	return count
+}
+
+func builtinFinishedTasks(ctx *Execution, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	all := mgr.GetAllTasks()
+	result := make([]types.Value, 0)
+	for _, t := range all {
+		st := t.GetState()
+		if st == task.TaskCompleted || st == task.TaskKilled {
+			result = append(result, types.NewInt(t.ID))
+		}
+	}
+	return types.Ok(types.NewList(result))
+}
+
+func builtinThreads(ctx *Execution, args []types.Value) types.Result {
+	if len(args) != 0 {
+		return types.Err(types.E_ARGS)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	mgr := taskManagerOf(ctx)
+	if mgr == nil {
+		return types.Err(types.E_INVARG)
+	}
+	all := mgr.GetAllTasks()
+	result := make([]types.Value, 0, len(all))
+	for _, t := range all {
+		if t.GetState() == task.TaskRunning || t.GetState() == task.TaskSuspended || t.GetState() == task.TaskQueued {
+			result = append(result, types.NewInt(t.ID))
+		}
+	}
+	return types.Ok(types.NewList(result))
+}
+
+func builtinThreadPool(ctx *Execution, args []types.Value) types.Result {
+	if len(args) < 2 || len(args) > 3 {
+		return types.Err(types.E_ARGS)
+	}
+	if args[0].Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	if args[1].Type() != types.TYPE_STR {
+		return types.Err(types.E_TYPE)
+	}
+	if len(args) == 3 {
+		if args[2].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
+	}
+	if args[0].Str() != "INIT" || args[1].Str() != "MAIN" {
+		return types.Err(types.E_INVARG)
+	}
+	if len(args) == 3 && args[2].Int() < 0 {
+		return types.Err(types.E_INVARG)
+	}
+	return types.Ok(types.NewInt(1))
+}
+
+func builtinSetThreadMode(ctx *Execution, args []types.Value) types.Result {
+	if len(args) > 1 {
+		return types.Err(types.E_ARGS)
+	}
+	if len(args) == 1 {
+		if args[0].Type() != types.TYPE_INT {
+			return types.Err(types.E_TYPE)
+		}
+		ctx.ThreadMode = args[0].Truthy()
+		return types.Ok(types.NewInt(0))
+	}
+	if ctx.ThreadMode {
+		return types.Ok(types.NewInt(1))
+	}
+	return types.Ok(types.NewInt(0))
 }

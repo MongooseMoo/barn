@@ -34,7 +34,7 @@ func (vm *VM) executeCallBuiltin() error {
 	}
 
 	// Sync task call-stack line numbers only for builtins that expose them.
-	if vm.Builtins.NeedsLineSyncByID(int(funcID)) {
+	if vm.Builtins.Registry().NeedsLineSyncByID(int(funcID)) {
 		vm.syncTaskLineNumbers()
 	}
 

@@ -164,7 +164,7 @@ func TestCommandEvalWaifCallersPreserveThisAndVerbLocation(t *testing.T) {
 	conn := &evalCommandStubConn{}
 	s := NewRuntime(store)
 	defer s.Stop()
-	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: player, conn: conn})
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: player, conn: conn} })
 
 	cmd := command.ParseCommand("eval " + auditWaifCommandSource)
 	match := command.FindVerb(store, player, 2, cmd)
@@ -251,7 +251,7 @@ func TestCommandEvalChparentPropertyResetUsesTransactionReseed(t *testing.T) {
 	s := NewRuntime(store)
 	defer s.Stop()
 	conn := &evalCommandStubConn{}
-	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: player, conn: conn})
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: player, conn: conn} })
 	source := `
 a = create($nothing);
 b = create($nothing);
@@ -301,7 +301,7 @@ func TestCommandEvalRunGCCyclicAnonymousChainCompletes(t *testing.T) {
 			defer s.Stop()
 
 			conn := &evalCommandStubConn{}
-			s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: 3, conn: conn})
+			configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 3, conn: conn} })
 			source := fmt.Sprintf(`
 c = head = tail = #-1;
 try

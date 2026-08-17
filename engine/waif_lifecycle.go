@@ -316,7 +316,7 @@ func (s *Runtime) flushDeferredGC() {
 				s.releaseSweepContext(ctx)
 			}
 		}()
-		vm.RecycleOrphanAnonymousBatch(s.store, s.registry, anonBatch, siblingAnon)
+		vm.RecycleOrphanAnonymousBatch(s.store, s.session, anonBatch, siblingAnon)
 	} else {
 		s.lifecycle.Mu.Lock()
 		for _, request := range anonBatch {
@@ -458,7 +458,7 @@ func (s *Runtime) callWaifRecycle(parentCtx *kernel.TaskContext, parentTask *tas
 	recycleCtx.RuntimeOptions = s.options
 	recycleCtx.DeferredGC = true
 
-	recycleVM := vm.NewVM(s.store, s.registry)
+	recycleVM := vm.NewVM(s.store, s.session)
 	recycleVM.Context = recycleCtx
 	recycleVM.Task = parentTask
 	recycleVM.TickLimit = 300000

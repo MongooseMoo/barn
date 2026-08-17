@@ -140,21 +140,22 @@ func (s *Server) LoadDatabase() error {
 	})
 
 	// Wire the host capabilities the server provides onto the runtime's
-	// builtin registry (the registry owns them; there is no global state).
-	reg := s.runtime.Registry()
+	// builtin session (the session owns them; there is no global state).
+	session := s.runtime.Session()
+	host := session.Host()
 
 	// Wire notify() builtin to connection manager
-	reg.SetConnectionManager(s.connManager)
+	host.ConnManager = s.connManager
 
 	// Wire the force_input() builtin to the runtime.
-	reg.SetInputForcer(s.input)
-	reg.SetTaskYielder(s.runtime)
-	reg.SetProcessStdin(builtins.NewProcessStdin(os.Stdin))
+	host.InputForcer = s.input
+	host.TaskYielder = s.runtime
+	host.ProcessStdin = builtins.NewProcessStdin(os.Stdin)
 
 	// dump_database() does not report success until the requested checkpoint is
 	// durable and available for managed restart adoption.
-	reg.SetDumpFunc(func() error { return s.checkpoint() })
-	reg.SetShutdownFunc(func(execution *builtins.Execution, message string, unclean bool) error {
+	host.Checkpoint = func() error { return s.checkpoint() }
+	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
 		var ctx *kernel.TaskContext
 		var callerRoots []types.Value
 		if execution != nil {
@@ -201,14 +202,18 @@ func (s *Server) LoadDatabase() error {
 		}
 		s.Shutdown(shutdownMessage)
 		return nil
-	})
+	}
+	session.ConfigureHost(host)
+	if err := host.Validate(); err != nil {
+		return fmt.Errorf("configure builtin host: %w", err)
+	}
 
 	// Prime the server-options and protected-builtin caches from the database
 	// before any verb runs, matching Toast's boot-time load_server_options() /
 	// load_server_protect_function_flags(). The MOO may refresh these later by
 	// calling load_server_options().
-	s.runtime.Registry().LoadServerOptionsFromStore(s.store)
-	s.runtime.Registry().LoadProtectedBuiltinsFromStore(s.store)
+	s.runtime.Session().LoadServerOptionsFromStore(s.store)
+	s.runtime.Session().LoadProtectedBuiltinsFromStore(s.store)
 
 	s.runtime.LoadQueuedTasks(database.QueuedTasks)
 	s.runtime.LoadSuspendedTasks(database.SuspendedTasks)
@@ -423,8 +428,8 @@ func (s *Server) shutdown() error {
 
 	s.runtime.Stop()
 	s.backgroundWG.Wait()
-	if err := s.runtime.Registry().Close(); err != nil {
-		slog.Warn("closing builtin registry", slog.Any("err", err))
+	if err := s.runtime.Session().Close(); err != nil {
+		slog.Warn("closing builtin session", slog.Any("err", err))
 	}
 
 	s.mu.Lock()

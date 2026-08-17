@@ -149,11 +149,10 @@ func builtinPcreReplace(ctx *Execution, args []types.Value) types.Result {
 			out = subject.Str()[:idx[0]] + replaced + subject.Str()[idx[1]:]
 		}
 	}
-	registry := NewRegistry()
-	if ctx != nil && ctx.Registry != nil {
-		registry = ctx.Registry
+	if ctx == nil || ctx.Session == nil {
+		return types.Err(types.E_INVARG)
 	}
-	if errCode := registry.CheckStringLimit(out); errCode != types.E_NONE {
+	if errCode := ctx.Session.CheckStringLimit(out); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
 	return types.Ok(types.NewStr(out))

@@ -84,14 +84,14 @@ func storedVerbName(frame *StackFrame) string {
 func RestoreVMSnapshot(
 	snapshot *task.VMSnapshot,
 	store *dbstore.Store,
-	registry *builtins.Registry,
+	session *builtins.Session,
 	ctx *kernel.TaskContext,
 ) (*VM, error) {
 	if snapshot == nil || len(snapshot.Frames) == 0 {
 		return nil, fmt.Errorf("empty VM snapshot")
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	if snapshot.MaxStackDepth > 0 {
 		machine.MaxStackDepth = snapshot.MaxStackDepth

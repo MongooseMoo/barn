@@ -145,7 +145,7 @@ func TestReadStdinErrorResumesAsLiteralValue(t *testing.T) {
 		_ = reader.Close()
 		_ = writer.Close()
 	})
-	s.registry.SetProcessStdin(builtins.NewProcessStdin(reader))
+	configureTestHost(s.session, func(host *builtins.Host) { host.ProcessStdin = builtins.NewProcessStdin(reader) })
 
 	program, diagnostics := s.registry.Compiler().CompileMOO([]string{"return read_stdin();"})
 	if len(diagnostics) > 0 {

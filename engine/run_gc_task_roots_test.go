@@ -318,7 +318,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	rt.acquireExecutionContext(ctx, 93002)
 	nestedDone := make(chan types.Result, 1)
 	go func() {
-		nestedDone <- rt.CallVerbInContext(0, "ambiguous_nested_gc", nil, rt.registry.NewExecution(ctx, caller))
+		nestedDone <- rt.CallVerbInContext(0, "ambiguous_nested_gc", nil, rt.session.NewExecution(ctx, caller))
 	}()
 	select {
 	case <-nestedEntered:
@@ -355,7 +355,7 @@ func TestAmbiguousExecutionContextMakesExplicitGCNoOp(t *testing.T) {
 	if !ok {
 		t.Fatal("run_gc builtin not registered")
 	}
-	if result := runGC(rt.registry.NewExecution(ctx, caller), nil); result.Flow != types.FlowNormal {
+	if result := runGC(rt.session.NewExecution(ctx, caller), nil); result.Flow != types.FlowNormal {
 		t.Fatalf("unique-owner run_gc result = %+v, want success", result)
 	}
 	if store.DirectTxn().Valid(orphan) {

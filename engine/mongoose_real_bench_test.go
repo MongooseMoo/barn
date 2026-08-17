@@ -275,8 +275,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
 	s := newRuntimeWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
 	// Mirror server boot: this registry must load the snapshot it executes.
-	s.Registry().LoadServerOptionsFromStore(store)
-	s.Registry().LoadProtectedBuiltinsFromStore(store)
+	s.Session().LoadServerOptionsFromStore(store)
+	s.Session().LoadProtectedBuiltinsFromStore(store)
 
 	// Mirror server boot's #0:server_started (server.go callServerStarted) —
 	// it activates services including $sql_utils, which opens the SQLite
@@ -289,7 +289,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 	if err := os.Chdir(".."); err != nil {
 		t.Fatalf("chdir to repo root: %v", err)
 	}
-	s.Registry().SetConnectionManager(newBenchConnManager(nil))
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = newBenchConnManager(nil) })
 	if store.HasLocalVerb(0, "server_started") {
 		if _, err := s.RunServerVerbTask(0, "server_started", nil, 0); err != nil {
 			t.Logf("#0:server_started failed: %v", err)
@@ -317,7 +317,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 	for _, active := range levels {
 		players := candidates[:active]
 		cm := newBenchConnManager(players)
-		s.Registry().SetConnectionManager(cm)
+		configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = cm })
 
 		type shapeStat struct {
 			ok, fail          int64

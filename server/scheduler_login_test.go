@@ -146,7 +146,7 @@ func TestUserClientDisconnectedCannotResolveUnrelatedConnection(t *testing.T) {
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
 
 	disconnectedConn := cm.NewConnectionFromTransport(stubTransport{})
 	if err := cm.SwitchPlayer(types.ObjID(-disconnectedConn.ID), disconnectedPlayer); err != nil {
@@ -221,7 +221,7 @@ func TestCrossListenerReconnectDisassociatesPlayerBeforeOldHook(t *testing.T) {
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
 
 	oldConn := cm.NewConnectionFromTransport(stubTransport{})
 	oldConn.SetListener(oldHandler, 7788, false)

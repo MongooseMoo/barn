@@ -47,7 +47,7 @@ func builtinListappend(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index+1, value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -89,7 +89,7 @@ func builtinListinsert(ctx *Execution, args []types.Value) types.Result {
 	result := list.InsertAt(index, value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -120,7 +120,7 @@ func builtinListdelete(ctx *Execution, args []types.Value) types.Result {
 	result := list.DeleteAt(index)
 
 	// Check size limit (even for deletions, to be thorough)
-	if err := ctx.Registry.CheckListLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimit(result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -153,7 +153,7 @@ func builtinListset(ctx *Execution, args []types.Value) types.Result {
 	result := list.Set(index, value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -185,7 +185,7 @@ func builtinSetadd(ctx *Execution, args []types.Value) types.Result {
 	result := list.Append(value)
 
 	// Check size limit
-	if err := ctx.Registry.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
+	if err := ctx.Session.CheckListLimitForTask(ctx.TaskContext, result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -212,7 +212,7 @@ func builtinSetremove(ctx *Execution, args []types.Value) types.Result {
 			result := list.DeleteAt(i)
 
 			// Check size limit
-			if err := ctx.Registry.CheckListLimit(result); err != types.E_NONE {
+			if err := ctx.Session.CheckListLimit(result); err != types.E_NONE {
 				return types.Err(err)
 			}
 

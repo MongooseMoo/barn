@@ -1,9 +1,11 @@
 package builtins
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/MongooseMoo/barn/kernel"
+	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -39,6 +41,25 @@ func TestRegistryDispatchCanBeSharedWithoutSharingSessionState(t *testing.T) {
 		t.Fatal("closing a session mutated the shared dispatch registry")
 	}
 }
+
+func TestHostValidationRejectsPartlyWiredServer(t *testing.T) {
+	err := (Host{TaskManager: taskManagerStub{}}).Validate()
+	if err == nil || !strings.Contains(err.Error(), "connection manager") {
+		t.Fatalf("partial host validation error = %v, want missing connection manager", err)
+	}
+}
+
+type taskManagerStub struct{}
+
+func (taskManagerStub) GetAllTasks() []*task.Task                         { return nil }
+func (taskManagerStub) GetQueuedTasks() []*task.Task                      { return nil }
+func (taskManagerStub) GetTask(int64) *task.Task                          { return nil }
+func (taskManagerStub) FindReadingTask(types.ObjID) *task.Task            { return nil }
+func (taskManagerStub) KillTask(int64, types.ObjID, bool) types.ErrorCode { return types.E_NONE }
+func (taskManagerStub) ResumeTask(int64, types.Value, types.ObjID, bool) types.ErrorCode {
+	return types.E_NONE
+}
+func (taskManagerStub) SuspendTask(*task.Task, float64) {}
 
 func TestExecutionCarriesRegistryAndSession(t *testing.T) {
 	registry := NewRegistry()
