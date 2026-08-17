@@ -30,6 +30,7 @@ type Runtime struct {
 	scheduler               *scheduler.Scheduler
 	nextTaskID              int64
 	registry                *builtins.Registry
+	session                 *builtins.Session
 	store                   *dbstore.Store
 	pendingFinalizationSink func([]types.Value)
 	taskLineSender          func(types.ObjID, string)
@@ -60,7 +61,6 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := task.NewManager()
 	registry := vm.BuildVMRegistry()
-	registry.SetTaskManager(manager)
 
 	s := &Runtime{
 		taskManager: manager,
@@ -72,8 +72,8 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		ctx:         ctx,
 		cancel:      cancel,
 	}
-
-	s.registry.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
+	host := builtins.Host{TaskManager: manager}
+	host.VerbCaller = func(objID types.ObjID, verbName string, args []types.Value, execution *builtins.Execution) types.Result {
 		var tc *kernel.TaskContext
 		if execution != nil {
 			tc = execution.TaskContext
@@ -102,8 +102,8 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 			return s.callVerbWithArgstr(objID, verbName, args, player, "", vmOwnershipExecution, ownerID)
 		}
 		return s.CallVerb(objID, verbName, args, player)
-	})
-	s.registry.SetRunGCFunc(func(execution *builtins.Execution) error {
+	}
+	host.RunGC = func(execution *builtins.Execution) error {
 		ctx := execution.TaskContext
 		// A recycle hook may call run_gc() while its owning sweep is still active.
 		// Re-entry is a successful no-op; blocking here would self-deadlock.
@@ -144,17 +144,21 @@ func newRuntimeWithWorkerCount(store *dbstore.Store, options config.Options, wor
 		}
 		s.acquireSweepContext(ctx)
 		defer s.releaseSweepContext(ctx)
-		vm.AutoRecycleOrphanAnonymousSince(store, s.registry, execution, 0, siblingAnon)
+		vm.AutoRecycleOrphanAnonymousSince(store, s.session, execution, 0, siblingAnon)
 		return renewTransaction()
-	})
+	}
+	s.session = builtins.NewSession(registry, host)
 	s.scheduler = scheduler.New(workerCount, taskIsConflictRetryable, s.runTask)
 
 	return s
 }
 
-// Registry returns the runtime's builtin registry so the owning server can
-// wire host capabilities (connection manager, lifecycle hooks) onto it.
+// Registry returns the runtime's shared builtin dispatch registry.
 func (s *Runtime) Registry() *builtins.Registry { return s.registry }
+
+// Session returns the runtime's mutable builtin session so the owning server
+// can wire process capabilities and manage session state.
+func (s *Runtime) Session() *builtins.Session { return s.session }
 
 // newTaskID allocates the next task id. Every task in the server is born here,
 // which makes it the one place worth counting them.

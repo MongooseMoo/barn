@@ -56,7 +56,7 @@ func BenchmarkVM(b *testing.B) {
 				ctx := kernel.NewTaskContext()
 				ctx.Store = store
 				ctx.TicksRemaining = 1 << 60
-				m := NewVM(store, registry)
+				m := NewVM(store, newTestSession(registry))
 				m.Context = ctx
 				m.Task = task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 				m.TickLimit = 1 << 60

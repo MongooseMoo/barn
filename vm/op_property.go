@@ -429,13 +429,13 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 }
 
 // setBuiltinProperty sets mutable server-maintained object properties.
-func setBuiltinProperty(registry *builtins.Registry, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
+func setBuiltinProperty(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, value types.Value, ctx *kernel.TaskContext) (bool, types.ErrorCode) {
 	switch strings.ToLower(name) {
 	case "name":
 		if value.Type() != types.TYPE_STR {
 			return true, types.E_TYPE
 		}
-		if errCode := checkBuiltinPropertyOwner(registry, txn, objID, "name", ctx, true); errCode != types.E_NONE {
+		if errCode := checkBuiltinPropertyOwner(session, txn, objID, "name", ctx, true); errCode != types.E_NONE {
 			return true, errCode
 		}
 		return true, txn.SetObjectName(objID, value.Str())
@@ -466,7 +466,7 @@ func setBuiltinProperty(registry *builtins.Registry, txn *dbstore.StoreTxn, objI
 		}
 		return true, txn.SetObjectFlag(objID, flag, value.Truthy())
 	case "r", "w", "f", "a":
-		if errCode := checkBuiltinPropertyOwner(registry, txn, objID, strings.ToLower(name), ctx, false); errCode != types.E_NONE {
+		if errCode := checkBuiltinPropertyOwner(session, txn, objID, strings.ToLower(name), ctx, false); errCode != types.E_NONE {
 			return true, errCode
 		}
 		flags := map[string]dbstore.ObjectFlags{"r": dbstore.FlagRead, "w": dbstore.FlagWrite, "f": dbstore.FlagFertile, "a": dbstore.FlagAnonymous}
@@ -477,11 +477,11 @@ func setBuiltinProperty(registry *builtins.Registry, txn *dbstore.StoreTxn, objI
 	}
 }
 
-func checkBuiltinPropertyOwner(registry *builtins.Registry, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
+func checkBuiltinPropertyOwner(session *builtins.Session, txn *dbstore.StoreTxn, objID types.ObjID, name string, ctx *kernel.TaskContext, rejectUser bool) types.ErrorCode {
 	if ctx == nil || ctx.IsWizard {
 		return types.E_NONE
 	}
-	if registry.IsProtectedBuiltin(name) {
+	if session.IsProtectedBuiltin(name) {
 		return types.E_PERM
 	}
 	owner, errCode := txn.ObjectOwner(objID)

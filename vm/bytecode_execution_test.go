@@ -21,7 +21,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 	taskValue := task.NewTask(1, types.ObjID(0), ctx.TicksRemaining, 1)
 
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	ctx.Store = store
 
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{code})
@@ -29,7 +29,7 @@ func runBytecodeProgram(t *testing.T, code string, store *dbstore.Store, ctx *ke
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	machine.Task = taskValue
 	result := machine.Run(prog)
@@ -254,7 +254,7 @@ func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 		},
 	}}
 
-	machine := NewVM(nil, BuildVMRegistry())
+	machine := NewVM(nil, newTestSession(BuildVMRegistry()))
 	machine.Context = ctx
 	machine.pushFrame(&StackFrame{
 		Program: &bytecode.Program{Code: []byte{0}},
@@ -573,7 +573,7 @@ func TestRejectedVerbCallDoesNotLeakTaskActivationFrame(t *testing.T) {
 	}
 
 	taskValue := task.NewTask(1, 0, 30_000, 1)
-	machine := NewVM(store, registry)
+	machine := NewVM(store, newTestSession(registry))
 	machine.MaxStackDepth = 1
 	machine.Context = kernel.NewTaskContext()
 	machine.Task = taskValue
@@ -644,7 +644,7 @@ func TestPassPreservesOriginalCaller(t *testing.T) {
 	if len(diagnostics) != 0 {
 		t.Fatalf("compile inherited verb: %v", diagnostics)
 	}
-	machine := NewVM(store, registry)
+	machine := NewVM(store, newTestSession(registry))
 	machine.Context = kernel.NewTaskContext()
 	result := machine.RunWithVerbContext(prog, 3, 3, 3, "pass_caller", defObjID, nil)
 	if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_OBJ || result.Val.Obj() != 3 {
@@ -850,7 +850,7 @@ func TestBytecodeForkAndSuspendResume(t *testing.T) {
 func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	ctx := kernel.NewTaskContext()
 	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 
@@ -859,7 +859,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	machine.Task = taskValue
 	// Model a stack that previously grew past its current live region. These
@@ -887,7 +887,7 @@ func TestBytecodeSuspendClearsDeadStackSlots(t *testing.T) {
 func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := newTestSessionWithTaskManager(registry)
 	ctx := kernel.NewTaskContext()
 	taskValue := task.NewTask(1, 0, ctx.TicksRemaining, 1)
 	ctx.Store = store
@@ -903,7 +903,7 @@ func TestBytecodeErrorResumeRaisesIntoSavedExcept(t *testing.T) {
 		t.Fatalf("compile failed: %v", diagnostics)
 	}
 
-	machine := NewVM(store, registry)
+	machine := NewVM(store, session)
 	machine.Context = ctx
 	machine.Task = taskValue
 	if result := machine.Run(program); result.Flow != types.FlowSuspend {

@@ -76,9 +76,9 @@ func getSQLiteHandle(ctx *Execution, v types.Value) (*sqliteHandle, types.ErrorC
 		return nil, types.E_TYPE
 	}
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	handle := ctx.Registry.runtime.sqlite.handles[v.Int()]
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	handle := ctx.Session.runtime.sqlite.handles[v.Int()]
+	ctx.Session.runtime.sqlite.mu.Unlock()
 	if handle == nil {
 		return nil, types.E_INVARG
 	}
@@ -347,11 +347,11 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		return sqliteOpenError(err.Error())
 	}
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	id := ctx.Registry.runtime.sqlite.nextID
-	ctx.Registry.runtime.sqlite.nextID++
-	ctx.Registry.runtime.sqlite.handles[id] = newSQLiteHandle(id, path, db, conn)
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	id := ctx.Session.runtime.sqlite.nextID
+	ctx.Session.runtime.sqlite.nextID++
+	ctx.Session.runtime.sqlite.handles[id] = newSQLiteHandle(id, path, db, conn)
+	ctx.Session.runtime.sqlite.mu.Unlock()
 	return types.Ok(types.NewInt(id))
 }
 
@@ -372,9 +372,9 @@ func builtinSqliteClose(ctx *Execution, args []types.Value) types.Result {
 	handle.closed = true
 	handle.mu.Unlock()
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	delete(ctx.Registry.runtime.sqlite.handles, handle.id)
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	delete(ctx.Session.runtime.sqlite.handles, handle.id)
+	ctx.Session.runtime.sqlite.mu.Unlock()
 
 	return runSQLiteAsync(ctx, func() types.Result {
 		handle.mu.Lock()
@@ -401,12 +401,12 @@ func builtinSqliteHandles(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	ids := make([]int64, 0, len(ctx.Registry.runtime.sqlite.handles))
-	for id := range ctx.Registry.runtime.sqlite.handles {
+	ctx.Session.runtime.sqlite.mu.Lock()
+	ids := make([]int64, 0, len(ctx.Session.runtime.sqlite.handles))
+	for id := range ctx.Session.runtime.sqlite.handles {
 		ids = append(ids, id)
 	}
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Unlock()
 
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	out := make([]types.Value, 0, len(ids))

@@ -128,7 +128,7 @@ func defaultConnectionOptions() map[string]types.Value {
 	}
 }
 
-func (r *Registry) getConnectionOptions(player types.ObjID) map[string]types.Value {
+func (r *Session) getConnectionOptions(player types.ObjID) map[string]types.Value {
 	state := &r.runtime.connectionOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
@@ -145,7 +145,7 @@ func (r *Registry) getConnectionOptions(player types.ObjID) map[string]types.Val
 	return out
 }
 
-func (r *Registry) setConnectionOption(player types.ObjID, name string, value types.Value) {
+func (r *Session) setConnectionOption(player types.ObjID, name string, value types.Value) {
 	state := &r.runtime.connectionOptions
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -158,7 +158,7 @@ func (r *Registry) setConnectionOption(player types.ObjID, name string, value ty
 	existing[name] = value
 }
 
-func (r *Registry) drainHeldCommands(player types.ObjID) []string {
+func (r *Session) drainHeldCommands(player types.ObjID) []string {
 	state := &r.runtime.heldCommands
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -167,17 +167,17 @@ func (r *Registry) drainHeldCommands(player types.ObjID) []string {
 	return lines
 }
 
-func (r *Registry) heldInputEnabled(player types.ObjID) bool {
+func (r *Session) heldInputEnabled(player types.ObjID) bool {
 	return r.getConnectionOptions(player)["hold-input"].Truthy()
 }
 
-func (r *Registry) ConnectionOptionTruthy(player types.ObjID, name string) bool {
+func (r *Session) ConnectionOptionTruthy(player types.ObjID, name string) bool {
 	options := r.getConnectionOptions(player)
 	value, ok := options[name]
 	return ok && value.Truthy()
 }
 
-func (r *Registry) getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
+func (r *Session) getOrCreateHeldHTTPInput(player types.ObjID) *httpHeldInput {
 	state, ok := r.runtime.heldHTTPInput.byPlayer[player]
 	if !ok {
 		state = &httpHeldInput{}
@@ -463,7 +463,7 @@ func parseHTTPMessage(kind string, data []byte) (types.Value, int, bool) {
 	return parseHTTPResponse(data)
 }
 
-func (r *Registry) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWake {
+func (r *Session) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldInput) []httpWake {
 	pruneHTTPWaitersLocked(state)
 	wakes := make([]httpWake, 0)
 	for len(state.waiters) > 0 {
@@ -492,7 +492,7 @@ func (r *Registry) collectHTTPWakeupsLocked(player types.ObjID, state *httpHeldI
 	return wakes
 }
 
-func (r *Registry) HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
+func (r *Session) HandleHeldInput(player types.ObjID, line string, atFront bool) (bool, []string) {
 	options := r.getConnectionOptions(player)
 	if flush := options["flush-command"]; flush.Type() == types.TYPE_STR && flush.Str() != "" && strings.EqualFold(line, flush.Str()) {
 		lines := r.drainHeldCommands(player)
@@ -558,7 +558,7 @@ func (r *Registry) HandleHeldInput(player types.ObjID, line string, atFront bool
 	return true, nil
 }
 
-func (r *Registry) prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
+func (r *Session) prepareHTTPRead(player types.ObjID, kind string, t *task.Task) (types.Value, bool) {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	defer stateSet.mu.Unlock()
@@ -601,7 +601,7 @@ func pruneHTTPWaitersLocked(state *httpHeldInput) {
 	state.waiters = kept
 }
 
-func (r *Registry) HasPendingHTTPRead(player types.ObjID) bool {
+func (r *Session) HasPendingHTTPRead(player types.ObjID) bool {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	defer stateSet.mu.Unlock()
@@ -614,7 +614,7 @@ func (r *Registry) HasPendingHTTPRead(player types.ObjID) bool {
 	return len(state.waiters) > 0
 }
 
-func (r *Registry) CancelHTTPReadTask(taskID int64) {
+func (r *Session) CancelHTTPReadTask(taskID int64) {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	defer stateSet.mu.Unlock()
@@ -643,14 +643,14 @@ func (r *Registry) CancelHTTPReadTask(taskID int64) {
 	}
 }
 
-func (r *Registry) ClearAllHeldHTTPInput() {
+func (r *Session) ClearAllHeldHTTPInput() {
 	state := &r.runtime.heldHTTPInput
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	state.byPlayer = make(map[types.ObjID]*httpHeldInput)
 }
 
-func (r *Registry) CloseHeldHTTPInput(player types.ObjID) {
+func (r *Session) CloseHeldHTTPInput(player types.ObjID) {
 	stateSet := &r.runtime.heldHTTPInput
 	stateSet.mu.Lock()
 	state := stateSet.byPlayer[player]
@@ -1265,14 +1265,14 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 		}
 	}
 
-	ctx.Registry.setConnectionOption(player, name, args[2])
+	ctx.Session.setConnectionOption(player, name, args[2])
 	if name == "binary" && args[2].Truthy() {
 		if wakeConn, ok := conn.(inputWakeConnection); ok {
 			wakeConn.WakeInputReader()
 		}
 	}
 	if forcer := hostOf(ctx).InputForcer; name == "hold-input" && !args[2].Truthy() && forcer != nil {
-		for _, line := range ctx.Registry.drainHeldCommands(player) {
+		for _, line := range ctx.Session.drainHeldCommands(player) {
 			forcer.ForceInput(player, line, false)
 		}
 	}
@@ -1304,7 +1304,7 @@ func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	options := ctx.Registry.getConnectionOptions(player)
+	options := ctx.Session.getConnectionOptions(player)
 	value, ok := options[name]
 	if !ok {
 		return types.Err(types.E_INVARG)
@@ -1359,7 +1359,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	if mgr == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if mgr.FindReadingTask(connection) != nil || ctx.Registry.HasPendingHTTPRead(connection) {
+	if mgr.FindReadingTask(connection) != nil || ctx.Session.HasPendingHTTPRead(connection) {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -1368,7 +1368,7 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	value, complete := ctx.Registry.prepareHTTPRead(connection, typeStr, t)
+	value, complete := ctx.Session.prepareHTTPRead(connection, typeStr, t)
 	if complete {
 		return types.Ok(value)
 	}

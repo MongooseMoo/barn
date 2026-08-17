@@ -47,10 +47,10 @@ var vmPool = sync.Pool{
 // The caller must pass it to ReleaseVM once it has proven nothing still
 // references the VM, its frames, or its stack; skipping ReleaseVM is always
 // safe and simply forgoes the reuse.
-func AcquireVM(store *dbstore.Store, registry *builtins.Registry) *VM {
+func AcquireVM(store *dbstore.Store, session *builtins.Session) *VM {
 	machine := vmPool.Get().(*VM)
 	machine.Store = store
-	machine.Builtins = registry
+	machine.Builtins = session
 	return machine
 }
 

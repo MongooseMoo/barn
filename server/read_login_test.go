@@ -26,7 +26,7 @@ func loginTestSetup(t *testing.T, loginVerb []string) (*InputProcessor, *Connect
 	s := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	s.SetConnectionManager(cm)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
 
 	conn := cm.NewConnectionFromTransport(stubTransport{})
 	conn.SetListener(10, 7789, true)

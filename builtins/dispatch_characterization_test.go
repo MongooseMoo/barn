@@ -18,7 +18,7 @@ import (
 // object carrying protect_<name>=1, then drives the real loader so the
 // registry's protected set is populated exactly the way the running server does it. The
 // returned store also has #0 present so FindVerb(#0, ...) works.
-func protectBuiltinViaStore(t *testing.T, r *Registry, name string) *dbstore.Store {
+func protectBuiltinViaStore(t *testing.T, s *Session, name string) *dbstore.Store {
 	t.Helper()
 	store := dbstore.NewStore()
 
@@ -42,8 +42,8 @@ func protectBuiltinViaStore(t *testing.T, r *Registry, name string) *dbstore.Sto
 		t.Fatalf("define protect_%s: %v", name, code)
 	}
 
-	r.LoadProtectedBuiltinsFromStore(store)
-	if !r.IsProtectedBuiltin(name) {
+	s.LoadProtectedBuiltinsFromStore(store)
+	if !s.IsProtectedBuiltin(name) {
 		t.Fatalf("setup: %q not protected after load", name)
 	}
 	return store
@@ -55,8 +55,8 @@ func protectBuiltinViaStore(t *testing.T, r *Registry, name string) *dbstore.Sto
 // LoadProtectedBuiltinsFromStore's atomic store, validating the memory-model
 // contract documented in protected.go.
 func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
-	r := NewRegistry()
-	store := protectBuiltinViaStore(t, r, "abs")
+	s := NewSession(NewRegistry(), NoHost())
+	store := protectBuiltinViaStore(t, s, "abs")
 	var wg sync.WaitGroup
 
 	// Readers.
@@ -65,8 +65,8 @@ func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 5000; j++ {
-				_ = r.IsProtectedBuiltin("abs")
-				_ = r.IsProtectedBuiltin("tostr")
+				_ = s.IsProtectedBuiltin("abs")
+				_ = s.IsProtectedBuiltin("tostr")
 			}
 		}()
 	}
@@ -76,9 +76,9 @@ func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
 		defer wg.Done()
 		for j := 0; j < 2000; j++ {
 			if j%2 == 0 {
-				r.LoadProtectedBuiltinsFromStore(store)
+				s.LoadProtectedBuiltinsFromStore(store)
 			} else {
-				r.LoadProtectedBuiltinsFromStore(nil)
+				s.LoadProtectedBuiltinsFromStore(nil)
 			}
 		}
 	}()
@@ -87,11 +87,11 @@ func TestProtectedBuiltinConcurrentReadWrite(t *testing.T) {
 
 func TestCallByIDInvalidIDErrors(t *testing.T) {
 	r := NewRegistry()
-	ctx := newTestExecution()
-	ctx.Registry = r
+	s := NewSession(r, NoHost())
+	ctx := newTestExecutionForSession(s)
 
 	for _, id := range []int{-1, 1 << 30, 1 << 20} {
-		res := r.CallByIDWithExecution(id, ctx, nil)
+		res := s.CallByIDWithExecution(id, ctx, nil)
 		if !res.IsError() || res.Error != types.E_VERBNF {
 			t.Fatalf("CallByID(%d) = %+v, want E_VERBNF", id, res)
 		}
@@ -100,8 +100,8 @@ func TestCallByIDInvalidIDErrors(t *testing.T) {
 
 func TestCallByIDValidatesArgCountAndType(t *testing.T) {
 	r := NewRegistry()
-	ctx := newTestExecution()
-	ctx.Registry = r
+	s := NewSession(r, NoHost())
+	ctx := newTestExecutionForSession(s)
 
 	id, ok := r.GetID("sqlite_close") // signature: minArg 1, maxArg 1, argTypes {TYPE_INT}
 	if !ok {
@@ -109,17 +109,17 @@ func TestCallByIDValidatesArgCountAndType(t *testing.T) {
 	}
 
 	// Wrong arg count -> E_ARGS (validation runs before the builtin body).
-	res := r.CallByIDWithExecution(id, ctx, nil)
+	res := s.CallByIDWithExecution(id, ctx, nil)
 	if !res.IsError() || res.Error != types.E_ARGS {
 		t.Fatalf("sqlite_close() = %+v, want E_ARGS", res)
 	}
-	res = r.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(1), types.NewInt(2)})
+	res = s.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(1), types.NewInt(2)})
 	if !res.IsError() || res.Error != types.E_ARGS {
 		t.Fatalf("sqlite_close(1,2) = %+v, want E_ARGS", res)
 	}
 
 	// Wrong arg type -> E_TYPE.
-	res = r.CallByIDWithExecution(id, ctx, []types.Value{types.NewStr("x")})
+	res = s.CallByIDWithExecution(id, ctx, []types.Value{types.NewStr("x")})
 	if !res.IsError() || res.Error != types.E_TYPE {
 		t.Fatalf("sqlite_close(\"x\") = %+v, want E_TYPE", res)
 	}
@@ -128,10 +128,10 @@ func TestCallByIDValidatesArgCountAndType(t *testing.T) {
 // CallByName must validate identically to CallByID.
 func TestCallByNameValidatesArgs(t *testing.T) {
 	r := NewRegistry()
-	ctx := newTestExecution()
-	ctx.Registry = r
+	s := NewSession(r, NoHost())
+	ctx := newTestExecutionForSession(s)
 
-	res, ok := r.CallByNameWithExecution("sqlite_close", ctx, []types.Value{types.NewStr("x")})
+	res, ok := s.CallByNameWithExecution("sqlite_close", ctx, []types.Value{types.NewStr("x")})
 	if !ok {
 		t.Fatal("sqlite_close not found by name")
 	}
@@ -139,38 +139,37 @@ func TestCallByNameValidatesArgs(t *testing.T) {
 		t.Fatalf("sqlite_close(\"x\") by name = %+v, want E_TYPE", res)
 	}
 
-	if _, ok := r.CallByNameWithExecution("no_such_builtin", ctx, nil); ok {
+	if _, ok := s.CallByNameWithExecution("no_such_builtin", ctx, nil); ok {
 		t.Fatal("CallByName(unknown) returned ok=true")
 	}
 }
 
 func TestProtectedBuiltinNonWizardDeniedWizardFallsThrough(t *testing.T) {
 	r := NewRegistry()
+	s := NewSession(r, NoHost())
 
-	store := protectBuiltinViaStore(t, r, "abs")
+	store := protectBuiltinViaStore(t, s, "abs")
 	id, ok := r.GetID("abs")
 	if !ok {
 		t.Fatal("abs not registered")
 	}
 
 	// Non-wizard caller, this != #0, no #0:bf_abs verb -> E_PERM.
-	nonwiz := newTestExecution()
-	nonwiz.Registry = r
+	nonwiz := newTestExecutionForSession(s)
 	nonwiz.Store = store
 	nonwiz.ThisObj = types.ObjID(1)
 	nonwiz.IsWizard = false
-	res := r.CallByIDWithExecution(id, nonwiz, []types.Value{types.NewInt(-5)})
+	res := s.CallByIDWithExecution(id, nonwiz, []types.Value{types.NewInt(-5)})
 	if !res.IsError() || res.Error != types.E_PERM {
 		t.Fatalf("protected abs, non-wizard = %+v, want E_PERM", res)
 	}
 
 	// Wizard caller, no wrapper verb -> falls through to the real builtin.
-	wiz := newTestExecution()
-	wiz.Registry = r
+	wiz := newTestExecutionForSession(s)
 	wiz.Store = store
 	wiz.ThisObj = types.ObjID(1)
 	wiz.IsWizard = true
-	res = r.CallByIDWithExecution(id, wiz, []types.Value{types.NewInt(-5)})
+	res = s.CallByIDWithExecution(id, wiz, []types.Value{types.NewInt(-5)})
 	if !res.IsNormal() {
 		t.Fatalf("protected abs, wizard fallthrough = %+v, want normal", res)
 	}
@@ -181,8 +180,9 @@ func TestProtectedBuiltinNonWizardDeniedWizardFallsThrough(t *testing.T) {
 
 func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 	r := NewRegistry()
+	s := NewSession(r, NoHost())
 
-	store := protectBuiltinViaStore(t, r, "abs")
+	store := protectBuiltinViaStore(t, s, "abs")
 	// Add #0:bf_abs so the redirect path resolves the wrapper verb.
 	verb := dbstore.NewVerb(
 		"bf_abs", []string{"bf_abs"}, types.ObjID(0),
@@ -196,22 +196,23 @@ func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 
 	sentinel := types.NewInt(99887766)
 	called := false
-	r.SetVerbCaller(func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
-		called = true
-		if objID != types.ObjID(0) || verbName != "bf_abs" {
-			t.Fatalf("redirect called %d:%s, want #0:bf_abs", objID, verbName)
+	configureTestHost(s, func(host *Host) {
+		host.VerbCaller = func(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
+			called = true
+			if objID != types.ObjID(0) || verbName != "bf_abs" {
+				t.Fatalf("redirect called %d:%s, want #0:bf_abs", objID, verbName)
+			}
+			return types.Ok(sentinel)
 		}
-		return types.Ok(sentinel)
 	})
 
 	id, _ := r.GetID("abs")
-	ctx := newTestExecution()
-	ctx.Registry = r
+	ctx := newTestExecutionForSession(s)
 	ctx.Store = store
 	ctx.ThisObj = types.ObjID(1)
 	ctx.IsWizard = false
 
-	res := r.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(-5)})
+	res := s.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(-5)})
 	if !called {
 		t.Fatal("redirect verb caller was not invoked")
 	}
@@ -223,17 +224,17 @@ func TestProtectedBuiltinRedirectsToWrapperVerb(t *testing.T) {
 // caller this == #0 must always run the real builtin even when protected.
 func TestProtectedBuiltinThisZeroRunsRealBuiltin(t *testing.T) {
 	r := NewRegistry()
+	s := NewSession(r, NoHost())
 
-	store := protectBuiltinViaStore(t, r, "abs")
+	store := protectBuiltinViaStore(t, s, "abs")
 	id, _ := r.GetID("abs")
 
-	ctx := newTestExecution()
-	ctx.Registry = r
+	ctx := newTestExecutionForSession(s)
 	ctx.Store = store
 	ctx.ThisObj = types.ObjID(0)
 	ctx.IsWizard = false
 
-	res := r.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(-5)})
+	res := s.CallByIDWithExecution(id, ctx, []types.Value{types.NewInt(-5)})
 	if !res.IsNormal() || res.Val.Int() != 5 {
 		t.Fatalf("this==#0 protected abs(-5) = %+v, want 5", res)
 	}

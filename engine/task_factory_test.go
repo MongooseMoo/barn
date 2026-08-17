@@ -13,8 +13,14 @@ import (
 	"github.com/MongooseMoo/barn/vm"
 )
 
-func newTestRegistry() *builtins.Registry {
-	return builtins.NewRegistry()
+func newTestRegistry() *builtins.Session {
+	return builtins.NewSession(builtins.NewRegistry(), builtins.NoHost())
+}
+
+func configureTestHost(session *builtins.Session, configure func(*builtins.Host)) {
+	host := session.Host()
+	configure(&host)
+	session.ConfigureHost(host)
 }
 
 func TestResumeReadingTaskClaimsBeforeSynchronousDispatch(t *testing.T) {
@@ -80,7 +86,7 @@ func TestConfigureVMStackLimitReadsLiveServerOption(t *testing.T) {
 		t.Fatalf("add server options object: %v", err)
 	}
 
-	machine := vm.NewVM(store, builtins.NewRegistry())
+	machine := vm.NewVM(store, builtins.NewSession(builtins.NewRegistry(), builtins.NoHost()))
 	configureVMStackLimit(machine, newTestRegistry())
 	if machine.MaxStackDepth != 60 {
 		t.Fatalf("VM max stack depth = %d, want live $server_options value 60", machine.MaxStackDepth)

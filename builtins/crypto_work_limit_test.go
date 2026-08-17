@@ -9,7 +9,7 @@ import (
 
 func TestCryptRejectsWorkAboveServerLimits(t *testing.T) {
 	ctx := newTestExecution()
-	ctx.Registry.cacheServerOptionsDefaults()
+	ctx.Session.cacheServerOptionsDefaults()
 	ctx.IsWizard = true
 	for _, salt := range []string{
 		"$2y$15$......................",
@@ -25,7 +25,7 @@ func TestCryptRejectsWorkAboveServerLimits(t *testing.T) {
 
 func TestCryptChargesTicksBeforeHashing(t *testing.T) {
 	ctx := newTestExecution()
-	ctx.Registry.cacheServerOptionsDefaults()
+	ctx.Session.cacheServerOptionsDefaults()
 	ctx.IsWizard = true
 	ctx.TicksRemaining = 4
 	result := builtinCrypt(ctx, []types.Value{
@@ -44,10 +44,10 @@ func TestCryptWorkLimitsApplyFromServerOptionsSnapshot(t *testing.T) {
 	snapshot := defaultServerOptionsSnapshot()
 	snapshot.MaxCryptBcryptCost = 8
 	snapshot.MaxCryptSHARounds = 20_000
-	registry := NewRegistry()
-	registry.applyServerOptionsSnapshot(&snapshot)
+	session := NewSession(NewRegistry(), NoHost())
+	session.applyServerOptionsSnapshot(&snapshot)
 
-	bcryptCost, shaRounds := registry.GetCryptWorkLimits()
+	bcryptCost, shaRounds := session.GetCryptWorkLimits()
 	if bcryptCost != 8 || shaRounds != 20_000 {
 		t.Fatalf("crypt limits = (%d, %d), want (8, 20000)", bcryptCost, shaRounds)
 	}
@@ -57,7 +57,7 @@ func TestCryptUsesPendingServerOptions(t *testing.T) {
 	snapshot := defaultServerOptionsSnapshot()
 	snapshot.MaxCryptBcryptCost = 4
 	ctx := newTestExecution()
-	ctx.Registry.cacheServerOptionsDefaults()
+	ctx.Session.cacheServerOptionsDefaults()
 	ctx.IsWizard = true
 	ctx.PendingEffects = []kernel.PendingEffect{{
 		Kind:          kernel.PendingEffectServerOptions,

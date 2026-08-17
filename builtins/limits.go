@@ -36,21 +36,21 @@ const (
 
 // GetMaxStringConcat returns the cached max_string_concat limit.
 // Returns -1 if not set (use default from TaskContext).
-func (r *Registry) GetMaxStringConcat() int {
+func (r *Session) GetMaxStringConcat() int {
 	state := &r.runtime.serverOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
 	return state.maxStringConcat
 }
 
-func (r *Registry) GetCryptWorkLimits() (int, int) {
+func (r *Session) GetCryptWorkLimits() (int, int) {
 	state := &r.runtime.serverOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
 	return state.maxCryptBcryptCost, state.maxCryptSHARounds
 }
 
-func (r *Registry) GetTaskLimits(background bool) (int64, float64) {
+func (r *Session) GetTaskLimits(background bool) (int64, float64) {
 	state := &r.runtime.serverOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
@@ -60,7 +60,7 @@ func (r *Registry) GetTaskLimits(background bool) (int64, float64) {
 	return state.fgTicks, state.fgSeconds
 }
 
-func (r *Registry) GetMaxStackDepth(store *dbstore.Store) int {
+func (r *Session) GetMaxStackDepth(store *dbstore.Store) int {
 	if store != nil {
 		serverOpts, errCode := store.DirectTxn().FindProperty(0, "server_options")
 		if errCode == types.E_NONE && serverOpts.Value.Type() == types.TYPE_OBJ {
@@ -92,7 +92,7 @@ func findDefinedProperty(objID types.ObjID, name string, store *dbstore.Store) (
 
 type propertyReader func(types.ObjID, string) (dbstore.PropertyView, bool)
 
-func (r *Registry) cacheServerOptionsDefaults() {
+func (r *Session) cacheServerOptionsDefaults() {
 	snapshot := defaultServerOptionsSnapshot()
 	r.applyServerOptionsSnapshot(&snapshot)
 }
@@ -112,7 +112,7 @@ func defaultServerOptionsSnapshot() kernel.PendingServerOptions {
 	}
 }
 
-func (r *Registry) applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptions) {
+func (r *Session) applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptions) {
 	if snapshot == nil {
 		r.cacheServerOptionsDefaults()
 		return
@@ -225,7 +225,7 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 	return snapshot
 }
 
-func (r *Registry) loadServerOptions(findProperty propertyReader, findDefined propertyReader) int {
+func (r *Session) loadServerOptions(findProperty propertyReader, findDefined propertyReader) int {
 	snapshot := collectServerOptions(findProperty, findDefined)
 	r.applyServerOptionsSnapshot(&snapshot)
 	return snapshot.Loaded
@@ -234,7 +234,7 @@ func (r *Registry) loadServerOptions(findProperty propertyReader, findDefined pr
 // LoadServerOptionsFromStore reads limits from $server_options object and caches them.
 // This is called at server startup and when no task transaction is active.
 // Returns the number of options successfully loaded.
-func (r *Registry) LoadServerOptionsFromStore(store *dbstore.Store) int {
+func (r *Session) LoadServerOptionsFromStore(store *dbstore.Store) int {
 	if store == nil {
 		return r.loadServerOptions(nil, nil)
 	}
@@ -254,7 +254,7 @@ func (r *Registry) LoadServerOptionsFromStore(store *dbstore.Store) int {
 
 // LoadServerOptionsForTask reads limits through the active task view so
 // same-task updates to $server_options take effect before the task commits.
-func (r *Registry) LoadServerOptionsForTask(ctx *Execution) int {
+func (r *Session) LoadServerOptionsForTask(ctx *Execution) int {
 	if ctx == nil {
 		return r.loadServerOptions(nil, nil)
 	}
@@ -309,7 +309,7 @@ func canonicalizeLimit(value, min, max int) int {
 // UpdateContextLimits updates a TaskContext with current cached limits from load_server_options().
 // This should be called by string-producing builtins before creating output.
 // If no cached limit is set, the context's default limit is used.
-func (r *Registry) UpdateContextLimits(ctx *kernel.TaskContext) {
+func (r *Session) UpdateContextLimits(ctx *kernel.TaskContext) {
 	cachedLimit := r.GetMaxStringConcat()
 	if cachedLimit > 0 {
 		ctx.MaxStringConcat = cachedLimit
@@ -342,7 +342,7 @@ func ValueBytes(v types.Value) int {
 
 // GetMaxListValueBytes returns the cached max_list_value_bytes limit.
 // Returns the currently cached effective limit.
-func (r *Registry) GetMaxListValueBytes() int {
+func (r *Session) GetMaxListValueBytes() int {
 	state := &r.runtime.serverOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
@@ -351,7 +351,7 @@ func (r *Registry) GetMaxListValueBytes() int {
 
 // GetMaxMapValueBytes returns the cached max_map_value_bytes limit.
 // Returns the currently cached effective limit.
-func (r *Registry) GetMaxMapValueBytes() int {
+func (r *Session) GetMaxMapValueBytes() int {
 	state := &r.runtime.serverOptions
 	state.mu.RLock()
 	defer state.mu.RUnlock()
@@ -361,7 +361,7 @@ func (r *Registry) GetMaxMapValueBytes() int {
 // CheckListLimit checks if a list exceeds the max_list_value_bytes limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
 // The limit is exclusive - a list with exactly limit bytes is not allowed.
-func (r *Registry) CheckListLimit(list types.Value) types.ErrorCode {
+func (r *Session) CheckListLimit(list types.Value) types.ErrorCode {
 	limit := r.GetMaxListValueBytes()
 	if limit > 0 && ValueBytes(list) >= limit {
 		return types.E_QUOTA
@@ -369,7 +369,7 @@ func (r *Registry) CheckListLimit(list types.Value) types.ErrorCode {
 	return types.E_NONE
 }
 
-func (r *Registry) CheckListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
+func (r *Session) CheckListLimitForTask(ctx *kernel.TaskContext, list types.Value) types.ErrorCode {
 	limit := r.GetMaxListValueBytes()
 	if pending := pendingServerOptions(ctx); pending != nil {
 		limit = pending.MaxListValueBytes
@@ -382,7 +382,7 @@ func (r *Registry) CheckListLimitForTask(ctx *kernel.TaskContext, list types.Val
 
 // CheckMapLimit checks if a map exceeds the max_map_value_bytes limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-func (r *Registry) CheckMapLimit(m types.Value) types.ErrorCode {
+func (r *Session) CheckMapLimit(m types.Value) types.ErrorCode {
 	limit := r.GetMaxMapValueBytes()
 	if limit > 0 && ValueBytes(m) > limit {
 		return types.E_QUOTA
@@ -392,7 +392,7 @@ func (r *Registry) CheckMapLimit(m types.Value) types.ErrorCode {
 
 // CheckMapLimitForTask checks a map against the task's pending server options,
 // falling back to the currently cached max_map_value_bytes limit.
-func (r *Registry) CheckMapLimitForTask(ctx *kernel.TaskContext, m types.Value) types.ErrorCode {
+func (r *Session) CheckMapLimitForTask(ctx *kernel.TaskContext, m types.Value) types.ErrorCode {
 	limit := r.GetMaxMapValueBytes()
 	if pending := pendingServerOptions(ctx); pending != nil {
 		limit = pending.MaxMapValueBytes
@@ -405,7 +405,7 @@ func (r *Registry) CheckMapLimitForTask(ctx *kernel.TaskContext, m types.Value) 
 
 // CheckStringLength checks if a string length exceeds the max_string_concat
 // limit. Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-func (r *Registry) CheckStringLength(length int) types.ErrorCode {
+func (r *Session) CheckStringLength(length int) types.ErrorCode {
 	limit := r.GetMaxStringConcat()
 	if limit > 0 && length > limit {
 		return types.E_QUOTA
@@ -415,6 +415,6 @@ func (r *Registry) CheckStringLength(length int) types.ErrorCode {
 
 // CheckStringLimit checks if a string exceeds the max_string_concat limit.
 // Returns E_QUOTA if limit exceeded, E_NONE otherwise.
-func (r *Registry) CheckStringLimit(s string) types.ErrorCode {
+func (r *Session) CheckStringLimit(s string) types.ErrorCode {
 	return r.CheckStringLength(len(s))
 }

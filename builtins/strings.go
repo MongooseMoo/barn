@@ -78,7 +78,7 @@ func builtinStrsub(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check string length limit (update from load_server_options cache first)
-	ctx.Registry.UpdateContextLimits(ctx.TaskContext)
+	ctx.Session.UpdateContextLimits(ctx.TaskContext)
 	if errCode := ctx.CheckStringLimit(len(result)); errCode != types.E_NONE {
 		return types.Err(errCode)
 	}
@@ -398,7 +398,7 @@ func builtinImplode(ctx *Execution, args []types.Value) types.Result {
 	result := strings.Join(parts, delimiter)
 
 	// Check string limit
-	if err := ctx.Registry.CheckStringLimit(result); err != types.E_NONE {
+	if err := ctx.Session.CheckStringLimit(result); err != types.E_NONE {
 		return types.Err(err)
 	}
 
@@ -830,7 +830,7 @@ func builtinSubstitute(ctx *Execution, args []types.Value) types.Result {
 	resultStr := result.String()
 
 	// Check string limit
-	if err := ctx.Registry.CheckStringLimit(resultStr); err != types.E_NONE {
+	if err := ctx.Session.CheckStringLimit(resultStr); err != types.E_NONE {
 		return types.Err(err)
 	}
 

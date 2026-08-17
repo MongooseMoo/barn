@@ -20,7 +20,7 @@ type VM struct {
 	Frames        []*StackFrame       // Call stack
 	FP            int                 // Frame pointer
 	Store         *dbstore.Store      // Object store
-	Builtins      *builtins.Registry  // Builtin function registry
+	Builtins      *builtins.Session   // Builtin dispatch and mutable session
 	Context       *kernel.TaskContext // Task context for builtins
 	Task          *task.Task          // Runtime task owning this execution
 	TickLimit     int64               // Maximum ticks before E_MAXREC
@@ -89,14 +89,14 @@ type StackFrame struct {
 }
 
 // NewVM creates a new virtual machine
-func NewVM(store *dbstore.Store, registry *builtins.Registry) *VM {
+func NewVM(store *dbstore.Store, session *builtins.Session) *VM {
 	return &VM{
 		Stack:         make([]types.Value, 0, initialStackCap),
 		SP:            0,
 		Frames:        make([]*StackFrame, 0, initialFramesCap),
 		FP:            0,
 		Store:         store,
-		Builtins:      registry,
+		Builtins:      session,
 		TickLimit:     defaultTickLimit,
 		MaxStackDepth: defaultMaxStackDepth,
 		Ticks:         0,

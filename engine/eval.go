@@ -66,7 +66,7 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	// Create and register a real task so task_id()/resume()/task_local()
 	// semantics match normal task execution.
 	mgr := s.taskManager
-	ticks, secondsLimit := foregroundTaskLimits(s.registry)
+	ticks, secondsLimit := foregroundTaskLimits(s.session)
 	t := task.NewTask(s.newTaskID(), player, ticks, secondsLimit)
 	mgr.RegisterTask(t)
 	defer mgr.RemoveTask(t.ID)
@@ -79,11 +79,11 @@ func (s *Runtime) EvalCommandOutput(player types.ObjID, code string) (line strin
 	executionCtx = ctx
 
 	// Create bytecode VM and execute
-	bcVM := vm.NewVM(s.store, s.registry)
+	bcVM := vm.NewVM(s.store, s.session)
 	bcVM.Context = ctx
 	bcVM.Task = t
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM, s.registry)
+	configureVMStackLimit(bcVM, s.session)
 
 	// Top-level eval still has intrinsic command variables in Toast:
 	// player/caller/this/verb/args and command parser placeholders.
@@ -218,7 +218,7 @@ resumeLoop:
 				s.finalizePendingWaifs(ctx, pending, siblingWaifs, bcVM)
 			}
 			if anonCreated {
-				vm.AutoRecycleOrphanAnonymousSince(s.store, s.registry, s.registry.NewExecution(ctx, t), anonGCFloor, siblingAnon, bcVM)
+				vm.AutoRecycleOrphanAnonymousSince(s.store, s.session, s.session.NewExecution(ctx, t), anonGCFloor, siblingAnon, bcVM)
 			}
 		}()
 	}

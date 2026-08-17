@@ -12,20 +12,21 @@ import (
 
 // Execution carries the language-visible task state together with the runtime
 // services required for one builtin call. The VM constructs it explicitly for
-// production dispatch; tests of pure builtins can use Registry.NewExecution
+// production dispatch; tests of pure builtins can use Session.NewExecution
 // with a nil Task and callbacks.
 type Execution struct {
 	*kernel.TaskContext
 	Task                 *task.Task
 	Registry             *Registry
+	Session              *Session
 	PushEval             func(*bytecode.Program) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
 	PendingFinalizations func() []types.Value
 }
 
-// NewExecution binds task state and an optional concrete task to this registry.
-func (r *Registry) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execution {
-	execution := &Execution{TaskContext: ctx, Task: task, Registry: r}
+// NewExecution binds task state and an optional concrete task to this session.
+func (s *Session) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execution {
+	execution := &Execution{TaskContext: ctx, Task: task, Registry: s.registry, Session: s}
 	execution.ensureStoreTxn()
 	return execution
 }
@@ -64,16 +65,8 @@ type Registry struct {
 	// funcs maps name -> the validation-wrapping closure. Kept for Get/Has and
 	// call_function(), which call the returned fn directly and so must retain
 	// the same arg-validation behavior the closure provided.
-	funcs      map[string]BuiltinFunc
-	nameToID   map[string]int
-	verbCaller VerbCallerFunc // Callback for calling verbs
-
-	// host holds the server-provided capabilities the builtins package cannot
-	// implement itself (networking, scheduling, lifecycle). The registry's owner
-	// wires it after construction via the Set* methods; builtins read it via
-	// hostOf(ctx). See host.go.
-	host    Host
-	runtime *registryRuntime
+	funcs    map[string]BuiltinFunc
+	nameToID map[string]int
 
 	compilerMu     sync.Mutex
 	sourceCompiler *compiler.Compiler
@@ -84,7 +77,6 @@ func NewRegistry() *Registry {
 	r := &Registry{
 		funcs:    make(map[string]BuiltinFunc),
 		nameToID: make(map[string]int),
-		runtime:  newRegistryRuntime(),
 	}
 
 	// Register type conversion builtins
@@ -479,41 +471,31 @@ func (r *Registry) GetID(name string) (int, bool) {
 	return id, ok
 }
 
-// CallByID calls a builtin function by its ID, applying protected-builtin
-// redirection first. Resolution is a single bounds check + slice index.
-func (r *Registry) CallByID(id int, ctx *kernel.TaskContext, args []types.Value) types.Result {
-	return r.CallByIDWithExecution(id, r.NewExecution(ctx, nil), args)
-}
-
 // CallByIDWithExecution calls a builtin with explicitly supplied runtime services.
-func (r *Registry) CallByIDWithExecution(id int, ctx *Execution, args []types.Value) types.Result {
+func (s *Session) CallByIDWithExecution(id int, ctx *Execution, args []types.Value) types.Result {
+	r := s.registry
 	if id < 0 || id >= len(r.entries) {
 		return types.Err(types.E_VERBNF)
 	}
-	if ctx == nil || ctx.Registry != r {
+	if ctx == nil || ctx.Registry != r || ctx.Session != s {
 		return types.Err(types.E_INVARG)
 	}
 	ctx.ensureStoreTxn()
-	return r.dispatch(r.entries[id], ctx, args)
-}
-
-// CallByName calls a builtin function by name, applying protected-builtin
-// redirection first.
-func (r *Registry) CallByName(name string, ctx *kernel.TaskContext, args []types.Value) (types.Result, bool) {
-	return r.CallByNameWithExecution(name, r.NewExecution(ctx, nil), args)
+	return s.dispatch(r.entries[id], ctx, args)
 }
 
 // CallByNameWithExecution calls a named builtin with explicit runtime services.
-func (r *Registry) CallByNameWithExecution(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
+func (s *Session) CallByNameWithExecution(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
+	r := s.registry
 	id, ok := r.nameToID[name]
 	if !ok {
 		return types.Result{}, false
 	}
-	if ctx == nil || ctx.Registry != r {
+	if ctx == nil || ctx.Registry != r || ctx.Session != s {
 		return types.Err(types.E_INVARG), true
 	}
 	ctx.ensureStoreTxn()
-	return r.dispatch(r.entries[id], ctx, args), true
+	return s.dispatch(r.entries[id], ctx, args), true
 }
 
 // dispatch runs a builtin, first giving ToastStunt's protected-builtin
@@ -524,8 +506,8 @@ func (r *Registry) CallByNameWithExecution(name string, ctx *Execution, args []t
 // the raw args to #0:bf_<name> unvalidated. Only when the call falls through to
 // the real builtin do we run the same arg-count/type checks the registration
 // closure used to perform (identical E_ARGS/E_TYPE codes).
-func (r *Registry) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
-	if redirect, ok := r.maybeProtectedRedirect(e.name, ctx, args); ok {
+func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
+	if redirect, ok := s.maybeProtectedRedirect(e.name, ctx, args); ok {
 		return redirect
 	}
 	if e.hasSig {
@@ -545,7 +527,7 @@ func (r *Registry) dispatch(e *builtinEntry, ctx *Execution, args []types.Value)
 //
 // Returns (result, true) when the call was handled by the redirect path, or
 // (_, false) when the caller should run the real builtin normally.
-func (r *Registry) maybeProtectedRedirect(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
+func (s *Session) maybeProtectedRedirect(name string, ctx *Execution, args []types.Value) (types.Result, bool) {
 	if ctx == nil || name == "" {
 		return types.Result{}, false
 	}
@@ -553,7 +535,7 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *Execution, args []ty
 	if ctx.ThisObj == types.ObjID(0) {
 		return types.Result{}, false
 	}
-	if !r.IsProtectedBuiltin(name) {
+	if !s.IsProtectedBuiltin(name) {
 		return types.Result{}, false
 	}
 	store := ctx.Store
@@ -565,7 +547,7 @@ func (r *Registry) maybeProtectedRedirect(name string, ctx *Execution, args []ty
 	if err == nil {
 		// #0:bf_<name> exists: run it and use its outcome (return or raise).
 		verbArgs := append([]types.Value(nil), args...)
-		return r.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
+		return s.CallVerb(types.ObjID(0), bfName, verbArgs, ctx), true
 	}
 	// No wrapper verb: wizards fall through to the real builtin, others denied.
 	if !ctx.IsWizard {
@@ -587,16 +569,11 @@ func (r *Registry) Has(name string) bool {
 	return ok
 }
 
-// SetVerbCaller sets the callback for calling verbs
-func (r *Registry) SetVerbCaller(caller VerbCallerFunc) {
-	r.verbCaller = caller
-}
-
 // CallVerb calls a verb on an object using the registered verb caller
 // Returns E_VERBNF if no verb caller is set or if the verb is not found
-func (r *Registry) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
-	if r.verbCaller == nil {
+func (s *Session) CallVerb(objID types.ObjID, verbName string, args []types.Value, ctx *Execution) types.Result {
+	if s.host.VerbCaller == nil {
 		return types.Err(types.E_VERBNF)
 	}
-	return r.verbCaller(objID, verbName, args, ctx)
+	return s.host.VerbCaller(objID, verbName, args, ctx)
 }

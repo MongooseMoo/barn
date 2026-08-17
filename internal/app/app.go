@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/config"
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
@@ -322,7 +323,7 @@ func dumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 // evalExpression parses and evaluates a MOO expression
 func evalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
 	registry := vm.BuildVMRegistry()
-	registry.SetTaskManager(task.NewManager())
+	session := builtins.NewSession(registry, builtins.Host{TaskManager: task.NewManager()})
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{"return " + expr + ";"})
 	if len(diagnostics) > 0 {
 		fmt.Fprintf(errOut, "Compile error: %s\n", diagnostics[0].Error())
@@ -334,7 +335,7 @@ func evalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 	ctx.StoreTxn = store.DirectTxn()
 	ctx.RuntimeOptions = options
 
-	machine := vm.NewVM(store, registry)
+	machine := vm.NewVM(store, session)
 	machine.Context = ctx
 	result := machine.Run(prog)
 

@@ -139,7 +139,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 
 	// Try to compile verb to bytecode. The store carries the verb's content key,
 	// so the cache lookup on this hot path does not rehash the source.
-	prog, diagnostics := vm.Builtins.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("E_VERBNF: compile error in %s: %s", verbName, diagnostics[0].Error())
 	}
@@ -362,7 +362,7 @@ func (vm *VM) executePass() error {
 	}
 
 	// Compile the parent verb to bytecode, keyed by the store's content key.
-	prog, diagnostics := vm.Builtins.Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
+	prog, diagnostics := vm.Builtins.Registry().Compiler().CompileMOOWithKey(verb.Code, verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("E_VERBNF: compile error in pass() for %s: %s", verbName, diagnostics[0].Error())
 	}

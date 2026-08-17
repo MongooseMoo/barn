@@ -234,7 +234,7 @@ func TestRecycleOrphanAnonymousBatchFreezesCandidatesBeforeRecycleHooks(t *testi
 	for i := range requests {
 		requests[i] = AnonGCRequest{Ctx: ctx, MinID: 1}
 	}
-	RecycleOrphanAnonymousBatch(store, registry, requests, nil)
+	RecycleOrphanAnonymousBatch(store, newTestSession(registry), requests, nil)
 
 	if recycleCalls != candidateCount {
 		t.Fatalf("recycle calls = %d, want only %d pre-snapshot candidates across %d requests", recycleCalls, candidateCount, requestCount)

@@ -130,9 +130,9 @@ func TestSqliteCloseWaitsOffTaskGoroutine(t *testing.T) {
 	ctx, taskValue := sqliteAsyncCtx()
 	handle := newSQLiteHandle(1, ":memory:", nil, nil)
 	handle.activeOps = 1
-	ctx.Registry.runtime.sqlite.mu.Lock()
-	ctx.Registry.runtime.sqlite.handles[handle.id] = handle
-	ctx.Registry.runtime.sqlite.mu.Unlock()
+	ctx.Session.runtime.sqlite.mu.Lock()
+	ctx.Session.runtime.sqlite.handles[handle.id] = handle
+	ctx.Session.runtime.sqlite.mu.Unlock()
 
 	returned := make(chan types.Result, 1)
 	go func() {

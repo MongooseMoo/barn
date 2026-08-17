@@ -129,7 +129,8 @@ func TestCachedPCREPatternVariantsAreDistinct(t *testing.T) {
 
 func TestPCREBuiltinsShareCachedPattern(t *testing.T) {
 	resetRegexpCacheForTest()
-	match := builtinPcreMatch(nil, []types.Value{
+	ctx := newTestExecution()
+	match := builtinPcreMatch(ctx, []types.Value{
 		types.NewStr("abc"),
 		types.NewStr("abc"),
 		types.NewInt(1),
@@ -137,7 +138,7 @@ func TestPCREBuiltinsShareCachedPattern(t *testing.T) {
 	if match.Error != types.E_NONE {
 		t.Fatalf("pcre_match returned error: %v", match.Error)
 	}
-	replace := builtinPcreReplace(nil, []types.Value{
+	replace := builtinPcreReplace(ctx, []types.Value{
 		types.NewStr("abc"),
 		types.NewStr("s/abc/replaced/"),
 	})

@@ -120,7 +120,7 @@ func TestDeferredAnonymousGCRecycleUsesStandaloneCallerWithCompletedTask(t *test
 	ctx.Store = store
 	completed := task.NewTask(98001, 0, 1000, 10)
 	completed.SetState(task.TaskCompleted)
-	machine := vm.NewVM(store, rt.registry)
+	machine := vm.NewVM(store, rt.session)
 	machine.Context = ctx
 	machine.Task = completed
 
@@ -168,7 +168,7 @@ func TestDeferredGCSweepBlocksNewVMStartUntilSweepCompletes(t *testing.T) {
 	var sweepOnce sync.Once
 	rt.registry.Register("recycle", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		sweepOnce.Do(func() {
-			nestedSweepVerb <- rt.registry.CallVerb(0, "sweep_probe", nil, ctx)
+			nestedSweepVerb <- rt.session.CallVerb(0, "sweep_probe", nil, ctx)
 			runGC, ok := rt.registry.Get("run_gc")
 			if !ok {
 				reentrantRunGC <- types.Err(types.E_VERBNF)

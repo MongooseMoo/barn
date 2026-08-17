@@ -375,7 +375,7 @@ func TestYinCommitsAndRefreshesAroundReadyTasks(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	s.Registry().SetTaskYielder(s)
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
 
 	owner := types.ObjID(7710)
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
@@ -442,7 +442,7 @@ func TestYinFlushesCommittedForksBeforeLaterConflict(t *testing.T) {
 
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
-	s.Registry().SetTaskYielder(s)
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.TaskYielder = s })
 	s.registry.Register("mutate_snapshot_value", func(ctx *builtins.Execution, args []types.Value) types.Result {
 		if errCode := ctx.Store.DirectTxn().SetPropertyValue(0, "snapshot_value", types.NewStr("live")); errCode != types.E_NONE {
 			return types.Err(errCode)
@@ -729,7 +729,7 @@ func TestRunTaskFlushesBufferedEffectsInCallOrder(t *testing.T) {
 		conn:             conn,
 		disconnectOnBoot: true,
 	}
-	s.Registry().SetConnectionManager(manager)
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = manager })
 
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3006, 7, compileTestProgram(t, s.registry, `
@@ -800,7 +800,7 @@ func TestRunTaskDoesNotReplaceResultAfterDeferredEffectFailure(t *testing.T) {
 	s := newRuntimeWithWorkerCount(store, config.Options{}, 1)
 	defer s.Stop()
 	conn := &evalCommandStubConn{sendErr: errors.New("send failed")}
-	s.Registry().SetConnectionManager(&evalCommandStubConnManager{player: 7, conn: conn})
+	configureTestHost(s.Session(), func(host *builtins.Host) { host.ConnManager = &evalCommandStubConnManager{player: 7, conn: conn} })
 	ticks, seconds := foregroundTaskLimits(newTestRegistry())
 	queued := task.NewTaskFull(3008, 7, compileTestProgram(t, s.registry, `
 #0.value = 1;

@@ -8,9 +8,9 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// registryRuntime owns the mutable resources created by builtin calls. Keeping
-// it private prevents callers from bypassing Registry's lifecycle.
-type registryRuntime struct {
+// sessionRuntime owns the mutable resources created by builtin calls. Keeping
+// it private prevents callers from bypassing Session's lifecycle.
+type sessionRuntime struct {
 	files struct {
 		mu      sync.Mutex
 		nextID  int64
@@ -55,8 +55,8 @@ type serverOptionsState struct {
 	maxCryptSHARounds  int
 }
 
-func newRegistryRuntime() *registryRuntime {
-	s := &registryRuntime{}
+func newSessionRuntime() *sessionRuntime {
+	s := &sessionRuntime{}
 	s.files.nextID, s.files.handles = 1, make(map[int64]*mooFileHandle)
 	s.sqlite.nextID, s.sqlite.handles = 1, make(map[int64]*sqliteHandle)
 	s.recycle.ids = make(map[types.ObjID]int)
@@ -79,12 +79,13 @@ func newRegistryRuntime() *registryRuntime {
 	return s
 }
 
-// Close deterministically releases every external resource owned by r. It is
-// idempotent; registries remain independent even when their handle IDs overlap.
-func (r *Registry) Close() error {
-	if r == nil || r.runtime == nil {
+// Close deterministically releases every external resource owned by s. It is
+// idempotent; sessions remain independent even when their handle IDs overlap.
+func (s *Session) Close() error {
+	if s == nil || s.runtime == nil {
 		return nil
 	}
+	r := s
 	var closeErrors []error
 	r.runtime.files.mu.Lock()
 	files := r.runtime.files.handles

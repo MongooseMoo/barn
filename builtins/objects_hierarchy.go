@@ -666,8 +666,8 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 	store := ctx.Store
-	registry := ctx.Registry
-	if registry == nil {
+	session := ctx.Session
+	if session == nil {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -718,7 +718,7 @@ func builtinRecreate(ctx *Execution, args []types.Value) types.Result {
 		return result
 	}
 
-	initResult := registry.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
+	initResult := session.CallVerb(obj.ID(), "initialize", []types.Value{}, ctx)
 	if initResult.Flow == types.FlowException && initResult.Error != types.E_VERBNF {
 		return initResult
 	}

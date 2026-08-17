@@ -37,7 +37,7 @@ func runIntrinsicEvalWithRuntimeSetup(t *testing.T, source string, setup func(*e
 	processor := NewInputProcessor(store, rt)
 	cm := NewConnectionManager(7777)
 	processor.SetConnectionManager(cm)
-	rt.Registry().SetConnectionManager(cm)
+	setTestConnectionManager(rt.Session(), cm)
 
 	transport := newRecordingTransport("client")
 	conn := cm.NewConnectionFromTransport(transport)

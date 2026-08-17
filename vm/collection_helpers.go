@@ -14,7 +14,7 @@ func isObjLike(v types.Value) bool {
 	return v.Type() == types.TYPE_OBJ || v.Type() == types.TYPE_ANON
 }
 
-func setAtIndex(registry *builtins.Registry, ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
+func setAtIndex(session *builtins.Session, ctx *kernel.TaskContext, coll types.Value, index types.Value, value types.Value) (types.Value, types.ErrorCode) {
 	switch coll.Type() {
 	case types.TYPE_LIST:
 		if index.Type() != types.TYPE_INT {
@@ -25,7 +25,7 @@ func setAtIndex(registry *builtins.Registry, ctx *kernel.TaskContext, coll types
 			return types.None, types.E_RANGE
 		}
 		result := coll.Set(i, value)
-		if err := registry.CheckListLimit(result); err != types.E_NONE {
+		if err := session.CheckListLimit(result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE
@@ -43,7 +43,7 @@ func setAtIndex(registry *builtins.Registry, ctx *kernel.TaskContext, coll types
 			return types.None, types.E_INVARG
 		}
 		newStr := s[:i-1] + value.Str() + s[i:]
-		if err := registry.CheckStringLimit(newStr); err != types.E_NONE {
+		if err := session.CheckStringLimit(newStr); err != types.E_NONE {
 			return types.None, err
 		}
 		return types.NewStr(newStr), types.E_NONE
@@ -53,7 +53,7 @@ func setAtIndex(registry *builtins.Registry, ctx *kernel.TaskContext, coll types
 			return types.None, types.E_TYPE
 		}
 		result := coll.MapSet(index, value)
-		if err := registry.CheckListLimitForTask(ctx, result); err != types.E_NONE {
+		if err := session.CheckListLimitForTask(ctx, result); err != types.E_NONE {
 			return types.None, err
 		}
 		return result, types.E_NONE

@@ -113,12 +113,12 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 	// returned to the caller and the VM dropped, and ReleaseVM itself declines to
 	// pool a still-yielded VM. Release happens after drainForks, which resumes on
 	// this same VM.
-	bcVM := vm.AcquireVM(s.store, s.registry)
+	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = parentCtx
 	bcVM.Task = parentTask
-	ticks, _ := foregroundTaskLimits(s.registry)
+	ticks, _ := foregroundTaskLimits(s.session)
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM, s.registry)
+	configureVMStackLimit(bcVM, s.session)
 
 	frame := bcVM.PrepareVerbFrame(prog, objID, player, caller, verbName, defObjID, args)
 	frame.IsVerbCall = true
@@ -303,12 +303,12 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	// reason as CallVerbInContext: this VM is never stored on the task, and the
 	// only post-execution uses (commit, effect flush, traceback) read the task and
 	// the context, never the VM.
-	bcVM := vm.AcquireVM(s.store, s.registry)
+	bcVM := vm.AcquireVM(s.store, s.session)
 	bcVM.Context = ctx
 	bcVM.Task = t
-	ticks, _ := foregroundTaskLimits(s.registry)
+	ticks, _ := foregroundTaskLimits(s.session)
 	bcVM.TickLimit = ticks
-	configureVMStackLimit(bcVM, s.registry)
+	configureVMStackLimit(bcVM, s.session)
 
 	// Build the initial verb frame explicitly so we can preserve ANON `this`.
 	// Toast sets caller = #-1 in server-initiated hook calls (do_command etc.);
@@ -335,10 +335,10 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	}
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 	}
 
 	// Extract call stack BEFORE popping frames

@@ -151,7 +151,7 @@ retryAttempt:
 	// the start time used for the deadline below) so ticks_left()/seconds_left()
 	// and the hard deadline reflect a fresh background slice.
 	if savedVM, ok := t.BytecodeVMValue().(*vm.VM); ok && savedVM.IsYielded() {
-		bgTicks, bgSeconds := backgroundTaskLimits(s.registry)
+		bgTicks, bgSeconds := backgroundTaskLimits(s.session)
 		t.ResetExecutionBudget(bgTicks, bgSeconds, time.Now())
 		savedVM.TickLimit = bgTicks
 		savedVM.Ticks = 0
@@ -237,11 +237,11 @@ retryAttempt:
 		}
 
 		// Create bytecode VM
-		bcVM = vm.NewVM(s.store, s.registry)
+		bcVM = vm.NewVM(s.store, s.session)
 		bcVM.Context = ctx
 		bcVM.Task = t
 		bcVM.TickLimit = t.TicksLimit
-		configureVMStackLimit(bcVM, s.registry)
+		configureVMStackLimit(bcVM, s.session)
 
 		if t.VerbName != "" {
 			// Command verbs derive args from raw words; server-initiated hooks can
@@ -307,7 +307,7 @@ retryAttempt:
 			// a recycle-of-P would surface a raw E_INVIND no serial ordering produces.
 			if (errCode == types.E_INVARG || errCode == types.E_INVIND) && ctx.StoreTxn.ValidationFailed() && !ctx.LiveStoreMutated && !ctx.IrreversibleSideEffect && retryState.canRetry && attempt < maxConflictRetryAttempts {
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 				s.store.NoteCommitRetry() // Phase A: count each actual conflict retry (observation-only)
 				if os.Getenv("BARN_DEBUG_RETRY") != "" {
 					slog.Warn("DEBUG-RETRY",
@@ -330,10 +330,10 @@ retryAttempt:
 	}
 	if committed {
 		t.CreatedForks = nil
-		builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
+		builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 	} else {
 		s.discardCreatedForks(t)
-		builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+		builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 	}
 	if committed && committedWrites {
 		ctx.StoreTxn.Release()
@@ -382,10 +382,10 @@ retryAttempt:
 			result = types.Err(errCode)
 			t.Result = result
 			s.discardCreatedForks(t)
-			builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+			builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 		} else {
 			t.CreatedForks = nil
-			builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
+			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
@@ -412,14 +412,14 @@ retryAttempt:
 				t.SetState(task.TaskKilled)
 				t.SetBytecodeVM(nil)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 				return nil
 			}
 			// The commit published this slice's forks; the runtime owns them now.
 			// Leaving them on the task would let a later conflict-retry discard forks
 			// that are already durable (yin() suspends mid-verb, so a retry can follow).
 			t.CreatedForks = nil
-			builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
+			builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 			ctx.StoreTxn.Release()
 			ctx.StoreTxn = s.store.BeginReadOnly(0)
 		}
@@ -566,9 +566,9 @@ retryAttempt:
 				t.Result = result
 				t.SetState(task.TaskKilled)
 				s.discardCreatedForks(t)
-				builtins.DiscardPendingEffects(s.registry.NewExecution(ctx, t))
+				builtins.DiscardPendingEffects(s.session.NewExecution(ctx, t))
 			} else {
-				builtins.FlushPendingEffects(s.registry.NewExecution(ctx, t))
+				builtins.FlushPendingEffects(s.session.NewExecution(ctx, t))
 			}
 		}
 
@@ -735,7 +735,7 @@ func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMat
 	}
 
 	taskID := s.newTaskID()
-	ticks, seconds := foregroundTaskLimits(s.registry)
+	ticks, seconds := foregroundTaskLimits(s.session)
 	t := task.NewTaskFull(taskID, player, program, ticks, seconds)
 	s.populateTaskContextDependencies(t.Context)
 	t.StartTime = time.Now()

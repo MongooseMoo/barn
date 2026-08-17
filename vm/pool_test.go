@@ -19,7 +19,7 @@ func dirtyVM(machine *VM) {
 	machine.Frames = append(machine.Frames, &StackFrame{Verb: "dirty"})
 	machine.FP = 3
 	machine.Store = dbstore.NewStore()
-	machine.Builtins = BuildVMRegistry()
+	machine.Builtins = newTestSession(BuildVMRegistry())
 	machine.Context = kernel.NewTaskContext()
 	machine.Task = task.NewTask(1, 0, 1, 1)
 	machine.TickLimit = 123
@@ -133,13 +133,14 @@ func TestResetScrubsBackingArrays(t *testing.T) {
 func TestAcquireVMReturnsCleanVM(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
+	session := newTestSession(registry)
 
-	machine := AcquireVM(store, registry)
+	machine := AcquireVM(store, session)
 	dirtyVM(machine)
 	machine.yielded = false // a yielded VM is deliberately not pooled
 	ReleaseVM(machine)
 
-	reused := AcquireVM(store, registry)
+	reused := AcquireVM(store, session)
 	if reused.SP != 0 || reused.FP != 0 || reused.Ticks != 0 {
 		t.Errorf("reused VM dirty: SP=%d FP=%d Ticks=%d", reused.SP, reused.FP, reused.Ticks)
 	}
@@ -153,7 +154,7 @@ func TestAcquireVMReturnsCleanVM(t *testing.T) {
 		t.Errorf("reused VM limits = %d/%d, want %d/%d",
 			reused.TickLimit, reused.MaxStackDepth, defaultTickLimit, defaultMaxStackDepth)
 	}
-	if reused.Store != store || reused.Builtins != registry {
+	if reused.Store != store || reused.Builtins != session {
 		t.Error("AcquireVM did not install the caller's store/registry")
 	}
 }
@@ -200,6 +201,7 @@ func TestReleaseVMDeclinesUnsafeVMs(t *testing.T) {
 func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 	store := dbstore.NewStore()
 	registry := BuildVMRegistry()
+	session := newTestSession(registry)
 
 	run := func(code string) types.Result {
 		ctx := kernel.NewTaskContext()
@@ -209,7 +211,7 @@ func TestPooledStackReuseDoesNotCorruptPriorResult(t *testing.T) {
 		if len(diagnostics) > 0 {
 			t.Fatalf("compile failed: %v", diagnostics)
 		}
-		machine := AcquireVM(store, registry)
+		machine := AcquireVM(store, session)
 		machine.Context = ctx
 		machine.Task = task.NewTask(1, types.ObjID(0), 30000, 1)
 		result := machine.Run(prog)
