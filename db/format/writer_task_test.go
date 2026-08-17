@@ -25,7 +25,7 @@ func TestWriteVMFrameDefinesCompositeOwnedWaifBeforeDirectAlias(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	writer := NewWriter(&buf, store.NewStore().Snapshot())
-	if err := writer.writeVMFrame(frame, task.ActivationFrame{}); err != nil {
+	if err := writer.writeVMFrame(frame, types.ActivationFrame{}); err != nil {
 		t.Fatalf("writeVMFrame: %v", err)
 	}
 	if err := writer.Flush(); err != nil {
@@ -56,7 +56,7 @@ func TestWriteQueuedTasksUsesTaskSnapshots(t *testing.T) {
 		VerbLoc:    6,
 		VerbName:   "tick",
 		This:       4,
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       4,
 			ThisValue:  types.None,
 			Player:     2,
@@ -143,7 +143,7 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 			types.NewList([]types.Value{types.NewStr("typed"), types.NewErr(types.E_RANGE)}),
 		}}),
 		TaskLocal: types.NewStr("task-local"),
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       7,
 			ThisValue:  types.NewObj(7),
 			Player:     2,
@@ -255,7 +255,7 @@ func TestInterruptedReadingTaskWriterReaderQueuesEIntrptContinuation(t *testing.
 		State:         task.TaskSuspended,
 		ReadingPlayer: -7,
 		TaskLocal:     types.NewStr("read-local"),
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       7,
 			ThisValue:  types.NewObj(7),
 			Player:     2,
@@ -334,7 +334,7 @@ func TestInterruptedExecTaskWriterReaderQueuesEIntrptContinuation(t *testing.T) 
 		IsExecSuspended: true,
 		ExecCommandName: "executables/sleep",
 		TaskLocal:       types.NewStr("exec-local"),
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       7,
 			ThisValue:  types.NewObj(7),
 			Player:     2,
@@ -426,7 +426,7 @@ func TestWriteQueuedTaskPreservesProgramVariableOrder(t *testing.T) {
 	queued.This = 4
 	queued.VerbLoc = 6
 	queued.VerbName = "tick"
-	queued.PushFrame(task.ActivationFrame{
+	queued.PushFrame(types.ActivationFrame{
 		This:       4,
 		ThisValue:  types.None,
 		Player:     2,
@@ -470,7 +470,7 @@ func TestWriteQueuedTaskPreservesAnonymousThisValue(t *testing.T) {
 	queued.This = 4
 	queued.VerbLoc = 6
 	queued.VerbName = "tick"
-	queued.PushFrame(task.ActivationFrame{
+	queued.PushFrame(types.ActivationFrame{
 		This:       4,
 		ThisValue:  types.NewAnon(44),
 		Player:     2,
@@ -509,7 +509,7 @@ func TestWriteQueuedTaskUsesForkProgramFirstLine(t *testing.T) {
 	queued.This = 4
 	queued.VerbLoc = 6
 	queued.VerbName = "tick"
-	queued.PushFrame(task.ActivationFrame{
+	queued.PushFrame(types.ActivationFrame{
 		This:       4,
 		ThisValue:  types.None,
 		Player:     2,

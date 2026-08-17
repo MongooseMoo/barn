@@ -19,7 +19,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	}
 
 	taskValue := task.NewTask(1, 2, 1000, 1)
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       anon,
 		ThisValue:  types.NewAnon(anon),
 		Programmer: 1,
@@ -27,7 +27,7 @@ func TestCallersRedactsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 		VerbLoc:    0,
 		Player:     2,
 	})
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       0,
 		ThisValue:  types.NewObj(0),
 		Programmer: 2,
@@ -69,7 +69,7 @@ func TestQueuedTasksOmitsAnonymousThisFromUnrelatedViewer(t *testing.T) {
 	const taskID = int64(91872)
 	taskValue := task.NewTask(taskID, 2, 1000, 1)
 	taskValue.VerbName = "delayed"
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:       anon,
 		ThisValue:  types.NewAnon(anon),
 		Programmer: 2,
@@ -108,7 +108,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 			"marker": types.NewStr("programmer-two"),
 		},
 	}
-	programmerTwoTask.PushFrame(task.ActivationFrame{
+	programmerTwoTask.PushFrame(types.ActivationFrame{
 		This:       0,
 		ThisValue:  types.NewObj(0),
 		Programmer: 2,
@@ -125,7 +125,7 @@ func TestQueuedTasksUsesToastVisibilityAndArgumentSemantics(t *testing.T) {
 			"marker": types.NewStr("programmer-three"),
 		},
 	}
-	programmerThreeTask.PushFrame(task.ActivationFrame{
+	programmerThreeTask.PushFrame(types.ActivationFrame{
 		This:       0,
 		ThisValue:  types.NewObj(0),
 		Programmer: 3,
@@ -250,7 +250,7 @@ func TestTaskStackThirdArgumentIncludesRuntimeVariables(t *testing.T) {
 		{types.NewStr("alpha"), types.NewInt(2)},
 	})
 	taskValue := task.NewTask(taskID, 2, 1000, 1)
-	taskValue.PushFrame(task.ActivationFrame{
+	taskValue.PushFrame(types.ActivationFrame{
 		This:             7,
 		ThisValue:        types.NewObj(7),
 		Programmer:       2,

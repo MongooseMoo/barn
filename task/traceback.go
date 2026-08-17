@@ -12,7 +12,7 @@ import (
 //	#<verb_loc>:<verb> (this == #<this>), line <N>:  <error message>
 //	... called from #<verb_loc>:<verb> (this == #<this>), line <N>
 //	(End of traceback)
-func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
+func FormatTraceback(stack []types.ActivationFrame, err types.ErrorCode) []string {
 	if len(stack) == 0 {
 		// No stack - just show error
 		return []string{
@@ -72,7 +72,7 @@ func FormatTraceback(stack []ActivationFrame, err types.ErrorCode) []string {
 }
 
 // FormatTracebackString returns the traceback as a single string with newlines
-func FormatTracebackString(stack []ActivationFrame, err types.ErrorCode) string {
+func FormatTracebackString(stack []types.ActivationFrame, err types.ErrorCode) string {
 	lines := FormatTraceback(stack, err)
 	return strings.Join(lines, "\n")
 }

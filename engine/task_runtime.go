@@ -224,7 +224,7 @@ retryAttempt:
 			ctx.Verb = t.VerbName
 
 			// Push initial activation frame for traceback support
-			t.PushFrame(task.ActivationFrame{
+			t.PushFrame(types.ActivationFrame{
 				This:       t.This,
 				ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
 				Player:     t.Owner,
@@ -456,8 +456,8 @@ retryAttempt:
 		// result): the live call stack has already unwound, so it would report the
 		// eval frame instead of the verb where the error occurred, and it carries
 		// no source lines. The log and the player see the same stack.
-		stack, ok := result.CallStack.([]task.ActivationFrame)
-		if !ok || len(stack) == 0 {
+		stack := result.CallStack
+		if len(stack) == 0 {
 			stack = t.GetCallStack()
 		}
 
@@ -588,7 +588,7 @@ retryAttempt:
 type taskRetryState struct {
 	canRetry     bool
 	context      *kernel.TaskContext
-	callStack    []task.ActivationFrame
+	callStack    []types.ActivationFrame
 	taskLocal    types.Value
 	wakeValue    types.Value
 	ticksLimit   int64
@@ -645,11 +645,11 @@ func cloneTaskContextForRetry(ctx *kernel.TaskContext) *kernel.TaskContext {
 	return &clone
 }
 
-func cloneActivationFramesForRetry(frames []task.ActivationFrame) []task.ActivationFrame {
+func cloneActivationFramesForRetry(frames []types.ActivationFrame) []types.ActivationFrame {
 	if len(frames) == 0 {
 		return nil
 	}
-	cloned := make([]task.ActivationFrame, len(frames))
+	cloned := make([]types.ActivationFrame, len(frames))
 	for i, frame := range frames {
 		cloned[i] = frame
 		cloned[i].Args = append([]types.Value(nil), frame.Args...)

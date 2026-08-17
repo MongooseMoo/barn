@@ -98,7 +98,7 @@ func TestUncaughtForkInvokesDatabaseErrorHandler(t *testing.T) {
 
 	s := NewRuntime(store)
 	fallbacks := 0
-	s.SetTracebackSender(func(types.ObjID, types.ErrorCode, []task.ActivationFrame) {
+	s.SetTracebackSender(func(types.ObjID, types.ErrorCode, []types.ActivationFrame) {
 		fallbacks++
 	})
 	if _, err := s.RunServerVerbTask(0, "forkboom", nil, 2); err != nil {
@@ -176,7 +176,7 @@ func TestTruthyTaskTimeoutHandlerSuppressesGenericExceptionFallback(t *testing.T
 	timeoutTask.Kind = task.TaskForked
 
 	fallbacks := 0
-	s.SetTracebackSender(func(types.ObjID, types.ErrorCode, []task.ActivationFrame) {
+	s.SetTracebackSender(func(types.ObjID, types.ErrorCode, []types.ActivationFrame) {
 		fallbacks++
 	})
 	if err := s.runTask(timeoutTask); err != nil {

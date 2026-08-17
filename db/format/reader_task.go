@@ -320,7 +320,7 @@ func (database *Database) readInterruptedTask(r *bufio.Reader) (*SuspendedTask, 
 		MaxStackDepth: maxStack,
 		Frames:        make([]task.VMFrameSnapshot, 0, top+1),
 	}
-	callStack := make([]task.ActivationFrame, 0, top+1)
+	callStack := make([]types.ActivationFrame, 0, top+1)
 	for i := 0; i <= top; i++ {
 		frame, activation, err := database.readVMFrame(r)
 		if err != nil {

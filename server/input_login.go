@@ -64,13 +64,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	result := s.runtime.CallVerbWithArgstr(handler, "do_login_command", args, connID, line)
 
 	if result.Flow == types.FlowException {
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		lines := task.FormatTraceback(stack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -102,13 +96,7 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 // login path, where the result arrives asynchronously after the task finishes.
 func (s *InputProcessor) interpretLoginResult(conn *Connection, result types.Result) types.ObjID {
 	if result.Flow == types.FlowException {
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		lines := task.FormatTraceback(stack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -148,13 +136,7 @@ func (s *InputProcessor) callDoBlankCommand(conn *Connection, line string) (bool
 			return false, nil
 		}
 
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		lines := task.FormatTraceback(stack, result.Error)
+		lines := task.FormatTraceback(result.CallStack, result.Error)
 		for _, line := range lines {
 			conn.Send(line)
 		}
@@ -183,13 +165,7 @@ func (s *InputProcessor) callDoCommand(handler types.ObjID, player types.ObjID, 
 		slog.Warn("do_command error",
 			slog.Int64("player", int64(player)),
 			slog.String("error", types.NewErr(result.Error).String()))
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, result.CallStack)
 		return true, nil
 	}
 
@@ -213,13 +189,7 @@ func (s *InputProcessor) callUserHook(handler types.ObjID, verbName string, play
 			slog.String("verb", verbName),
 			slog.Int64("player", int64(player)),
 			slog.String("error", types.NewErr(result.Error).String()))
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		s.runtime.SendTracebackToPlayer(player, result.Error, stack)
+		s.runtime.SendTracebackToPlayer(player, result.Error, result.CallStack)
 	}
 }
 

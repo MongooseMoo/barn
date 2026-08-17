@@ -13,7 +13,6 @@ import (
 	"github.com/MongooseMoo/barn/command"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/engine"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -340,13 +339,7 @@ func (p *InputProcessor) processOutOfBand(input command.InputEvent) {
 	}
 	result := p.runtime.CallVerbWithArgstr(conn.ListenerObject(), "do_out_of_band_command", args, input.Player, input.Line)
 	if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
-		var stack []task.ActivationFrame
-		if result.CallStack != nil {
-			if st, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = st
-			}
-		}
-		p.runtime.SendTracebackToPlayer(input.Player, result.Error, stack)
+		p.runtime.SendTracebackToPlayer(input.Player, result.Error, result.CallStack)
 	}
 }
 

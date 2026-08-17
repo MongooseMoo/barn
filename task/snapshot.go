@@ -23,7 +23,7 @@ type Snapshot struct {
 	StartTime           time.Time
 	WakeValue           types.Value
 	TaskLocal           types.Value
-	CallStack           []ActivationFrame
+	CallStack           []types.ActivationFrame
 	Fork                *ForkSnapshot
 	Programmer          types.ObjID
 	VerbLoc             types.ObjID
@@ -198,11 +198,11 @@ func (t *Task) PersistenceSnapshot() Snapshot {
 	return snapshot
 }
 
-func cloneActivationFrames(frames []ActivationFrame) []ActivationFrame {
+func cloneActivationFrames(frames []types.ActivationFrame) []types.ActivationFrame {
 	if len(frames) == 0 {
 		return nil
 	}
-	copied := make([]ActivationFrame, len(frames))
+	copied := make([]types.ActivationFrame, len(frames))
 	for i, frame := range frames {
 		copied[i] = frame
 		copied[i].Args = append([]types.Value(nil), frame.Args...)
