@@ -5,21 +5,21 @@ import "strings"
 // ActivationFrame represents a single verb call on the call stack.
 // This is what callers() returns.
 type ActivationFrame struct {
-	This             ObjID   // Object this verb is called on (prototype for primitives)
-	ThisValue        Value   // For primitive prototype calls: the actual primitive value
-	Player           ObjID   // Player who initiated this task
-	Programmer       ObjID   // Programmer (for permissions)
-	Caller           ObjID   // Object that called this verb
-	Verb             string  // Verb name as invoked (callers()/task_stack())
-	StoredVerb       string  // Verb's stored name spec incl. wildcards; used by printed tracebacks
+	This             ObjID    // Object this verb is called on (prototype for primitives)
+	ThisValue        Value    // For primitive prototype calls: the actual primitive value
+	Player           ObjID    // Player who initiated this task
+	Programmer       ObjID    // Programmer (for permissions)
+	Caller           ObjID    // Object that called this verb
+	Verb             string   // Verb name as invoked (callers()/task_stack())
+	StoredVerb       string   // Verb's stored name spec incl. wildcards; used by printed tracebacks
 	StoredVerbNames  []string // Lazy form used by live frames; immutable verb storage owns the backing array
-	VerbLoc          ObjID   // Object where verb is defined
-	Args             []Value // Arguments passed to verb
-	LineNumber       int     // Current line number in verb
-	RuntimeVariables Value   // Bound runtime variables in declaration order
-	SourceLine       string  // Source text at LineNumber (best-effort, for debugging/logging)
-	ServerInitiated  bool    // True if this is a server-invoked call (do_login_command, etc.)
-	IsEvalFrame      bool    // True if this is an eval() infrastructure frame (excluded from tracebacks)
+	VerbLoc          ObjID    // Object where verb is defined
+	Args             []Value  // Arguments passed to verb
+	LineNumber       int      // Current line number in verb
+	RuntimeVariables Value    // Bound runtime variables in declaration order
+	SourceLine       string   // Source text at LineNumber (best-effort, for debugging/logging)
+	ServerInitiated  bool     // True if this is a server-invoked call (do_login_command, etc.)
+	IsEvalFrame      bool     // True if this is an eval() infrastructure frame (excluded from tracebacks)
 }
 
 // TracebackVerb returns the stored verb name spec without requiring callers to
