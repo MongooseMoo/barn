@@ -59,7 +59,7 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 		MaxStackDepth: maxStack,
 		Frames:        make([]task.VMFrameSnapshot, 0, top+1),
 	}
-	callStack := make([]task.ActivationFrame, 0, top+1)
+	callStack := make([]types.ActivationFrame, 0, top+1)
 	for i := 0; i <= top; i++ {
 		frame, activation, err := database.readVMFrame(r)
 		if err != nil {
@@ -90,9 +90,9 @@ func (database *Database) readSuspendedTask(r *bufio.Reader) (*SuspendedTask, er
 	}}, nil
 }
 
-func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, task.ActivationFrame, error) {
+func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, types.ActivationFrame, error) {
 	var frame task.VMFrameSnapshot
-	var activation task.ActivationFrame
+	var activation types.ActivationFrame
 
 	version, err := readLine(r)
 	if err != nil {
@@ -244,7 +244,7 @@ func (database *Database) readVMFrame(r *bufio.Reader) (task.VMFrameSnapshot, ta
 	if line < 1 {
 		line = 1
 	}
-	activation = task.ActivationFrame{
+	activation = types.ActivationFrame{
 		This:             thisObj,
 		ThisValue:        thisValue,
 		Player:           player,

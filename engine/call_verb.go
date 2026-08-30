@@ -95,7 +95,7 @@ func (s *Runtime) CallVerbInContext(objID types.ObjID, verbName string, args []t
 
 	parentTask := parent.Task
 	if parentTask != nil {
-		parentTask.PushFrame(task.ActivationFrame{
+		parentTask.PushFrame(types.ActivationFrame{
 			This:       objID,
 			ThisValue:  frameThisValue,
 			Player:     player,
@@ -208,7 +208,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	t := &task.Task{
 		Owner:       player,
 		Programmer:  player, // Will be updated to verb owner if verb found
-		CallStack:   make([]task.ActivationFrame, 0),
+		CallStack:   make([]types.ActivationFrame, 0),
 		TaskLocal:   types.NewEmptyMap(), // Initialize task_local to empty map
 		ForkCreator: s,                   // Enable fork support in server hooks
 	}
@@ -286,7 +286,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	ownedCtx = ctx
 
 	// Push activation frame for traceback support
-	t.PushFrame(task.ActivationFrame{
+	t.PushFrame(types.ActivationFrame{
 		This:            objID,
 		ThisValue:       frameThisValue,
 		Player:          player,
@@ -345,9 +345,7 @@ func (s *Runtime) callVerbWithArgstr(objID types.ObjID, verbName string, args []
 	if result.Flow == types.FlowException {
 		stack := t.GetCallStack()
 		if result.CallStack != nil {
-			if captured, ok := result.CallStack.([]task.ActivationFrame); ok {
-				stack = captured
-			}
+			stack = result.CallStack
 		}
 		result.CallStack = stack
 		// Log traceback to server log

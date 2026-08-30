@@ -2,7 +2,6 @@ package vm
 
 import (
 	"github.com/MongooseMoo/barn/bytecode"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -63,17 +62,17 @@ func (vm *VM) matchingExceptAboveEvalFrame(errCode types.ErrorCode) bool {
 
 // snapshotActivationFrames captures the current VM call chain as activation
 // frames for traceback formatting.
-func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
+func (vm *VM) snapshotActivationFrames(topLine int) []types.ActivationFrame {
 	if len(vm.Frames) == 0 {
 		return nil
 	}
 
-	var taskStack []task.ActivationFrame
+	var taskStack []types.ActivationFrame
 	if vm.Task != nil {
 		taskStack = vm.Task.GetCallStack()
 	}
 
-	stack := make([]task.ActivationFrame, 0, len(vm.Frames))
+	stack := make([]types.ActivationFrame, 0, len(vm.Frames))
 	for i, frame := range vm.Frames {
 		line := 1
 		if i == len(vm.Frames)-1 {
@@ -95,7 +94,7 @@ func (vm *VM) snapshotActivationFrames(topLine int) []task.ActivationFrame {
 			serverInitiated = taskStack[i].ServerInitiated
 		}
 
-		stack = append(stack, task.ActivationFrame{
+		stack = append(stack, types.ActivationFrame{
 			This:            frame.This,
 			ThisValue:       frame.ThisValue,
 			Player:          frame.Player,

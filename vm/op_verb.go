@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -264,7 +263,7 @@ func (vm *VM) startVerbCall(objVal types.Value, verbName string, args []types.Va
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Task != nil {
-		actFrame := task.ActivationFrame{
+		actFrame := types.ActivationFrame{
 			This:       objID,
 			ThisValue:  thisValue, // Store waif/primitive/anonymous value for callers()/queued_tasks()
 			Player:     player,
@@ -480,7 +479,7 @@ func (vm *VM) executePass() error {
 
 	// Push activation frame onto task call stack (if we have a task)
 	if vm.Task != nil {
-		actFrame := task.ActivationFrame{
+		actFrame := types.ActivationFrame{
 			This:       frame.This,
 			ThisValue:  passThisValue,
 			Player:     frame.Player,

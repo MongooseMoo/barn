@@ -22,7 +22,7 @@ func TestQueuedTaskWriterReaderPreservesToastHeaderFields(t *testing.T) {
 		VerbLoc:    6,
 		VerbName:   "tick",
 		This:       4,
-		CallStack: []task.ActivationFrame{{
+		CallStack: []types.ActivationFrame{{
 			This:       4,
 			ThisValue:  types.NewObj(4),
 			Player:     2,

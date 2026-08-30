@@ -343,7 +343,7 @@ func (vm *VM) executeLoop() types.Result {
 			line := vm.CurrentLine()
 			// Snapshot activation stack before unwind so callers can inspect
 			// the full trace on uncaught exceptions.
-			var stackSnapshot interface{}
+			var stackSnapshot []types.ActivationFrame
 			vmStack := vm.snapshotActivationFrames(line)
 			if len(vmStack) > 0 {
 				stackSnapshot = vmStack

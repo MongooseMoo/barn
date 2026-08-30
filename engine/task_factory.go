@@ -270,7 +270,7 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	// Push initial activation frame for the fork body.
 	// This matches MOO: forked tasks include a frame for the verb
 	// context in which the fork statement appeared.
-	t.PushFrame(task.ActivationFrame{
+	t.PushFrame(types.ActivationFrame{
 		This:       forkInfo.ThisObj,
 		ThisValue:  forkInfo.ThisValue,
 		Player:     forkInfo.Player,

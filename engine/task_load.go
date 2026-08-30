@@ -148,7 +148,7 @@ func (s *Runtime) loadQueuedTask(saved *dbformat.QueuedTask) error {
 	}
 	t.SetBytecodeVM(machine)
 
-	t.PushFrame(task.ActivationFrame{
+	t.PushFrame(types.ActivationFrame{
 		This:       saved.This,
 		ThisValue:  types.None, // explicit None: zero Value{} is int 0 post-de-box; ToList would render this as 0
 		Player:     saved.Player,

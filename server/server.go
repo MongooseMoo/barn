@@ -116,7 +116,7 @@ func (s *Server) LoadDatabase() error {
 			_ = conn.Send(line)
 		}
 	})
-	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+	s.runtime.SetTracebackSender(func(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
 		lines := task.FormatTraceback(stack, err)
 		conn := s.connManager.GetConnection(player)
 		if conn == nil {

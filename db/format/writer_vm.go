@@ -35,11 +35,11 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 		return err
 	}
 	for i, frame := range machine.Frames {
-		var activation task.ActivationFrame
+		var activation types.ActivationFrame
 		if i < len(snapshot.CallStack) {
 			activation = snapshot.CallStack[i]
 		} else {
-			activation = task.ActivationFrame{
+			activation = types.ActivationFrame{
 				This:       frame.This,
 				ThisValue:  frame.ThisValue,
 				Player:     frame.Player,
@@ -57,7 +57,7 @@ func (w *Writer) writeSuspendedTask(snapshot task.Snapshot) error {
 	return nil
 }
 
-func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation task.ActivationFrame) error {
+func (w *Writer) writeVMFrame(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
 	if len(frame.Program.Source) == 0 {
 		return fmt.Errorf("activation has no source program")
 	}
@@ -186,7 +186,7 @@ func valueContainsWaifProperties(value, candidate types.Value, visited map[types
 	return false
 }
 
-func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation task.ActivationFrame) error {
+func (w *Writer) writeVMActivationAsPI(frame task.VMFrameSnapshot, activation types.ActivationFrame) error {
 	thisValue := frame.ThisValue
 	if thisValue.IsNone() {
 		thisValue = types.NewObj(frame.This)

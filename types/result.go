@@ -39,12 +39,12 @@ type ForkInfo struct {
 // Result represents the outcome of evaluating an expression or statement
 // This unifies normal values, control flow (return/break/continue), and errors
 type Result struct {
-	Val       Value       // The value (if Flow == FlowNormal or FlowReturn)
-	Flow      ControlFlow // Control flow state
-	Error     ErrorCode   // Only set when Flow == FlowException
-	Label     string      // Loop label for break/continue (empty = innermost loop)
-	ForkInfo  *ForkInfo   // Only set when Flow == FlowFork
-	CallStack interface{} // []task.ActivationFrame - only set on exception from synchronous verb calls
+	Val       Value             // The value (if Flow == FlowNormal or FlowReturn)
+	Flow      ControlFlow       // Control flow state
+	Error     ErrorCode         // Only set when Flow == FlowException
+	Label     string            // Loop label for break/continue (empty = innermost loop)
+	ForkInfo  *ForkInfo         // Only set when Flow == FlowFork
+	CallStack []ActivationFrame // Only set on exception from synchronous verb calls
 }
 
 // Ok creates a Result for normal execution with a value

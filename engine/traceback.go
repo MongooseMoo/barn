@@ -24,7 +24,7 @@ type tbFrame struct {
 
 // tbFrames converts a call stack into loggable frames, most recent first —
 // the same order, and the same verb naming, the rendered traceback uses.
-func tbFrames(stack []task.ActivationFrame) []tbFrame {
+func tbFrames(stack []types.ActivationFrame) []tbFrame {
 	frames := make([]tbFrame, 0, len(stack))
 	for i := len(stack) - 1; i >= 0; i-- {
 		frame := &stack[i]
@@ -55,7 +55,7 @@ func tbFrames(stack []task.ActivationFrame) []tbFrame {
 // tracebackAttrs describes an error and its call stack. A traceback is logged
 // as a single record — one event, one line — because separate lines per frame
 // interleave with other tasks' output and cannot be reassembled afterwards.
-func tracebackAttrs(err types.ErrorCode, stack []task.ActivationFrame) []any {
+func tracebackAttrs(err types.ErrorCode, stack []types.ActivationFrame) []any {
 	return []any{
 		slog.String("error", types.NewErr(err).String()),
 		slog.String("error_msg", err.Message()),
@@ -65,7 +65,7 @@ func tracebackAttrs(err types.ErrorCode, stack []task.ActivationFrame) []any {
 }
 
 // SendTracebackToPlayer sends a formatted traceback through the server-owned output hook.
-func (s *Runtime) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []task.ActivationFrame) {
+func (s *Runtime) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode, stack []types.ActivationFrame) {
 	if s.tracebackSender != nil {
 		s.tracebackSender(player, err, stack)
 		return
@@ -78,7 +78,7 @@ func (s *Runtime) SendTracebackToPlayer(player types.ObjID, err types.ErrorCode,
 // logTraceback logs a task's uncaught exception to the server log. The stack is
 // supplied by the caller so that the log records the same activation stack the
 // player is shown — the task's live stack has already unwound by this point.
-func (s *Runtime) logTraceback(t *task.Task, err types.ErrorCode, stack []task.ActivationFrame) {
+func (s *Runtime) logTraceback(t *task.Task, err types.ErrorCode, stack []types.ActivationFrame) {
 	metrics.UncaughtExceptions.Add(1)
 	attrs := append([]any{
 		slog.Int64("task_id", t.ID),
@@ -90,7 +90,7 @@ func (s *Runtime) logTraceback(t *task.Task, err types.ErrorCode, stack []task.A
 
 // logCallVerbTraceback logs an uncaught exception from a synchronous verb call.
 // E_VERBNF is not logged because it's the normal case for optional hook verbs
-func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, err types.ErrorCode, stack []task.ActivationFrame, player types.ObjID) {
+func (s *Runtime) logCallVerbTraceback(objID types.ObjID, verbName string, err types.ErrorCode, stack []types.ActivationFrame, player types.ObjID) {
 	if err == types.E_VERBNF {
 		return // Verb not found is expected for optional hooks
 	}

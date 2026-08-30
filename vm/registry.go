@@ -6,7 +6,6 @@ import (
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
 	dbstore "github.com/MongooseMoo/barn/db/store"
-	"github.com/MongooseMoo/barn/task"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -126,7 +125,7 @@ func (vm *VM) pushEval(prog *bytecode.Program) types.Result {
 	ctx.Verb = ""
 
 	if vm.Task != nil {
-		vm.Task.PushFrame(task.ActivationFrame{
+		vm.Task.PushFrame(types.ActivationFrame{
 			This:        types.ObjNothing,
 			ThisValue:   types.None,
 			Player:      ctx.Player,
