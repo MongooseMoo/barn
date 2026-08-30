@@ -189,6 +189,14 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 				SavedVerb:       "outer",
 				SavedProgrammer: 4,
 				SavedIsWizard:   true,
+				MoveContinuation: &task.MoveContinuationSnapshot{
+					Stage:         2,
+					What:          types.NewObj(12),
+					Where:         types.NewObj(11),
+					OldLocation:   types.NewObj(10),
+					Position:      3,
+					Decentralized: true,
+				},
 			}},
 		},
 	}})
@@ -229,6 +237,12 @@ func TestSuspendedVMWriterReaderPreservesReadyContinuation(t *testing.T) {
 	}
 	if frame.SavedVerb != "outer" || frame.SavedProgrammer != 4 || !frame.SavedIsWizard {
 		t.Fatalf("saved context = %#v", frame)
+	}
+	if frame.MoveContinuation == nil || frame.MoveContinuation.Stage != 2 ||
+		frame.MoveContinuation.What.ID() != 12 || frame.MoveContinuation.Where.ID() != 11 ||
+		frame.MoveContinuation.OldLocation.ID() != 10 || frame.MoveContinuation.Position != 3 ||
+		!frame.MoveContinuation.Decentralized {
+		t.Fatalf("move continuation = %#v", frame.MoveContinuation)
 	}
 }
 

@@ -79,13 +79,14 @@ type StackFrame struct {
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
-	IsVerbCall      bool        // True if this frame was pushed by executeCallVerb
-	IsEvalFrame     bool        // True if this frame was pushed by eval() builtin
-	SavedThisObj    types.ObjID // ctx.ThisObj before verb call
-	SavedThisValue  types.Value // ctx.ThisValue before verb call
-	SavedVerb       string      // ctx.Verb before verb call
-	SavedProgrammer types.ObjID // ctx.Programmer before verb call
-	SavedIsWizard   bool        // ctx.IsWizard before verb call
+	IsVerbCall       bool                           // True if this frame was pushed by executeCallVerb
+	IsEvalFrame      bool                           // True if this frame was pushed by eval() builtin
+	SavedThisObj     types.ObjID                    // ctx.ThisObj before verb call
+	SavedThisValue   types.Value                    // ctx.ThisValue before verb call
+	SavedVerb        string                         // ctx.Verb before verb call
+	SavedProgrammer  types.ObjID                    // ctx.Programmer before verb call
+	SavedIsWizard    bool                           // ctx.IsWizard before verb call
+	MoveContinuation *task.MoveContinuationSnapshot // move() lifecycle state owned by this verb frame
 }
 
 // NewVM creates a new virtual machine
@@ -457,8 +458,7 @@ func (vm *VM) Step() error {
 
 	if frame.IP >= len(frame.Program.Code) {
 		// End of program - implicit return 0
-		vm.Return(types.NewInt(0))
-		return nil
+		return vm.Return(types.NewInt(0))
 	}
 
 	op := bytecode.OpCode(frame.Program.Code[frame.IP])
@@ -600,7 +600,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 
 	case bytecode.OP_RETURN:
 		val := vm.Pop()
-		vm.Return(val)
+		return vm.Return(val)
 
 	case bytecode.OP_LOOP, bytecode.OP_LOOP_WIDE:
 		offset := vm.readControlFlowOperand(op == bytecode.OP_LOOP_WIDE)
@@ -692,7 +692,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		frame.Locals[indexIdx] = pair.Get(2)
 
 	case bytecode.OP_RETURN_NONE:
-		vm.Return(types.NewInt(0))
+		return vm.Return(types.NewInt(0))
 
 	// Collection operations
 	case bytecode.OP_INDEX:

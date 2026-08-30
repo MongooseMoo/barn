@@ -41,6 +41,7 @@ func (vm *VM) executeCallBuiltin() error {
 	// Supply runtime services explicitly for this builtin invocation.
 	execution := vm.Builtins.NewExecution(vm.Context, vm.Task)
 	execution.PushEval = vm.pushEval
+	execution.PushMoveLifecycle = vm.startMoveLifecycle
 	execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
 		CollectAnonymousRefsFromVM(vm, out)
 	}
@@ -65,6 +66,9 @@ func (vm *VM) executeCallBuiltin() error {
 	// Handle FlowEvalPush: eval() pushed a frame on this VM.
 	// The new frame is already on vm.Frames — just continue execution.
 	if result.Flow == types.FlowEvalPush {
+		return nil
+	}
+	if result.Flow == types.FlowBuiltinPush {
 		return nil
 	}
 

@@ -1,6 +1,8 @@
 package vm
 
 import (
+	"fmt"
+
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -88,9 +90,9 @@ func (vm *VM) readControlFlowOperand(wide bool) int {
 }
 
 // Return returns from the current frame
-func (vm *VM) Return(value types.Value) {
+func (vm *VM) Return(value types.Value) error {
 	if len(vm.Frames) == 0 {
-		return
+		return nil
 	}
 
 	frame := vm.Frames[len(vm.Frames)-1]
@@ -117,7 +119,7 @@ func (vm *VM) Return(value types.Value) {
 		vm.SP = frame.BasePointer
 		vm.popFrame()
 		vm.Push(wrapped)
-		return
+		return nil
 	}
 
 	// If this was a verb-call frame, restore context and pop activation frame
@@ -135,9 +137,25 @@ func (vm *VM) Return(value types.Value) {
 		}
 	}
 
+	continuation := frame.MoveContinuation
 	vm.SP = frame.BasePointer
 	vm.popFrame()
+	if continuation != nil {
+		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
+		switch result.Flow {
+		case types.FlowException:
+			return VMException{Code: result.Error, Value: result.Val}
+		case types.FlowBuiltinPush:
+			return nil
+		case types.FlowNormal, types.FlowReturn:
+			vm.Push(result.Val)
+			return nil
+		default:
+			return fmt.Errorf("unexpected move continuation flow %d", result.Flow)
+		}
+	}
 	if !frame.DiscardReturn {
 		vm.Push(value)
 	}
+	return nil
 }

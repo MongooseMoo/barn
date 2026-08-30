@@ -33,6 +33,9 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 			Args:           []types.Value{anon(208)},
 			PendingError:   VMErrorSnapshot{Present: true, Value: anon(209)},
 			SavedThisValue: anon(210),
+			MoveContinuation: &MoveContinuationSnapshot{
+				What: anon(211), Where: anon(212), OldLocation: anon(213),
+			},
 		}}},
 	}
 	interrupted := Snapshot{
@@ -56,7 +59,7 @@ func TestTransformPersistenceValuesMatchesQueuedAndSuspendedWriterSurfaces(t *te
 	suspended.TransformPersistenceValues(transform)
 	interrupted.TransformPersistenceValues(transform)
 
-	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 301, 302} {
+	for _, id := range []types.ObjID{101, 102, 103, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 301, 302} {
 		if got := visited[id]; got != 1 {
 			t.Errorf("serialized value #%d visited %d times, want once", id, got)
 		}

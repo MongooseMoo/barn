@@ -255,6 +255,21 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		frame.SavedThisValue,
 		types.NewStr(frame.SavedVerb),
 		types.NewObj(frame.SavedProgrammer),
+		moveContinuationValue(frame.MoveContinuation),
+	})
+}
+
+func moveContinuationValue(state *task.MoveContinuationSnapshot) types.Value {
+	if state == nil {
+		return types.NewList(nil)
+	}
+	return types.NewList([]types.Value{
+		types.NewInt(int64(state.Stage)),
+		state.What,
+		state.Where,
+		state.OldLocation,
+		types.NewInt(state.Position),
+		types.NewBool(state.Decentralized),
 	})
 }
 

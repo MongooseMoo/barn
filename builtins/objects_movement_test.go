@@ -141,6 +141,47 @@ func TestMoveSkipsOriginalEnterfuncWhenExitfuncRelocatesObject(t *testing.T) {
 	}
 }
 
+func TestMoveUsesLocationAfterAcceptMutatesContainment(t *testing.T) {
+	ctx, store := newMoveTestContext(t)
+	source := createMoveTestObject(t, store)
+	destination := createMoveTestObject(t, store)
+	alternate := createMoveTestObject(t, store)
+	what := createMoveTestObject(t, store)
+	if errCode := store.DirectTxn().MoveObject(what, source, 0); errCode != types.E_NONE {
+		t.Fatalf("initial MoveObject returned %s", errCode)
+	}
+
+	type callback struct {
+		object types.ObjID
+		verb   string
+	}
+	var callbacks []callback
+	configureTestHost(ctx.Session, func(host *Host) {
+		host.VerbCaller = func(objID types.ObjID, verbName string, _ []types.Value, callCtx *Execution) types.Result {
+			callbacks = append(callbacks, callback{objID, verbName})
+			if verbName == "accept" {
+				if errCode := readTxn(callCtx).MoveObject(what, alternate, 0); errCode != types.E_NONE {
+					t.Fatalf("accept relocation returned %s", errCode)
+				}
+				return types.Ok(types.NewInt(1))
+			}
+			return types.Ok(types.NewInt(0))
+		}
+	})
+
+	if result := builtinMove(ctx, []types.Value{types.NewObj(what), types.NewObj(destination)}); result.IsError() {
+		t.Fatalf("move returned %s", result.Error)
+	}
+	want := []callback{
+		{destination, "accept"},
+		{alternate, "exitfunc"},
+		{destination, "enterfunc"},
+	}
+	if !reflect.DeepEqual(callbacks, want) {
+		t.Fatalf("callbacks = %#v, want %#v", callbacks, want)
+	}
+}
+
 func requireMoveError(t *testing.T, result types.Result, want types.ErrorCode) {
 	t.Helper()
 

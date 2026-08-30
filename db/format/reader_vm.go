@@ -350,5 +350,18 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 	frame.SavedThisValue = value.Get(13)
 	frame.SavedVerb = value.Get(14).Str()
 	frame.SavedProgrammer = value.Get(15).Obj()
+	if value.Len() >= 16 {
+		moveState := value.Get(16)
+		if moveState.Type() == types.TYPE_LIST && moveState.Len() >= 6 {
+			frame.MoveContinuation = &task.MoveContinuationSnapshot{
+				Stage:         int(moveState.Get(1).Int()),
+				What:          moveState.Get(2),
+				Where:         moveState.Get(3),
+				OldLocation:   moveState.Get(4),
+				Position:      moveState.Get(5).Int(),
+				Decentralized: moveState.Get(6).Truthy(),
+			}
+		}
+	}
 	return frame, nil
 }

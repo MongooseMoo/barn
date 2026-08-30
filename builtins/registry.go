@@ -20,6 +20,7 @@ type Execution struct {
 	Registry             *Registry
 	Session              *Session
 	PushEval             func(*bytecode.Program) types.Result
+	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
 	PendingFinalizations func() []types.Value
 }
