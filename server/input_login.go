@@ -28,7 +28,7 @@ func (s *InputProcessor) shouldCallDoLoginCommand(conn *Connection, line string)
 	}
 
 	// Otherwise always call do_login_command — including for the empty line the
-	// connection manager enqueues on connect, matching ToastStunt's
+	// connection manager enqueues on connect, matching MOO's
 	// new_input_task(h->tasks, "", 0, 0). A listener whose do_login_command
 	// returns a player without consuming input thus logs in at connect time.
 	return true
@@ -43,12 +43,12 @@ func (s *InputProcessor) callDoLoginCommand(conn *Connection, line string) (type
 	}
 
 	if !s.store.HasLocalVerb(handler, "do_login_command") {
-		// Match ToastStunt: when #0:do_login_command (the listener handler) does
+		// Preserve the MOO login contract: when #0:do_login_command (the listener handler) does
 		// not exist, do_login_task initializes result to TYPE_INT 0 and the verb
-		// call leaves it unchanged (toaststunt/src/tasks.cc:884). The login
+		// call leaves it unchanged (verified against toaststunt/src/tasks.cc:884). The login
 		// predicate then fails because result is not a user object
 		// (tasks.cc:921 `result.type == TYPE_OBJ && is_user(result.v.obj)`), so
-		// the connection is NOT logged in — no player is assigned and Toast does
+		// the connection is NOT logged in — no player is assigned and MOO does
 		// NOT substitute a default wizard. Return a negative ObjID (login refused).
 		return types.ObjID(-1), nil
 	}
@@ -253,7 +253,16 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 	var existingConn *Connection
 	if ec, exists := cm.playerConns[player]; exists {
 		if ec == conn {
-			alreadyLoggedIn = true
+			// switch_player() may already have installed this connection and
+			// archived the connection it replaced. Preserve that replacement as
+			// a reconnect instead of mistaking it for an ordinary first login.
+			history := cm.playerConnHistory[player]
+			if len(history) > 0 {
+				existingConn = history[len(history)-1]
+				reconnection = true
+			} else {
+				alreadyLoggedIn = true
+			}
 		} else {
 			existingConn = ec
 			reconnection = true
@@ -291,29 +300,41 @@ func (s *InputProcessor) loginPlayer(conn *Connection, player types.ObjID, newly
 		}
 		if newlyCreated {
 			s.callUserHook(conn.ListenerObject(), "user_created", player)
+		} else {
+			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
-		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		return
 	}
 
 	if reconnection {
 		existingConn.Send("*** Redirecting connection to new port ***")
-		s.callUserHook(existingConn.ListenerObject(), "user_client_disconnected", player)
-		cm.mu.Lock()
-		cm.playerConns[player] = conn
-		cm.mu.Unlock()
-		if conn.ListenerObject() == 0 || conn.PrintMessages() {
-			_ = conn.Send(s.connectMessage())
+		if existingConn.ListenerObject() == conn.ListenerObject() {
+			cm.mu.Lock()
+			cm.playerConns[player] = conn
+			cm.mu.Unlock()
+			if conn.ListenerObject() == 0 || conn.PrintMessages() {
+				_ = conn.Send(s.connectMessage())
+			}
+			s.callUserHook(conn.ListenerObject(), "user_reconnected", player)
+		} else {
+			s.callUserHook(existingConn.ListenerObject(), "user_client_disconnected", player)
+			cm.mu.Lock()
+			cm.playerConns[player] = conn
+			cm.mu.Unlock()
+			if conn.ListenerObject() == 0 || conn.PrintMessages() {
+				_ = conn.Send(s.connectMessage())
+			}
+			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
-		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	} else {
 		if conn.ListenerObject() == 0 || conn.PrintMessages() {
 			_ = conn.Send(s.connectMessage())
 		}
 		if newlyCreated {
 			s.callUserHook(conn.ListenerObject(), "user_created", player)
+		} else {
+			s.callUserHook(conn.ListenerObject(), "user_connected", player)
 		}
-		s.callUserHook(conn.ListenerObject(), "user_connected", player)
 	}
 
 	slog.Info("logged in", slog.Int64("conn_id", conn.ID), slog.Int64("player", int64(player)))

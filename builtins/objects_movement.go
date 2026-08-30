@@ -47,6 +47,10 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	tx := readTxn(ctx)
+	oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
+	if oldLocationErr != types.E_NONE {
+		return types.Err(oldLocationErr)
+	}
 
 	// Decentralize the move ONLY when the task has not already mutated the live store
 	// directly (via a coarse builtin like create/recycle/renumber earlier in the same
@@ -69,7 +73,9 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_RECMOVE)
 	}
 
-	if whereVal.ID() != types.ObjNothing {
+	// MOO treats a move within the current location as a no-op/reorder: it
+	// neither asks the container to accept the object nor runs lifecycle hooks.
+	if whereVal.ID() != types.ObjNothing && whereVal.ID() != oldLocation {
 		result := session.CallVerb(whereVal.ID(), "accept", []types.Value{whatVal}, ctx)
 		if result.Flow == types.FlowException {
 			if result.Error != types.E_VERBNF {
@@ -78,6 +84,9 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		} else if !result.Val.Truthy() && !ctx.IsWizard {
 			return types.Err(types.E_NACC)
 		}
+	}
+	if whereVal.ID() == oldLocation && position == 0 {
+		return types.Ok(types.NewInt(0))
 	}
 
 	if decentralized {
@@ -90,7 +99,6 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		// Coarse path: mutate the live store, flag the task live-mutated (so commit
 		// uses the coarse path and does not retry), and adopt the changed relationship
 		// facets into the transaction's cache.
-		oldLocation, oldLocationErr := locationForRead(ctx, whatVal.ID())
 		if errCode := store.DirectTxn().MoveObject(whatVal.ID(), whereVal.ID(), position); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
@@ -104,8 +112,31 @@ func builtinMove(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	// TODO: Call exitfunc and enterfunc verbs (Phase 9) — unimplemented in Toast-Barn
-	// parity terms; no conformance coverage exists for them.
+	if oldLocation == whereVal.ID() {
+		return types.Ok(types.NewInt(0))
+	}
+
+	// The object has already moved when these callbacks run. Missing hooks are
+	// ignored; any other exception aborts the move task, as required by MOO semantics.
+	if oldLocation != types.ObjNothing && validForRead(ctx, oldLocation) {
+		result := session.CallVerb(oldLocation, "exitfunc", []types.Value{whatVal}, ctx)
+		if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+			return result
+		}
+	}
+
+	// exitfunc is allowed to move or recycle the object. Only call the original
+	// destination's enterfunc if both objects remain valid and containment still
+	// points at that destination.
+	if whereVal.ID() != types.ObjNothing && validForRead(ctx, whatVal.ID()) && validForRead(ctx, whereVal.ID()) {
+		currentLocation, errCode := locationForRead(ctx, whatVal.ID())
+		if errCode == types.E_NONE && currentLocation == whereVal.ID() {
+			result := session.CallVerb(whereVal.ID(), "enterfunc", []types.Value{whatVal}, ctx)
+			if result.Flow == types.FlowException && result.Error != types.E_VERBNF {
+				return result
+			}
+		}
+	}
 
 	return types.Ok(types.NewInt(0))
 }
