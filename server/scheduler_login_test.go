@@ -58,7 +58,7 @@ func TestDoLoginCommandDispatchesOnListenerWithArgstr(t *testing.T) {
 	}
 }
 
-func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
+func TestLoginPlayerRunsOnlyListenerCreatedHookForNewPlayer(t *testing.T) {
 	store := dbstore.NewStore()
 	system := addTestObject(t, store, 0, dbstore.FlagWizard)
 	store.DirectTxn().DefineProperty(system, "created", dbstore.NewProperty(types.NewObj(types.ObjNothing), 2, dbstore.PropRead|dbstore.PropWrite, false, true))
@@ -83,9 +83,61 @@ func TestLoginPlayerRunsListenerCreatedAndConnectedHooks(t *testing.T) {
 		t.Fatalf("created hook value = %v, want #2", createdVal)
 	}
 	connectedVal, _ := store.DirectTxn().PropertyValue(system, "connected")
-	if (connectedVal.Type() != types.TYPE_OBJ && connectedVal.Type() != types.TYPE_ANON) || connectedVal.Obj() != 2 {
-		t.Fatalf("connected hook value = %v, want #2", connectedVal)
+	if (connectedVal.Type() != types.TYPE_OBJ && connectedVal.Type() != types.TYPE_ANON) || connectedVal.Obj() != types.ObjNothing {
+		t.Fatalf("connected hook value = %v, want unchanged #-1", connectedVal)
 	}
+}
+
+func testSameListenerReconnectRunsUserReconnected(t *testing.T, switchBeforeLogin bool) {
+	t.Helper()
+	store := dbstore.NewStore()
+	system := addTestObject(t, store, 0, dbstore.FlagWizard)
+	player := addTestObject(t, store, 2, dbstore.FlagUser|dbstore.FlagWizard)
+	listener := addTestObject(t, store, 10, dbstore.FlagWizard)
+	if errCode := store.DirectTxn().DefineProperty(system, "hook_order", dbstore.NewProperty(types.NewList(nil), 2,
+		dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define hook_order: %v", errCode)
+	}
+	addTestVerb(store, listener, "user_connected", `#0.hook_order = {@#0.hook_order, "connected"};`)
+	addTestVerb(store, listener, "user_reconnected", `#0.hook_order = {@#0.hook_order, "reconnected"};`)
+	addTestVerb(store, listener, "user_client_disconnected", `#0.hook_order = {@#0.hook_order, "client_disconnected"};`)
+
+	rt := engine.NewRuntime(store)
+	processor := NewInputProcessor(store, rt)
+	cm := NewConnectionManager(7777)
+	processor.SetConnectionManager(cm)
+
+	first := cm.NewConnectionFromTransport(stubTransport{})
+	first.SetListener(listener, 7789, false)
+	processor.loginPlayer(first, player, false)
+	second := cm.NewConnectionFromTransport(stubTransport{})
+	second.SetListener(listener, 7789, false)
+	if switchBeforeLogin {
+		if err := cm.SwitchPlayer(types.ObjID(-second.ID), player); err != nil {
+			t.Fatalf("SwitchPlayer: %v", err)
+		}
+	}
+	processor.loginPlayer(second, player, false)
+
+	got, errCode := store.DirectTxn().PropertyValue(system, "hook_order")
+	if errCode != types.E_NONE {
+		t.Fatalf("read hook_order: %v", errCode)
+	}
+	want := types.NewList([]types.Value{types.NewStr("connected"), types.NewStr("reconnected")})
+	if !got.Equal(want) {
+		t.Fatalf("hook order = %s, want %s", got.String(), want.String())
+	}
+	if active := cm.GetConnection(player); active != second {
+		t.Fatalf("active connection = %v, want replacement %v", active, second)
+	}
+}
+
+func TestSameListenerReconnectRunsUserReconnected(t *testing.T) {
+	testSameListenerReconnectRunsUserReconnected(t, false)
+}
+
+func TestSameListenerReconnectAfterSwitchPlayerRunsUserReconnected(t *testing.T) {
+	testSameListenerReconnectRunsUserReconnected(t, true)
 }
 
 func TestUserConnectedUsesServerInitiatedCallerFrame(t *testing.T) {

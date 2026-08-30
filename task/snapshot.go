@@ -42,31 +42,43 @@ type VMSnapshot struct {
 	Frames        []VMFrameSnapshot
 }
 
+// MoveContinuationSnapshot is the persistent native state retained while a
+// lifecycle verb called by move() is suspended on the owning VM.
+type MoveContinuationSnapshot struct {
+	Stage         int
+	What          types.Value
+	Where         types.Value
+	OldLocation   types.Value
+	Position      int64
+	Decentralized bool
+}
+
 // VMFrameSnapshot is one activation and its operand-stack segment.
 type VMFrameSnapshot struct {
-	Program         bytecode.Program
-	IP              int
-	Locals          []types.Value
-	Stack           []types.Value
-	This            types.ObjID
-	ThisValue       types.Value
-	Player          types.ObjID
-	Verb            string
-	StoredVerb      string
-	Caller          types.ObjID
-	VerbLoc         types.ObjID
-	Args            []types.Value
-	ExceptStack     []bytecode.Handler
-	PendingError    VMErrorSnapshot
-	VerbDebug       bool
-	DiscardReturn   bool
-	IsVerbCall      bool
-	IsEvalFrame     bool
-	SavedThisObj    types.ObjID
-	SavedThisValue  types.Value
-	SavedVerb       string
-	SavedProgrammer types.ObjID
-	SavedIsWizard   bool
+	Program          bytecode.Program
+	IP               int
+	Locals           []types.Value
+	Stack            []types.Value
+	This             types.ObjID
+	ThisValue        types.Value
+	Player           types.ObjID
+	Verb             string
+	StoredVerb       string
+	Caller           types.ObjID
+	VerbLoc          types.ObjID
+	Args             []types.Value
+	ExceptStack      []bytecode.Handler
+	PendingError     VMErrorSnapshot
+	VerbDebug        bool
+	DiscardReturn    bool
+	IsVerbCall       bool
+	IsEvalFrame      bool
+	SavedThisObj     types.ObjID
+	SavedThisValue   types.Value
+	SavedVerb        string
+	SavedProgrammer  types.ObjID
+	SavedIsWizard    bool
+	MoveContinuation *MoveContinuationSnapshot
 }
 
 // VMErrorSnapshot is an error held while a finally block is executing.
@@ -124,6 +136,11 @@ func (s *Snapshot) TransformPersistenceValues(transform func(types.Value) types.
 		}
 		frame.PendingError.Value = transform(frame.PendingError.Value)
 		frame.SavedThisValue = transform(frame.SavedThisValue)
+		if frame.MoveContinuation != nil {
+			frame.MoveContinuation.What = transform(frame.MoveContinuation.What)
+			frame.MoveContinuation.Where = transform(frame.MoveContinuation.Where)
+			frame.MoveContinuation.OldLocation = transform(frame.MoveContinuation.OldLocation)
+		}
 	}
 }
 

@@ -139,7 +139,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	t.VerbName = verbName
 	t.VerbLoc = defObjID
 	t.This = objID
-	t.Caller = player
+	t.Caller = types.ObjNothing
 	t.Argstr = argstr
 	t.VerbArgsValues = append([]types.Value(nil), args...)
 	t.ForkCreator = s
@@ -151,7 +151,7 @@ func (s *Runtime) CreateLoginHookTask(objID types.ObjID, verbName string, args [
 	// (OnComplete fires) or suspends on read() (VM saved; it stays registered
 	// and resumes when the next input line is delivered). Running synchronously
 	// here — rather than queuing for the ticker — ensures the login state is
-	// settled before the I/O loop reads the next line, matching ToastStunt's
+	// settled before the I/O loop reads the next line, matching MOO's
 	// run-to-suspend-or-completion login semantics.
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
@@ -268,7 +268,7 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 	}
 
 	// Push initial activation frame for the fork body.
-	// This matches Toast: forked tasks include a frame for the verb
+	// This matches MOO: forked tasks include a frame for the verb
 	// context in which the fork statement appeared.
 	t.PushFrame(task.ActivationFrame{
 		This:       forkInfo.ThisObj,
