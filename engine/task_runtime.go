@@ -393,6 +393,11 @@ retryAttempt:
 
 	// Handle suspend
 	if result.Flow == types.FlowSuspend {
+		// A suspend is a waif liveness boundary as well as an anonymous-object
+		// boundary. Values overwritten before the yield are no longer live in the
+		// saved VM, so queue them now; the flush-time scan of the registered VM
+		// protects any waifs that remain reachable when execution resumes.
+		s.deferPendingWaifs(ctx, bcVM.TakePendingWaifs(), nil)
 		// Match Toast lifecycle semantics more closely: a scheduler yield/suspend
 		// is a GC boundary for newly-created orphan anonymous objects. The sweep is
 		// deferred to the next quiescent flush; the suspended task's VM is registered

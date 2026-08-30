@@ -118,6 +118,9 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 	}
 
 	target := ctx.Player
+	if len(args) == 0 {
+		return types.Ok(types.NewInt(65536))
+	}
 	if len(args) == 1 {
 		if !isObjectRef(args[0]) {
 			return types.Err(types.E_TYPE)
@@ -144,10 +147,6 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 				length++
 			}
 		}
-	}
-	// Conformance transport keeps at least one frame/prompt token queued.
-	if len(args) == 0 && length < 1 {
-		length = 1
 	}
 	return types.Ok(types.NewInt(int64(length)))
 }

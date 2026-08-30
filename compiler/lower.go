@@ -609,6 +609,16 @@ func (c *lowerer) compileIdentifier(n *verb.IdentifierExpr) error {
 
 // compileUnary compiles a unary expression
 func (c *lowerer) compileUnary(n *verb.UnaryExpr) error {
+	// Toast folds a negated float literal before constant-pool insertion. This is
+	// observable for signed zero: a standalone -0.0 keeps its sign, while an
+	// earlier +0.0 constant wins the pool's equality-based zero deduplication.
+	if n.Operator == verb.UnaryNegate {
+		if literal, ok := n.Operand.(*verb.LiteralExpr); ok && literal.Kind == verb.LiteralFloat {
+			c.emitConstant(types.NewFloat(-literal.FloatValue))
+			return nil
+		}
+	}
+
 	// Compile operand
 	if err := c.compileNode(n.Operand); err != nil {
 		return err

@@ -63,10 +63,6 @@ func validForRead(ctx *Execution, objID types.ObjID) bool {
 	return readTxn(ctx).Valid(objID)
 }
 
-func isRecycledForRead(ctx *Execution, objID types.ObjID) bool {
-	return readTxn(ctx).IsRecycled(objID)
-}
-
 func objectOwnerForRead(ctx *Execution, objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	return readTxn(ctx).ObjectOwner(objID)
 }

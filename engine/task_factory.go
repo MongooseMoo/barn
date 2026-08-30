@@ -238,6 +238,9 @@ func (s *Runtime) CreateForkedTask(parent *task.Task, forkInfo *types.ForkInfo) 
 		for varName, varVal := range forkInfo.Variables {
 			vm.SetLocalByName(frame, forkProg, varName, varVal)
 		}
+		if forkInfo.VarName != "" {
+			vm.SetLocalByName(frame, forkProg, forkInfo.VarName, types.NewInt(taskID))
+		}
 
 		t.SetBytecodeVM(childVM)
 	} else {

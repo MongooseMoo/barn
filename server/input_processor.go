@@ -271,6 +271,7 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 		p.processLoginTimeout(input)
 		return
 	}
+	input.Line = unquoteInBandInput(input.Line)
 
 	oob := strings.HasPrefix(input.Line, "#$#")
 	disableOOB := p.runtime.Session().ConnectionOptionTruthy(input.Player, "disable-oob")
@@ -306,6 +307,13 @@ func (p *InputProcessor) processInput(input command.InputEvent) {
 	}
 
 	p.processCommand(input)
+}
+
+func unquoteInBandInput(line string) string {
+	if strings.HasPrefix(line, "#$\"") {
+		return line[3:]
+	}
+	return line
 }
 
 func (p *InputProcessor) processLoginTimeout(input command.InputEvent) {
@@ -418,11 +426,13 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	handler := conn.ListenerObject()
 
 	delete(cm.connections, conn.ID)
+	replacementActive := false
 	if wasLoggedIn {
 		if mapped := cm.playerConns[player]; mapped == conn {
 			delete(cm.playerConns, player)
 			cm.restorePreviousPlayerConnLocked(player, conn)
 		} else {
+			replacementActive = mapped != nil
 			cm.removePlayerHistoryConnLocked(player, conn)
 		}
 	} else if mapped := cm.playerConns[types.ObjID(-conn.ID)]; mapped == conn {
@@ -439,7 +449,12 @@ func (p *InputProcessor) processDisconnect(input command.InputEvent) {
 	p.runtime.CancelLoginTasksFor(types.ObjID(-conn.ID))
 
 	cm.detachOutboundClient(conn.ID)
-	p.runtime.Session().CloseHeldHTTPInput(player)
+	// A superseded connection can close after a replacement has already assumed
+	// the same player. Held input belongs to that active player connection, so the
+	// stale physical close must not discard its queued commands or HTTP waiter.
+	if !replacementActive {
+		p.runtime.Session().CloseHeldHTTPInput(player)
+	}
 
 	if wasLoggedIn {
 		trace.Connection("DISCONNECT", conn.ID, player, "")
@@ -755,7 +770,15 @@ func (p *InputProcessor) parseProgramTarget(player, location types.ObjID, spec s
 		return types.ObjNothing, "", false
 	}
 
-	target := command.MatchObject(p.store, player, location, objText)
+	target := types.ObjFailedMatch
+	if strings.HasPrefix(objText, "$") && len(objText) > 1 {
+		if value, errCode := p.store.DirectTxn().PropertyValue(0, objText[1:]); errCode == types.E_NONE &&
+			(value.Type() == types.TYPE_OBJ || value.Type() == types.TYPE_ANON) {
+			target = value.ID()
+		}
+	} else {
+		target = command.MatchObject(p.store, player, location, objText)
+	}
 	if target < 0 {
 		return types.ObjNothing, "", false
 	}

@@ -73,6 +73,9 @@ func (vm *VM) executeAdd() error {
 			vm.Push(types.NewStr(resultStr))
 			return nil
 		}
+		if b.Type() == types.TYPE_INT {
+			return fmt.Errorf("E_TYPE: Type mismatch (expected string; got integer)")
+		}
 	}
 
 	// Handle list concatenation (list + list) and append (list + any)
@@ -241,13 +244,6 @@ func (vm *VM) executeDiv() error {
 			vm.Push(types.NewFloat(result))
 			return nil
 		}
-	}
-
-	// Strict mixed/invalid: preserve prior behavior. Note the old code's early
-	// b==0 check fired for any int-zero divisor regardless of a's type; replicate
-	// that so strict-mode results are byte-identical (e.g. 5.0 / 0 -> E_DIV).
-	if bIsInt && b.Int() == 0 {
-		return fmt.Errorf("E_DIV: division by zero")
 	}
 
 	return fmt.Errorf("E_TYPE: invalid operands for /")

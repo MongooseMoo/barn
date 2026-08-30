@@ -104,7 +104,7 @@ func builtinVerbs(ctx *Execution, args []types.Value) types.Result {
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
 	if errCode != types.E_NONE {
@@ -156,6 +156,9 @@ func builtinVerbInfo(ctx *Execution, args []types.Value) types.Result {
 			return types.Err(types.E_VERBNF)
 		}
 	case types.TYPE_INT:
+		if args[1].Int() <= 0 {
+			return types.Err(types.E_INVARG)
+		}
 		index := int(args[1].Int()) - 1 // Convert to 0-based
 		found, errCode := verbByIndexForRead(ctx, objID, index)
 		if errCode == types.E_RANGE {
@@ -298,7 +301,11 @@ func builtinVerbCode(ctx *Execution, args []types.Value) types.Result {
 	// raw legacy source only when it cannot be parsed.
 	sourceLines := verb.Code
 	if program, err := parser.NewParser(strings.Join(sourceLines, "\n")).ParseProgram(); err == nil {
-		sourceLines = parser.FormatMOO(program)
+		if len(args) >= 3 && args[2].Truthy() {
+			sourceLines = parser.FormatMOOFullyParenthesized(program)
+		} else {
+			sourceLines = parser.FormatMOO(program)
+		}
 	}
 
 	// Convert source lines to list
@@ -370,7 +377,6 @@ func builtinAddVerb(ctx *Execution, args []types.Value) types.Result {
 	if permsStr.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
 	}
-
 	// Validate permissions string - only rwxd allowed
 	for _, ch := range permsStr.Str() {
 		if ch != 'r' && ch != 'w' && ch != 'x' && ch != 'd' &&
@@ -575,6 +581,9 @@ func builtinSetVerbInfo(ctx *Execution, args []types.Value) types.Result {
 	permsStr := infoList.Get(2)
 	if permsStr.Type() != types.TYPE_STR {
 		return types.Err(types.E_TYPE)
+	}
+	if !validVerbPerms(permsStr.Str()) {
+		return types.Err(types.E_INVARG)
 	}
 
 	namesStr := infoList.Get(3)
@@ -841,6 +850,15 @@ func parseVerbPerms(s string) dbstore.VerbPerms {
 		}
 	}
 	return perms
+}
+
+func validVerbPerms(s string) bool {
+	for _, ch := range s {
+		if !strings.ContainsRune("rwxd", ch) {
+			return false
+		}
+	}
+	return true
 }
 
 // builtinDisassemble: disassemble(object, name) → LIST

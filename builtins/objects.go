@@ -32,21 +32,25 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	// Get parent(s) - OBJ or negative INT, or list of same
 	// Positive integers are NOT valid as parent references (E_TYPE)
 	var parents []types.ObjID
+	var parentFromInteger []bool
 	parentsFromList := false
 	switch args[0].Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		parents = []types.ObjID{args[0].ID()}
+		parentFromInteger = []bool{false}
 	case types.TYPE_INT:
 		// Only negative integers are valid as object references
 		if args[0].Int() >= 0 {
 			return types.Err(types.E_TYPE)
 		}
 		parents = []types.ObjID{types.ObjID(args[0].Int())}
+		parentFromInteger = []bool{true}
 	case types.TYPE_LIST:
 		// Multiple parents
 		parentsFromList = true
 		elements := args[0].Elements()
 		parents = make([]types.ObjID, len(elements))
+		parentFromInteger = make([]bool, len(elements))
 		for i, elem := range elements {
 			switch elem.Type() {
 			case types.TYPE_OBJ, types.TYPE_ANON:
@@ -57,6 +61,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 					return types.Err(types.E_TYPE)
 				}
 				parents[i] = types.ObjID(elem.Int())
+				parentFromInteger[i] = true
 			default:
 				return types.Err(types.E_TYPE)
 			}
@@ -94,27 +99,13 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 			owner = args[i].ID()
 			ownerSpecified = true
 		case types.TYPE_INT:
-			if args[i].Int() < 0 {
-				// Negative int is owner (object reference)
-				if anonymousSeen {
-					return types.Err(types.E_TYPE)
-				}
-				if ownerSpecified {
-					return types.Err(types.E_TYPE)
-				}
-				if initArgsSeen {
-					return types.Err(types.E_TYPE)
-				}
-				owner = types.ObjID(args[i].Int())
-				ownerSpecified = true
-			} else {
-				// Non-negative int is anonymous flag (0 or 1)
-				if anonymousSeen {
-					return types.Err(types.E_TYPE)
-				}
-				anonymous = args[i].Int() != 0
-				anonymousSeen = true
+			// Toast treats an integer optional argument as the anonymous flag;
+			// any non-zero value, including -1, requests an anonymous object.
+			if anonymousSeen {
+				return types.Err(types.E_TYPE)
 			}
+			anonymous = args[i].Int() != 0
+			anonymousSeen = true
 		case types.TYPE_LIST:
 			// LIST is initialization arguments (only once)
 			if initArgsSeen {
@@ -141,11 +132,12 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	// Other negative IDs and non-existent objects are E_INVARG
 	validParents := []types.ObjID{}
 	seenParents := make(map[types.ObjID]bool)
-	for _, parentID := range parents {
+	for i, parentID := range parents {
 		if parentID < -1 {
-			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
-			// These are type errors because they're not valid object references
-			return types.Err(types.E_TYPE)
+			if parentFromInteger[i] {
+				return types.Err(types.E_TYPE)
+			}
+			return types.Err(types.E_INVARG)
 		}
 		if parentID == types.ObjNothing {
 			if parentsFromList {
@@ -339,8 +331,15 @@ func collectAnonymousRefs(v types.Value, out map[types.ObjID]types.Value) {
 
 // builtinRecycle implements recycle(object)
 // Destroys an object and invokes :recycle lifecycle hooks.
+type RecycleLifecycleRequest struct {
+	Object      types.Value
+	OldParents  []types.ObjID
+	OldChildren []types.ObjID
+	OldContents []types.ObjID
+	OldLocation types.ObjID
+}
+
 func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
-	store := ctx.Store
 	session := ctx.Session
 	if session == nil {
 		return types.Err(types.E_INVARG)
@@ -355,12 +354,6 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	objID := args[0].ID()
-	if !beginRecycle(ctx, objID) {
-		// Recursive recycle(this) on the same target fails.
-		return types.Err(types.E_INVARG)
-	}
-	defer endRecycle(ctx, objID)
-
 	if !validForRead(ctx, objID) {
 		// Object doesn't exist or was already recycled - both are E_INVARG.
 		return types.Err(types.E_INVARG)
@@ -400,12 +393,31 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(errCode)
 	}
 
-	// Invoke :recycle before destroying the object. Recycling still completes if
-	// the hook raises, but the hook exception is returned after cleanup.
-	hookResult := types.Err(types.E_VERBNF)
-	if session != nil {
-		hookResult = session.CallVerb(objID, "recycle", []types.Value{}, ctx)
+	request := RecycleLifecycleRequest{
+		Object: args[0], OldParents: oldParents, OldChildren: oldChildren,
+		OldContents: oldContents, OldLocation: oldLocation,
 	}
+	if !beginRecycle(ctx, objID) {
+		return types.Err(types.E_INVARG)
+	}
+	if ctx.PushRecycleLifecycle != nil {
+		return ctx.PushRecycleLifecycle(request)
+	}
+	hookResult := session.CallVerb(objID, "recycle", []types.Value{}, ctx)
+	return FinishRecycleLifecycle(ctx, request, hookResult)
+}
+
+// FinishRecycleLifecycle applies topology cleanup after the object's recycle
+// verb has completed on either the owning VM or a synchronous test host.
+func FinishRecycleLifecycle(ctx *Execution, request RecycleLifecycleRequest, hookResult types.Result) types.Result {
+	defer endRecycle(ctx, request.Object.ID())
+	store := ctx.Store
+	tx := readTxn(ctx)
+	objID := request.Object.ID()
+	oldParents := request.OldParents
+	oldChildren := request.OldChildren
+	oldContents := request.OldContents
+	oldLocation := request.OldLocation
 
 	// Recycle anonymous objects reachable via property values (including nested
 	// list/map values) before this object is destroyed.
@@ -436,6 +448,32 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	// Note: recycling does NOT invalidate anonymous descendants in ToastStunt;
 	// they remain valid (property access through the recycled parent raises
 	// E_PROPNF).
+	if errCode := flushStagedBeforeCoarse(ctx); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
+	for _, contentID := range oldContents {
+		content := moveObjectReferenceForRead(ctx, contentID)
+		if ec := applyRecycleMove(ctx, contentID, objID); ec != types.E_NONE {
+			return types.Err(ec)
+		}
+		if _, _, err := findVerbForRead(ctx, objID, "exitfunc"); err == nil {
+			result := ctx.Session.CallVerb(objID, "exitfunc", []types.Value{content}, ctx)
+			if result.IsError() && result.Error != types.E_VERBNF {
+				return result
+			}
+		}
+	}
+	if oldLocation != types.ObjNothing {
+		if ec := applyRecycleMove(ctx, objID, oldLocation); ec != types.E_NONE {
+			return types.Err(ec)
+		}
+		if _, _, err := findVerbForRead(ctx, oldLocation, "exitfunc"); err == nil {
+			result := ctx.Session.CallVerb(oldLocation, "exitfunc", []types.Value{request.Object}, ctx)
+			if result.IsError() && result.Error != types.E_VERBNF {
+				return result
+			}
+		}
+	}
 
 	// Recycle: decentralized for a SIMPLE, non-player object in a not-yet-live-mutated
 	// task (the common create;recycle build shape); otherwise the coarse store.Recycle,
@@ -478,7 +516,13 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 		if oldLocation != types.ObjNothing {
 			adoptIDs = append(adoptIDs, oldLocation)
 		}
-		if errCode := tx.AdoptLiveRelationships(adoptIDs...); errCode != types.E_NONE {
+		liveAdoptIDs := adoptIDs[:0]
+		for _, id := range adoptIDs {
+			if store.DirectTxn().Valid(id) {
+				liveAdoptIDs = append(liveAdoptIDs, id)
+			}
+		}
+		if errCode := tx.AdoptLiveRelationships(liveAdoptIDs...); errCode != types.E_NONE {
 			return types.Err(errCode)
 		}
 		if cm := hostOf(ctx).ConnManager; cm != nil {
@@ -491,6 +535,14 @@ func builtinRecycle(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	return types.Ok(types.NewInt(0))
+}
+
+func applyRecycleMove(ctx *Execution, object, oldLocation types.ObjID) types.ErrorCode {
+	if errCode := ctx.Store.DirectTxn().MoveObject(object, types.ObjNothing, 0); errCode != types.E_NONE {
+		return errCode
+	}
+	markLiveStoreMutated(ctx)
+	return readTxn(ctx).AdoptLiveRelationships(object, oldLocation)
 }
 
 // builtinValid implements valid(object)

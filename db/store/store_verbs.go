@@ -396,18 +396,14 @@ func (s *Store) AddVerb(objID types.ObjID, verb Verb) (int, types.ErrorCode) {
 	if obj == nil {
 		return 0, types.E_INVIND
 	}
-	for _, existing := range obj.verbList {
-		if strings.EqualFold(existing.name, verb.name) {
-			return 0, types.E_INVARG
-		}
-	}
-
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
 	verbCopy := verb
 	verbPtr := &verbCopy
 	stampVerb(verbPtr, ts)
-	obj.verbs[verbPtr.mapKey()] = verbPtr
+	if _, exists := obj.verbs[verbPtr.mapKey()]; !exists {
+		obj.verbs[verbPtr.mapKey()] = verbPtr
+	}
 	obj.verbList = append(obj.verbList, verbPtr)
 	stampObjectVerbs(obj, ts)
 	return len(obj.verbList), types.E_NONE

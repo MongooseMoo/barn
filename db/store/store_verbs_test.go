@@ -76,7 +76,7 @@ func TestAddVerbAllowsDuplicateAliasesAndFindsFirstDefinition(t *testing.T) {
 	}
 }
 
-func TestAddVerbRejectsDuplicatePrimaryName(t *testing.T) {
+func TestAddVerbAllowsDuplicatePrimaryNameAndFindsFirst(t *testing.T) {
 	store := NewStore()
 	if err := store.Add(NewObject(0, 0)); err != nil {
 		t.Fatalf("Add root failed: %v", err)
@@ -85,8 +85,12 @@ func TestAddVerbRejectsDuplicatePrimaryName(t *testing.T) {
 		t.Fatalf("AddVerb initial failed: %v", errCode)
 	}
 
-	if _, errCode := store.AddVerb(0, NewVerb("LOOK", []string{"LOOK"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_INVARG {
-		t.Fatalf("AddVerb duplicate primary = %v, want E_INVARG", errCode)
+	if _, errCode := store.AddVerb(0, NewVerb("LOOK", []string{"LOOK"}, 0, VerbRead|VerbExecute, VerbArgs{This: "none", Prep: "none", That: "none"}, nil)); errCode != types.E_NONE {
+		t.Fatalf("AddVerb duplicate primary = %v, want E_NONE", errCode)
+	}
+	verb, _, err := store.DirectTxn().FindVerb(0, "look")
+	if err != nil || verb.Names[0] != "look" {
+		t.Fatalf("FindVerb duplicate primary = (%q, %v), want first definition", verb.Names, err)
 	}
 }
 

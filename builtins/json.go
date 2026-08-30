@@ -223,13 +223,61 @@ func builtinParseJson(ctx *Execution, args []types.Value) types.Result {
 
 	// Use json.Decoder to parse just one JSON value, ignoring trailing chars
 	// This matches ToastStunt behavior where parse_json("12abc") returns 12
-	var data interface{}
 	decoder := json.NewDecoder(strings.NewReader(jsonStr))
-	if err := decoder.Decode(&data); err != nil {
+	decoder.UseNumber()
+	data, err := decodeJSONValue(decoder)
+	if err != nil {
 		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(jsonToMOO(data, embeddedTypes))
+}
+
+func decodeJSONValue(decoder *json.Decoder) (interface{}, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	delim, isDelim := token.(json.Delim)
+	if !isDelim {
+		return token, nil
+	}
+	switch delim {
+	case '[':
+		values := make([]interface{}, 0)
+		for decoder.More() {
+			value, err := decodeJSONValue(decoder)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, value)
+		}
+		_, err = decoder.Token()
+		return values, err
+	case '{':
+		values := make(map[string]interface{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return nil, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return nil, fmt.Errorf("JSON object key is not a string")
+			}
+			value, err := decodeJSONValue(decoder)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := values[key]; !exists {
+				values[key] = value
+			}
+		}
+		_, err = decoder.Token()
+		return values, err
+	default:
+		return nil, fmt.Errorf("unexpected JSON delimiter %q", delim)
+	}
 }
 
 // jsonToMOO converts a Go value from JSON unmarshaling to a MOO value
@@ -243,11 +291,21 @@ func jsonToMOO(v interface{}, embeddedTypes bool) types.Value {
 	case bool:
 		return types.NewBool(val)
 
+	case json.Number:
+		text := val.String()
+		if !strings.ContainsAny(text, ".eE") {
+			if integer, err := val.Int64(); err == nil {
+				return types.NewInt(integer)
+			}
+		}
+		floating, err := val.Float64()
+		if err != nil {
+			return types.NewInt(0)
+		}
+		return types.NewFloat(floating)
+
 	case float64:
-		// JSON numbers are always float64
-		// Check if it's really an integer and fits in 32-bit range
-		// MOO treats numbers larger than 32-bit signed int as floats
-		if val == float64(int64(val)) && val >= float64(math.MinInt32) && val <= float64(math.MaxInt32) {
+		if val == float64(int64(val)) && val >= float64(math.MinInt64) && val <= float64(math.MaxInt64) {
 			return types.NewInt(int64(val))
 		}
 		return types.NewFloat(val)

@@ -148,11 +148,17 @@ func (vm *VM) executeRangeSet() error {
 		length := coll.Len()
 
 		// Bounds check
-		if startIdx < 1 || startIdx > int64(length)+1 {
+		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > int64(length)+1 {
 			return fmt.Errorf("E_RANGE: list range start out of bounds")
 		}
 		if endIdx < 0 {
 			return fmt.Errorf("E_RANGE: list range end out of bounds")
+		}
+		if startIdx == 0 && endIdx == 0 {
+			result := append([]types.Value(nil), newVals.Elements()...)
+			result = append(result, coll.Elements()...)
+			newColl = types.NewList(result)
+			break
 		}
 
 		// Build new list: [1..start-1] + newVals + [end+1..$]
@@ -185,11 +191,15 @@ func (vm *VM) executeRangeSet() error {
 		strLen := int64(len(s))
 
 		// Bounds check
-		if startIdx < 1 || startIdx > strLen+1 {
+		if (startIdx < 1 && !(startIdx == 0 && endIdx == 0)) || startIdx > strLen+1 {
 			return fmt.Errorf("E_RANGE: string range start out of bounds")
 		}
 		if endIdx < 0 {
 			return fmt.Errorf("E_RANGE: string range end out of bounds")
+		}
+		if startIdx == 0 && endIdx == 0 {
+			newColl = types.NewStr(newStr.Str() + s)
+			break
 		}
 
 		// Clamp endIdx to actual string length for slicing

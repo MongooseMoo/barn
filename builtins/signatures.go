@@ -1,6 +1,7 @@
 package builtins
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -16,6 +17,15 @@ type functionSignature struct {
 }
 
 var knownFunctionSignatures = map[string]functionSignature{
+	"chparent":                  {minArg: 2, maxArg: 2, argTypes: []int64{-1, int64(types.TYPE_OBJ)}},
+	"chparents":                 {minArg: 2, maxArg: 2, argTypes: []int64{-1, int64(types.TYPE_LIST)}},
+	"curl":                      {minArg: 1, maxArg: 3, argTypes: []int64{int64(types.TYPE_STR), -1, int64(types.TYPE_INT)}},
+	"generate_json":             {minArg: 1, maxArg: 3, argTypes: []int64{-1, int64(types.TYPE_STR), -1}},
+	"shutdown":                  {minArg: 0, maxArg: 2, argTypes: []int64{int64(types.TYPE_STR), -1}},
+	"simplex_noise":             {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_LIST)}},
+	"spellcheck":                {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
+	"url_encode":                {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
+	"url_decode":                {minArg: 1, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
 	"typeof":                    {minArg: 1, maxArg: 1, argTypes: []int64{-1}},
 	"function_info":             {minArg: 0, maxArg: 1, argTypes: []int64{int64(types.TYPE_STR)}},
 	"notify":                    {minArg: 2, maxArg: 4, argTypes: []int64{int64(types.TYPE_OBJ), int64(types.TYPE_STR), -1, -1}},
@@ -32,6 +42,20 @@ var knownFunctionSignatures = map[string]functionSignature{
 	"server_version":            {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"connected_players":         {minArg: 0, maxArg: 1, argTypes: []int64{-1}},
 	"read_stdin":                {minArg: 0, maxArg: 0, argTypes: []int64{}},
+}
+
+var hiddenFunctionInfoExtensions = map[string]struct{}{
+	"capitalize":        {},
+	"connection_option": {},
+	"downcase":          {},
+	"implode":           {},
+	"ltrim":             {},
+	"mapmerge":          {},
+	"read_stdin":        {},
+	"rtrim":             {},
+	"trim":              {},
+	"unique":            {},
+	"upcase":            {},
 }
 
 func functionInfoEntry(name string, sig functionSignature) types.Value {
@@ -112,6 +136,22 @@ func validateKnownFunctionArgs(name string, sig functionSignature, args []types.
 	return types.E_NONE
 }
 
+func knownFunctionArgError(sig functionSignature, args []types.Value, code types.ErrorCode) types.Result {
+	if code != types.E_ARGS || sig.minArg != sig.maxArg {
+		return types.Err(code)
+	}
+	message := fmt.Sprintf("Incorrect number of arguments (expected %d; got %d)", sig.minArg, len(args))
+	return types.Result{
+		Flow:  types.FlowException,
+		Error: code,
+		Val: types.NewList([]types.Value{
+			types.NewErr(code),
+			types.NewStr(message),
+			types.NewInt(0),
+		}),
+	}
+}
+
 func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 	r := ctx.Registry
 	if r == nil {
@@ -125,6 +165,9 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		names := make([]string, 0, len(r.funcs))
 		for name := range r.funcs {
+			if _, hidden := hiddenFunctionInfoExtensions[name]; hidden {
+				continue
+			}
 			names = append(names, name)
 		}
 		sort.Strings(names)
@@ -139,6 +182,9 @@ func builtinFunctionInfo(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	name := args[0].Str()
+	if _, hidden := hiddenFunctionInfoExtensions[name]; hidden {
+		return types.Err(types.E_INVARG)
+	}
 	if _, found := r.Get(name); !found {
 		return types.Err(types.E_INVARG)
 	}

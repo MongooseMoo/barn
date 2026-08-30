@@ -435,12 +435,12 @@ func builtinRaise(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	// First arg must be an error code
-	if args[0].Type() != types.TYPE_ERR {
-		return types.Err(types.E_TYPE)
+	code := types.E_NONE
+	message := args[0].String()
+	if args[0].Type() == types.TYPE_ERR {
+		code = args[0].Code()
+		message = code.Message()
 	}
-
-	message := args[0].Code().Message()
 	if len(args) >= 2 {
 		if args[1].Type() != types.TYPE_STR {
 			return types.Err(types.E_TYPE)
@@ -454,14 +454,14 @@ func builtinRaise(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	exceptionList := types.NewList([]types.Value{
-		types.NewErr(args[0].Code()),
+		args[0],
 		types.NewStr(message),
 		exceptionValue,
 	})
 
 	return types.Result{
 		Flow:  types.FlowException,
-		Error: args[0].Code(),
+		Error: code,
 		Val:   exceptionList,
 	}
 }

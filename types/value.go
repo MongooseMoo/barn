@@ -207,9 +207,6 @@ func formatFloat(f float64) string {
 	if math.IsInf(f, -1) {
 		return "-Inf"
 	}
-	if f == 0 {
-		f = 0
-	}
 	s := strconv.FormatFloat(f, 'g', 15, 64)
 	if !strings.Contains(s, ".") && !strings.Contains(s, "e") && !strings.Contains(s, "E") {
 		s += ".0"

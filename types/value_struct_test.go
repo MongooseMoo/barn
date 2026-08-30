@@ -285,10 +285,10 @@ func TestFloatRoundTrip(t *testing.T) {
 	}
 }
 
-func TestNegativeZeroFloatLiteralIsCanonical(t *testing.T) {
+func TestNegativeZeroFloatLiteralPreservesSign(t *testing.T) {
 	negativeZero := math.Copysign(0, -1)
-	if got := NewFloat(negativeZero).String(); got != "0.0" {
-		t.Fatalf("negative zero literal = %q, want %q", got, "0.0")
+	if got := NewFloat(negativeZero).String(); got != "-0.0" {
+		t.Fatalf("negative zero literal = %q, want %q", got, "-0.0")
 	}
 }
 
