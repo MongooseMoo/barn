@@ -641,7 +641,11 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		return types.Err(errCode)
 	}
 	upper := store.NextID()
-	for id := start + 1; id < upper; id++ {
+	scanStart := start + 1
+	if len(args) == 1 {
+		scanStart = start
+	}
+	for id := scanStart; id < upper; id++ {
 		if store.DirectTxn().IsRecycled(id) {
 			return types.Ok(types.NewObj(id))
 		}

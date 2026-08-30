@@ -2553,5 +2553,6 @@ func (c *lowerer) compileMap(n *verb.MapExpr) error {
 
 	c.emit(bytecode.OP_GET_VAR)
 	c.emitByte(byte(tmp))
+	c.emit(bytecode.OP_CHECK_MAP_LIMIT)
 	return nil
 }

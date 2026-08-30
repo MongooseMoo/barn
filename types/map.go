@@ -77,9 +77,21 @@ func toastMapCompare(a, b Value, caseSensitive bool) int {
 	}
 	switch a.Type() {
 	case TYPE_INT:
-		return int(int32(a.Int() - b.Int()))
+		if a.Int() < b.Int() {
+			return -1
+		}
+		if a.Int() > b.Int() {
+			return 1
+		}
+		return 0
 	case TYPE_OBJ:
-		return int(int32(a.Obj() - b.Obj()))
+		if a.Obj() < b.Obj() {
+			return -1
+		}
+		if a.Obj() > b.Obj() {
+			return 1
+		}
+		return 0
 	case TYPE_ERR:
 		return int(a.ErrCode()) - int(b.ErrCode())
 	case TYPE_STR:
@@ -193,10 +205,10 @@ func toastLookupInsert(root *toastLookupNode, entry mapEntry) *toastLookupNode {
 // numeric tag) instead. MOO strings hash case-insensitively.
 func keyHash(v Value) mapHash {
 	if v.Type() == TYPE_INT {
-		return mapHash{typeCode: v.Type(), scalar: uint64(uint32(v.Int()))}
+		return mapHash{typeCode: v.Type(), scalar: uint64(v.Int())}
 	}
 	if v.Type() == TYPE_OBJ {
-		return mapHash{typeCode: v.Type(), scalar: uint64(uint32(v.Obj()))}
+		return mapHash{typeCode: v.Type(), scalar: uint64(v.Obj())}
 	}
 	if v.Type() == TYPE_STR {
 		return mapHash{typeCode: v.Type(), text: foldASCII(v.Str())}

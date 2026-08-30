@@ -715,6 +715,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeMakeList()
 	case bytecode.OP_MAKE_MAP:
 		return vm.executeMakeMap()
+	case bytecode.OP_CHECK_MAP_LIMIT:
+		return vm.executeCheckMapLimit()
 	case bytecode.OP_LENGTH:
 		return vm.executeLength()
 	case bytecode.OP_INDEX_MARKER:

@@ -38,6 +38,13 @@ func (vm *VM) executeMakeMap() error {
 	return nil
 }
 
+func (vm *VM) executeCheckMapLimit() error {
+	if errCode := vm.Builtins.CheckMapLimitForTask(vm.Context, vm.Peek(0)); errCode != types.E_NONE {
+		return fmt.Errorf("E_QUOTA: map too large")
+	}
+	return nil
+}
+
 func (vm *VM) executeLength() error {
 	coll := vm.Pop()
 
