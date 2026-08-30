@@ -57,7 +57,7 @@ Database and inspection flags exit after completing the requested operation:
 
 | Flag | Purpose |
 |------|---------|
-| `-dump <path>` | Load the database and write a ToastStunt-format dump |
+| `-dump <path>` | Write a ToastStunt-format dump, reload it, and compare persistence fields |
 | `-verb-code #obj:verb` | Print verb source and metadata |
 | `-list-verbs #obj` | List verbs defined on an object |
 | `-obj-info #obj` | Print object metadata, properties, and verbs |
@@ -77,14 +77,10 @@ go build -o <tool>.exe ./cmd/<tool>/
 | Tool | Purpose |
 |------|---------|
 | `barn` | Main server plus database inspection commands |
+| `barn_logs` | Inspect Barn's structured run logs |
 | `moo_client` | Send commands to a running MOO server using `-cmd` or `-file` |
-| `dump_verb` | Print a verb directly from a database object |
-| `dump_prop` | Print a property directly from a database object |
-| `db_roundtrip` | Load, write, reload, and compare a database file |
-| `check_player` | Local diagnostic for wizard `#2` in a database |
 | `toast_oracle` | Local ToastStunt expression diagnostic with hard-coded local paths |
 | `gen_builtin_signatures` | Generate built-in function signature data |
-| `test_crypt` | Local crypt/hash diagnostic |
 
 ## Conformance Workflow
 
