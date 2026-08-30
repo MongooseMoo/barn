@@ -230,6 +230,53 @@ func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 	return nil
 }
 
+// EvalFile evaluates one MOO expression per line of the named file, printing
+// one result line ("=> VALUE" or "Error: CODE") per input line, in order.
+// Blank lines and lines starting with "#" are echoed as "-- skipped" so line
+// counts stay aligned with the input for differential drivers.
+func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options config.Options) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(errOut, "Error: %v\n", err)
+		return errors.New("inspection failed")
+	}
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	registry := vm.BuildVMRegistry()
+	for _, line := range lines {
+		expr := strings.TrimSpace(line)
+		if expr == "" || strings.HasPrefix(expr, "##") {
+			fmt.Fprintln(out, "-- skipped")
+			continue
+		}
+		session := builtins.NewSession(registry, builtins.Host{TaskManager: task.NewManager()})
+		prog, diagnostics := registry.Compiler().CompileMOO([]string{"return " + expr + ";"})
+		if len(diagnostics) > 0 {
+			fmt.Fprintf(out, "Compile error: %s\n", diagnostics[0].Error())
+			continue
+		}
+		ctx := kernel.NewTaskContext()
+		ctx.Store = store
+		ctx.StoreTxn = store.DirectTxn()
+		ctx.RuntimeOptions = options
+		// Match Toast's emergency-wizard eval context so permission-gated
+		// builtins behave comparably in differential runs.
+		ctx.Player = types.ObjID(3)
+		ctx.Programmer = types.ObjID(3)
+		machine := vm.NewVM(store, session)
+		machine.Context = ctx
+		result := machine.Run(prog)
+		if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
+			if result.Val.IsNone() {
+				result.Val = types.NewInt(0)
+			}
+			fmt.Fprintf(out, "=> %s\n", result.Val.String())
+		} else {
+			fmt.Fprintf(out, "Error: %s\n", result.Error.String())
+		}
+	}
+	return nil
+}
+
 // DumpObjRawCommand dumps raw database fields for debugging
 func DumpObjRawCommand(out, errOut io.Writer, store *dbstore.Store, spec string) error {
 	objID, err := parseObjID(spec)
