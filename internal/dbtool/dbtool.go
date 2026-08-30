@@ -490,21 +490,86 @@ func AncestryCommand(out, errOut io.Writer, store *dbstore.Store, spec string) e
 }
 
 func DumpDatabase(source, target string) error {
-	database, err := dbformat.LoadDatabase(source)
+	return dumpDatabase(source, target, dbformat.LoadDatabase)
+}
+
+type databaseLoader func(string) (*dbformat.Database, error)
+
+func dumpDatabase(source, target string, load databaseLoader) error {
+	database, err := load(source)
 	if err != nil {
 		return fmt.Errorf("load database: %w", err)
+	}
+	store, err := database.NewStoreFromDatabase()
+	if err != nil {
+		return fmt.Errorf("construct store from database: %w", err)
 	}
 	f, err := os.Create(target)
 	if err != nil {
 		return fmt.Errorf("create dump file: %w", err)
 	}
-	defer f.Close()
-	store, err := database.NewStoreFromDatabase()
-	if err != nil {
-		return fmt.Errorf("construct store from database: %w", err)
-	}
 	if err := dbformat.NewWriter(f, store.Snapshot()).WriteDatabase(); err != nil {
+		f.Close()
 		return fmt.Errorf("write database: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close dump file: %w", err)
+	}
+
+	reloaded, err := load(target)
+	if err != nil {
+		return fmt.Errorf("reload database: %w", err)
+	}
+	reloadedStore, err := reloaded.NewStoreFromDatabase()
+	if err != nil {
+		return fmt.Errorf("construct reloaded store: %w", err)
+	}
+	return compareRoundTripStores(store, reloadedStore)
+}
+
+func compareRoundTripStores(original, reloaded *dbstore.Store) error {
+	originalMax := original.DirectTxn().MaxObject()
+	reloadedMax := reloaded.DirectTxn().MaxObject()
+	mismatches := make([]string, 0)
+	if originalMax != reloadedMax {
+		mismatches = append(mismatches, fmt.Sprintf("max object #%d != #%d", originalMax, reloadedMax))
+	}
+	if originalPlayers, reloadedPlayers := len(original.Players()), len(reloaded.Players()); originalPlayers != reloadedPlayers {
+		mismatches = append(mismatches, fmt.Sprintf("players %d != %d", originalPlayers, reloadedPlayers))
+	}
+	if originalObjects, reloadedObjects := len(original.All()), len(reloaded.All()); originalObjects != reloadedObjects {
+		mismatches = append(mismatches, fmt.Sprintf("objects %d != %d", originalObjects, reloadedObjects))
+	}
+
+	for id := types.ObjID(0); id <= originalMax; id++ {
+		originalObject, originalOK := original.GetUnsafe(id)
+		reloadedObject, reloadedOK := reloaded.GetUnsafe(id)
+		if originalOK != reloadedOK {
+			mismatches = append(mismatches, fmt.Sprintf("object #%d existence differs", id))
+			continue
+		}
+		if !originalOK {
+			continue
+		}
+		if originalObject.Name != reloadedObject.Name {
+			mismatches = append(mismatches, fmt.Sprintf("object #%d name %q != %q", id, originalObject.Name, reloadedObject.Name))
+		}
+		if originalObject.Flags != reloadedObject.Flags {
+			mismatches = append(mismatches, fmt.Sprintf("object #%d flags %v != %v", id, originalObject.Flags, reloadedObject.Flags))
+		}
+		if originalObject.Owner != reloadedObject.Owner {
+			mismatches = append(mismatches, fmt.Sprintf("object #%d owner #%d != #%d", id, originalObject.Owner, reloadedObject.Owner))
+		}
+		if originalObject.VerbCount != reloadedObject.VerbCount {
+			mismatches = append(mismatches, fmt.Sprintf("object #%d verbs %d != %d", id, originalObject.VerbCount, reloadedObject.VerbCount))
+		}
+		if originalObject.PropertyCount != reloadedObject.PropertyCount {
+			mismatches = append(mismatches, fmt.Sprintf("object #%d properties %d != %d", id, originalObject.PropertyCount, reloadedObject.PropertyCount))
+		}
+	}
+
+	if len(mismatches) != 0 {
+		return fmt.Errorf("round-trip verification failed: %s", strings.Join(mismatches, "; "))
 	}
 	return nil
 }

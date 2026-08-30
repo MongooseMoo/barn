@@ -2,10 +2,14 @@ package dbtool
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/MongooseMoo/barn/config"
+	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -86,6 +90,79 @@ func TestInspectionRejectsInvalidSpec(t *testing.T) {
 	}
 	if got := errOut.String(); !strings.Contains(got, "Error: invalid object ID: not-an-object") {
 		t.Fatalf("stderr = %q, want invalid object ID", got)
+	}
+}
+
+func TestDumpDatabaseRejectsUnreadableRoundTrip(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source.db")
+	writeDatabaseFixture(t, source)
+	target := filepath.Join(t.TempDir(), "target.db")
+	loads := 0
+	load := func(path string) (*dbformat.Database, error) {
+		loads++
+		if loads == 2 {
+			return nil, errors.New("unreadable output")
+		}
+		return dbformat.LoadDatabase(path)
+	}
+
+	err := dumpDatabase(source, target, load)
+	if err == nil || !strings.Contains(err.Error(), "reload database: unreadable output") {
+		t.Fatalf("dumpDatabase error = %v, want reload failure", err)
+	}
+	if loads != 2 {
+		t.Fatalf("database loads = %d, want source load plus output reload", loads)
+	}
+}
+
+func TestDumpDatabaseRejectsRoundTripMismatch(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source.db")
+	writeDatabaseFixture(t, source)
+	target := filepath.Join(t.TempDir(), "target.db")
+	loads := 0
+	load := func(path string) (*dbformat.Database, error) {
+		loads++
+		database, err := dbformat.LoadDatabase(path)
+		if err != nil {
+			return nil, err
+		}
+		if loads == 2 {
+			database.Objects[1].SetName("Changed")
+		}
+		return database, nil
+	}
+
+	err := dumpDatabase(source, target, load)
+	if err == nil || !strings.Contains(err.Error(), `object #1 name "Root" != "Changed"`) {
+		t.Fatalf("dumpDatabase error = %v, want object name mismatch", err)
+	}
+}
+
+func TestDumpDatabaseVerifiesSuccessfulRoundTrip(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source.db")
+	writeDatabaseFixture(t, source)
+	target := filepath.Join(t.TempDir(), "target.db")
+
+	if err := DumpDatabase(source, target); err != nil {
+		t.Fatalf("DumpDatabase: %v", err)
+	}
+	if _, err := dbformat.LoadDatabase(target); err != nil {
+		t.Fatalf("load verified dump: %v", err)
+	}
+}
+
+func writeDatabaseFixture(t *testing.T, path string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	if err := dbformat.NewWriter(f, inspectionStore(t).Snapshot()).WriteDatabase(); err != nil {
+		f.Close()
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
 	}
 }
 

@@ -110,7 +110,7 @@ do not invent a Barn change.
 When a tool doesn't work, **fix the tool** - don't work around it with debug logging or manual inspection. Time spent fixing tooling pays dividends. Time spent on workarounds compounds into more workarounds.
 
 Examples:
-- dump_verb doesn't load mongoose.db → Fix dump_verb, don't add printf debugging
+- `barn -verb-code` doesn't load mongoose.db → Fix Barn's inspection path, don't add printf debugging
 - cow_py fails to parse database → Fix the parser or use barn's own loader
 - Test harness unreliable → Fix harness, don't run tests manually
 
@@ -255,7 +255,7 @@ go build -o barn.exe ./cmd/barn/
 ./barn.exe -db Test.db -dump-obj-raw '#2'
 ./barn.exe -db Test.db -verb-lookup '#2:look'
 ./barn.exe -db Test.db -ancestry '#2'
-./barn.exe -db Test.db -dump copy.db
+./barn.exe -db Test.db -dump copy.db  # writes, reloads, and compares persistence fields
 ```
 
 ## Spec Audit Workflow

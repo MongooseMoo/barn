@@ -49,7 +49,7 @@ func main() {
 	flag.StringVar(&cfg.DumpObjectRaw, "dump-obj-raw", "", "Dump raw database fields for an object")
 	flag.StringVar(&cfg.VerbLookup, "verb-lookup", "", "Show where a verb would be found")
 	flag.StringVar(&cfg.Ancestry, "ancestry", "", "Show full parent chain")
-	flag.StringVar(&cfg.DumpPath, "dump", "", "Dump database to path and exit")
+	flag.StringVar(&cfg.DumpPath, "dump", "", "Dump database, reload and verify it, then exit")
 	flag.IntVar(&cfg.CheckpointInterval, "checkpoint-interval", cfg.CheckpointInterval, "Checkpoint interval in seconds (0=disabled)")
 	flag.BoolVar(&cfg.PromoteNumbers, "promote-numbers", false, "Enable numeric promotion")
 	var outbound, outboundShort, noOutbound, noOutboundShort bool
