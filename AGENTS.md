@@ -8,6 +8,7 @@
 - Under `set -o pipefail`, do not truncate a command with `head` when the producer can receive SIGPIPE and turn a successful probe into exit 141; capture the output or use a non-pipeline probe.
 - When a Bash body passed from PowerShell contains `$name` or `$()` expansion, single-quote the complete Bash body at the PowerShell layer; backslash does not escape PowerShell interpolation.
 - For issue-delivery ledger transitions into `WORKER_RUNNING`, supply both the canonical live `--agent` handle and the exact `--worktree` path; if the transition is rejected, interrupt the dispatched agent before retrying.
+- Before invoking `gofmt`, verify every argument is a Go source file and pass only literal `.go` paths; never include Markdown or other changed files in the formatter command.
 - In PowerShell, never pipe directly from the closing brace of a `foreach` statement; assign the loop output to a variable (or wrap the statement in `@(...)`) and pipe that value afterward.
 - Before submitting a JavaScript tool wrapper, balance every template interpolation and function-call delimiter; for exit reporting use the delimiter-light `text(r.exit_code ?? "RUNNING")` form instead of an interpolated template. A wrapper parse failure proves that its nested shell command did not run and must be corrected before continuing.
 - After adding an untracked file, inspect that file directly (or with an explicit no-index diff); ordinary `git diff` does not display untracked content and cannot satisfy the immediate post-edit inspection requirement.
