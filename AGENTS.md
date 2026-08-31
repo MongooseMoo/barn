@@ -2,6 +2,7 @@
 
 ## Conformance Discipline Rules
 
+- Keep Barn GitHub Actions runner selection behind the `CI_RUNNER_LABELS` repository variable with `ubuntu-latest` as the workflow fallback; while hosted minutes are exhausted, set the variable to `["self-hosted","Linux","X64","barn"]` before starting CI.
 - Before reading a skill entrypoint, resolve its advertised skill root with `rg --files <root> --glob SKILL.md`; never construct an assumed path by inserting catalog labels or runtime directory names.
 - In PowerShell, run a native command and capture `$LASTEXITCODE` in separate statements before using that result in an expression; never embed both statements inside a cast, subexpression, or parenthesized expression.
 - For a multi-stage command passed through `wsl ... bash -lc`, begin the shell body with `set -euo pipefail`; never report the outer exit code as proof that an earlier probe succeeded when a later command or pipeline can mask its failure.
