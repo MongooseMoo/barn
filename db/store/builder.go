@@ -73,7 +73,9 @@ func (b *ObjectBuilder) AppendVerb(v Verb) int {
 	vp := &v
 	b.obj.verbList = append(b.obj.verbList, vp)
 	if len(v.names) > 0 {
-		b.obj.verbs[v.names[0]] = vp
+		if _, exists := b.obj.verbs[v.names[0]]; !exists {
+			b.obj.verbs[v.names[0]] = vp
+		}
 	}
 	return len(b.obj.verbList) - 1
 }

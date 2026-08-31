@@ -173,6 +173,7 @@ const (
 	OP_FORK_WIDE                                                   // Fork statement [varIdx:byte, bodyLen:uint32]
 	OP_TRY_EXCEPT_LOCAL_WIDE                                       // Exception handlers [numClauses, metadata with varIdx:uint16, handlerIP:uint32]
 	OP_FORK_LOCAL_WIDE                                             // Fork statement [varIdx:uint16, bodyLen:uint32]
+	OP_CHECK_MAP_LIMIT                                             // Validate the map on top of the stack against max_map_value_bytes
 )
 
 // OpCodeNames maps opcodes to their string names for debugging
@@ -264,6 +265,7 @@ var OpCodeNames = map[OpCode]string{
 	OP_FORK_WIDE:             "FORK_WIDE",
 	OP_TRY_EXCEPT_LOCAL_WIDE: "TRY_EXCEPT_LOCAL_WIDE",
 	OP_FORK_LOCAL_WIDE:       "FORK_LOCAL_WIDE",
+	OP_CHECK_MAP_LIMIT:       "CHECK_MAP_LIMIT",
 }
 
 // String returns the name of an opcode

@@ -25,7 +25,7 @@ func builtinProperties(ctx *Execution, args []types.Value) types.Result {
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 	allowed, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
 	if errCode != types.E_NONE {
@@ -351,7 +351,7 @@ func builtinDeleteProperty(ctx *Execution, args []types.Value) types.Result {
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	propName := nameVal.Str()
@@ -473,7 +473,7 @@ func builtinIsClearProperty(ctx *Execution, args []types.Value) types.Result {
 
 	objID := objVal.ID()
 	if errCode := objectExistsForRead(ctx, objID); errCode != types.E_NONE {
-		return types.Err(errCode)
+		return types.Err(types.E_INVARG)
 	}
 
 	propName := nameVal.Str()

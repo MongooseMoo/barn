@@ -44,3 +44,13 @@ func TestOneBasedLocalOperandsRepresentSlots254And255(t *testing.T) {
 		})
 	}
 }
+
+func TestExceptionUsesCanonicalMessageWhenRuntimeDetailOnlyDiffersByCase(t *testing.T) {
+	result := runBytecodeProgram(t,
+		"try 1 / 0; except captured (ANY) return captured[2]; endtry return \"missed\";",
+		nil, nil,
+	)
+	if result.Flow != types.FlowReturn || result.Val.Type() != types.TYPE_STR || result.Val.Str() != "Division by zero" {
+		t.Fatalf("result = flow %v value %v error %v, want canonical Division by zero", result.Flow, result.Val, result.Error)
+	}
+}

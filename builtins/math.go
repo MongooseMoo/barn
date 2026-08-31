@@ -342,11 +342,14 @@ func builtinExp(ctx *Execution, args []types.Value) types.Result {
 	}
 	f := args[0].Float()
 
-	result := math.Exp(f)
-	if math.IsInf(result, 0) {
+	// Toast delegates to the platform libm exp(), whose last-bit result differs
+	// from Go's architecture-specific Exp implementation for some inputs (for
+	// example 1.5). Exp2(x*log2(e)) follows the same correctly rounded values for
+	// Toast's observable 15-digit float formatting while remaining pure Go.
+	result := math.Exp2(f * math.Log2E)
+	if math.IsInf(result, 0) || (result == 0 && f != 0) {
 		return types.Err(types.E_FLOAT)
 	}
-
 	return types.Ok(types.NewFloat(result))
 }
 
@@ -453,7 +456,7 @@ func builtinFloatstr(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	precision := int(args[1].Int())
-	if precision < 0 || precision > 19 {
+	if precision < 0 || precision > 20 {
 		return types.Err(types.E_INVARG)
 	}
 
@@ -682,11 +685,9 @@ func builtinDistance(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	b := args[1]
-	if a.Len() != b.Len() || a.Len() == 0 {
-		return types.Err(types.E_TYPE)
-	}
+	dimensions := min(a.Len(), b.Len())
 	total := 0.0
-	for i := 1; i <= a.Len(); i++ {
+	for i := 1; i <= dimensions; i++ {
 		var av float64
 		switch a.Get(i).Type() {
 		case types.TYPE_INT:
@@ -724,7 +725,7 @@ func builtinRelativeHeading(ctx *Execution, args []types.Value) types.Result {
 	}
 	b := args[1]
 	if a.Len() != 3 || b.Len() != 3 {
-		return types.Err(types.E_INVARG)
+		return types.Err(types.E_TYPE)
 	}
 	if a.Get(1).Type() != types.TYPE_FLOAT {
 		return types.Err(types.E_TYPE)
@@ -778,14 +779,23 @@ func builtinSimplexNoise(ctx *Execution, args []types.Value) types.Result {
 	if len(coords) == 0 || len(coords) > 4 {
 		return types.Ok(types.NewErr(types.E_TYPE))
 	}
-	seed := 0.0
+	values := make([]float64, len(coords))
 	for i, coord := range coords {
 		if coord.Type() != types.TYPE_FLOAT {
 			return types.Err(types.E_TYPE)
 		}
-		seed += coord.Float() * float64(i+1) * 12.9898
+		values[i] = coord.Float()
 	}
-	noise := math.Sin(seed) * 43758.5453
-	noise = noise - math.Floor(noise)
-	return types.Ok(types.NewFloat(noise*2 - 1))
+	var noise float64
+	switch len(values) {
+	case 1:
+		noise = simplex1(values[0])
+	case 2:
+		noise = simplex2(values[0], values[1])
+	case 3:
+		noise = simplex3(values[0], values[1], values[2])
+	case 4:
+		noise = simplex4(values[0], values[1], values[2], values[3])
+	}
+	return types.Ok(types.NewFloat(noise))
 }

@@ -30,12 +30,22 @@ const (
 
 // FormatMOO converts a semantic verb program back to MOO source lines.
 func FormatMOO(program *verb.Program) []string {
-	lines, _ := FormatMOOChecked(program)
+	lines, _ := formatMOOChecked(program, false)
+	return lines
+}
+
+// FormatMOOFullyParenthesized emits Toast's fully-parenthesized decompile form.
+func FormatMOOFullyParenthesized(program *verb.Program) []string {
+	lines, _ := formatMOOChecked(program, true)
 	return lines
 }
 
 // FormatMOOChecked validates recursive formatter input before producing output.
 func FormatMOOChecked(program *verb.Program) ([]string, error) {
+	return formatMOOChecked(program, false)
+}
+
+func formatMOOChecked(program *verb.Program, fullyParenthesized bool) ([]string, error) {
 	if err := verb.ValidateNesting(program); err != nil {
 		return nil, err
 	}
@@ -45,14 +55,14 @@ func FormatMOOChecked(program *verb.Program) ([]string, error) {
 
 	var lines []string
 	for _, stmt := range program.Statements {
-		line := unparseStmt(stmt, 0)
+		line := unparseStmt(stmt, 0, fullyParenthesized)
 		lines = append(lines, strings.Split(line, "\n")...)
 	}
 	return lines, nil
 }
 
 // unparseStmt converts a statement to source code
-func unparseStmt(stmt verb.Stmt, indent int) string {
+func unparseStmt(stmt verb.Stmt, indent int, fullyParenthesized bool) string {
 	indentStr := strings.Repeat("  ", indent)
 
 	switch s := stmt.(type) {
@@ -60,25 +70,36 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		if s.Expr == nil {
 			return indentStr + ";"
 		}
-		return indentStr + unparseExpr(s.Expr, precedenceLowest) + ";"
+		return indentStr + unparseExpr(s.Expr, precedenceLowest, fullyParenthesized) + ";"
 
 	case *verb.ReturnStmt:
 		if s.Value == nil {
 			return indentStr + "return;"
 		}
-		return indentStr + "return " + unparseExpr(s.Value, precedenceLowest) + ";"
+		return indentStr + "return " + unparseExpr(s.Value, precedenceLowest, fullyParenthesized) + ";"
 
 	case *verb.IfStmt:
 		var sb strings.Builder
-		sb.WriteString(indentStr + "if (" + unparseExpr(s.Condition, precedenceLowest) + ")\n")
-		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
-		}
-		if len(s.Else) > 0 {
-			sb.WriteString(indentStr + "else\n")
-			for _, bodyStmt := range s.Else {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+		sb.WriteString(indentStr + "if (" + unparseExpr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
+		current := s
+		for {
+			for _, bodyStmt := range current.Body {
+				sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
+			if len(current.Else) == 1 {
+				if next, ok := current.Else[0].(*verb.IfStmt); ok {
+					sb.WriteString(indentStr + "elseif (" + unparseExpr(next.Condition, precedenceLowest, fullyParenthesized) + ")\n")
+					current = next
+					continue
+				}
+			}
+			if len(current.Else) > 0 {
+				sb.WriteString(indentStr + "else\n")
+				for _, bodyStmt := range current.Else {
+					sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
+				}
+			}
+			break
 		}
 		sb.WriteString(indentStr + "endif")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -86,12 +107,12 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 	case *verb.WhileStmt:
 		var sb strings.Builder
 		if s.Label != "" {
-			sb.WriteString(indentStr + "while " + s.Label + " (" + unparseExpr(s.Condition, precedenceLowest) + ")\n")
+			sb.WriteString(indentStr + "while " + s.Label + " (" + unparseExpr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 		} else {
-			sb.WriteString(indentStr + "while (" + unparseExpr(s.Condition, precedenceLowest) + ")\n")
+			sb.WriteString(indentStr + "while (" + unparseExpr(s.Condition, precedenceLowest, fullyParenthesized) + ")\n")
 		}
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endwhile")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -103,12 +124,12 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 			sb.WriteString(s.Label + " ")
 		}
 		if s.Index != "" {
-			sb.WriteString(s.Value + ", " + s.Index + " in (" + unparseExpr(s.Collection, precedenceLowest) + ")\n")
+			sb.WriteString(s.Value + ", " + s.Index + " in (" + unparseExpr(s.Collection, precedenceLowest, fullyParenthesized) + ")\n")
 		} else {
-			sb.WriteString(s.Value + " in (" + unparseExpr(s.Collection, precedenceLowest) + ")\n")
+			sb.WriteString(s.Value + " in (" + unparseExpr(s.Collection, precedenceLowest, fullyParenthesized) + ")\n")
 		}
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endfor")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -119,9 +140,9 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		if s.Label != "" {
 			sb.WriteString(s.Label + " ")
 		}
-		sb.WriteString(s.Value + " in [" + unparseExpr(s.Start, precedenceLowest) + ".." + unparseExpr(s.End, precedenceLowest) + "]\n")
+		sb.WriteString(s.Value + " in [" + unparseExpr(s.Start, precedenceLowest, fullyParenthesized) + ".." + unparseExpr(s.End, precedenceLowest, fullyParenthesized) + "]\n")
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endfor")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -142,7 +163,7 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		var sb strings.Builder
 		sb.WriteString(indentStr + "try\n")
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		for _, handler := range s.Handlers {
 			sb.WriteString(indentStr + "except ")
@@ -162,13 +183,13 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 			}
 			sb.WriteString(")\n")
 			for _, bodyStmt := range handler.Body {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+				sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 		}
 		if s.Finalizer != nil {
 			sb.WriteString(indentStr + "finally\n")
 			for _, bodyStmt := range s.Finalizer.Body {
-				sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+				sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 			}
 		}
 		sb.WriteString(indentStr + "endtry")
@@ -180,9 +201,9 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 		if s.VarName != "" {
 			sb.WriteString(s.VarName + " ")
 		}
-		sb.WriteString("(" + unparseExpr(s.Delay, precedenceLowest) + ")\n")
+		sb.WriteString("(" + unparseExpr(s.Delay, precedenceLowest, fullyParenthesized) + ")\n")
 		for _, bodyStmt := range s.Body {
-			sb.WriteString(unparseStmt(bodyStmt, indent+1) + "\n")
+			sb.WriteString(unparseStmt(bodyStmt, indent+1, fullyParenthesized) + "\n")
 		}
 		sb.WriteString(indentStr + "endfork")
 		return strings.TrimSuffix(sb.String(), "\n")
@@ -193,7 +214,7 @@ func unparseStmt(stmt verb.Stmt, indent int) string {
 }
 
 // unparseExpr converts an expression to source code
-func unparseExpr(expr verb.Expr, parentPrecedence int) string {
+func unparseExpr(expr verb.Expr, parentPrecedence int, fullyParenthesized bool) string {
 	switch e := expr.(type) {
 	case *verb.LiteralExpr:
 		return unparseLiteral(e)
@@ -203,17 +224,21 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 
 	case *verb.UnaryExpr:
 		op := unparseUnaryOp(e.Operator)
-		operand := unparseExpr(e.Operand, precedenceUnary)
-		return op + operand
+		operand := unparseExpr(e.Operand, precedenceUnary, fullyParenthesized)
+		result := op + operand
+		if fullyParenthesized && parentPrecedence != precedenceLowest {
+			return "(" + result + ")"
+		}
+		return result
 
 	case *verb.BinaryExpr:
-		return unparseBinaryExpr(e, parentPrecedence)
+		return unparseBinaryExpr(e, parentPrecedence, fullyParenthesized)
 
 	case *verb.TernaryExpr:
 		prec := precedenceTernary
-		cond := unparseExpr(e.Condition, prec+1)
-		then := unparseExpr(e.ThenExpr, prec+1)
-		els := unparseExpr(e.ElseExpr, prec+1)
+		cond := unparseExpr(e.Condition, prec+1, fullyParenthesized)
+		then := unparseExpr(e.ThenExpr, prec+1, fullyParenthesized)
+		els := unparseExpr(e.ElseExpr, prec+1, fullyParenthesized)
 		result := cond + " ? " + then + " | " + els
 		if prec < parentPrecedence {
 			return "(" + result + ")"
@@ -227,40 +252,40 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 		return "$"
 
 	case *verb.IndexExpr:
-		base := unparseExpr(e.Expr, precedenceProperty)
-		index := unparseExpr(e.Index, precedenceLowest)
+		base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
+		index := unparseExpr(e.Index, precedenceLowest, fullyParenthesized)
 		return base + "[" + index + "]"
 
 	case *verb.RangeExpr:
-		base := unparseExpr(e.Expr, precedenceProperty)
-		start := unparseExpr(e.Start, precedenceLowest)
-		end := unparseExpr(e.End, precedenceLowest)
+		base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
+		start := unparseExpr(e.Start, precedenceLowest, fullyParenthesized)
+		end := unparseExpr(e.End, precedenceLowest, fullyParenthesized)
 		// NO spaces around ..
 		return base + "[" + start + ".." + end + "]"
 
 	case *verb.PropertyExpr:
-		return unparsePropertyExpr(e)
+		return unparsePropertyExpr(e, fullyParenthesized)
 
 	case *verb.VerbCallExpr:
-		base := unparseExpr(e.Expr, precedenceProperty)
+		base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
 		var verb string
 		if e.Verb != "" {
 			verb = e.Verb
 		} else {
-			verb = "(" + unparseExpr(e.VerbExpr, precedenceLowest) + ")"
+			verb = "(" + unparseExpr(e.VerbExpr, precedenceLowest, fullyParenthesized) + ")"
 		}
-		args := unparseArgs(e.Args)
+		args := unparseArgs(e.Args, fullyParenthesized)
 		return base + ":" + verb + "(" + args + ")"
 
 	case *verb.BuiltinCallExpr:
-		args := unparseArgs(e.Args)
+		args := unparseArgs(e.Args, fullyParenthesized)
 		return e.Name + "(" + args + ")"
 
 	case *verb.SpliceExpr:
-		return "@" + unparseExpr(e.Expr, precedenceUnary)
+		return "@" + unparseExpr(e.Expr, precedenceUnary, fullyParenthesized)
 
 	case *verb.CatchExpr:
-		result := "`" + unparseExpr(e.Expr, precedenceTernary)
+		result := "`" + unparseExpr(e.Expr, precedenceTernary, fullyParenthesized)
 		result += " ! "
 		if e.IsAny {
 			result += "ANY"
@@ -273,14 +298,14 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 			}
 		}
 		if e.Default != nil {
-			result += " => " + unparseExpr(e.Default, precedenceTernary)
+			result += " => " + unparseExpr(e.Default, precedenceTernary, fullyParenthesized)
 		}
 		return result + "'"
 
 	case *verb.AssignExpr:
 		prec := precedenceAssign
-		target := unparseTarget(e.Target)
-		value := unparseExpr(e.Value, prec)
+		target := unparseTarget(e.Target, fullyParenthesized)
+		value := unparseExpr(e.Value, prec, fullyParenthesized)
 		result := target + " = " + value
 		if prec < parentPrecedence {
 			return "(" + result + ")"
@@ -290,20 +315,20 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 	case *verb.ListExpr:
 		var elements []string
 		for _, elem := range e.Elements {
-			elements = append(elements, unparseExpr(elem, precedenceLowest))
+			elements = append(elements, unparseExpr(elem, precedenceLowest, fullyParenthesized))
 		}
 		return "{" + strings.Join(elements, ", ") + "}"
 
 	case *verb.ListRangeExpr:
-		start := unparseExpr(e.Start, precedenceLowest)
-		end := unparseExpr(e.End, precedenceLowest)
+		start := unparseExpr(e.Start, precedenceLowest, fullyParenthesized)
+		end := unparseExpr(e.End, precedenceLowest, fullyParenthesized)
 		return "{" + start + ".." + end + "}"
 
 	case *verb.MapExpr:
 		var pairs []string
 		for _, pair := range e.Pairs {
-			key := unparseExpr(pair.Key, precedenceLowest)
-			val := unparseExpr(pair.Value, precedenceLowest)
+			key := unparseExpr(pair.Key, precedenceLowest, fullyParenthesized)
+			val := unparseExpr(pair.Value, precedenceLowest, fullyParenthesized)
 			pairs = append(pairs, key+" -> "+val)
 		}
 		return "[" + strings.Join(pairs, ", ") + "]"
@@ -314,7 +339,7 @@ func unparseExpr(expr verb.Expr, parentPrecedence int) string {
 }
 
 // unparsePropertyExpr handles property access with #0.prop → $prop conversion
-func unparsePropertyExpr(e *verb.PropertyExpr) string {
+func unparsePropertyExpr(e *verb.PropertyExpr, fullyParenthesized bool) string {
 	// Check if base is #0 (system object)
 	if lit, ok := e.Expr.(*verb.LiteralExpr); ok {
 		if lit.Kind == verb.LiteralObj && lit.ObjID == 0 && e.Property != "" {
@@ -324,24 +349,24 @@ func unparsePropertyExpr(e *verb.PropertyExpr) string {
 	}
 
 	// Otherwise use obj.property syntax
-	base := unparseExpr(e.Expr, precedenceProperty)
+	base := unparseExpr(e.Expr, precedenceProperty, fullyParenthesized)
 	if e.Property != "" {
 		return base + "." + e.Property
 	}
 	// Dynamic property
-	return base + ".(" + unparseExpr(e.PropertyExpr, precedenceLowest) + ")"
+	return base + ".(" + unparseExpr(e.PropertyExpr, precedenceLowest, fullyParenthesized) + ")"
 }
 
 // unparseBinaryExpr handles binary expressions with proper precedence
-func unparseBinaryExpr(e *verb.BinaryExpr, parentPrecedence int) string {
+func unparseBinaryExpr(e *verb.BinaryExpr, parentPrecedence int, fullyParenthesized bool) string {
 	prec := binaryPrecedence(e.Operator)
-	left := unparseExpr(e.Left, prec)
-	right := unparseExpr(e.Right, prec+1) // Right-associative for same precedence
+	left := unparseExpr(e.Left, prec, fullyParenthesized)
+	right := unparseExpr(e.Right, prec+1, fullyParenthesized) // Right-associative for same precedence
 	op := unparseBinaryOp(e.Operator)
 
 	result := left + " " + op + " " + right
 
-	if prec < parentPrecedence {
+	if prec < parentPrecedence || (fullyParenthesized && parentPrecedence != precedenceLowest) {
 		return "(" + result + ")"
 	}
 	return result
@@ -440,20 +465,20 @@ func unparseUnaryOp(op verb.UnaryOperator) string {
 }
 
 // unparseLiteral converts a literal syntax node to source representation.
-func unparseTarget(target verb.Target) string {
+func unparseTarget(target verb.Target, fullyParenthesized bool) string {
 	switch target := target.(type) {
 	case *verb.VariableTarget:
 		return canonicalIdentifierName(target.Name)
 	case *verb.PropertyTarget:
-		object := unparseExpr(target.Object, precedenceProperty)
+		object := unparseExpr(target.Object, precedenceProperty, fullyParenthesized)
 		if target.Name != "" {
 			return object + "." + target.Name
 		}
-		return object + ".(" + unparseExpr(target.NameExpr, precedenceLowest) + ")"
+		return object + ".(" + unparseExpr(target.NameExpr, precedenceLowest, fullyParenthesized) + ")"
 	case *verb.IndexTarget:
-		return unparseTarget(target.Collection) + "[" + unparseExpr(target.Index, precedenceLowest) + "]"
+		return unparseTarget(target.Collection, fullyParenthesized) + "[" + unparseExpr(target.Index, precedenceLowest, fullyParenthesized) + "]"
 	case *verb.RangeTarget:
-		return unparseTarget(target.Collection) + "[" + unparseExpr(target.Start, precedenceLowest) + ".." + unparseExpr(target.End, precedenceLowest) + "]"
+		return unparseTarget(target.Collection, fullyParenthesized) + "[" + unparseExpr(target.Start, precedenceLowest, fullyParenthesized) + ".." + unparseExpr(target.End, precedenceLowest, fullyParenthesized) + "]"
 	case *verb.DestructuringTarget:
 		bindings := make([]string, len(target.Bindings))
 		for i, binding := range target.Bindings {
@@ -463,7 +488,7 @@ func unparseTarget(target verb.Target) string {
 			case *verb.OptionalBinding:
 				bindings[i] = "?" + binding.Name
 				if binding.Default != nil {
-					bindings[i] += " = " + unparseExpr(binding.Default, precedenceLowest)
+					bindings[i] += " = " + unparseExpr(binding.Default, precedenceLowest, fullyParenthesized)
 				}
 			case *verb.RestBinding:
 				bindings[i] = "@" + binding.Name
@@ -490,7 +515,7 @@ func unparseLiteral(v *verb.LiteralExpr) string {
 	case verb.LiteralInt:
 		return strconv.FormatInt(v.IntValue, 10)
 	case verb.LiteralFloat:
-		formatted := strconv.FormatFloat(v.FloatValue, 'g', -1, 64)
+		formatted := strconv.FormatFloat(v.FloatValue, 'f', -1, 64)
 		if !strings.ContainsAny(formatted, ".eE") {
 			formatted += ".0"
 		}
@@ -529,13 +554,13 @@ func quoteMOOString(value string) string {
 }
 
 // unparseArgs converts argument expressions to a comma-separated string
-func unparseArgs(args []verb.Expr) string {
+func unparseArgs(args []verb.Expr, fullyParenthesized bool) string {
 	if len(args) == 0 {
 		return ""
 	}
 	var parts []string
 	for _, arg := range args {
-		parts = append(parts, unparseExpr(arg, precedenceLowest))
+		parts = append(parts, unparseExpr(arg, precedenceLowest, fullyParenthesized))
 	}
 	return strings.Join(parts, ", ")
 }

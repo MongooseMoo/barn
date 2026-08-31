@@ -68,7 +68,7 @@ func TestMapKeepsAdjacentFloatKeysDistinct(t *testing.T) {
 	}
 }
 
-func TestMapIntegerKeysCollideAt32BitComparatorBoundary(t *testing.T) {
+func TestMapIntegerKeysRemainDistinctAt32BitBoundary(t *testing.T) {
 	zero := NewInt(0)
 	wide := NewInt(1 << 32)
 	m := NewMap([][2]Value{
@@ -76,35 +76,37 @@ func TestMapIntegerKeysCollideAt32BitComparatorBoundary(t *testing.T) {
 		{wide, NewStr("wide")},
 	})
 
-	if got := m.Len(); got != 1 {
-		t.Fatalf("map length = %d, want 1", got)
+	if got := m.Len(); got != 2 {
+		t.Fatalf("map length = %d, want 2", got)
 	}
-	for _, key := range []Value{zero, wide} {
-		if got, ok := m.MapGet(key); !ok || got.Str() != "wide" {
-			t.Fatalf("lookup for %v = %v, %v; want wide, true", key, got, ok)
-		}
+	if got, ok := m.MapGet(zero); !ok || got.Str() != "zero" {
+		t.Fatalf("zero lookup = %v, %v; want zero, true", got, ok)
+	}
+	if got, ok := m.MapGet(wide); !ok || got.Str() != "wide" {
+		t.Fatalf("wide lookup = %v, %v; want wide, true", got, ok)
 	}
 	keys := m.Keys()
-	if len(keys) != 1 || keys[0].Type() != TYPE_INT || keys[0].Int() != 1<<32 {
-		t.Fatalf("map keys = %v, want {4294967296}", keys)
+	if len(keys) != 2 || keys[0].Int() != 0 || keys[1].Int() != 1<<32 {
+		t.Fatalf("map keys = %v, want {0, 4294967296}", keys)
 	}
 
 	m = m.MapSet(zero, NewStr("replacement"))
-	if got := m.Len(); got != 1 {
-		t.Fatalf("replacement map length = %d, want 1", got)
+	if got := m.Len(); got != 2 {
+		t.Fatalf("replacement map length = %d, want 2", got)
 	}
-	for _, key := range []Value{zero, wide} {
-		if got, ok := m.MapGet(key); !ok || got.Str() != "replacement" {
-			t.Fatalf("replacement lookup for %v = %v, %v; want replacement, true", key, got, ok)
-		}
+	if got, ok := m.MapGet(zero); !ok || got.Str() != "replacement" {
+		t.Fatalf("replacement zero lookup = %v, %v; want replacement, true", got, ok)
+	}
+	if got, ok := m.MapGet(wide); !ok || got.Str() != "wide" {
+		t.Fatalf("replacement wide lookup = %v, %v; want wide, true", got, ok)
 	}
 	keys = m.Keys()
-	if len(keys) != 1 || keys[0].Type() != TYPE_INT || keys[0].Int() != 0 {
-		t.Fatalf("replacement map keys = %v, want {0}", keys)
+	if len(keys) != 2 || keys[0].Int() != 0 || keys[1].Int() != 1<<32 {
+		t.Fatalf("replacement map keys = %v, want {0, 4294967296}", keys)
 	}
 }
 
-func TestMapObjectKeysCollideAt32BitComparatorBoundary(t *testing.T) {
+func TestMapObjectKeysRemainDistinctAt32BitBoundary(t *testing.T) {
 	small := NewObj(0)
 	large := NewObj(1 << 32)
 	if small.Equal(large) {
@@ -115,17 +117,18 @@ func TestMapObjectKeysCollideAt32BitComparatorBoundary(t *testing.T) {
 		{large, NewStr("large")},
 	})
 
-	if got := m.Len(); got != 1 {
-		t.Fatalf("map length = %d, want 1", got)
+	if got := m.Len(); got != 2 {
+		t.Fatalf("map length = %d, want 2", got)
 	}
-	for _, key := range []Value{small, large} {
-		if got, ok := m.MapGet(key); !ok || got.Str() != "large" {
-			t.Fatalf("lookup for %v = %v, %v; want large, true", key, got, ok)
-		}
+	if got, ok := m.MapGet(small); !ok || got.Str() != "small" {
+		t.Fatalf("small lookup = %v, %v; want small, true", got, ok)
+	}
+	if got, ok := m.MapGet(large); !ok || got.Str() != "large" {
+		t.Fatalf("large lookup = %v, %v; want large, true", got, ok)
 	}
 	keys := m.Keys()
-	if len(keys) != 1 || keys[0].Type() != TYPE_OBJ || keys[0].Obj() != 1<<32 {
-		t.Fatalf("map keys = %v, want {#4294967296}", keys)
+	if len(keys) != 2 || keys[0].Obj() != 0 || keys[1].Obj() != 1<<32 {
+		t.Fatalf("map keys = %v, want {#0, #4294967296}", keys)
 	}
 }
 
@@ -285,10 +288,10 @@ func TestFloatRoundTrip(t *testing.T) {
 	}
 }
 
-func TestNegativeZeroFloatLiteralIsCanonical(t *testing.T) {
+func TestNegativeZeroFloatLiteralPreservesSign(t *testing.T) {
 	negativeZero := math.Copysign(0, -1)
-	if got := NewFloat(negativeZero).String(); got != "0.0" {
-		t.Fatalf("negative zero literal = %q, want %q", got, "0.0")
+	if got := NewFloat(negativeZero).String(); got != "-0.0" {
+		t.Fatalf("negative zero literal = %q, want %q", got, "-0.0")
 	}
 }
 

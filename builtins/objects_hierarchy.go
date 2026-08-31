@@ -27,11 +27,7 @@ func builtinParent(ctx *Execution, args []types.Value) types.Result {
 
 	parentID, errCode := parentForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
-		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if isRecycledForRead(ctx, objVal.ID()) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.NewObj(parentID))
@@ -62,11 +58,7 @@ func builtinParents(ctx *Execution, args []types.Value) types.Result {
 
 	parentIDs, errCode := parentsForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
-		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if isRecycledForRead(ctx, objVal.ID()) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.NewList(objIDsToValues(parentIDs)))
@@ -97,11 +89,7 @@ func builtinChildren(ctx *Execution, args []types.Value) types.Result {
 
 	childIDs, errCode := childrenForRead(ctx, objVal.ID())
 	if errCode != types.E_NONE {
-		// Check if recycled (E_INVARG) vs never existed (E_INVIND)
-		if isRecycledForRead(ctx, objVal.ID()) {
-			return types.Err(types.E_INVARG)
-		}
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	return types.Ok(types.NewList(objIDsToValues(childIDs)))
@@ -145,7 +133,7 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if !validForRead(ctx, objVal.ID()) {
-		return types.Err(types.E_INVIND)
+		return types.Err(types.E_INVARG)
 	}
 
 	// Check for cycles BEFORE validating new parent existence
@@ -653,7 +641,11 @@ func builtinNextRecycledObject(ctx *Execution, args []types.Value) types.Result 
 		return types.Err(errCode)
 	}
 	upper := store.NextID()
-	for id := start + 1; id < upper; id++ {
+	scanStart := start + 1
+	if len(args) == 1 {
+		scanStart = start
+	}
+	for id := scanStart; id < upper; id++ {
 		if store.DirectTxn().IsRecycled(id) {
 			return types.Ok(types.NewObj(id))
 		}

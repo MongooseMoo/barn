@@ -69,8 +69,14 @@ func (vm *VM) resumeMoveLifecycle(state *task.MoveContinuationSnapshot, hookResu
 			if hookResult.Error != types.E_VERBNF {
 				return hookResult
 			}
+			if vm.Context != nil && !vm.Context.IsWizard && state.Where.ID() != types.ObjNothing {
+				return types.Err(types.E_NACC)
+			}
 		} else if !hookResult.Val.Truthy() && vm.Context != nil && !vm.Context.IsWizard {
 			return types.Err(types.E_NACC)
+		}
+		if vm.Context == nil || !vm.Context.StoreTxn.Valid(state.What.ID()) {
+			return types.Ok(types.NewInt(0))
 		}
 
 		execution := vm.Builtins.NewExecution(vm.Context, vm.Task)

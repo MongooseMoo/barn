@@ -42,6 +42,7 @@ func (vm *VM) executeCallBuiltin() error {
 	execution := vm.Builtins.NewExecution(vm.Context, vm.Task)
 	execution.PushEval = vm.pushEval
 	execution.PushMoveLifecycle = vm.startMoveLifecycle
+	execution.PushRecycleLifecycle = vm.startRecycleLifecycle
 	execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
 		CollectAnonymousRefsFromVM(vm, out)
 	}

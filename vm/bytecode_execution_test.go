@@ -242,6 +242,20 @@ func TestMapIndexAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	requireError(t, result, types.E_QUOTA)
 }
 
+func TestMapLiteralUsesPendingMapValueByteLimit(t *testing.T) {
+	ctx := kernel.NewTaskContext()
+	resultMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(1)}})
+	ctx.PendingEffects = []kernel.PendingEffect{{
+		Kind: kernel.PendingEffectServerOptions,
+		ServerOptions: kernel.PendingServerOptions{
+			MaxMapValueBytes: types.ValueBytes(resultMap) - 1,
+		},
+	}}
+
+	result := runBytecodeProgram(t, `return [1 -> 1];`, nil, ctx)
+	requireError(t, result, types.E_QUOTA)
+}
+
 func TestMapRangeAssignmentUsesPendingListValueByteLimit(t *testing.T) {
 	ctx := kernel.NewTaskContext()
 	initialMap := types.NewMap([][2]types.Value{{types.NewInt(1), types.NewInt(0)}})

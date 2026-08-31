@@ -28,6 +28,27 @@ func TestMaxObjectReturnsObjectValue(t *testing.T) {
 	}
 }
 
+func TestNextRecycledObjectIncludesSuppliedStart(t *testing.T) {
+	store := dbstore.NewStore()
+	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {
+		t.Fatalf("Add root failed: %v", err)
+	}
+	obj, errCode := store.DirectTxn().CreateObject([]types.ObjID{types.ObjNothing}, 0, false)
+	if errCode != types.E_NONE {
+		t.Fatalf("CreateObject failed: %v", errCode)
+	}
+	if err := store.Recycle(obj); err != nil {
+		t.Fatalf("Recycle failed: %v", err)
+	}
+
+	ctx := newTestExecutionForSession(NewSession(NewRegistry(), NoHost()))
+	ctx.Store = store
+	result := builtinNextRecycledObject(ctx, []types.Value{types.NewObj(obj)})
+	if result.IsError() || result.Val.Type() != types.TYPE_OBJ || result.Val.Obj() != obj {
+		t.Fatalf("next_recycled_object(#%d) = %+v, want #%d", obj, result, obj)
+	}
+}
+
 func TestMoveInvalidObjectsReturnInvarg(t *testing.T) {
 	store := dbstore.NewStore()
 	if err := store.Add(dbstore.NewObject(0, 0)); err != nil {

@@ -65,6 +65,36 @@ func TestFormatMOOPreservesMOOStringLiteralBytes(t *testing.T) {
 	}
 }
 
+func TestFormatMOOToastDecompileForms(t *testing.T) {
+	tests := []struct {
+		name       string
+		source     string
+		fullyParen bool
+		want       []string
+	}{
+		{"elseif", "if (1) elseif (2) else endif", false, []string{"if (1)", "elseif (2)", "endif"}},
+		{"fixed float", "return 1.5e10;", false, []string{"return 15000000000.0;"}},
+		{"precedence", "return 1 + 2 * 3;", true, []string{"return 1 + (2 * 3);"}},
+		{"logical", "return 1 == 2 && 3 || 4;", true, []string{"return ((1 == 2) && 3) || 4;"}},
+		{"unary", "return !1 + 2;", true, []string{"return (!1) + 2;"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			program, err := parser.NewParser(tt.source).ParseProgram()
+			if err != nil {
+				t.Fatalf("ParseProgram() error = %v", err)
+			}
+			got := parser.FormatMOO(program)
+			if tt.fullyParen {
+				got = parser.FormatMOOFullyParenthesized(program)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("formatted = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func mooStringLiteral(value string) string {
 	var literal strings.Builder
 	literal.WriteByte('"')

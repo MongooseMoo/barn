@@ -182,6 +182,14 @@ func builtinTofloat(ctx *Execution, args []types.Value) types.Result {
 		// E_INVARG (as is an out-of-range magnitude, which ParseFloat already
 		// reports via err).
 		str := strings.TrimSpace(val.Str())
+		if strings.HasPrefix(str, "0x") || strings.HasPrefix(str, "0X") ||
+			strings.HasPrefix(str, "-0x") || strings.HasPrefix(str, "-0X") ||
+			strings.HasPrefix(str, "+0x") || strings.HasPrefix(str, "+0X") {
+			if integer, err := strconv.ParseInt(str, 0, 64); err == nil {
+				return types.Ok(types.NewFloat(float64(integer)))
+			}
+			return types.Err(types.E_INVARG)
+		}
 		f, err := strconv.ParseFloat(str, 64)
 		if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 			return types.Err(types.E_INVARG)

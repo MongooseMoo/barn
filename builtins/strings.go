@@ -131,6 +131,10 @@ func builtinIndex(ctx *Execution, args []types.Value) types.Result {
 	// which is offset in 0-based terms
 	startIdx := offset
 
+	if len(nRunes) == 0 && startIdx <= len(hRunes) {
+		return types.Ok(types.NewInt(1))
+	}
+
 	if startIdx >= len(hRunes) {
 		return types.Ok(types.NewInt(0))
 	}

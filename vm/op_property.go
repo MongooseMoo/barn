@@ -74,7 +74,7 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 			vm.Push(val)
 			return nil
 		}
-		return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+		return fmt.Errorf("E_PROPNF: Property not found: #%d.%s", objID, propName)
 	}
 
 	// Look up defined property (with inheritance via breadth-first search).
@@ -89,7 +89,7 @@ func (vm *VM) executeGetPropNamed(propName string) error {
 	}
 
 	// Property not found
-	return fmt.Errorf("E_PROPNF: property not found: %s", propName)
+	return fmt.Errorf("E_PROPNF: Property not found: #%d.%s", objID, propName)
 }
 
 // getWaifProp handles property read on a waif value.

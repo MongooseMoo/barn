@@ -3,6 +3,7 @@ package vm
 import (
 	"fmt"
 
+	"github.com/MongooseMoo/barn/bytecode"
 	"github.com/MongooseMoo/barn/trace"
 	"github.com/MongooseMoo/barn/types"
 )
@@ -96,6 +97,19 @@ func (vm *VM) Return(value types.Value) error {
 	}
 
 	frame := vm.Frames[len(vm.Frames)-1]
+	for i := len(frame.ExceptStack) - 1; i >= 0; i-- {
+		handler := frame.ExceptStack[i]
+		if handler.Type != bytecode.HandlerFinally {
+			continue
+		}
+		frame.ExceptStack = frame.ExceptStack[:i]
+		frame.PendingReturn = value
+		frame.HasPendingReturn = true
+		vm.SP = handler.StackDepth
+		frame.IP = handler.HandlerIP
+		return nil
+	}
+	frame.HasPendingReturn = false
 	vm.collectPendingWaifsFromFrame(frame)
 
 	// Eval frame returning normally: wrap result in {1, value}
@@ -138,6 +152,7 @@ func (vm *VM) Return(value types.Value) error {
 	}
 
 	continuation := frame.MoveContinuation
+	recycleContinuation := frame.RecycleContinuation
 	vm.SP = frame.BasePointer
 	vm.popFrame()
 	if continuation != nil {
@@ -152,6 +167,20 @@ func (vm *VM) Return(value types.Value) error {
 			return nil
 		default:
 			return fmt.Errorf("unexpected move continuation flow %d", result.Flow)
+		}
+	}
+	if recycleContinuation != nil {
+		result := vm.resumeRecycleLifecycle(recycleContinuation, types.Ok(value))
+		switch result.Flow {
+		case types.FlowException:
+			return VMException{Code: result.Error, Value: result.Val}
+		case types.FlowBuiltinPush:
+			return nil
+		case types.FlowNormal, types.FlowReturn:
+			vm.Push(result.Val)
+			return nil
+		default:
+			return fmt.Errorf("unexpected recycle continuation flow %d", result.Flow)
 		}
 	}
 	if !frame.DiscardReturn {

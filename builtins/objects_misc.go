@@ -111,7 +111,7 @@ func builtinNewWaif(ctx *Execution, args []types.Value) types.Result {
 
 	// Caller must be a valid object (not $nothing or invalid)
 	if callerID < 0 {
-		return types.Err(types.E_INVARG)
+		return types.Err(types.E_INVIND)
 	}
 
 	// Check if class object is valid
@@ -156,11 +156,7 @@ func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVIND)
 	}
 	if !validForRead(ctx, objID) {
-		// Check if recycled vs never existed
-		if isRecycledForRead(ctx, objID) {
-			return types.Err(types.E_INVIND)
-		}
-		return types.Err(types.E_INVARG)
+		return types.Err(types.E_INVIND)
 	}
 
 	// Check wizard permissions

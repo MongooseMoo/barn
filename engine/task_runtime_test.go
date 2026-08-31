@@ -2,6 +2,7 @@ package engine
 
 import (
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -262,5 +263,44 @@ func TestForkedTaskRequeuesAcrossSuspendAndCreatesNestedFork(t *testing.T) {
 	}
 	if forkedCount != 2 {
 		t.Fatalf("forked task count = %d, want 2", forkedCount)
+	}
+}
+
+func TestSuspendFinalizesReleasedWaifBeforeResume(t *testing.T) {
+	store := dbstore.NewStore()
+	root := dbstore.NewObjectBuilder(0)
+	root.SetOwner(0)
+	root.SetLocation(types.ObjNothing)
+	root.SetFlags(dbstore.FlagWizard | dbstore.FlagProgrammer | dbstore.FlagUser)
+	if err := store.Add(root.Build()); err != nil {
+		t.Fatalf("add root: %v", err)
+	}
+	if errCode := store.DirectTxn().DefineProperty(0, "waif_recycle_log", dbstore.NewProperty(types.NewList(nil), 0, dbstore.PropRead|dbstore.PropWrite, false, true)); errCode != types.E_NONE {
+		t.Fatalf("define recycle log: %v", errCode)
+	}
+
+	s := NewRuntime(store)
+	t.Cleanup(s.Stop)
+	program := compileTestProgram(t, s.registry, strings.Join([]string{
+		"c = create(-1);",
+		`add_verb(c, {#0, "xd", ":recycle"}, {"this", "none", "this"});`,
+		`set_verb_code(c, ":recycle", {"#0.waif_recycle_log = {@#0.waif_recycle_log, typeof(this) == WAIF};"});`,
+		`add_verb(c, {#0, "xd", "new"}, {"this", "none", "this"});`,
+		`set_verb_code(c, "new", {"return new_waif();"});`,
+		"w = c:new();",
+		"w = 0;",
+		"suspend(0);",
+		"return #0.waif_recycle_log;",
+	}, "\n"))
+	taskID := s.CreateBackgroundTask(0, program, 0)
+	running := s.GetTask(taskID)
+	running.Context.IsWizard = true
+	for pass := 0; pass < 8 && running.GetState() != task.TaskCompleted && running.GetState() != task.TaskKilled; pass++ {
+		if processed := s.ProcessReadyTasks(); processed == 0 {
+			t.Fatalf("task made no progress in state %v", running.GetState())
+		}
+	}
+	if got := running.Result; got.Flow != types.FlowReturn || got.Val.String() != "{1}" {
+		t.Fatalf("released waif recycle log = %+v, want {1}", got)
 	}
 }

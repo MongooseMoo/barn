@@ -21,6 +21,7 @@ type Execution struct {
 	Session              *Session
 	PushEval             func(*bytecode.Program) types.Result
 	PushMoveLifecycle    func(MoveLifecycleRequest) types.Result
+	PushRecycleLifecycle func(RecycleLifecycleRequest) types.Result
 	CollectAnonymousRefs func(map[types.ObjID]struct{})
 	PendingFinalizations func() []types.Value
 }
@@ -405,7 +406,7 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 		inner := invoke
 		stored = func(ctx *Execution, args []types.Value) types.Result {
 			if err := validateKnownFunctionArgs(name, sig, args); err != types.E_NONE {
-				return types.Err(err)
+				return knownFunctionArgError(sig, args, err)
 			}
 			return inner(ctx, args)
 		}
@@ -513,7 +514,7 @@ func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) 
 	}
 	if e.hasSig {
 		if err := validateKnownFunctionArgs(e.name, e.sig, args); err != types.E_NONE {
-			return types.Err(err)
+			return knownFunctionArgError(e.sig, args, err)
 		}
 	}
 	return e.fn(ctx, args)

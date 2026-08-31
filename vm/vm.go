@@ -3,6 +3,7 @@ package vm
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/MongooseMoo/barn/builtins"
 	"github.com/MongooseMoo/barn/bytecode"
@@ -58,35 +59,38 @@ func (vm *VM) popFrame() {
 
 // StackFrame represents a call frame
 type StackFrame struct {
-	Program         *bytecode.Program    // Bytecode program
-	IP              int                  // Instruction pointer
-	BasePointer     int                  // Stack base for this frame
-	Locals          []types.Value        // Local variables
-	This            types.ObjID          // Current object
-	ThisValue       types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
-	Player          types.ObjID          // Player context
-	Verb            string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
-	StoredVerb      string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
-	StoredVerbNames []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
-	Caller          types.ObjID          // Calling object
-	VerbLoc         types.ObjID          // Object where the current verb is defined (for pass())
-	Args            []types.Value        // Original args passed to this verb (for pass() inheritance)
-	LoopStack       []bytecode.LoopState // Nested loop state
-	ExceptStack     []bytecode.Handler   // Exception handlers
-	PendingError    error                // Error saved during finally execution
-	VerbDebug       bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
-	DiscardReturn   bool                 // Caller consumes this verb only for side effects
+	Program          *bytecode.Program    // Bytecode program
+	IP               int                  // Instruction pointer
+	BasePointer      int                  // Stack base for this frame
+	Locals           []types.Value        // Local variables
+	This             types.ObjID          // Current object
+	ThisValue        types.Value          // Actual non-object receiver for anonymous/waif/primitive calls; None for objects
+	Player           types.ObjID          // Player context
+	Verb             string               // Verb name as invoked (the `verb` variable; used by callers()/task_stack())
+	StoredVerb       string               // Verb's stored name spec incl. wildcards (e.g. "eval*-d"); used by printed tracebacks
+	StoredVerbNames  []string             // Lazy live-frame form; verb name slices are immutable under copy-on-write storage
+	Caller           types.ObjID          // Calling object
+	VerbLoc          types.ObjID          // Object where the current verb is defined (for pass())
+	Args             []types.Value        // Original args passed to this verb (for pass() inheritance)
+	LoopStack        []bytecode.LoopState // Nested loop state
+	ExceptStack      []bytecode.Handler   // Exception handlers
+	PendingError     error                // Error saved during finally execution
+	PendingReturn    types.Value          // Return value saved during finally execution
+	HasPendingReturn bool                 // Distinguishes pending integer zero from no return
+	VerbDebug        bool                 // Verb's 'd' flag: when false, runtime errors are pushed as values instead of raising exceptions
+	DiscardReturn    bool                 // Caller consumes this verb only for side effects
 
 	// Saved context fields — restored when this frame is popped (Return / HandleError).
 	// Only set for verb-call frames (not the initial frame).
-	IsVerbCall       bool                           // True if this frame was pushed by executeCallVerb
-	IsEvalFrame      bool                           // True if this frame was pushed by eval() builtin
-	SavedThisObj     types.ObjID                    // ctx.ThisObj before verb call
-	SavedThisValue   types.Value                    // ctx.ThisValue before verb call
-	SavedVerb        string                         // ctx.Verb before verb call
-	SavedProgrammer  types.ObjID                    // ctx.Programmer before verb call
-	SavedIsWizard    bool                           // ctx.IsWizard before verb call
-	MoveContinuation *task.MoveContinuationSnapshot // move() lifecycle state owned by this verb frame
+	IsVerbCall          bool                           // True if this frame was pushed by executeCallVerb
+	IsEvalFrame         bool                           // True if this frame was pushed by eval() builtin
+	SavedThisObj        types.ObjID                    // ctx.ThisObj before verb call
+	SavedThisValue      types.Value                    // ctx.ThisValue before verb call
+	SavedVerb           string                         // ctx.Verb before verb call
+	SavedProgrammer     types.ObjID                    // ctx.Programmer before verb call
+	SavedIsWizard       bool                           // ctx.IsWizard before verb call
+	MoveContinuation    *task.MoveContinuationSnapshot // move() lifecycle state owned by this verb frame
+	RecycleContinuation *recycleContinuation           // recycle() state owned by this verb frame
 }
 
 // NewVM creates a new virtual machine
@@ -497,8 +501,12 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	// Variable operations
 	case bytecode.OP_GET_VAR:
 		idx := vm.FetchByte()
-		val := vm.CurrentFrame().Locals[idx]
+		frame := vm.CurrentFrame()
+		val := frame.Locals[idx]
 		if val.IsUnbound() {
+			if int(idx) < len(frame.Program.VarNames) {
+				return fmt.Errorf("E_VARNF: Variable not found: %s", frame.Program.VarNames[idx])
+			}
 			return MooError{Code: types.E_VARNF}
 		}
 		vm.Push(val)
@@ -707,6 +715,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		return vm.executeMakeList()
 	case bytecode.OP_MAKE_MAP:
 		return vm.executeMakeMap()
+	case bytecode.OP_CHECK_MAP_LIMIT:
+		return vm.executeCheckMapLimit()
 	case bytecode.OP_LENGTH:
 		return vm.executeLength()
 	case bytecode.OP_INDEX_MARKER:
@@ -814,9 +824,18 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 
 	// Build or augment the 4-element exception value: {code, message, value, traceback}
 	if exceptionValue.IsNone() {
+		message := errCode.Message()
+		prefix := errCode.String() + ":"
+		if detail := err.Error(); strings.HasPrefix(detail, prefix) {
+			if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
+				if !strings.EqualFold(detail, message) {
+					message = detail
+				}
+			}
+		}
 		exceptionValue = types.NewList([]types.Value{
 			types.NewErr(errCode),
-			types.NewStr(errCode.Message()),
+			types.NewStr(message),
 			types.NewInt(0),
 			traceback,
 		})
@@ -905,6 +924,7 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		// Pop the current frame (unwind): reset SP to BasePointer, remove frame.
 		// Do NOT push a return value — we're unwinding due to an error.
 		// If this was a verb-call frame, restore context and pop activation frame.
+		recycleContinuation := frame.RecycleContinuation
 		if frame.IsVerbCall && vm.Context != nil {
 			trace.Exception(frame.This, frame.Verb, errCode)
 			vm.Context.ThisObj = frame.SavedThisObj
@@ -919,6 +939,15 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		}
 		vm.SP = frame.BasePointer
 		vm.popFrame()
+		if recycleContinuation != nil {
+			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
+				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
+			})
+			if result.Flow == types.FlowException {
+				errCode = result.Error
+				exceptionValue = result.Val
+			}
+		}
 		// Continue searching in the caller frame
 	}
 

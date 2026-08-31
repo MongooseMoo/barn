@@ -476,19 +476,19 @@ func builtinTime(ctx *Execution, args []types.Value) types.Result {
 
 // builtinFtime implements ftime([time])
 // Returns current time as float (seconds since epoch with fractional seconds)
-// If time is provided, returns that time as a float
+// If an argument is provided, Toast returns its monotonic process clock.
+var ftimeEpoch = time.Now()
+
 func builtinFtime(ctx *Execution, args []types.Value) types.Result {
 	if len(args) == 0 {
 		now := time.Now()
 		secs := float64(now.Unix()) + float64(now.Nanosecond())/1e9
 		return types.Ok(types.NewFloat(secs))
 	} else if len(args) == 1 {
-		switch args[0].Type() {
-		case types.TYPE_INT:
-			return types.Ok(types.NewFloat(float64(args[0].Int())))
-		default:
+		if args[0].Type() != types.TYPE_INT {
 			return types.Err(types.E_TYPE)
 		}
+		return types.Ok(types.NewFloat(time.Since(ftimeEpoch).Seconds()))
 	}
 	return types.Err(types.E_ARGS)
 }
@@ -506,6 +506,13 @@ func builtinCtime(ctx *Execution, args []types.Value) types.Result {
 		} else {
 			return types.Err(types.E_TYPE)
 		}
+	}
+	const maxCtime = int64(2147483647) * 31536000
+	if timestamp < -maxCtime {
+		return types.Err(types.E_INVARG)
+	}
+	if timestamp > maxCtime {
+		timestamp = maxCtime
 	}
 	t := time.Unix(timestamp, 0)
 	// MOO format matches Toast's ctime: "Sun Dec 26 22:30:00 2025 MST" — the
@@ -533,6 +540,9 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 		types.NewList([]types.Value{types.NewStr("prerelease"), types.NewStr("barn")}),
 		types.NewList([]types.Value{types.NewStr("string"), types.NewStr(versionString)}),
 		types.NewList([]types.Value{types.NewStr("features"), features}),
+		types.NewList([]types.Value{types.NewStr("runtime"), types.NewStr("go")}),
+		types.NewList([]types.Value{types.NewStr("platform"), types.NewStr(runtime.GOOS)}),
+		types.NewList([]types.Value{types.NewStr("architecture"), types.NewStr(runtime.GOARCH)}),
 	}
 
 	if len(args) == 0 {
@@ -710,7 +720,7 @@ func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	// ToastStunt returns five integers from /proc/self/statm (page counts):
+	// ToastStunt returns five floats from /proc/self/statm (page counts):
 	// total program size, resident set size, shared pages, text, and data.
 	// Barn reports the closest Go-runtime equivalents so the five-element shape
 	// matches on every platform.
@@ -726,7 +736,7 @@ func builtinMemoryUsage(ctx *Execution, args []types.Value) types.Result {
 	}
 	out := make([]types.Value, len(vals))
 	for i, v := range vals {
-		out[i] = types.NewInt(v)
+		out[i] = types.NewFloat(float64(v))
 	}
 	return types.Ok(types.NewList(out))
 }
