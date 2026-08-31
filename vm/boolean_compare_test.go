@@ -27,3 +27,28 @@ func TestBooleanValuesCompareEqualForRelationalOrdering(t *testing.T) {
 		})
 	}
 }
+
+func TestBooleanIntegerEqualityAndMembershipUseMOOEquivalence(t *testing.T) {
+	result := runBytecodeProgram(t, `return {
+		0 == false,
+		equal(0, false),
+		false in {0, false},
+		is_member(false, {0, false}),
+		is_member(false, {0, false}, 0),
+		1 == true,
+		equal(1, true),
+		true in {1, true},
+		is_member(true, {1, true}),
+		is_member(true, {1, true}, 0)
+	};`, nil, strictCtx())
+	if result.Flow != types.FlowReturn {
+		t.Fatalf("flow = %v error = %v, want return", result.Flow, result.Error)
+	}
+	want := types.NewList([]types.Value{
+		types.NewInt(1), types.NewInt(1), types.NewInt(1), types.NewInt(1), types.NewInt(1),
+		types.NewInt(1), types.NewInt(1), types.NewInt(1), types.NewInt(1), types.NewInt(1),
+	})
+	if !result.Val.Equal(want) {
+		t.Fatalf("result = %s, want %s", result.Val.String(), want.String())
+	}
+}

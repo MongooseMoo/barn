@@ -314,6 +314,10 @@ func builtinEqual(ctx *Execution, args []types.Value) types.Result {
 // strictEqual performs case-sensitive deep equality comparison
 // This is used by equal() builtin, not by == operator
 func strictEqual(a, b types.Value) bool {
+	if equal, handled := types.BoolIntEqual(a, b); handled {
+		return equal
+	}
+
 	// For maps, do case-sensitive comparison of keys and values
 	if a.Type() == types.TYPE_MAP && b.Type() == types.TYPE_MAP {
 		if a.Len() != b.Len() {

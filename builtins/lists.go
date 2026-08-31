@@ -308,6 +308,9 @@ func builtinIsMember(ctx *Execution, args []types.Value) types.Result {
 }
 
 func memberEqual(a, b types.Value, caseMatters bool) bool {
+	if equal, handled := types.BoolIntEqual(a, b); handled {
+		return equal
+	}
 	if caseMatters {
 		return strictEqual(a, b)
 	}

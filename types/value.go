@@ -216,6 +216,30 @@ func formatFloat(f float64) string {
 
 // ---- equality ----------------------------------------------------------
 
+// BoolIntEqual implements MOO's Boolean/integer equivalence for language
+// equality and membership: false equals 0 and true equals 1. The handled
+// result is false when the pair is not one Boolean and one integer.
+func BoolIntEqual(left, right Value) (equal bool, handled bool) {
+	leftIsBool := left.Type() == TYPE_BOOL
+	rightIsBool := right.Type() == TYPE_BOOL
+	leftIsInt := left.Type() == TYPE_INT
+	rightIsInt := right.Type() == TYPE_INT
+
+	if leftIsBool && rightIsInt {
+		if left.Bool() {
+			return right.Int() == 1, true
+		}
+		return right.Int() == 0, true
+	}
+	if leftIsInt && rightIsBool {
+		if right.Bool() {
+			return left.Int() == 1, true
+		}
+		return left.Int() == 0, true
+	}
+	return false, false
+}
+
 // Equal implements MOO deep equality. Distinct types are never equal (int 1,
 // float 1.0 and str "1" are all different); strings compare case-insensitively;
 // NaN is never equal to anything (IEEE 754).

@@ -217,6 +217,9 @@ func builtinRindex(ctx *Execution, args []types.Value) types.Result {
 			return types.Ok(types.NewInt(0))
 		}
 	}
+	if endPos < len(nRunes) {
+		return types.Ok(types.NewInt(0))
+	}
 
 	// Search backwards from endPos
 	startSearch := endPos - len(nRunes)

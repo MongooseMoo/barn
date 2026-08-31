@@ -135,3 +135,18 @@ func TestSubstituteUnusedCaptureSubstitutesEmptyString(t *testing.T) {
 		t.Fatalf("substitute result = %q, want group=[]", got)
 	}
 }
+
+func TestRindexNegativeOffsetBeforeNeedleReturnsZero(t *testing.T) {
+	result := builtinRindex(newTestExecution(), []types.Value{
+		types.NewStr("aaaa"),
+		types.NewStr("aa"),
+		types.NewInt(0),
+		types.NewInt(-4),
+	})
+	if !result.IsNormal() {
+		t.Fatalf("builtinRindex flow = %v error = %v, want normal", result.Flow, result.Error)
+	}
+	if got := result.Val.Int(); got != 0 {
+		t.Fatalf("builtinRindex = %d, want 0", got)
+	}
+}

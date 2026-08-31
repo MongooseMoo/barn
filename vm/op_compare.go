@@ -8,31 +8,10 @@ import (
 
 // Comparison operations
 
-func boolIntEqual(left, right types.Value) (bool, bool) {
-	leftIsBool := left.Type() == types.TYPE_BOOL
-	rightIsBool := right.Type() == types.TYPE_BOOL
-	leftIsInt := left.Type() == types.TYPE_INT
-	rightIsInt := right.Type() == types.TYPE_INT
-
-	if leftIsBool && rightIsInt {
-		if left.Bool() {
-			return right.Int() == 1, true
-		}
-		return right.Int() == 0, true
-	}
-	if leftIsInt && rightIsBool {
-		if right.Bool() {
-			return left.Int() == 1, true
-		}
-		return left.Int() == 0, true
-	}
-	return false, false
-}
-
 func (vm *VM) executeEq() error {
 	b := vm.Pop()
 	a := vm.Pop()
-	if eq, ok := boolIntEqual(a, b); ok {
+	if eq, ok := types.BoolIntEqual(a, b); ok {
 		if eq {
 			vm.Push(types.NewInt(1))
 		} else {
@@ -59,7 +38,7 @@ func (vm *VM) executeEq() error {
 func (vm *VM) executeNe() error {
 	b := vm.Pop()
 	a := vm.Pop()
-	if eq, ok := boolIntEqual(a, b); ok {
+	if eq, ok := types.BoolIntEqual(a, b); ok {
 		if eq {
 			vm.Push(types.NewInt(0))
 		} else {
@@ -161,6 +140,13 @@ func (vm *VM) executeIn() error {
 	case types.TYPE_LIST:
 		for i := 1; i <= collection.Len(); i++ {
 			item := collection.Get(i)
+			if eq, handled := types.BoolIntEqual(element, item); handled {
+				if eq {
+					vm.Push(types.NewInt(int64(i)))
+					return nil
+				}
+				continue
+			}
 			// PROMOTE_NUMBERS: mixed int/float membership compares as doubles
 			// (mongoose utils.cc coercion; `1 in {1.0}` is 1 under promote).
 			if eq, handled := vm.promoteNumericEqual(element, item); handled {
@@ -203,6 +189,13 @@ func (vm *VM) executeIn() error {
 		// keys are not searched. (Review finding F27 mis-claimed key search.)
 		pairs := collection.Pairs()
 		for i, pair := range pairs {
+			if eq, handled := types.BoolIntEqual(element, pair[1]); handled {
+				if eq {
+					vm.Push(types.NewInt(int64(i + 1)))
+					return nil
+				}
+				continue
+			}
 			// PROMOTE_NUMBERS: mixed int/float values also match (see LIST case).
 			if eq, handled := vm.promoteNumericEqual(element, pair[1]); handled {
 				if eq {
