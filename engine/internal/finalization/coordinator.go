@@ -14,12 +14,15 @@ import (
 )
 
 // PendingWaif is one deferred waif liveness request and its captured roots.
+// DirectRoots are the owning VM's direct finalizable references, captured at
+// defer time; they are canonicalized against persistent state only if a
+// shutdown claims them before the deferred sweep runs.
 type PendingWaif struct {
-	Waif          types.Value
-	Ctx           *kernel.TaskContext
-	Task          *task.Task
-	OwnRefs       []types.Value
-	ShutdownRoots []types.Value
+	Waif        types.Value
+	Ctx         *kernel.TaskContext
+	Task        *task.Task
+	OwnRefs     []types.Value
+	DirectRoots vm.DirectFinalizationRoots
 }
 
 // Coordinator owns the state connecting physical VM execution, root capture,

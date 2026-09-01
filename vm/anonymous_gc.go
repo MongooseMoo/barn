@@ -233,6 +233,31 @@ func expandAnonymousReachability(store *dbstore.Store, tx *dbstore.StoreTxn, rea
 	}
 }
 
+// DirectFinalizationRoots are the anonymous-object ids and WAIF values a VM
+// holds directly (frames, stack, pending lists). Capturing them is cheap and
+// must happen on the goroutine that owns the VM, before it is released;
+// reducing them to canonical roots walks persistent state and can run later.
+type DirectFinalizationRoots struct {
+	AnonRefs map[types.ObjID]struct{}
+	Waifs    []types.Value
+}
+
+// Empty reports whether the VM held no finalizable value at all.
+func (r DirectFinalizationRoots) Empty() bool {
+	return len(r.AnonRefs) == 0 && len(r.Waifs) == 0
+}
+
+// CollectDirectFinalizationRoots snapshots the direct anonymous and WAIF
+// identities held by a live VM without touching the store.
+func CollectDirectFinalizationRoots(exec *VM) DirectFinalizationRoots {
+	if exec == nil {
+		return DirectFinalizationRoots{}
+	}
+	direct := DirectFinalizationRoots{AnonRefs: make(map[types.ObjID]struct{})}
+	collectDirectFinalizationRootsFromVM(exec, direct.AnonRefs, &direct.Waifs)
+	return direct
+}
+
 // CollectPendingFinalizationValues snapshots direct anonymous and WAIF identities
 // held by a live VM. Nested graphs are reduced to one covering root so a child
 // WAIF retained by its parent is not promoted to a second top-level finalization.
@@ -240,10 +265,22 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 	if store == nil || exec == nil {
 		return nil
 	}
+	return CanonicalizePendingFinalizationValues(store, CollectDirectFinalizationRoots(exec))
+}
 
-	refs := make(map[types.ObjID]struct{})
-	var waifs []types.Value
-	collectDirectFinalizationRootsFromVM(exec, refs, &waifs)
+// CanonicalizePendingFinalizationValues reduces direct roots to the canonical
+// pending-finalization values: anonymous objects not persistently reachable, and
+// WAIFs not covered by persistent state or by another root's closure. This is
+// the expensive half — it walks every persistent property tree — so it runs
+// only when the roots are actually needed (shutdown), never on the per-task
+// deferral path.
+func CanonicalizePendingFinalizationValues(store *dbstore.Store, direct DirectFinalizationRoots) []types.Value {
+	if store == nil || direct.Empty() {
+		return nil
+	}
+
+	refs := direct.AnonRefs
+	waifs := direct.Waifs
 	candidates := pendingFinalizationValues(store, refs)
 	type candidateRoot struct {
 		value   types.Value
@@ -282,9 +319,10 @@ func CollectPendingFinalizationValues(store *dbstore.Store, exec *VM) []types.Va
 }
 
 func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []types.Value {
-	var persistentClosure []types.Value
+	// covered starts as the persistent closure and grows as roots are chosen.
+	covered := types.NewWaifSet(nil)
 	for _, root := range persistent {
-		collectWaifsForGC(root, &persistentClosure)
+		collectWaifsInto(root, covered)
 	}
 	type candidateRoot struct {
 		value   types.Value
@@ -293,12 +331,12 @@ func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []ty
 	}
 	ordered := make([]candidateRoot, 0, len(candidates))
 	for index, candidate := range candidates {
-		if candidate.Type() != types.TYPE_WAIF || waifValueInListInternal(candidate, persistentClosure) {
+		if candidate.Type() != types.TYPE_WAIF || covered.Has(candidate) {
 			continue
 		}
-		var closure []types.Value
-		collectWaifsForGC(candidate, &closure)
-		ordered = append(ordered, candidateRoot{value: candidate, closure: closure, order: index})
+		closure := types.NewWaifSet(nil)
+		collectWaifsInto(candidate, closure)
+		ordered = append(ordered, candidateRoot{value: candidate, closure: closure.Values, order: index})
 	}
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if len(ordered[i].closure) != len(ordered[j].closure) {
@@ -306,29 +344,17 @@ func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []ty
 		}
 		return ordered[i].order < ordered[j].order
 	})
-	covered := append([]types.Value(nil), persistentClosure...)
 	roots := make([]types.Value, 0, len(ordered))
 	for _, candidate := range ordered {
-		if waifValueInListInternal(candidate.value, covered) {
+		if covered.Has(candidate.value) {
 			continue
 		}
 		roots = append(roots, candidate.value)
 		for _, value := range candidate.closure {
-			if !waifValueInListInternal(value, covered) {
-				covered = append(covered, value)
-			}
+			covered.Add(value)
 		}
 	}
 	return roots
-}
-
-func waifValueInListInternal(needle types.Value, values []types.Value) bool {
-	for _, value := range values {
-		if value.Type() == types.TYPE_WAIF && value.Equal(needle) {
-			return true
-		}
-	}
-	return false
 }
 
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {

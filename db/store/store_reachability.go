@@ -250,57 +250,62 @@ func (s *Store) AnonymousRecycleCandidates(reachable map[types.ObjID]struct{}, m
 	return candidates
 }
 
-func collectWaifsFromValue(value types.Value, out *[]types.Value) {
-	collectWaifsFromValueVisited(value, out, nil)
-}
-
-func collectWaifsFromValueVisited(value types.Value, out *[]types.Value, visited map[types.WaifIdentity]struct{}) {
+// collectWaifsInto records every waif reachable from value (through lists,
+// maps, and waif properties) in set. A waif already present is not re-expanded,
+// which also terminates on cyclic waif graphs.
+func collectWaifsInto(value types.Value, set *types.WaifSet) {
 	switch value.Type() {
 	case types.TYPE_WAIF:
-		if !finalizationValueInList(value, *out) {
-			*out = append(*out, value)
-		}
-		identity := value.WaifIdentity()
-		if _, seen := visited[identity]; seen {
+		if !set.Add(value) {
 			return
 		}
-		if visited == nil {
-			visited = make(map[types.WaifIdentity]struct{})
-		}
-		visited[identity] = struct{}{}
 		for _, name := range value.PropertyNames() {
 			if property, ok := value.GetProperty(name); ok {
-				collectWaifsFromValueVisited(property, out, visited)
+				collectWaifsInto(property, set)
 			}
 		}
 	case types.TYPE_LIST:
+		if !value.MayHoldFinalizable() {
+			return
+		}
 		for _, elem := range value.Elements() {
-			collectWaifsFromValueVisited(elem, out, visited)
+			collectWaifsInto(elem, set)
 		}
 	case types.TYPE_MAP:
+		if !value.MayHoldFinalizable() {
+			return
+		}
 		for _, pair := range value.Pairs() {
-			collectWaifsFromValueVisited(pair[0], out, visited)
-			collectWaifsFromValueVisited(pair[1], out, visited)
+			collectWaifsInto(pair[0], set)
+			collectWaifsInto(pair[1], set)
 		}
 	}
 }
 
+// PersistentWaifRoots returns every waif reachable from a live object's
+// property values, deduplicated by identity. One shared set keeps the whole
+// walk linear in the number of waif references in the database.
 func (s *Store) PersistentWaifRoots() []types.Value {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	roots := make([]types.Value, 0)
+	roots := types.NewWaifSet(nil)
 	s.dir.forEach(func(_ types.ObjID, slot *objectSlot) bool {
 		obj := slot.ptr.Load()
 		if obj == nil || !validLiveObject(obj) {
 			return true
 		}
 		for _, prop := range obj.properties {
-			collectWaifsFromValue(prop.value, &roots)
+			if prop.value.MayHoldFinalizable() {
+				collectWaifsInto(prop.value, roots)
+			}
 		}
 		return true
 	})
-	return roots
+	if roots.Values == nil {
+		return []types.Value{}
+	}
+	return roots.Values
 }
 
 // LocalProperty returns a copy of the property slot defined on the object
