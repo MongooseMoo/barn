@@ -126,6 +126,13 @@ func (vm *VM) checkFrameLimit() error {
 // FlowException for uncaught errors, FlowSuspend when a suspend() yields control,
 // and FlowFork when a fork statement yields control.
 func (vm *VM) Run(prog *bytecode.Program) types.Result {
+	vm.beginProgram(prog)
+	return vm.executeLoop()
+}
+
+// beginProgram pushes the initial (non-verb) frame for prog and primes the
+// tick balance, leaving the VM ready for executeLoop or Step-driven execution.
+func (vm *VM) beginProgram(prog *bytecode.Program) {
 	vm.ensureContextDependencies()
 
 	// Create initial frame
@@ -150,8 +157,6 @@ func (vm *VM) Run(prog *bytecode.Program) types.Result {
 	vm.pushFrame(frame)
 	vm.FP = 0
 	vm.syncContextTicks()
-
-	return vm.executeLoop()
 }
 
 // RunWithVerbContext executes a program with verb context variables pre-populated
@@ -182,6 +187,24 @@ func (vm *VM) syncContextTicks() {
 		left = 0
 	}
 	vm.Context.TicksRemaining = left
+}
+
+// countTick charges one tick for a CountsTick opcode and mirrors the new
+// balance into the task context. Shared by the dispatch fast path and the
+// generic path so the accounting cannot drift between them.
+func (vm *VM) countTick() {
+	vm.Ticks++
+	vm.syncContextTicks()
+}
+
+// releaseLocal records the finalization/GC bookkeeping owed when a local
+// variable's previous value goes out of scope on assignment. Shared by the
+// SET_VAR fast path and Execute's SET_VAR case.
+func (vm *VM) releaseLocal(previous types.Value) {
+	if previous.MayHoldFinalizable() {
+		vm.collectPendingFinalizationsFromValue(previous)
+		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+	}
 }
 
 func (vm *VM) ensureContextDependencies() {
@@ -320,13 +343,114 @@ func (vm *VM) executeLoop() types.Result {
 		// Fetch the cached current frame once and dispatch the next opcode
 		// directly, avoiding repeated CurrentFrame lookups on the hottest path.
 		cur := vm.frame
-		op := bytecode.OpCode(cur.Program.Code[cur.IP])
-		cur.IP++
-		if bytecode.CountsTick(op) {
-			vm.Ticks++
-			vm.syncContextTicks()
+		code := cur.Program.Code
+		ip := cur.IP
+		op := bytecode.OpCode(code[ip])
+		var err error
+
+		// DISPATCH FAST PATH. The opcodes below make up essentially every hot
+		// loop the compiler emits (see the bench corpus in perf_bench_test.go).
+		// Handling them here, with code/ip held in locals, avoids the call into
+		// Execute -- whose single giant switch costs a ~240-byte frame plus
+		// operand re-derivation through vm.frame on every instruction.
+		//
+		// Contract: a case only PEEKS operands until it is certain it handles
+		// the instruction completely; then it commits (cur.IP, stack, locals)
+		// and continues. On any guard failure it falls through untouched to the
+		// generic path, so every error, promotion, and edge case is still served
+		// by the one implementation in Execute. Shared bookkeeping (releaseLocal,
+		// countTick, wideOperand) is factored so the two paths cannot drift.
+		//
+		// Ticks are charged only by CountsTick opcodes; of those, only the two
+		// loop back-edges are fast-pathed, and they check the limit themselves.
+		// Nothing here can set vm.yielded (only suspend/fork/builtin paths do),
+		// so the yield check is skipped safely. The compiler emits only the
+		// *_WIDE control-flow forms; narrow forms stay on the generic path.
+		if bytecode.IsImmediateInt(op) {
+			vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
+			cur.IP = ip + 1
+			continue
 		}
-		err := vm.Execute(op)
+		switch op {
+		case bytecode.OP_GET_VAR:
+			v := cur.Locals[code[ip+1]]
+			if !v.IsUnbound() {
+				vm.Push(v)
+				cur.IP = ip + 2
+				continue
+			}
+		case bytecode.OP_SET_VAR:
+			idx := code[ip+1]
+			vm.releaseLocal(cur.Locals[idx])
+			cur.Locals[idx] = vm.Pop()
+			cur.IP = ip + 2
+			continue
+		case bytecode.OP_ADD, bytecode.OP_STRING_APPEND:
+			if vm.SP >= 2 {
+				a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
+					vm.Stack[vm.SP-2] = types.NewInt(a.Int() + b.Int())
+					vm.SP--
+					cur.IP = ip + 1
+					continue
+				}
+			}
+		case bytecode.OP_POP:
+			if vm.SP > 0 {
+				vm.SP--
+				cur.IP = ip + 1
+				continue
+			}
+		case bytecode.OP_JUMP_WIDE:
+			cur.IP = ip + 5 + wideOperand(code, ip+1)
+			continue
+		case bytecode.OP_JUMP_IF_FALSE_WIDE:
+			if vm.SP > 0 {
+				vm.SP--
+				next := ip + 5
+				if !vm.Stack[vm.SP].Truthy() {
+					next += wideOperand(code, ip+1)
+				}
+				cur.IP = next
+				continue
+			}
+		case bytecode.OP_FOR_RANGE_CHECK_WIDE:
+			a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
+			if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
+				next := ip + 7
+				if a.Int() > b.Int() {
+					next += wideOperand(code, ip+3)
+				}
+				cur.IP = next
+				continue
+			}
+		case bytecode.OP_FOR_RANGE_NEXT_WIDE:
+			// The MaxInt64 end-bound lowering and object ranges stay generic.
+			vi := code[ip+1]
+			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
+				cur.Locals[vi] = types.NewInt(a.Int() + 1)
+				cur.IP = ip + 7 - wideOperand(code, ip+3)
+				vm.countTick()
+				if vm.Ticks < vm.TickLimit {
+					continue
+				}
+				goto tickLimit
+			}
+		case bytecode.OP_LOOP_WIDE:
+			cur.IP = ip + 5 - wideOperand(code, ip+1)
+			vm.countTick()
+			if vm.Ticks < vm.TickLimit {
+				continue
+			}
+			goto tickLimit
+		}
+
+		// GENERIC PATH.
+		cur.IP = ip + 1
+		if bytecode.CountsTick(op) {
+			vm.countTick()
+		}
+		err = vm.Execute(op)
 		if err != nil {
 			// Verb debug flag check: when the current frame's VerbDebug is false,
 			// push the error as a value instead of propagating it as an exception.
@@ -394,6 +518,7 @@ func (vm *VM) executeLoop() types.Result {
 		}
 
 		// Check tick limit
+	tickLimit:
 		if vm.Ticks >= vm.TickLimit {
 			line := vm.CurrentLine()
 			_ = vm.annotateError(fmt.Errorf("E_MAXREC: tick limit exceeded"), line)
@@ -476,8 +601,7 @@ func (vm *VM) Step() error {
 
 	// Count ticks for expensive operations
 	if bytecode.CountsTick(op) {
-		vm.Ticks++
-		vm.syncContextTicks()
+		vm.countTick()
 	}
 
 	return vm.Execute(op)
@@ -520,11 +644,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 	case bytecode.OP_SET_VAR:
 		idx := vm.FetchByte()
 		frame := vm.CurrentFrame()
-		previous := frame.Locals[idx]
-		if previous.MayHoldFinalizable() {
-			vm.collectPendingFinalizationsFromValue(previous)
-			collectDirectWaifsForGC(previous, &vm.PendingWaifs)
-		}
+		vm.releaseLocal(frame.Locals[idx])
 		frame.Locals[idx] = vm.Pop()
 
 	// Property operations
