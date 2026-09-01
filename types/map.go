@@ -36,7 +36,11 @@ type goMap struct {
 	finalizable int8
 }
 
-func (m *goMap) mayHoldFinalizable() bool {
+// finalizableState returns the cached tri-state, resolving finalizableUnknown
+// with a single scan. Derived maps (set/delete) start from this resolved state
+// so a clean proof propagates along a chain of updates; see
+// (*sliceList).finalizableState for why the raw field is not enough.
+func (m *goMap) finalizableState() int8 {
 	if m.finalizable == finalizableUnknown {
 		state := finalizableNone
 		for _, e := range m.pairs {
@@ -47,7 +51,11 @@ func (m *goMap) mayHoldFinalizable() bool {
 		}
 		m.finalizable = state
 	}
-	return m.finalizable == finalizableMaybe
+	return m.finalizable
+}
+
+func (m *goMap) mayHoldFinalizable() bool {
+	return m.finalizableState() == finalizableMaybe
 }
 
 type toastLookupNode struct {
@@ -282,7 +290,7 @@ func (m *goMap) set(k, v Value) *goMap {
 		newOrder[len(m.order)] = hash
 	}
 
-	fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizable), k), v)
+	fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizableState()), k), v)
 	return &goMap{order: newOrder, pairs: newPairs, finalizable: fin}
 }
 
@@ -306,7 +314,7 @@ func (m *goMap) delete(k Value) *goMap {
 		}
 	}
 
-	return &goMap{order: newOrder, pairs: newPairs, finalizable: finalizableAfterRemove(m.finalizable)}
+	return &goMap{order: newOrder, pairs: newPairs, finalizable: finalizableAfterRemove(m.finalizableState())}
 }
 
 func (m *goMap) keys() []Value {
