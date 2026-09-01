@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -71,6 +72,10 @@ func NewServerWithOptions(dbPath string, listenerSpecs []listener.Spec, checkpoi
 	}
 	if err := options.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid runtime options: %w", err)
+	}
+	dbPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -155,6 +160,7 @@ func (s *Server) LoadDatabase() error {
 	// dump_database() does not report success until the requested checkpoint is
 	// durable and available for managed restart adoption.
 	host.Checkpoint = func() error { return s.checkpoint() }
+	host.DatabaseDiskSize = s.databaseDiskSize
 	host.Shutdown = func(execution *builtins.Execution, message string, unclean bool) error {
 		var ctx *kernel.TaskContext
 		var callerRoots []types.Value
