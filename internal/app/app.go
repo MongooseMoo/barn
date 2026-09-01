@@ -143,6 +143,7 @@ type Config struct {
 	TraceEnabled                                                               bool
 	TraceFilter                                                                string
 	VerbCode, ListVerbs, ObjectInfo, Eval, DumpObjectRaw, VerbLookup, Ancestry string
+	EvalFile                                                                   string
 	DumpPath                                                                   string
 	CheckpointInterval                                                         int
 	PromoteNumbers                                                             bool
@@ -202,7 +203,7 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 	if cfg.DumpPath != "" {
 		return dbtool.DumpDatabase(cfg.DatabasePath, cfg.DumpPath)
 	}
-	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
+	if cfg.VerbCode != "" || cfg.ListVerbs != "" || cfg.ObjectInfo != "" || cfg.Eval != "" || cfg.EvalFile != "" || cfg.DumpObjectRaw != "" || cfg.VerbLookup != "" || cfg.Ancestry != "" {
 		database, err := dbformat.LoadDatabase(cfg.DatabasePath)
 		if err != nil {
 			return fmt.Errorf("load database: %w", err)
@@ -232,6 +233,12 @@ func Run(ctx context.Context, cfg Config, out, errOut io.Writer) error {
 		}
 		if cfg.Eval != "" {
 			err := dbtool.EvalExpression(out, errOut, store, cfg.Eval, options)
+			if err != nil {
+				return err
+			}
+		}
+		if cfg.EvalFile != "" {
+			err := dbtool.EvalFile(out, errOut, store, cfg.EvalFile, options)
 			if err != nil {
 				return err
 			}

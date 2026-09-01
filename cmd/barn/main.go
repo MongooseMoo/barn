@@ -46,6 +46,7 @@ func main() {
 	flag.StringVar(&cfg.ListVerbs, "list-verbs", "", "List all verbs on an object")
 	flag.StringVar(&cfg.ObjectInfo, "obj-info", "", "Show object info")
 	flag.StringVar(&cfg.Eval, "eval", "", "Evaluate a MOO expression")
+	flag.StringVar(&cfg.EvalFile, "eval-file", "", "Evaluate one MOO expression per line of a file")
 	flag.StringVar(&cfg.DumpObjectRaw, "dump-obj-raw", "", "Dump raw database fields for an object")
 	flag.StringVar(&cfg.VerbLookup, "verb-lookup", "", "Show where a verb would be found")
 	flag.StringVar(&cfg.Ancestry, "ancestry", "", "Show full parent chain")

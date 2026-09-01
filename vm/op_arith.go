@@ -66,11 +66,15 @@ func (vm *VM) executeAdd() error {
 	// Handle string concatenation
 	if a.Type() == types.TYPE_STR {
 		if b.Type() == types.TYPE_STR {
-			resultStr := a.Str() + b.Str()
-			if errCode := vm.Builtins.CheckStringLength(len(resultStr)); errCode != types.E_NONE {
+			if errCode := vm.Builtins.CheckStringLength(a.Len() + b.Len()); errCode != types.E_NONE {
 				return fmt.Errorf("E_QUOTA: string too long")
 			}
-			vm.Push(types.NewStr(resultStr))
+			// StrAppend reuses the accumulator's uncommitted capacity when this
+			// header owns the append frontier (amortized O(1) for the
+			// `s = s + x` idiom) and copies otherwise; aliases keep their old
+			// content. PR #204 folded OP_STRING_APPEND into this handler and
+			// lost the builder path, making the idiom O(n^2) again.
+			vm.Push(a.StrAppend(b))
 			return nil
 		}
 		if b.Type() == types.TYPE_INT {
