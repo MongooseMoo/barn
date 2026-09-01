@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MongooseMoo/barn/internal/buildinfo"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -521,11 +522,11 @@ func builtinCtime(ctx *Execution, args []types.Value) types.Result {
 }
 
 // builtinServerVersion implements server_version([key])
-// Returns server version information
-// With no args: returns version string like "1.0.0"
-// With arg: returns specific version info (not fully implemented yet)
 func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
-	const versionString = "1.0.0-barn"
+	return serverVersion(ctx, args, buildinfo.Current())
+}
+
+func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) types.Result {
 	options := ctx.RuntimeOptions
 	featureNames := options.FeatureNames()
 	featureValues := make([]types.Value, 0, len(featureNames))
@@ -534,19 +535,21 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 	}
 	features := types.NewList(featureValues)
 	versionInfo := []types.Value{
-		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(1)}),
-		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(0)}),
-		types.NewList([]types.Value{types.NewStr("patch"), types.NewInt(0)}),
-		types.NewList([]types.Value{types.NewStr("prerelease"), types.NewStr("barn")}),
-		types.NewList([]types.Value{types.NewStr("string"), types.NewStr(versionString)}),
+		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(build.Major)}),
+		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(build.Minor)}),
+		types.NewList([]types.Value{types.NewStr("patch"), types.NewInt(build.Patch)}),
+		types.NewList([]types.Value{types.NewStr("prerelease"), types.NewStr(build.Prerelease)}),
+		types.NewList([]types.Value{types.NewStr("string"), types.NewStr(build.String)}),
+		types.NewList([]types.Value{types.NewStr("revision"), types.NewStr(build.Revision)}),
+		types.NewList([]types.Value{types.NewStr("modified"), types.NewInt(boolInt(build.Modified))}),
 		types.NewList([]types.Value{types.NewStr("features"), features}),
-		types.NewList([]types.Value{types.NewStr("runtime"), types.NewStr("go")}),
+		types.NewList([]types.Value{types.NewStr("runtime"), types.NewStr(runtime.Version())}),
 		types.NewList([]types.Value{types.NewStr("platform"), types.NewStr(runtime.GOOS)}),
 		types.NewList([]types.Value{types.NewStr("architecture"), types.NewStr(runtime.GOARCH)}),
 	}
 
 	if len(args) == 0 {
-		return types.Ok(types.NewStr(versionString))
+		return types.Ok(types.NewStr(build.String))
 	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
@@ -560,15 +563,27 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 	case "":
 		return types.Ok(types.NewList(versionInfo))
 	case "major":
-		return types.Ok(types.NewInt(1))
+		return types.Ok(types.NewInt(build.Major))
 	case "minor":
-		return types.Ok(types.NewInt(0))
+		return types.Ok(types.NewInt(build.Minor))
 	case "patch":
-		return types.Ok(types.NewInt(0))
+		return types.Ok(types.NewInt(build.Patch))
+	case "prerelease":
+		return types.Ok(types.NewStr(build.Prerelease))
 	case "string":
-		return types.Ok(types.NewStr(versionString))
+		return types.Ok(types.NewStr(build.String))
+	case "revision":
+		return types.Ok(types.NewStr(build.Revision))
+	case "modified":
+		return types.Ok(types.NewInt(boolInt(build.Modified)))
 	case "features":
 		return types.Ok(features)
+	case "runtime":
+		return types.Ok(types.NewStr(runtime.Version()))
+	case "platform":
+		return types.Ok(types.NewStr(runtime.GOOS))
+	case "architecture":
+		return types.Ok(types.NewStr(runtime.GOARCH))
 	case "options.OUTBOUND_NETWORK", "options/OUTBOUND_NETWORK":
 		return types.Ok(types.NewStr(boolOptionState(options.OutboundNetwork)))
 	case "options.PROMOTE_NUMBERS", "options/PROMOTE_NUMBERS":
@@ -576,6 +591,13 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 	default:
 		return types.Err(types.E_INVARG)
 	}
+}
+
+func boolInt(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func boolOptionState(v bool) string {
