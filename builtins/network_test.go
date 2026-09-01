@@ -56,6 +56,7 @@ type stubConn struct {
 	outbound        bool
 	source          string
 	destination     string
+	lastInputTaskID int64
 }
 
 func (c *stubConn) Send(message string) error {
@@ -76,7 +77,8 @@ func (c *stubConn) GetResolvedName() string   { return "" }
 func (c *stubConn) ListenerPort() (int64, bool) {
 	return c.listenerPort, c.listenerPortSet
 }
-func (c *stubConn) IsOutbound() bool { return c.outbound }
+func (c *stubConn) LastInputTaskID() int64 { return c.lastInputTaskID }
+func (c *stubConn) IsOutbound() bool       { return c.outbound }
 func (c *stubConn) OutboundSourceAddr() string {
 	return c.source
 }

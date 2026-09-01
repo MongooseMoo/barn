@@ -655,7 +655,7 @@ func (p *InputProcessor) processCommand(input command.InputEvent) {
 }
 
 func (p *InputProcessor) executeCommandMatch(conn *Connection, player types.ObjID, cmd *command.ParsedCommand, match *command.VerbMatch, outputSuffix string, emptyMessage string) {
-	err := p.runtime.ExecuteVerbTaskSync(player, match, cmd, outputSuffix)
+	err := p.runtime.ExecuteVerbTaskSyncWithStart(player, match, cmd, outputSuffix, conn.SetLastInputTaskID)
 	if errors.Is(err, engine.ErrCommandVerbNoCode) {
 		conn.Send(emptyMessage)
 		if outputSuffix != "" {
