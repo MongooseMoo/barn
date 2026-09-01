@@ -212,6 +212,8 @@ const (
 	fkLt
 	fkGt
 	fkEq
+	fkIndex
+	fkForListLoad
 )
 
 var fastKinds = func() (t [256]uint8) {
@@ -237,6 +239,8 @@ var fastKinds = func() (t [256]uint8) {
 	t[bytecode.OP_LT] = fkLt
 	t[bytecode.OP_GT] = fkGt
 	t[bytecode.OP_EQ] = fkEq
+	t[bytecode.OP_INDEX] = fkIndex
+	t[bytecode.OP_FOR_LIST_LOAD] = fkForListLoad
 	return t
 }()
 
@@ -289,10 +293,56 @@ func (vm *VM) fastIntBinary(kind uint8) bool {
 		r = boolInt(a < b)
 	case fkGt:
 		r = boolInt(a > b)
+	case fkMod:
+		// Floored modulo, as executeMod: sign follows the divisor. Zero
+		// divisor falls through so the generic path raises E_DIV.
+		if b == 0 {
+			return false
+		}
+		r = a % b
+		if r != 0 && (r < 0) != (b < 0) {
+			r += b
+		}
 	default: // fkEq
 		r = boolInt(a == b)
 	}
 	vm.replaceTop2(types.NewInt(r))
+	return true
+}
+
+// fastListIndex handles INDEX for a list and an in-range int subscript; any
+// other shape (strings, maps, out-of-range, wrong types) returns false and
+// the generic executeIndex applies its rules. Out of line like fastIntBinary.
+//
+//go:noinline
+func (vm *VM) fastListIndex() bool {
+	if vm.SP < 2 {
+		return false
+	}
+	coll, idx := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+	if coll.Type() != types.TYPE_LIST || idx.Type() != types.TYPE_INT {
+		return false
+	}
+	i := idx.Int()
+	if i < 1 || i > int64(coll.Len()) {
+		return false
+	}
+	vm.replaceTop2(coll.Get(int(i)))
+	return true
+}
+
+// fastForListLoad handles the non-pairs FOR_LIST_LOAD (operands: list slot,
+// index slot, value slot, is-pairs slot). The pairs form and non-list
+// iterators return false for the generic case. Mirrors Execute exactly,
+// including the direct overwrite of the loop variable. Out of line.
+//
+//go:noinline
+func (vm *VM) fastForListLoad(cur *StackFrame, code []byte, ip int) bool {
+	list := cur.Locals[code[ip+1]]
+	if list.Type() != types.TYPE_LIST || cur.Locals[code[ip+4]].Truthy() {
+		return false
+	}
+	cur.Locals[code[ip+3]] = list.Get(int(cur.Locals[code[ip+2]].Int()))
 	return true
 }
 
@@ -514,12 +564,22 @@ func (vm *VM) executeLoop() types.Result {
 					}
 				}
 			}
-		case fkSub, fkMul, fkLt, fkGt, fkEq:
+		case fkSub, fkMul, fkMod, fkLt, fkGt, fkEq:
 			// Kept out of line: inlining these grew executeLoop's body enough
 			// to cost the core int loops 6-10% (layout, not frame size). A
 			// small call is still far cheaper than the trip through Execute.
 			if vm.fastIntBinary(fastKinds[op]) {
 				cur.IP = ip + 1
+				continue
+			}
+		case fkIndex:
+			if vm.fastListIndex() {
+				cur.IP = ip + 1
+				continue
+			}
+		case fkForListLoad:
+			if vm.fastForListLoad(cur, code, ip) {
+				cur.IP = ip + 5
 				continue
 			}
 		case fkPop:
