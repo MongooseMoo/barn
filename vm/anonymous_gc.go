@@ -125,10 +125,16 @@ func collectDirectFinalizationRoots(value types.Value, refs map[types.ObjID]stru
 			*waifs = append(*waifs, value)
 		}
 	case types.TYPE_LIST:
+		if !value.MayHoldFinalizable() {
+			return
+		}
 		for _, elem := range value.Elements() {
 			collectDirectFinalizationRoots(elem, refs, waifs)
 		}
 	case types.TYPE_MAP:
+		if !value.MayHoldFinalizable() {
+			return
+		}
 		for _, pair := range value.Pairs() {
 			collectDirectFinalizationRoots(pair[0], refs, waifs)
 			collectDirectFinalizationRoots(pair[1], refs, waifs)
@@ -344,6 +350,9 @@ func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
 }
 
 func (vm *VM) collectPendingFinalizationsFromValue(value types.Value) {
+	if !value.MayHoldFinalizable() {
+		return
+	}
 	refs := make(map[types.ObjID]struct{})
 	var waifs []types.Value
 	collectDirectFinalizationRoots(value, refs, &waifs)

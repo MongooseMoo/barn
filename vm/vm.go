@@ -33,6 +33,12 @@ type VM struct {
 	// this lossless record after the final activation has already been popped.
 	PendingFinalizations []types.Value
 
+	// builtinExec is the Execution handed to every builtin call from this VM,
+	// created lazily with its service closures bound once and rebound to the
+	// current Context/Task per call (see executeCallBuiltin).
+	builtinExec                 *builtins.Execution
+	builtinPendingFinalizations func() []types.Value
+
 	frame       *StackFrame  // Cached top of Frames; kept in sync by pushFrame/popFrame
 	yielded     bool         // VM has yielded control (suspend/fork)
 	yieldResult types.Result // Why we yielded
@@ -515,8 +521,10 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		idx := vm.FetchByte()
 		frame := vm.CurrentFrame()
 		previous := frame.Locals[idx]
-		vm.collectPendingFinalizationsFromValue(previous)
-		collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+		if previous.MayHoldFinalizable() {
+			vm.collectPendingFinalizationsFromValue(previous)
+			collectDirectWaifsForGC(previous, &vm.PendingWaifs)
+		}
 		frame.Locals[idx] = vm.Pop()
 
 	// Property operations

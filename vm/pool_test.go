@@ -27,6 +27,8 @@ func dirtyVM(machine *VM) {
 	machine.Ticks = 789
 	machine.PendingWaifs = []types.Value{types.NewInt(1)}
 	machine.PendingFinalizations = []types.Value{types.NewInt(2)}
+	machine.builtinExec = machine.Builtins.NewExecution(machine.Context, machine.Task)
+	machine.builtinPendingFinalizations = func() []types.Value { return nil }
 	machine.frame = machine.Frames[0]
 	machine.yielded = true
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}

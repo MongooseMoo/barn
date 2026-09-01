@@ -31,6 +31,23 @@ type goMap struct {
 	pairs    map[mapHash]mapEntry // key hash -> entry
 	rootOnce sync.Once
 	root     *toastLookupNode
+	// finalizable caches whether any key or value (transitively) is an
+	// anonymous object or WAIF; see finalizableUnknown/None/Maybe.
+	finalizable int8
+}
+
+func (m *goMap) mayHoldFinalizable() bool {
+	if m.finalizable == finalizableUnknown {
+		state := finalizableNone
+		for _, e := range m.pairs {
+			if e.key.MayHoldFinalizable() || e.val.MayHoldFinalizable() {
+				state = finalizableMaybe
+				break
+			}
+		}
+		m.finalizable = state
+	}
+	return m.finalizable == finalizableMaybe
 }
 
 type toastLookupNode struct {
@@ -265,7 +282,8 @@ func (m *goMap) set(k, v Value) *goMap {
 		newOrder[len(m.order)] = hash
 	}
 
-	return &goMap{order: newOrder, pairs: newPairs}
+	fin := finalizableAfterAdd(finalizableAfterAdd(finalizableAfterRemove(m.finalizable), k), v)
+	return &goMap{order: newOrder, pairs: newPairs, finalizable: fin}
 }
 
 func (m *goMap) delete(k Value) *goMap {
@@ -288,7 +306,7 @@ func (m *goMap) delete(k Value) *goMap {
 		}
 	}
 
-	return &goMap{order: newOrder, pairs: newPairs}
+	return &goMap{order: newOrder, pairs: newPairs, finalizable: finalizableAfterRemove(m.finalizable)}
 }
 
 func (m *goMap) keys() []Value {
@@ -366,7 +384,7 @@ func NewMap(pairs [][2]Value) Value {
 
 // NewEmptyMap creates an empty map value.
 func NewEmptyMap() Value {
-	return mapValue(&goMap{order: nil, pairs: make(map[mapHash]mapEntry)})
+	return mapValue(&goMap{order: nil, pairs: make(map[mapHash]mapEntry), finalizable: finalizableNone})
 }
 
 // ---- Value-level map API (map-typed accessors are Map-prefixed to avoid

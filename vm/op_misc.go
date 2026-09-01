@@ -3,9 +3,39 @@ package vm
 import (
 	"fmt"
 
+	"github.com/MongooseMoo/barn/builtins"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/types"
 )
+
+// builtinExecution returns the VM's reusable Execution, bound to the current
+// Context and Task. The service closures are allocated once per VM rather than
+// once per builtin call; only the DeferredGC-dependent PendingFinalizations
+// hook is re-selected per call.
+func (vm *VM) builtinExecution() *builtins.Execution {
+	execution := vm.builtinExec
+	if execution == nil {
+		execution = vm.Builtins.NewExecution(vm.Context, vm.Task)
+		execution.PushEval = vm.pushEval
+		execution.PushMoveLifecycle = vm.startMoveLifecycle
+		execution.PushRecycleLifecycle = vm.startRecycleLifecycle
+		execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
+			CollectAnonymousRefsFromVM(vm, out)
+		}
+		vm.builtinPendingFinalizations = func() []types.Value {
+			return CollectPendingFinalizationValues(vm.Store, vm)
+		}
+		vm.builtinExec = execution
+	} else {
+		execution.Rebind(vm.Context, vm.Task)
+	}
+	if vm.Context == nil || !vm.Context.DeferredGC {
+		execution.PendingFinalizations = vm.builtinPendingFinalizations
+	} else {
+		execution.PendingFinalizations = nil
+	}
+	return execution
+}
 
 func (vm *VM) executeCallBuiltin() error {
 	funcID := vm.FetchByte()
@@ -38,19 +68,7 @@ func (vm *VM) executeCallBuiltin() error {
 		vm.syncTaskLineNumbers()
 	}
 
-	// Supply runtime services explicitly for this builtin invocation.
-	execution := vm.Builtins.NewExecution(vm.Context, vm.Task)
-	execution.PushEval = vm.pushEval
-	execution.PushMoveLifecycle = vm.startMoveLifecycle
-	execution.PushRecycleLifecycle = vm.startRecycleLifecycle
-	execution.CollectAnonymousRefs = func(out map[types.ObjID]struct{}) {
-		CollectAnonymousRefsFromVM(vm, out)
-	}
-	if vm.Context == nil || !vm.Context.DeferredGC {
-		execution.PendingFinalizations = func() []types.Value {
-			return CollectPendingFinalizationValues(vm.Store, vm)
-		}
-	}
+	execution := vm.builtinExecution()
 	result := vm.Builtins.CallByIDWithExecution(int(funcID), execution, args)
 	if vm.Context != nil && vm.Context.BuiltinTicksConsumed != 0 {
 		vm.Ticks += vm.Context.BuiltinTicksConsumed

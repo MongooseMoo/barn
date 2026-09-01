@@ -23,6 +23,68 @@ type sliceList struct {
 	elements  []Value
 	byteSize  int
 	watermark *atomic.Int64
+	// finalizable caches whether any element (transitively) is an anonymous
+	// object or WAIF; see finalizableUnknown/None/Maybe.
+	finalizable int8
+}
+
+// Tri-state cache for "may this container hold a finalizable value".
+const (
+	finalizableUnknown int8 = iota // not yet computed
+	finalizableNone                // proven free of anon/WAIF references
+	finalizableMaybe               // holds (or may hold) an anon/WAIF reference
+)
+
+// finalizableAfterAdd combines a container's cached state with a value being
+// added to it. A clean container stays clean when the value is clean; any
+// finalizable value taints the result; otherwise the answer is unknown.
+func finalizableAfterAdd(container int8, v Value) int8 {
+	if v.MayHoldFinalizable() {
+		return finalizableMaybe
+	}
+	if container == finalizableNone {
+		return finalizableNone
+	}
+	return finalizableUnknown
+}
+
+// finalizableAfterRemove is the state after elements were removed: a clean
+// container stays clean; anything else must be recomputed.
+func finalizableAfterRemove(container int8) int8 {
+	if container == finalizableNone {
+		return finalizableNone
+	}
+	return finalizableUnknown
+}
+
+// MayHoldFinalizable reports whether v is, or transitively contains, an
+// anonymous object or WAIF reference. Scalars answer in O(1); lists and maps
+// cache the answer per header and propagate it through append/set/concat so
+// hot paths that overwrite plain data never rescan it.
+func (v Value) MayHoldFinalizable() bool {
+	switch v.tag {
+	case TYPE_ANON, TYPE_WAIF:
+		return true
+	case TYPE_LIST:
+		return v.sliceList().mayHoldFinalizable()
+	case TYPE_MAP:
+		return v.goMap().mayHoldFinalizable()
+	}
+	return false
+}
+
+func (s *sliceList) mayHoldFinalizable() bool {
+	if s.finalizable == finalizableUnknown {
+		state := finalizableNone
+		for _, e := range s.elements {
+			if e.MayHoldFinalizable() {
+				state = finalizableMaybe
+				break
+			}
+		}
+		s.finalizable = state
+	}
+	return s.finalizable == finalizableMaybe
 }
 
 // newSliceList wraps elements with an uncomputed size cache (filled lazily).
@@ -74,15 +136,20 @@ func (s *sliceList) set(i int, v Value) *sliceList {
 	newElems := make([]Value, len(s.elements))
 	copy(newElems, s.elements)
 	newElems[i-1] = v
+	var out *sliceList
 	if s.byteSize >= 0 {
-		return newSliceListSized(newElems, s.byteSize-ValueBytes(s.elements[i-1])+ValueBytes(v))
+		out = newSliceListSized(newElems, s.byteSize-ValueBytes(s.elements[i-1])+ValueBytes(v))
+	} else {
+		out = newSliceList(newElems)
 	}
-	return newSliceList(newElems)
+	out.finalizable = finalizableAfterAdd(finalizableAfterRemove(s.finalizable), v)
+	return out
 }
 
 func (s *sliceList) append(v Value) *sliceList {
 	n := len(s.elements)
 	bs := s.byteSizeOf() + ValueBytes(v)
+	fin := finalizableAfterAdd(s.finalizable, v)
 
 	// In-place fast path: this header owns the frontier of the backing array
 	// (its length equals the frontier) and there is spare capacity.
@@ -90,7 +157,7 @@ func (s *sliceList) append(v Value) *sliceList {
 		s.watermark.CompareAndSwap(int64(n), int64(n+1)) {
 		extended := s.elements[:n+1]
 		extended[n] = v
-		return &sliceList{elements: extended, byteSize: bs, watermark: s.watermark}
+		return &sliceList{elements: extended, byteSize: bs, watermark: s.watermark, finalizable: fin}
 	}
 
 	// Copy path: reallocate with amortized growth (the [:n:n] cap forces a copy
@@ -98,7 +165,7 @@ func (s *sliceList) append(v Value) *sliceList {
 	newElems := append(s.elements[:n:n], v)
 	wm := new(atomic.Int64)
 	wm.Store(int64(n + 1))
-	return &sliceList{elements: newElems, byteSize: bs, watermark: wm}
+	return &sliceList{elements: newElems, byteSize: bs, watermark: wm, finalizable: fin}
 }
 
 func (s *sliceList) slice(start, end int) *sliceList {
@@ -113,7 +180,9 @@ func (s *sliceList) slice(start, end int) *sliceList {
 	}
 	newElems := make([]Value, end-start+1)
 	copy(newElems, s.elements[start-1:end])
-	return newSliceList(newElems)
+	out := newSliceList(newElems)
+	out.finalizable = finalizableAfterRemove(s.finalizable)
+	return out
 }
 
 func (s *sliceList) equal(other *sliceList) bool {
@@ -153,7 +222,9 @@ func NewList(elements []Value) Value {
 
 // NewEmptyList creates an empty list value.
 func NewEmptyList() Value {
-	return listValue(newSliceListSized([]Value{}, listVarOverhead))
+	sl := newSliceListSized([]Value{}, listVarOverhead)
+	sl.finalizable = finalizableNone
+	return listValue(sl)
 }
 
 // ---- Value-level list API (list-typed methods keep their natural names) --
@@ -184,7 +255,15 @@ func (v Value) Concat(other Value) Value {
 	newElems := make([]Value, len(a)+len(b))
 	copy(newElems, a)
 	copy(newElems[len(a):], b)
-	return listValue(newSliceListSized(newElems, v.ByteSize()+other.ByteSize()-listVarOverhead))
+	out := newSliceListSized(newElems, v.ByteSize()+other.ByteSize()-listVarOverhead)
+	fa, fb := v.sliceList().finalizable, other.sliceList().finalizable
+	switch {
+	case fa == finalizableMaybe || fb == finalizableMaybe:
+		out.finalizable = finalizableMaybe
+	case fa == finalizableNone && fb == finalizableNone:
+		out.finalizable = finalizableNone
+	}
+	return listValue(out)
 }
 
 // InsertAt returns a new list with value inserted at the 1-based index (COW).
@@ -201,7 +280,9 @@ func (v Value) InsertAt(index int, value Value) Value {
 	copy(newElems[:idx0], elements[:idx0])
 	newElems[idx0] = value
 	copy(newElems[idx0+1:], elements[idx0:])
-	return listValue(newSliceList(newElems))
+	out := newSliceList(newElems)
+	out.finalizable = finalizableAfterAdd(v.sliceList().finalizable, value)
+	return listValue(out)
 }
 
 // DeleteAt returns a new list with the 1-based element removed (COW).
@@ -214,7 +295,9 @@ func (v Value) DeleteAt(index int) Value {
 	idx0 := index - 1
 	copy(newElems[:idx0], elements[:idx0])
 	copy(newElems[idx0:], elements[idx0+1:])
-	return listValue(newSliceList(newElems))
+	out := newSliceList(newElems)
+	out.finalizable = finalizableAfterRemove(v.sliceList().finalizable)
+	return listValue(out)
 }
 
 // Slice returns a new list of elements from start to end (1-based, inclusive).
