@@ -6,12 +6,6 @@ import (
 	"github.com/MongooseMoo/barn/types"
 )
 
-// isPlayerWizard checks if a player object has wizard permissions
-func isPlayerWizard(ctx *Execution, objID types.ObjID) bool {
-	hasWizard, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagWizard)
-	return errCode == types.E_NONE && hasWizard
-}
-
 // builtinPlayers implements players()
 // Returns a list of all player objects
 func builtinPlayers(ctx *Execution, args []types.Value) types.Result {

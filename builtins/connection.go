@@ -20,7 +20,8 @@ func builtinRead(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	// Determine target player
+	// Omitted read() targets the connected player; explicit-target authority is
+	// still checked against the effective programmer below.
 	player := ctx.Player
 	if len(args) >= 1 {
 		if !isObjectRef(args[0]) {
@@ -79,7 +80,7 @@ func builtinFlushInput(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	target := args[0]
-	if !ctx.IsWizard && target.ID() != ctx.Player {
+	if !ctx.IsWizard && target.ID() != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 	return types.Ok(types.NewInt(0))
@@ -97,7 +98,7 @@ func builtinForceInput(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	line := args[1]
-	if !ctx.IsWizard && target.ID() != ctx.Player {
+	if !ctx.IsWizard && target.ID() != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
@@ -117,6 +118,8 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 		return types.Err(types.E_ARGS)
 	}
 
+	// The no-argument form describes the current connection and therefore uses
+	// Player as its default target, never as an authority source.
 	target := ctx.Player
 	if len(args) == 0 {
 		return types.Ok(types.NewInt(65536))
@@ -126,7 +129,7 @@ func builtinBufferedOutputLength(ctx *Execution, args []types.Value) types.Resul
 			return types.Err(types.E_TYPE)
 		}
 		target = args[0].Obj()
-		if !ctx.IsWizard && target != ctx.Player {
+		if !ctx.IsWizard && target != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
 	}
@@ -160,7 +163,7 @@ func builtinConnectionOptions(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	target := args[0].Obj()
-	if !ctx.IsWizard && target != ctx.Player {
+	if !ctx.IsWizard && target != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 	if resolveConnection(ctx, target) == nil {
@@ -208,7 +211,7 @@ func builtinOutputDelimiters(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_TYPE)
 	}
 	target := args[0].Obj()
-	if !ctx.IsWizard && target != ctx.Player {
+	if !ctx.IsWizard && target != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 

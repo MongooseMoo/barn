@@ -170,7 +170,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 
 	// Validate owner if explicitly specified
 	// Special case: invalid object numbers like -2, -3, -4 automatically create anonymous objects
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
+	programmerIsWizard := ctx.IsWizard
 	if ownerSpecified {
 		if owner < -1 {
 			// Special invalid object numbers like -2, -3, -4 ($ambiguous_match, $failed_match)
@@ -179,10 +179,10 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 			owner = ctx.Programmer // Use programmer as owner
 		} else if owner != types.ObjNothing && !validForRead(ctx, owner) {
 			return types.Err(types.E_INVARG)
-		} else if owner == types.ObjNothing && !playerIsWizard {
+		} else if owner == types.ObjNothing && !programmerIsWizard {
 			// Only wizards can specify $nothing as owner (makes object own itself)
 			return types.Err(types.E_PERM)
-		} else if owner != ctx.Programmer && !playerIsWizard {
+		} else if owner != ctx.Programmer && !programmerIsWizard {
 			// Non-wizards can only specify themselves as owner or get E_PERM
 			return types.Err(types.E_PERM)
 		}
@@ -192,7 +192,7 @@ func builtinCreate(ctx *Execution, args []types.Value) types.Result {
 	// - Wizards can create from any object
 	// - For anonymous objects: non-wizards need to own parent OR parent has FlagAnonymous
 	// - For regular objects: non-wizards need to own parent OR parent has FlagFertile
-	if !playerIsWizard {
+	if !programmerIsWizard {
 		for _, parentID := range parents {
 			parentOwner, errCode := objectOwnerForRead(ctx, parentID)
 			if errCode != types.E_NONE {

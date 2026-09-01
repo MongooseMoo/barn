@@ -621,6 +621,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 
 	if len(args) == 0 {
 		// queue_info() with no argument is allowed for non-wizards (Toast).
+		// The connected player is payload here, not an authority identity.
 		players := []types.ObjID{}
 		seen := map[types.ObjID]struct{}{}
 		if ctx.Player > 0 {
@@ -653,7 +654,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	if !ctx.IsWizard {
-		if target != ctx.Player {
+		if target != ctx.Programmer {
 			return types.Err(types.E_PERM)
 		}
 		return types.Ok(types.NewInt(countBackgroundTasksFor(mgr, target)))
@@ -664,6 +665,7 @@ func builtinQueueInfo(ctx *Execution, args []types.Value) types.Result {
 		connected = 1
 	} else if target != ctx.Player {
 		// Toast behavior for wizard querying non-connected/nonexistent player.
+		// This is connection-state handling, not a permission decision.
 		return types.Ok(types.NewInt(0))
 	}
 

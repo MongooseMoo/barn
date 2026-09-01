@@ -160,8 +160,7 @@ func builtinObjectBytes(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Check wizard permissions
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
-	if !playerIsWizard {
+	if !ctx.IsWizard {
 		return types.Err(types.E_PERM)
 	}
 

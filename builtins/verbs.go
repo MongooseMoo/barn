@@ -71,15 +71,11 @@ func builtinRespondTo(ctx *Execution, args []types.Value) types.Result {
 		return types.Ok(types.NewInt(0))
 	}
 
-	// Check if caller can see details: wizard, owner, or verb readable, or object readable
-	hasRead := verb.Perms.Has(dbstore.VerbRead)
-	isOwner := verb.Owner == ctx.Player
-	objReadable, errCode := hasObjectFlagForRead(ctx, objID, dbstore.FlagRead)
-	if errCode != types.E_NONE {
-		objReadable = false
-	}
-
-	if ctx.IsWizard || isOwner || hasRead || objReadable {
+	// Toast exposes the defining object and canonical verb name only when the
+	// effective programmer can read the target object. Keep this check on the
+	// transaction-aware path so staged ownership and flag changes are visible.
+	objReadable, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagRead)
+	if errCode == types.E_NONE && objReadable {
 		// Return {defining_object, verb_name}
 		return types.Ok(types.NewList([]types.Value{
 			types.NewObj(definingObj),
