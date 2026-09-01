@@ -189,6 +189,45 @@ func (vm *VM) syncContextTicks() {
 	vm.Context.TicksRemaining = left
 }
 
+// Fast-path dispatch kinds. Opcode values are sparse, so switching on them
+// directly compiles to a binary search whose depth grows with every case
+// added; mapping through fastKinds first gives a dense key that Go compiles
+// to a jump table, so extra fast-path cases do not tax the existing ones.
+const (
+	fkNone uint8 = iota
+	fkImm
+	fkGetVar
+	fkPush
+	fkSetVar
+	fkAdd
+	fkPop
+	fkJump
+	fkJumpIfFalse
+	fkForRangeCheck
+	fkForRangeNext
+	fkLoop
+)
+
+var fastKinds = func() (t [256]uint8) {
+	for op := 0; op < 256; op++ {
+		if bytecode.IsImmediateInt(bytecode.OpCode(op)) {
+			t[op] = fkImm
+		}
+	}
+	t[bytecode.OP_GET_VAR] = fkGetVar
+	t[bytecode.OP_PUSH] = fkPush
+	t[bytecode.OP_SET_VAR] = fkSetVar
+	t[bytecode.OP_ADD] = fkAdd
+	t[bytecode.OP_STRING_APPEND] = fkAdd
+	t[bytecode.OP_POP] = fkPop
+	t[bytecode.OP_JUMP_WIDE] = fkJump
+	t[bytecode.OP_JUMP_IF_FALSE_WIDE] = fkJumpIfFalse
+	t[bytecode.OP_FOR_RANGE_CHECK_WIDE] = fkForRangeCheck
+	t[bytecode.OP_FOR_RANGE_NEXT_WIDE] = fkForRangeNext
+	t[bytecode.OP_LOOP_WIDE] = fkLoop
+	return t
+}()
+
 // countTick charges one tick for a CountsTick opcode and mirrors the new
 // balance into the task context. Shared by the dispatch fast path and the
 // generic path so the accounting cannot drift between them.
@@ -366,26 +405,29 @@ func (vm *VM) executeLoop() types.Result {
 		// Nothing here can set vm.yielded (only suspend/fork/builtin paths do),
 		// so the yield check is skipped safely. The compiler emits only the
 		// *_WIDE control-flow forms; narrow forms stay on the generic path.
-		if bytecode.IsImmediateInt(op) {
+		switch fastKinds[op] {
+		case fkImm:
 			vm.Push(types.NewInt(int64(bytecode.GetImmediateValue(op))))
 			cur.IP = ip + 1
 			continue
-		}
-		switch op {
-		case bytecode.OP_GET_VAR:
+		case fkGetVar:
 			v := cur.Locals[code[ip+1]]
 			if !v.IsUnbound() {
 				vm.Push(v)
 				cur.IP = ip + 2
 				continue
 			}
-		case bytecode.OP_SET_VAR:
+		case fkPush:
+			vm.Push(cur.Program.Constants[code[ip+1]])
+			cur.IP = ip + 2
+			continue
+		case fkSetVar:
 			idx := code[ip+1]
 			vm.releaseLocal(cur.Locals[idx])
 			cur.Locals[idx] = vm.Pop()
 			cur.IP = ip + 2
 			continue
-		case bytecode.OP_ADD, bytecode.OP_STRING_APPEND:
+		case fkAdd:
 			if vm.SP >= 2 {
 				a, b := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
 				if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
@@ -394,17 +436,27 @@ func (vm *VM) executeLoop() types.Result {
 					cur.IP = ip + 1
 					continue
 				}
+				if a.Type() == types.TYPE_FLOAT && b.Type() == types.TYPE_FLOAT {
+					// Same finite-result rule as executeAdd; NaN/Inf falls
+					// through so the generic path raises E_FLOAT.
+					if r := a.Float() + b.Float(); !math.IsNaN(r) && !math.IsInf(r, 0) {
+						vm.Stack[vm.SP-2] = types.NewFloat(r)
+						vm.SP--
+						cur.IP = ip + 1
+						continue
+					}
+				}
 			}
-		case bytecode.OP_POP:
+		case fkPop:
 			if vm.SP > 0 {
 				vm.SP--
 				cur.IP = ip + 1
 				continue
 			}
-		case bytecode.OP_JUMP_WIDE:
+		case fkJump:
 			cur.IP = ip + 5 + wideOperand(code, ip+1)
 			continue
-		case bytecode.OP_JUMP_IF_FALSE_WIDE:
+		case fkJumpIfFalse:
 			if vm.SP > 0 {
 				vm.SP--
 				next := ip + 5
@@ -414,7 +466,7 @@ func (vm *VM) executeLoop() types.Result {
 				cur.IP = next
 				continue
 			}
-		case bytecode.OP_FOR_RANGE_CHECK_WIDE:
+		case fkForRangeCheck:
 			a, b := cur.Locals[code[ip+1]], cur.Locals[code[ip+2]]
 			if a.Type() == types.TYPE_INT && b.Type() == types.TYPE_INT {
 				next := ip + 7
@@ -424,7 +476,7 @@ func (vm *VM) executeLoop() types.Result {
 				cur.IP = next
 				continue
 			}
-		case bytecode.OP_FOR_RANGE_NEXT_WIDE:
+		case fkForRangeNext:
 			// The MaxInt64 end-bound lowering and object ranges stay generic.
 			vi := code[ip+1]
 			if a := cur.Locals[vi]; a.Type() == types.TYPE_INT && a.Int() < math.MaxInt64 {
@@ -436,7 +488,7 @@ func (vm *VM) executeLoop() types.Result {
 				}
 				goto tickLimit
 			}
-		case bytecode.OP_LOOP_WIDE:
+		case fkLoop:
 			cur.IP = ip + 5 - wideOperand(code, ip+1)
 			vm.countTick()
 			if vm.Ticks < vm.TickLimit {
