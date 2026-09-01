@@ -752,13 +752,15 @@ func builtinDbDiskSize(ctx *Execution, args []types.Value) types.Result {
 	if len(args) != 0 {
 		return types.Err(types.E_ARGS)
 	}
-	candidates := []string{"Test.db", "mongoose.db", "toast.db"}
-	for _, p := range candidates {
-		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			return types.Ok(types.NewInt(st.Size()))
-		}
+	measure := hostOf(ctx).DatabaseDiskSize
+	if measure == nil {
+		return types.Err(types.E_QUOTA)
 	}
-	return types.Ok(types.NewInt(0))
+	size, err := measure()
+	if err != nil {
+		return types.Err(types.E_QUOTA)
+	}
+	return types.Ok(types.NewInt(size))
 }
 
 func builtinDumpDatabase(ctx *Execution, args []types.Value) types.Result {
