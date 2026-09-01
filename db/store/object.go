@@ -19,8 +19,13 @@ import (
 // construct/relink objects through ObjectBuilder. A direct field access to
 // Object from outside db/store is a compile error.
 type Object struct {
-	id       types.ObjID
-	name     string
+	id   types.ObjID
+	name string
+	// nameVal is name boxed as a TYPE_STR Value, built once per write by
+	// setName so `.name` reads hand out the same immutable box instead of
+	// allocating a strRep per read (Toast: str_ref on the object's name).
+	// Property values are shared the same way; string boxes are copy-on-write.
+	nameVal  types.Value
 	owner    types.ObjID   // NOT *Object
 	parents  []types.ObjID // NOT []*Object
 	children []types.ObjID // NOT []*Object
@@ -408,10 +413,30 @@ type VerbArgs struct {
 	That string // "this", "none", "any"
 }
 
+// setName is the only way to change an object's name: it keeps the boxed
+// nameVal in step with name. Every write site (builder, direct store, COW
+// image, MVCC mutable copy and commit) must go through it.
+func (o *Object) setName(name string) {
+	o.name = name
+	o.nameVal = types.NewStr(name)
+}
+
+// nameValue returns the object's name as a shared TYPE_STR Value. The fallback
+// only fires for an Object whose name was written around setName (a zero-value
+// literal in a test, or a missed write site — the string compare is a pointer
+// check when the box is current, so the guard costs nothing on the hot path).
+func (o *Object) nameValue() types.Value {
+	if o.nameVal.Type() == types.TYPE_STR && o.nameVal.Str() == o.name {
+		return o.nameVal
+	}
+	return types.NewStr(o.name)
+}
+
 // NewObject creates a new object with defaults
 func NewObject(id types.ObjID, owner types.ObjID) *Object {
 	return &Object{
 		id:               id,
+		nameVal:          types.NewStr(""),
 		owner:            owner,
 		parents:          []types.ObjID{},
 		children:         []types.ObjID{},

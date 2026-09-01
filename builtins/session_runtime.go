@@ -25,7 +25,7 @@ type sessionRuntime struct {
 		mu  sync.Mutex
 		ids map[types.ObjID]int
 	}
-	protected         atomic.Pointer[map[string]bool]
+	protected         atomic.Pointer[protectedSet]
 	serverOptions     serverOptionsState
 	connectionOptions struct {
 		mu       sync.RWMutex
@@ -63,8 +63,7 @@ func newSessionRuntime() *sessionRuntime {
 	s.connectionOptions.byPlayer = make(map[types.ObjID]map[string]types.Value)
 	s.heldCommands.byPlayer = make(map[types.ObjID][]string)
 	s.heldHTTPInput.byPlayer = make(map[types.ObjID]*httpHeldInput)
-	empty := map[string]bool{}
-	s.protected.Store(&empty)
+	s.protected.Store(&protectedSet{byName: map[string]bool{}})
 	defaults := defaultServerOptionsSnapshot()
 	s.serverOptions.maxStringConcat = defaults.MaxStringConcat
 	s.serverOptions.maxListValueBytes = defaults.MaxListValueBytes

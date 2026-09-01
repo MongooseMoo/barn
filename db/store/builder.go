@@ -33,7 +33,7 @@ func NewObjectBuilder(id types.ObjID) *ObjectBuilder {
 
 // --- scalar setters ---
 
-func (b *ObjectBuilder) SetName(name string)         { b.obj.name = name }
+func (b *ObjectBuilder) SetName(name string)         { b.obj.setName(name) }
 func (b *ObjectBuilder) SetOwner(owner types.ObjID)  { b.obj.owner = owner }
 func (b *ObjectBuilder) SetFlags(flags ObjectFlags)  { b.obj.flags = flags }
 func (b *ObjectBuilder) SetLocation(loc types.ObjID) { b.obj.location = loc }

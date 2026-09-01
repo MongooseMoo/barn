@@ -95,6 +95,17 @@ func (s *Store) findProperty(objID types.ObjID, name string) (PropertyView, type
 }
 
 func (s *Store) findPropertyLocked(objID types.ObjID, name string) (string, Property, types.ErrorCode) {
+	// Fast path: every object's map already carries its inherited properties
+	// (copyInheritedPropertiesLocked seeds them as clear entries), so a
+	// non-clear hit on the object itself is the final answer — identical to the
+	// BFS's first iteration, without the per-call visited map and queue. Only a
+	// clear entry (value lives on an ancestor) or a miss needs the walk.
+	if self := s.liveObjectLocked(objID); validLiveObject(self) {
+		if actualName, prop, ok := propertyByName(self.properties, name); ok && !prop.clear {
+			return actualName, prop, types.E_NONE
+		}
+	}
+
 	var targetProp Property
 	var targetName string
 	targetFound := false

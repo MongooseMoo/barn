@@ -520,7 +520,7 @@ func (s *Store) setObjectName(objID types.ObjID, name string) types.ErrorCode {
 	}
 	obj = s.republishForMutation(obj)
 	ts := s.bumpClockLocked()
-	obj.name = name
+	obj.setName(name)
 	stampObjectScalar(obj, ts)
 	return types.E_NONE
 }
@@ -583,6 +583,18 @@ func (s *Store) objectName(objID types.ObjID) (string, types.ErrorCode) {
 		return "", types.E_INVIND
 	}
 	return obj.name, types.E_NONE
+}
+
+// objectNameValue is objectName as a shared TYPE_STR Value (no per-read box).
+func (s *Store) objectNameValue(objID types.ObjID) (types.Value, types.ErrorCode) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	obj := s.liveObjectLocked(objID)
+	if obj == nil {
+		return types.None, types.E_INVIND
+	}
+	return obj.nameValue(), types.E_NONE
 }
 
 func (s *Store) objectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
