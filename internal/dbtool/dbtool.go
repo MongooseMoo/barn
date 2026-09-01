@@ -204,6 +204,7 @@ func DumpObjInfo(out, errOut io.Writer, store *dbstore.Store, spec string) error
 func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, options config.Options) error {
 	registry := vm.BuildVMRegistry()
 	session := builtins.NewSession(registry, builtins.Host{TaskManager: task.NewManager()})
+	session.LoadServerOptionsFromStore(store)
 	prog, diagnostics := registry.Compiler().CompileMOO([]string{"return " + expr + ";"})
 	if len(diagnostics) > 0 {
 		fmt.Fprintf(errOut, "Compile error: %s\n", diagnostics[0].Error())
@@ -217,6 +218,8 @@ func EvalExpression(out, errOut io.Writer, store *dbstore.Store, expr string, op
 
 	machine := vm.NewVM(store, session)
 	machine.Context = ctx
+	machine.TickLimit, _ = session.GetTaskLimits(false)
+	machine.MaxStackDepth = session.GetMaxStackDepth(store)
 	result := machine.Run(prog)
 
 	if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
@@ -242,13 +245,16 @@ func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options 
 	}
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	registry := vm.BuildVMRegistry()
+	// One session for the whole file so load_server_options() on an early
+	// line governs later lines, matching a Toast emergency-mode session.
+	session := builtins.NewSession(registry, builtins.Host{TaskManager: task.NewManager()})
+	session.LoadServerOptionsFromStore(store)
 	for _, line := range lines {
 		expr := strings.TrimSpace(line)
 		if expr == "" || strings.HasPrefix(expr, "##") {
 			fmt.Fprintln(out, "-- skipped")
 			continue
 		}
-		session := builtins.NewSession(registry, builtins.Host{TaskManager: task.NewManager()})
 		prog, diagnostics := registry.Compiler().CompileMOO([]string{"return " + expr + ";"})
 		if len(diagnostics) > 0 {
 			fmt.Fprintf(out, "Compile error: %s\n", diagnostics[0].Error())
@@ -262,8 +268,14 @@ func EvalFile(out, errOut io.Writer, store *dbstore.Store, path string, options 
 		// builtins behave comparably in differential runs.
 		ctx.Player = types.ObjID(3)
 		ctx.Programmer = types.ObjID(3)
+		hasWizard, flagErr := ctx.StoreTxn.HasObjectFlag(ctx.Player, dbstore.FlagWizard)
+		ctx.IsWizard = flagErr == types.E_NONE && hasWizard
 		machine := vm.NewVM(store, session)
 		machine.Context = ctx
+		// Re-read each line: a load_server_options() line earlier in the
+		// file raises the budget for later lines, as in Toast emergency mode.
+		machine.TickLimit, _ = session.GetTaskLimits(false)
+		machine.MaxStackDepth = session.GetMaxStackDepth(store)
 		result := machine.Run(prog)
 		if result.Flow == types.FlowReturn || result.Flow == types.FlowNormal {
 			if result.Val.IsNone() {
