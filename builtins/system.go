@@ -625,12 +625,14 @@ func builtinLoadServerOptions(ctx *Execution, args []types.Value) types.Result {
 	}
 
 	// Load server options from $server_options object into global cache.
-	loaded := ctx.Session.LoadServerOptionsForTask(ctx)
+	ctx.Session.LoadServerOptionsForTask(ctx)
 	// Refresh the protected-builtin flags from the same $server_options object,
 	// mirroring Toast's load_server_protect_function_flags().
 	ctx.Session.LoadProtectedBuiltinsForTask(ctx)
 
-	return types.Ok(types.NewInt(int64(loaded)))
+	// Toast's bf_load_server_options returns no_var_pack(): always 0, never a
+	// count of what was loaded (functions.cc).
+	return types.Ok(types.NewInt(0))
 }
 
 // builtinVerbCacheStats implements verb_cache_stats()
