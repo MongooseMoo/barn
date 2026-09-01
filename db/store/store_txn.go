@@ -954,6 +954,21 @@ func (tx *StoreTxn) ObjectName(objID types.ObjID) (string, types.ErrorCode) {
 	return obj.name, types.E_NONE
 }
 
+// ObjectNameValue is ObjectName boxed as a TYPE_STR Value. The box is built
+// when the name is written and shared by every reader, so `.name` does not
+// allocate per read.
+func (tx *StoreTxn) ObjectNameValue(objID types.ObjID) (types.Value, types.ErrorCode) {
+	if tx.direct {
+		return tx.store.objectNameValue(objID)
+	}
+	obj := tx.object(objID)
+	if !validLiveObject(obj) {
+		return types.None, types.E_INVIND
+	}
+	tx.markObjectScalarRead(objID, obj)
+	return obj.nameValue(), types.E_NONE
+}
+
 func (tx *StoreTxn) ObjectOwner(objID types.ObjID) (types.ObjID, types.ErrorCode) {
 	if tx.direct {
 		return tx.store.objectOwner(objID)
@@ -1010,7 +1025,7 @@ func (tx *StoreTxn) SetObjectName(objID types.ObjID, name string) types.ErrorCod
 		return types.E_INVIND
 	}
 	tx.markObjectScalarRead(objID, obj)
-	obj.name = name
+	obj.setName(name)
 	write := tx.scalarWrites[objID]
 	write.nameSet = true
 	write.name = name
@@ -2564,7 +2579,7 @@ func (tx *StoreTxn) applyStagedToLiveLocked() types.ErrorCode {
 			remembered[objID] = true
 		}
 		if write.nameSet {
-			live.name = write.name
+			live.setName(write.name)
 		}
 		if write.ownerSet {
 			live.owner = write.owner

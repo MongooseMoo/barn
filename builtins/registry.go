@@ -62,6 +62,7 @@ type VerbCallerFunc func(objID types.ObjID, verbName string, args []types.Value,
 // validate args inline, without routing through a per-call validation closure.
 type builtinEntry struct {
 	name     string
+	id       int               // index in Registry.entries; keys protectedSet.byID
 	fn       BuiltinFunc       // builtin plus replay-safety marker; validation stays inline
 	sig      functionSignature // valid only when hasSig is true
 	hasSig   bool
@@ -422,10 +423,32 @@ func (r *Registry) Register(name string, fn BuiltinFunc) {
 	}
 
 	id := len(r.entries)
+	entry.id = id
 	r.entries = append(r.entries, entry)
 	r.funcs[name] = stored
 	r.nameToID[name] = id
 	r.sourceCompiler = nil
+}
+
+// protectedByID projects a by-name protected set onto the current builtin-ID
+// layout (see protectedSet). Taken under compilerMu so it cannot race a
+// concurrent Register.
+func (r *Registry) protectedByID(flags map[string]bool) []bool {
+	if len(flags) == 0 {
+		return nil
+	}
+	r.compilerMu.Lock()
+	defer r.compilerMu.Unlock()
+	byID := make([]bool, len(r.entries))
+	for name := range flags {
+		if !flags[name] {
+			continue
+		}
+		if id, ok := r.nameToID[name]; ok {
+			byID[id] = true
+		}
+	}
+	return byID
 }
 
 // Compiler returns the source compiler for the registry's current builtin-ID
@@ -518,8 +541,13 @@ func (s *Session) CallByNameWithExecution(name string, ctx *Execution, args []ty
 // the real builtin do we run the same arg-count/type checks the registration
 // closure used to perform (identical E_ARGS/E_TYPE codes).
 func (s *Session) dispatch(e *builtinEntry, ctx *Execution, args []types.Value) types.Result {
-	if redirect, ok := s.maybeProtectedRedirect(e.name, ctx, args); ok {
-		return redirect
+	// Cheap pre-check (nil ctx, #0 caller, unprotected entry) before the
+	// redirect helper so the common case never builds and copies its 88-byte
+	// Result. The helper repeats these checks; they are the same predicate.
+	if ctx != nil && ctx.ThisObj != types.ObjID(0) && s.isProtectedEntry(e) {
+		if redirect, ok := s.maybeProtectedRedirect(e.name, ctx, args); ok {
+			return redirect
+		}
 	}
 	if e.hasSig {
 		if err := validateKnownFunctionArgs(e.name, e.sig, args); err != types.E_NONE {

@@ -36,10 +36,41 @@ const protectPrefix = "protect_"
 // protected, and that a refresh takes effect atomically) while removing the
 // per-call RLock atomics from the hot path.
 
+// protectedSet is one immutable snapshot of the protected builtins. byName is
+// the source of truth (what the database said); byID is the same set projected
+// onto the registry's builtin-ID layout at snapshot time so the per-call check
+// in dispatch is a bounds-checked slice index instead of a string hash — the
+// analogue of Toast's `f->_protected` flag on the bf_table entry. A builtin
+// registered after the snapshot falls outside byID and is answered by byName.
+type protectedSet struct {
+	byName map[string]bool
+	byID   []bool
+}
+
 // IsProtectedBuiltin reports whether the named builtin is currently protected
 // for this registry. Lock-free: a single atomic load + read-only map index.
 func (r *Session) IsProtectedBuiltin(name string) bool {
-	return r != nil && r.runtime != nil && (*r.runtime.protected.Load())[name]
+	if r == nil || r.runtime == nil {
+		return false
+	}
+	set := r.runtime.protected.Load()
+	return set != nil && set.byName[name]
+}
+
+// isProtectedEntry is IsProtectedBuiltin for the dispatch hot path: no string
+// hashing when the entry's ID is covered by the snapshot.
+func (r *Session) isProtectedEntry(e *builtinEntry) bool {
+	if r.runtime == nil {
+		return false
+	}
+	set := r.runtime.protected.Load()
+	if set == nil {
+		return false
+	}
+	if e.id < len(set.byID) {
+		return set.byID[e.id]
+	}
+	return set.byName[e.name]
 }
 
 // LoadProtectedBuiltinsFromStore rescans $server_options for protect_<name>
@@ -132,7 +163,10 @@ func (r *Session) applyProtectedBuiltins(next map[string]bool) {
 	if next == nil {
 		next = map[string]bool{}
 	}
-	// Publish the freshly-built (and henceforth immutable) map with a single
+	// Publish the freshly-built (and henceforth immutable) set with a single
 	// atomic swap; readers loading after this see the new set in full.
-	r.runtime.protected.Store(&next)
+	r.runtime.protected.Store(&protectedSet{
+		byName: next,
+		byID:   r.registry.protectedByID(next),
+	})
 }

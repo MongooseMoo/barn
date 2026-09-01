@@ -83,7 +83,7 @@ func buildImageWithPropertyValue(old *Object, w propertyWrite, ts uint64) *Objec
 func buildImageWithScalar(old *Object, w objectScalarWrite, ts uint64) *Object {
 	img := *old // shallow struct copy: shares all slices/maps/pointers with old
 	if w.nameSet {
-		img.name = w.name
+		img.setName(w.name)
 	}
 	if w.ownerSet {
 		img.owner = w.owner

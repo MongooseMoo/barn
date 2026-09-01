@@ -34,6 +34,32 @@ var vmBenchWorkloads = []struct {
 	{"list_iter_1M", "l = {1..1000000}; s = 0; for x in (l); s = s + x; endfor; return s;"},
 	{"while_lt_1M", "i = 0; while (i < 1000000) i = i + 1; endwhile; return i;"},
 	{"if_chain_1M", "c = 0; for i in [1..1000000]; if (i % 2 == 0) c = c + 1; elseif (i > 500000) c = c - 1; else c = c * 2; endif; endfor; return c;"},
+	// prop_access_1M mirrors bench_differ's workload; the next three split it
+	// into its parts (builtin call alone, built-in property alone, defined
+	// property alone) so a regression can be attributed.
+	{"prop_access_1M", "n = #0; x = 0; for i in [1..1000000]; x = typeof(n.name); endfor; return x;"},
+	{"typeof_1M", "x = 0; for i in [1..1000000]; x = typeof(i); endfor; return x;"},
+	{"prop_name_1M", "n = #0; x = 0; for i in [1..1000000]; x = n.name; endfor; return x;"},
+	{"prop_defined_1M", "n = #0; x = 0; for i in [1..1000000]; x = n.benchprop; endfor; return x;"},
+}
+
+// newBenchStore returns a store holding #0 with one defined property so the
+// property workloads have something to read.
+func newBenchStore(b *testing.B) *dbstore.Store {
+	b.Helper()
+	store := dbstore.NewStore()
+	txn := store.DirectTxn()
+	obj, errCode := txn.CreateObject(nil, 0)
+	if errCode != types.E_NONE || obj != 0 {
+		b.Fatalf("CreateObject = #%d, %v; want #0", obj, errCode)
+	}
+	if errCode := txn.SetObjectName(obj, "bench"); errCode != types.E_NONE {
+		b.Fatalf("SetObjectName: %v", errCode)
+	}
+	if errCode := txn.DefineProperty(obj, "benchprop", dbstore.NewProperty(types.NewInt(42), 0, dbstore.PropRead, false, true)); errCode != types.E_NONE {
+		b.Fatalf("DefineProperty: %v", errCode)
+	}
+	return store
 }
 
 func compileBench(b *testing.B, code string) (*bytecode.Program, *builtins.Registry) {
@@ -51,7 +77,7 @@ func BenchmarkVM(b *testing.B) {
 		w := w
 		b.Run(w.name, func(b *testing.B) {
 			prog, registry := compileBench(b, w.code)
-			store := dbstore.NewStore()
+			store := newBenchStore(b)
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
