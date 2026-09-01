@@ -32,6 +32,8 @@ var vmBenchWorkloads = []struct {
 	{"tostr_200k", "n = 0; for i in [1..200000]; n = n + length(tostr(i)); endfor; return n;"},
 	{"nested_1k", "c = 0; for i in [1..1000]; for j in [1..1000]; c = c + 1; endfor; endfor; return c;"},
 	{"list_iter_1M", "l = {1..1000000}; s = 0; for x in (l); s = s + x; endfor; return s;"},
+	{"while_lt_1M", "i = 0; while (i < 1000000) i = i + 1; endwhile; return i;"},
+	{"if_chain_1M", "c = 0; for i in [1..1000000]; if (i % 2 == 0) c = c + 1; elseif (i > 500000) c = c - 1; else c = c * 2; endif; endfor; return c;"},
 }
 
 func compileBench(b *testing.B, code string) (*bytecode.Program, *builtins.Registry) {

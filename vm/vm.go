@@ -206,6 +206,12 @@ const (
 	fkForRangeCheck
 	fkForRangeNext
 	fkLoop
+	fkSub
+	fkMul
+	fkMod
+	fkLt
+	fkGt
+	fkEq
 )
 
 var fastKinds = func() (t [256]uint8) {
@@ -225,6 +231,12 @@ var fastKinds = func() (t [256]uint8) {
 	t[bytecode.OP_FOR_RANGE_CHECK_WIDE] = fkForRangeCheck
 	t[bytecode.OP_FOR_RANGE_NEXT_WIDE] = fkForRangeNext
 	t[bytecode.OP_LOOP_WIDE] = fkLoop
+	t[bytecode.OP_SUB] = fkSub
+	t[bytecode.OP_MUL] = fkMul
+	t[bytecode.OP_MOD] = fkMod
+	t[bytecode.OP_LT] = fkLt
+	t[bytecode.OP_GT] = fkGt
+	t[bytecode.OP_EQ] = fkEq
 	return t
 }()
 
@@ -234,6 +246,61 @@ var fastKinds = func() (t [256]uint8) {
 func (vm *VM) countTick() {
 	vm.Ticks++
 	vm.syncContextTicks()
+}
+
+// topInts returns the two operands on top of the stack when both are ints.
+// Small enough to inline; used by the fast-path binary operators.
+func (vm *VM) topInts() (a, b int64, ok bool) {
+	if vm.SP < 2 {
+		return 0, 0, false
+	}
+	x, y := vm.Stack[vm.SP-2], vm.Stack[vm.SP-1]
+	if x.Type() != types.TYPE_INT || y.Type() != types.TYPE_INT {
+		return 0, 0, false
+	}
+	return x.Int(), y.Int(), true
+}
+
+// replaceTop2 pops two operands and pushes v in their place.
+func (vm *VM) replaceTop2(v types.Value) {
+	vm.Stack[vm.SP-2] = v
+	vm.SP--
+}
+
+// fastIntBinary applies an int/int SUB, MUL, LT, GT or EQ to the top two
+// operands and reports whether it did. Any other operand pairing (floats,
+// promotion, bools, strings, errors) returns false so the generic operator --
+// the single source of truth for those rules -- handles it. Deliberately not
+// inlined: see the call site in executeLoop.
+//
+//go:noinline
+func (vm *VM) fastIntBinary(kind uint8) bool {
+	a, b, ok := vm.topInts()
+	if !ok {
+		return false
+	}
+	var r int64
+	switch kind {
+	case fkSub:
+		r = a - b
+	case fkMul:
+		r = a * b
+	case fkLt:
+		r = boolInt(a < b)
+	case fkGt:
+		r = boolInt(a > b)
+	default: // fkEq
+		r = boolInt(a == b)
+	}
+	vm.replaceTop2(types.NewInt(r))
+	return true
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // releaseLocal records the finalization/GC bookkeeping owed when a local
@@ -446,6 +513,14 @@ func (vm *VM) executeLoop() types.Result {
 						continue
 					}
 				}
+			}
+		case fkSub, fkMul, fkLt, fkGt, fkEq:
+			// Kept out of line: inlining these grew executeLoop's body enough
+			// to cost the core int loops 6-10% (layout, not frame size). A
+			// small call is still far cheaper than the trip through Execute.
+			if vm.fastIntBinary(fastKinds[op]) {
+				cur.IP = ip + 1
+				continue
 			}
 		case fkPop:
 			if vm.SP > 0 {
