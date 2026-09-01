@@ -25,13 +25,17 @@ func waifInList(needle types.Value, haystack []types.Value) bool {
 	return false
 }
 
-func (s *Runtime) liveWaifs(siblingWaifs []types.Value, rootVMs ...*vm.VM) []types.Value {
-	roots := s.store.PersistentWaifRoots()
-	roots = append(roots, siblingWaifs...)
-	for _, exec := range rootVMs {
-		vm.CollectWaifsFromVM(exec, &roots)
+// liveWaifs returns the identity set of every waif reachable from persistent
+// state, the supplied sibling references, and the given VMs.
+func (s *Runtime) liveWaifs(siblingWaifs []types.Value, rootVMs ...*vm.VM) *types.WaifSet {
+	live := types.NewWaifSet(s.store.PersistentWaifRoots())
+	for _, waif := range siblingWaifs {
+		live.Add(waif)
 	}
-	return roots
+	for _, exec := range rootVMs {
+		vm.CollectWaifsFromVMInto(exec, live)
+	}
+	return live
 }
 
 // finalizePendingWaifs recycles the task's pending waifs that nothing still
@@ -48,7 +52,7 @@ func (s *Runtime) finalizePendingWaifs(ctx *kernel.TaskContext, pending []types.
 		owner = rootVMs[0].Task
 	}
 	for _, waif := range pending {
-		if waifInList(waif, live) {
+		if live.Has(waif) {
 			continue
 		}
 		s.callWaifRecycle(ctx, owner, waif)
@@ -86,9 +90,14 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 	if ownVM != nil {
 		vm.CollectWaifsFromVM(ownVM, &ownRefs)
 	}
-	shutdownRoots := vm.CollectPendingFinalizationValues(s.store, ownVM)
+	// Only the VM's direct references must be captured now, while this
+	// goroutine still owns the VM. Reducing them to canonical shutdown roots
+	// walks every persistent property tree, so that happens only if a shutdown
+	// actually claims this entry (here, or later in flushDeferredGC).
+	direct := vm.CollectDirectFinalizationRoots(ownVM)
 	s.lifecycle.Mu.Lock()
 	if s.lifecycle.ShutdownRequested {
+		shutdownRoots := vm.CanonicalizePendingFinalizationValues(s.store, direct)
 		published := s.lifecycle.ShutdownPublished
 		if !published {
 			s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, shutdownRoots...)
@@ -105,7 +114,7 @@ func (s *Runtime) deferPendingWaifs(ctx *kernel.TaskContext, pending []types.Val
 			owner = ownVM.Task
 		}
 		s.lifecycle.PendingWaifs = append(s.lifecycle.PendingWaifs, finalization.PendingWaif{
-			Waif: waif, Ctx: ctx, Task: owner, OwnRefs: ownRefs, ShutdownRoots: shutdownRoots,
+			Waif: waif, Ctx: ctx, Task: owner, OwnRefs: ownRefs, DirectRoots: direct,
 		})
 	}
 	s.lifecycle.Mu.Unlock()
@@ -279,7 +288,7 @@ func (s *Runtime) flushDeferredGC() {
 		}
 		live := s.liveWaifs(roots)
 		for index, entry := range waifBatch {
-			if waifInList(entry.Waif, live) {
+			if live.Has(entry.Waif) {
 				continue
 			}
 			s.callWaifRecycle(entry.Ctx, entry.Task, entry.Waif)
@@ -288,7 +297,8 @@ func (s *Runtime) flushDeferredGC() {
 			if shutdown {
 				for _, remaining := range waifBatch[index:] {
 					if remaining.Ctx != nil && remaining.Task != nil {
-						s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, remaining.ShutdownRoots...)
+						roots := vm.CanonicalizePendingFinalizationValues(s.store, remaining.DirectRoots)
+						s.lifecycle.PendingShutdownRoots = append(s.lifecycle.PendingShutdownRoots, roots...)
 					}
 				}
 			}
@@ -380,13 +390,13 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	if len(values) == 0 {
 		return
 	}
-	var waifs []types.Value
+	waifs := types.NewWaifSet(nil)
 	anons := make(map[types.ObjID]struct{})
 	for _, value := range values {
-		collectLoadedFinalizationRoots(value, &waifs, anons)
+		collectLoadedFinalizationRoots(value, waifs, anons)
 	}
 	s.lifecycle.Mu.Lock()
-	for _, waif := range waifs {
+	for _, waif := range waifs.Values {
 		ctx := kernel.NewTaskContext()
 		ctx.Player = waif.Owner()
 		ctx.Programmer = waif.Owner()
@@ -406,16 +416,14 @@ func (s *Runtime) AdoptPendingFinalizations(values []types.Value) {
 	s.lifecycle.Mu.Unlock()
 }
 
-func collectLoadedFinalizationRoots(value types.Value, waifs *[]types.Value, anons map[types.ObjID]struct{}) {
+func collectLoadedFinalizationRoots(value types.Value, waifs *types.WaifSet, anons map[types.ObjID]struct{}) {
 	switch value.Type() {
 	case types.TYPE_OBJ, types.TYPE_ANON:
 		if value.IsAnonymous() {
 			anons[value.ID()] = struct{}{}
 		}
 	case types.TYPE_WAIF:
-		if !waifInList(value, *waifs) {
-			*waifs = append(*waifs, value)
-		}
+		waifs.Add(value)
 	case types.TYPE_LIST:
 		for _, element := range value.Elements() {
 			collectLoadedFinalizationRoots(element, waifs, anons)

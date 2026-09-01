@@ -514,6 +514,7 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 		return nil, nil, false
 	}
 	anonRefs = make(map[types.ObjID]struct{})
+	waifSet := types.NewWaifSet(nil)
 	for _, t := range s.taskManager.Snapshot() {
 		if t == nil {
 			continue
@@ -526,10 +527,10 @@ func (s *Runtime) collectAllGCRefs() (anonRefs map[types.ObjID]struct{}, waifRef
 		}
 		if exec, isVM := t.BytecodeVMValue().(*vm.VM); isVM && exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
-			vm.CollectWaifsFromVM(exec, &waifRefs)
+			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}
 	}
-	return anonRefs, waifRefs, true
+	return anonRefs, waifSet.Values, true
 }
 
 // collectExplicitGlobalGCSiblingRefs snapshots the anonymous references held by
@@ -585,6 +586,7 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 		}
 	}
 	anonRefs = make(map[types.ObjID]struct{})
+	waifSet := types.NewWaifSet(nil)
 	for _, queued := range s.taskManager.Snapshot() {
 		if queued == nil || (exclude != nil && queued.ID == exclude.ID) {
 			continue
@@ -598,10 +600,10 @@ func (s *Runtime) collectSiblingGCRefs(exclude *task.Task) (anonRefs map[types.O
 		}
 		if exec, ok := queued.BytecodeVMValue().(*vm.VM); ok && exec != nil {
 			vm.CollectAnonymousRefsFromVM(exec, anonRefs)
-			vm.CollectWaifsFromVM(exec, &waifRefs)
+			vm.CollectWaifsFromVMInto(exec, waifSet)
 		}
 	}
-	return anonRefs, waifRefs, true
+	return anonRefs, waifSet.Values, true
 }
 
 func (s *Runtime) isWizard(objID types.ObjID) bool {
