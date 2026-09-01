@@ -48,7 +48,9 @@ func BuildVMRegistry() *builtins.Registry {
 			evalVM := NewVM(store, ctx.Session)
 			evalVM.Context = ctx.TaskContext
 			evalVM.Task = ctx.Task
-			evalVM.TickLimit = 30000
+			// No scheduler is running (inspection tools); honor the session's
+			// foreground tick budget the way the engine path does.
+			evalVM.TickLimit, _ = ctx.Session.GetTaskLimits(false)
 			frame := evalVM.PrepareVerbFrame(prog, types.ObjNothing, ctx.Player, ctx.ThisObj, "", types.ObjNothing, []types.Value{})
 			SetLocalBySlot(frame, prog.BuiltinSlots.This, types.NewObj(types.ObjNothing))
 			SetLocalBySlot(frame, prog.BuiltinSlots.Player, types.NewObj(ctx.Player))
