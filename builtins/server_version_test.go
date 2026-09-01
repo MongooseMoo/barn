@@ -11,16 +11,24 @@ import (
 
 func TestServerVersionUsesInjectedBuildMetadataConsistently(t *testing.T) {
 	tests := []struct {
-		name  string
-		build buildinfo.Info
+		name    string
+		build   buildinfo.Info
+		wantExt string
 	}{
 		{
-			name:  "release",
-			build: buildinfo.Info{Major: 2, Minor: 7, Patch: 3, Prerelease: "rc.1", String: "2.7.3-rc.1", Revision: "abc123"},
+			name:    "release",
+			build:   buildinfo.Info{Major: 2, Minor: 7, Patch: 3, Prerelease: "rc.1", String: "2.7.3-rc.1", Revision: "abc123"},
+			wantExt: "-rc.1",
 		},
 		{
-			name:  "development",
-			build: buildinfo.Info{Prerelease: "dev", String: "0.0.0-dev+abc123.dirty", Revision: "abc123", Modified: true},
+			name:    "packaged release",
+			build:   buildinfo.Info{Major: 4, Minor: 5, Patch: 6, Prerelease: "rc.1", String: "4.5.6-rc.1+packaged", Revision: "abc123"},
+			wantExt: "-rc.1+packaged",
+		},
+		{
+			name:    "development",
+			build:   buildinfo.Info{Prerelease: "dev", String: "0.0.0-dev+abc123.dirty", Revision: "abc123", Modified: true},
+			wantExt: "-dev+abc123.dirty",
 		},
 	}
 
@@ -35,7 +43,7 @@ func TestServerVersionUsesInjectedBuildMetadataConsistently(t *testing.T) {
 			assertVersionKey(t, ctx, test.build, "major", types.NewInt(test.build.Major))
 			assertVersionKey(t, ctx, test.build, "minor", types.NewInt(test.build.Minor))
 			assertVersionKey(t, ctx, test.build, "release", types.NewInt(test.build.Patch))
-			assertVersionKey(t, ctx, test.build, "ext", types.NewStr(versionExtension(test.build.Prerelease)))
+			assertVersionKey(t, ctx, test.build, "ext", types.NewStr(test.wantExt))
 			assertVersionKey(t, ctx, test.build, "string", types.NewStr(test.build.String))
 			assertVersionKey(t, ctx, test.build, "os", types.NewStr(runtime.GOOS))
 			assertVersionKey(t, ctx, test.build, "options/RUNTIME", types.NewStr(runtime.Version()))
@@ -76,6 +84,11 @@ func TestServerVersionNestedGroupsMatchKeyedLookups(t *testing.T) {
 		result := serverVersion(ctx, []types.Value{types.NewStr(group)}, build)
 		if !result.IsNormal() || result.Val.Type() != types.TYPE_LIST {
 			t.Fatalf("server_version(%q) = %#v, want nested list", group, result)
+		}
+
+		withTrailingSlash := serverVersion(ctx, []types.Value{types.NewStr(group + "/")}, build)
+		if !withTrailingSlash.IsNormal() || withTrailingSlash.Val.String() != result.Val.String() {
+			t.Errorf("server_version(%q) = %#v, want %s", group+"/", withTrailingSlash, result.Val.String())
 		}
 	}
 }

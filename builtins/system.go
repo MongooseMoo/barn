@@ -3,6 +3,7 @@ package builtins
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -548,7 +549,7 @@ func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) typ
 		versionPair("major", types.NewInt(build.Major)),
 		versionPair("minor", types.NewInt(build.Minor)),
 		versionPair("release", types.NewInt(build.Patch)),
-		versionPair("ext", types.NewStr(versionExtension(build.Prerelease))),
+		versionPair("ext", types.NewStr(versionExtension(build))),
 		versionPair("string", types.NewStr(build.String)),
 		versionPair("os", types.NewStr(runtime.GOOS)),
 		versionPair("features", features),
@@ -587,17 +588,29 @@ func versionPair(name string, value types.Value) types.Value {
 	return types.NewList([]types.Value{types.NewStr(name), value})
 }
 
-func versionExtension(prerelease string) string {
-	if prerelease == "" {
+func versionExtension(build buildinfo.Info) string {
+	version := strings.TrimPrefix(strings.TrimSpace(build.String), "v")
+	core := fmt.Sprintf("%d.%d.%d", build.Major, build.Minor, build.Patch)
+	if strings.HasPrefix(version, core) {
+		return strings.TrimPrefix(version, core)
+	}
+	if build.Prerelease == "" {
 		return ""
 	}
-	return "-" + prerelease
+	return "-" + build.Prerelease
 }
 
 func lookupVersionPath(root types.Value, path string) (types.Value, bool) {
 	current := root
-	for _, segment := range strings.Split(path, "/") {
-		if segment == "" || current.Type() != types.TYPE_LIST {
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if segment == "" {
+			if i == len(segments)-1 && i > 0 {
+				return current, true
+			}
+			return types.Value{}, false
+		}
+		if current.Type() != types.TYPE_LIST {
 			return types.Value{}, false
 		}
 
