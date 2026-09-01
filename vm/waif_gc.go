@@ -9,6 +9,9 @@ func collectWaifsForGC(v types.Value, out *[]types.Value) {
 }
 
 func collectDirectWaifsForGC(v types.Value, out *[]types.Value) {
+	if !v.MayHoldFinalizable() {
+		return
+	}
 	switch v.Type() {
 	case types.TYPE_WAIF:
 		for _, existing := range *out {

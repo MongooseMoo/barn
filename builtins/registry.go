@@ -33,6 +33,15 @@ func (s *Session) NewExecution(ctx *kernel.TaskContext, task *task.Task) *Execut
 	return execution
 }
 
+// Rebind points a reused Execution at the current task state. Callers that
+// issue many builtin calls from one VM keep a single Execution (and its
+// service closures) alive instead of allocating one per call.
+func (ctx *Execution) Rebind(taskCtx *kernel.TaskContext, task *task.Task) {
+	ctx.TaskContext = taskCtx
+	ctx.Task = task
+	ctx.ensureStoreTxn()
+}
+
 func (ctx *Execution) ensureStoreTxn() {
 	if ctx != nil && ctx.TaskContext != nil && ctx.StoreTxn == nil && ctx.Store != nil {
 		ctx.StoreTxn = ctx.Store.DirectTxn()
