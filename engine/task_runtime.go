@@ -731,6 +731,12 @@ func (s *Runtime) drainForks(t *task.Task, bcVM *vm.VM, result types.Result) typ
 
 // ExecuteVerbTaskSync creates and immediately runs a command verb task on the runtime goroutine.
 func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string) error {
+	return s.ExecuteVerbTaskSyncWithStart(player, match, cmd, outputSuffix, nil)
+}
+
+// ExecuteVerbTaskSyncWithStart is ExecuteVerbTaskSync with a hook invoked after
+// the task is registered and before any of its code runs.
+func (s *Runtime) ExecuteVerbTaskSyncWithStart(player types.ObjID, match *command.VerbMatch, cmd *command.ParsedCommand, outputSuffix string, onStart func(int64)) error {
 	program, diagnostics := s.registry.Compiler().CompileMOOWithKey(match.Verb.Code, match.Verb.CodeKey)
 	if len(diagnostics) > 0 {
 		return fmt.Errorf("verb compile error: %s", diagnostics[0].Error())
@@ -766,6 +772,9 @@ func (s *Runtime) ExecuteVerbTaskSync(player types.ObjID, match *command.VerbMat
 	// Register task
 	t.SetState(task.TaskQueued)
 	s.taskManager.RegisterTask(t)
+	if onStart != nil {
+		onStart(t.ID)
+	}
 
 	// Run synchronously on the runtime goroutine.
 	err := s.runTask(t)
