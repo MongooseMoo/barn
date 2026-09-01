@@ -3,6 +3,7 @@ package builtins
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MongooseMoo/barn/internal/buildinfo"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -521,11 +523,11 @@ func builtinCtime(ctx *Execution, args []types.Value) types.Result {
 }
 
 // builtinServerVersion implements server_version([key])
-// Returns server version information
-// With no args: returns version string like "1.0.0"
-// With arg: returns specific version info (not fully implemented yet)
 func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
-	const versionString = "1.0.0-barn"
+	return serverVersion(ctx, args, buildinfo.Current())
+}
+
+func serverVersion(ctx *Execution, args []types.Value, build buildinfo.Info) types.Result {
 	options := ctx.RuntimeOptions
 	featureNames := options.FeatureNames()
 	featureValues := make([]types.Value, 0, len(featureNames))
@@ -533,49 +535,116 @@ func builtinServerVersion(ctx *Execution, args []types.Value) types.Result {
 		featureValues = append(featureValues, types.NewStr(feature))
 	}
 	features := types.NewList(featureValues)
+	optionInfo := types.NewList([]types.Value{
+		versionPair("OUTBOUND_NETWORK", types.NewStr(boolOptionState(options.OutboundNetwork))),
+		versionPair("PROMOTE_NUMBERS", types.NewStr(boolOptionState(options.PromoteNumbers))),
+		versionPair("RUNTIME", types.NewStr(runtime.Version())),
+		versionPair("ARCHITECTURE", types.NewStr(runtime.GOARCH)),
+	})
+	sourceInfo := types.NewList([]types.Value{
+		versionPair("commit", types.NewStr(build.Revision)),
+		versionPair("modified", types.NewInt(boolInt(build.Modified))),
+	})
 	versionInfo := []types.Value{
-		types.NewList([]types.Value{types.NewStr("major"), types.NewInt(1)}),
-		types.NewList([]types.Value{types.NewStr("minor"), types.NewInt(0)}),
-		types.NewList([]types.Value{types.NewStr("patch"), types.NewInt(0)}),
-		types.NewList([]types.Value{types.NewStr("prerelease"), types.NewStr("barn")}),
-		types.NewList([]types.Value{types.NewStr("string"), types.NewStr(versionString)}),
-		types.NewList([]types.Value{types.NewStr("features"), features}),
-		types.NewList([]types.Value{types.NewStr("runtime"), types.NewStr("go")}),
-		types.NewList([]types.Value{types.NewStr("platform"), types.NewStr(runtime.GOOS)}),
-		types.NewList([]types.Value{types.NewStr("architecture"), types.NewStr(runtime.GOARCH)}),
+		versionPair("major", types.NewInt(build.Major)),
+		versionPair("minor", types.NewInt(build.Minor)),
+		versionPair("release", types.NewInt(build.Patch)),
+		versionPair("ext", types.NewStr(versionExtension(build))),
+		versionPair("string", types.NewStr(build.String)),
+		versionPair("os", types.NewStr(runtime.GOOS)),
+		versionPair("features", features),
+		versionPair("options", optionInfo),
+		versionPair("source", sourceInfo),
 	}
+	all := types.NewList(versionInfo)
 
 	if len(args) == 0 {
-		return types.Ok(types.NewStr(versionString))
+		return types.Ok(types.NewStr(build.String))
 	}
 	if len(args) != 1 {
 		return types.Err(types.E_ARGS)
 	}
 
 	if args[0].Type() != types.TYPE_STR {
-		return types.Ok(types.NewList(versionInfo))
+		return types.Ok(all)
 	}
 
-	switch args[0].Str() {
-	case "":
-		return types.Ok(types.NewList(versionInfo))
-	case "major":
-		return types.Ok(types.NewInt(1))
-	case "minor":
-		return types.Ok(types.NewInt(0))
-	case "patch":
-		return types.Ok(types.NewInt(0))
-	case "string":
-		return types.Ok(types.NewStr(versionString))
-	case "features":
-		return types.Ok(features)
-	case "options.OUTBOUND_NETWORK", "options/OUTBOUND_NETWORK":
-		return types.Ok(types.NewStr(boolOptionState(options.OutboundNetwork)))
-	case "options.PROMOTE_NUMBERS", "options/PROMOTE_NUMBERS":
-		return types.Ok(types.NewStr(boolOptionState(options.PromoteNumbers)))
-	default:
-		return types.Err(types.E_INVARG)
+	path := args[0].Str()
+	if path == "" {
+		return types.Ok(all)
 	}
+	// Barn historically accepted dot-separated option lookups. Keep that
+	// established spelling while using ToastStunt's slash hierarchy internally.
+	if strings.HasPrefix(path, "options.") {
+		path = "options/" + strings.TrimPrefix(path, "options.")
+	}
+	if value, ok := lookupVersionPath(all, path); ok {
+		return types.Ok(value)
+	}
+	return types.Err(types.E_INVARG)
+}
+
+func versionPair(name string, value types.Value) types.Value {
+	return types.NewList([]types.Value{types.NewStr(name), value})
+}
+
+func versionExtension(build buildinfo.Info) string {
+	version := strings.TrimPrefix(strings.TrimSpace(build.String), "v")
+	core := fmt.Sprintf("%d.%d.%d", build.Major, build.Minor, build.Patch)
+	if strings.HasPrefix(version, core) {
+		return strings.TrimPrefix(version, core)
+	}
+	if build.Prerelease == "" {
+		return ""
+	}
+	return "-" + build.Prerelease
+}
+
+func lookupVersionPath(root types.Value, path string) (types.Value, bool) {
+	current := root
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		if segment == "" {
+			if i == len(segments)-1 && i > 0 {
+				return current, true
+			}
+			return types.Value{}, false
+		}
+		if current.Type() != types.TYPE_LIST {
+			return types.Value{}, false
+		}
+
+		found := false
+		for _, entry := range current.Elements() {
+			switch entry.Type() {
+			case types.TYPE_STR:
+				if entry.Str() == segment {
+					current = entry
+					found = true
+				}
+			case types.TYPE_LIST:
+				pair := entry.Elements()
+				if len(pair) == 2 && pair[0].Type() == types.TYPE_STR && pair[0].Str() == segment {
+					current = pair[1]
+					found = true
+				}
+			}
+			if found {
+				break
+			}
+		}
+		if !found {
+			return types.Value{}, false
+		}
+	}
+	return current, true
+}
+
+func boolInt(v bool) int64 {
+	if v {
+		return 1
+	}
+	return 0
 }
 
 func boolOptionState(v bool) string {
