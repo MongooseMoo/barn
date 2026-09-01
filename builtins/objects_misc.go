@@ -17,11 +17,6 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_ARGS)
 	}
 
-	// TODO: Check caller is wizard
-	// if !isWizard(ctx.Programmer) {
-	// 	return types.Err(types.E_PERM)
-	// }
-
 	// Get object to renumber
 	objVal := args[0]
 	if !isObjectRef(objVal) {
@@ -33,6 +28,9 @@ func builtinRenumber(ctx *Execution, args []types.Value) types.Result {
 	// Check object is valid
 	if !validForRead(ctx, oldID) {
 		return types.Err(types.E_INVARG)
+	}
+	if !ctx.IsWizard {
+		return types.Err(types.E_PERM)
 	}
 
 	// Find lowest available ID

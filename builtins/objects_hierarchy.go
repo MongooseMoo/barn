@@ -103,6 +103,31 @@ func objIDsToValues(ids []types.ObjID) []types.Value {
 	return values
 }
 
+// authorizeParentChange applies Toast's controls2/fertility rule against the
+// task's transaction view. The effective programmer must control the object
+// (own it, be a wizard, or have write access), and every proposed parent must
+// be owned, fertile, or wizard-authorized. An empty parent set therefore still
+// requires control of the object being changed.
+func authorizeParentChange(ctx *Execution, objID types.ObjID, parentIDs []types.ObjID) types.ErrorCode {
+	controlsObject, errCode := objectAllowsForRead(ctx, objID, dbstore.FlagWrite)
+	if errCode != types.E_NONE {
+		return errCode
+	}
+	if !controlsObject {
+		return types.E_PERM
+	}
+	for _, parentID := range parentIDs {
+		allowsChild, errCode := objectAllowsForRead(ctx, parentID, dbstore.FlagFertile)
+		if errCode != types.E_NONE {
+			return errCode
+		}
+		if !allowsChild {
+			return types.E_PERM
+		}
+	}
+	return types.E_NONE
+}
+
 // builtinChparent implements chparent(object, new_parent)
 // Changes object's parent (single inheritance)
 func builtinChparent(ctx *Execution, args []types.Value) types.Result {
@@ -188,21 +213,6 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	if !ctx.IsWizard && newParentVal.ID() != types.ObjNothing {
-		ownerID, errCode := objectOwnerForRead(ctx, newParentVal.ID())
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		hasFertile, errCode := hasObjectFlagForRead(ctx, newParentVal.ID(), dbstore.FlagFertile)
-		if errCode != types.E_NONE {
-			return types.Err(errCode)
-		}
-		isOwner := ownerID == ctx.Programmer
-		if !isOwner && !hasFertile {
-			return types.Err(types.E_PERM)
-		}
-	}
-
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
 
@@ -211,6 +221,9 @@ func builtinChparent(ctx *Execution, args []types.Value) types.Result {
 		newParents = []types.ObjID{}
 	} else {
 		newParents = []types.ObjID{newParentVal.ID()}
+	}
+	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
+		return types.Err(errCode)
 	}
 	tx := readTxn(ctx)
 	oldParents, errCode := tx.Parents(objVal.ID())
@@ -335,7 +348,9 @@ func builtinChparents(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// TODO: Check permissions and fertile flags (Layer 8.5)
+	if errCode := authorizeParentChange(ctx, objVal.ID(), newParents); errCode != types.E_NONE {
+		return types.Err(errCode)
+	}
 
 	// Note: ToastStunt does NOT invalidate anonymous descendants when the parent
 	// hierarchy changes; they remain valid.
