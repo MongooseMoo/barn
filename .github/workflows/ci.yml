@@ -4,6 +4,10 @@ on:
   push:
     branches: [master]
   pull_request:
+  # master uses a merge queue: GitHub merges each queued PR onto current
+  # master on a temporary branch and runs these same required checks there,
+  # so PRs no longer need manual "update branch" round-trips.
+  merge_group:
 
 # Cancel superseded runs on the same ref.
 concurrency:
