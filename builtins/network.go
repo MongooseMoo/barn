@@ -1007,7 +1007,7 @@ func builtinBootPlayer(ctx *Execution, args []types.Value) types.Result {
 	if !ok {
 		return types.Err(types.E_TYPE)
 	}
-	if !ctx.IsWizard && player != ctx.Player {
+	if !ctx.IsWizard && player != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
@@ -1225,7 +1225,7 @@ func builtinSetConnectionOption(ctx *Execution, args []types.Value) types.Result
 	if conn == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if !ctx.IsWizard && player != ctx.Player {
+	if !ctx.IsWizard && player != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
@@ -1292,7 +1292,7 @@ func builtinConnectionOption(ctx *Execution, args []types.Value) types.Result {
 	if resolveConnection(ctx, player) == nil {
 		return types.Err(types.E_INVARG)
 	}
-	if !ctx.IsWizard && player != ctx.Player {
+	if !ctx.IsWizard && player != ctx.Programmer {
 		return types.Err(types.E_PERM)
 	}
 
@@ -1326,6 +1326,8 @@ func builtinReadHTTP(ctx *Execution, args []types.Value) types.Result {
 	}
 	typeStr := args[0].Str()
 
+	// The omitted target denotes the current connection; Player selects that
+	// connection but does not grant permission to it.
 	var connection types.ObjID = ctx.Player
 	if len(args) > 1 {
 		if !isObjectRef(args[1]) {

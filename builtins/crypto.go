@@ -348,11 +348,6 @@ func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	// Check if player is wizard (not just verb owner)
-	// This allows wizard players to use SHA256/SHA512 with custom rounds
-	// even when called from non-wizard verbs
-	playerIsWizard := ctx.IsWizard || isPlayerWizard(ctx, ctx.Player)
-
 	// Determine algorithm from salt prefix
 	bcryptCost, shaRounds, errCode := cryptWork(salt)
 	if errCode != types.E_NONE {
@@ -377,7 +372,7 @@ func builtinCrypt(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_QUOTA)
 	}
 
-	result, errCode := cryptPasswordWithPerm(password, salt, playerIsWizard)
+	result, errCode := cryptPasswordWithPerm(password, salt, ctx.IsWizard)
 	if errCode != 0 {
 		return types.Err(errCode)
 	}
