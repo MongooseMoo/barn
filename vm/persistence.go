@@ -33,29 +33,32 @@ func (vm *VM) PersistenceVMSnapshot() *task.VMSnapshot {
 		}
 
 		saved := task.VMFrameSnapshot{
-			Program:          cloneProgram(frame.Program),
-			IP:               frame.IP,
-			Locals:           append([]types.Value(nil), frame.Locals...),
-			Stack:            append([]types.Value(nil), vm.Stack[frame.BasePointer:stackEnd]...),
-			This:             frame.This,
-			ThisValue:        frame.ThisValue,
-			Player:           frame.Player,
-			Verb:             frame.Verb,
-			StoredVerb:       storedVerbName(frame),
-			Caller:           frame.Caller,
-			VerbLoc:          frame.VerbLoc,
-			Args:             append([]types.Value(nil), frame.Args...),
-			ExceptStack:      cloneHandlers(frame.ExceptStack),
-			VerbDebug:        frame.VerbDebug,
-			DiscardReturn:    frame.DiscardReturn,
-			IsVerbCall:       frame.IsVerbCall,
-			IsEvalFrame:      frame.IsEvalFrame,
-			SavedThisObj:     frame.SavedThisObj,
-			SavedThisValue:   frame.SavedThisValue,
-			SavedVerb:        frame.SavedVerb,
-			SavedProgrammer:  frame.SavedProgrammer,
-			SavedIsWizard:    frame.SavedIsWizard,
-			MoveContinuation: cloneMoveContinuation(frame.MoveContinuation),
+			Program:             cloneProgram(frame.Program),
+			IP:                  frame.IP,
+			Locals:              append([]types.Value(nil), frame.Locals...),
+			Stack:               append([]types.Value(nil), vm.Stack[frame.BasePointer:stackEnd]...),
+			This:                frame.This,
+			ThisValue:           frame.ThisValue,
+			Player:              frame.Player,
+			Verb:                frame.Verb,
+			StoredVerb:          storedVerbName(frame),
+			Caller:              frame.Caller,
+			VerbLoc:             frame.VerbLoc,
+			Args:                append([]types.Value(nil), frame.Args...),
+			ExceptStack:         cloneHandlers(frame.ExceptStack),
+			PendingReturn:       frame.PendingReturn,
+			HasPendingReturn:    frame.HasPendingReturn,
+			VerbDebug:           frame.VerbDebug,
+			DiscardReturn:       frame.DiscardReturn,
+			IsVerbCall:          frame.IsVerbCall,
+			IsEvalFrame:         frame.IsEvalFrame,
+			SavedThisObj:        frame.SavedThisObj,
+			SavedThisValue:      frame.SavedThisValue,
+			SavedVerb:           frame.SavedVerb,
+			SavedProgrammer:     frame.SavedProgrammer,
+			SavedIsWizard:       frame.SavedIsWizard,
+			MoveContinuation:    cloneMoveContinuation(frame.MoveContinuation),
+			RecycleContinuation: snapshotRecycleContinuation(frame.RecycleContinuation),
 		}
 		if frame.PendingError != nil {
 			saved.PendingError.Present = true
@@ -108,29 +111,32 @@ func RestoreVMSnapshot(
 		base := len(machine.Stack)
 		machine.Stack = append(machine.Stack, saved.Stack...)
 		frame := &StackFrame{
-			Program:          &program,
-			IP:               saved.IP,
-			BasePointer:      base,
-			Locals:           append([]types.Value(nil), saved.Locals...),
-			This:             saved.This,
-			ThisValue:        saved.ThisValue,
-			Player:           saved.Player,
-			Verb:             saved.Verb,
-			StoredVerb:       saved.StoredVerb,
-			Caller:           saved.Caller,
-			VerbLoc:          saved.VerbLoc,
-			Args:             append([]types.Value(nil), saved.Args...),
-			ExceptStack:      cloneHandlers(saved.ExceptStack),
-			VerbDebug:        saved.VerbDebug,
-			DiscardReturn:    saved.DiscardReturn,
-			IsVerbCall:       saved.IsVerbCall,
-			IsEvalFrame:      saved.IsEvalFrame,
-			SavedThisObj:     saved.SavedThisObj,
-			SavedThisValue:   saved.SavedThisValue,
-			SavedVerb:        saved.SavedVerb,
-			SavedProgrammer:  saved.SavedProgrammer,
-			SavedIsWizard:    saved.SavedIsWizard,
-			MoveContinuation: cloneMoveContinuation(saved.MoveContinuation),
+			Program:             &program,
+			IP:                  saved.IP,
+			BasePointer:         base,
+			Locals:              append([]types.Value(nil), saved.Locals...),
+			This:                saved.This,
+			ThisValue:           saved.ThisValue,
+			Player:              saved.Player,
+			Verb:                saved.Verb,
+			StoredVerb:          saved.StoredVerb,
+			Caller:              saved.Caller,
+			VerbLoc:             saved.VerbLoc,
+			Args:                append([]types.Value(nil), saved.Args...),
+			ExceptStack:         cloneHandlers(saved.ExceptStack),
+			PendingReturn:       saved.PendingReturn,
+			HasPendingReturn:    saved.HasPendingReturn,
+			VerbDebug:           saved.VerbDebug,
+			DiscardReturn:       saved.DiscardReturn,
+			IsVerbCall:          saved.IsVerbCall,
+			IsEvalFrame:         saved.IsEvalFrame,
+			SavedThisObj:        saved.SavedThisObj,
+			SavedThisValue:      saved.SavedThisValue,
+			SavedVerb:           saved.SavedVerb,
+			SavedProgrammer:     saved.SavedProgrammer,
+			SavedIsWizard:       saved.SavedIsWizard,
+			MoveContinuation:    cloneMoveContinuation(saved.MoveContinuation),
+			RecycleContinuation: restoreRecycleContinuation(saved.RecycleContinuation),
 		}
 		if saved.PendingError.Present {
 			frame.PendingError = VMException{
@@ -155,6 +161,33 @@ func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveConti
 	}
 	cloned := *state
 	return &cloned
+}
+
+func snapshotRecycleContinuation(state *recycleContinuation) *task.RecycleContinuationSnapshot {
+	if state == nil {
+		return nil
+	}
+	request := state.request
+	return &task.RecycleContinuationSnapshot{
+		Object:      request.Object,
+		OldParents:  append([]types.ObjID(nil), request.OldParents...),
+		OldChildren: append([]types.ObjID(nil), request.OldChildren...),
+		OldContents: append([]types.ObjID(nil), request.OldContents...),
+		OldLocation: request.OldLocation,
+	}
+}
+
+func restoreRecycleContinuation(state *task.RecycleContinuationSnapshot) *recycleContinuation {
+	if state == nil {
+		return nil
+	}
+	return &recycleContinuation{request: builtins.RecycleLifecycleRequest{
+		Object:      state.Object,
+		OldParents:  append([]types.ObjID(nil), state.OldParents...),
+		OldChildren: append([]types.ObjID(nil), state.OldChildren...),
+		OldContents: append([]types.ObjID(nil), state.OldContents...),
+		OldLocation: state.OldLocation,
+	}}
 }
 
 func cloneProgram(program *bytecode.Program) bytecode.Program {
