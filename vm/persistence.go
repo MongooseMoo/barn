@@ -149,8 +149,13 @@ func RestoreVMSnapshot(
 		}
 	}
 
-	if !session.RestoreRecycleGuards(recycleIDs) {
-		return nil, fmt.Errorf("restored recycle lifecycle conflicts with active recycle")
+	if len(recycleIDs) > 0 {
+		if session == nil {
+			return nil, fmt.Errorf("restored recycle lifecycle requires a session")
+		}
+		if !session.RestoreRecycleGuards(recycleIDs) {
+			return nil, fmt.Errorf("restored recycle lifecycle conflicts with active recycle")
+		}
 	}
 
 	machine.SP = len(machine.Stack)
