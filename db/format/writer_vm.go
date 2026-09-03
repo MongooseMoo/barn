@@ -256,7 +256,13 @@ func vmFrameMetadata(frame task.VMFrameSnapshot) types.Value {
 		types.NewStr(frame.SavedVerb),
 		types.NewObj(frame.SavedProgrammer),
 		moveContinuationValue(frame.MoveContinuation),
+		pendingReturnValue(frame.PendingReturn, frame.HasPendingReturn),
+		recycleContinuationValue(frame.RecycleContinuation),
 	})
+}
+
+func pendingReturnValue(value types.Value, present bool) types.Value {
+	return types.NewList([]types.Value{types.NewBool(present), value})
 }
 
 func moveContinuationValue(state *task.MoveContinuationSnapshot) types.Value {
@@ -271,6 +277,27 @@ func moveContinuationValue(state *task.MoveContinuationSnapshot) types.Value {
 		types.NewInt(state.Position),
 		types.NewBool(state.Decentralized),
 	})
+}
+
+func recycleContinuationValue(state *task.RecycleContinuationSnapshot) types.Value {
+	if state == nil {
+		return types.NewList(nil)
+	}
+	return types.NewList([]types.Value{
+		state.Object,
+		objectIDsValue(state.OldParents),
+		objectIDsValue(state.OldChildren),
+		objectIDsValue(state.OldContents),
+		types.NewObj(state.OldLocation),
+	})
+}
+
+func objectIDsValue(ids []types.ObjID) types.Value {
+	values := make([]types.Value, len(ids))
+	for i, id := range ids {
+		values[i] = types.NewObj(id)
+	}
+	return types.NewList(values)
 }
 
 func bytesValue(values []byte) types.Value {

@@ -363,5 +363,32 @@ func decodeVMFrameMetadata(value types.Value) (task.VMFrameSnapshot, error) {
 			}
 		}
 	}
+	if value.Len() >= 17 {
+		pendingReturn := value.Get(17)
+		if pendingReturn.Type() == types.TYPE_LIST && pendingReturn.Len() >= 2 {
+			frame.HasPendingReturn = pendingReturn.Get(1).Truthy()
+			frame.PendingReturn = pendingReturn.Get(2)
+		}
+	}
+	if value.Len() >= 18 {
+		recycleState := value.Get(18)
+		if recycleState.Type() == types.TYPE_LIST && recycleState.Len() >= 5 {
+			frame.RecycleContinuation = &task.RecycleContinuationSnapshot{
+				Object:      recycleState.Get(1),
+				OldParents:  objectIDsFromValue(recycleState.Get(2)),
+				OldChildren: objectIDsFromValue(recycleState.Get(3)),
+				OldContents: objectIDsFromValue(recycleState.Get(4)),
+				OldLocation: recycleState.Get(5).Obj(),
+			}
+		}
+	}
 	return frame, nil
+}
+
+func objectIDsFromValue(value types.Value) []types.ObjID {
+	ids := make([]types.ObjID, value.Len())
+	for i := 1; i <= value.Len(); i++ {
+		ids[i-1] = value.Get(i).Obj()
+	}
+	return ids
 }

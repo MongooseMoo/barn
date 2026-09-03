@@ -300,6 +300,29 @@ func (r *Session) startRecycle(id types.ObjID) bool {
 	return true
 }
 
+// RestoreRecycleGuards atomically reserves objects whose recycle lifecycle
+// continuations were restored from persistent task state.
+func (r *Session) RestoreRecycleGuards(ids []types.ObjID) bool {
+	state := &r.runtime.recycle
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	restored := make(map[types.ObjID]struct{}, len(ids))
+	for _, id := range ids {
+		if state.ids[id] > 0 {
+			return false
+		}
+		if _, exists := restored[id]; exists {
+			return false
+		}
+		restored[id] = struct{}{}
+	}
+	for id := range restored {
+		state.ids[id] = 1
+	}
+	return true
+}
+
 func endRecycle(ctx *Execution, id types.ObjID) {
 	ctx.Session.endRecycle(id)
 }
