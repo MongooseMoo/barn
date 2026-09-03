@@ -102,6 +102,7 @@ func RestoreVMSnapshot(
 	}
 	machine.Frames = make([]*StackFrame, 0, len(snapshot.Frames))
 	machine.Stack = nil
+	recycleIDs := make([]types.ObjID, 0)
 
 	for _, saved := range snapshot.Frames {
 		program := cloneProgram(&saved.Program)
@@ -110,6 +111,7 @@ func RestoreVMSnapshot(
 		}
 		base := len(machine.Stack)
 		machine.Stack = append(machine.Stack, saved.Stack...)
+		recycleContinuation := restoreRecycleContinuation(saved.RecycleContinuation)
 		frame := &StackFrame{
 			Program:             &program,
 			IP:                  saved.IP,
@@ -136,7 +138,7 @@ func RestoreVMSnapshot(
 			SavedProgrammer:     saved.SavedProgrammer,
 			SavedIsWizard:       saved.SavedIsWizard,
 			MoveContinuation:    cloneMoveContinuation(saved.MoveContinuation),
-			RecycleContinuation: restoreRecycleContinuation(saved.RecycleContinuation),
+			RecycleContinuation: recycleContinuation,
 		}
 		if saved.PendingError.Present {
 			frame.PendingError = VMException{
@@ -145,6 +147,13 @@ func RestoreVMSnapshot(
 			}
 		}
 		machine.Frames = append(machine.Frames, frame)
+		if recycleContinuation != nil {
+			recycleIDs = append(recycleIDs, recycleContinuation.request.Object.ID())
+		}
+	}
+
+	if !session.RestoreRecycleGuards(recycleIDs) {
+		return nil, fmt.Errorf("restored recycle lifecycle conflicts with active recycle")
 	}
 
 	machine.SP = len(machine.Stack)

@@ -80,4 +80,7 @@ func TestControlContinuationsSurviveVMSnapshot(t *testing.T) {
 		request.OldLocation != 6 {
 		t.Fatalf("restored recycle request = %#v", request)
 	}
+	if _, err := RestoreVMSnapshot(snapshot, store, session, kernel.NewTaskContext()); err == nil {
+		t.Fatal("second restore of in-flight recycle succeeded, want recycle guard conflict")
+	}
 }
