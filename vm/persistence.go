@@ -91,8 +91,8 @@ func RestoreVMSnapshot(
 	session *builtins.Session,
 	ctx *kernel.TaskContext,
 ) (*VM, error) {
-	if snapshot == nil || len(snapshot.Frames) == 0 {
-		return nil, fmt.Errorf("empty VM snapshot")
+	if err := validateVMSnapshot(snapshot); err != nil {
+		return nil, err
 	}
 
 	machine := NewVM(store, session)
@@ -106,9 +106,6 @@ func RestoreVMSnapshot(
 
 	for _, saved := range snapshot.Frames {
 		program := cloneProgram(&saved.Program)
-		if saved.IP < 0 || saved.IP > len(program.Code) {
-			return nil, fmt.Errorf("saved IP %d outside program of %d bytes", saved.IP, len(program.Code))
-		}
 		base := len(machine.Stack)
 		machine.Stack = append(machine.Stack, saved.Stack...)
 		recycleContinuation := restoreRecycleContinuation(saved.RecycleContinuation)
@@ -162,6 +159,49 @@ func RestoreVMSnapshot(
 	machine.yielded = true
 	machine.yieldResult = types.Result{Flow: types.FlowSuspend}
 	return machine, nil
+}
+
+func validateVMSnapshot(snapshot *task.VMSnapshot) error {
+	if snapshot == nil || len(snapshot.Frames) == 0 {
+		return fmt.Errorf("empty VM snapshot")
+	}
+	if snapshot.MaxStackDepth <= 0 || len(snapshot.Frames) > snapshot.MaxStackDepth {
+		return fmt.Errorf("invalid maximum stack depth %d for %d frames", snapshot.MaxStackDepth, len(snapshot.Frames))
+	}
+
+	stackBase := 0
+	for frameIndex := range snapshot.Frames {
+		saved := &snapshot.Frames[frameIndex]
+		if err := bytecode.VerifyProgram(&saved.Program); err != nil {
+			return fmt.Errorf("frame %d: %w", frameIndex, err)
+		}
+		if !saved.Program.IsInstructionBoundary(saved.IP) {
+			return fmt.Errorf("frame %d: saved IP %d is not an instruction boundary", frameIndex, saved.IP)
+		}
+		if len(saved.Locals) < saved.Program.NumLocals {
+			return fmt.Errorf("frame %d: %d local slots for program requiring %d", frameIndex, len(saved.Locals), saved.Program.NumLocals)
+		}
+		stackEnd := stackBase + len(saved.Stack)
+		for handlerIndex, handler := range saved.ExceptStack {
+			if handler.Type != bytecode.HandlerExcept && handler.Type != bytecode.HandlerFinally {
+				return fmt.Errorf("frame %d handler %d: invalid handler type %d", frameIndex, handlerIndex, handler.Type)
+			}
+			if !saved.Program.IsInstructionBoundary(handler.HandlerIP) {
+				return fmt.Errorf("frame %d handler %d: handler target %d is not an instruction boundary", frameIndex, handlerIndex, handler.HandlerIP)
+			}
+			if handler.EndIP != 0 && !saved.Program.IsInstructionBoundary(handler.EndIP) {
+				return fmt.Errorf("frame %d handler %d: end target %d is not an instruction boundary", frameIndex, handlerIndex, handler.EndIP)
+			}
+			if handler.VarIndex < -1 || handler.VarIndex >= saved.Program.NumLocals {
+				return fmt.Errorf("frame %d handler %d: local index %d outside program locals", frameIndex, handlerIndex, handler.VarIndex)
+			}
+			if handler.StackDepth < stackBase || handler.StackDepth > stackEnd {
+				return fmt.Errorf("frame %d handler %d: stack depth %d outside [%d,%d]", frameIndex, handlerIndex, handler.StackDepth, stackBase, stackEnd)
+			}
+		}
+		stackBase = stackEnd
+	}
+	return nil
 }
 
 func cloneMoveContinuation(state *task.MoveContinuationSnapshot) *task.MoveContinuationSnapshot {
