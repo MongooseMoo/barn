@@ -1,5 +1,9 @@
 # Barn Agent Notes
 
+## Retry Reservation Publication Invariant
+
+- Retry-reservation admission and commit publication must share synchronization through the complete validation/publication interval. A reservation check that unlocks before publication permits a later reservation to overtake an admitted writer; cover that ordering with a deterministic regression before measuring a reservation policy.
+
 ## Conformance Discipline Rules
 
 - Keep Barn GitHub Actions runner selection behind the `CI_RUNNER_LABELS` repository variable with `ubuntu-latest` as the workflow fallback; while hosted minutes are exhausted, set the variable to `["self-hosted","Linux","X64","barn"]` before starting CI.
