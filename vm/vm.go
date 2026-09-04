@@ -341,7 +341,7 @@ func (vm *VM) fastListIndex() bool {
 // fastForListLoad handles the non-pairs FOR_LIST_LOAD (operands: list slot,
 // index slot, value slot, is-pairs slot). The pairs form and non-list
 // iterators return false for the generic case. Mirrors Execute exactly,
-// including the direct overwrite of the loop variable. Out of line.
+// including release bookkeeping for the overwritten loop variable. Out of line.
 //
 //go:noinline
 func (vm *VM) fastForListLoad(cur *StackFrame, code []byte, ip int) bool {
@@ -349,7 +349,9 @@ func (vm *VM) fastForListLoad(cur *StackFrame, code []byte, ip int) bool {
 	if list.Type() != types.TYPE_LIST || cur.Locals[code[ip+4]].Truthy() {
 		return false
 	}
-	cur.Locals[code[ip+3]] = list.Get(int(cur.Locals[code[ip+2]].Int()))
+	valueIdx := code[ip+3]
+	vm.releaseLocal(cur.Locals[valueIdx])
+	cur.Locals[valueIdx] = list.Get(int(cur.Locals[code[ip+2]].Int()))
 	return true
 }
 
@@ -1000,6 +1002,7 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 			}
 			elem = elem.Get(1)
 		}
+		vm.releaseLocal(frame.Locals[valueIdx])
 		frame.Locals[valueIdx] = elem
 
 	case bytecode.OP_FOR_LIST_LOAD_KV:
@@ -1018,6 +1021,8 @@ func (vm *VM) Execute(op bytecode.OpCode) error {
 		if pair.Type() != types.TYPE_LIST {
 			return MooError{Code: types.E_TYPE}
 		}
+		vm.releaseLocal(frame.Locals[valueIdx])
+		vm.releaseLocal(frame.Locals[indexIdx])
 		frame.Locals[valueIdx] = pair.Get(1)
 		frame.Locals[indexIdx] = pair.Get(2)
 

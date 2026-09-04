@@ -173,6 +173,91 @@ func TestDispatchFastPathParity(t *testing.T) {
 	}
 }
 
+func TestForListLoadReleasesPreviousLoopValue(t *testing.T) {
+	for _, fast := range []bool{false, true} {
+		name := "generic"
+		if fast {
+			name = "fast"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := dbstore.NewStore()
+			if err := store.Add(testObject(4, true)); err != nil {
+				t.Fatalf("add anonymous object: %v", err)
+			}
+
+			code := []byte{byte(bytecode.OP_FOR_LIST_LOAD), 0, 1, 2, 3}
+			frame := &StackFrame{
+				Program: &bytecode.Program{Code: code},
+				Locals: []types.Value{
+					types.NewList([]types.Value{types.NewInt(7)}),
+					types.NewInt(1),
+					types.NewAnon(4),
+					types.NewInt(0),
+				},
+			}
+			m := NewVM(store, newTestSession(BuildVMRegistry()))
+			m.Frames = []*StackFrame{frame}
+			m.frame = frame
+
+			if fast {
+				if !m.fastForListLoad(frame, code, 0) {
+					t.Fatal("fastForListLoad rejected list iteration")
+				}
+			} else {
+				frame.IP = 1
+				if err := m.Execute(bytecode.OP_FOR_LIST_LOAD); err != nil {
+					t.Fatalf("Execute(OP_FOR_LIST_LOAD): %v", err)
+				}
+			}
+
+			if got := frame.Locals[2]; !got.Equal(types.NewInt(7)) {
+				t.Fatalf("loop value = %v, want 7", got)
+			}
+			if len(m.PendingFinalizations) != 1 || !m.PendingFinalizations[0].Equal(types.NewAnon(4)) {
+				t.Fatalf("pending finalizations = %v, want {*anonymous* #4}", m.PendingFinalizations)
+			}
+		})
+	}
+}
+
+func TestForListLoadKVReleasesBothPreviousLoopValues(t *testing.T) {
+	store := dbstore.NewStore()
+	for _, id := range []types.ObjID{4, 5} {
+		if err := store.Add(testObject(id, true)); err != nil {
+			t.Fatalf("add anonymous object %d: %v", id, err)
+		}
+	}
+
+	frame := &StackFrame{
+		Program: &bytecode.Program{Code: []byte{byte(bytecode.OP_FOR_LIST_LOAD_KV), 0, 1, 2, 3}},
+		Locals: []types.Value{
+			types.NewList([]types.Value{types.NewList([]types.Value{types.NewInt(7), types.NewInt(1)})}),
+			types.NewInt(1),
+			types.NewAnon(4),
+			types.NewAnon(5),
+		},
+		IP: 1,
+	}
+	m := NewVM(store, newTestSession(BuildVMRegistry()))
+	m.Frames = []*StackFrame{frame}
+	m.frame = frame
+
+	if err := m.Execute(bytecode.OP_FOR_LIST_LOAD_KV); err != nil {
+		t.Fatalf("Execute(OP_FOR_LIST_LOAD_KV): %v", err)
+	}
+	if got := frame.Locals[2]; !got.Equal(types.NewInt(7)) {
+		t.Fatalf("loop value = %v, want 7", got)
+	}
+	if got := frame.Locals[3]; !got.Equal(types.NewInt(1)) {
+		t.Fatalf("loop index = %v, want 1", got)
+	}
+	if len(m.PendingFinalizations) != 2 ||
+		!m.PendingFinalizations[0].Equal(types.NewAnon(4)) ||
+		!m.PendingFinalizations[1].Equal(types.NewAnon(5)) {
+		t.Fatalf("pending finalizations = %v, want anonymous objects 4 and 5", m.PendingFinalizations)
+	}
+}
+
 // The fast-path back-edges charge ticks and enforce the limit themselves;
 // the raise must land on the exact tick and leave the loop variable where the
 // generic path would.
