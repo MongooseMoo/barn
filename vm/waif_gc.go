@@ -78,12 +78,9 @@ func CollectWaifsFromValue(v types.Value, out *[]types.Value) {
 }
 
 func (vm *VM) collectPendingWaifsFromFrame(frame *StackFrame) {
-	if frame == nil {
-		return
-	}
-	for _, value := range frame.Locals {
+	frame.visitValues(func(value types.Value, _ valueRootKind) {
 		collectDirectWaifsForGC(value, &vm.PendingWaifs)
-	}
+	})
 }
 
 // TakePendingWaifs returns waifs whose frame references have gone out of scope.
@@ -113,54 +110,9 @@ func CollectWaifsFromVMInto(exec *VM, set *types.WaifSet) {
 	if exec == nil {
 		return
 	}
-	for _, frame := range exec.Frames {
-		if frame == nil {
-			continue
-		}
-		for _, value := range frame.Locals {
+	exec.visitValues(func(value types.Value, kind valueRootKind) {
+		if kind == valueRootLive {
 			collectWaifsInto(value, set)
 		}
-		collectWaifsInto(frame.ThisValue, set)
-		for _, value := range frame.Args {
-			collectWaifsInto(value, set)
-		}
-		collectWaifsInto(frame.SavedThisValue, set)
-		collectWaifsFromPendingError(frame.PendingError, set)
-	}
-	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collectWaifsInto(exec.Stack[i], set)
-	}
-	collectWaifsInto(exec.yieldResult.Val, set)
-	if fork := exec.yieldResult.ForkInfo; fork != nil {
-		collectWaifsInto(fork.ThisValue, set)
-		for _, value := range fork.Variables {
-			collectWaifsInto(value, set)
-		}
-	}
-	if exec.Context != nil {
-		collectWaifsInto(exec.Context.ThisValue, set)
-		collectWaifsInto(exec.Context.MapFirstKey, set)
-		collectWaifsInto(exec.Context.MapLastKey, set)
-		collectWaifsInto(exec.Context.TaskLocal, set)
-		if exec.Task != nil {
-			collectWaifsInto(exec.Task.GetTaskLocal(), set)
-		}
-	}
-}
-
-func collectWaifsFromPendingError(err error, set *types.WaifSet) {
-	for err != nil {
-		switch pending := err.(type) {
-		case VMException:
-			collectWaifsInto(pending.Value, set)
-			return
-		case *VMException:
-			collectWaifsInto(pending.Value, set)
-			return
-		case interface{ Unwrap() error }:
-			err = pending.Unwrap()
-		default:
-			return
-		}
-	}
+	})
 }

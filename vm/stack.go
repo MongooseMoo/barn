@@ -113,7 +113,6 @@ func (vm *VM) Return(value types.Value) error {
 		return nil
 	}
 	frame.HasPendingReturn = false
-	vm.collectPendingWaifsFromFrame(frame)
 
 	// Eval frame returning normally: wrap result in {1, value}
 	if frame.IsEvalFrame {
@@ -133,8 +132,8 @@ func (vm *VM) Return(value types.Value) error {
 		if vm.Task != nil {
 			vm.Task.PopFrame()
 		}
-		vm.SP = frame.BasePointer
 		vm.popFrame()
+		vm.SP = frame.BasePointer
 		vm.Push(wrapped)
 		return nil
 	}
@@ -156,8 +155,8 @@ func (vm *VM) Return(value types.Value) error {
 
 	continuation := frame.MoveContinuation
 	recycleContinuation := frame.RecycleContinuation
-	vm.SP = frame.BasePointer
 	vm.popFrame()
+	vm.SP = frame.BasePointer
 	if continuation != nil {
 		result := vm.resumeMoveLifecycle(continuation, types.Ok(value))
 		switch result.Flow {

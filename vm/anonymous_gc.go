@@ -59,59 +59,11 @@ func collectAnonymousRefsFromVM(exec *VM, out map[types.ObjID]struct{}) {
 	if exec == nil {
 		return
 	}
-	for _, frame := range exec.Frames {
-		if frame == nil {
-			continue
-		}
-		for _, value := range frame.Locals {
+	exec.visitValues(func(value types.Value, kind valueRootKind) {
+		if kind == valueRootLive {
 			collectAnonymousRefsForGC(value, out)
 		}
-		collectAnonymousRefsForGC(frame.ThisValue, out)
-		for _, value := range frame.Args {
-			collectAnonymousRefsForGC(value, out)
-		}
-		collectAnonymousRefsForGC(frame.SavedThisValue, out)
-		collectAnonymousRefsFromPendingError(frame.PendingError, out)
-	}
-	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collectAnonymousRefsForGC(exec.Stack[i], out)
-	}
-	for _, value := range exec.PendingWaifs {
-		collectAnonymousRefsForGC(value, out)
-	}
-	collectAnonymousRefsForGC(exec.yieldResult.Val, out)
-	if fork := exec.yieldResult.ForkInfo; fork != nil {
-		collectAnonymousRefsForGC(fork.ThisValue, out)
-		for _, value := range fork.Variables {
-			collectAnonymousRefsForGC(value, out)
-		}
-	}
-	if exec.Context != nil {
-		collectAnonymousRefsForGC(exec.Context.ThisValue, out)
-		collectAnonymousRefsForGC(exec.Context.MapFirstKey, out)
-		collectAnonymousRefsForGC(exec.Context.MapLastKey, out)
-		collectAnonymousRefsForGC(exec.Context.TaskLocal, out)
-		if exec.Task != nil {
-			collectAnonymousRefsForGC(exec.Task.GetTaskLocal(), out)
-		}
-	}
-}
-
-func collectAnonymousRefsFromPendingError(err error, out map[types.ObjID]struct{}) {
-	for err != nil {
-		switch pending := err.(type) {
-		case VMException:
-			collectAnonymousRefsForGC(pending.Value, out)
-			return
-		case *VMException:
-			collectAnonymousRefsForGC(pending.Value, out)
-			return
-		case interface{ Unwrap() error }:
-			err = pending.Unwrap()
-		default:
-			return
-		}
-	}
+	})
 }
 
 func collectDirectFinalizationRoots(value types.Value, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
@@ -146,63 +98,7 @@ func collectDirectFinalizationRootsFromVM(exec *VM, refs map[types.ObjID]struct{
 	if exec == nil {
 		return
 	}
-	collect := func(value types.Value) { collectDirectFinalizationRoots(value, refs, waifs) }
-	for _, frame := range exec.Frames {
-		if frame == nil {
-			continue
-		}
-		for _, value := range frame.Locals {
-			collect(value)
-		}
-		collect(frame.ThisValue)
-		for _, value := range frame.Args {
-			collect(value)
-		}
-		collect(frame.SavedThisValue)
-		collectDirectFinalizationRootsFromPendingError(frame.PendingError, refs, waifs)
-	}
-	for i := 0; i < exec.SP && i < len(exec.Stack); i++ {
-		collect(exec.Stack[i])
-	}
-	for _, value := range exec.PendingWaifs {
-		collect(value)
-	}
-	for _, value := range exec.PendingFinalizations {
-		collect(value)
-	}
-	collect(exec.yieldResult.Val)
-	if fork := exec.yieldResult.ForkInfo; fork != nil {
-		collect(fork.ThisValue)
-		for _, value := range fork.Variables {
-			collect(value)
-		}
-	}
-	if exec.Context != nil {
-		collect(exec.Context.ThisValue)
-		collect(exec.Context.MapFirstKey)
-		collect(exec.Context.MapLastKey)
-		collect(exec.Context.TaskLocal)
-		if exec.Task != nil {
-			collect(exec.Task.GetTaskLocal())
-		}
-	}
-}
-
-func collectDirectFinalizationRootsFromPendingError(err error, refs map[types.ObjID]struct{}, waifs *[]types.Value) {
-	for err != nil {
-		switch pending := err.(type) {
-		case VMException:
-			collectDirectFinalizationRoots(pending.Value, refs, waifs)
-			return
-		case *VMException:
-			collectDirectFinalizationRoots(pending.Value, refs, waifs)
-			return
-		case interface{ Unwrap() error }:
-			err = pending.Unwrap()
-		default:
-			return
-		}
-	}
+	exec.visitValues(func(value types.Value, _ valueRootKind) { collectDirectFinalizationRoots(value, refs, waifs) })
 }
 
 func buildPersistentAnonymousReachability(store *dbstore.Store) map[types.ObjID]struct{} {
@@ -358,20 +254,9 @@ func canonicalWaifRoots(candidates []types.Value, persistent []types.Value) []ty
 }
 
 func (vm *VM) collectPendingFinalizationsFromFrame(frame *StackFrame) {
-	if frame == nil {
-		return
-	}
-	for _, value := range frame.Locals {
-		vm.collectPendingFinalizationsFromValue(value)
-	}
-	vm.collectPendingFinalizationsFromValue(frame.ThisValue)
-	for _, value := range frame.Args {
-		vm.collectPendingFinalizationsFromValue(value)
-	}
-	vm.collectPendingFinalizationsFromValue(frame.SavedThisValue)
 	refs := make(map[types.ObjID]struct{})
 	var waifs []types.Value
-	collectDirectFinalizationRootsFromPendingError(frame.PendingError, refs, &waifs)
+	frame.visitValues(func(value types.Value, _ valueRootKind) { collectDirectFinalizationRoots(value, refs, &waifs) })
 	vm.appendPendingFinalizationRoots(refs, waifs)
 }
 

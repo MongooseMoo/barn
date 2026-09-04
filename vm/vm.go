@@ -54,7 +54,14 @@ func (vm *VM) pushFrame(f *StackFrame) {
 // popFrame removes the top call frame and updates the cached current-frame
 // pointer to the new top (nil when the call stack is empty).
 func (vm *VM) popFrame() {
-	vm.collectPendingFinalizationsFromFrame(vm.Frames[len(vm.Frames)-1])
+	frame := vm.Frames[len(vm.Frames)-1]
+	vm.collectPendingWaifsFromFrame(frame)
+	vm.collectPendingFinalizationsFromFrame(frame)
+	stackEnd := min(vm.SP, len(vm.Stack))
+	for i := max(0, frame.BasePointer); i < stackEnd; i++ {
+		collectDirectWaifsForGC(vm.Stack[i], &vm.PendingWaifs)
+		vm.collectPendingFinalizationsFromValue(vm.Stack[i])
+	}
 	vm.Frames = vm.Frames[:len(vm.Frames)-1]
 	if n := len(vm.Frames); n > 0 {
 		vm.frame = vm.Frames[n-1]
@@ -1231,8 +1238,8 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 			if vm.Task != nil {
 				vm.Task.PopFrame()
 			}
-			vm.SP = frame.BasePointer
 			vm.popFrame()
+			vm.SP = frame.BasePointer
 			continue
 		}
 
@@ -1252,8 +1259,8 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 				vm.Task.PopFrame()
 			}
 		}
-		vm.SP = frame.BasePointer
 		vm.popFrame()
+		vm.SP = frame.BasePointer
 		if recycleContinuation != nil {
 			result := vm.resumeRecycleLifecycle(recycleContinuation, types.Result{
 				Flow: types.FlowException, Error: errCode, Val: exceptionValue,
