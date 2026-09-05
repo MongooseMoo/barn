@@ -16,7 +16,7 @@ You manage implementor trials. Your job is to launch implementors, collect block
 
 ## Launching an Implementor
 
-**CRITICAL: Do NOT read PLAN.md or spec files into your context. Pass file paths to the agent.**
+**CRITICAL: Do NOT read docs/history/PLAN.md or spec files into your context. Pass file paths to the agent.**
 
 Use Task tool with:
 - `subagent_type: general-purpose`

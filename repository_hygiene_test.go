@@ -2,6 +2,7 @@ package barn
 
 import (
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -61,7 +62,34 @@ func TestRootRepositoryHygiene(t *testing.T) {
 		t.Errorf("obsolete root debug artifacts are still tracked:\n%s", tracked)
 	}
 
+	// Rule, not list: no tracked file at the repository root may match a scratch
+	// pattern. Agent notes belong in notes/, experiment artifacts in experiments/,
+	// transcripts and probe databases nowhere.
+	scratchPatterns := []string{
+		"notes-*.md", "*.exe~", "*.exe", "*.stackdump", "nul.#*", "NUL.#*",
+		"test_*.txt", "tmp_*.txt", "toast_*.txt", "toast_*.err", "toast_*.out",
+		"server_*.err", "server_*.out", "*.cpu", "*.mem", "*_results.txt",
+	}
+	output, err = exec.Command("git", "ls-files", "--", ".").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list tracked files: %v\n%s", err, output)
+	}
+	for _, path := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if path == "" || strings.Contains(path, "/") {
+			continue
+		}
+		for _, pattern := range scratchPatterns {
+			if ok, _ := filepath.Match(pattern, path); ok {
+				t.Errorf("tracked root file %q matches scratch pattern %q; move it under notes/, experiments/, or delete it", path, pattern)
+			}
+		}
+	}
+
 	rootScratch := []string{
+		"notes-anything.md",
+		"nul.#7#",
+		"bash.exe.stackdump",
+		"probe.cpu",
 		"test_probe.txt",
 		"toast_probe.txt",
 		"barn_look_probe.txt",
