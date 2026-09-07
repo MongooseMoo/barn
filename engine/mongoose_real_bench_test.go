@@ -24,6 +24,7 @@ package engine
 //   BARN_MONGOOSE_MEMPROFILE  write heap profile after the run
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -42,6 +43,7 @@ import (
 	dbformat "github.com/MongooseMoo/barn/db/format"
 	dbstore "github.com/MongooseMoo/barn/db/store"
 	"github.com/MongooseMoo/barn/internal/listener"
+	"github.com/MongooseMoo/barn/metrics"
 	"github.com/MongooseMoo/barn/types"
 )
 
@@ -274,6 +276,27 @@ func TestMongooseRealWorkload(t *testing.T) {
 	// never sees in production. Default ON; BARN_MONGOOSE_PROMOTE=0 for strict.
 	opts := config.Options{PromoteNumbers: os.Getenv("BARN_MONGOOSE_PROMOTE") != "0"}
 	s := newRuntimeWithWorkerCount(store, opts, runtime.GOMAXPROCS(0))
+	// Mirror server/input_processor.go processRuntimeTick: the input processor
+	// drives the runtime's ready-task loop on a ticker. Nothing else runs a
+	// forked, suspended, or resumed task, so without this loop the fork(0)
+	// service starts in #0:server_started sit queued forever, no sqlite handle
+	// ever opens, and every background output chain Mongoose forks per command
+	// is silently dropped from the measured work.
+	schedCtx, stopSched := context.WithCancel(context.Background())
+	schedDone := make(chan struct{})
+	go func() {
+		defer close(schedDone)
+		ticker := time.NewTicker(10 * time.Millisecond) // server/input_processor.go:182
+		defer ticker.Stop()
+		for {
+			select {
+			case <-schedCtx.Done():
+				return
+			case <-ticker.C:
+				s.ProcessReadyTasks()
+			}
+		}
+	}()
 	// Mirror server boot: this registry must load the snapshot it executes.
 	s.Session().LoadServerOptionsFromStore(store)
 	s.Session().LoadProtectedBuiltinsFromStore(store)
@@ -297,14 +320,52 @@ func TestMongooseRealWorkload(t *testing.T) {
 		// Services start via fork(0); give them a moment to open their dbs.
 		time.Sleep(2 * time.Second)
 	}
-	// Known genuine errors from this snapshot, reproduced faithfully (see
-	// experiments/2026-07-27-mongoose-contention-census.md): `say` raises
-	// "This database is not open" (#2585.sql is a waif orphaned from the
+	// This snapshot carries two genuine database defects (see
+	// experiments/2026-07-27-mongoose-contention-census.md §2026-07-28): `say`
+	// raises "This database is not open" (#2585.sql is a waif orphaned from the
 	// $sql_utils registry IN THE DUMP — waif indices 4035 vs 6277-6279), and
-	// #410-cohort @who raises E_PROPNF (wizard #36 lacks .cloaked; Toast
-	// raises identically). Both feed #0:handle_uncaught_error, exactly as on
-	// a production server booted from this snapshot.
+	// #410-cohort @who raises E_PROPNF (wizard #36 lacks .cloaked). Toast raises
+	// both identically. Every one of those errors is a #0:handle_uncaught_error
+	// read-modify-write of $wiz_utils.traceback_log on #24 — the single hottest
+	// conflict object on this workload — so, unrepaired, the snapshot measures
+	// a traceback storm no running deployment tolerates for long. Default: apply
+	// the two one-line wizard repairs the census recommends, exactly as an
+	// operator would after booting from this dump, and give the otherwise
+	// empty files/sqlite/sound.sqlite the assets table `say` queries (the
+	// deployment's file is not in this repo). BARN_MONGOOSE_REPAIR=0 measures
+	// the dump as-is.
+	if os.Getenv("BARN_MONGOOSE_REPAIR") != "0" {
+		// $sql_utils:server_started opens its registered databases from forked
+		// tasks, so poll until the registry's sound.sqlite waif is open, then
+		// point the sound handler at it (re-registering, as the census puts it).
+		repair := strings.Join([]string{
+			"sql = #2585.sql;",
+			"for x in ($sql_utils.databases)",
+			"  if (x.name == sql.name && x:is_open())",
+			"    #2585.sql = x;",
+			"  endif",
+			"endfor",
+			"cloaked = `property_info(#36, \"cloaked\") ! E_PROPNF => add_property(#36, \"cloaked\", 0, {#36, \"r\"})';",
+			"if (#2585.sql:is_open())",
+			"  sqlite_execute(#2585.sql.handle, \"CREATE TABLE IF NOT EXISTS assets (asset_location TEXT, duration REAL);\", {});",
+			"endif",
+			"return {#2585.sql:is_open() != 0, length($sql_utils.databases), sqlite_handles(), $prod(), cloaked};",
+		}, "\n")
+		var out string
+		for attempt := 0; attempt < 60; attempt++ {
+			out = s.EvalCommandOutput(2, repair)
+			if strings.HasPrefix(out, "{1, {1,") {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		t.Logf("snapshot repair (as #2) {sound db open, registry size, handles, prod, cloaked}: %s", out)
+	}
 	defer s.Stop()
+	defer func() {
+		stopSched()
+		<-schedDone
+	}()
 
 	totalWeight := 0
 	for _, sh := range realShapes {
@@ -401,6 +462,7 @@ func TestMongooseRealWorkload(t *testing.T) {
 		var m0 runtime.MemStats
 		runtime.ReadMemStats(&m0)
 		before := sampleCommitCounters(store)
+		uncaught0 := metrics.UncaughtExceptions.Value()
 		measStart := time.Now()
 		runWindow(measure, true)
 		elapsed := time.Since(measStart)
@@ -447,8 +509,8 @@ func TestMongooseRealWorkload(t *testing.T) {
 			allocsPerOp = float64(m1.Mallocs-m0.Mallocs) / float64(committed)
 			bytesPerOp = float64(m1.TotalAlloc-m0.TotalAlloc) / float64(committed)
 		}
-		t.Logf("players=%d goodput=%.0f/s failed=%d abort=%.2f%% p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
-			active, goodput, failed, abortRate,
+		t.Logf("players=%d goodput=%.0f/s failed=%d uncaught=%d abort=%.2f%% p50=%s p99=%s max=%s allocs/op=%.0f bytes/op=%.0f GCs=%d",
+			active, goodput, failed, metrics.UncaughtExceptions.Value()-uncaught0, abortRate,
 			latStr(pick(0.50)), latStr(pick(0.99)), latStr(pick(0.999)),
 			allocsPerOp, bytesPerOp, m1.NumGC-m0.NumGC)
 		for j, sh := range realShapes {

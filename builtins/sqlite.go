@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -316,7 +317,10 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		}
 	}
 
-	if path != ":memory:" {
+	// osPath is what the driver opens; path stays the MOO-visible string that
+	// sqlite_info() reports and duplicate detection compares.
+	osPath := path
+	if path != ":memory:" && path != "" {
 		// Confine the database file to the files/ sandbox the same way every
 		// fileio builtin does. Toast resolves the sqlite path through
 		// file_resolve_path (toaststunt/src/sqlite.cc:241), which both verifies
@@ -331,10 +335,40 @@ func builtinSqliteOpen(ctx *Execution, args []types.Value) types.Result {
 		if err := ensureFilesRoot(); err != nil {
 			return types.Err(types.E_FILE)
 		}
-		path = resolveFilePath(sanitized)
+		osPath = resolveFilePath(sanitized)
+		// The reported path is Toast's file_resolve_path output verbatim:
+		// file_subdir plus the caller's spelling with one leading "/" removed,
+		// forward slashes on every platform. Database code compares this string
+		// (Mongoose #3882::is_open checks info["path"] == "files/" + path).
+		path = "files/" + strings.TrimPrefix(path, "/")
 	}
 
-	db, err := sql.Open("sqlite", path)
+	// Toast refuses to open a database that is already open at the same
+	// resolved path (sqlite.cc database_already_open): E_INVARG carrying the
+	// existing handle. ":memory:" databases are never duplicates of each other.
+	if path != ":memory:" && path != "" {
+		ctx.Session.runtime.sqlite.mu.Lock()
+		var existing *sqliteHandle
+		for _, h := range ctx.Session.runtime.sqlite.handles {
+			if h.path == path && (existing == nil || h.id < existing.id) {
+				existing = h
+			}
+		}
+		ctx.Session.runtime.sqlite.mu.Unlock()
+		if existing != nil {
+			return types.Result{
+				Flow:  types.FlowException,
+				Error: types.E_INVARG,
+				Val: types.NewList([]types.Value{
+					types.NewErr(types.E_INVARG),
+					types.NewStr(fmt.Sprintf("Database already open with handle: %d", existing.id)),
+					types.NewInt(existing.id),
+				}),
+			}
+		}
+	}
+
+	db, err := sql.Open("sqlite", osPath)
 	if err != nil {
 		return sqliteOpenError(err.Error())
 	}

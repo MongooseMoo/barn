@@ -1,6 +1,10 @@
 package builtins
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,5 +290,99 @@ func TestSqliteLimitNameAndNumberParity(t *testing.T) {
 	})))
 	if current != nameLimit-1 {
 		t.Fatalf("current limit = %d, want %d", current, nameLimit-1)
+	}
+}
+
+// sqliteCloseAllHandles releases every open database so Windows can delete the
+// test's temporary files; sqlite_close itself completes off-task.
+func sqliteCloseAllHandles(ctx *Execution) {
+	rt := &ctx.Session.runtime.sqlite
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for id, h := range rt.handles {
+		if h.conn != nil {
+			_ = h.conn.Close()
+		}
+		if h.db != nil {
+			_ = h.db.Close()
+		}
+		delete(rt.handles, id)
+	}
+}
+
+// TestSqliteOpenFilePathReportedUnderFiles pins the MOO-visible path of a
+// file-backed database to Toast's file_resolve_path output: file_subdir plus
+// the caller's spelling with one leading "/" removed, forward slashes on every
+// platform (toaststunt/src/fileio.cc:318-335, sqlite.cc:279,351). Mongoose's
+// #3882::is_open compares sqlite_info()["path"] with "files/" + path, so a
+// platform-native separator makes every wrapped query raise "not open".
+func TestSqliteOpenFilePathReportedUnderFiles(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+	t.Chdir(t.TempDir())
+
+	ctx := sqliteWizardCtx()
+	t.Cleanup(func() { sqliteCloseAllHandles(ctx) })
+	for spelled, want := range map[string]string{
+		"probe.sqlite":        "files/probe.sqlite",
+		"/slashed.sqlite":     "files/slashed.sqlite",
+		"nested/dir.sqlite":   "files/nested/dir.sqlite",
+		"/nested/dir2.sqlite": "files/nested/dir2.sqlite",
+	} {
+		if strings.Contains(spelled, "nested") {
+			if err := os.MkdirAll("files/nested", 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		handleID := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr(spelled)})))
+		info := sqliteMustMap(t, sqliteMustResult(t, builtinSqliteInfo(ctx, []types.Value{types.NewInt(handleID)})))
+		if got := sqliteMustString(t, sqliteMapGet(t, info, "path")); got != want {
+			t.Fatalf("sqlite_open(%q): info path = %q, want %q", spelled, got, want)
+		}
+		if _, err := os.Stat(filepath.FromSlash(want)); err != nil {
+			t.Fatalf("sqlite_open(%q): database file not at %q: %v", spelled, want, err)
+		}
+	}
+}
+
+// TestSqliteOpenSamePathTwiceRaisesWithExistingHandle pins Toast's
+// database_already_open check (toaststunt/src/sqlite.cc:140-150, 249-256): a
+// second open of the same resolved path raises E_INVARG carrying the message
+// "Database already open with handle: N" and the existing handle as the value,
+// allocates nothing, and ":memory:" databases never collide.
+func TestSqliteOpenSamePathTwiceRaisesWithExistingHandle(t *testing.T) {
+	resetSQLiteTestState(t)
+	t.Cleanup(func() { resetSQLiteTestState(t) })
+	t.Chdir(t.TempDir())
+
+	ctx := sqliteWizardCtx()
+	t.Cleanup(func() { sqliteCloseAllHandles(ctx) })
+	first := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr("dup.sqlite")})))
+	before := sqliteMustList(t, sqliteMustResult(t, builtinSqliteHandles(ctx, nil))).Len()
+
+	for _, respelled := range []string{"dup.sqlite", "/dup.sqlite"} {
+		res := builtinSqliteOpen(ctx, []types.Value{types.NewStr(respelled)})
+		if res.Flow != types.FlowException || res.Error != types.E_INVARG {
+			t.Fatalf("sqlite_open(%q) second open: want raised E_INVARG, got flow=%v err=%v val=%v", respelled, res.Flow, res.Error, res.Val)
+		}
+		if res.Val.Type() != types.TYPE_LIST || res.Val.Len() != 3 {
+			t.Fatalf("sqlite_open(%q): raise payload = %v, want {code, message, value}", respelled, res.Val)
+		}
+		wantMsg := fmt.Sprintf("Database already open with handle: %d", first)
+		if got := res.Val.Get(2).Str(); got != wantMsg {
+			t.Fatalf("sqlite_open(%q): message = %q, want %q", respelled, got, wantMsg)
+		}
+		if got := sqliteMustInt(t, res.Val.Get(3)); got != first {
+			t.Fatalf("sqlite_open(%q): value = %d, want existing handle %d", respelled, got, first)
+		}
+	}
+	if after := sqliteMustList(t, sqliteMustResult(t, builtinSqliteHandles(ctx, nil))).Len(); after != before {
+		t.Fatalf("duplicate open allocated a handle: %d -> %d", before, after)
+	}
+
+	m1 := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr(":memory:")})))
+	m2 := sqliteMustInt(t, sqliteMustResult(t, builtinSqliteOpen(ctx, []types.Value{types.NewStr(":memory:")})))
+	if m1 == m2 {
+		t.Fatalf(":memory: opened twice returned the same handle %d", m1)
 	}
 }
