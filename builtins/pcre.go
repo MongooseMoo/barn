@@ -3,8 +3,10 @@ package builtins
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/MongooseMoo/barn/types"
+	"github.com/dlclark/regexp2"
 )
 
 func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
@@ -45,51 +47,67 @@ func builtinPcreMatch(ctx *Execution, args []types.Value) types.Result {
 		return types.Err(types.E_INVARG)
 	}
 
-	maxMatches := -1
-	if !findAll {
-		maxMatches = 1
-	}
-	matches := re.FindAllStringSubmatchIndex(subject.Str(), maxMatches)
-	if len(matches) == 0 {
-		return types.Ok(types.NewList([]types.Value{}))
-	}
-
-	names := re.SubexpNames()
-	out := make([]types.Value, 0, len(matches))
-	for _, loc := range matches {
-		entryPairs := make([][2]types.Value, 0, len(names)+1)
+	text := subject.Str()
+	offsets := pcreByteOffsets(text)
+	out := make([]types.Value, 0)
+	m, merr := re.re.FindStringMatch(text)
+	for m != nil && merr == nil {
+		entryPairs := make([][2]types.Value, 0, len(re.groups)+1)
 		entryPairs = append(entryPairs, [2]types.Value{
 			types.NewStr("0"),
-			buildPcreCapture(subject.Str(), loc[0], loc[1]),
+			buildPcreCapture(text, offsets, &m.Group),
 		})
-
-		for i := 1; i < len(names); i++ {
-			gStart := -1
-			gEnd := -1
-			if i*2+1 < len(loc) {
-				gStart = loc[i*2]
-				gEnd = loc[i*2+1]
-			}
-			key := strconv.Itoa(i)
-			if names[i] != "" {
-				// Named groups use their name instead of numeric key.
-				key = names[i]
+		unnamed := 0
+		for i, name := range re.groups {
+			var g *regexp2.Group
+			key := name
+			if name == "" {
+				unnamed++
+				key = strconv.Itoa(i + 1)
+				g = m.GroupByNumber(unnamed)
+			} else {
+				g = m.GroupByName(name)
 			}
 			entryPairs = append(entryPairs, [2]types.Value{
 				types.NewStr(key),
-				buildPcreCapture(subject.Str(), gStart, gEnd),
+				buildPcreCapture(text, offsets, g),
 			})
 		}
 		out = append(out, types.NewMap(entryPairs))
+		if !findAll {
+			break
+		}
+		m, merr = re.re.FindNextMatch(m)
 	}
-
+	if merr != nil {
+		// A match-limit/timeout failure is Toast's E_INVARG raise.
+		return types.Err(types.E_INVARG)
+	}
 	return types.Ok(types.NewList(out))
 }
 
-func buildPcreCapture(subject string, start, end int) types.Value {
+// pcreByteOffsets maps regexp2's rune indices back to byte offsets so the
+// MOO-visible positions stay Toast's 1-based byte positions. It returns nil for
+// pure-ASCII subjects, where the two coincide.
+func pcreByteOffsets(text string) []int {
+	if utf8.RuneCountInString(text) == len(text) {
+		return nil
+	}
+	offsets := make([]int, 0, len(text)+1)
+	for i := range text {
+		offsets = append(offsets, i)
+	}
+	return append(offsets, len(text))
+}
+
+func buildPcreCapture(subject string, offsets []int, g *regexp2.Group) types.Value {
 	match := ""
 	pos := []types.Value{}
-	if start >= 0 && end >= start && end <= len(subject) {
+	if g != nil && len(g.Captures) > 0 {
+		start, end := g.Index, g.Index+g.Length
+		if offsets != nil {
+			start, end = offsets[start], offsets[end]
+		}
 		match = subject[start:end]
 		// 1-based inclusive positions.
 		pos = []types.Value{types.NewInt(int64(start + 1)), types.NewInt(int64(end))}
@@ -137,17 +155,13 @@ func builtinPcreReplace(ctx *Execution, args []types.Value) types.Result {
 
 	replacement = normalizePcreReplacement(replacement)
 
-	var out string
+	count := 1
 	if global {
-		out = re.ReplaceAllString(subject.Str(), replacement)
-	} else {
-		idx := re.FindStringIndex(subject.Str())
-		if idx == nil {
-			out = subject.Str()
-		} else {
-			replaced := re.ReplaceAllString(subject.Str()[idx[0]:idx[1]], replacement)
-			out = subject.Str()[:idx[0]] + replaced + subject.Str()[idx[1]:]
-		}
+		count = -1
+	}
+	out, rerr := re.re.Replace(subject.Str(), replacement, -1, count)
+	if rerr != nil {
+		return types.Err(types.E_INVARG)
 	}
 	if ctx == nil || ctx.Session == nil {
 		return types.Err(types.E_INVARG)

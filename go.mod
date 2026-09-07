@@ -4,6 +4,7 @@ go 1.24.6
 
 require (
 	github.com/coder/websocket v1.8.14
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/go-crypt/x v0.4.12
 	golang.org/x/crypto v0.46.0
 	gopkg.in/yaml.v3 v3.0.1

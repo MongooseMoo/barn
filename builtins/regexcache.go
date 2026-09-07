@@ -3,7 +3,11 @@ package builtins
 import (
 	"regexp"
 	"regexp/syntax"
+	"strings"
 	"sync"
+	"time"
+
+	"github.com/dlclark/regexp2"
 )
 
 // MOO code calls match()/rmatch() with a small recurring set of patterns
@@ -29,25 +33,58 @@ type regexpCacheKey struct {
 	rawPCRE       bool
 }
 
-// cachedPCREPattern returns a compiled regexp for the raw patterns accepted by
-// pcre_match() and pcre_replace(). Raw PCRE patterns use a distinct key space
-// from translated MOO patterns, even when the source text and flags match.
-func cachedPCREPattern(pattern string, caseSensitive bool) (*regexp.Regexp, error) {
+// pcreMatchTimeout bounds a single pcre_match/pcre_replace evaluation. PCRE2
+// stops a runaway pattern through its match limit and Toast raises E_INVARG;
+// regexp2 is a backtracking engine with the same failure mode, so the timeout
+// is the equivalent guard and surfaces as the same E_INVARG.
+const pcreMatchTimeout = 2 * time.Second
+
+// pcrePattern is a compiled pcre_match()/pcre_replace() pattern. Toast runs
+// these on PCRE2, so lookaround, backreferences and (?P<name>) groups must
+// work; Go's RE2 regexp rejects all three, hence regexp2. groups lists the
+// capture groups in PCRE numbering (left to right by opening parenthesis):
+// the group's name, or "" for an unnamed group. regexp2 follows .NET and
+// numbers unnamed groups before named ones, so the MOO-visible keys come from
+// this list rather than from regexp2's numbering.
+type pcrePattern struct {
+	re     *regexp2.Regexp
+	groups []string
+}
+
+// MatchString reports whether the pattern matches anywhere in s.
+func (p *pcrePattern) MatchString(s string) bool {
+	ok, err := p.re.MatchString(s)
+	return err == nil && ok
+}
+
+// cachedPCREPattern returns the compiled pattern for the raw PCRE patterns
+// accepted by pcre_match() and pcre_replace(). Raw PCRE patterns use a distinct
+// key space from translated MOO patterns, even when the source text and flags
+// match.
+func cachedPCREPattern(pattern string, caseSensitive bool) (*pcrePattern, error) {
 	key := regexpCacheKey{pattern: pattern, caseSensitive: caseSensitive, rawPCRE: true}
 
 	regexpCacheMu.RLock()
 	entry, ok := regexpCache[key]
 	regexpCacheMu.RUnlock()
 	if ok {
-		return entry.re, entry.err
+		return entry.pcre, entry.err
 	}
 
-	pat := pattern
+	// RE2 compatibility mode keeps regexp2's lookaround and backreferences and
+	// adds PCRE's (?P<name>) syntax and ASCII \w \d \s classes (PCRE2 without
+	// UCP), which is what Toast compiles.
+	opts := regexp2.RegexOptions(regexp2.RE2)
 	if !caseSensitive {
-		pat = "(?i)" + pat
+		opts |= regexp2.IgnoreCase
 	}
-	re, err := regexp.Compile(pat)
-	entry = regexpCacheEntry{re: re, err: err}
+	re, err := regexp2.Compile(pattern, opts)
+	if err == nil {
+		re.MatchTimeout = pcreMatchTimeout
+		entry = regexpCacheEntry{pcre: &pcrePattern{re: re, groups: pcreCaptureGroups(pattern)}}
+	} else {
+		entry = regexpCacheEntry{err: err}
+	}
 
 	regexpCacheMu.Lock()
 	if len(regexpCache) >= regexpCacheCap {
@@ -56,13 +93,85 @@ func cachedPCREPattern(pattern string, caseSensitive bool) (*regexp.Regexp, erro
 	regexpCache[key] = entry
 	regexpCacheMu.Unlock()
 
-	return entry.re, entry.err
+	return entry.pcre, entry.err
+}
+
+// pcreCaptureGroups scans a PCRE pattern and returns its capture groups in
+// PCRE numbering order: the name of each named group ((?P<n>), (?<n>), (?'n'))
+// or "" for a plain (...) group. Non-capturing constructs — (?:, lookaround,
+// atomic groups, inline flags, comments — are skipped, as are escapes and the
+// contents of character classes.
+func pcreCaptureGroups(pattern string) []string {
+	var groups []string
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			i++ // the escaped character is never syntax
+		case '[':
+			i = skipPCREClass(pattern, i)
+		case '(':
+			if i+1 >= len(pattern) || pattern[i+1] != '?' {
+				if i+1 < len(pattern) && pattern[i+1] == '*' {
+					continue // (*VERB) control verb, not a group
+				}
+				groups = append(groups, "")
+				continue
+			}
+			rest := pattern[i+2:]
+			var close byte
+			switch {
+			case strings.HasPrefix(rest, "P<"):
+				rest, close = rest[1:], '>'
+			case strings.HasPrefix(rest, "<") && !strings.HasPrefix(rest, "<=") && !strings.HasPrefix(rest, "<!"):
+				close = '>'
+			case strings.HasPrefix(rest, "'"):
+				close = '\''
+			default:
+				continue // non-capturing construct
+			}
+			end := strings.IndexByte(rest[1:], close)
+			if end < 0 {
+				continue
+			}
+			groups = append(groups, rest[1:1+end])
+		}
+	}
+	return groups
+}
+
+// skipPCREClass returns the index of the ']' closing the character class that
+// opens at pattern[start], honoring a leading ']' or '^]' literal and escapes.
+func skipPCREClass(pattern string, start int) int {
+	i := start + 1
+	if i < len(pattern) && pattern[i] == '^' {
+		i++
+	}
+	if i < len(pattern) && pattern[i] == ']' {
+		i++
+	}
+	for ; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			i++
+		case '[':
+			// POSIX class such as [:alpha:] inside the set.
+			if i+1 < len(pattern) && pattern[i+1] == ':' {
+				if end := strings.Index(pattern[i+2:], ":]"); end >= 0 {
+					i += 2 + end + 1
+				}
+			}
+		case ']':
+			return i
+		}
+	}
+	return len(pattern)
 }
 
 // regexpCacheEntry also memoizes failures: an invalid pattern costs the same
 // translate+compile work as a valid one and is equally repeatable from MOO.
 type regexpCacheEntry struct {
 	re                 *regexp.Regexp
+	pcre               *pcrePattern
 	requiresSuffixScan bool
 	err                error
 }

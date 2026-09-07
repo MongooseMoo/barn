@@ -296,7 +296,7 @@ func TestSqliteLimitNameAndNumberParity(t *testing.T) {
 // sqliteCloseAllHandles releases every open database so Windows can delete the
 // test's temporary files; sqlite_close itself completes off-task.
 func sqliteCloseAllHandles(ctx *Execution) {
-	rt := ctx.Session.runtime.sqlite
+	rt := &ctx.Session.runtime.sqlite
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	for id, h := range rt.handles {
