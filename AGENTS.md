@@ -1,6 +1,7 @@
 # Barn Agent Notes
 
 ## Conformance Discipline Rules
+- Before a VM regression manually installs Frames, inspect CurrentFrame and initialize its cached frame through the production frame-installation helper; assert the active frame before calling error handling. A populated Frames slice alone does not establish an executable VM fixture.
 
 - Keep Barn GitHub Actions runner selection behind the `CI_RUNNER_LABELS` repository variable with `ubuntu-latest` as the workflow fallback; while hosted minutes are exhausted, set the variable to `["self-hosted","Linux","X64","barn"]` before starting CI.
 - Before reading a skill entrypoint, resolve its advertised skill root with `rg --files <root> --glob SKILL.md`; never construct an assumed path by inserting catalog labels or runtime directory names.
