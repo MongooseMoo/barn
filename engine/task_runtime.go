@@ -473,6 +473,10 @@ retryAttempt:
 		// task's traceback instead of recursively invoking the same hook.
 		isUncaughtHandler := t.Context.ServerInitiated && t.This == 0 && t.VerbName == "handle_uncaught_error"
 		if !handled && !isUncaughtHandler {
+			// Count every uncaught task exception here, before #0:handle_uncaught_error
+			// gets its chance: a handled error is still an uncaught one, and on the real
+			// Mongoose workload each one is a global write to $wiz_utils.traceback_log.
+			metrics.UncaughtExceptions.Add(1)
 			if os.Getenv("BARN_DEBUG_RETRY") != "" {
 				top := ""
 				if len(stack) > 0 {
