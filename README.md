@@ -167,3 +167,22 @@ See [`spec/`](spec/) for local behavior documentation:
 - [moo-conformance-tests](https://github.com/mongoosemoo/moo-conformance-tests)
 - [ToastStunt](https://github.com/lisdude/toaststunt)
 - [LambdaMOO Programmer's Manual](https://www.hayseed.net/MOO/manuals/ProgrammersManual.html)
+
+## Housekeeping
+
+Durable prose lives in `docs/` (design notes, reports, `docs/TRACING.md`,
+`docs/history/` for retired plans), active plans in `plans/`, measured results
+in `experiments/`, and agent working notes in `notes/`. Per-session
+`notes-*.md` files at the root are ignored scratch. Ad hoc runs leave
+database copies, transcripts and profiles at the root; list and remove them
+with:
+
+```powershell
+.\scripts\clean-scratch.ps1            # dry run
+.\scripts\clean-scratch.ps1 -Force     # delete untracked scratch
+.\scripts\clean-scratch.ps1 -ArchiveNotes
+```
+
+The Windows runtime DLLs at the root (`argon2.dll`, `pcre.dll`, `sqlite3.dll`,
+`nettle-8.dll`, `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, `libwinpthread-1.dll`)
+are loaded from the executable's directory and must stay tracked there.
