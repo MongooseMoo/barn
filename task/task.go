@@ -378,13 +378,14 @@ func (t *Task) UpdateCallStackLineNumbers(lineNumbers []int) {
 	}
 }
 
-// UpdateCallStackRuntimeVariables bulk-updates the runtime-variable map for
-// each activation frame. variables[0] corresponds to CallStack[0].
-func (t *Task) UpdateCallStackRuntimeVariables(variables []types.Value) {
+// UpdateCallStackRuntimeVariableSnapshots installs immutable local snapshots.
+// Each snapshot corresponds to the activation at the same index.
+func (t *Task) UpdateCallStackRuntimeVariableSnapshots(snapshots []*types.RuntimeVariableSnapshot) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	for i := 0; i < len(variables) && i < len(t.CallStack); i++ {
-		t.CallStack[i].RuntimeVariables = variables[i]
+	for i := 0; i < len(snapshots) && i < len(t.CallStack); i++ {
+		t.CallStack[i].RuntimeVariables = types.None
+		t.CallStack[i].RuntimeVariableSnapshot = snapshots[i]
 	}
 }
 

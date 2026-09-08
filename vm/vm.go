@@ -674,11 +674,13 @@ func (vm *VM) executeLoop() types.Result {
 			// Snapshot activation stack before unwind so callers can inspect
 			// the full trace on uncaught exceptions.
 			var stackSnapshot []types.ActivationFrame
-			vmStack := vm.snapshotActivationFrames(line)
-			if len(vmStack) > 0 {
-				stackSnapshot = vmStack
-			} else if vm.Task != nil {
-				stackSnapshot = vm.Task.GetCallStack()
+			if caught, _ := vm.errorObservation(err); !caught {
+				vmStack := vm.snapshotActivationFrames(line)
+				if len(vmStack) > 0 {
+					stackSnapshot = vmStack
+				} else if vm.Task != nil {
+					stackSnapshot = vm.Task.GetCallStack()
+				}
 			}
 			// Handle error
 			handled, exceptionValue := vm.HandleError(err)
@@ -709,6 +711,7 @@ func (vm *VM) executeLoop() types.Result {
 			// Sync line numbers so task_stack() reports accurate lines
 			// for suspended tasks.
 			vm.syncTaskLineNumbers()
+			vm.snapshotTaskRuntimeVariables()
 			vm.clearDeadStackSlots()
 			return vm.yieldResult
 		}
@@ -741,43 +744,34 @@ func (vm *VM) syncTaskLineNumbers() {
 	if vm.Context == nil || vm.Task == nil {
 		return
 	}
-	t := vm.Task
-
-	// VM frames map 1:1 to task CallStack entries (the initial frame pushed
-	// by the engine is both VM frame 0 and CallStack entry 0).
-	var lineNumbers []int
-	var runtimeVariables []types.Value
-	for _, frame := range vm.Frames {
+	lineNumbers := make([]int, len(vm.Frames))
+	for i, frame := range vm.Frames {
 		line := 1
 		if frame.Program != nil {
-			ip := frame.IP - 1
-			if ip < 0 {
-				ip = 0
-			}
-			line = frame.Program.LineForIP(ip)
+			ip := max(frame.IP-1, 0)
+			line = max(frame.Program.LineForIP(ip), 1)
 		}
-		if line < 1 {
-			line = 1
-		}
-		lineNumbers = append(lineNumbers, line)
-
-		variablePairs := make([][2]types.Value, 0)
-		if frame.Program != nil {
-			variablePairs = make([][2]types.Value, 0, len(frame.Program.VarNames))
-			for i, name := range frame.Program.VarNames {
-				if i >= len(frame.Locals) || frame.Locals[i].IsUnbound() {
-					continue
-				}
-				variablePairs = append(variablePairs, [2]types.Value{
-					types.NewStr(name),
-					frame.Locals[i],
-				})
-			}
-		}
-		runtimeVariables = append(runtimeVariables, types.NewMap(variablePairs))
+		lineNumbers[i] = line
 	}
-	t.UpdateCallStackLineNumbers(lineNumbers)
-	t.UpdateCallStackRuntimeVariables(runtimeVariables)
+	vm.Task.UpdateCallStackLineNumbers(lineNumbers)
+}
+
+// snapshotTaskRuntimeVariables retains locals without allocating MOO maps.
+func (vm *VM) snapshotTaskRuntimeVariables() {
+	if vm.Task == nil {
+		return
+	}
+	snapshots := make([]*types.RuntimeVariableSnapshot, len(vm.Frames))
+	for i, frame := range vm.Frames {
+		if frame.Program == nil {
+			continue
+		}
+		snapshots[i] = &types.RuntimeVariableSnapshot{
+			Names:  frame.Program.VarNames,
+			Values: append([]types.Value(nil), frame.Locals...),
+		}
+	}
+	vm.Task.UpdateCallStackRuntimeVariableSnapshots(snapshots)
 }
 
 // Step executes a single instruction
@@ -1141,42 +1135,44 @@ func (vm *VM) HandleError(err error) (bool, types.Value) {
 		errCode = extractErrorCode(err)
 	}
 
-	// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
-	// the traceback contains accurate call-site lines.
-	vm.syncTaskLineNumbers()
-	// Toast includes the eval'd-code activation in the traceback when the error
-	// is caught at (or unwinds to) the eval frame, but not when a verb above the
-	// eval frame catches it first. Decide which case we're in before unwinding.
-	traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
+	if _, observe := vm.errorObservation(err); observe {
+		// Snapshot traceback BEFORE any unwinding.  Sync line numbers first so
+		// the traceback contains accurate call-site lines.
+		vm.syncTaskLineNumbers()
+		// Toast includes the eval'd-code activation in the traceback when the error
+		// is caught at (or unwinds to) the eval frame, but not when a verb above the
+		// eval frame catches it first. Decide which case we're in before unwinding.
+		traceback := vm.buildTraceback(!vm.matchingExceptAboveEvalFrame(errCode))
 
-	// Build or augment the 4-element exception value: {code, message, value, traceback}
-	if exceptionValue.IsNone() {
-		message := errCode.Message()
-		prefix := errCode.String() + ":"
-		if detail := err.Error(); strings.HasPrefix(detail, prefix) {
-			if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
-				if !strings.EqualFold(detail, message) {
-					message = detail
+		// Build or augment the 4-element exception value: {code, message, value, traceback}
+		if exceptionValue.IsNone() {
+			message := errCode.Message()
+			prefix := errCode.String() + ":"
+			if detail := err.Error(); strings.HasPrefix(detail, prefix) {
+				if detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix)); detail != "" {
+					if !strings.EqualFold(detail, message) {
+						message = detail
+					}
 				}
 			}
+			exceptionValue = types.NewList([]types.Value{
+				types.NewErr(errCode),
+				types.NewStr(message),
+				types.NewInt(0),
+				traceback,
+			})
+		} else if exceptionValue.Type() == types.TYPE_LIST {
+			// raise() produces a 3-element list; append traceback as 4th element.
+			elems := make([]types.Value, 0, 4)
+			for i := 1; i <= exceptionValue.Len() && i <= 3; i++ {
+				elems = append(elems, exceptionValue.Get(i))
+			}
+			for len(elems) < 3 {
+				elems = append(elems, types.NewInt(0))
+			}
+			elems = append(elems, traceback)
+			exceptionValue = types.NewList(elems)
 		}
-		exceptionValue = types.NewList([]types.Value{
-			types.NewErr(errCode),
-			types.NewStr(message),
-			types.NewInt(0),
-			traceback,
-		})
-	} else if exceptionValue.Type() == types.TYPE_LIST {
-		// raise() produces a 3-element list; append traceback as 4th element.
-		elems := make([]types.Value, 0, 4)
-		for i := 1; i <= exceptionValue.Len() && i <= 3; i++ {
-			elems = append(elems, exceptionValue.Get(i))
-		}
-		for len(elems) < 3 {
-			elems = append(elems, types.NewInt(0))
-		}
-		elems = append(elems, traceback)
-		exceptionValue = types.NewList(elems)
 	}
 
 	// Search through frames from top (current) to bottom (initial)
