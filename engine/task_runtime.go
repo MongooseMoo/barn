@@ -509,7 +509,11 @@ retryAttempt:
 			}
 			stackValues := make([]types.Value, 0, len(stack))
 			for i := len(stack) - 1; i >= 0; i-- {
-				stackValues = append(stackValues, stack[i].ToList())
+				frame := stack[i].ToList()
+				if s.session.IncludeRTVars(t.Context) {
+					frame = types.NewList(append(frame.Elements(), stack[i].RuntimeVariableMap()))
+				}
+				stackValues = append(stackValues, frame)
 			}
 			formattedLines := task.FormatTraceback(stack, result.Error)
 			formattedValues := make([]types.Value, 0, len(formattedLines))

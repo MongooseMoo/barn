@@ -80,6 +80,11 @@ func (vm *VM) visitValues(visit valueVisitor) {
 			visit(value, valueRootLive)
 		}
 		visit(activation.RuntimeVariables, valueRootLive)
+		if snapshot := activation.RuntimeVariableSnapshot; snapshot != nil {
+			for _, value := range snapshot.Values {
+				visit(value, valueRootLive)
+			}
+		}
 	}
 	if fork := vm.yieldResult.ForkInfo; fork != nil {
 		visit(fork.ThisValue, valueRootLive)

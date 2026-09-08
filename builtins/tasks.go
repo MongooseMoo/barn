@@ -530,11 +530,7 @@ func builtinTaskStack(ctx *Execution, args []types.Value) types.Result {
 			}
 		}
 		if includeVariables {
-			runtimeVariables := frame.RuntimeVariables
-			if runtimeVariables.Type() != types.TYPE_MAP {
-				runtimeVariables = types.NewEmptyMap()
-			}
-			values = append(values, runtimeVariables)
+			values = append(values, frame.RuntimeVariableMap())
 		}
 		result = append(result, types.NewList(values))
 	}

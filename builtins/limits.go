@@ -34,6 +34,17 @@ const (
 	maxMapValueBytesLimit     = math.MaxInt32 - minMapValueBytesLimit
 )
 
+// IncludeRTVars reports the cached include_rt_vars flag, disabled by default.
+func (r *Session) IncludeRTVars(ctx *kernel.TaskContext) bool {
+	if snapshot := pendingServerOptions(ctx); snapshot != nil {
+		return snapshot.IncludeRTVars
+	}
+	state := &r.runtime.serverOptions
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	return state.includeRTVars
+}
+
 // GetMaxStringConcat returns the cached max_string_concat limit.
 // Returns -1 if not set (use default from TaskContext).
 func (r *Session) GetMaxStringConcat() int {
@@ -129,6 +140,7 @@ func (r *Session) applyServerOptionsSnapshot(snapshot *kernel.PendingServerOptio
 	state.maxStackDepth = snapshot.MaxStackDepth
 	state.maxCryptBcryptCost = snapshot.MaxCryptBcryptCost
 	state.maxCryptSHARounds = snapshot.MaxCryptSHARounds
+	state.includeRTVars = snapshot.IncludeRTVars
 	state.mu.Unlock()
 }
 
@@ -154,6 +166,10 @@ func collectServerOptions(findProperty propertyReader, findDefined propertyReade
 
 	// Get the actual server_options object ID
 	serverOptsID := serverOptsRef.Obj()
+	if prop, ok := findDefined(serverOptsID, "include_rt_vars"); ok {
+		snapshot.IncludeRTVars = prop.Value.Truthy()
+		snapshot.Loaded++
+	}
 
 	// Read max_string_concat (searching inheritance chain)
 	if prop, ok := findDefined(serverOptsID, "max_string_concat"); ok {

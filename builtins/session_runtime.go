@@ -53,6 +53,7 @@ type serverOptionsState struct {
 	maxStackDepth      int
 	maxCryptBcryptCost int
 	maxCryptSHARounds  int
+	includeRTVars      bool
 }
 
 func newSessionRuntime() *sessionRuntime {
